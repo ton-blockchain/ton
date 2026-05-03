@@ -411,7 +411,7 @@ class TolkTestFile:
 
         if len(self.abi_json):
             with open(self.get_compiled_abi_filename()) as fd:
-                abi_output = json.dumps(json.load(fd), indent=2).splitlines()
+                abi_output = fd.readlines()
             for abi_json in self.abi_json:
                 abi_json.check(abi_output)
 

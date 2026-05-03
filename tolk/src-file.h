@@ -146,6 +146,10 @@ public:
     return file_id == 0 || file_id == other.file_id;
   }
 
+  bool operator<(SrcRange other) const {
+    return file_id != other.file_id ? file_id < other.file_id : start_offset < other.start_offset;
+  }
+
   SrcFilePtr get_src_file() const;
   std::string stringify_start_location(bool output_char_no) const;
 

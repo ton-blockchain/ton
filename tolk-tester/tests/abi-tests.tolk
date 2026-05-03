@@ -57,6 +57,20 @@ get fun currentCounter(): int32 {
     return storage.counter;
 }
 
+struct OneOrTwo<T1, T2> {
+    uni: T1 | T2
+}
+
+type Box<T> = T | int32
+
+struct Holder<T> {
+    v: Box<T>
+}
+
+get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
+    return null
+}
+
 /**
 @testcase | 0 | 7 5 | 12
 
@@ -72,54 +86,17 @@ get fun currentCounter(): int32 {
 """
     {
       "kind": "struct",
-      "name": "Increment",
-      "prefix": {
-        "prefix_str": "0x01",
-        "prefix_len": 8
-      },
-      "fields": [
-        {
-          "name": "by",
-          "ty": {
-            "kind": "intN",
-            "n": 32
-          },
-          "description": "Amount to add"
-        },
-        {
-          "name": "queryId",
-          "ty": {
-            "kind": "uintN",
-            "n": 64
-          },
-          "default_value": {
-            "kind": "int",
-            "v": "0"
-          }
-        }
-      ]
-    },
-"""
-
-@abi_json
-"""
-    {
-      "kind": "struct",
       "name": "ContractStorage",
+      "ty_idx": 14,
       "fields": [
         {
           "name": "counter",
-          "ty": {
-            "kind": "intN",
-            "n": 32
-          },
+          "ty_idx": 8,
           "description": "Current counter value"
         },
         {
           "name": "owner",
-          "ty": {
-            "kind": "address"
-          },
+          "ty_idx": 7,
           "description": "Contract owner"
         }
       ]
@@ -131,30 +108,58 @@ get fun currentCounter(): int32 {
     {
       "kind": "struct",
       "name": "ExtraPayload",
-      "overrides_client_type": true,
+      "ty_idx": 16,
       "fields": [
         {
           "name": "note",
-          "ty": {
-            "kind": "string"
-          },
+          "ty_idx": 18,
           "description": "Human-readable note"
         }
+      ],
+      "overrides_client_type": true
+    },
+"""
+
+@abi_json
+"""
+    {
+      "kind": "struct",
+      "name": "Increment",
+      "ty_idx": 12,
+      "prefix": {
+        "prefix_num": 1,
+        "prefix_len": 8
+      },
+      "fields": [
+        {
+          "name": "by",
+          "ty_idx": 8,
+          "description": "Amount to add"
+        },
+        {
+          "name": "queryId",
+          "ty_idx": 11,
+          "default_value": {
+            "kind": "int",
+            "v": "0"
+          }
+        }
       ]
-    }
+    },
+"""
+
+@abi_json
+"""
+  "unique_types": [
+    {"kind":"void"},
+    {"kind":"int"},
 """
 
 @abi_json
 """
   "storage": {
-    "storage_ty": {
-      "kind": "StructRef",
-      "struct_name": "ContractStorage"
-    },
-    "storage_at_deployment_ty": {
-      "kind": "StructRef",
-      "struct_name": "InitStorage"
-    },
+    "storage_ty_idx": 14,
+    "storage_at_deployment_ty_idx": 15,
     "description": "Persistent contract data"
   },
 """
@@ -163,17 +168,11 @@ get fun currentCounter(): int32 {
 """
   "incoming_messages": [
     {
-      "body_ty": {
-        "kind": "StructRef",
-        "struct_name": "Increment"
-      },
+      "body_ty_idx": 12,
       "description": "Increases the counter."
     },
     {
-      "body_ty": {
-        "kind": "StructRef",
-        "struct_name": "Reset"
-      },
+      "body_ty_idx": 13,
       "description": "Resets the counter."
     }
   ],
@@ -181,40 +180,83 @@ get fun currentCounter(): int32 {
 
 @abi_json
 """
-  "get_methods": [
     {
       "tvm_method_id": 0,
       "name": "main",
       "parameters": [
         {
           "name": "amount",
-          "ty": {
-            "kind": "int"
-          },
+          "ty_idx": 1,
           "description": "initial stack value"
         },
         {
           "name": "times",
-          "ty": {
-            "kind": "int"
-          },
+          "ty_idx": 1,
           "description": "added stack value"
         }
       ],
-      "return_ty": {
-        "kind": "int"
-      },
+      "return_ty_idx": 1,
       "description": "Runs a tiny script.\nNot onInternalMessage."
     },
+"""
+
+@abi_json
+"""
     {
-      "tvm_method_id": 117456,
-      "name": "currentCounter",
-      "parameters": [],
-      "return_ty": {
-        "kind": "intN",
-        "n": 32
-      },
-      "description": "Reads current counter.\nFrom storage."
+      "kind": "struct",
+      "name": "OneOrTwo",
+      "ty_idx": 32,
+      "type_params": [
+        "T1",
+        "T2"
+      ],
+      "fields": [
+        {
+          "name": "uni",
+          "ty_idx": 33
+        }
+      ]
+    },
+"""
+
+@abi_json
+"""
+    {"kind":"StructRef","struct_name":"OneOrTwo","type_args_ty_idx":[8,10]},
+"""
+
+@abi_json
+"""
+    {"kind":"nullable","inner_ty_idx":34,"stack_type_id":131,"stack_width":6}
+"""
+
+@abi_json
+"""
+  "struct_instantiations": [
+    {
+      "ty_idx": 25,
+      "struct_name": "Holder<int32>",
+      "monomorphic_fields_ty_idx": [
+        26
+      ]
+    },
+    {
+      "ty_idx": 28,
+      "struct_name": "OneOrTwo<int32, int64>",
+      "monomorphic_fields_ty_idx": [
+        29
+      ]
+    }
+  ],
+  "alias_instantiations": [
+    {
+      "ty_idx": 20,
+      "alias_name": "Box<int64>",
+      "monomorphic_target_ty_idx": 21
+    },
+    {
+      "ty_idx": 26,
+      "alias_name": "Box<int32>",
+      "monomorphic_target_ty_idx": 8
     }
   ],
 """

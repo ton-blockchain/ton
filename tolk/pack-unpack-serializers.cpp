@@ -44,10 +44,6 @@ std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect,
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
 static std::vector<MethodCallCandidate> filter_pack_candidates(TypePtr receiver_type, std::vector<MethodCallCandidate> candidates) {
-  if (candidates.size() < 2) {
-    return candidates;
-  }
-
   int min_generics = 100;
   for (const MethodCallCandidate& c : candidates) {
     int n_generics = c.is_generic() ? c.substitutedTs.size() : 0;

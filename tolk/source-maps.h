@@ -96,10 +96,9 @@ class SymbolTypesCollecting {
   JsonTypeExporter json_types;
   std::vector<SrcFilePtr> used_files;
   std::vector<FunctionPtr> used_functions;
-  bool primitive_types_seeded = false;
 
 public:
-  void seed_primitive_types();
+  void seed_primitive_types() { json_types.seed_primitive_types(); }
   void register_used_file(SrcFilePtr file_ref);
   void register_used_file(SrcRange range);
   void register_used_function(FunctionPtr fun_ref);

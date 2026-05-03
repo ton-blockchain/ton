@@ -1449,6 +1449,12 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
   // (currently, nothing except a global function can be referenced, no object-scope methods exist)
   FunctionPtr fun_ref = std::get<FunctionPtr>(v->target);
   tolk_assert(fun_ref);
+  // having `var cb = getResult().f`, we take a reference to `Result.f`, but should evaluate `getResult()`
+  auto obj_ref = v->get_obj()->try_as<ast_reference>();
+  bool obj_is_type_ref = obj_ref && obj_ref->sym->try_as<const TypeReferenceUsedAsSymbol*>();
+  if (!obj_is_type_ref) {
+    pre_compile_expr(v->get_obj(), code);
+  }
   std::vector rvect = pre_compile_symbol(fun_ref, code, v, lval_ctx);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }

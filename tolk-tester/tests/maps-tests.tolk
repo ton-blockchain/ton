@@ -623,44 +623,6 @@ fun test45() {
     )
 }
 
-@method_id(146)
-fun test46() {
-    var m: map<SignedKey, int8> = [];
-    m.set(SignedKey.Zero, 20);
-    m.set(SignedKey.Pos, 30);
-    m.set(SignedKey.Neg, 10);
-
-    var r = m.findFirst();
-    val a = r.getKey();
-    r = m.iterateNext(r);
-    val b = r.getKey();
-    r = m.iterateNext(r);
-    val c = r.getKey();
-    __expect_type(c, "SignedKey");
-    return (a, b, c);
-}
-
-type ShortString = slice
-
-fun ShortString.packToBuilder(self, mutate b: builder) {
-    b.storeUint(self.remainingBitsCount(), 8);
-    b.storeSlice(self);
-}
-
-fun ShortString.unpackFromSlice(mutate s: slice): ShortString {
-    val n = s.loadUint(8);
-    return s.loadBits(n);
-}
-
-@method_id(147)
-fun test47() {
-    var m = map<int32, ShortString> [];
-    m.set(123, "FF".hexToSlice());
-    var (ss, _) = m.toLowLevelDict().iDictGet(32, 123);
-    var s = ss!;
-    return (s.remainingBitsCount(), s.loadUint(8), s.loadUint(8))
-}
-
 
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
@@ -713,8 +675,6 @@ fun main() {
 @testcase | 143 |            | [ 23 [ 24 (null) ] ] [ 5 (null) ] (null)
 @testcase | 144 |            | [ 1 2 3 4 5 6 7 ]
 @testcase | 145 |            | -1 1 8 1 3
-@testcase | 146 |            | -1 0 1
-@testcase | 147 |            | 16 8 255
 
 @fif_codegen
 """

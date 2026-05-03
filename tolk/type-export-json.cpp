@@ -19,6 +19,7 @@
 #include "generics-helpers.h"
 #include "pack-unpack-serializers.h"
 #include "constant-evaluator.h"
+#include <algorithm>
 
 namespace tolk {
 
@@ -34,6 +35,7 @@ static bool is_builtin_unexported_alias(AliasDefPtr alias_ref) {
 //    as_abi_json()
 //
 // Serializes TypeData subtypes into a compact JSON string.
+// All nested types are referenced by `ty_idx` (registered via the registry on the fly).
 // Used both for JSON export and as a key for type deduplication.
 
 struct Escaped {
@@ -50,29 +52,29 @@ static void operator+=(std::string& out, Escaped to_be_escaped) {
   }
 }
 
-static void operator+=(std::string& out, TypePtr nested) {
-  nested->as_abi_json(out);
+static void append_type_idx(std::string& out, TypePtr nested, JsonTypeExporter& registry) {
+  out += std::to_string(registry.register_used_type(nested));
 }
 
-static void operator+=(std::string& out, const std::vector<TypePtr>& arr) {
+static void append_type_idx_array(std::string& out, const std::vector<TypePtr>& arr, JsonTypeExporter& registry) {
   bool first = true;
   for (TypePtr item : arr) {
     if (!first) out += ",";
     first = false;
-    item->as_abi_json(out);
+    append_type_idx(out, item, registry);
   }
 }
 
-static void operator+=(std::string& out, const GenericsSubstitutions* substitutedTs) {
+static void append_type_idx_array(std::string& out, const GenericsSubstitutions* substitutedTs, JsonTypeExporter& registry) {
   for (int i = 0; i < substitutedTs->size(); ++i) {
     if (i) out += ",";
-    substitutedTs->typeT_at(i)->as_abi_json(out);
+    append_type_idx(out, substitutedTs->typeT_at(i), registry);
   }
 }
 
 std::vector<StructData::PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg, bool& tree_auto_generated);
 
-void TypeDataAlias::as_abi_json(std::string& out) const {
+void TypeDataAlias::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   if (alias_ref->name == "RemainingBitsAndRefs") {
     out += R"({"kind":"remaining"})";
     return;
@@ -80,84 +82,85 @@ void TypeDataAlias::as_abi_json(std::string& out) const {
   out += R"({"kind":"AliasRef","alias_name":")";
   if (!alias_ref->is_instantiation_of_generic_alias()) {
     out += Escaped(alias_ref->name);
-    out += '"';
+    out += "\"}";
   } else {
     out += Escaped(alias_ref->base_alias_ref->name);
-    out += R"(","type_args":[)";
-    out += alias_ref->substitutedTs;
-    out += ']';
+    out += R"(","type_args_ty_idx":[)";
+    append_type_idx_array(out, alias_ref->substitutedTs, registry);
+    out += "]}";
+    // monomorphic_target_ty_idx is recorded into the registry's
+    // alias_instantiations table by register_used_type after the head is pushed
   }
-  out += '}';
 }
 
-void TypeDataInt::as_abi_json(std::string& out) const {
+void TypeDataInt::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"int"})";
 }
 
-void TypeDataBool::as_abi_json(std::string& out) const {
+void TypeDataBool::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"bool"})";
 }
 
-void TypeDataCell::as_abi_json(std::string& out) const {
+void TypeDataCell::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"cell"})";
 }
 
-void TypeDataSlice::as_abi_json(std::string& out) const {
+void TypeDataSlice::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"slice"})";
 }
 
-void TypeDataBuilder::as_abi_json(std::string& out) const {
+void TypeDataBuilder::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"builder"})";
 }
 
-void TypeDataContinuation::as_abi_json(std::string& out) const {
+void TypeDataContinuation::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"callable"})";
 }
 
-void TypeDataString::as_abi_json(std::string& out) const {
+void TypeDataString::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"string"})";
 }
 
-void TypeDataAddress::as_abi_json(std::string& out) const {
+void TypeDataAddress::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += is_internal() ? R"({"kind":"address"})" : R"({"kind":"addressAny"})";
 }
 
-void TypeDataArray::as_abi_json(std::string& out) const {
-  out += R"({"kind":"arrayOf","inner":)";
-  out += innerT;
+void TypeDataArray::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
+  out += R"({"kind":"arrayOf","inner_ty_idx":)";
+  append_type_idx(out, innerT, registry);
   out += '}';
 }
 
-void TypeDataShapedTuple::as_abi_json(std::string& out) const {
-  out += R"({"kind":"shapedTuple","items":[)";
-  out += items;
+void TypeDataShapedTuple::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
+  out += R"({"kind":"shapedTuple","items_ty_idx":[)";
+  append_type_idx_array(out, items, registry);
   out += "]}";
 }
 
-void TypeDataNullLiteral::as_abi_json(std::string& out) const {
+void TypeDataNullLiteral::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"nullLiteral"})";
 }
 
-void TypeDataFunCallable::as_abi_json(std::string& out) const {
+void TypeDataFunCallable::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"callable"})";
 }
 
-void TypeDataGenericT::as_abi_json(std::string& out) const {
+void TypeDataGenericT::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"genericT","name_t":")";
   out += nameT;
   out += "\"}";
 }
 
-void TypeDataGenericTypeWithTs::as_abi_json(std::string& out) const {
+void TypeDataGenericTypeWithTs::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   if (struct_ref && struct_ref->name == "Cell") {
-    out += R"({"kind":"cellOf","inner":)";
-    out += type_arguments;
+    out += R"({"kind":"cellOf","inner_ty_idx":)";
+    append_type_idx(out, type_arguments[0], registry);
     out += '}';
     return;
   }
   if (struct_ref && struct_ref->name == "lisp_list") {
-    out += R"({"kind":"lispListOf","inner":)";
-    out += type_arguments;
+    out += R"({"kind":"lispListOf","inner_ty_idx":)";
+    append_type_idx(out, type_arguments[0], registry);
     out += '}';
     return;
   }
@@ -169,21 +172,21 @@ void TypeDataGenericTypeWithTs::as_abi_json(std::string& out) const {
     out += R"({"kind":"StructRef","struct_name":")";
     out += Escaped(struct_ref->name);
   }
-  out += R"(","type_args":[)";
-  out += type_arguments;
+  out += R"(","type_args_ty_idx":[)";
+  append_type_idx_array(out, type_arguments, registry);
   out += "]}";
 }
 
-void TypeDataStruct::as_abi_json(std::string& out) const {
+void TypeDataStruct::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   if (struct_ref->is_instantiation_of_CellT()) {
-    out += R"({"kind":"cellOf","inner":)";
-    out += struct_ref->substitutedTs->typeT_at(0);
+    out += R"({"kind":"cellOf","inner_ty_idx":)";
+    append_type_idx(out, struct_ref->substitutedTs->typeT_at(0), registry);
     out += '}';
     return;
   }
   if (struct_ref->is_instantiation_of_LispListT()) {
-    out += R"({"kind":"lispListOf","inner":)";
-    out += struct_ref->substitutedTs->typeT_at(0);
+    out += R"({"kind":"lispListOf","inner_ty_idx":)";
+    append_type_idx(out, struct_ref->substitutedTs->typeT_at(0), registry);
     out += '}';
     return;
   }
@@ -191,29 +194,30 @@ void TypeDataStruct::as_abi_json(std::string& out) const {
   out += R"({"kind":"StructRef","struct_name":")";
   if (!struct_ref->is_instantiation_of_generic_struct()) {
     out += Escaped(struct_ref->name);
-    out += '"';
+    out += "\"}";
   } else {
     out += Escaped(struct_ref->base_struct_ref->name);
-    out += R"(","type_args":[)";
-    out += struct_ref->substitutedTs;
-    out += ']';
+    out += R"(","type_args_ty_idx":[)";
+    append_type_idx_array(out, struct_ref->substitutedTs, registry);
+    out += "]}";
+    // monomorphic_fields are recorded into the registry's
+    // struct_instantiations table by register_used_type after the head is pushed
   }
-  out += '}';
 }
 
-void TypeDataEnum::as_abi_json(std::string& out) const {
+void TypeDataEnum::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"EnumRef","enum_name":")";
   out += Escaped(enum_ref->name);
   out += "\"}";
 }
 
-void TypeDataTensor::as_abi_json(std::string& out) const {
-  out += R"({"kind":"tensor","items":[)";
-  out += items;
+void TypeDataTensor::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
+  out += R"({"kind":"tensor","items_ty_idx":[)";
+  append_type_idx_array(out, items, registry);
   out += "]}";
 }
 
-void TypeDataIntN::as_abi_json(std::string& out) const {
+void TypeDataIntN::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += is_variadic
     ? is_unsigned ? R"({"kind":"varuintN","n":)" : R"({"kind":"varintN","n":)"
     : is_unsigned ? R"({"kind":"uintN","n":)" : R"({"kind":"intN","n":)";
@@ -221,24 +225,24 @@ void TypeDataIntN::as_abi_json(std::string& out) const {
   out += '}';
 }
 
-void TypeDataCoins::as_abi_json(std::string& out) const {
+void TypeDataCoins::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"coins"})";
 }
 
-void TypeDataBitsN::as_abi_json(std::string& out) const {
+void TypeDataBitsN::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"bitsN","n":)";
   out += std::to_string(is_bits ? n_width : n_width * 8);
   out += '}';
 }
 
-void TypeDataUnion::as_abi_json(std::string& out) const {
+void TypeDataUnion::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   if (or_null && or_null->unwrap_alias()->try_as<TypeDataAddress>() && or_null->unwrap_alias()->try_as<TypeDataAddress>()->is_internal()) {
     out += R"({"kind":"addressOpt"})";  // for `AddressAlias?` we also emit `address?`, not a nullable alias
     return;
   }
   if (or_null) {
-    out += R"({"kind":"nullable","inner":)";
-    out += or_null;
+    out += R"({"kind":"nullable","inner_ty_idx":)";
+    append_type_idx(out, or_null, registry);
     if (!has_genericT_inside() && !is_primitive_nullable()) {
       out += R"(,"stack_type_id":)";
       out += std::to_string(or_null->get_type_id());
@@ -257,11 +261,11 @@ void TypeDataUnion::as_abi_json(std::string& out) const {
   out += R"({"kind":"union","variants":[)";
   for (int i = 0; i < size(); ++i) {
     if (i != 0) out += ',';
-    out += R"({"variant_ty":)";
-    out += variants[i];
-    out += R"(,"prefix_str":")";            // todo not str but int64?
-    out += opcodes[i].format_as_string(false);
-    out += R"(","prefix_len":)";
+    out += R"({"variant_ty_idx":)";
+    append_type_idx(out, variants[i], registry);
+    out += R"(,"prefix_num":)";
+    out += std::to_string(opcodes[i].pack_prefix);
+    out += R"(,"prefix_len":)";
     out += std::to_string(opcodes[i].prefix_len);
     if (tree_auto_generated) {
       out += R"(,"is_prefix_implicit":true)";
@@ -282,27 +286,27 @@ void TypeDataUnion::as_abi_json(std::string& out) const {
   out += '}';
 }
 
-void TypeDataMapKV::as_abi_json(std::string& out) const {
-  out += R"({"kind":"mapKV","k":)";
-  out += TKey;
-  out += R"(,"v":)";
-  out += TValue;
+void TypeDataMapKV::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
+  out += R"({"kind":"mapKV","key_ty_idx":)";
+  append_type_idx(out, TKey, registry);
+  out += R"(,"value_ty_idx":)";
+  append_type_idx(out, TValue, registry);
   out += '}';
 }
 
-void TypeDataUnknown::as_abi_json(std::string& out) const {
+void TypeDataUnknown::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"unknown"})";
 }
 
-void TypeDataNotInferred::as_abi_json(std::string& out) const {
+void TypeDataNotInferred::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   tolk_assert(false);
 }
 
-void TypeDataNever::as_abi_json(std::string& out) const {
+void TypeDataNever::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"void"})";
 }
 
-void TypeDataVoid::as_abi_json(std::string& out) const {
+void TypeDataVoid::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"void"})";
 }
 
@@ -311,89 +315,154 @@ void TypeDataVoid::as_abi_json(std::string& out) const {
 //    JsonTypeExporter
 //
 
-void JsonTypeExporter::register_used_type(TypePtr type) {
-  if (find_unique_type(type) != -1) {
-    return;
+
+// given struct `Wrapper<T>`, construct TypePtr `Wrapper<T>`
+static TypePtr construct_generic_struct_type(StructPtr struct_decl) {
+  std::vector<TypePtr> type_arguments;
+  type_arguments.reserve(struct_decl->genericTs->size());
+  for (int i = 0; i < struct_decl->genericTs->size(); ++i) {
+    type_arguments.push_back(TypeDataGenericT::create(std::string(struct_decl->genericTs->get_nameT(i))));
+  }
+  return TypeDataGenericTypeWithTs::create(struct_decl, nullptr, std::move(type_arguments));
+}
+
+// given alias `Either<L, R>`, construct TypePtr `Either<L, R>`
+static TypePtr construct_generic_alias_type(AliasDefPtr alias_decl) {
+  std::vector<TypePtr> type_arguments;
+  type_arguments.reserve(alias_decl->genericTs->size());
+  for (int i = 0; i < alias_decl->genericTs->size(); ++i) {
+    type_arguments.push_back(TypeDataGenericT::create(std::string(alias_decl->genericTs->get_nameT(i))));
+  }
+  return TypeDataGenericTypeWithTs::create(nullptr, alias_decl, std::move(type_arguments));
+}
+
+// Walks the declaration's fields/target/members and registers them. Cannot be
+// done inside as_abi_json: that runs BEFORE the type is in used_types, so for
+// self-referential types like `struct Node { next: Node? }` walking the fields
+// would loop back through register_used_type → as_abi_json → fields → ...
+// Calling this AFTER the push allows recursive register_used_type to work.
+static void register_referenced_declarations(JsonTypeExporter& reg, TypePtr type) {
+  StructPtr struct_decl = nullptr;
+  AliasDefPtr alias_decl = nullptr;
+  EnumDefPtr enum_decl = nullptr;
+
+  if (const auto* t_struct = type->try_as<TypeDataStruct>()) {
+    struct_decl = t_struct->struct_ref->is_instantiation_of_generic_struct()
+                  ? t_struct->struct_ref->base_struct_ref
+                  : t_struct->struct_ref;
+  } else if (const auto* t_alias = type->try_as<TypeDataAlias>()) {
+    alias_decl = t_alias->alias_ref->is_instantiation_of_generic_alias()
+                 ? t_alias->alias_ref->base_alias_ref
+                 : t_alias->alias_ref;
+  } else if (const auto* t_enum = type->try_as<TypeDataEnum>()) {
+    enum_decl = t_enum->enum_ref;
+  } else if (const auto* t_generic = type->try_as<TypeDataGenericTypeWithTs>()) {
+    struct_decl = t_generic->struct_ref;
+    alias_decl = t_generic->alias_ref;
+  }
+
+  if (struct_decl && !is_builtin_unexported_struct(struct_decl) && reg.register_used_symbol(struct_decl)) {
+    if (struct_decl->is_generic_struct()) {
+      reg.register_used_type(construct_generic_struct_type(struct_decl));
+    }
+    for (StructFieldPtr field_ref : struct_decl->fields) {
+      reg.register_used_type(field_ref->declared_type);
+      if (field_ref->abi_client_type) {
+        reg.register_used_type(field_ref->abi_client_type);
+      }
+    }
+  }
+  if (alias_decl && !is_builtin_unexported_alias(alias_decl) && reg.register_used_symbol(alias_decl)) {
+    if (alias_decl->is_generic_alias()) {
+      reg.register_used_type(construct_generic_alias_type(alias_decl));
+    }
+    reg.register_used_type(alias_decl->underlying_type);
+  }
+  if (enum_decl && reg.register_used_symbol(enum_decl)) {
+    reg.register_used_type(calculate_intN_to_serialize_enum(enum_decl));
+  }
+}
+
+int JsonTypeExporter::register_used_type(TypePtr type) {
+  int ty_idx = find_unique_type(type);
+  if (ty_idx != -1) {
+    return ty_idx;
   }
 
   std::string abi_json;
-  type->as_abi_json(abi_json);
+  type->as_abi_json(abi_json, *this);
+
+  // reserve the slot; subsequent recursive register_used_type calls will hit it
+  ty_idx = static_cast<int>(used_types.size());
   used_types.push_back(UniqueType{.t_ptr = type, .abi_json = std::move(abi_json)});
 
-  type->replace_children_custom([this](TypePtr child) {
-    if (const TypeDataStruct* t_struct = child->try_as<TypeDataStruct>()) {
-      StructPtr symbol = t_struct->struct_ref;
-      if (symbol->is_instantiation_of_generic_struct()) {
-        symbol = symbol->base_struct_ref;
-        for (int i = 0; i < t_struct->struct_ref->substitutedTs->size(); ++i) {
-          register_used_type(t_struct->struct_ref->substitutedTs->typeT_at(i));
-        }
-      }
-      if (!is_builtin_unexported_struct(symbol)) {
-        for (StructFieldPtr field_ref : symbol->fields) {
-          register_used_type(field_ref->declared_type);
-          if (field_ref->abi_client_type) {
-            register_used_type(field_ref->abi_client_type);
-          }
-        }
-        register_used_symbol(symbol);
-      }
-    } else if (const TypeDataAlias* t_alias = child->try_as<TypeDataAlias>()) {
-      AliasDefPtr symbol = t_alias->alias_ref;
-      if (symbol->is_instantiation_of_generic_alias()) {
-        symbol = symbol->base_alias_ref;
-        for (int i = 0; i < t_alias->alias_ref->substitutedTs->size(); ++i) {
-          register_used_type(t_alias->alias_ref->substitutedTs->typeT_at(i));
-        }
-      }
-      if (!is_builtin_unexported_alias(symbol)) {
-        register_used_type(t_alias->underlying_type);
-        register_used_symbol(symbol);
-      }
-    } else if (const TypeDataEnum* t_enum = child->try_as<TypeDataEnum>()) {
-      EnumDefPtr symbol = t_enum->enum_ref;
-      register_used_symbol(symbol);
-    } else if (const TypeDataGenericTypeWithTs* t_generic = child->try_as<TypeDataGenericTypeWithTs>()) {
-      if (t_generic->struct_ref && !is_builtin_unexported_struct(t_generic->struct_ref)) {
-        register_used_symbol(t_generic->struct_ref);
-      }
-      if (t_generic->alias_ref && !is_builtin_unexported_alias(t_generic->alias_ref)) {
-        register_used_symbol(t_generic->alias_ref);
-      }
+  // for generic instantiations: walk the INSTANTIATED struct/alias (NOT the base) and
+  // record resolved field/target type indices into the instantiation tables
+  if (const auto* t_struct = type->try_as<TypeDataStruct>(); t_struct &&
+      t_struct->struct_ref->is_instantiation_of_generic_struct() &&
+      !is_builtin_unexported_struct(t_struct->struct_ref->base_struct_ref)) {
+    std::vector<int> mono_fields_ty_idx;
+    mono_fields_ty_idx.reserve(t_struct->struct_ref->fields.size());
+    for (StructFieldPtr field_ref : t_struct->struct_ref->fields) {
+      mono_fields_ty_idx.push_back(register_used_type(field_ref->declared_type));
     }
-    return child;
-  });
+    struct_instantiations.push_back(StructInstantiation{
+      .ty_idx = ty_idx,
+      .struct_ref = t_struct->struct_ref,
+      .monomorphic_fields_ty_idx = std::move(mono_fields_ty_idx),
+    });
+  } else if (const auto* t_alias = type->try_as<TypeDataAlias>(); t_alias &&
+             t_alias->alias_ref->is_instantiation_of_generic_alias() &&
+             !is_builtin_unexported_alias(t_alias->alias_ref->base_alias_ref)) {
+    int target_idx = register_used_type(t_alias->alias_ref->underlying_type);
+    alias_instantiations.push_back(AliasInstantiation{
+      .ty_idx = ty_idx,
+      .alias_ref = t_alias->alias_ref,
+      .monomorphic_target_ty_idx = target_idx,
+    });
+  }
+
+  register_referenced_declarations(*this, type);
+  return ty_idx;
 }
 
-void JsonTypeExporter::register_used_symbol(const Symbol* symbol) {
-  auto it = std::find(used_symbols.begin(), used_symbols.end(), symbol);
-  if (it == used_symbols.end()) {
-    used_symbols.push_back(symbol);
+bool JsonTypeExporter::register_used_symbol(const Symbol* symbol) {
+  if (std::find(used_symbols.begin(), used_symbols.end(), symbol) != used_symbols.end()) {
+    return false;
   }
+  used_symbols.push_back(symbol);
+  return true;
 }
 
 int JsonTypeExporter::find_unique_type(TypePtr t) const {
-  for (int i = 0; i < static_cast<int>(used_types.size()); ++i) {
-    if (used_types[i].t_ptr == t) {
-      return i;
+  // two-level dedup: at first, fast path for primitives (singletons like int/bool/void)
+  for (int ty_idx = 0; ty_idx < static_cast<int>(used_types.size()); ++ty_idx) {
+    if (used_types[ty_idx].t_ptr == t) {
+      return ty_idx;
     }
   }
-  std::string t_abi_json;
-  t->as_abi_json(t_abi_json);
-  for (int i = 0; i < static_cast<int>(used_types.size()); ++i) {
-    if (used_types[i].abi_json == t_abi_json) {
-      return i;
+
+  // level 2: canonical equality by JSON content; the serialized JSON is the canonical
+  // identity of a type for ABI purposes (unique_types), so it's the real dedup key
+  std::string abi_json;
+  t->as_abi_json(abi_json, *const_cast<JsonTypeExporter*>(this));
+
+  for (int ty_idx = 0; ty_idx < static_cast<int>(used_types.size()); ++ty_idx) {
+    if (used_types[ty_idx].abi_json == abi_json) {
+      return ty_idx;
     }
   }
   return -1;
 }
 
 int JsonTypeExporter::get_type_idx(TypePtr t) const {
-  int idx = find_unique_type(t);
-  tolk_assert(idx != -1);
-  return idx;
+  int ty_idx = find_unique_type(t);
+  tolk_assert(ty_idx != -1);
+  return ty_idx;
 }
 
+// Seeds primitives so that universally-used types (int, void, intN, ...) get small
+// stable ty_idx values 0..N-1 in every output, regardless of registration order.
 void JsonTypeExporter::seed_primitive_types() {
   register_used_type(TypeDataVoid::create());
   register_used_type(TypeDataInt::create());
@@ -411,77 +480,79 @@ void JsonTypeExporter::seed_primitive_types() {
 
 // ---- shared to_json overloads ----
 
-void to_json(JsonPrettyOutput& out, TypePtr type) {
-  std::string type_as_json;
-  type->as_abi_json(type_as_json);
-  out << type_as_json;
-}
-
-static void to_json(JsonPrettyOutput& out, const GenericsDeclaration* genericTs) {
-  out << '[';
-  out << '"' << genericTs->get_nameT(0) << '"';
-  for (int i = 1; i < genericTs->size(); ++i) {
-    out << ", " << '"' << genericTs->get_nameT(i) << '"';
+static void to_json(JsonPrettyOutput& json, const GenericsDeclaration* genericTs) {
+  json.start_array();
+  for (int i = 0; i < genericTs->size(); ++i) {
+    json.next_array_item();
+    json.write_value(genericTs->get_nameT(i));
   }
-  out << ']';
+  json.end_array();
 }
 
-static void to_json(JsonPrettyOutput& out, const CustomPackUnpackF& f) {
-  out.start_object();
+static void to_json(JsonPrettyOutput& json, const CustomPackUnpackF& f) {
+  json.start_object();
   if (f.f_pack) {
-    out.key_value("pack_to_builder", true);
+    json.key_value("pack_to_builder", true);
   }
   if (f.f_unpack) {
-    out.key_value("unpack_from_slice", true);
+    json.key_value("unpack_from_slice", true);
   }
-  out.end_object();
+  json.end_object();
 }
 
-void to_json(JsonPrettyOutput& out, const ConstValExpression& v) {
-  out.start_object();
-  if (const auto* i = std::get_if<ConstValInt>(&v)) {
-    out.key_value("kind", "int");
-    out.key_value("v", i->int_val);
-  } else if (const auto* b = std::get_if<ConstValBool>(&v)) {
-    out.key_value("kind", "bool");
-    out.key_value("v", b->bool_val);
-  } else if (const auto* s = std::get_if<ConstValSlice>(&v)) {
-    out.key_value("kind", "slice");
-    out.key_value("hex", s->str_hex);
-  } else if (const auto* q = std::get_if<ConstValString>(&v)) {
-    out.key_value("kind", "string");
-    out.key_value("str", q->str_val);
-  } else if (const auto* a = std::get_if<ConstValAddress>(&v)) {
-    out.key_value("kind", "address");
-    out.key_value("addr", a->orig_str);
-  } else if (const auto* t = std::get_if<ConstValTensor>(&v)) {
-    out.key_value("kind", "tensor");
-    out.key_value("items", t->items);
-  } else if (const auto* h = std::get_if<ConstValShapedTuple>(&v)) {
-    out.key_value("kind", "shapedTuple");
-    out.key_value("items", h->items);
-  } else if (const auto* o = std::get_if<ConstValObject>(&v)) {
-    out.key_value("kind", "object");
-    out.key_value("struct_name", o->struct_ref->name);
-    out.key_value("fields", o->fields);
-  } else if (const auto* c = std::get_if<ConstValCastToType>(&v)) {
-    out.key_value("kind", "castTo");
-    out.key_value("inner", c->inner.front());
-    out.key_value("cast_to", c->cast_to);
-  } else if (std::holds_alternative<ConstValNullLiteral>(v)) {
-    out.key_value("kind", "null");
+void to_json(JsonPrettyOutput& json, const JsonTypeExporter::ConstValJson& v) {
+  const ConstValExpression& expr = v.value;
+  json.start_object();
+  if (const auto* i = std::get_if<ConstValInt>(&expr)) {
+    json.key_value("kind", "int");
+    json.key_value("v", i->int_val);
+  } else if (const auto* b = std::get_if<ConstValBool>(&expr)) {
+    json.key_value("kind", "bool");
+    json.key_value("v", b->bool_val);
+  } else if (const auto* s = std::get_if<ConstValSlice>(&expr)) {
+    json.key_value("kind", "slice");
+    json.key_value("hex", s->str_hex);
+  } else if (const auto* q = std::get_if<ConstValString>(&expr)) {
+    json.key_value("kind", "string");
+    json.key_value("str", q->str_val);
+  } else if (const auto* a = std::get_if<ConstValAddress>(&expr)) {
+    json.key_value("kind", "address");
+    json.key_value("addr", a->orig_str);
+  } else if (const auto* t = std::get_if<ConstValTensor>(&expr)) {
+    json.key_value("kind", "tensor");
+    json.start_array("items");
+    for (const ConstValExpression& item : t->items) {
+      json.next_array_item();
+      json.write_value(v.registry.const_val_json(item));
+    }
+    json.end_array();
+  } else if (const auto* h = std::get_if<ConstValShapedTuple>(&expr)) {
+    json.key_value("kind", "shapedTuple");
+    json.start_array("items");
+    for (const ConstValExpression& item : h->items) {
+      json.next_array_item();
+      json.write_value(v.registry.const_val_json(item));
+    }
+    json.end_array();
+  } else if (const auto* o = std::get_if<ConstValObject>(&expr)) {
+    json.key_value("kind", "object");
+    json.key_value("struct_name", o->struct_ref->name);
+    json.start_array("fields");
+    for (const ConstValExpression& field : o->fields) {
+      json.next_array_item();
+      json.write_value(v.registry.const_val_json(field));
+    }
+    json.end_array();
+  } else if (const auto* c = std::get_if<ConstValCastToType>(&expr)) {
+    json.key_value("kind", "castTo");
+    json.key_value("inner", v.registry.const_val_json(c->inner.front()));
+    json.key_value("cast_to_ty_idx", v.registry.get_type_idx(c->cast_to));
+  } else if (std::holds_alternative<ConstValNullLiteral>(expr)) {
+    json.key_value("kind", "null");
   } else {
     tolk_assert(false);
   }
-  out.end_object();
-}
-
-static void to_json(JsonPrettyOutput& out, const std::vector<ConstValExpression>& v) {
-  out.start_array();
-  for (const ConstValExpression& v_item : v) {
-    out.write_value(v_item);
-  }
-  out.end_array();
+  json.end_object();
 }
 
 // ---- shared declarations serialization ----
@@ -500,13 +571,13 @@ std::string get_abi_description(const DocCommentLines& doc_lines) {
   return result;
 }
 
-static void to_json(JsonPrettyOutput& out, SrcRange range) {
+static void to_json(JsonPrettyOutput& json, SrcRange range) {
   SrcRange::DecodedRange r = range.decode_offsets();
-  out << '['
-      << r.file_id << ',' << ' '
-      << r.start_line_no << ',' << r.start_char_no << ',' << ' '
-      << r.end_line_no << ',' << r.end_char_no
-      << ']';
+  json << '['
+       << r.file_id << ',' << ' '
+       << r.start_line_no << ',' << r.start_char_no << ',' << ' '
+       << r.end_line_no << ',' << r.end_char_no
+       << ']';
 }
 
 // if any field above a struct has `@abi.clientType`, we output a property in struct's declaration;
@@ -519,13 +590,58 @@ static bool does_any_field_override_client_type(StructPtr struct_ref) {
   return any_field;
 }
 
-void JsonTypeExporter::emit_declarations_json(JsonPrettyOutput& json, const EmitOptions& opts) const {
+// Writes all type-related top-level arrays in canonical order: unique_types, generic instantiations, and declarations.
+// Both out.abi.json and out.symbolTypes.json need exactly the same set of arrays (differ only in EmitOptions).
+void JsonTypeExporter::emit_unique_ty_and_declarations_json(JsonPrettyOutput& json, const EmitOptions& opts) const {
+  json.start_array("unique_types");
+  for (const UniqueType& ty : used_types) {
+    json.next_array_item();
+    json.write_value(JsonPrettyOutput::Unquoted{ty.abi_json});
+  }
+  json.end_array();
+
+  json.start_array("struct_instantiations");
+  for (const StructInstantiation& s : struct_instantiations) {
+    json.next_array_item();
+    json.start_object();
+    json.key_value("ty_idx", s.ty_idx);
+    json.key_value("struct_name", s.struct_ref->name);
+    json.start_array("monomorphic_fields_ty_idx");
+    for (int idx : s.monomorphic_fields_ty_idx) {
+      json.next_array_item();
+      json.write_value(idx);
+    }
+    json.end_array();
+    json.end_object();
+  }
+  json.end_array();
+
+  json.start_array("alias_instantiations");
+  for (const AliasInstantiation& a : alias_instantiations) {
+    json.next_array_item();
+    json.start_object();
+    json.key_value("ty_idx", a.ty_idx);
+    json.key_value("alias_name", a.alias_ref->name);
+    json.key_value("monomorphic_target_ty_idx", a.monomorphic_target_ty_idx);
+    json.end_object();
+  }
+  json.end_array();
+
+  // emit declarations in source order so the JSON mirrors how a developer reads the file(s)
+  std::vector<const Symbol*> sorted_symbols = used_symbols;
+  std::sort(sorted_symbols.begin(), sorted_symbols.end(), [](const Symbol* a, const Symbol* b) {
+    return a->ident_anchor->range < b->ident_anchor->range;
+  });
+
   json.start_array("declarations");
-  for (const Symbol* symbol : used_symbols) {
+  for (const Symbol* symbol : sorted_symbols) {
+    json.next_array_item();
     json.start_object();
     if (StructPtr struct_ref = symbol->try_as<StructPtr>()) {
+      TypePtr ty = struct_ref->is_generic_struct() ? construct_generic_struct_type(struct_ref) : TypeDataStruct::create(struct_ref);
       json.key_value("kind", "struct");
       json.key_value("name", struct_ref->name);
+      json.key_value("ty_idx", get_type_idx(ty));
       if (opts.emit_ident_loc) {
         json.key_value("ident_loc", struct_ref->ident_anchor->range);
       }
@@ -534,18 +650,20 @@ void JsonTypeExporter::emit_declarations_json(JsonPrettyOutput& json, const Emit
       }
       if (struct_ref->opcode.exists()) {
         json.start_object("prefix");
-        json.key_value("prefix_str", struct_ref->opcode.format_as_string(false));
+        json.key_value("prefix_num", struct_ref->opcode.pack_prefix);
         json.key_value("prefix_len", struct_ref->opcode.prefix_len);
         json.end_object();
       }
       json.start_array("fields");
       for (StructFieldPtr field_ref : struct_ref->fields) {
         TypePtr export_ty = opts.use_abi_client_types && field_ref->abi_client_type ? field_ref->abi_client_type : field_ref->declared_type;
+        json.next_array_item();
         json.start_object();
         json.key_value("name", field_ref->name);
-        json.key_value("ty", export_ty);
+        json.key_value("ty_idx", get_type_idx(export_ty));
         if (opts.emit_default_values && field_ref->default_value && !field_ref->declared_type->has_genericT_inside()) {
-          json.key_value("default_value", eval_field_default_value(field_ref));
+          ConstValExpression default_value = eval_field_default_value(field_ref);
+          json.key_value("default_value", const_val_json(default_value));
         }
         if (opts.emit_descriptions && !field_ref->doc_lines.empty()) {
           json.key_value("description", get_abi_description(field_ref->doc_lines));
@@ -560,12 +678,14 @@ void JsonTypeExporter::emit_declarations_json(JsonPrettyOutput& json, const Emit
         json.key_value("overrides_client_type", true);
       }
     } else if (AliasDefPtr alias_ref = symbol->try_as<AliasDefPtr>()) {
+      TypePtr ty = alias_ref->is_generic_alias() ? construct_generic_alias_type(alias_ref) : TypeDataAlias::create(alias_ref);
       json.key_value("kind", "alias");
       json.key_value("name", alias_ref->name);
+      json.key_value("ty_idx", get_type_idx(ty));
       if (opts.emit_ident_loc) {
         json.key_value("ident_loc", alias_ref->ident_anchor->range);
       }
-      json.key_value("target_ty", alias_ref->underlying_type);
+      json.key_value("target_ty_idx", get_type_idx(alias_ref->underlying_type));
       if (alias_ref->is_generic_alias()) {
         json.key_value("type_params", alias_ref->genericTs);
       }
@@ -573,14 +693,17 @@ void JsonTypeExporter::emit_declarations_json(JsonPrettyOutput& json, const Emit
         json.key_value("custom_pack_unpack", f);
       }
     } else if (EnumDefPtr enum_ref = symbol->try_as<EnumDefPtr>()) {
+      TypePtr ty = TypeDataEnum::create(enum_ref);
       json.key_value("kind", "enum");
       json.key_value("name", enum_ref->name);
+      json.key_value("ty_idx", get_type_idx(ty));
       if (opts.emit_ident_loc) {
         json.key_value("ident_loc", enum_ref->ident_anchor->range);
       }
-      json.key_value("encoded_as", calculate_intN_to_serialize_enum(enum_ref));
+      json.key_value("encoded_as_ty_idx", get_type_idx(calculate_intN_to_serialize_enum(enum_ref)));
       json.start_array("members");
       for (EnumMemberPtr member_ref : enum_ref->members) {
+        json.next_array_item();
         json.start_object();
         json.key_value("name", member_ref->name);
         json.key_value("value", member_ref->computed_value);
@@ -596,18 +719,6 @@ void JsonTypeExporter::emit_declarations_json(JsonPrettyOutput& json, const Emit
     } else {
       tolk_assert(false);
     }
-    json.end_object();
-  }
-  json.end_array();
-}
-
-void JsonTypeExporter::emit_unique_ty_json(JsonPrettyOutput& json) const {
-  int idx = 0;
-  json.start_array("unique_ty");
-  for (const UniqueType& t : used_types) {
-    json.start_object();
-    json.key_value("ty_idx", idx++);
-    json.key_value("ty", JsonPrettyOutput::Unquoted{t.abi_json});
     json.end_object();
   }
   json.end_array();

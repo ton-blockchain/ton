@@ -120,7 +120,7 @@ struct(0x00112233) Test6_1 {
     f1: int32;
 }
 
-struct(0b0010) Test6_2 {
+struct(0b00_10) Test6_2 {
     f1: int32?;
     f2: Cell<int10>;
 }

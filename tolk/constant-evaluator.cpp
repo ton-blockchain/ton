@@ -17,6 +17,7 @@
 #include "constant-evaluator.h"
 #include "ast.h"
 #include "compilation-errors.h"
+#include "compiler-state.h"
 #include "generics-helpers.h"
 #include "type-system.h"
 #include "openssl/digest.hpp"
@@ -256,11 +257,11 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
       return ConstValString{typeT->as_human_readable()};
     }
 
-    if (f_name == "typeAbiJsonOf" || f_name == "typeAbiJsonOfObject") {
+    if (f_name == "typeUniqueIdxOf" || f_name == "typeUniqueIdxOfObject") {
       TypePtr typeT = v->fun_maybe->substitutedTs->typeT_at(0);
-      std::string out;
-      typeT->as_abi_json(out);
-      return ConstValString{std::move(out)};
+      G.symbol_types_pool.register_used_type(typeT);
+      int ty_idx = G.symbol_types_pool.get_type_idx(typeT);
+      return ConstValInt{td::make_refint(ty_idx)};
     }
 
     if (f_name == "sourceLocation") {

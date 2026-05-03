@@ -389,6 +389,28 @@ fun test17(a: SnakedCell<int>, b: SnakedCell<MInt>, c: SnakedCell<MInt_v2>) {
     c as SnakedCell<MInt_v2>;
 }
 
+type MyInt32 = int32
+type PlainInt = int
+
+global gUnpacked: int;
+
+fun PlainInt.packToBuilder(self, mutate b: builder) {
+    b.storeUint(100, 32);
+}
+fun PlainInt.unpackFromSlice(mutate s: slice): int {
+    assert(s.loadUint(32) == 100) throw 100;
+    gUnpacked += 1;
+    return 0;
+}
+
+@method_id(118)
+fun test18() {
+    gUnpacked = 0;
+    var c_mi = (5 as MyInt32).toCell();
+    var c_pi = (5 as PlainInt).toCell();
+    return (c_mi.load(), c_pi.load(), gUnpacked);
+}
+
 
 fun main(x: MInt, y: MInt?) {
     return y == null ? x : x + y;
@@ -401,6 +423,7 @@ fun main(x: MInt, y: MInt?) {
 @testcase | 112 | 0   | [ 1 1 ]
 @testcase | 112 | -1  | [ 2 1 ]
 @testcase | 115 |     | 0 1 2 10 11 12 20 21 22
+@testcase | 118 |     | 5 0 1
 
 @fif_codegen
 """

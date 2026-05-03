@@ -57,6 +57,7 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
   G = CompilerState{};
   clear_computed_constants_cache();
   define_builtins();    // add built-in functions into G.symtable
+  G.symbol_types_pool.seed_primitive_types();
 
   // enable error collecting for check stages (multiple errors can be reported):
   // - if used err("...").fire() — execution is stopped immediately (it's `throw`)

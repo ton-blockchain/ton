@@ -274,6 +274,7 @@ static void compilation_failed_output_errors(const std::vector<ThrownParseError>
     json.start_array("errors");
     for (const ThrownParseError& error : errors) {
       if (shown >= JSON_ERROR_LIMIT) break;
+      json.next_array_item();
       error.output_to_json(json);
       shown++;
     }

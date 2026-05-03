@@ -190,10 +190,14 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     opcode.pack_prefix = v_opcode->intval->to_long();
 
     std::string_view prefix_str = v_opcode->orig_str;
+    int prefix_digit_len = 0;
+    for (char c : prefix_str.substr(2)) {
+      prefix_digit_len += c != '_';
+    }
     if (prefix_str.starts_with("0x")) {
-      opcode.prefix_len = static_cast<int>(prefix_str.size() - 2) * 4;
+      opcode.prefix_len = prefix_digit_len * 4;
     } else if (prefix_str.starts_with("0b")) {
-      opcode.prefix_len = static_cast<int>(prefix_str.size() - 2);
+      opcode.prefix_len = prefix_digit_len;
     } else {
       tolk_assert(false);
     }

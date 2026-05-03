@@ -232,17 +232,18 @@ void ContractABI::register_thrown_error(ABIThrownErrorKind kind, const td::RefIn
 //    output ABI to JSON
 //
 
-static void to_json(JsonPrettyOutput& out, ABIThrownErrorKind kind) {
+static void to_json(JsonPrettyOutput& json, ABIThrownErrorKind kind) {
   switch (kind) {
-    case ABIThrownErrorKind::plain_int:     out.write_value("plain_int");     break;
-    case ABIThrownErrorKind::constant:      out.write_value("constant");      break;
-    case ABIThrownErrorKind::enum_member:   out.write_value("enum_member");   break;
+    case ABIThrownErrorKind::plain_int:     json.write_value("plain_int");     break;
+    case ABIThrownErrorKind::constant:      json.write_value("constant");      break;
+    case ABIThrownErrorKind::enum_member:   json.write_value("enum_member");   break;
   }
 }
 
 ContractABI::ContractABI()
   : compiler_name("tolk")
   , compiler_version(TOLK_VERSION) {
+  json_types.seed_primitive_types();
 }
 
 void ContractABI::to_pretty_json(std::ostream& os) const {
@@ -261,7 +262,7 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
     json.key_value("description", this->description);
   }
 
-  this->json_types.emit_declarations_json(json,{
+  this->json_types.emit_unique_ty_and_declarations_json(json, {
     .emit_default_values = true,
     .emit_descriptions = true,
     .use_abi_client_types = true,
@@ -269,10 +270,10 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
 
   json.start_object("storage");
   if (this->storage.storage_ty != nullptr) {
-    json.key_value("storage_ty", this->storage.storage_ty);
+    json.key_value("storage_ty_idx", this->json_types.get_type_idx(this->storage.storage_ty));
   }
   if (this->storage.storage_at_deployment_ty != nullptr) {
-    json.key_value("storage_at_deployment_ty", this->storage.storage_at_deployment_ty);
+    json.key_value("storage_at_deployment_ty_idx", this->json_types.get_type_idx(this->storage.storage_at_deployment_ty));
   }
   if (!this->storage.description.empty()) {
     json.key_value("description", this->storage.description);
@@ -281,8 +282,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
 
   json.start_array("incoming_messages");
   for (const ABIInternalMessage& m : this->incoming_messages) {
+    json.next_array_item();
     json.start_object();
-    json.key_value("body_ty", m.body_ty);
+    json.key_value("body_ty_idx", this->json_types.get_type_idx(m.body_ty));
     if (!m.description.empty()) {
       json.key_value("description", m.description);
     }
@@ -292,8 +294,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
 
   json.start_array("incoming_external");
   for (const ABIExternalMessage& m : this->incoming_external) {
+    json.next_array_item();
     json.start_object();
-    json.key_value("body_ty", m.body_ty);
+    json.key_value("body_ty_idx", this->json_types.get_type_idx(m.body_ty));
     if (!m.description.empty()) {
       json.key_value("description", m.description);
     }
@@ -303,8 +306,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
 
   json.start_array("outgoing_messages");
   for (const ABIOutgoingMessage& m : this->outgoing_messages) {
+    json.next_array_item();
     json.start_object();
-    json.key_value("body_ty", m.body_ty);
+    json.key_value("body_ty_idx", this->json_types.get_type_idx(m.body_ty));
     if (!m.description.empty()) {
       json.key_value("description", m.description);
     }
@@ -314,8 +318,9 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
 
   json.start_array("emitted_events");
   for (const ABIOutgoingMessage& m : this->emitted_events) {
+    json.next_array_item();
     json.start_object();
-    json.key_value("body_ty", m.body_ty);
+    json.key_value("body_ty_idx", this->json_types.get_type_idx(m.body_ty));
     if (!m.description.empty()) {
       json.key_value("description", m.description);
     }
@@ -325,24 +330,26 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
 
   json.start_array("get_methods");
   for (const ABIGetMethod& m : this->get_methods) {
+    json.next_array_item();
     json.start_object();
     json.key_value("tvm_method_id", m.tvm_method_id);
     json.key_value("name", m.name);
     json.start_array("parameters");
     for (const ABIFunctionParameter& p : m.parameters) {
+      json.next_array_item();
       json.start_object();
       json.key_value("name", p.name);
-      json.key_value("ty", p.ty);
+      json.key_value("ty_idx", this->json_types.get_type_idx(p.ty));
       if (!p.description.empty()) {
         json.key_value("description", p.description);
       }
       if (p.default_value.has_value()) {
-        json.key_value("default_value", p.default_value.value());
+        json.key_value("default_value", this->json_types.const_val_json(p.default_value.value()));
       }
       json.end_object();
     }
     json.end_array();
-    json.key_value("return_ty", m.return_ty);
+    json.key_value("return_ty_idx", this->json_types.get_type_idx(m.return_ty));
     if (!m.description.empty()) {
       json.key_value("description", m.description);
     }
@@ -350,12 +357,13 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
   }
   json.end_array();
 
-  json.start_array("thrown_errors");
   std::vector<ABIThrownError> sorted_throws = this->thrown_errors;
   std::sort(sorted_throws.begin(), sorted_throws.end(), [](const ABIThrownError& e1, const ABIThrownError& e2) {
     return e1.err_code < e2.err_code;
   });
+  json.start_array("thrown_errors");
   for (const ABIThrownError& e : sorted_throws) {
+    json.next_array_item();
     json.start_object();
     json.key_value("kind", e.kind);
     if (!e.name.empty()) {

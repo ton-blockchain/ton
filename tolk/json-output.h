@@ -29,29 +29,25 @@ class JsonPrettyOutput {
   std::string cur_indent_spaces;
   int depth = 0;
   int elems_count[MAX_DEPTH] = {};
-  bool cursor_after_key = false;
 
-  void on_new_key(std::string_view key) {
+  void put_comma_if_not_first() {
     if (elems_count[depth]++) {
       os << ',' << '\n';
     }
-    os << cur_indent_spaces << '"' << key << '"' << ':' << ' ';
-    cursor_after_key = true;
+    os << cur_indent_spaces;
+  }
+
+  void on_new_key(std::string_view key) {
+    put_comma_if_not_first();
+    os << '"' << key << '"' << ':' << ' ';
   }
 
   void start_object_or_array(char brace) {
-    if (!cursor_after_key) {
-      if (elems_count[depth]++) {
-        os << ',' << '\n';
-      }
-      os << cur_indent_spaces;
-    }
     os << brace << '\n';    // `{` or `[`
 
     depth = std::min(depth + 1, MAX_DEPTH - 1);
     cur_indent_spaces += "  ";
     elems_count[depth] = 0;
-    cursor_after_key = false;
   }
 
   void end_object_or_array(char brace) {
@@ -96,6 +92,10 @@ public:
     start_object_or_array('[');
   }
 
+  void next_array_item() {
+    put_comma_if_not_first();
+  }
+
   void end_array() {
     end_object_or_array(']');
   }
@@ -110,7 +110,6 @@ public:
   void key_value(std::string_view key, const T& value) {
     on_new_key(key);
     write_value(value);
-    cursor_after_key = false;
   }
 
   void write_value(const char* value) {

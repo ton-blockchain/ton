@@ -58,6 +58,7 @@ static void output_errors_as_json_array(JsonPrettyOutput& json, const std::vecto
   json.start_array("errors");
   for (const ThrownParseError& error : errors) {
     if (shown >= JSON_ERROR_LIMIT) break;
+    json.next_array_item();
     error.output_to_json(json);
     shown++;
   }

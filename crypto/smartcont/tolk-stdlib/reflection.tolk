@@ -28,14 +28,14 @@ fun reflect.typeNameOf<T>(): string
 fun reflect.typeNameOfObject<T>(anyVariable: T): string
     builtin
 
-/// Get ABI-JSON type description of any T for compile-time reflection.
+/// Get unique ty_idx (from `out.symbolTypes.json`) of any type T.
 @pure
-fun reflect.typeAbiJsonOf<T>(): string
+fun reflect.typeUniqueIdxOf<T>(): int
     builtin
 
-/// Get ABI-JSON type description of any object for compile-time reflection.
+/// Get unique ty_idx (from `out.symbolTypes.json`) of any object.
 @pure
-fun reflect.typeAbiJsonOfObject<T>(anyVariable: T): string
+fun reflect.typeUniqueIdxOfObject<T>(anyVariable: T): int
     builtin
 
 /// Returns the number of stack slots a type T occupies.

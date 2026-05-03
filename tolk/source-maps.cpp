@@ -26,9 +26,9 @@ static SrcRange get_function_body_end(FunctionPtr fun_ref) {
   return SrcRange::span_at_end(fun_ref->ast_root->range, 1);
 }
 
-static void to_json(JsonPrettyOutput& out, SrcRange range) {
+static void to_json(JsonPrettyOutput& json, SrcRange range) {
   SrcRange::DecodedRange r = range.decode_offsets();
-  out << '['
+  json << '['
       << r.file_id << ',' << ' '
       << r.start_line_no << ',' << r.start_char_no << ',' << ' '
       << r.end_line_no << ',' << r.end_char_no
@@ -57,14 +57,6 @@ static void to_json(JsonPrettyOutput& out, const DebugMarkCurrentStack& stack) {
   out << ']';
 }
 
-
-void SymbolTypesCollecting::seed_primitive_types() {
-  if (!primitive_types_seeded) {
-    json_types.seed_primitive_types();
-    primitive_types_seeded = true;
-  }
-}
-
 void SymbolTypesCollecting::register_used_file(SrcFilePtr file_ref) {
   auto it = std::find(used_files.begin(), used_files.end(), file_ref);
   if (it == used_files.end() && file_ref) {
@@ -83,7 +75,6 @@ void SymbolTypesCollecting::register_used_type(TypePtr type) {
     return;
   }
 
-  seed_primitive_types();
   json_types.register_used_type(type);
   for (const Symbol* symbol : json_types.used_symbols) {
     if (StructPtr struct_ref = symbol->try_as<StructPtr>()) {
@@ -99,7 +90,6 @@ void SymbolTypesCollecting::register_used_type(TypePtr type) {
 }
 
 void SymbolTypesCollecting::register_used_function(FunctionPtr fun_ref) {
-  seed_primitive_types();
   tolk_assert(!fun_ref->is_generic_function());
   auto it = std::find(used_functions.begin(), used_functions.end(), fun_ref);
   if (it == used_functions.end()) {
@@ -133,6 +123,7 @@ void SymbolTypesCollecting::to_pretty_json(std::ostream& os) const {
 
   json.start_array("files");
   for (SrcFilePtr src_file : used_files) {
+    json.next_array_item();
     json.start_object();
     json.key_value("file_id", src_file->file_id);
     json.key_value("file_name", src_file->realpath);
@@ -141,15 +132,12 @@ void SymbolTypesCollecting::to_pretty_json(std::ostream& os) const {
   }
   json.end_array();
 
-  json_types.emit_declarations_json(json, {.emit_ident_loc = true});
-  json_types.emit_unique_ty_json(json);
-
-  json.start_array("global_vars");
-  json.end_array();
+  json_types.emit_unique_ty_and_declarations_json(json, {.emit_ident_loc = true});
 
   int idx = 0;
   json.start_array("functions");
   for (FunctionPtr fun_ref : used_functions) {
+    json.next_array_item();
     json.start_object();
     json.key_value("f_idx", idx++);
     json.key_value("name", fun_ref->name);
@@ -165,6 +153,7 @@ void SymbolTypesCollecting::to_pretty_json(std::ostream& os) const {
     json.start_array("params");
     for (int i = 0; i < fun_ref->get_num_params(); ++i) {
       const LocalVarData& p = fun_ref->get_param(i);
+      json.next_array_item();
       json.start_object();
       json.key_value("name", p.name);
       json.key_value("ty_idx", json_types.get_type_idx(p.declared_type));
@@ -181,11 +170,12 @@ void SymbolTypesCollecting::to_pretty_json(std::ostream& os) const {
 void DebugMarksCollecting::to_pretty_json(std::ostream& os, const SymbolTypesCollecting& symbol_types) const {
   JsonPrettyOutput json(os);
 
-  int idx = 0;
+  int mark_id = 0;
   json.start_array();
   for (const DebugMarkInfo& mark : debug_marks) {
+    json.next_array_item();
     json.start_object();
-    json.key_value("mark_id", idx++);   // both in Fift and in JSON they start from 0
+    json.key_value("mark_id", mark_id++);   // both in Fift and in JSON they start from 0
     if (const DebugMarkLocation* m_loc = std::get_if<DebugMarkLocation>(&mark)) {
       json.key_value("kind", "loc");
       json.key_value("range", m_loc->range);

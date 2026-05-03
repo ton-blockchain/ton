@@ -2158,7 +2158,7 @@ AnyV parse_src_file_to_ast(SrcFilePtr file) {
     }
   }
 
-  if (lex.tok() != tok_eof) {   // if some token exists in the end without line terminator
+  if (lex.tok() != tok_eof && lex.tok() != tok_semicolon) {   // if some token exists in the end without line terminator
     lex.unexpected("top-level declaration");
   }
 

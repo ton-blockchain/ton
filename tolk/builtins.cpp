@@ -1810,10 +1810,10 @@ void define_builtins() {
   define_builtin_method("reflect.typeNameOfObject", reflect, {typeT}, String, declGenericT,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("reflect.typeAbiJsonOf", reflect, {}, String, declGenericT,
+  define_builtin_method("reflect.typeUniqueIdxOf", reflect, {}, Int, declGenericT,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
-  define_builtin_method("reflect.typeAbiJsonOfObject", reflect, {typeT}, String, declGenericT,
+  define_builtin_method("reflect.typeUniqueIdxOfObject", reflect, {typeT}, Int, declGenericT,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.stackSizeOf", reflect, {}, Int, declGenericT,
@@ -2064,8 +2064,8 @@ void patch_builtins_after_stdlib_loaded() {
 
   lookup_function("reflect.typeNameOf")->mutate()->receiver_type = reflect;
   lookup_function("reflect.typeNameOfObject")->mutate()->receiver_type = reflect;
-  lookup_function("reflect.typeAbiJsonOf")->mutate()->receiver_type = reflect;
-  lookup_function("reflect.typeAbiJsonOfObject")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.typeUniqueIdxOf")->mutate()->receiver_type = reflect;
+  lookup_function("reflect.typeUniqueIdxOfObject")->mutate()->receiver_type = reflect;
   lookup_function("reflect.stackSizeOf")->mutate()->receiver_type = reflect;
   lookup_function("reflect.stackSizeOfObject")->mutate()->receiver_type = reflect;
   lookup_function("reflect.serializationPrefixOf")->mutate()->receiver_type = reflect;
