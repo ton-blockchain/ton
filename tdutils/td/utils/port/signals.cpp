@@ -356,9 +356,12 @@ Status set_default_failure_signal_handler() {
 #endif
   std::atexit(block_stdin);
 #ifndef TON_DISABLE_BACKTRACE
-  TRY_STATUS(setup_signals_alt_stack());
-  TRY_STATUS(set_signal_handler(SignalType::Abort, default_failure_signal_handler));
-  TRY_STATUS(set_signal_handler(SignalType::Error, default_failure_signal_handler));
+  char *disable_backtrace = getenv("TON_DISABLE_BACKTRACE");
+  if (!disable_backtrace || !*disable_backtrace) {
+    TRY_STATUS(setup_signals_alt_stack());
+    TRY_STATUS(set_signal_handler(SignalType::Abort, default_failure_signal_handler));
+    TRY_STATUS(set_signal_handler(SignalType::Error, default_failure_signal_handler));
+  }
 #endif
   return Status::OK();
 }
