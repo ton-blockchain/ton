@@ -84,6 +84,12 @@ class CntObject {
     assert(is_unique());
   }
   Ref<CntObject> clone() const;
+  bool operator==(const CntObject&) const {
+    return true;
+  }
+  std::strong_ordering operator<=>(const CntObject&) const {
+    return std::strong_ordering::equal;
+  }
 };
 
 typedef Ref<CntObject> RefAny;

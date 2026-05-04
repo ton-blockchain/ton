@@ -12,6 +12,11 @@ std::unique_ptr<Voted> Voted::create(Vote vote) {
   return std::unique_ptr<Voted>(new Voted(std::move(vote)));
 }
 
+bool Voted::equals(const consensus::stats::Event& other) const {
+  auto that = dynamic_cast<const Voted*>(&other);
+  return that && *this == *that;
+}
+
 consensus::stats::tl::EventRef Voted::to_tl() const {
   return create_tl_object<tl::voted>(vote_.to_tl());
 }
@@ -29,6 +34,11 @@ Voted::Voted(Vote vote) : vote_(std::move(vote)) {
 
 std::unique_ptr<CertObserved> CertObserved::create(Vote vote) {
   return std::unique_ptr<CertObserved>(new CertObserved(std::move(vote)));
+}
+
+bool CertObserved::equals(const consensus::stats::Event& other) const {
+  auto that = dynamic_cast<const CertObserved*>(&other);
+  return that && *this == *that;
 }
 
 consensus::stats::tl::EventRef CertObserved::to_tl() const {

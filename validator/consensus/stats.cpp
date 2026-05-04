@@ -17,6 +17,11 @@ std::unique_ptr<Id> Id::create(ShardIdFull shard, td::uint32 cc_seqno, size_t id
                                     slots_per_leader_window));
 }
 
+bool Id::equals(const Event& other) const {
+  auto that = dynamic_cast<const Id*>(&other);
+  return that && *this == *that;
+}
+
 tl::EventRef Id::to_tl() const {
   return create_tl_object<tl::id>(workchain_, shard_, cc_seqno_, static_cast<int>(idx_),
                                   static_cast<int>(total_validators_), weight_, total_weight_,
@@ -46,6 +51,11 @@ std::unique_ptr<CollateStarted> CollateStarted::create(td::uint32 slot) {
   return std::unique_ptr<CollateStarted>(new CollateStarted(slot));
 }
 
+bool CollateStarted::equals(const Event& other) const {
+  auto that = dynamic_cast<const CollateStarted*>(&other);
+  return that && *this == *that;
+}
+
 tl::EventRef CollateStarted::to_tl() const {
   return create_tl_object<tl::collateStarted>(target_slot_);
 }
@@ -63,6 +73,11 @@ CollateStarted::CollateStarted(td::uint32 target_slot) : target_slot_(target_slo
 
 std::unique_ptr<CollateFinished> CollateFinished::create(td::uint32 slot, CandidateId id) {
   return std::unique_ptr<CollateFinished>(new CollateFinished(slot, id));
+}
+
+bool CollateFinished::equals(const Event& other) const {
+  auto that = dynamic_cast<const CollateFinished*>(&other);
+  return that && *this == *that;
 }
 
 tl::EventRef CollateFinished::to_tl() const {
@@ -84,6 +99,11 @@ std::unique_ptr<CollatedEmpty> CollatedEmpty::create(CandidateId id) {
   return std::unique_ptr<CollatedEmpty>(new CollatedEmpty(id));
 }
 
+bool CollatedEmpty::equals(const Event& other) const {
+  auto that = dynamic_cast<const CollatedEmpty*>(&other);
+  return that && *this == *that;
+}
+
 tl::EventRef CollatedEmpty::to_tl() const {
   return create_tl_object<tl::collatedEmpty>(id_.to_tl());
 }
@@ -102,6 +122,11 @@ std::unique_ptr<CandidateReceived> CandidateReceived::create(const CandidateRef&
 
   return std::unique_ptr<CandidateReceived>(
       new CandidateReceived(candidate->id, candidate->parent_id, block, is_collator));
+}
+
+bool CandidateReceived::equals(const Event& other) const {
+  auto that = dynamic_cast<const CandidateReceived*>(&other);
+  return that && *this == *that;
 }
 
 tl::EventRef CandidateReceived::to_tl() const {
@@ -135,6 +160,11 @@ std::unique_ptr<ValidationStarted> ValidationStarted::create(CandidateId id) {
   return std::unique_ptr<ValidationStarted>(new ValidationStarted(id));
 }
 
+bool ValidationStarted::equals(const Event& other) const {
+  auto that = dynamic_cast<const ValidationStarted*>(&other);
+  return that && *this == *that;
+}
+
 tl::EventRef ValidationStarted::to_tl() const {
   return create_tl_object<tl::validationStarted>(id_.to_tl());
 }
@@ -154,6 +184,11 @@ std::unique_ptr<ValidationFinished> ValidationFinished::create(CandidateId id) {
   return std::unique_ptr<ValidationFinished>(new ValidationFinished(id));
 }
 
+bool ValidationFinished::equals(const Event& other) const {
+  auto that = dynamic_cast<const ValidationFinished*>(&other);
+  return that && *this == *that;
+}
+
 tl::EventRef ValidationFinished::to_tl() const {
   return create_tl_object<tl::validationFinished>(id_.to_tl());
 }
@@ -171,6 +206,11 @@ ValidationFinished::ValidationFinished(CandidateId id) : id_(id) {
 
 std::unique_ptr<BlockAccepted> BlockAccepted::create(CandidateId id) {
   return std::unique_ptr<BlockAccepted>(new BlockAccepted(id));
+}
+
+bool BlockAccepted::equals(const Event& other) const {
+  auto that = dynamic_cast<const BlockAccepted*>(&other);
+  return that && *this == *that;
 }
 
 tl::EventRef BlockAccepted::to_tl() const {

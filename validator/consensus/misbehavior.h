@@ -13,6 +13,7 @@ namespace ton::validator::consensus {
 class Misbehavior : public td::CntObject {
  public:
   virtual ~Misbehavior() = default;
+  bool operator==(const Misbehavior&) const = default;
 };
 
 using MisbehaviorRef = td::Ref<Misbehavior>;

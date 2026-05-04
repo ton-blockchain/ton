@@ -82,6 +82,8 @@ struct Vote {
 
   tl::UnsignedVoteRef to_tl() const;
 
+  bool operator==(const Vote&) const = default;
+
   std::variant<NotarizeVote, FinalizeVote, SkipVote> vote;
 };
 
@@ -99,7 +101,7 @@ struct Signed {
   static td::Result<Signed<Vote>> from_tl(tl::vote&& data, PeerValidatorId validator, const Bus& bus)
     requires std::same_as<T, Vote>;
 
-  bool operator==(const Signed&) const = delete;  // Ed25519 signatures are not unique
+  bool operator==(const Signed&) const = default;
 
   Signed<T> clone() const {
     return Signed<T>{validator, vote, signature.clone()};

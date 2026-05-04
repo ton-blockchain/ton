@@ -4,7 +4,10 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include <tuple>
+
 #include "auto/tl/ton_api_json.h"
+#include "td/utils/deref.h"
 #include "tl/tl_json.h"
 
 #include "bus.h"
@@ -57,8 +60,17 @@ std::string block_signature_set_to_string(const td::Ref<block::BlockSignatureSet
 
 }  // namespace
 
+bool Start::operator==(const Start& other) const {
+  return td::deref(state) == td::deref(other.state);
+}
+
 std::string Start::contents_to_string() const {
   return PSTRING() << "{state=" << state << "}";
+}
+
+bool FinalizeBlock::operator==(const FinalizeBlock& other) const {
+  auto k = [](const FinalizeBlock& v) { return std::make_tuple(td::deref(v.candidate), std::ref(v.signatures)); };
+  return k(*this) == k(other);
 }
 
 std::string FinalizeBlock::contents_to_string() const {
@@ -66,9 +78,21 @@ std::string FinalizeBlock::contents_to_string() const {
                    << ", signatures=" << block_signature_set_to_string(signatures) << "}";
 }
 
+bool OurLeaderWindowStarted::operator==(const OurLeaderWindowStarted& other) const {
+  auto k = [](const OurLeaderWindowStarted& v) {
+    return std::make_tuple(std::ref(v.base), td::deref(v.state), v.start_slot, v.end_slot, v.start_time);
+  };
+  return k(*this) == k(other);
+}
+
 std::string OurLeaderWindowStarted::contents_to_string() const {
   return PSTRING() << "{base=" << base << ", state=" << state << ", start_slot=" << start_slot
                    << ", end_slot=" << end_slot << ", start_time=" << start_time.at_unix() << "}";
+}
+
+bool CandidateGenerated::operator==(const CandidateGenerated& other) const {
+  auto k = [](const CandidateGenerated& v) { return std::make_tuple(td::deref(v.candidate), std::ref(v.collator_id)); };
+  return k(*this) == k(other);
 }
 
 std::string CandidateGenerated::contents_to_string() const {
@@ -76,8 +100,17 @@ std::string CandidateGenerated::contents_to_string() const {
                    << ", collator_id=" << (collator_id.has_value() ? (PSTRING() << *collator_id) : "none") << "}";
 }
 
+bool CandidateReceived::operator==(const CandidateReceived& other) const {
+  return td::deref(candidate) == td::deref(other.candidate);
+}
+
 std::string CandidateReceived::contents_to_string() const {
   return PSTRING() << "{candidate=" << candidate_to_string(candidate) << "}";
+}
+
+bool ValidationRequest::operator==(const ValidationRequest& other) const {
+  auto k = [](const ValidationRequest& v) { return std::make_tuple(td::deref(v.state), std::ref(v.candidate)); };
+  return k(*this) == k(other);
 }
 
 std::string ValidationRequest::contents_to_string() const {
@@ -124,8 +157,17 @@ std::string BlockFinalizedInMasterchain::contents_to_string() const {
   return PSTRING() << "{block=" << block.to_str() << "}";
 }
 
+bool MisbehaviorReport::operator==(const MisbehaviorReport& other) const {
+  auto k = [](const MisbehaviorReport& v) { return std::make_tuple(std::ref(v.id), td::deref(v.proof)); };
+  return k(*this) == k(other);
+}
+
 std::string MisbehaviorReport::contents_to_string() const {
   return PSTRING() << "{id=" << id << "}";
+}
+
+bool TraceEvent::operator==(const TraceEvent& other) const {
+  return event ? other.event && event->equals(*other.event) : !other.event;
 }
 
 std::string TraceEvent::contents_to_string() const {
