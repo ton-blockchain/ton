@@ -259,6 +259,16 @@ class TypeNodesVisitorResolver {
     }
   }
 
+  // given `Wrapper<T>`, ensure that resolving was happened, and struct has genericTs now
+  static void ensure_struct_genericTs_resolved(StructPtr struct_ref) {
+    if (auto v_genericsT_list = struct_ref->ast_root->as<ast_struct_declaration>()->genericsT_list) {
+      if (!struct_ref->genericTs) {
+        const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
+        struct_ref->mutate()->assign_resolved_genericTs(genericTs);
+      }
+    }
+  }
+
   // given `dict` / `User` / `Wrapper` / `WrapperAlias`, find it in a symtable
   // for generic types, like `Wrapper`, fire that it's used without type arguments (unless allowed)
   // example: `var w: Wrapper = ...`, here will be an error of generic usage without T
@@ -285,7 +295,7 @@ class TypeNodesVisitorResolver {
     }
     if (StructPtr struct_ref = sym->try_as<StructPtr>()) {
       if (!visited_structs.contains(struct_ref)) {
-        visit_symbol(struct_ref);
+        ensure_struct_genericTs_resolved(struct_ref);
       }
       // check AST for genericsT_list, not is_generic_struct(), see above
       bool has_generic_params = struct_ref->ast_root->as<ast_struct_declaration>()->genericsT_list != nullptr;
@@ -434,10 +444,7 @@ public:
   static void visit_symbol(StructPtr struct_ref) {
     visited_structs.insert({struct_ref, 1});
 
-    if (auto v_genericsT_list = struct_ref->ast_root->as<ast_struct_declaration>()->genericsT_list) {
-      const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
-      struct_ref->mutate()->assign_resolved_genericTs(genericTs);
-    }
+    ensure_struct_genericTs_resolved(struct_ref);
 
     TypeNodesVisitorResolver visitor(nullptr, struct_ref->genericTs, struct_ref->substitutedTs, false);
     for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
@@ -740,6 +747,11 @@ class InfiniteStructSizeDetector {
     bool contains = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
     if (contains) {
       err("struct `{}` size is infinity due to recursive fields", struct_ref).fire(struct_ref->ident_anchor);
+    }
+
+    // Some nominal references intentionally defer struct fields until a later top-level pass.
+    if (!visited_structs.contains(struct_ref)) {
+      TypeNodesVisitorResolver::visit_symbol(struct_ref);
     }
 
     called_stack.push_back(struct_ref);

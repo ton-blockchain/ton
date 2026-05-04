@@ -70,6 +70,10 @@ void pipeline_collect_symbol_types() {
     }
   }
 
+  for (SrcFilePtr src_file : G.all_src_files) {
+    G.symbol_types_pool.register_seen_file(src_file);
+  }
+
   for (FunctionPtr fun_ref : G.all_functions) {
     if (!fun_ref->is_code_function() || !fun_ref->does_need_codegen()) {
       continue;

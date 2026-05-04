@@ -57,36 +57,12 @@ static void to_json(JsonPrettyOutput& out, const DebugMarkCurrentStack& stack) {
   out << ']';
 }
 
-void SymbolTypesCollecting::register_used_file(SrcFilePtr file_ref) {
-  auto it = std::find(used_files.begin(), used_files.end(), file_ref);
-  if (it == used_files.end() && file_ref) {
-    used_files.push_back(file_ref);
-  }
+void SymbolTypesCollecting::register_seen_file(SrcFilePtr src_file) {
+  all_files.push_back(src_file);
 }
 
-void SymbolTypesCollecting::register_used_file(SrcRange range) {
-  tolk_assert(range.is_valid());
-  register_used_file(range.get_src_file());
-}
-
-// todo review
 void SymbolTypesCollecting::register_used_type(TypePtr type) {
-  if (type == nullptr) {
-    return;
-  }
-
   json_types.register_used_type(type);
-  for (const Symbol* symbol : json_types.used_symbols) {
-    if (StructPtr struct_ref = symbol->try_as<StructPtr>()) {
-      register_used_file(struct_ref->ident_anchor->range);
-    } else if (AliasDefPtr alias_ref = symbol->try_as<AliasDefPtr>()) {
-      register_used_file(alias_ref->ident_anchor->range);
-    } else if (EnumDefPtr enum_ref = symbol->try_as<EnumDefPtr>()) {
-      register_used_file(enum_ref->ident_anchor->range);
-    } else {
-      tolk_assert(false);
-    }
-  }
 }
 
 void SymbolTypesCollecting::register_used_function(FunctionPtr fun_ref) {
@@ -94,9 +70,6 @@ void SymbolTypesCollecting::register_used_function(FunctionPtr fun_ref) {
   auto it = std::find(used_functions.begin(), used_functions.end(), fun_ref);
   if (it == used_functions.end()) {
     used_functions.push_back(fun_ref);
-    if (fun_ref->is_code_function()) {
-      register_used_file(fun_ref->ident_anchor->range);
-    }
     register_used_type(fun_ref->inferred_return_type);
     for (int i = 0; i < fun_ref->get_num_params(); ++i) {
       register_used_type(fun_ref->get_param(i).declared_type);
@@ -122,12 +95,18 @@ void SymbolTypesCollecting::to_pretty_json(std::ostream& os) const {
   json.start_object();
 
   json.start_array("files");
-  for (SrcFilePtr src_file : used_files) {
+  for (SrcFilePtr src_file : all_files) {
     json.next_array_item();
     json.start_object();
     json.key_value("file_id", src_file->file_id);
     json.key_value("file_name", src_file->realpath);
     json.key_value("size_chars", src_file->text.size());
+    json.start_array("imports");
+    for (const SrcFile::ImportDirective& import : src_file->imports) {
+      json.next_array_item();
+      json.write_value(import.imported_file->file_id);
+    }
+    json.end_array();
     json.end_object();
   }
   json.end_array();

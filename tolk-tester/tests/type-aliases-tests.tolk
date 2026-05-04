@@ -411,6 +411,15 @@ fun test18() {
     return (c_mi.load(), c_pi.load(), gUnpacked);
 }
 
+struct EmptyRecursiveVariant
+
+type RecursiveStructOrEmpty = RecursiveStructByRef | EmptyRecursiveVariant
+
+struct (0x0ec3c86d) RecursiveStructByRef {
+    prev: Cell<RecursiveStructOrEmpty>  // just ensure it compiles
+    value: uint8
+}
+
 
 fun main(x: MInt, y: MInt?) {
     return y == null ? x : x + y;

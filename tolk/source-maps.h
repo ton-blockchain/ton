@@ -94,13 +94,12 @@ typedef std::variant<
 // Debug marks reference this table by "ty_idx" indices.
 class SymbolTypesCollecting {
   JsonTypeExporter json_types;
-  std::vector<SrcFilePtr> used_files;
+  std::vector<SrcFilePtr> all_files;
   std::vector<FunctionPtr> used_functions;
 
 public:
   void seed_primitive_types() { json_types.seed_primitive_types(); }
-  void register_used_file(SrcFilePtr file_ref);
-  void register_used_file(SrcRange range);
+  void register_seen_file(SrcFilePtr src_file);
   void register_used_function(FunctionPtr fun_ref);
   void register_used_type(TypePtr type);
 
