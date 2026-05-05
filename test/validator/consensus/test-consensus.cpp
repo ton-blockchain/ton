@@ -867,10 +867,24 @@ class TestManagerFacade : public ManagerFacade {
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
                                  td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
-                                 bool apply) override;
+                                 bool apply) override {
+    CHECK(id.shard_full() == SHARD);
+    LOG(WARNING) << "Accept block #" << id.seqno() << " (" << (signatures->is_final() ? "final" : "notarize")
+                 << " signatures), creator_idx=" << creator_idx;
+    CHECK(id == data->block_id());
+    td::actor::ask(test_consensus_, &TestConsensus::on_block_accepted, node_idx_, instance_idx_, data, creator_idx,
+                   signatures)
+        .detach();
+    co_return td::Unit{};
+  }
 
-  td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override;
-  td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override;
+  td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override {
+    co_return co_await td::actor::ask(test_consensus_, &TestConsensus::wait_block_state_root, block_id);
+  }
+
+  td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override {
+    co_return co_await td::actor::ask(test_consensus_, &TestConsensus::wait_block_data, block_id);
+  }
 
  private:
   size_t node_idx_;
@@ -883,28 +897,6 @@ td::actor::ActorOwn<ManagerFacade> create_test_manager_facade(std::string name, 
                                                               Ref<block::ValidatorSet> validator_set,
                                                               td::actor::ActorId<TestConsensus> test_consensus) {
   return td::actor::create_actor<TestManagerFacade>(name, node_idx, instance_idx, validator_set, test_consensus);
-}
-
-td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
-                                                  td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
-                                                  bool apply) {
-  CHECK(id.shard_full() == SHARD);
-  LOG(WARNING) << "Accept block #" << id.seqno() << " (" << (signatures->is_final() ? "final" : "notarize")
-               << " signatures), creator_idx=" << creator_idx;
-  CHECK(id == data->block_id());
-  td::actor::ask(test_consensus_, &TestConsensus::on_block_accepted, node_idx_, instance_idx_, data, creator_idx,
-                 signatures)
-      .detach();
-  co_return td::Unit{};
-}
-
-td::actor::Task<td::Ref<vm::Cell>> TestManagerFacade::wait_block_state_root(BlockIdExt block_id,
-                                                                            td::Timestamp timeout) {
-  co_return co_await td::actor::ask(test_consensus_, &TestConsensus::wait_block_state_root, block_id);
-}
-
-td::actor::Task<td::Ref<BlockData>> TestManagerFacade::wait_block_data(BlockIdExt block_id, td::Timestamp timeout) {
-  co_return co_await td::actor::ask(test_consensus_, &TestConsensus::wait_block_data, block_id);
 }
 
 }  // namespace
