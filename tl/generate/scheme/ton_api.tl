@@ -1261,7 +1261,6 @@ consensus.simplex.noncriticalParams
     max_leader_window_desync:flags.10?int
     bad_signature_ban_duration_ms:flags.11?int
     candidate_resolve_rate_limit:flags.12?int
-    min_block_interval_ms:flags.13?int
     no_empty_blocks_on_error_timeout_ms:flags.14?int
     = consensus.NoncriticalParams;
 

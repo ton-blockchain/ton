@@ -416,7 +416,9 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
                 .max_leader_window_desync = v1.max_leader_window_desync,
             },
     };
-  } else if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
+  }
+
+  auto populate_v2_or_v3_config = [&](auto& v2) {
     ton::NewConsensusConfig config{
         .max_block_size = consensus_config.max_block_size,
         .max_collated_data_size = consensus_config.max_collated_data_size,
@@ -445,6 +447,14 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
       }
     }
 
+    return config;
+  };
+
+  if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
+    return populate_v2_or_v3_config(v2);
+  } else if (gen::NewConsensusConfig::Record_simplex_config_v3 v3; gen::unpack_cell(c2, v3)) {
+    auto config = populate_v2_or_v3_config(v3);
+    config.min_block_interval = std::chrono::milliseconds{v3.min_block_interval_ms};
     return config;
   }
 
