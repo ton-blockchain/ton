@@ -82,6 +82,8 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   }
 
   td::actor::Task<> generate_candidates(std::shared_ptr<const OurLeaderWindowStarted> event) {
+    using namespace std::literals;
+
     auto& bus = *owning_bus();
 
     auto window = current_leader_window_;
@@ -94,10 +96,11 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     bool block_generation_active = false;
     td::actor::SharedFuture<GeneratedCandidate> block_generation;
 
-    std::chrono::milliseconds hard_timeout = std::max(target_rate_ * 3, std::chrono::milliseconds(60'000));
-    std::chrono::milliseconds start_collate_before =
-        bus.shard.is_masterchain() ? std::chrono::milliseconds(0) : target_rate_;
-    td::Timestamp slot_start = event->start_time;
+    auto hard_timeout = std::max(target_rate_ * 3, 60'000ms);
+    auto start_collate_before = bus.shard.is_masterchain() ? 0ms : target_rate_;
+
+    auto slot_start_utc = event->start_time;
+    auto slot_start = td::Timestamp::at_unix(slot_start_utc);
 
     for (td::uint32 slot = event->start_slot; current_leader_window_ == window && slot < event->end_slot; ++slot) {
       co_await td::actor::coro_sleep(slot_start - start_collate_before);
@@ -113,7 +116,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
             .prev = state->block_ids(),
             .creator = Ed25519_PublicKey{bus.local_id.key.ed25519_value().raw()},
             .skip_store_candidate = true,
-            .utime = slot_start.at_unix(),
+            .utime = slot_start_utc,
             .hard_timeout = slot_start + hard_timeout,
             .prev_block_data = state->block_data(),
             .prev_block_state_roots = state->state(),
@@ -208,6 +211,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, true));
       parent = id;
 
+      slot_start_utc += target_rate_;
       slot_start += target_rate_;
     }
 

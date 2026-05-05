@@ -48,7 +48,7 @@ constexpr int VERBOSITY_NAME(VALIDATOR_DEBUG) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(VALIDATOR_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 
 struct CandidateAccept {
-  double ok_from_utime = 0.0;
+  td::UTCMilliseconds ok_from_utime;
 };
 
 struct CandidateReject {

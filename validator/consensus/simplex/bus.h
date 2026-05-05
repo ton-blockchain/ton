@@ -74,7 +74,7 @@ struct StoreCandidate {
 struct ResolveState {
   struct Result {
     ChainStateRef state;
-    std::optional<double> gen_utime_exact = std::nullopt;
+    std::optional<td::UTCMilliseconds> gen_utime_exact = std::nullopt;
   };
 
   using ReturnType = Result;

@@ -353,7 +353,6 @@ class TestManagerFacade : public ManagerFacade {
     if (prev_seqno != 0) {
       CHECK(params.prev_block_data.size() == 1 && params.prev_block_data[0]->block_id() == params.prev[0]);
     }
-    double gen_utime = params.utime ? params.utime.value() : td::Clocks::system();
 
     block::gen::BlockInfo::Record info;
     info.version = 0;
@@ -369,7 +368,8 @@ class TestManagerFacade : public ManagerFacade {
     block::ShardId{SHARD}.serialize(cb);
     info.shard = cb.as_cellslice_ref();
 
-    info.gen_utime = (UnixTime)gen_utime;
+    auto gen_utime = std::chrono::floor<std::chrono::seconds>(params.utime).time_since_epoch().count();
+    info.gen_utime = static_cast<UnixTime>(gen_utime);
     info.start_lt = (LogicalTime)info.seq_no * 1000;
     info.end_lt = (LogicalTime)info.seq_no * 1000 + 1;
     info.gen_validator_list_hash_short = validator_set_->get_validator_set_hash();
@@ -406,7 +406,7 @@ class TestManagerFacade : public ManagerFacade {
     auto cell = vm::CellBuilder{}
                     .store_long(0x638eb292, 32)
                     .store_long(0, 32)
-                    .store_long((td::uint64)(gen_utime * 1000.0), 64)
+                    .store_long(params.utime.time_since_epoch().count(), 64)
                     .finalize_novm();
     collated_roots.push_back(std::move(cell));
     td::BufferSlice collated_data = co_await vm::std_boc_serialize_multi(collated_roots, 2);

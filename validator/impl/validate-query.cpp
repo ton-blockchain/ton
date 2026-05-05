@@ -257,8 +257,9 @@ void ValidateQuery::finish_query() {
   if (main_promise) {
     record_stats(true);
     LOG(WARNING) << "validate query done";
-    double ok_from_utime = now_ms_ ? (double)now_ms_.value() / 1000.0 : (double)now_;
-    main_promise.set_result(CandidateAccept{.ok_from_utime = ok_from_utime});
+    main_promise.set_result(CandidateAccept{
+        .ok_from_utime = td::UTCMilliseconds{std::chrono::milliseconds{now_ms_.value()}},
+    });
   }
   stop();
 }
