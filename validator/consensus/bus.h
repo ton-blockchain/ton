@@ -42,7 +42,7 @@ struct OurLeaderWindowStarted {
   ChainStateRef state;
   td::uint32 start_slot;
   td::uint32 end_slot;
-  td::Timestamp start_time;
+  td::UTCMilliseconds start_time;  // exact gen_utime of the first block
 
   std::string contents_to_string() const;
 };

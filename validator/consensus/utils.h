@@ -6,14 +6,11 @@
 
 #pragma once
 
-#include "interfaces/block.h"
-#include "td/actor/common.h"
-#include "td/actor/coro_task.h"
-#include "td/utils/Status.h"
+#include "td/utils/Time.h"
 #include "ton/ton-types.h"
 
 namespace ton::validator::consensus {
 
-td::Result<double> get_candidate_gen_utime_exact(const BlockCandidate& candidate);
+td::Result<td::UTCMilliseconds> get_candidate_gen_utime_exact(const BlockCandidate& candidate);
 
 }  // namespace ton::validator::consensus
