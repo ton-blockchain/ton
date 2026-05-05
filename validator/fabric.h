@@ -57,6 +57,8 @@ struct ValidateParams {
   td::Ref<block::ValidatorSet> validator_set = {};
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
 
+  std::optional<td::UTCMilliseconds> min_gen_utime = std::nullopt;
+
   bool is_fake = false;
   bool skip_store_candidate = false;
 

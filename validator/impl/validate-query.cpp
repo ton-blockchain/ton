@@ -92,6 +92,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , block_candidate(std::move(candidate))
     , validator_set_(std::move(params.validator_set))
     , local_validator_id_(params.local_validator_id)
+    , min_gen_utime_(params.min_gen_utime)
     , manager(manager)
     , timeout(timeout)
     , main_promise(std::move(promise))
@@ -2441,6 +2442,14 @@ bool ValidateQuery::check_utime_lt() {
   if (now_ms_.value() / 1000 != now_) {
     return reject_query(PSTRING() << "gen_utime is " << now_ << ", but gen_utime_ms in ConsensusExtraData is "
                                   << now_ms_.value());
+  }
+  if (min_gen_utime_.has_value()) {
+    td::UTCMilliseconds now_ts{std::chrono::milliseconds{*now_ms_}};
+    if (now_ts < *min_gen_utime_) {
+      return reject_query(PSTRING() << "now_ms is " << now_ms_.value()
+                                    << " which is less than the minimum allowed gen_utime_ms of "
+                                    << min_gen_utime_->time_since_epoch().count());
+    }
   }
   return true;
 }

@@ -137,6 +137,7 @@ class ValidateQuery : public td::actor::Actor {
   BlockCandidate block_candidate;
   td::Ref<block::ValidatorSet> validator_set_;
   PublicKeyHash local_validator_id_ = PublicKeyHash::zero();
+  std::optional<td::UTCMilliseconds> min_gen_utime_;
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout;
   td::Promise<ValidateCandidateResult> main_promise;

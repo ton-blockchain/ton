@@ -540,6 +540,7 @@ struct NewConsensusConfig {
 
   bool use_quic = false;
   td::uint32 slots_per_leader_window = 4;
+  std::chrono::milliseconds min_block_interval{-1'000};
 
   // When adding a new noncritical parameters, also add it to consensus.simplex.noncriticalParams TL scheme
   // clang-format off
@@ -557,7 +558,6 @@ struct NewConsensusConfig {
   uint32_fn(10, max_leader_window_desync, 250)                          \
   duration_fn(11, bad_signature_ban_duration, 5'000)                    \
   uint32_fn(12, candidate_resolve_rate_limit, 10)                       \
-  duration_fn(13, min_block_interval, 0)                                \
   duration_fn(14, no_empty_blocks_on_error_timeout, 15'000)
   // clang-format on
 
