@@ -13,14 +13,33 @@
 
 namespace ton::validator::consensus {
 
+namespace {
+
+td::Result<td::UTCMilliseconds> get_candidate_gen_utime_exact(const BlockCandidate& candidate) {
+  TRY_RESULT(cdata_roots, vm::std_boc_deserialize_multi(candidate.collated_data));
+  for (const td::Ref<vm::Cell>& root : cdata_roots) {
+    if (!block::gen::t_ConsensusExtraData.validate_ref(10000, root)) {
+      continue;
+    }
+    block::gen::ConsensusExtraData::Record rec;
+    CHECK(block::gen::unpack_cell(root, rec));
+    return td::UTCMilliseconds{std::chrono::milliseconds{rec.gen_utime_ms}};
+  }
+  return td::Status::Error("no ConsensusExtraData in candidate");
+}
+
+}  // namespace
+
 td::actor::Task<td::Ref<ChainState>> ChainState::from_manager(td::actor::ActorId<ManagerFacade> manager,
                                                               ShardIdFull shard, std::vector<BlockIdExt> blocks,
-                                                              BlockIdExt min_mc_block_id) {
+                                                              BlockIdExt min_mc_block_id,
+                                                              const BlockCandidate* candidate_or_null) {
   if (blocks.size() == 1 && blocks[0].seqno() == 0) {
     CHECK(blocks[0].shard_full() == shard);
+    CHECK(candidate_or_null == nullptr);
     auto state =
         co_await td::actor::ask(manager, &ManagerFacade::wait_block_state_root, blocks[0], td::Timestamp::in(10.0));
-    co_return td::make_ref<ChainState>(ZerostateTip{blocks[0], state}, min_mc_block_id);
+    co_return td::make_ref<ChainState>(ZerostateTip{blocks[0], state}, min_mc_block_id, std::nullopt);
   }
 
   std::vector<td::actor::StartedTask<td::Ref<vm::Cell>>> wait_state_root;
@@ -37,6 +56,7 @@ td::actor::Task<td::Ref<ChainState>> ChainState::from_manager(td::actor::ActorId
   auto blocks_data = co_await td::actor::all(std::move(wait_block_data));
 
   if (blocks.size() == 2) {
+    CHECK(candidate_or_null == nullptr);
     auto shard_0 = shard_child(shard_parent(blocks[0].shard_full()), true);
     auto shard_1 = shard_child(shard_parent(blocks[0].shard_full()), false);
     CHECK(blocks[0].shard_full() == shard_0 && blocks[1].shard_full() == shard_1);
@@ -46,14 +66,21 @@ td::actor::Task<td::Ref<ChainState>> ChainState::from_manager(td::actor::ActorId
             .left = NormalTip{blocks_data[0], states[0]},
             .right = NormalTip{blocks_data[1], states[1]},
         },
-        min_mc_block_id);
+        min_mc_block_id, std::nullopt);
   } else {
     CHECK(blocks.size() == 1);
     if (shard == blocks[0].shard_full()) {
-      co_return td::make_ref<ChainState>(NormalTip{blocks_data[0], states[0]}, min_mc_block_id);
+      std::optional<td::UTCMilliseconds> utime;
+      if (candidate_or_null != nullptr) {
+        CHECK(candidate_or_null->id == blocks[0]);
+        utime = get_candidate_gen_utime_exact(*candidate_or_null).move_as_ok();
+      }
+      co_return td::make_ref<ChainState>(NormalTip{blocks_data[0], states[0]}, min_mc_block_id, utime);
     } else {
+      CHECK(candidate_or_null == nullptr);
       CHECK(shard_is_parent(blocks[0].shard_full(), shard));
-      co_return td::make_ref<ChainState>(BeforeSplitTip{NormalTip{blocks_data[0], states[0]}}, min_mc_block_id);
+      co_return td::make_ref<ChainState>(BeforeSplitTip{NormalTip{blocks_data[0], states[0]}}, min_mc_block_id,
+                                         std::nullopt);
     }
   }
 }
@@ -72,6 +99,10 @@ std::vector<td::Ref<vm::Cell>> ChainState::state() const {
 
 BlockIdExt ChainState::min_mc_block_id() const {
   return min_mc_block_id_;
+}
+
+std::optional<td::UTCMilliseconds> ChainState::utime() const {
+  return utime_;
 }
 
 BlockSeqno ChainState::next_seqno() const {
@@ -122,7 +153,8 @@ td::Ref<ChainState> ChainState::apply(const BlockCandidate& candidate) const {
 
     auto state = vm::MerkleUpdate::apply(root_, rec.state_update).ensure().move_as_ok();
 
-    return td::Ref<ChainState>(new ChainState{NormalTip{block, state}, min_mc_block_id_},
+    auto utime = get_candidate_gen_utime_exact(candidate).move_as_ok();
+    return td::Ref<ChainState>(new ChainState{NormalTip{block, state}, min_mc_block_id_, utime},
                                td::Ref<ChainState>::acquire_t{});
   } catch (vm::CellBuilder::CellCreateError& e) {
     LOG(FATAL) << "Failed to apply Merkle update of " << candidate.id.to_str() << ": CellCreateError";
@@ -143,8 +175,8 @@ td::Ref<vm::Cell> ChainState::BeforeMergeTip::root() const {
   return result;
 }
 
-ChainState::ChainState(Tip tip, BlockIdExt min_mc_block_id)
-    : tip_(std::move(tip)), min_mc_block_id_(std::move(min_mc_block_id)) {
+ChainState::ChainState(Tip tip, BlockIdExt min_mc_block_id, std::optional<td::UTCMilliseconds> utime)
+    : tip_(std::move(tip)), min_mc_block_id_(std::move(min_mc_block_id)), utime_(utime) {
   root_ = std::visit([](const auto& tip) { return tip.root(); }, this->tip_);
 }
 
@@ -154,7 +186,8 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const ChainState& state) {
     blocks.push_back(block.to_str());
   }
 
-  return sb << "ChainState{min_mc_block_id=" << state.min_mc_block_id().to_str() << ", tip=" << blocks << "}";
+  return sb << "ChainState{min_mc_block_id=" << state.min_mc_block_id().to_str() << ", tip=" << blocks
+            << ", utime=" << (state.utime() ? (PSTRING() << *state.utime()) : "nullopt") << "}";
 }
 
 }  // namespace ton::validator::consensus

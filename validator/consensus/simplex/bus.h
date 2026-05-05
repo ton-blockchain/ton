@@ -72,17 +72,12 @@ struct StoreCandidate {
 };
 
 struct ResolveState {
-  struct Result {
-    ChainStateRef state;
-    std::optional<td::UTCMilliseconds> gen_utime_exact = std::nullopt;
-  };
-
-  using ReturnType = Result;
+  using ReturnType = ChainStateRef;
 
   ParentId id;
 
   std::string contents_to_string() const;
-  static std::string response_to_string(const ReturnType&);
+  static std::string response_to_string(const ChainStateRef&);
 };
 
 struct SaveCertificate {

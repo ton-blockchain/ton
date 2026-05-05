@@ -9,7 +9,6 @@
 #include "block/block.h"
 #include "block/validator-set.h"
 #include "consensus/simplex/bus.h"
-#include "consensus/utils.h"
 #include "td/actor/BusRuntime.h"
 #include "td/actor/coro_utils.h"
 #include "td/db/MemoryKeyValue.h"
@@ -392,6 +391,18 @@ class TestConsensus : public td::actor::Actor {
     std::exit(0);
   }
 
+  td::actor::Task<> register_collated_utime(BlockIdExt block_id, td::UTCMilliseconds utime) {
+    auto [it, inserted] = collated_utimes_.emplace(block_id, utime);
+    LOG_CHECK(inserted || it->second == utime) << "Different utimes registered for block " << block_id.to_str();
+    co_return {};
+  }
+
+  td::actor::Task<td::UTCMilliseconds> get_collated_utime(BlockIdExt block_id) {
+    auto it = collated_utimes_.find(block_id);
+    LOG_CHECK(it != collated_utimes_.end()) << "No collated utime for block " << block_id.to_str();
+    co_return it->second;
+  }
+
   td::actor::Task<> on_block_accepted(size_t node_idx, size_t instance_idx, td::Ref<BlockData> block,
                                       size_t creator_idx, td::Ref<block::BlockSignatureSet> signatures) {
     BlockIdExt block_id = block->block_id();
@@ -578,8 +589,8 @@ class TestConsensus : public td::actor::Actor {
                              PSTRING() << "consensus." << node_idx << "." << instance_idx);
     inst.status = Instance::Running;
     inst.bus.publish<BlockFinalizedInMasterchain>(last_accepted_block_);
-    inst.bus.publish<Start>(
-        td::make_ref<ChainState>(ChainState::ZerostateTip{FIRST_PARENT, gen_shard_state(0)}, MIN_MC_BLOCK_ID));
+    inst.bus.publish<Start>(td::make_ref<ChainState>(ChainState::ZerostateTip{FIRST_PARENT, gen_shard_state(0)},
+                                                     MIN_MC_BLOCK_ID, std::nullopt));
     LOG(ERROR) << "Starting node #" << node_idx << "." << instance_idx;
   }
 
@@ -755,6 +766,7 @@ class TestConsensus : public td::actor::Actor {
   td::actor::ActorOwn<keyring::Keyring> keyring_;
 
   std::map<BlockSeqno, td::Ref<BlockData>> accepted_blocks_;
+  std::map<BlockIdExt, td::UTCMilliseconds> collated_utimes_;
   BlockIdExt last_accepted_block_ = FIRST_PARENT;
   td::optional<size_t> last_accepted_block_leader_idx_;
   bool finishing_ = false;
@@ -848,6 +860,7 @@ class TestManagerFacade : public ManagerFacade {
         BlockIdExt(BlockId(params.shard, prev_seqno + 1), block_root->get_hash().bits(), td::sha256_bits256(data)),
         td::sha256_bits256(collated_data), data.clone(), collated_data.clone());
     CHECK(params.skip_store_candidate);
+    co_await td::actor::ask(test_consensus_, &TestConsensus::register_collated_utime, candidate.id, params.utime);
     co_return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
   }
 
@@ -862,7 +875,8 @@ class TestManagerFacade : public ManagerFacade {
     CHECK(params.prev_block_state_roots.size() == 1 &&
           params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash());
     co_await td::actor::coro_sleep(td::Timestamp::in(td::Random::fast(VALIDATION_TIME.first, VALIDATION_TIME.second)));
-    co_return CandidateAccept{.ok_from_utime = co_await get_candidate_gen_utime_exact(candidate)};
+    auto ok_from_utime = co_await td::actor::ask(test_consensus_, &TestConsensus::get_collated_utime, candidate.id);
+    co_return CandidateAccept{.ok_from_utime = ok_from_utime};
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,

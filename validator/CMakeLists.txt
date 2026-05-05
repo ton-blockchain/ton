@@ -115,7 +115,6 @@ set(VALIDATOR_SOURCE
   consensus/trace-collector.cpp
   consensus/stats.cpp
   consensus/types.cpp
-  consensus/utils.cpp
 
   ${VALIDATOR_HEADERS}
 )

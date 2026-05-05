@@ -310,7 +310,8 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   td::actor::Task<> resolve_state_and_start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) {
-    auto state = co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id);
+    auto state =
+        co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id, nullptr);
     start_event_ = std::make_shared<Start>(state);
     maybe_start_group();
     co_return {};
