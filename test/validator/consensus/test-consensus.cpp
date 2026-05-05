@@ -330,6 +330,10 @@ td::actor::Task<td::BufferSlice> TestOverlay::send_query(PeerValidator src, size
 
 class TestConsensus;
 
+td::actor::ActorOwn<ManagerFacade> create_test_manager_facade(std::string name, size_t node_idx, size_t instance_idx,
+                                                              Ref<block::ValidatorSet> validator_set,
+                                                              td::actor::ActorId<TestConsensus> test_consensus);
+
 class TestManagerFacade : public ManagerFacade {
  public:
   explicit TestManagerFacade(size_t node_idx, size_t instance_idx, Ref<block::ValidatorSet> validator_set,
@@ -664,9 +668,8 @@ class TestConsensus : public td::actor::Actor {
     simplex::StateResolver::register_in(runtime);
     simplex::Db::register_in(runtime);
 
-    inst.manager_facade =
-        td::actor::create_actor<TestManagerFacade>(PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx,
-                                                   node_idx, instance_idx, validator_set_, actor_id(this));
+    inst.manager_facade = create_test_manager_facade(PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx,
+                                                     node_idx, instance_idx, validator_set_, actor_id(this));
     auto [stop_task, stop_promise] = td::actor::StartedTask<>::make_bridge();
     auto bus = std::make_shared<TestSimplexBus>();
     inst.stop_waiter = std::move(stop_task);
@@ -842,7 +845,7 @@ class TestConsensus : public td::actor::Actor {
 
   struct Instance {
     td::actor::Runtime runtime;
-    td::actor::ActorOwn<TestManagerFacade> manager_facade;
+    td::actor::ActorOwn<ManagerFacade> manager_facade;
     simplex::BusHandle bus;
 
     BlockSeqno last_accepted_block = FIRST_PARENT.seqno();
@@ -875,6 +878,12 @@ class TestConsensus : public td::actor::Actor {
   td::optional<size_t> last_accepted_block_leader_idx_;
   bool finishing_ = false;
 };
+
+td::actor::ActorOwn<ManagerFacade> create_test_manager_facade(std::string name, size_t node_idx, size_t instance_idx,
+                                                              Ref<block::ValidatorSet> validator_set,
+                                                              td::actor::ActorId<TestConsensus> test_consensus) {
+  return td::actor::create_actor<TestManagerFacade>(name, node_idx, instance_idx, validator_set, test_consensus);
+}
 
 td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
                                                   td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
