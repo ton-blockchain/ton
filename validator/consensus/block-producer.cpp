@@ -99,7 +99,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     auto hard_timeout = std::max(target_rate_ * 3, 60'000ms);
     auto start_collate_before = bus.shard.is_masterchain() ? 0ms : target_rate_;
 
-    auto slot_start_utc = event->start_time;
+    CHECK(event->state->utime() || !parent.has_value());
+    auto slot_start_utc = event->state->utime().value_or(td::UTCMilliseconds::min()) + target_rate_;
+    slot_start_utc = std::max(slot_start_utc, std::chrono::floor<std::chrono::milliseconds>(td::UTCClock::now()));
+
     auto slot_start = td::Timestamp::at_unix(slot_start_utc);
 
     for (td::uint32 slot = event->start_slot; current_leader_window_ == window && slot < event->end_slot; ++slot) {

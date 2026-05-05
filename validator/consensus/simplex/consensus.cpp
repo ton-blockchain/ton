@@ -6,7 +6,6 @@
 
 #include "consensus/simplex/state.h"
 #include "consensus/stats.h"
-#include "consensus/utils.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
@@ -199,13 +198,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     }
 
     auto parent = co_await owning_bus().publish<ResolveState>(base);
-
-    auto start_time = std::chrono::floor<std::chrono::milliseconds>(td::UTCClock::now());
-    if (base.has_value()) {
-      start_time = std::max(start_time, parent.gen_utime_exact.value() + params_.target_rate);
-    }
-    owning_bus().publish<OurLeaderWindowStarted>(base, parent.state, start_slot, start_slot + slots_per_leader_window_,
-                                                 start_time);
+    owning_bus().publish<OurLeaderWindowStarted>(base, parent, start_slot, start_slot + slots_per_leader_window_);
     co_return {};
   }
 
@@ -221,14 +214,14 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
     auto parent = co_await owning_bus().publish<ResolveState>(candidate->parent_id);
 
-    if (!candidate->is_empty() && parent.gen_utime_exact.has_value()) {
-      auto earliest = td::Timestamp::at_unix(*parent.gen_utime_exact) + params_.min_block_interval;
+    if (!candidate->is_empty() && parent->utime().has_value()) {
+      auto earliest = td::Timestamp::at_unix(*parent->utime()) + params_.min_block_interval;
       if (!earliest.is_in_past()) {
         co_await td::actor::coro_sleep(earliest);
       }
     }
 
-    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate);
+    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent, candidate);
 
     if (validation_result.has<CandidateReject>()) {
       LOG(WARNING) << "Candidate " << candidate->id
