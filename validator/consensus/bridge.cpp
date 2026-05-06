@@ -230,6 +230,7 @@ class BridgeImpl final : public IValidatorGroup {
     bool found = false;
     size_t idx = 0;
     ValidatorWeight total_weight = 0;
+    // The config loader caps total validator weight at 2^61, so this accumulation fits in uint64.
     for (const auto& el : params_.validator_set->export_vector()) {
       PublicKey key{pubkeys::Ed25519{el.key}};
       PublicKeyHash short_id = key.compute_short_id();

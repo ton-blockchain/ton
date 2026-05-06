@@ -31,9 +31,11 @@ td::Result<td::Ref<Certificate<T>>> Certificate<T>::from_tl(tl::voteSignatureSet
 
     auto validator = PeerValidatorId{who}.get_using(bus);
     signatures.emplace_back(VoteSignature{validator.idx, std::move(signature->signature_)});
+    // Duplicates are rejected above, so voted_weight is bounded by the 2^61-capped total weight.
     voted_weight += validator.weight;
   }
 
+  // bus.total_weight is capped at 2^61, so multiplying by 2 cannot overflow uint64.
   if (voted_weight < (bus.total_weight * 2) / 3 + 1) {
     return td::Status::Error("Not enough signatures in certificate");
   }
