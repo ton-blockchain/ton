@@ -107,7 +107,7 @@ void ShardClient::download_shard_states(BlockIdExt masterchain_block_id, std::ve
 }
 
 void ShardClient::applied_all_shards() {
-  LOG(DEBUG) << "shardclient: " << masterchain_block_handle_->id().to_str() << " finished";
+  LOG(DEBUG) << "shardclient: " << masterchain_block_handle_->id() << " finished";
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &ShardClient::saved_to_db);
@@ -173,7 +173,7 @@ void ShardClient::got_masterchain_block_state(td::Ref<MasterchainState> state) {
 }
 
 void ShardClient::apply_all_shards() {
-  LOG(DEBUG) << "shardclient: " << masterchain_block_handle_->id().to_str() << " started";
+  LOG(DEBUG) << "shardclient: " << masterchain_block_handle_->id() << " started";
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     if (R.is_error()) {
@@ -196,7 +196,7 @@ void ShardClient::apply_all_shards() {
       auto Q = td::PromiseCreator::lambda([SelfId = actor_id(this), promise = ig.get_promise(),
                                            shard = shard->shard()](td::Result<td::Ref<ShardState>> R) mutable {
         if (R.is_error()) {
-          promise.set_error(R.move_as_error_prefix(PSTRING() << "shard " << shard.to_str() << ": "));
+          promise.set_error(R.move_as_error_prefix(PSTRING() << "shard " << shard << ": "));
         } else {
           td::actor::send_closure(SelfId, &ShardClient::downloaded_shard_state, R.move_as_ok(), std::move(promise));
         }
@@ -234,10 +234,9 @@ void ShardClient::new_masterchain_block_notification(BlockHandle handle, td::Ref
   if (handle->id().id.seqno <= masterchain_block_handle_->id().id.seqno) {
     return;
   }
-  LOG_CHECK(masterchain_block_handle_->inited_next_left())
-      << handle->id().to_str() << " " << masterchain_block_handle_->id().to_str();
+  LOG_CHECK(masterchain_block_handle_->inited_next_left()) << handle->id() << " " << masterchain_block_handle_->id();
   LOG_CHECK(masterchain_block_handle_->one_next(true) == handle->id())
-      << handle->id().to_str() << " " << masterchain_block_handle_->id().to_str();
+      << handle->id() << " " << masterchain_block_handle_->id();
   masterchain_block_handle_ = std::move(handle);
   masterchain_state_ = std::move(state);
   waiting_ = false;

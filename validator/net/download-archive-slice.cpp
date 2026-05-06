@@ -20,6 +20,7 @@
 
 #include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
+#include "ton/ton-io.hpp"
 
 #include "download-archive-slice.hpp"
 
@@ -155,7 +156,7 @@ void DownloadArchiveSlice::got_archive_info(td::BufferSlice data) {
   }
 
   prev_logged_timer_ = td::Timer();
-  LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str() << " from "
+  LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << " " << shard_prefix_ << " from "
             << download_from_;
   get_archive_slice();
 }
@@ -197,14 +198,13 @@ void DownloadArchiveSlice::got_archive_slice(td::BufferSlice data) {
   double elapsed = prev_logged_timer_.elapsed();
   if (elapsed > 10.0) {
     prev_logged_timer_ = td::Timer();
-    LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str()
-              << ": total=" << offset_ << " ("
-              << td::format::as_size((td::uint64)(double(offset_ - prev_logged_sum_) / elapsed)) << "/s)";
+    LOG(INFO) << "downloading archive slice #" << masterchain_seqno_ << " " << shard_prefix_ << ": total=" << offset_
+              << " (" << td::format::as_size((td::uint64)(double(offset_ - prev_logged_sum_) / elapsed)) << "/s)";
     prev_logged_sum_ = offset_;
   }
 
   if (data.size() < slice_size()) {
-    LOG(INFO) << "finished downloading arcrive slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str()
+    LOG(INFO) << "finished downloading arcrive slice #" << masterchain_seqno_ << " " << shard_prefix_
               << ": total=" << offset_;
     finish_query();
   } else {

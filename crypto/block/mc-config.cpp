@@ -36,6 +36,7 @@
 #include "openssl/digest.hpp"
 #include "td/utils/bits.h"
 #include "td/utils/uint128.h"
+#include "ton/ton-io.hpp"
 #include "ton/ton-shard.h"
 #include "ton/ton-types.h"
 #include "vm/dict.h"
@@ -1636,30 +1637,26 @@ td::Result<bool> ShardConfig::may_update_shard_block_info(Ref<McShardHash> new_i
     }
     if (odef->before_split_ != before_split) {
       return td::Status::Error(
-          -666, PSTRING() << "the shard of the start block " << ob.to_str()
-                          << " had before_split=" << odef->before_split_
+          -666, PSTRING() << "the shard of the start block " << ob << " had before_split=" << odef->before_split_
                           << " but the top shard block update is valid only if before_split=" << before_split);
     }
     if (odef->before_merge_ != before_merge) {
       return td::Status::Error(
-          -666, PSTRING() << "the shard of the start block " << ob.to_str()
-                          << " had before_merge=" << odef->before_merge_
+          -666, PSTRING() << "the shard of the start block " << ob << " had before_merge=" << odef->before_merge_
                           << " but the top shard block update is valid only if before_merge=" << before_merge);
     }
     if (new_info->before_split_) {
       if (before_merge || before_split) {
-        return td::Status::Error(
-            -666, PSTRING() << "cannot register a before-split block " << new_info->top_block_id().to_str()
-                            << " at the end of a chain that itself starts with a split/merge event");
+        return td::Status::Error(-666, PSTRING()
+                                           << "cannot register a before-split block " << new_info->top_block_id()
+                                           << " at the end of a chain that itself starts with a split/merge event");
       }
       if (odef->fsm_state() != block::McShardHash::FsmState::fsm_split) {
-        return td::Status::Error(-666, PSTRING() << "cannot register a before-split block "
-                                                 << new_info->top_block_id().to_str()
+        return td::Status::Error(-666, PSTRING() << "cannot register a before-split block " << new_info->top_block_id()
                                                  << " because fsm_split state was not set for this shard beforehand");
       }
       if (new_info->gen_utime_ < odef->fsm_utime_ || new_info->gen_utime_ >= odef->fsm_utime_ + odef->fsm_interval_) {
-        return td::Status::Error(-666, PSTRING() << "cannot register a before-split block "
-                                                 << new_info->top_block_id().to_str()
+        return td::Status::Error(-666, PSTRING() << "cannot register a before-split block " << new_info->top_block_id()
                                                  << " because fsm_split state was enabled for unixtime "
                                                  << odef->fsm_utime_ << " .. " << odef->fsm_utime_ + odef->fsm_interval_
                                                  << " but the block is generated at " << new_info->gen_utime_);
@@ -1667,14 +1664,14 @@ td::Result<bool> ShardConfig::may_update_shard_block_info(Ref<McShardHash> new_i
     }
     if (before_merge) {
       if (odef->fsm_state() != block::McShardHash::FsmState::fsm_merge) {
-        return td::Status::Error(-666, PSTRING() << "cannot register merged block " << new_info->top_block_id().to_str()
+        return td::Status::Error(-666, PSTRING() << "cannot register merged block " << new_info->top_block_id()
                                                  << " because fsm_merge state was not set for shard "
-                                                 << odef->top_block_id().shard_full().to_str() << " beforehand");
+                                                 << odef->top_block_id().shard_full() << " beforehand");
       }
       if (new_info->gen_utime_ < odef->fsm_utime_ || new_info->gen_utime_ >= odef->fsm_utime_ + odef->fsm_interval_) {
-        return td::Status::Error(-666, PSTRING() << "cannot register merged block " << new_info->top_block_id().to_str()
+        return td::Status::Error(-666, PSTRING() << "cannot register merged block " << new_info->top_block_id()
                                                  << " because fsm_merge state was enabled for shard "
-                                                 << odef->top_block_id().shard_full().to_str() << " for unixtime "
+                                                 << odef->top_block_id().shard_full() << " for unixtime "
                                                  << odef->fsm_utime_ << " .. " << odef->fsm_utime_ + odef->fsm_interval_
                                                  << " but the block is generated at " << new_info->gen_utime_);
       }
@@ -1806,8 +1803,7 @@ static bool btree_set(Ref<vm::Cell>& root, ton::ShardId shard, Ref<vm::Cell> val
 
 bool ShardConfig::set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value) {
   if (!gen::t_BinTree_ShardDescr.validate_ref(1024, value)) {
-    LOG(ERROR) << "attempting to store an invalid (BinTree ShardDescr) at shard configuration position "
-               << shard.to_str();
+    LOG(ERROR) << "attempting to store an invalid (BinTree ShardDescr) at shard configuration position " << shard;
     FLOG(WARNING) {
       gen::t_BinTree_ShardDescr.print_ref(sb, value);
       vm::load_cell_slice(value).print_rec(sb);
@@ -1816,11 +1812,11 @@ bool ShardConfig::set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value) {
   }
   auto root = shard_hashes_dict_->lookup_ref(td::BitArray<32>{shard.workchain});
   if (root.is_null()) {
-    LOG(ERROR) << "attempting to store a new ShardDescr for shard " << shard.to_str() << " in an undefined workchain";
+    LOG(ERROR) << "attempting to store a new ShardDescr for shard " << shard << " in an undefined workchain";
     return false;
   }
   if (!btree_set(root, shard.shard, value)) {
-    LOG(ERROR) << "error while storing a new ShardDescr for shard " << shard.to_str() << " into shard configuration";
+    LOG(ERROR) << "error while storing a new ShardDescr for shard " << shard << " into shard configuration";
     return false;
   }
   if (!shard_hashes_dict_->set_ref(td::BitArray<32>{shard.workchain}, std::move(root),

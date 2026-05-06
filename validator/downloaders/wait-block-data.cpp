@@ -37,14 +37,13 @@ void WaitBlockData::alarm() {
 void WaitBlockData::abort_query(td::Status reason) {
   if (promise_) {
     if (priority_ > 0 || (reason.code() != ErrorCode::timeout && reason.code() != ErrorCode::notready)) {
-      LOG(WARNING) << "aborting wait block data query for " << handle_->id().to_str() << " priority=" << priority_
-                   << ": " << reason;
+      LOG(WARNING) << "aborting wait block data query for " << handle_->id() << " priority=" << priority_ << ": "
+                   << reason;
     } else {
-      LOG(DEBUG) << "aborting wait block data query for " << handle_->id().to_str() << " priority=" << priority_ << ": "
+      LOG(DEBUG) << "aborting wait block data query for " << handle_->id() << " priority=" << priority_ << ": "
                  << reason;
     }
-    promise_.set_error(
-        reason.move_as_error_prefix(PSTRING() << "failed to download " << handle_->id().to_str() << ": "));
+    promise_.set_error(reason.move_as_error_prefix(PSTRING() << "failed to download " << handle_->id() << ": "));
   }
   stop();
 }
@@ -140,9 +139,9 @@ void WaitBlockData::got_block_data_from_db(td::Ref<BlockData> data) {
 
 void WaitBlockData::failed_to_get_block_data_from_net(td::Status reason) {
   if (reason.code() == ErrorCode::notready) {
-    LOG(DEBUG) << "failed to get block " << handle_->id().to_str() << " data from net: " << reason;
+    LOG(DEBUG) << "failed to get block " << handle_->id() << " data from net: " << reason;
   } else {
-    LOG(WARNING) << "failed to get block " << handle_->id().to_str() << " data from net: " << reason;
+    LOG(WARNING) << "failed to get block " << handle_->id() << " data from net: " << reason;
   }
 
   delay_action([SelfId = actor_id(this)]() mutable { td::actor::send_closure(SelfId, &WaitBlockData::start); },
@@ -183,7 +182,7 @@ void WaitBlockData::loaded_block_data(td::Ref<BlockData> block) {
                                                         R.move_as_error_prefix("validate proof link error: "));
                                 return;
                               }
-                              LOG(DEBUG) << "Created and validated proof link for " << id.to_str();
+                              LOG(DEBUG) << "Created and validated proof link for " << id;
                               td::actor::send_closure(SelfId, &WaitBlockData::checked_proof_link);
                             });
     return;

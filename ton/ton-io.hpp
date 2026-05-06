@@ -28,4 +28,20 @@ inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::Bits2
   return stream << td::base64_encode(td::Slice(x.data(), x.size() / 8));
 }
 
+inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::ShardIdFull &x) {
+  return stream << x.to_str();
+}
+
+inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::AccountIdPrefixFull &x) {
+  return stream << x.to_str();
+}
+
+inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::BlockId &x) {
+  return stream << x.to_str();
+}
+
+inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::BlockIdExt &x) {
+  return stream << x.to_str();
+}
+
 }  // namespace td

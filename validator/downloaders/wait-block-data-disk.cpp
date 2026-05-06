@@ -32,9 +32,8 @@ void WaitBlockDataDisk::alarm() {
 
 void WaitBlockDataDisk::abort_query(td::Status reason) {
   if (promise_) {
-    LOG(WARNING) << "aborting wait block data (disk) query for block " << handle_->id().to_str() << ": " << reason;
-    promise_.set_error(
-        reason.move_as_error_prefix(PSTRING() << "failed to download (disk) " << handle_->id().to_str() << ": "));
+    LOG(WARNING) << "aborting wait block data (disk) query for block " << handle_->id() << ": " << reason;
+    promise_.set_error(reason.move_as_error_prefix(PSTRING() << "failed to download (disk) " << handle_->id() << ": "));
   }
   stop();
 }

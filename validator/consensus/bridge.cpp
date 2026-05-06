@@ -6,6 +6,7 @@
 
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
+#include "ton/ton-io.hpp"
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
 #include "validator/validator-group.hpp"
@@ -58,8 +59,8 @@ class ManagerFacadeImpl : public ManagerFacade {
         break;
       }
       LOG_CHECK(result.error().code() == ErrorCode::timeout || result.error().code() == ErrorCode::notready)
-          << "Failed to accept finalized block " << id.to_str() << " : " << result.error();
-      LOG(WARNING) << "Failed to accept finalized block " << id.to_str() << ", retrying : " << result.error();
+          << "Failed to accept finalized block " << id << " : " << result.error();
+      LOG(WARNING) << "Failed to accept finalized block " << id << ", retrying : " << result.error();
       send_broadcast_mode = 0;
       co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
     }

@@ -103,7 +103,7 @@ class TestNode : public td::actor::Actor {
     zero_id_.file_hash = hash;
   }
   void set_shard(ton::ShardIdFull shard) {
-    LOG(DEBUG) << "setting shard to " << shard.to_str();
+    LOG(DEBUG) << "setting shard to " << shard;
     shard_ = shard;
   }
   void set_shard_top_block(ton::BlockIdExt block_id) {
@@ -315,15 +315,15 @@ class TestNode : public td::actor::Actor {
       void send_shard_block_info(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::BufferSlice data) override {
         ++tdescr_cnt_;
         if (!tdescr_save_) {
-          LOG(INFO) << "Ignoring newly-generated ShardTopBlockDescr for " << block_id.to_str();
+          LOG(INFO) << "Ignoring newly-generated ShardTopBlockDescr for " << block_id;
         } else {
           char buffer[16];
           sprintf(buffer, "%d.boc", tdescr_cnt_);
           std::string fname = std::string{tdescr_pfx_.empty() ? "tdescr" : tdescr_pfx_} + buffer;
-          LOG(INFO) << "Saving newly-generated ShardTopBlockDescr for " << block_id.to_str() << " into file " << fname;
+          LOG(INFO) << "Saving newly-generated ShardTopBlockDescr for " << block_id << " into file " << fname;
           auto res = block::save_binary_file(fname, std::move(data));
           if (res.is_error()) {
-            LOG(ERROR) << "Cannot save ShardTopBlockDescr for " << block_id.to_str() << " into file " << fname << " : "
+            LOG(ERROR) << "Cannot save ShardTopBlockDescr for " << block_id << " into file " << fname << " : "
                        << res.move_as_error().to_string();
           }
         }
@@ -416,7 +416,7 @@ int main(int argc, char *argv[]) {
                        [&](td::Slice arg) {
                          ton::BlockIdExt block_id;
                          if (block::parse_block_id_ext(arg, block_id)) {
-                           LOG(INFO) << "setting previous block to " << block_id.to_str();
+                           LOG(INFO) << "setting previous block to " << block_id;
                            td::actor::send_closure(x, &TestNode::set_shard_top_block, block_id);
 
                            return td::Status::OK();

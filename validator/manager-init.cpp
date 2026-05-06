@@ -35,7 +35,7 @@ namespace validator {
 void ValidatorManagerMasterchainReiniter::start_up() {
   status_ = ProcessStatus(manager_, "process.initial_sync");
   status_.set_status(PSTRING() << "starting, init block seqno " << block_id_.seqno());
-  LOG(INFO) << "init_block_id=" << block_id_.to_str();
+  LOG(INFO) << "init_block_id=" << block_id_;
   CHECK(block_id_.is_masterchain());
   CHECK(block_id_.id.shard == shardIdAll);
   CHECK(block_id_.seqno() >= opts_->get_last_fork_masterchain_seqno());
@@ -219,7 +219,7 @@ void ValidatorManagerMasterchainReiniter::got_key_block_handle(td::uint32 idx, B
   CHECK(handle->is_key_block());
   if (idx + 1 == key_blocks_.size()) {
     int ago = (int)td::Clocks::system() - (int)handle->unix_time();
-    LOG(WARNING) << "last key block is " << handle->id().to_str() << ", " << ago << "s ago";
+    LOG(WARNING) << "last key block is " << handle->id() << ", " << ago << "s ago";
     status_.set_status(PSTRING() << "last key block is " << handle->id().seqno() << ", " << ago << " s ago");
   }
   key_blocks_[idx] = std::move(handle);
@@ -263,7 +263,7 @@ void ValidatorManagerMasterchainReiniter::choose_masterchain_state() {
 
   block_id_ = handle->id();
   handle_ = handle;
-  LOG(WARNING) << "best handle is " << handle_->id().to_str();
+  LOG(WARNING) << "best handle is " << handle_->id();
 
   download_masterchain_state();
 }
@@ -340,13 +340,13 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
   }
 
   BlockIdExt init_block_id = r_init.move_as_ok();
-  LOG(INFO) << "init_block_id = " << init_block_id.to_str();
-  LOG(INFO) << "config init_block_id = " << opts_->init_block_id().to_str();
+  LOG(INFO) << "init_block_id = " << init_block_id;
+  LOG(INFO) << "config init_block_id = " << opts_->init_block_id();
   handle_ = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, init_block_id, true);
 
   while (true) {
     if (!handle_->received_state()) {
-      LOG(ERROR) << "db inconsistent: last state " << handle_->id().to_str() << " not received";
+      LOG(ERROR) << "db inconsistent: last state " << handle_->id() << " not received";
       auto result = co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state, handle_, 1,
                                             td::Timestamp::in(600.0), true)
                         .wrap();
@@ -356,20 +356,20 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
       }
     }
     if (!handle_->is_applied()) {
-      LOG_CHECK(handle_->inited_prev()) << "block_id=" << handle_->id().to_str();
+      LOG_CHECK(handle_->inited_prev()) << "block_id=" << handle_->id();
       LOG(WARNING) << "init_block not applied, trying previous block #" << handle_->id().seqno() - 1;
       handle_ = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, handle_->one_prev(true), false);
       continue;
     }
     break;
   }
-  LOG_CHECK(handle_->received_state()) << "block_id=" << handle_->id().to_str();
+  LOG_CHECK(handle_->received_state()) << "block_id=" << handle_->id();
 
   state_ =
       td::Ref<MasterchainState>{co_await td::actor::ask(manager_, &ValidatorManager::get_shard_state_from_db, handle_)};
   LOG_CHECK(state_->get_block_id() == opts_->init_block_id() || state_->ancestor_is_valid(opts_->init_block_id()) ||
             state_->get_block_id().seqno() < opts_->get_last_fork_masterchain_seqno())
-      << "block_id=" << state_->get_block_id().to_str() << " init_block_id=" << opts_->init_block_id().to_str()
+      << "block_id=" << state_->get_block_id() << " init_block_id=" << opts_->init_block_id()
       << " last_hardfork_seqno=" << opts_->get_last_fork_masterchain_seqno();
 
   auto r_gc_block_id = co_await td::actor::ask(db_, &Db::get_gc_masterchain_block).wrap();
@@ -380,12 +380,12 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
   } else {
     gc_block_id = r_gc_block_id.move_as_ok();
   }
-  LOG(INFO) << "gc_block_id = " << gc_block_id.to_str();
+  LOG(INFO) << "gc_block_id = " << gc_block_id;
   auto gc_handle = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, gc_block_id, true);
   LOG_CHECK(gc_handle->id().id.seqno <= handle_->id().id.seqno)
-      << "gc_block_id=" << gc_handle->id().to_str() << " block_id=" << handle_->id().to_str();
-  LOG_CHECK(gc_handle->received_state()) << "gc_block_id=" << gc_handle->id().to_str();
-  LOG_CHECK(!gc_handle->deleted_state_boc()) << "gc_block_id=" << gc_handle->id().to_str();
+      << "gc_block_id=" << gc_handle->id() << " block_id=" << handle_->id();
+  LOG_CHECK(gc_handle->received_state()) << "gc_block_id=" << gc_handle->id();
+  LOG_CHECK(!gc_handle->deleted_state_boc()) << "gc_block_id=" << gc_handle->id();
   auto gc_state = td::Ref<MasterchainState>{
       co_await td::actor::ask(manager_, &ValidatorManager::get_shard_state_from_db, gc_handle)};
 
@@ -401,9 +401,9 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
     prev_hardforks.pop_back();
     CHECK(prev_hardforks == stored_hardforks);
     co_await get_latest_applied_block();
-    LOG(INFO) << "latest applied block = " << handle_->id().to_str();
+    LOG(INFO) << "latest applied block = " << handle_->id();
     auto new_hardfork = hardforks.back();
-    LOG(WARNING) << "New hardfork is " << new_hardfork.to_str();
+    LOG(WARNING) << "New hardfork is " << new_hardfork;
     LOG_CHECK(handle_->id().seqno() + 1 >= new_hardfork.seqno())
         << "Last masterchain block seqno is " << handle_->id().seqno() << ", but the new hardfork has seqno "
         << new_hardfork.seqno();
@@ -423,7 +423,7 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
       auto truncate_seqno = opts_->get_truncate_seqno();
       LOG(WARNING) << "Requested truncate to " << truncate_seqno;
       co_await get_latest_applied_block();
-      LOG(INFO) << "latest applied block = " << handle_->id().to_str();
+      LOG(INFO) << "latest applied block = " << handle_->id();
       if (truncate_seqno <= handle_->id().seqno()) {
         co_await truncate(truncate_seqno);
       }
@@ -444,7 +444,7 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
     last_key_block_handle =
         co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, last_key_block_id, true);
   }
-  LOG(INFO) << "Last key block is " << last_key_block_handle->id().to_str();
+  LOG(INFO) << "Last key block is " << last_key_block_handle->id();
   co_return ValidatorManagerInitResult{handle_,   state_,   std::move(shard_client),
                                        gc_handle, gc_state, last_key_block_handle};
 }
@@ -468,7 +468,7 @@ td::actor::Task<> ValidatorManagerMasterchainStarter::get_latest_applied_block()
 
 td::actor::Task<> ValidatorManagerMasterchainStarter::truncate(BlockSeqno truncate_seqno) {
   LOG_CHECK(truncate_seqno <= handle_->id().seqno())
-      << "block_id=" << handle_->id().to_str() << " truncate_seqno=" << truncate_seqno;
+      << "block_id=" << handle_->id() << " truncate_seqno=" << truncate_seqno;
   if (truncate_seqno < handle_->id().seqno()) {
     LOG(WARNING) << "Truncating to seqno " << truncate_seqno;
     BlockIdExt block_id;
@@ -477,7 +477,7 @@ td::actor::Task<> ValidatorManagerMasterchainStarter::truncate(BlockSeqno trunca
     state_ = td::Ref<MasterchainState>{co_await td::actor::ask(db_, &Db::get_block_state, handle_)};
     co_await td::actor::ask(manager_, &ValidatorManager::truncate, block_id.seqno(), handle_);
   }
-  LOG(WARNING) << "Clearing 'next' for mc seqno " << state_->get_block_id().to_str();
+  LOG(WARNING) << "Clearing 'next' for mc seqno " << state_->get_block_id();
   auto s = state_->get_shards();
   for (auto &shard : s) {
     if (opts_->need_monitor(shard->shard(), state_)) {

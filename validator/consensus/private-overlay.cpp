@@ -12,6 +12,7 @@
 #include "overlay/overlays.h"
 #include "td/utils/Status.h"
 #include "td/utils/logging.h"
+#include "ton/ton-io.hpp"
 
 #include "bus.h"
 #include "stats.h"
@@ -57,7 +58,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     overlay_id_ = overlay_full_id.compute_short_id();
 
     overlay::OverlayOptions options;
-    options.name_ = PSTRING() << "valgroup" << bus.shard.to_str() << "." << bus.cc_seqno;
+    options.name_ = PSTRING() << "valgroup" << bus.shard << "." << bus.cc_seqno;
     options.broadcast_speed_multiplier_ = bus.validator_opts->get_catchain_broadcast_speed_multiplier();
     options.private_ping_peers_ = true;
     options.twostep_broadcast_sender_ = adnl_sender_;
@@ -67,8 +68,8 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_.adnl_id,
                             std::move(overlay_full_id), std::move(overlay_nodes), make_callback(),
                             overlay::OverlayPrivacyRules{0, 0, std::move(authorized_keys)},
-                            PSTRING() << R"({ "type": "consensus", "shard": ")" << bus.shard.to_str()
-                                      << R"(", "cc_seqno": )" << bus.cc_seqno << R"( })",
+                            PSTRING() << R"({ "type": "consensus", "shard": ")" << bus.shard << R"(", "cc_seqno": )"
+                                      << bus.cc_seqno << R"( })",
                             std::move(options));
   }
 

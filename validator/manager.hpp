@@ -223,7 +223,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   struct ValidatorGroupEntry {
     std::string name() const {
-      return PSTRING() << "validator group " << shard.to_str() << "." << cc_seqno;
+      return PSTRING() << "validator group " << shard << "." << cc_seqno;
     }
 
     td::actor::ActorOwn<IValidatorGroup> actor;
@@ -588,8 +588,7 @@ class ValidatorManagerImpl : public ValidatorManager {
           td::actor::create_actor<QueueSizeCounter>("queuesizecounter", last_masterchain_state_, opts_, actor_id(this));
     }
     if (!opts_->need_monitor(block_id.shard_full(), last_masterchain_state_)) {
-      return promise.set_error(
-          td::Status::Error(PSTRING() << "not monitoring shard " << block_id.shard_full().to_str()));
+      return promise.set_error(td::Status::Error(PSTRING() << "not monitoring shard " << block_id.shard_full()));
     }
     td::actor::send_closure(queue_size_counter_, &QueueSizeCounter::get_queue_size, block_id, std::move(promise));
   }

@@ -30,7 +30,7 @@ namespace validator {
 
 void ApplyBlock::abort_query(td::Status reason) {
   if (promise_) {
-    VLOG(VALIDATOR_WARNING) << "aborting apply block query for " << id_.to_str() << ": " << reason;
+    VLOG(VALIDATOR_WARNING) << "aborting apply block query for " << id_ << ": " << reason;
     promise_.set_error(std::move(reason));
   }
   stop();
@@ -52,7 +52,7 @@ void ApplyBlock::alarm() {
 }
 
 void ApplyBlock::start_up() {
-  VLOG(VALIDATOR_DEBUG) << "running apply_block for " << id_.to_str() << ", mc_seqno=" << masterchain_block_id_.seqno();
+  VLOG(VALIDATOR_DEBUG) << "running apply_block for " << id_ << ", mc_seqno=" << masterchain_block_id_.seqno();
 
   if (id_.is_masterchain()) {
     masterchain_block_id_ = id_;

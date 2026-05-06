@@ -80,10 +80,9 @@ DownloadBlockNew::DownloadBlockNew(adnl::AdnlNodeIdShort local_id, overlay::Over
 void DownloadBlockNew::abort_query(td::Status reason) {
   if (promise_) {
     if (reason.code() == ErrorCode::notready || reason.code() == ErrorCode::timeout) {
-      VLOG(FULL_NODE_DEBUG) << "failed to download block " << block_id_.to_str() << "from " << download_from_ << ": "
-                            << reason;
+      VLOG(FULL_NODE_DEBUG) << "failed to download block " << block_id_ << "from " << download_from_ << ": " << reason;
     } else {
-      VLOG(FULL_NODE_NOTICE) << "failed to download block " << block_id_.to_str() << " from " << download_from_ << ": "
+      VLOG(FULL_NODE_NOTICE) << "failed to download block " << block_id_ << " from " << download_from_ << ": "
                              << reason;
     }
     promise_.set_error(std::move(reason));
@@ -186,7 +185,7 @@ void DownloadBlockNew::got_download_token(std::unique_ptr<ActionToken> token) {
 void DownloadBlockNew::got_node_to_download(adnl::AdnlNodeIdShort node) {
   download_from_ = node;
 
-  VLOG(FULL_NODE_DEBUG) << "downloading proof for " << block_id_.to_str();
+  VLOG(FULL_NODE_DEBUG) << "downloading proof for " << block_id_;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {

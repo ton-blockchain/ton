@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "ton/ton-io.hpp"
+
 #include "output-queue-merger.h"
 
 namespace block {
@@ -158,7 +160,7 @@ OutputQueueMerger::OutputQueueMerger(ton::ShardIdFull queue_for, std::vector<Out
   for (Neighbor& neighbor : neighbors) {
     if (!neighbor.disabled_) {
       LOG(DEBUG) << "adding " << (neighbor.outmsg_root_.is_null() ? "" : "non-") << "empty output queue for neighbor #"
-                 << i << " (" << neighbor.block_id_.to_str() << ")";
+                 << i << " (" << neighbor.block_id_ << ")";
       add_root(i++, neighbor.outmsg_root_, neighbor.msg_limit_);
     } else {
       LOG(DEBUG) << "skipping output queue for disabled neighbor #" << i;
