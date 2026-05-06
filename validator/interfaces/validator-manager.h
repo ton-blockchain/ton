@@ -137,22 +137,30 @@ struct CollationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
+    td::RealCpuTimer::Time preinit;
     td::RealCpuTimer::Time queue_cleanup;
     td::RealCpuTimer::Time prelim_storage_stat;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
     td::RealCpuTimer::Time final_storage_stat;
+    td::RealCpuTimer::Time enqueue_new_messages;
+    td::RealCpuTimer::Time combine_account_transactions;
+    td::RealCpuTimer::Time create_shard_state;
     td::RealCpuTimer::Time create_block;
     td::RealCpuTimer::Time create_collated_data;
     td::RealCpuTimer::Time create_block_candidate;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " queue_cleanup=" << queue_cleanup.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu) << " preinit=" << preinit.get(is_cpu)
+                       << " queue_cleanup=" << queue_cleanup.get(is_cpu)
                        << " prelim_storage_stat=" << prelim_storage_stat.get(is_cpu)
                        << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
                        << " trx_other=" << trx_other.get(is_cpu)
                        << " final_storage_stat=" << final_storage_stat.get(is_cpu)
+                       << " enqueue_new_messages=" << enqueue_new_messages.get(is_cpu)
+                       << " combine_account_transactions=" << combine_account_transactions.get(is_cpu)
+                       << " create_shard_state=" << create_shard_state.get(is_cpu)
                        << " create_block=" << create_block.get(is_cpu)
                        << " create_collated_data=" << create_collated_data.get(is_cpu)
                        << " create_block_candidate=" << create_block_candidate.get(is_cpu);
@@ -202,11 +210,14 @@ struct ValidationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
+    td::RealCpuTimer::Time unpack_block_candidate;
+    td::RealCpuTimer::Time process_mc_state;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
     td::RealCpuTimer::Time unpack_state;
     td::RealCpuTimer::Time validate_block_tlb;
+    td::RealCpuTimer::Time unpack_block_data;
     td::RealCpuTimer::Time precheck_account_updates;
     td::RealCpuTimer::Time precheck_account_transactions;
     td::RealCpuTimer::Time precheck_msg_queue;
@@ -220,10 +231,13 @@ struct ValidationStats {
     td::RealCpuTimer::Time check_new_state;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu)
+                       << " unpack_block_candidate=" << unpack_block_candidate.get(is_cpu)
+                       << " process_mc_state=" << process_mc_state.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
                        << " trx_storage_stat=" << trx_storage_stat.get(is_cpu) << " trx_other=" << trx_other.get(is_cpu)
                        << " unpack_state=" << unpack_state.get(is_cpu)
                        << " validate_block_tlb=" << validate_block_tlb.get(is_cpu)
+                       << " unpack_block_data=" << unpack_block_data.get(is_cpu)
                        << " precheck_account_updates=" << precheck_account_updates.get(is_cpu)
                        << " precheck_account_transactions=" << precheck_account_transactions.get(is_cpu)
                        << " precheck_msg_queue=" << precheck_msg_queue.get(is_cpu)

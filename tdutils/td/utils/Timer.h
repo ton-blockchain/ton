@@ -109,6 +109,9 @@ class RealCpuTimer {
     Time operator-(const Time &other) const {
       return {.real = real - other.real, .cpu = cpu - other.cpu};
     }
+    Time operator*(double x) const {
+      return {.real = real * x, .cpu = cpu * cpu};
+    }
   };
   Time elapsed_both() const {
     return {.real = real_.elapsed(), .cpu = cpu_.elapsed()};
@@ -125,6 +128,41 @@ class RealCpuTimer {
  private:
   Timer real_;
   ThreadCpuTimer cpu_;
+};
+
+class ScopedRealCpuTimer {
+ public:
+  ScopedRealCpuTimer();
+  explicit ScopedRealCpuTimer(RealCpuTimer::Time &time, double coef = 1.0) : time_(&time), coef_(coef) {
+  }
+  ScopedRealCpuTimer(const ScopedRealCpuTimer &) = delete;
+  ScopedRealCpuTimer(ScopedRealCpuTimer &&) = delete;
+  ~ScopedRealCpuTimer() {
+    pause();
+  }
+  void pause() {
+    if (paused_) {
+      return;
+    }
+    paused_ = true;
+    *time_ += timer_.elapsed_both() * coef_;
+  }
+  void resume() {
+    if (!paused_) {
+      return;
+    }
+    paused_ = false;
+    timer_ = {};
+  }
+
+  ScopedRealCpuTimer &operator=(const ScopedRealCpuTimer &) = delete;
+  ScopedRealCpuTimer &operator=(ScopedRealCpuTimer &&other) = delete;
+
+ private:
+  RealCpuTimer::Time *time_;
+  double coef_;
+  RealCpuTimer timer_;
+  bool paused_ = false;
 };
 
 class PerfLog;

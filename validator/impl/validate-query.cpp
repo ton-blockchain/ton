@@ -276,6 +276,7 @@ void ValidateQuery::finish_query() {
  * Then the function also sends requests to the ValidatorManager to fetch blocks and shard stated.
  */
 void ValidateQuery::start_up() {
+  td::ScopedRealCpuTimer timer_total{stats_.work_time.total};
   LOG(WARNING) << "validate query for " << block_candidate.id << " started";
   alarm_timestamp() = timeout;
   created_by_ = block_candidate.pubkey;
@@ -379,9 +380,12 @@ void ValidateQuery::start_up() {
                                                                 std::move(res), std::move(token));
                                 });
   // 3. unpack block candidate (while necessary data is being loaded)
-  if (!unpack_block_candidate()) {
-    reject_query("error unpacking block candidate");
-    return;
+  {
+    td::ScopedRealCpuTimer timer{stats_.work_time.unpack_block_candidate};
+    if (!unpack_block_candidate()) {
+      reject_query("error unpacking block candidate");
+      return;
+    }
   }
   // 4. load state(s) corresponding to previous block(s) (not full-collated-data or masterchain)
   prev_states.resize(prev_blocks.size());
@@ -931,6 +935,8 @@ void ValidateQuery::after_get_shard_state(int idx, td::Result<Ref<ShardState>> r
  * @returns True if the masterchain state is successfully processed, false otherwise.
  */
 bool ValidateQuery::process_mc_state(Ref<MasterchainState> mc_state) {
+  td::ScopedRealCpuTimer total_timer{stats_.work_time.total};
+  td::ScopedRealCpuTimer timer{stats_.work_time.process_mc_state};
   if (mc_state.is_null()) {
     return fatal_error("could not obtain reference masterchain state "s + mc_blkid_.to_str());
   }
@@ -1732,12 +1738,6 @@ void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> 
       return;
     }
     descr.set_queue_root(qinfo.out_queue->prefetch_ref(0));
-    // TODO: comment the next two lines in the future when the output queues become huge
-    // (do this carefully)
-    if (debug_checks_) {
-      REJECT_UNLESS_VOID(block::gen::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
-      REJECT_UNLESS_VOID(block::tlb::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
-    }
     // unpack ProcessedUpto
     LOG(DEBUG) << "unpacking ProcessedUpto of neighbor " << descr.blk_;
     if (verbosity >= 2) {
@@ -2776,6 +2776,8 @@ bool ValidateQuery::add_trivial_neighbor() {
  * @returns True if the block data is successfully unpacked and passes all validation checks, false otherwise.
  */
 bool ValidateQuery::unpack_block_data() {
+  auto tlb_cache = tlb::TLB::ValidateCache::create_for_type(&block::tlb::t_Ref_Transaction.ref_type);
+  tlb::TLB::ValidateCache::Guard guard(&tlb_cache);
   LOG(DEBUG) << "unpacking block structures";
   block::gen::Block::Record blk;
   block::gen::BlockExtra::Record extra;
@@ -3212,12 +3214,7 @@ bool ValidateQuery::precheck_one_account_block(td::ConstBitPtr acc_id, Ref<vm::C
     return reject_query("(HASH_UPDATE Account) from the AccountBlock of "s + acc_id.to_hex(256) +
                         " has incorrect new hash");
   }
-  if (!block::gen::t_AccountBlock.validate_upto(1000000, *acc_blk_root)) {
-    return reject_query("AccountBlock of "s + acc_id.to_hex(256) + " failed to pass automated validity checks");
-  }
-  if (!block::tlb::t_AccountBlock.validate_upto(1000000, *acc_blk_root)) {
-    return reject_query("AccountBlock of "s + acc_id.to_hex(256) + " failed to pass hand-written validity checks");
-  }
+  // gen::t_AccountBlock and tlb::t_AccountBlock already validated earlier
   unsigned last_trans_lt_len = 1;
   ton::Bits256 acc_state_hash = hash_upd.old_hash;
   try {
@@ -7378,18 +7375,12 @@ bool ValidateQuery::try_validate() {
   if (pending) {
     return true;
   }
-  work_timer_.resume();
-  SCOPE_EXIT {
-    work_timer_.pause();
-  };
+  td::ScopedRealCpuTimer timer_total{stats_.work_time.total};
   try {
     if (stage_ == 0) {
       LOG(WARNING) << "try_validate stage 0";
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.unpack_state += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.unpack_state};
         if (!compute_prev_state()) {
           return fatal_error(-666, "cannot compute previous state");
         }
@@ -7427,100 +7418,75 @@ bool ValidateQuery::try_validate() {
       LOG(WARNING) << "try_validate stage 1";
       LOG(INFO) << "running automated validity checks for block candidate " << id_;
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.validate_block_tlb += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.validate_block_tlb};
+        auto tlb_cache = tlb::TLB::ValidateCache::create_for_type(&block::gen::t_Transaction);
+        tlb::TLB::ValidateCache::Guard guard(&tlb_cache);
         if (!block::gen::t_Block.validate_ref(10000000, block_root_)) {
           return reject_query("block "s + id_.to_str() + " failed to pass automated validity checks");
         }
-        if (!fix_all_processed_upto()) {
-          return fatal_error("cannot adjust all ProcessedUpto of neighbor and previous blocks");
-        }
-        if (!add_trivial_neighbor()) {
-          return fatal_error("cannot add previous block as a trivial neighbor");
-        }
+      }
+      if (!fix_all_processed_upto()) {
+        return fatal_error("cannot adjust all ProcessedUpto of neighbor and previous blocks");
+      }
+      if (!add_trivial_neighbor()) {
+        return fatal_error("cannot add previous block as a trivial neighbor");
+      }
+      {
+        td::ScopedRealCpuTimer timer{stats_.work_time.unpack_block_data};
         if (!unpack_block_data()) {
           return reject_query("cannot unpack block data");
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.precheck_account_updates += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.precheck_account_updates};
         if (!precheck_account_updates()) {
           return reject_query("invalid AccountState update");
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.precheck_account_transactions += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.precheck_account_transactions};
         if (!precheck_account_transactions()) {
           return reject_query("invalid collection of account transactions in ShardAccountBlocks");
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.precheck_msg_queue += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.precheck_msg_queue};
         if (!precheck_message_queue_update()) {
           return reject_query("invalid OutMsgQueue update");
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.unpack_dispatch_queue += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.unpack_dispatch_queue};
         if (!unpack_dispatch_queue_update()) {
           return reject_query("invalid DispatchQueue update");
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.check_in_msg_descr += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.check_in_msg_descr};
         if (!check_in_msg_descr()) {
           return reject_query("invalid InMsgDescr");
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.check_out_msg_descr += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.check_out_msg_descr};
         if (!check_out_msg_descr()) {
           return reject_query("invalid OutMsgDescr");
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.check_dispatch_queue += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.check_dispatch_queue};
         if (!check_dispatch_queue_update()) {
-          return reject_query("invalid OutMsgDescr");
+          return reject_query("invalid DispatchQueue update (2)");
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.check_processed_upto += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.check_processed_upto};
         if (!check_processed_upto()) {
           return reject_query("invalid ProcessedInfo");
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.check_in_queue += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.check_in_queue};
         if (!check_in_queue()) {
           return reject_query("cannot check inbound message queues");
         }
@@ -7529,10 +7495,7 @@ bool ValidateQuery::try_validate() {
         }
       }
       {
-        td::RealCpuTimer timer;
-        SCOPE_EXIT {
-          stats_.work_time.check_transactions += timer.elapsed_both();
-        };
+        td::ScopedRealCpuTimer timer{stats_.work_time.check_transactions};
         if (!check_transactions()) {
           return reject_query("invalid collection of account transactions in ShardAccountBlocks");
         }
@@ -7544,10 +7507,7 @@ bool ValidateQuery::try_validate() {
     }
     if (stage_ == 2) {
       LOG(WARNING) << "try_validate stage 2";
-      td::RealCpuTimer timer;
-      SCOPE_EXIT {
-        stats_.work_time.check_new_state += timer.elapsed_both();
-      };
+      td::ScopedRealCpuTimer timer{stats_.work_time.check_new_state};
       if (!check_all_ticktock_processed()) {
         return reject_query("not all tick-tock transactions have been run for special accounts");
       }
@@ -7637,8 +7597,7 @@ void ValidateQuery::record_stats(bool valid, std::string error_message) {
   stats_.actual_bytes = (td::uint32)block_candidate.data.size();
   stats_.actual_collated_data_bytes = (td::uint32)block_candidate.collated_data.size();
   stats_.total_time = perf_timer_.elapsed();
-  stats_.work_time.total += work_timer_.elapsed_both();
-  stats_.actual_time = work_timer_.elapsed_real() + parallel_work_timer_.elapsed_real();
+  stats_.actual_time = stats_.work_time.total.real + parallel_work_timer_.elapsed_real();
   stats_.time_stats = (PSTRING() << perf_log_);
   LOG(WARNING) << "validation took " << perf_timer_.elapsed() << "s";
   LOG(WARNING) << "Validate query work time = " << stats_.work_time.total.real

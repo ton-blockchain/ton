@@ -129,7 +129,6 @@ class Collator final : public td::actor::Actor {
   }
 
   int verbosity{3 * 0};
-  int verify{1};
   bool full_collated_data_ = false;
   ton::LogicalTime start_lt, max_lt;
   ton::UnixTime now_;
@@ -425,7 +424,6 @@ class Collator final : public td::actor::Actor {
   static int history_weight(td::uint64 history);
 
  private:
-  td::RealCpuTimer work_timer_{true};
   CollationStats stats_;
 
   void finalize_stats();

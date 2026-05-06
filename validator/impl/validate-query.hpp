@@ -485,7 +485,6 @@ class ValidateQuery : public td::actor::Actor {
     return true;
   }
 
-  td::RealCpuTimer work_timer_{true};
   ValidationStats stats_;
   void record_stats(bool valid, std::string error_message = "");
 };
