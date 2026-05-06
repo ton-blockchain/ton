@@ -137,7 +137,7 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
       [SelfId = actor_id(this), last = last_masterchain_block_id_, val_set, prev](td::Result<BlockCandidate> R) {
         if (R.is_ok()) {
           auto v = R.move_as_ok();
-          LOG(ERROR) << "created block " << v.id;
+          LOG(ERROR) << "created block " << v.id.to_str();
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::validate_fake, std::move(v), std::move(prev), last,
                                   val_set);
         } else {
@@ -205,7 +205,7 @@ void ValidatorManagerImpl::write_fake(BlockCandidate candidate, std::vector<Bloc
 }
 
 void ValidatorManagerImpl::complete_fake(BlockIdExt block_id) {
-  LOG(ERROR) << "success, block " << block_id << " = " << block_id.to_str() << " saved to disk";
+  LOG(ERROR) << "success, block " << block_id.to_str() << " saved to disk";
   std::exit(0);
 }
 

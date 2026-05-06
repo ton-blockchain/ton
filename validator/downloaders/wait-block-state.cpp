@@ -34,19 +34,19 @@ void WaitBlockState::alarm() {
 
 void WaitBlockState::abort_query(td::Status reason) {
   if (promise_no_store_) {
-    promise_no_store_.set_error(
-        reason.clone().move_as_error_prefix(PSTRING() << "failed to download state " << handle_->id() << ": "));
+    promise_no_store_.set_error(reason.clone().move_as_error_prefix(PSTRING() << "failed to download state "
+                                                                              << handle_->id().to_str() << ": "));
   }
   if (promise_final_) {
     if (priority_ > 0 || (reason.code() != ErrorCode::timeout && reason.code() != ErrorCode::notready)) {
-      LOG(WARNING) << "aborting wait block state query for " << handle_->id() << " priority=" << priority_ << ": "
-                   << reason;
+      LOG(WARNING) << "aborting wait block state query for " << handle_->id().to_str() << " priority=" << priority_
+                   << ": " << reason;
     } else {
-      LOG(DEBUG) << "aborting wait block state query for " << handle_->id() << " priority=" << priority_ << ": "
-                 << reason;
+      LOG(DEBUG) << "aborting wait block state query for " << handle_->id().to_str() << " priority=" << priority_
+                 << ": " << reason;
     }
     promise_final_.set_error(
-        reason.move_as_error_prefix(PSTRING() << "failed to download state " << handle_->id() << ": "));
+        reason.move_as_error_prefix(PSTRING() << "failed to download state " << handle_->id().to_str() << ": "));
   }
   stop();
 }
@@ -147,7 +147,7 @@ void WaitBlockState::start() {
     }
   } else if (!handle_->inited_prev() || (!handle_->inited_proof() && !handle_->inited_proof_link())) {
     if (!allow_download) {
-      abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full()));
+      abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full().to_str()));
       return;
     }
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
@@ -177,7 +177,7 @@ void WaitBlockState::start() {
                             std::move(P));
   } else if (handle_->id().is_masterchain() && !handle_->inited_proof()) {
     if (!allow_download) {
-      abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full()));
+      abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full().to_str()));
       return;
     }
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::BufferSlice> R) {
@@ -194,7 +194,7 @@ void WaitBlockState::start() {
                             std::move(P));
   } else if (block_.is_null()) {
     if (!allow_download && !handle_->received()) {
-      abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full()));
+      abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full().to_str()));
       return;
     }
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
@@ -453,9 +453,9 @@ void WaitBlockState::failed_to_get_zero_state() {
 
 void WaitBlockState::failed_to_get_state_from_net(td::Status reason) {
   if (reason.code() == ErrorCode::notready) {
-    LOG(DEBUG) << "failed to download state for " << handle_->id() << " from net: " << reason;
+    LOG(DEBUG) << "failed to download state for " << handle_->id().to_str() << " from net: " << reason;
   } else {
-    LOG(WARNING) << "failed to download state for " << handle_->id() << " from net: " << reason;
+    LOG(WARNING) << "failed to download state for " << handle_->id().to_str() << " from net: " << reason;
   }
 
   start();

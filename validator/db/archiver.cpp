@@ -37,7 +37,7 @@ void BlockArchiver::start_up() {
 td::actor::Task<> BlockArchiver::run() {
   auto result = co_await run_inner().wrap();
   if (result.is_error()) {
-    VLOG(VALIDATOR_WARNING) << "failed to archive block " << handle_->id() << ": " << result.error();
+    VLOG(VALIDATOR_WARNING) << "failed to archive block " << handle_->id().to_str() << ": " << result.error();
   } else {
     VLOG(VALIDATOR_DEBUG) << "finished archiving block in " << timer_.elapsed() << " s";
   }

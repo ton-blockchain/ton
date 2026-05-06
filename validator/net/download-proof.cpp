@@ -57,9 +57,10 @@ DownloadProof::DownloadProof(BlockIdExt block_id, bool allow_partial_proof, bool
 void DownloadProof::abort_query(td::Status reason) {
   if (promise_) {
     if (reason.code() == ErrorCode::notready || reason.code() == ErrorCode::timeout) {
-      VLOG(FULL_NODE_DEBUG) << "failed to download proof " << block_id_ << "from " << download_from_ << ": " << reason;
+      VLOG(FULL_NODE_DEBUG) << "failed to download proof " << block_id_.to_str() << "from " << download_from_ << ": "
+                            << reason;
     } else {
-      VLOG(FULL_NODE_NOTICE) << "failed to download proof " << block_id_ << " from " << download_from_ << ": "
+      VLOG(FULL_NODE_NOTICE) << "failed to download proof " << block_id_.to_str() << " from " << download_from_ << ": "
                              << reason;
     }
     promise_.set_error(std::move(reason));
@@ -147,7 +148,7 @@ void DownloadProof::got_download_token(std::unique_ptr<ActionToken> token) {
 
 void DownloadProof::got_node_to_download(adnl::AdnlNodeIdShort node) {
   download_from_ = node;
-  VLOG(FULL_NODE_DEBUG) << "downloading proof for " << block_id_;
+  VLOG(FULL_NODE_DEBUG) << "downloading proof for " << block_id_.to_str();
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {
@@ -177,7 +178,7 @@ void DownloadProof::got_node_to_download(adnl::AdnlNodeIdShort node) {
 }
 
 void DownloadProof::got_block_proof_description(td::BufferSlice proof_description) {
-  VLOG(FULL_NODE_DEBUG) << "downloaded proof description for " << block_id_;
+  VLOG(FULL_NODE_DEBUG) << "downloaded proof description for " << block_id_.to_str();
 
   auto F = fetch_tl_object<ton_api::tonNode_PreparedProof>(std::move(proof_description), true);
   if (F.is_error()) {
@@ -251,14 +252,14 @@ void DownloadProof::got_block_proof_description(td::BufferSlice proof_descriptio
 }
 
 void DownloadProof::got_block_proof(td::BufferSlice proof) {
-  VLOG(FULL_NODE_DEBUG) << "downloaded proof for " << block_id_;
+  VLOG(FULL_NODE_DEBUG) << "downloaded proof for " << block_id_.to_str();
 
   data_ = std::move(proof);
   finish_query();
 }
 
 void DownloadProof::got_block_partial_proof(td::BufferSlice proof) {
-  VLOG(FULL_NODE_DEBUG) << "downloaded partial proof for " << block_id_;
+  VLOG(FULL_NODE_DEBUG) << "downloaded partial proof for " << block_id_.to_str();
 
   data_ = std::move(proof);
   finish_query();

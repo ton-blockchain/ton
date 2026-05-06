@@ -60,13 +60,13 @@ namespace validator {
 void ValidatorManagerImpl::validate_block_is_next_proof(BlockIdExt prev_block_id, BlockIdExt next_block_id,
                                                         td::BufferSlice proof, td::Promise<td::Unit> promise) {
   if (!prev_block_id.is_masterchain() || !next_block_id.is_masterchain()) {
-    VLOG(VALIDATOR_NOTICE) << "prev=" << prev_block_id << " next=" << next_block_id;
+    VLOG(VALIDATOR_NOTICE) << "prev=" << prev_block_id.to_str() << " next=" << next_block_id.to_str();
     promise.set_error(
         td::Status::Error(ErrorCode::protoviolation, "validate_block_is_next_proof() can only work for masterchain"));
     return;
   }
   if (prev_block_id.seqno() + 1 != next_block_id.seqno()) {
-    VLOG(VALIDATOR_NOTICE) << "prev=" << prev_block_id << " next=" << next_block_id;
+    VLOG(VALIDATOR_NOTICE) << "prev=" << prev_block_id.to_str() << " next=" << next_block_id.to_str();
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "validate_block_is_next_proof(): bad seqno"));
     return;
   }
@@ -117,7 +117,7 @@ void ValidatorManagerImpl::validate_block_proof(BlockIdExt block_id, td::BufferS
                                                 td::Promise<td::Unit> promise) {
   auto pp = create_proof(block_id, std::move(proof));
   if (pp.is_error()) {
-    promise.set_error(pp.move_as_error_prefix(PSTRING() << "failed to create proof for " << block_id << ": "));
+    promise.set_error(pp.move_as_error_prefix(PSTRING() << "failed to create proof for " << block_id.to_str() << ": "));
     return;
   }
 
@@ -136,7 +136,8 @@ void ValidatorManagerImpl::validate_block_proof_link(BlockIdExt block_id, td::Bu
                                                      td::Promise<td::Unit> promise) {
   auto pp = create_proof_link(block_id, std::move(proof));
   if (pp.is_error()) {
-    promise.set_error(pp.move_as_error_prefix(PSTRING() << "failed to create proof link for " << block_id << ": "));
+    promise.set_error(
+        pp.move_as_error_prefix(PSTRING() << "failed to create proof link for " << block_id.to_str() << ": "));
     return;
   }
 
@@ -154,7 +155,7 @@ void ValidatorManagerImpl::validate_block_proof_rel(BlockIdExt block_id, BlockId
                                                     td::Promise<td::Unit> promise) {
   auto pp = create_proof(block_id, std::move(proof));
   if (pp.is_error()) {
-    promise.set_error(pp.move_as_error_prefix(PSTRING() << "failed to create proof for " << block_id << ": "));
+    promise.set_error(pp.move_as_error_prefix(PSTRING() << "failed to create proof for " << block_id.to_str() << ": "));
     return;
   }
 
@@ -199,7 +200,7 @@ void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<Block
   auto blkid = block.id;
   auto pp = create_block(std::move(block));
   if (pp.is_error()) {
-    promise.set_error(pp.move_as_error_prefix(PSTRING() << "failed to create block for " << blkid << ": "));
+    promise.set_error(pp.move_as_error_prefix(PSTRING() << "failed to create block for " << blkid.to_str() << ": "));
     return;
   }
   CHECK(blkid.is_masterchain());
@@ -1668,7 +1669,7 @@ void ValidatorManagerImpl::get_block_handle_cont(BlockIdExt id, td::Result<Block
   CHECK(it != wait_block_handle_.end());
   if (R.is_error()) {
     if (R.error().code() != ErrorCode::notready) {
-      LOG(FATAL) << "db error: failed to get block " << id << ": " << R.error();
+      LOG(FATAL) << "db error: failed to get block " << id.to_str() << ": " << R.error();
     }
     if (it->second.force_) {
       R = create_empty_block_handle(id);
@@ -2213,8 +2214,8 @@ void ValidatorManagerImpl::completed_prestart_sync() {
 
   send_peek_key_block_request();
 
-  LOG(WARNING) << "initial read complete: " << last_masterchain_block_handle_->id() << " "
-               << last_masterchain_block_id_;
+  LOG(WARNING) << "initial read complete: " << last_masterchain_block_handle_->id().to_str() << " "
+               << last_masterchain_block_id_.to_str();
   callback_->initial_read_complete(last_masterchain_block_handle_);
 }
 

@@ -338,7 +338,8 @@ struct BlockHandleImpl : public BlockHandleInterface {
   void set_next_left(BlockIdExt next) {
     auto f = flags_.load(std::memory_order_consume);
     if (f & Flags::dbf_inited_next_left) {
-      LOG_CHECK(next_[0] == next) << "id=" << id_ << " next=" << next_[0] << " to_be_next=" << next;
+      LOG_CHECK(next_[0] == next) << "id=" << id_.to_str() << " next=" << next_[0].to_str()
+                                  << " to_be_next=" << next.to_str();
     } else {
       lock();
       next_[0] = next;
@@ -349,7 +350,8 @@ struct BlockHandleImpl : public BlockHandleInterface {
   void set_next_right(BlockIdExt next) {
     auto f = flags_.load(std::memory_order_consume);
     if (f & Flags::dbf_inited_next_right) {
-      LOG_CHECK(next_[1] == next) << "id=" << id_ << " next=" << next_[1] << " to_be_next=" << next;
+      LOG_CHECK(next_[1] == next) << "id=" << id_.to_str() << " next=" << next_[1].to_str()
+                                  << " to_be_next=" << next.to_str();
     } else {
       lock();
       next_[1] = next;
@@ -368,7 +370,8 @@ struct BlockHandleImpl : public BlockHandleInterface {
   void set_prev_left(BlockIdExt prev) {
     auto f = flags_.load(std::memory_order_consume);
     if (f & Flags::dbf_inited_prev_left) {
-      LOG_CHECK(prev_[0] == prev) << "id=" << id_ << " prev=" << prev_[0] << " to_be_prev=" << prev;
+      LOG_CHECK(prev_[0] == prev) << "id=" << id_.to_str() << " prev=" << prev_[0].to_str()
+                                  << " to_be_prev=" << prev.to_str();
     } else {
       lock();
       prev_[0] = prev;
@@ -379,7 +382,8 @@ struct BlockHandleImpl : public BlockHandleInterface {
   void set_prev_right(BlockIdExt prev) {
     auto f = flags_.load(std::memory_order_consume);
     if (f & Flags::dbf_inited_prev_right) {
-      LOG_CHECK(prev_[1] == prev) << "id=" << id_ << " prev=" << prev_[1] << " to_be_prev=" << prev;
+      LOG_CHECK(prev_[1] == prev) << "id=" << id_.to_str() << " prev=" << prev_[1].to_str()
+                                  << " to_be_prev=" << prev.to_str();
     } else {
       lock();
       prev_[1] = prev;

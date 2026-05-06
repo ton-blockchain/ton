@@ -27,9 +27,10 @@ namespace validator {
 
 void WaitBlockStateMerge::abort_query(td::Status reason) {
   if (promise_) {
-    LOG(WARNING) << "aborting wait block state merge query for " << left_ << " and " << right_ << ": " << reason;
-    promise_.set_error(
-        reason.move_as_error_prefix(PSTRING() << "failed to download merge " << left_ << " and " << right_ << ": "));
+    LOG(WARNING) << "aborting wait block state merge query for " << left_.to_str() << " and " << right_.to_str() << ": "
+                 << reason;
+    promise_.set_error(reason.move_as_error_prefix(PSTRING() << "failed to download merge " << left_.to_str() << " and "
+                                                             << right_.to_str() << ": "));
   }
   stop();
 }

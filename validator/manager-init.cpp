@@ -35,7 +35,7 @@ namespace validator {
 void ValidatorManagerMasterchainReiniter::start_up() {
   status_ = ProcessStatus(manager_, "process.initial_sync");
   status_.set_status(PSTRING() << "starting, init block seqno " << block_id_.seqno());
-  LOG(INFO) << "init_block_id=" << block_id_;
+  LOG(INFO) << "init_block_id=" << block_id_.to_str();
   CHECK(block_id_.is_masterchain());
   CHECK(block_id_.id.shard == shardIdAll);
   CHECK(block_id_.seqno() >= opts_->get_last_fork_masterchain_seqno());
@@ -263,7 +263,7 @@ void ValidatorManagerMasterchainReiniter::choose_masterchain_state() {
 
   block_id_ = handle->id();
   handle_ = handle;
-  LOG(WARNING) << "best handle is " << handle_->id();
+  LOG(WARNING) << "best handle is " << handle_->id().to_str();
 
   download_masterchain_state();
 }

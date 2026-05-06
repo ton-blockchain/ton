@@ -58,9 +58,10 @@ GetNextKeyBlocks::GetNextKeyBlocks(BlockIdExt block_id, td::uint32 limit, adnl::
 void GetNextKeyBlocks::abort_query(td::Status reason) {
   if (promise_) {
     if (reason.code() == ErrorCode::notready || reason.code() == ErrorCode::timeout) {
-      VLOG(FULL_NODE_DEBUG) << "failed to download proof " << block_id_ << "from " << download_from_ << ": " << reason;
+      VLOG(FULL_NODE_DEBUG) << "failed to download proof " << block_id_.to_str() << "from " << download_from_ << ": "
+                            << reason;
     } else {
-      VLOG(FULL_NODE_NOTICE) << "failed to download proof " << block_id_ << " from " << download_from_ << ": "
+      VLOG(FULL_NODE_NOTICE) << "failed to download proof " << block_id_.to_str() << " from " << download_from_ << ": "
                              << reason;
     }
     if (res_.size() > 0) {
@@ -125,7 +126,7 @@ void GetNextKeyBlocks::got_download_token(std::unique_ptr<ActionToken> token) {
 
 void GetNextKeyBlocks::got_node_to_download(adnl::AdnlNodeIdShort node) {
   download_from_ = node;
-  VLOG(FULL_NODE_DEBUG) << "downloading proof for " << block_id_;
+  VLOG(FULL_NODE_DEBUG) << "downloading proof for " << block_id_.to_str();
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {

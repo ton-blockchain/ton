@@ -253,12 +253,12 @@ void FullNodeShardImpl::get_next_block() {
     } else {
       auto S = R.move_as_error();
       if (S.code() != ErrorCode::notready && S.code() != ErrorCode::timeout) {
-        VLOG(FULL_NODE_WARNING) << "failed to download next block after " << block_id << ": " << S;
+        VLOG(FULL_NODE_WARNING) << "failed to download next block after " << block_id.to_str() << ": " << S;
       } else {
         if ((attempt % 128) == 0) {
-          VLOG(FULL_NODE_INFO) << "failed to download next block after " << block_id << ": " << S;
+          VLOG(FULL_NODE_INFO) << "failed to download next block after " << block_id.to_str() << ": " << S;
         } else {
-          VLOG(FULL_NODE_DEBUG) << "failed to download next block after " << block_id << ": " << S;
+          VLOG(FULL_NODE_DEBUG) << "failed to download next block after " << block_id.to_str() << ": " << S;
         }
       }
       delay_action([SelfId]() mutable { td::actor::send_closure(SelfId, &FullNodeShardImpl::get_next_block); },

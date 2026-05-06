@@ -46,7 +46,7 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockCandidate> R) {
     if (R.is_ok()) {
       auto v = R.move_as_ok();
-      LOG(ERROR) << "created block " << v.id;
+      LOG(ERROR) << "created block " << v.id.to_str();
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::created_candidate, std::move(v));
     } else {
       LOG(ERROR) << "failed to create block: " << R.move_as_error();
@@ -62,7 +62,7 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
 
 void ValidatorManagerImpl::created_candidate(BlockCandidate candidate) {
   td::write_file(db_root_ + "/static/" + candidate.id.file_hash.to_hex(), candidate.data.as_slice()).ensure();
-  LOG(ERROR) << "success, block " << candidate.id << " = " << candidate.id.to_str() << " saved to disk";
+  LOG(ERROR) << "success, block " << candidate.id.to_str() << " saved to disk";
   std::cout << candidate.id.to_str() << std::endl << std::flush;
   std::_Exit(0);
 }

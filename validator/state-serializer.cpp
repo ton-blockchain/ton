@@ -162,7 +162,7 @@ void AsyncStateSerializer::next_iteration() {
   if (attempt_ < max_attempt() && last_key_block_id_.id.seqno < last_block_id_.id.seqno &&
       need_serialize(masterchain_handle_)) {
     if (!stored_persistent_state_description_) {
-      LOG(INFO) << "storing persistent state description for " << masterchain_handle_->id().id;
+      LOG(INFO) << "storing persistent state description for " << masterchain_handle_->id().id.to_str();
       running_ = true;
       auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
         if (R.is_error()) {

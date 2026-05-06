@@ -527,7 +527,7 @@ bool ValidateQuery::init_parse() {
   for (std::size_t i = 0; i < prev_blks.size(); i++) {
     if (prev_blks[i] != prev_blocks[i]) {
       return soft_reject_query(PSTRING() << "previous block #" << i + 1 << " mismatch: expected "
-                                         << prev_blocks[i].to_str() << ", found in header " << prev_blks[i]);
+                                         << prev_blocks[i].to_str() << ", found in header " << prev_blks[i].to_str());
     }
   }
   if (after_split != after_split_) {

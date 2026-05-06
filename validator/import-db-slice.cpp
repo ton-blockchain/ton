@@ -453,7 +453,7 @@ void ArchiveImporter::apply_shard_block_cont1(BlockHandle handle, BlockIdExt mas
   auto it = blocks_.find(handle->id());
   if (it == blocks_.end() || !it->second.proof_pkg || !it->second.data_pkg) {
     promise.set_error(
-        td::Status::Error(ErrorCode::notready, PSTRING() << "no data/proof for shard block " << handle->id()));
+        td::Status::Error(ErrorCode::notready, PSTRING() << "no data/proof for shard block " << handle->id().to_str()));
     return;
   }
   TRY_RESULT_PROMISE(promise, proof_data, it->second.proof_pkg->read(it->second.proof_offset));

@@ -1641,7 +1641,7 @@ td::Status ValidatorEngine::load_global_config() {
     init_block = zero_state;
   } else {
     init_block = ton::create_block_id(conf.validator_->init_block_);
-    LOG(INFO) << "found init block " << init_block;
+    LOG(INFO) << "found init block " << init_block.to_str();
     if (init_block.id.workchain != ton::masterchainId || init_block.id.shard != ton::shardIdAll) {
       return td::Status::Error(ton::ErrorCode::error, "[validator] section contains invalid [init_block]");
     }
