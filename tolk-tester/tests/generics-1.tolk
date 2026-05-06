@@ -271,10 +271,10 @@ fun main(x: int): (int, [Tup2Int]) {
 
 @fif_codegen DECLPROC eq1<int>()
 @fif_codegen DECLPROC eq1<array<unknown>>()
-@fif_codegen DECLPROC eq1<(int,int)>()
+@fif_codegen DECLPROC eq1<(int,`int)>()
 @fif_codegen DECLPROC eq1<array<int>>()
 @fif_codegen DECLPROC eq1<MInt?>()
-@fif_codegen DECLPROC eq1<int|slice|null>()
+@fif_codegen DECLPROC eq1<int`|`slice`|`null>()
 @fif_codegen DECLPROC eq1<Wrapper<Wrapper<int8>>>()
 @fif_codegen DECLPROC eq1<Color>()
 

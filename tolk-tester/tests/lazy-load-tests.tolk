@@ -187,6 +187,11 @@ struct(0x23456789) Counter32DecrementBy1 {}
 struct(0x34567890) Counter32Reset { initial: uint32; f2: int8; f3: int8; f4: int8; f5: int8; }
 type MyMsg32 = Counter32Increment | Counter32DecrementBy1 | Counter32Reset;
 
+type LazyAliasInt32 = int32;
+struct(0x51) LazyAliasBox<T> { value: T; }
+struct(0x52) LazyAliasEmpty {}
+type LazyAliasUnion = LazyAliasBox<LazyAliasInt32> | LazyAliasEmpty;
+
 struct AutoP1 { f1: int8; f2: int8; }
 struct AutoP2 { f1: int8; f2: int8; f3: int8; }
 struct AutoP3;
@@ -1849,6 +1854,21 @@ fun demo415(): int {
     }
 }
 
+@method_id(416)
+fun demo416(s: slice): int32 {
+    val msg = lazy LazyAliasUnion.fromSlice(s);
+    var result: int32 = 0;
+    __expect_lazy("[msg] lazy match");
+    match (msg) {
+        LazyAliasBox<int32> => {
+            __expect_lazy("[msg] load value");
+            result = msg.value;
+        },
+        LazyAliasEmpty => {}
+    }
+    return result;
+}
+
 
 fun main() {
     val s = stringHexToSlice("0102");
@@ -2029,6 +2049,8 @@ fun main() {
 @testcase | 414 | -1                          | 99 12 typeid-13
 @testcase | 414 | 0                           | (null) 80 42
 @testcase | 415 |                             | 777
+@testcase | 416 | x{510000002A}               | 42
+@testcase | 416 | x{52}                       | 0
 
 @fif_codegen
 """

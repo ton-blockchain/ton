@@ -22,6 +22,10 @@ fun cantAssignNeverToShape() {
 fun map<K, V>.my() {}
 type MyBUilder = builder
 
+// @stderr can not assign `string` to `int7`
+fun asmFParamMismatch(x: int7 = "not an int"): int
+    asm "INC";
+
 // @stderr type `MyBUilder` can not be used as a value
 fun invalidMapValueCustomCall() {
     map<int32, MyBUilder>.my();

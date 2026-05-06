@@ -81,24 +81,31 @@ static void check_mapKV_inside_type(AnyTypeV type_node) {
 }
 
 // given `enum Role: int8` check colon type (not struct/slice etc.)
-static void check_enum_colon_type_to_be_intN(EnumDefPtr enum_ref, AnyTypeV colon_type_node) {
+static bool check_enum_colon_type_to_be_intN(EnumDefPtr enum_ref, AnyTypeV colon_type_node) {
+  bool colon_valid = true;
   if (!colon_type_node->resolved_type->try_as<TypeDataIntN>() && !colon_type_node->resolved_type->try_as<TypeDataCoins>()) {
     err("serialization type of `enum` must be intN: `int8` / `uint32` / etc.").collect(colon_type_node);
+    colon_valid = false;
   }
   // having `enum Some: int8` validate that all members fit int8
   if (const TypeDataIntN* t_intN = colon_type_node->resolved_type->try_as<TypeDataIntN>(); t_intN && !t_intN->is_variadic) {
     for (EnumMemberPtr member_ref : enum_ref->members) {
       if (!member_ref->computed_value->fits_bits(t_intN->n_bits, !t_intN->is_unsigned)) {
         err("member `{}` = {} does not fit into `{}`", member_ref->name, member_ref->computed_value->to_dec_string(), t_intN).collect(enum_ref->ident_anchor);
+        colon_valid = false;
       }
     }
   }
+  return colon_valid;
 }
 
 
 class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody {
 
   static void check_type_fits_cell_or_has_policy(TypePtr serialized_type) {
+    if (serialized_type->try_as<TypeDataAlias>() && get_custom_pack_unpack_function(serialized_type)) {
+      return;   // we can't analyze custom serializers, don't go deep
+    }
     if (const TypeDataStruct* s_struct = serialized_type->unwrap_alias()->try_as<TypeDataStruct>()) {
       check_struct_fits_cell_or_has_policy(s_struct);
     } else if (const TypeDataUnion* s_union = serialized_type->unwrap_alias()->try_as<TypeDataUnion>()) {
@@ -199,6 +206,16 @@ public:
 };
 
 void pipeline_check_serialized_fields() {
+  bool all_enums_valid = true;
+  for (EnumDefPtr enum_ref : get_all_declared_enums()) {
+    if (enum_ref->colon_type_node) {
+      all_enums_valid &= check_enum_colon_type_to_be_intN(enum_ref, enum_ref->colon_type_node);
+    }
+  }
+  if (!all_enums_valid) {
+    return;   // otherwise, we can't estimate size of serialized types that contain invalid enums
+  }
+
   CheckSerializedFieldsAndTypesVisitor visitor;
   visit_ast_of_all_functions(visitor);
 
@@ -213,11 +230,6 @@ void pipeline_check_serialized_fields() {
   }
   for (GlobalConstPtr const_ref : get_all_declared_constants()) {
     check_mapKV_inside_type(const_ref->type_node);
-  }
-  for (EnumDefPtr enum_ref : get_all_declared_enums()) {
-    if (enum_ref->colon_type_node) {
-      check_enum_colon_type_to_be_intN(enum_ref, enum_ref->colon_type_node);
-    }
   }
 }
 

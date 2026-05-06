@@ -646,6 +646,6 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
   }>
 """
 
-@fif_codegen DECLPROC getWrappervalue1<Wrapper<(int,int)>>()
-@fif_codegen DECLPROC getWrappervalue2<Wrapper<Wrapper<(int,int)>>>()
+@fif_codegen DECLPROC getWrappervalue1<Wrapper<(int,`int)>>()
+@fif_codegen DECLPROC getWrappervalue2<Wrapper<Wrapper<(int,`int)>>>()
  */

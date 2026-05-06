@@ -453,6 +453,9 @@ public:
       field_ref->mutate()->assign_resolved_type(declared_type);
       if (field_ref->abi_type_node) {
         TypePtr abi_client_type = visitor.finalize_type_node(field_ref->abi_type_node);
+        if (declared_type->has_genericT_inside() || abi_client_type->has_genericT_inside()) {
+          err("`@abi.clientType` is not allowed for fields with generics").fire(field_ref->abi_type_node);
+        }
         field_ref->mutate()->assign_resolved_abi_type(abi_client_type);
       }
     }
@@ -701,6 +704,8 @@ public:
 
     if (d->incomingMessages)      finalize_type_node(d->incomingMessages);
     if (d->incomingExternal)      finalize_type_node(d->incomingExternal);
+    if (d->outgoingMessages)      finalize_type_node(d->outgoingMessages);
+    if (d->emittedEvents)         finalize_type_node(d->emittedEvents);
     if (d->storage)               finalize_type_node(d->storage);
     if (d->storageAtDeployment)   finalize_type_node(d->storageAtDeployment);
     if (d->forceAbiExport)        finalize_type_node(d->forceAbiExport);

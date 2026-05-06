@@ -132,8 +132,8 @@ bool SinkExpression::is_child_of(SinkExpression rhs) const {
 SinkExpression SinkExpression::get_child_s_expr(int field_idx) const {
   uint64_t new_index_path = index_path;    // if we have c.1 (index_path = 2) and construct c.1.N, calc (N<<8 + 2)
   for (int empty_byte = 0; empty_byte < 8; ++empty_byte) {
-    if ((index_path & (0xFF << (empty_byte*8))) == 0) {
-      new_index_path += (field_idx + 1) << (empty_byte*8);
+    if ((index_path & (static_cast<uint64_t>(0xFF) << (empty_byte*8))) == 0) {
+      new_index_path += (static_cast<uint64_t>(field_idx) + 1) << (empty_byte*8);
       break;
     }
   }
@@ -605,13 +605,13 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
   }
 
   if (auto as_dot = v->try_as<ast_dot_access>()) {
-    TypePtr obj_type = as_dot->get_obj()->inferred_type->unwrap_alias();    // v already inferred; hence, index_at is correct
     if (as_dot->is_target_struct_field()) {
       StructFieldPtr field_ref = std::get<StructFieldPtr>(as_dot->target);
       return field_ref->declared_type;
     }
     if (as_dot->is_target_indexed_access()) {
       int index_at = std::get<int>(as_dot->target);
+      TypePtr obj_type = as_dot->get_obj()->inferred_type->unwrap_alias();    // v already inferred; hence, index_at is correct
       if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
         return t_tensor->items[index_at];
       }

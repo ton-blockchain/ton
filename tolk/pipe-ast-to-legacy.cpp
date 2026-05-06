@@ -647,7 +647,7 @@ static std::vector<var_idx_t> pre_compile_tensor(CodeBlob& code, const std::vect
     }
   }
   std::vector<LValContext*> lval_ctx_for_arg(args.size(), lval_ctx);
-  return pre_compile_tensor_merging(code, args, lval_ctx_for_arg, std::move(target_types), origin_for_loc_marks, origin_overrides);
+  return pre_compile_tensor_merging(code, args, lval_ctx_for_arg, target_types, origin_for_loc_marks, origin_overrides);
 }
 
 static std::vector<var_idx_t> pre_compile_tensor_with_lval_at(CodeBlob& code, V<ast_tensor> v, int index_at, LValContext* lval_ctx) {
@@ -1616,6 +1616,14 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     vars_per_arg[orig_self_i] = pre_compile_expr(obj_leftmost, code, fun_ref->parameters[0].declared_type, &self_lval);
   }
 
+  std::vector<var_idx_t> return_self_snapshot;
+  // preserve by-value `self` before separate `mutate` parameters are written back to caller lvalues
+  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self() && fun_ref->has_mutate_params()) {
+    int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
+    return_self_snapshot = code.create_tmp_var(fun_ref->parameters[0].declared_type, call_origin, "(return-self)");
+    code.add_let(call_origin, return_self_snapshot, vars_per_arg[orig_self_i]);
+  }
+
   // `f(mutate x: int): slice` had put `(int, slice)` onto a stack, leave only `slice` (an actual return)
   if (fun_ref->has_mutate_params()) {
     std::vector<var_idx_t> left;
@@ -1637,7 +1645,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   TypePtr rvect_type = v->inferred_type;
   if (fun_ref->does_return_self()) {
     int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
-    rvect = vars_per_arg[orig_self_i];
+    rvect = return_self_snapshot.empty() ? vars_per_arg[orig_self_i] : std::move(return_self_snapshot);
     if (fun_ref->does_mutate_self()) {
       if (obj_leftmost == nullptr && v->get_self_obj() && is_valid_lvalue_path(v->get_self_obj())) {
         obj_leftmost = v->get_self_obj();
@@ -2070,6 +2078,12 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
     std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
     std::vector ir_cond = pre_compile_expr(cond, code);
     tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
+
+    if (v->get_cond()->is_always_false) {
+      // control flow at type inferring treats this assert as terminal; lower it as a terminal throw too
+      code.add_call(v, {}, std::move(ir_thrown_code), lookup_function("__throw"));
+      return;
+    }
 
     std::vector args_throwifnot = { ir_thrown_code[0], ir_cond[0] };
     code.add_call(v, {}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));

@@ -345,6 +345,6 @@ fun main(c: Color) {
   }>
 """
 
-@fif_codegen DECLPROC checkIsColor<EPartialAssigned|builder>()
+@fif_codegen DECLPROC checkIsColor<EPartialAssigned`|`builder>()
 
 */

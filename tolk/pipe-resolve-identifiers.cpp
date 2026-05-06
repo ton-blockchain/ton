@@ -44,14 +44,30 @@
 
 namespace tolk {
 
+// if we had `import "ContractA"`, and it had `get fun methodA`, we did not register that method at all;
+// so, we want a human-readable error if a user calls it manually:
+// not just "undefined symbol methodA", but that it's not accessible
+static SrcFilePtr find_skipped_imported_getter(std::string_view name, const SrcRange* v_range_file_id = nullptr) {
+  for (const auto& [skipped_name, skipped_file] : G.skipped_imported_getters) {
+    if (skipped_name == name) {   // "methodA"
+      if (v_range_file_id == nullptr || skipped_file == v_range_file_id->get_src_file()) {
+        return skipped_file;      // "ContractA.tolk"
+      }
+    }
+  }
+  return nullptr;
+}
+
+static Error err_skipped_imported_getter(V<ast_identifier> v, SrcFilePtr skipped_file) {
+  return err("`{}` is a contract getter in `{}` and is not accessible when imported\n""hint: extract shared logic into a regular function", v->name, skipped_file->extract_short_name());
+}
+
 static Error err_undefined_symbol(V<ast_identifier> v) {
   if (v->name == "self") {
     return err("using `self` in a non-member function (it does not accept the first `self` parameter)");
   }
-  for (const auto& [skipped_name, skipped_file] : G.skipped_imported_getters) {
-    if (skipped_name == v->name) {
-      return err("`{}` is a contract getter in `{}` and is not accessible when imported\n""hint: extract shared logic into a regular function", v->name, skipped_file->extract_short_name());
-    }
+  if (SrcFilePtr skipped_file = find_skipped_imported_getter(v->name)) {
+    return err_skipped_imported_getter(v, skipped_file);
   }
   return err("undefined symbol `{}`", v->name);
 }
@@ -168,12 +184,17 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
     if (!sym) {
       err_undefined_symbol(v->get_identifier()).fire(v->get_identifier(), cur_f);
     }
-    if (sym->try_as<AliasDefPtr>() || sym->try_as<StructPtr>() || sym->try_as<EnumDefPtr>()) {
-      err_type_used_as_symbol(v->get_identifier()).fire(v->get_identifier(), cur_f);
-    }
-    v->mutate()->assign_sym(sym);
 
     LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
+    if (!var_ref) {
+      if (SrcFilePtr skipped_file = find_skipped_imported_getter(v->get_name(), &v->range)) {
+        err_skipped_imported_getter(v->get_identifier(), skipped_file).fire(v->get_identifier(), cur_f);
+      }
+      if (sym->try_as<AliasDefPtr>() || sym->try_as<StructPtr>() || sym->try_as<EnumDefPtr>()) {
+        err_type_used_as_symbol(v->get_identifier()).fire(v->get_identifier(), cur_f);
+      }
+    }
+    v->mutate()->assign_sym(sym);
 
     // local variable inside a lambda is discoverable from parent's scope
     if (var_ref && !lambda_stack.empty()) {
@@ -245,17 +266,13 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_block_statement> v) override {
-    current_scope.open_scope();
+    // function's body block has the same scope as parameters
     if (v == cur_f->ast_root->as<ast_function_declaration>()->get_body()) {
-      for (int i = 0; i < cur_f->get_num_params(); ++i) {
-        LocalVarPtr param_ref = &cur_f->parameters[i];
-        if (param_ref->has_default_value()) {
-          parent::visit(param_ref->default_value);
-        }
-        current_scope.add_local_var(param_ref);
-      }
+      parent::visit(v);
+      return;
     }
 
+    current_scope.open_scope();
     parent::visit(v);
     current_scope.close_scope();
   }
@@ -293,10 +310,23 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
 
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
-    return fun_ref->is_code_function();
+    return !fun_ref->is_generic_function();
+  }
+
+  void on_enter_function(V<ast_function_declaration>) override {
+    // add all parameters to function's body scope; in parallel, resolve identifiers in their default values
+    current_scope.open_scope();
+    for (int i = 0; i < cur_f->get_num_params(); ++i) {
+      LocalVarPtr param_ref = &cur_f->parameters[i];
+      if (param_ref->has_default_value()) {
+        parent::visit(param_ref->default_value);
+      }
+      current_scope.add_local_var(param_ref);
+    }
   }
 
   void on_exit_function(V<ast_function_declaration> v_function) override {
+    current_scope.close_scope();
     tolk_assert(current_scope.scopes.empty() && lambda_stack.empty());
   }
 

@@ -785,10 +785,10 @@ fun myFromTuple<T>(t: tuple): T {
 @method_id(162)
 fun test62() {
     return (
-        ((5 as int32) as int32 | int64).toTuple(),
-        ((5 as int64) as int32 | int64).toTuple(),
-        myFromTuple<int32 | int64>([10, 48] as tuple) is int64,
-        reflect.typeNameOfObject(myFromTuple<int32 | int64>([10, 48] as tuple)).beginParse().bitsEqual("int32 | int64".literalSlice()),
+        ((5 as int32) as int32 | varint32).toTuple(),
+        ((5 as varint32) as int32 | varint32).toTuple(),
+        myFromTuple<int32 | varint32>([10, 143] as tuple) is varint32,
+        reflect.typeNameOfObject(myFromTuple<int32 | varint32>([10, 48] as tuple)).beginParse().bitsEqual("int32 | varint32".literalSlice()),
     ) 
 }
 
@@ -946,7 +946,7 @@ fun main() {
 @testcase | 159 | null 0    | 123
 @testcase | 160 |           | 10 0
 @testcase | 161 | 100 48    | 20
-@testcase | 162 |           | [ 5 46 ] [ 5 48 ] -1 -1
+@testcase | 162 |           | [ 5 46 ] [ 5 typeid-15 ] -1 -1
 @testcase | 163 | -1        | 0 0 -1 10 -1
 @testcase | 163 | 0         | -1 0 0 3 3
 @testcase | 164 | -1        | -1 0 0 -1 0 [ -1 0 ]
@@ -1002,6 +1002,6 @@ fun main() {
   }>
 """
 
-@fif_codegen DECLPROC checkGeneric3<int,int8,int16>()
+@fif_codegen DECLPROC checkGeneric3<int,`int8,`int16>()
 
  */

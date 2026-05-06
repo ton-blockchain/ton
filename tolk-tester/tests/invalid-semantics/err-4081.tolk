@@ -23,8 +23,8 @@ fun main(x: int, s: slice) {
 @stderr too few arguments in call to `f3`, expected 3, have 1
 @stderr can not pass `slice` to mutate `int`, because mutation is not type compatible
 @stderr too few arguments in call to `f4`, expected 1, have 0
-@stderr too few arguments in call to `f5<void,void>`, expected 2, have 1
-@stderr too few arguments in call to `f6<void,int>`, expected 4, have 1
+@stderr too few arguments in call to `f5<void, void>`, expected 2, have 1
+@stderr too few arguments in call to `f6<void, int>`, expected 4, have 1
 @stderr too few arguments in call to `address`, expected 1, have 0
 @stderr too few arguments in call to `string.crc32`, expected 1, have 0
  */

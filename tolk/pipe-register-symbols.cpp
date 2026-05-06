@@ -125,7 +125,7 @@ static AliasDefPtr register_type_alias(V<ast_type_alias_declaration> v, AliasDef
     err("`T` is a reserved system name for generics").fire(v_ident);
   }
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  AliasDefData* a_sym = new AliasDefData(std::move(name), v_ident, v->underlying_type_node, genericTs, substitutedTs, v);
+  AliasDefData* a_sym = new AliasDefData(std::move(name), v_ident, v->underlying_type_node, DocCommentLines(v->doc_lines), genericTs, substitutedTs, v);
   a_sym->base_alias_ref = base_alias_ref;   // for `Response<int>`, here is `Response<T>`
 
   G.symtable.add_global_symbol(a_sym);
@@ -296,28 +296,90 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   return f_sym;
 }
 
-static void iterate_through_file_symbols(SrcFilePtr file, bool is_imported, std::unordered_set<SrcFilePtr>& seen) {
-  if (!seen.insert(file).second) {
-    return;
+struct FileSymbolsRegistrationContext {
+  std::unordered_set<SrcFilePtr> registered_files;
+  std::vector<SrcFilePtr> import_stack;
+
+  bool is_in_import_stack(SrcFilePtr file) const {
+    return std::find(import_stack.begin(), import_stack.end(), file) != import_stack.end();
+  }
+
+  // find a bottommost file with `contract` directive
+  SrcFilePtr find_nearest_contract_file() const {
+    for (auto it = import_stack.rbegin(); it != import_stack.rend(); ++it) {
+      if ((*it)->has_contract_directive()) {
+        return *it;
+      }
+    }
+    return nullptr;
+  }
+};
+
+static void iterate_through_file_symbols(SrcFilePtr file, FileSymbolsRegistrationContext& ctx) {
+  if (ctx.is_in_import_stack(file)) {
+    return;   // import cycle, already being checked in this path
   }
   tolk_assert(file && file->ast);
 
   // first pass: detect `contract XXX { ... }` anywhere in a file, before processing all declarations
   for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-    if (v->kind == ast_contract_directive) {
-      tolk_assert(!file->has_contract_directive());
+    if (v->kind == ast_contract_directive && !file->has_contract_directive()) {
       file->mutate()->assign_contract_directive(parse_contract_directive(v));
       break;
     }
   }
 
-  // second pass: register all declarations in symtable (functions, structs, etc.)
+  bool is_imported = !ctx.import_stack.empty();
+  ctx.import_stack.push_back(file);
+  bool should_register_symbols = ctx.registered_files.insert(file).second;
+  SrcFilePtr nearest_contract_file = ctx.find_nearest_contract_file();
+  std::vector<V<ast_function_declaration>> skipped_get_fun;
+
+  // second pass: recursively visit imports and validate contract entrypoints in this import stack
   for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
     switch (v->kind) {
       case ast_import_directive:
         // on `import "another-file.tolk"`, register symbols from that file at first
-        iterate_through_file_symbols(v->as<ast_import_directive>()->file, true, seen);
+        iterate_through_file_symbols(v->as<ast_import_directive>()->file, ctx);
         break;
+      case ast_function_declaration: {
+        auto v_fun = v->as<ast_function_declaration>();
+        bool is_entrypoint = v_fun->flags & FunctionData::flagIsEntrypoint;    // fun main / onInternalMessage / onBouncedMessage
+        bool is_get_method = v_fun->flags & FunctionData::flagContractGetter;  // get fun seqno
+        if (is_entrypoint || is_get_method) {
+          // when importing a file with `contract`, its onInternalMessage and getters are not imported;
+          // it allows having multiple contracts importing one another, "seeing" only declarations;
+          // it also allows writing external scripts: `import "contract"` + `fun main` don't conflict
+          if (is_imported && file->has_contract_directive()) {
+            if (should_register_symbols) {
+              // remember `get fun seqno()` on import "wallet" for error messages if used incorrectly
+              G.skipped_imported_getters.emplace_back(v_fun->get_identifier()->name, file);
+            }
+            skipped_get_fun.push_back(v_fun);
+            break;
+          }
+          // if a contract file imports entrypoints, it should contain all of them within,
+          // we do not allow `import "something"` having `get fun` inside;
+          // we force the convention: all getters to be visible at a glance, in the contract file
+          if (nearest_contract_file && file != nearest_contract_file) {
+            err("all contract entrypoints must be placed in the contract file `{}`\n""hint: keep `onInternalMessage` and `get fun` just below `contract`, not in other files", nearest_contract_file->extract_short_name()).fire(v_fun->get_identifier());
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  if (!should_register_symbols) {
+    ctx.import_stack.pop_back();
+    return;
+  }
+
+  // third pass: register all declarations in symtable (functions, structs, etc.)
+  for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
+    switch (v->kind) {
       case ast_constant_declaration:
         register_constant(v->as<ast_constant_declaration>());
         break;
@@ -335,24 +397,8 @@ static void iterate_through_file_symbols(SrcFilePtr file, bool is_imported, std:
         break;
       case ast_function_declaration: {
         auto v_fun = v->as<ast_function_declaration>();
-        bool is_entrypoint = v_fun->flags & FunctionData::flagIsEntrypoint;    // fun main / onInternalMessage / onBouncedMessage
-        bool is_get_method = v_fun->flags & FunctionData::flagContractGetter;  // get fun seqno
-        if (is_entrypoint || is_get_method) {
-          // when importing a file with `contract`, its onInternalMessage and getters are not imported;
-          // it allows having multiple contracts importing one another, "seeing" only declarations;
-          // it also allows writing external scripts: `import "contract"` + `fun main` don't conflict
-          if (is_imported && file->has_contract_directive()) {
-            // remember `get fun seqno()` on import "wallet" for error messages if used incorrectly
-            G.skipped_imported_getters.emplace_back(v_fun->get_identifier()->name, file);
-            break;    // v_fun->fun_ref is left nullptr in AST
-          }
-          // if the main input file has `contract`, it should contain all getters within,
-          // we do not allow `import "something"` having `get fun` inside;
-          // we force the convention: all getters to be visible at a glance, in the main file
-          SrcFilePtr entrypoint_file = G.all_src_files.get_entrypoint_file();
-          if (entrypoint_file->has_contract_directive() && file != entrypoint_file) {
-            err("all contract entrypoints must be placed in the contract file `{}`\n""hint: keep `onInternalMessage` and `get fun` just below `contract`, not in other files", entrypoint_file->extract_short_name()).fire(v_fun->get_identifier());
-          }
+        if (std::find(skipped_get_fun.begin(), skipped_get_fun.end(), v_fun) != skipped_get_fun.end()) {
+          break;    // v_fun->fun_ref is left nullptr in AST
         }
         register_function(v_fun);
         break;
@@ -361,12 +407,14 @@ static void iterate_through_file_symbols(SrcFilePtr file, bool is_imported, std:
         break;
     }
   }
+
+  ctx.import_stack.pop_back();
 }
 
 void pipeline_register_global_symbols() {
-  std::unordered_set<SrcFilePtr> seen;
-  iterate_through_file_symbols(G.all_src_files.get_stdlib_common_file(), false, seen);
-  iterate_through_file_symbols(G.all_src_files.get_entrypoint_file(), false, seen);
+  FileSymbolsRegistrationContext ctx;
+  iterate_through_file_symbols(G.all_src_files.get_stdlib_common_file(), ctx);
+  iterate_through_file_symbols(G.all_src_files.get_entrypoint_file(), ctx);
 }
 
 FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs) {

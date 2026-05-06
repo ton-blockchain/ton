@@ -657,6 +657,11 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       if (h_shaped->size() != v->size()) {
         err("invalid `[...]` constructor for `{}`: expected {} items", h_shaped, h_shaped->size()).collect(v, cur_f);
       }
+      for (int i = 0; i < h_shaped->size(); ++i) {
+        if (!h_shaped->items[i]->can_rhs_be_assigned(v->get_item(i)->inferred_type)) {
+          err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", v->get_item(i)->inferred_type, h_shaped->items[i]).collect(v->get_item(i), cur_f);
+        }
+      }
 
     } else {
       tolk_assert(false);
@@ -676,7 +681,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     const TypeDataEnum* subject_enum = subject_type->unwrap_alias()->try_as<TypeDataEnum>();
     const TypeDataUnion* subject_union = subject_type->unwrap_alias()->try_as<TypeDataUnion>();
 
-    std::vector<TypePtr> covered_types;       // for type-based `match`, what types are on the left of `=>`
+    std::vector<int> covered_variants;        // union variant indexes; for non-union, the only matching type is 0
     std::vector<EnumMemberPtr> covered_enum;  // for `match` over an enum, we want it to be exhaustive
 
     for (int i = 0; i < v->get_arms_count(); ++i) {
@@ -695,18 +700,17 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           if (lhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {
             err("wrong pattern matching: union types are not allowed, use concrete types in `match`").collect(v_arm->get_pattern_expr(), cur_f);
           }
-          bool can_happen = (subject_union && subject_union->has_variant_equal_to(lhs_type)) ||
-                           (!subject_union && subject_type->equal_to(lhs_type));
-          if (!can_happen) {
+          int variant_idx = subject_union ? subject_union->get_variant_idx(lhs_type) : (subject_type->equal_to(lhs_type) ? 0 : -1);
+          if (variant_idx == -1) {
             err("wrong pattern matching: `{}` is not a variant of `{}`", lhs_type, subject_type).collect(v_arm->get_pattern_expr(), cur_f);
           }
-          auto it_mentioned = std::find_if(covered_types.begin(), covered_types.end(), [lhs_type](TypePtr existing) {
-            return existing->equal_to(lhs_type);
-          });
-          if (it_mentioned != covered_types.end()) {
+          bool is_duplicated = variant_idx != -1 && std::find(covered_variants.begin(), covered_variants.end(), variant_idx) != covered_variants.end();
+          if (is_duplicated) {
             err("wrong pattern matching: duplicated `{}`", lhs_type).collect(v_arm->get_pattern_expr(), cur_f);
           }
-          covered_types.push_back(lhs_type);
+          if (variant_idx != -1 && !is_duplicated) {
+            covered_variants.push_back(variant_idx);
+          }
           break;
         }
         case MatchArmKind::const_expression: {
@@ -760,17 +764,14 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     }
 
     // fire if `match` by type is not exhaustive
-    if (has_type_arm && subject_union && subject_union->variants.size() != covered_types.size()) {
+    if (has_type_arm && subject_union && subject_union->variants.size() != covered_variants.size()) {
       std::string missing;
-      for (TypePtr variant : subject_union->variants) {
-        auto it_mentioned = std::find_if(covered_types.begin(), covered_types.end(), [variant](TypePtr existing) {
-          return existing->equal_to(variant);
-        });
-        if (it_mentioned == covered_types.end()) {
+      for (int variant_idx = 0; variant_idx < subject_union->size(); ++variant_idx) {
+        if (std::find(covered_variants.begin(), covered_variants.end(), variant_idx) == covered_variants.end()) {
           if (!missing.empty()) {
             missing += ", ";
           }
-          missing += "`" + variant->as_human_readable() + "`";
+          missing += "`" + subject_union->variants[variant_idx]->as_human_readable() + "`";
         }
       }
       err("`match` does not cover all possible types; missing types are: {}", missing).collect(v->keyword_range(), cur_f);
@@ -900,7 +901,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
-    return fun_ref->is_code_function() && !fun_ref->is_generic_function();
+    return !fun_ref->is_generic_function();
   }
 
   void on_exit_function(V<ast_function_declaration> v_function) override {

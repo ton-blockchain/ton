@@ -132,11 +132,11 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_collect_abi_output(os_abi);
     std::ostringstream os_symbol_types;
     if (G_settings.emit_symbol_types) {
-      pipeline_collect_symbol_types_output(os_symbol_types);
+      G.symbol_types_pool.to_pretty_json(os_symbol_types);
     }
     std::ostringstream os_debug_marks;
     if (G_settings.emit_debug_marks) {
-      pipeline_collect_debug_marks_output(os_debug_marks);
+      G.debug_marks.to_pretty_json(os_debug_marks, G.symbol_types_pool);
     }
 
     return TolkCompilationResult{

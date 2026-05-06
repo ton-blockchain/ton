@@ -377,7 +377,7 @@ int TypeDataTensor::get_type_id() const {
 }
 
 int TypeDataIntN::get_type_id() const {
-  switch (n_bits) {
+  switch (n_bits * !is_variadic) {
     case 8:   return type_id_int8   + is_unsigned;    // for common intN, use predefined small numbers
     case 16:  return type_id_int16  + is_unsigned;
     case 32:  return type_id_int32  + is_unsigned;

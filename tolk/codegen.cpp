@@ -698,6 +698,16 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         stack.o.retalt_ = true;
       }
       var_idx_t x = left[0];
+      // For late-init variables alive at IF entry but not yet on the stack:
+      // push NULL placeholders so both branches can merge stack layout.
+      // Example: inferring CFG has proven definite assignment, but our IR splits it into disjoint IFs,
+      // e.g. for lateinit x followed by `if (c && (x = 1) == 1) || (x = 2) == 2) { ... }`
+      for (const VarDescr& vd : var_info.list) {
+        if (vd.idx != x && !vd.is_unused() && stack.find(vd.idx) < 0) {
+          stack.o << AsmOp::Const(origin, "PUSHNULL");
+          stack.push_new_var(vd.idx);
+        }
+      }
       stack.rearrange_top(x, var_info[x] && var_info[x]->is_last());
       tolk_assert(stack.get(0).var_idx == x);
       stack.s.pop_back();

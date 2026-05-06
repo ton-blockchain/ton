@@ -39,24 +39,20 @@ struct ABIGetMethod {
 };
 
 struct ABIInternalMessage {
-  TypePtr body_ty;
-  std::string description;
+  TypePtr body_ty;    // typically, it's StructPtr; its fields and description are available in declarations
 };
 
 struct ABIExternalMessage {
   TypePtr body_ty;
-  std::string description;
 };
 
 struct ABIOutgoingMessage {
   TypePtr body_ty;
-  std::string description;
 };
 
 struct ABIStorage {
   TypePtr storage_ty = nullptr;
   TypePtr storage_at_deployment_ty = nullptr;
-  std::string description;    // from doc comment over a storage struct
 };
 
 enum class ABIThrownErrorKind {
@@ -70,12 +66,6 @@ struct ABIThrownError {
   std::string name;           // empty / "CONST_NAME" / "EnumName.MemberName"
   std::string description;    // from doc comment over a constant or enum member
   int err_code;
-};
-
-struct ABIConstant {
-  std::string_view name;
-  ConstValExpression value;
-  std::string description;
 };
 
 

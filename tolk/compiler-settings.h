@@ -42,6 +42,7 @@ struct CompilerSettings {
   int optimization_level = 2;
   bool stack_layout_comments = true;
   bool tolk_src_as_line_comments = true;
+  bool emit_compiled_boc = true;
   bool emit_contract_abi = true;
   bool emit_symbol_types = true;
   bool emit_debug_marks = false;

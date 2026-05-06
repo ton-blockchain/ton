@@ -79,7 +79,6 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(check_only_no_output, td::get_json_object_bool_field(config, "checkOnly", true, false));
   TRY_RESULT(allow_no_entrypoint, td::get_json_object_bool_field(config, "allowNoEntrypoint", true, false));
   // note that `pathMappings` are handled on a client-side (in tolk-js) only
-  // contract ABI is always emitted (default to true in G_settings)
 
   G_settings.verbosity = 0;
   G_settings.optimization_level = std::max(0, opt_level);
@@ -87,6 +86,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   G_settings.tolk_src_as_line_comments = src_line_comments;
   G_settings.show_errors_as_json = show_errors_as_json;
   G_settings.check_only_no_output = check_only_no_output;
+  G_settings.emit_contract_abi = true;
   G_settings.emit_symbol_types = emit_symbol_types;
   G_settings.emit_debug_marks = emit_symbol_types && emit_debug_marks;
   G_settings.allow_no_entrypoint = allow_no_entrypoint;

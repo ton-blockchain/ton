@@ -8,6 +8,8 @@ contract AbiTests {
     forceAbiExport: ExtraPayload
 }
 
+/// just a comment, not description because of semicolon
+;
 /// Persistent contract data
 struct ContractStorage {
     /// Current counter value
@@ -42,11 +44,56 @@ struct (0x02) Reset {
     value: int32
 }
 
+/// Swap on DEX.
+struct (0x13) SwapMM {
+}
+
+const ERR_UNUSED_ABI = 777
+const ERR_NOT_ADMIN = 123
+
+struct (0x14) UnusedOutgoing {
+}
+
+fun unusedAbiRoot() {
+    unusedAbiThrow();
+    unusedAbiOutgoing();
+}
+
+fun unusedAbiThrow() {
+    throw ERR_UNUSED_ABI;
+}
+
+fun unusedAbiOutgoing() {
+    createMessage({
+        bounce: BounceMode.NoBounce,
+        value: ton("0.1"),
+        dest: address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e"),
+        body: UnusedOutgoing {}.toCell(),
+    });
+}
+
+fun realSend() {
+    createMessage({
+        bounce: BounceMode.NoBounce,
+        value: ton("0.1"),
+        dest: address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e"),
+        body: SwapMM {}.toCell(),
+    });
+    if ([0].last() != 0) {
+        realThrow()
+    }
+}
+
+fun realThrow() {
+    throw ERR_NOT_ADMIN
+}
+
 /// Runs a tiny script.
 /// Not onInternalMessage.
 /// @param amount initial stack value
 /// @param times added stack value
 fun main(amount: int, times: int): int {
+    realSend();
     return amount + times;
 }
 
@@ -61,13 +108,25 @@ struct OneOrTwo<T1, T2> {
     uni: T1 | T2
 }
 
+/// Generic box alias.
 type Box<T> = T | int32
 
 struct Holder<T> {
     v: Box<T>
 }
 
+/// Alias fallback source.
+struct AliasFallbackSource {
+    value: int32
+}
+
+type AliasFallback = AliasFallbackSource
+
 get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
+    return null
+}
+
+get fun fallbackAlias(): AliasFallback? {
     return null
 }
 
@@ -80,6 +139,17 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
   "author": "Tolk team",
   "version": "1.0",
   "description": "ABI export regression test",
+"""
+
+@abi_json
+"""
+  "thrown_errors": [
+    {
+      "kind": "constant",
+      "name": "ERR_NOT_ADMIN",
+      "err_code": 123
+    }
+  ],
 """
 
 @abi_json
@@ -99,7 +169,8 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
           "ty_idx": 7,
           "description": "Contract owner"
         }
-      ]
+      ],
+      "description": "Persistent contract data"
     },
 """
 
@@ -112,11 +183,12 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
       "fields": [
         {
           "name": "note",
-          "ty_idx": 18,
+          "ty_idx": 17,
+          "client_ty_idx": 18,
           "description": "Human-readable note"
         }
       ],
-      "overrides_client_type": true
+      "description": "Extra payload exported on demand."
     },
 """
 
@@ -144,7 +216,8 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
             "v": "0"
           }
         }
-      ]
+      ],
+      "description": "Increases the counter."
     },
 """
 
@@ -159,8 +232,7 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
 """
   "storage": {
     "storage_ty_idx": 14,
-    "storage_at_deployment_ty_idx": 15,
-    "description": "Persistent contract data"
+    "storage_at_deployment_ty_idx": 15
   },
 """
 
@@ -168,12 +240,10 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
 """
   "incoming_messages": [
     {
-      "body_ty_idx": 12,
-      "description": "Increases the counter."
+      "body_ty_idx": 12
     },
     {
-      "body_ty_idx": 13,
-      "description": "Resets the counter."
+      "body_ty_idx": 13
     }
   ],
 """
@@ -205,7 +275,7 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
     {
       "kind": "struct",
       "name": "OneOrTwo",
-      "ty_idx": 32,
+      "ty_idx": 33,
       "type_params": [
         "T1",
         "T2"
@@ -213,10 +283,26 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
       "fields": [
         {
           "name": "uni",
-          "ty_idx": 33
+          "ty_idx": 34
         }
       ]
     },
+"""
+
+@abi_json
+"""
+      "kind": "alias",
+      "name": "Box",
+      ...
+      "description": "Generic box alias."
+"""
+
+@abi_json
+"""
+      "kind": "alias",
+      "name": "AliasFallback",
+      ...
+      "description": "Alias fallback source."
 """
 
 @abi_json
@@ -226,38 +312,50 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
 
 @abi_json
 """
-    {"kind":"nullable","inner_ty_idx":34,"stack_type_id":131,"stack_width":6}
+    {"kind":"nullable","inner_ty_idx":35,"stack_type_id":137,"stack_width":6},
 """
 
 @abi_json
 """
   "struct_instantiations": [
     {
-      "ty_idx": 25,
+      "ty_idx": 26,
       "struct_name": "Holder<int32>",
       "monomorphic_fields_ty_idx": [
-        26
+        27
       ]
     },
     {
-      "ty_idx": 28,
+      "ty_idx": 29,
       "struct_name": "OneOrTwo<int32, int64>",
       "monomorphic_fields_ty_idx": [
-        29
+        30
       ]
     }
   ],
   "alias_instantiations": [
     {
-      "ty_idx": 20,
+      "ty_idx": 21,
       "alias_name": "Box<int64>",
-      "monomorphic_target_ty_idx": 21
+      "monomorphic_target_ty_idx": 22
     },
     {
-      "ty_idx": 26,
+      "ty_idx": 27,
       "alias_name": "Box<int32>",
       "monomorphic_target_ty_idx": 8
     }
   ],
 """
+
+@abi_json
+"""
+  "outgoing_messages": [
+    {
+      "body_ty_idx": 20
+    }
+  ],
+"""
+
+@abi_json_avoid UnusedOutgoing
+@abi_json_avoid ERR_UNUSED_ABI
  */

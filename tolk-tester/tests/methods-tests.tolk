@@ -368,7 +368,7 @@ fun main() {}
 @testcase | 120 | 6      | 12 [ 6 ] 
 @testcase | 120 | null   | 10 [ (null) ] 
 
-@fif_codegen DECLPROC Pair<int16,int8>.createFrom<int,coins>()
-@fif_codegen DECLPROC Pair<int8,int16>.compareWith<int16,int8>()
+@fif_codegen DECLPROC Pair<int16,`int8>.createFrom<int,`coins>()
+@fif_codegen DECLPROC Pair<int8,`int16>.compareWith<int16,`int8>()
 @fif_codegen DECLPROC CounterMsg.onInternalMessage()
  */

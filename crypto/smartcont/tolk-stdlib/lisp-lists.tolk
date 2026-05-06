@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.3
+tolk 1.4
 
 /**
     A lisp-style list is a set of nested 2-element TVM tuples:

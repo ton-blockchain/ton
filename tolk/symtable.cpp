@@ -101,7 +101,6 @@ bool FunctionData::does_need_codegen() const {
 void FunctionData::assign_resolved_receiver_type(TypePtr receiver_type, std::string&& name_prefix) {
   this->receiver_type = receiver_type;
   if (!this->substitutedTs) {   // after receiver has been resolve, update name to "receiver.method"
-    name_prefix.erase(std::remove(name_prefix.begin(), name_prefix.end(), ' '), name_prefix.end());
     this->name = name_prefix + "." + this->method_name;
   }
 }

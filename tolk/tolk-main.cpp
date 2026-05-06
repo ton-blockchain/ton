@@ -46,6 +46,7 @@ enum LongOnlyOptions {
   OPT_PATH_MAPPING = 256,
   OPT_NO_STACK_COMMENTS,
   OPT_NO_LINE_COMMENTS,
+  OPT_NO_COMPILED_BOC,
   OPT_NO_CONTRACT_ABI,
   OPT_NO_SYMBOL_TYPES,
   OPT_EMIT_DEBUG_MARKS,
@@ -60,6 +61,7 @@ static struct option long_options[] = {
   {"path-mapping", required_argument, nullptr, OPT_PATH_MAPPING},
   {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
   {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
+  {"no-compiled-boc", no_argument, nullptr, OPT_NO_COMPILED_BOC},
   {"no-contract-abi", no_argument, nullptr, OPT_NO_CONTRACT_ABI},
   {"no-symbol-types", no_argument, nullptr, OPT_NO_SYMBOL_TYPES},
   {"emit-debug-marks", no_argument, nullptr, OPT_EMIT_DEBUG_MARKS},
@@ -322,6 +324,9 @@ int main(int argc, char* const argv[]) {
       case OPT_NO_LINE_COMMENTS:
         G_settings.tolk_src_as_line_comments = false;
         break;
+      case OPT_NO_COMPILED_BOC:
+        G_settings.emit_compiled_boc = false;
+        break;
       case OPT_NO_CONTRACT_ABI:
         G_settings.emit_contract_abi = false;
         break;
@@ -428,8 +433,11 @@ int main(int argc, char* const argv[]) {
 
   fif_out_file << result.fift_code;
   if (G_settings.emit_debug_marks) {
+    // on a stack: BoC (TVM bytecode) + debug marks (dict), save this dict
     fif_out_file << "boc>B \"" << out_basename << ".debugMarks.boc\" B>file\n";
-    // todo need to save boc without debug marks? need to disable it?
+  }
+  if (G_settings.emit_compiled_boc || G_settings.emit_debug_marks) {
+    // save BoC (TVM bytecode) to a separate file; if debug marks, we also need it aside
     fif_out_file << "dup boc>B \"" << out_basename << ".compiled.boc\" B>file\n";
   }
 

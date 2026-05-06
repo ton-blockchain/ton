@@ -23,6 +23,8 @@ namespace tolk {
 bool is_contract_property_type_node(std::string_view name) {
   return name == "incomingMessages"
       || name == "incomingExternal"
+      || name == "outgoingMessages"
+      || name == "emittedEvents"
       || name == "storage"
       || name == "storageAtDeployment"
       || name == "forceAbiExport"
@@ -35,8 +37,7 @@ static std::string expect_string(V<ast_contract_directive_item> v) {
   if (!v_str) {
     err("property `{}` must be a string", v->name).fire(v->name_range());
   }
-  // todo triple quotes """
-  return static_cast<std::string>(v_str->str_val);
+  return v_str->str_val;
 }
 
 static AnyTypeV expect_type(V<ast_contract_directive_item> v) {
@@ -68,6 +69,8 @@ ContractDirective* parse_contract_directive(AnyV v) {
     else if (prop == "description")           d->description          = expect_string(ith);
     else if (prop == "incomingMessages")      d->incomingMessages     = expect_type(ith);
     else if (prop == "incomingExternal")      d->incomingExternal     = expect_type(ith);
+    else if (prop == "outgoingMessages")      d->outgoingMessages     = expect_type(ith);
+    else if (prop == "emittedEvents")         d->emittedEvents        = expect_type(ith);
     else if (prop == "storage")               d->storage              = expect_type(ith);
     else if (prop == "storageAtDeployment")   d->storageAtDeployment  = expect_type(ith);
     else if (prop == "forceAbiExport")        d->forceAbiExport       = expect_type(ith);

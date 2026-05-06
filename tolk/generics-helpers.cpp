@@ -271,7 +271,12 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
     }
   } else if (const auto* p_instAl = param_type->try_as<TypeDataGenericTypeWithTs>(); p_instAl && p_instAl->alias_ref) {
     // `arg: WrapperAlias<T>` called as `f(wrappedInt)` => T is int
-    if (const auto* a_alias = arg_type->try_as<TypeDataAlias>(); a_alias && a_alias->alias_ref->is_instantiation_of_generic_alias() && a_alias->alias_ref->base_alias_ref == p_instAl->alias_ref) {
+    const TypeDataAlias* a_alias = arg_type->try_as<TypeDataAlias>();
+    // walk plain aliases like `type WrappedInt = WrapperAlias<int>` without erasing the generic alias to its underlying type
+    while (a_alias && (!a_alias->alias_ref->is_instantiation_of_generic_alias() || a_alias->alias_ref->base_alias_ref != p_instAl->alias_ref)) {
+      a_alias = a_alias->underlying_type->try_as<TypeDataAlias>();
+    }
+    if (a_alias) {
       tolk_assert(p_instAl->size() == a_alias->alias_ref->substitutedTs->size());
       for (int i = 0; i < p_instAl->size(); ++i) {
         consider_next_condition(p_instAl->type_arguments[i], a_alias->alias_ref->substitutedTs->typeT_at(i));
@@ -419,7 +424,7 @@ bool GenericsSubstitutions::equal_to(const GenericsSubstitutions* rhs) const {
 
 // when cloning `f<T>`, original name is "f", we need a new name for symtable and output
 // name of an instantiated function will be "f<int>" and similar (yes, with "<" symbol, it's okay to Fift)
-static std::string generate_instantiated_name(const std::string& orig_name, const GenericsSubstitutions& substitutedTs, bool allow_spaces, int size_from_receiver = 0) {
+static std::string generate_instantiated_name(const std::string& orig_name, const GenericsSubstitutions& substitutedTs, int size_from_receiver = 0) {
   // an instantiated function name will be "{orig_name}<{T1,T2,...}>"
   std::string name = orig_name;
   if (size_from_receiver < substitutedTs.size()) {
@@ -431,9 +436,6 @@ static std::string generate_instantiated_name(const std::string& orig_name, cons
       name += substitutedTs.typeT_at(i)->as_human_readable();
     }
     name += '>';
-  }
-  if (!allow_spaces) {
-    name.erase(std::remove(name.begin(), name.end(), ' '), name.end());
   }
   return name;
 }
@@ -457,7 +459,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
   if (fun_ref->is_method() && fun_ref->receiver_type->has_genericT_inside()) {
     fun_name = replace_genericT_with_deduced(fun_ref->receiver_type, &substitutedTs)->as_human_readable() + "." + fun_ref->method_name;
   }
-  std::string new_name = generate_instantiated_name(fun_name, substitutedTs, false, fun_ref->genericTs->n_from_receiver);
+  std::string new_name = generate_instantiated_name(fun_name, substitutedTs, fun_ref->genericTs->n_from_receiver);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
     if (FunctionPtr f = existing_sym->try_as<FunctionPtr>(); f && f->base_fun_ref == fun_ref) {
       return f;
@@ -511,7 +513,7 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
   tolk_assert(struct_ref->is_generic_struct());
 
   // if `Wrapper<int>` was earlier instantiated, return it
-  std::string new_name = generate_instantiated_name(struct_ref->name, substitutedTs, true);
+  std::string new_name = generate_instantiated_name(struct_ref->name, substitutedTs);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
     if (StructPtr s = existing_sym->try_as<StructPtr>(); s && s->base_struct_ref == struct_ref) {
       return s;
@@ -534,7 +536,8 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
   tolk_assert(new_struct_ref);
   pipeline_resolve_identifiers_and_assign_symbols(new_struct_ref);
   pipeline_resolve_types_and_aliases(new_struct_ref);
-  pipeline_infer_types_and_calls_and_fields(new_struct_ref);
+  // don't call type inferring here (unlike for generic functions), it's invalid before type resolving finishes;
+  // type inferring for generic struct instantiations will automatically be run instead
 
   instantiation_depth--;
   return new_struct_ref;
@@ -544,7 +547,7 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   tolk_assert(alias_ref->is_generic_alias());
 
   // if `Response<int>` was earlier instantiated, return it
-  std::string new_name = generate_instantiated_name(alias_ref->name, substitutedTs, true);
+  std::string new_name = generate_instantiated_name(alias_ref->name, substitutedTs);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
     if (AliasDefPtr a = existing_sym->try_as<AliasDefPtr>(); a && a->base_alias_ref == alias_ref) {
       return a;

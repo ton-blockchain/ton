@@ -1,6 +1,7 @@
 import "@stdlib/strings"
 
 const ZERO = 0;
+const ONE = 1;
 
 fun sumABDef0(a: int, b: int = 0) {
     return a + b;
@@ -9,6 +10,10 @@ fun sumABDef0(a: int, b: int = 0) {
 fun sumADef1BDef2(a: int = ((1)), b: int = 2+ZERO) {
     return a + b;
 }
+
+@pure
+fun incDefault(x: int = ONE): int
+    asm "INC";
 
 fun getAOrB<T>(a: T, b: T, getA: bool = false): T {
     return getA ? a : b;
@@ -276,6 +281,11 @@ fun test17() {
     )
 }
 
+@method_id(118)
+fun test18() {
+    return (incDefault(), incDefault(10));
+}
+
 fun main() {
     // mark used to codegen them
     cmp1; cmp2; cmp3; cmp4;
@@ -304,6 +314,7 @@ fun main() {
 @testcase | 115 |           | -1 -1 -1 0 0
 @testcase | 116 |           | 123
 @testcase | 117 |           | 123 456 789 3 0 4 3 100
+@testcase | 118 |           | 2 11
 
 @fif_codegen
 """

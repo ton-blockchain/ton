@@ -286,15 +286,17 @@ struct GlobalConstData final : Symbol {
 struct AliasDefData final : Symbol {
   AnyTypeV underlying_type_node;
   TypePtr underlying_type = nullptr;    // = resolved underlying_type_node
+  DocCommentLines doc_lines;
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
   AliasDefPtr base_alias_ref = nullptr;           // for `Response<int>`, here is `Response<T>`
   AnyV ast_root;                                  // V<ast_type_alias_declaration>
 
-  AliasDefData(std::string name, AnyV ident_anchor, AnyTypeV underlying_type_node, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+  AliasDefData(std::string name, AnyV ident_anchor, AnyTypeV underlying_type_node, DocCommentLines doc_lines, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
     , underlying_type_node(underlying_type_node)
+    , doc_lines(std::move(doc_lines))
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
     , ast_root(ast_root) {

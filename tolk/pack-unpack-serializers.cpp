@@ -69,6 +69,12 @@ CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::ve
   // a receiver is not a primitive, so `MyInt` won't collide with `int.packToBuilder` (the latter is disallowed)
   CustomPackUnpackF f{nullptr, nullptr};
 
+  // fast return path without methods lookup
+  bool can_potentially_have = receiver_type->try_as<TypeDataAlias>() || receiver_type->try_as<TypeDataStruct>() || receiver_type->try_as<TypeDataEnum>();
+  if (!can_potentially_have) {
+    return f;
+  }
+
   // while inferring types and generic functions, output generic candidates
   // for `fun SomeStruct<T>.packToBuilder`, so that it would be instantiated for T
   std::vector<MethodCallCandidate> c_pack = resolve_methods_for_call(receiver_type, "packToBuilder", false);

@@ -1388,17 +1388,18 @@ template<>
 // see TypeDataAlias in type-system.h
 struct Vertex<ast_type_alias_declaration> final : ASTOtherVararg {
   AliasDefPtr alias_ref = nullptr;          // filled after register
-  V<ast_genericsT_list> genericsT_list;             // exists for `type Response<TResult>`; otherwise, nullptr
-  AnyTypeV underlying_type_node;                    // at the right of `=`
+  V<ast_genericsT_list> genericsT_list;     // exists for `type Response<TResult>`; otherwise, nullptr
+  AnyTypeV underlying_type_node;            // at the right of `=`
+  DocCommentLines doc_lines;                // from /// doc-comments above declaration
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_alias_ref(AliasDefPtr alias_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, AnyTypeV underlying_type_node)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, AnyTypeV underlying_type_node, DocCommentLines doc_lines)
     : ASTOtherVararg(ast_type_alias_declaration, range, {name_identifier})
-    , genericsT_list(genericsT_list), underlying_type_node(underlying_type_node) {}
+    , genericsT_list(genericsT_list), underlying_type_node(underlying_type_node), doc_lines(std::move(doc_lines)) {}
 };
 
 template<>
@@ -1514,7 +1515,9 @@ struct Vertex<ast_tolk_required_version> final : ASTOtherLeaf {
 };
 
 template<>
-// todo
+// ast_contract_directive_item is a key-value pair inside a `contract` directive
+// example: `author: "me"`            (expression)
+// example: `incomingMessages: A | B` (type)
 struct Vertex<ast_contract_directive_item> final : ASTOtherLeaf {
   std::string_view name;
   AnyExprV v_as_expr;
@@ -1530,7 +1533,10 @@ struct Vertex<ast_contract_directive_item> final : ASTOtherLeaf {
 };
 
 template<>
-// todo
+// ast_contract_directive is a `contract` in a file with `onInternalMessage` and `get fun` entrypoints
+// in practice, `incomingMessages` and `storage` are specified for proper ABI generation,
+// whereas other ABI output like `thrown_errors` are calculated automatically;
+// note that `import "FileWithContract"` does NOT import its `get fun`, see pipe-register-symbols.cpp
 struct Vertex<ast_contract_directive> final : ASTOtherVararg {
   int size_items() const { return size() - 1; }
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }

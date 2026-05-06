@@ -207,12 +207,4 @@ void DebugMarksCollecting::to_pretty_json(std::ostream& os, const SymbolTypesCol
   json.end_array();
 }
 
-void pipeline_collect_symbol_types_output(std::ostream& os) {
-  G.symbol_types_pool.to_pretty_json(os);
-}
-
-void pipeline_collect_debug_marks_output(std::ostream& os) {
-  G.debug_marks.to_pretty_json(os, G.symbol_types_pool);
-}
-
 } // namespace tolk

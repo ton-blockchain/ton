@@ -371,7 +371,8 @@ public:
       v_orig->range,
       new_name_ident,
       clone(v_orig->genericsT_list),
-      clone(v_orig->underlying_type_node)
+      clone(v_orig->underlying_type_node),
+      v_orig->doc_lines
     );
   }
 

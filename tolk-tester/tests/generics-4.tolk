@@ -268,11 +268,11 @@ fun main() {
 @testcase | 108 |      | 10 (null) 20
 
 @fif_codegen DECLPROC eqUnusedT<null>()
-@fif_codegen DECLPROC eqUnusedU<builder,never>()
-@fif_codegen DECLPROC mySend<void,void>()
-@fif_codegen DECLPROC mySend<int,void>()
-@fif_codegen DECLPROC mySend<int,builder>()
-@fif_codegen DECLPROC mySend<void,[int]?>()
+@fif_codegen DECLPROC eqUnusedU<builder,`never>()
+@fif_codegen DECLPROC mySend<void,`void>()
+@fif_codegen DECLPROC mySend<int,`void>()
+@fif_codegen DECLPROC mySend<int,`builder>()
+@fif_codegen DECLPROC mySend<void,`[int]?>()
 
 @fif_codegen
 """

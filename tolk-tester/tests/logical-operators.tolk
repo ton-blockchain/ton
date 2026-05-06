@@ -278,6 +278,22 @@ fun test123(x: int) {
     return iterations;
 }
 
+@method_id(124)
+fun test124(c: bool): int {
+    var x: int;
+    if ((c && ((x = 1) == 1)) || ((x = 2) == 2)) {
+    }
+    return x;
+}
+
+@method_id(125)
+fun test125(c: bool): int {
+    var x: (int, int);
+    if ((c && (x = (10, 20)).0 == 10) || ((x = (30, 40)).0 == 30)) {
+    }
+    return x.0 + x.1 * 100;
+}
+
 
 fun main() {
 
@@ -336,6 +352,10 @@ fun main() {
 @testcase | 123 | 5      | 5
 @testcase | 123 | 0      | 1
 @testcase | 123 | -5     | 5
+@testcase | 124 | -1     | 1
+@testcase | 124 | 0      | 2
+@testcase | 125 | -1     | 2010
+@testcase | 125 | 0      | 4030
 
 @fif_codegen
 """

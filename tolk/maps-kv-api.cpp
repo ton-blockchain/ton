@@ -533,10 +533,11 @@ std::vector<var_idx_t> generate_mapKV_set(FunctionPtr called_f, CodeBlob& code, 
   TypePtr TValue = called_f->substitutedTs->typeT_at(1);
   DictKeyValue kv(code, origin, TKey, &args[1], TValue, &args[2], true);
 
+  std::vector ir_mutated_map = code.create_tmp_var(TypeDataMapKV::create(TKey, TValue), origin, "(map)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.add_call(origin, args[0], std::move(dict_args), lookup_function("__dict.set"));
+  code.add_call(origin, ir_mutated_map, std::move(dict_args), lookup_function("__dict.set"));
 
-  return args[0];   // return mutated map
+  return ir_mutated_map;
 }
 
 // fun map<K,V>.setAndGetPrevious(mutate self, key: K, value: V): MapLookupResult<V>

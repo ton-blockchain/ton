@@ -74,6 +74,33 @@ fun duplicateInStrangeUnion(w: int | WrapperAlias<int> | WrapperAlias<int8>) {
     }
 }
 
+struct AForMatch { x: int32 }
+struct BForMatch { y: int32 }
+type MessageForMatch = AForMatch | BForMatch
+
+type AView1 = AForMatch
+type AView2 = AForMatch
+type AView3 = AForMatch
+type AView4 = AForMatch
+
+// @stderr wrong pattern matching: duplicated `AView2`
+// @stderr `match` does not cover all possible types; missing types are: `BForMatch`
+fun duplicateUnionVariantViaDifferentAliases(s: slice) {
+    var msg: MessageForMatch = lazy MessageForMatch.fromSlice(s);
+    match (msg) {
+        AView1 => {}
+        AView2 => {}
+    }
+}
+
+// @stderr wrong pattern matching: duplicated `AView4`
+fun duplicateNonUnionVariantViaDifferentAliases(msg: AForMatch) {
+    match (msg) {
+        AView3 => {}
+        AView4 => {}
+    }
+}
+
 struct Inc5 { v: int32 }
 
 type Msg5 = Inc5

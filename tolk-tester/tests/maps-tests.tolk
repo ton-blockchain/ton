@@ -623,6 +623,16 @@ fun test45() {
     )
 }
 
+fun checkMapSetSnapshot(before: map<int32, int32>, after: map<int32, int32>): (int, int) {
+    return (before.exists(1) ? 1 : 0, after.exists(1) ? 1 : 0);
+}
+
+@method_id(146)
+fun test46() {
+    var m = map<int32, int32> [];
+    return checkMapSetSnapshot(m, m.set(1, 42));
+}
+
 
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
@@ -675,6 +685,7 @@ fun main() {
 @testcase | 143 |            | [ 23 [ 24 (null) ] ] [ 5 (null) ] (null)
 @testcase | 144 |            | [ 1 2 3 4 5 6 7 ]
 @testcase | 145 |            | -1 1 8 1 3
+@testcase | 146 |            | 0 1
 
 @fif_codegen
 """
@@ -685,11 +696,11 @@ fun main() {
     s0 s2 XCHG
     8 PUSHINT
     DICTISET                    //  m
-    1 PUSHINT                   //  m '12=1
+    1 PUSHINT                   //  m '13=1
     SWAP
-    8 PUSHINT                   //  '12=1 m '17=8
-    DICTIGET NULLSWAPIFNOT      //  '13 '14
-    NIP                         //  '14
+    8 PUSHINT                   //  '13=1 m '18=8
+    DICTIGET NULLSWAPIFNOT      //  '14 '15
+    NIP                         //  '15
   }>
 """
 
@@ -746,7 +757,7 @@ fun main() {
     1 PUSHINT                   //  m '3=1
     x{0101} PUSHSLICE           //  m '3=1 '4
     s0 s2 XCHG
-    8 PUSHINT                   //  '4 '3=1 m '7=8
+    8 PUSHINT                   //  '4 '3=1 m '8=8
     DICTISET                    //  m
   }>
 """

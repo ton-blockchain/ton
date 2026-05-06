@@ -198,7 +198,12 @@ bool Optimizer::detect_rewrite_MY_skip_bits() {
     }
 
     std::string s_number(s_op_len.substr(s_op_len.find(' ') + 1));
-    total_skip_bits += std::stoi(s_number); // it's a small number, stoi() is safe
+    int n_skip = std::stoi(s_number);   // it's a small number, stoi() is safe
+    if (total_skip_bits + n_skip > 1023) {
+      break;
+    }
+
+    total_skip_bits += n_skip;
     n_merged++;
   }
 
@@ -335,7 +340,7 @@ bool Optimizer::detect_rewrite_SWAP_STxxxR() {
     if (f.ends_with(ends_with[i])) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = AsmOp::Custom(op_[0]->origin, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 1);
+      oq_[0] = AsmOp::Custom(op_[1]->origin, op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i], 1, 1);
       return true;
     }
   }
@@ -343,7 +348,7 @@ bool Optimizer::detect_rewrite_SWAP_STxxxR() {
     if (f == equl_to[i]) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = AsmOp::Custom(op_[0]->origin, repl_to[i], 0, 1);
+      oq_[0] = AsmOp::Custom(op_[1]->origin, repl_to[i], 0, 1);
       return true;
     }
   }
@@ -369,7 +374,7 @@ bool Optimizer::detect_rewrite_BOOLNOT_THROWIF() {
       p_ = 2;
       q_ = 1;
       std::string new_op = op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i];
-      oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 1, 0);
+      oq_[0] = AsmOp::Custom(op_[1]->origin, new_op, 1, 0);
       return true;
     }
   }
@@ -399,7 +404,7 @@ bool Optimizer::detect_rewrite_0EQINT_THROWIF() {
         oq_[0] = *op_[1];
       } else {
         std::string new_op = op_[1]->op.substr(0, f.rfind(' ')) + repl_with[i];
-        oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 1, 0);
+        oq_[0] = AsmOp::Custom(op_[1]->origin, new_op, 1, 0);
       }
       return true;
     }
@@ -461,7 +466,7 @@ bool Optimizer::detect_rewrite_DICTGET_NULLSWAPIFNOT_THROWIFNOT() {
   p_ = 2;
   q_ = 2;
   std::string new_op = op0.substr(0, op0.rfind(' '));
-  oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 3, 2);
+  oq_[0] = AsmOp::Custom(op_[1]->origin, new_op, 3, 2);
   oq_[1] = *op_[1];
   return true;
 }
@@ -480,7 +485,7 @@ bool Optimizer::detect_rewrite_ENDC_CTOS() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = AsmOp::Custom(op_[0]->origin, "BTOS", 1, 1);
+  oq_[0] = AsmOp::Custom(op_[1]->origin, "BTOS", 1, 1);
   return true;
 }
 
@@ -498,7 +503,7 @@ bool Optimizer::detect_rewrite_ENDC_HASHCU() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = AsmOp::Custom(op_[0]->origin, "HASHBU", 1, 1);
+  oq_[0] = AsmOp::Custom(op_[1]->origin, "HASHBU", 1, 1);
   return true;
 }
 
@@ -516,7 +521,7 @@ bool Optimizer::detect_rewrite_NEWC_BTOS() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = AsmOp::Custom(op_[0]->origin, "x{} PUSHSLICE", 0, 1);
+  oq_[0] = AsmOp::Custom(op_[1]->origin, "x{} PUSHSLICE", 0, 1);
   return true;
 }
 
@@ -536,7 +541,7 @@ bool Optimizer::detect_rewrite_NEWC_STSLICECONST_BTOS() {
   std::string op_pushslice = op_[1]->op.substr(0, op_[1]->op.rfind(' ')) + " PUSHSLICE";
   p_ = 3;
   q_ = 1;
-  oq_[0] = AsmOp::Custom(op_[0]->origin, op_pushslice, 0, 1);
+  oq_[0] = AsmOp::Custom(op_[2]->origin, op_pushslice, 0, 1);
   return true;
 }
 
@@ -556,7 +561,7 @@ bool Optimizer::detect_rewrite_NEWC_ENDC_CTOS() {
 
   p_ = 3;
   q_ = 1;
-  oq_[0] = AsmOp::Custom(op_[0]->origin, "x{} PUSHSLICE", 0, 1);
+  oq_[0] = AsmOp::Custom(op_[2]->origin, "x{} PUSHSLICE", 0, 1);
   return true;
 }
 
@@ -574,7 +579,7 @@ bool Optimizer::detect_rewrite_NEWC_ENDC() {
 
   p_ = 2;
   q_ = 1;
-  oq_[0] = AsmOp::Custom(op_[0]->origin, "<b b> PUSHREF", 0, 1);
+  oq_[0] = AsmOp::Custom(op_[1]->origin, "<b b> PUSHREF", 0, 1);
   return true;
 }
 
@@ -644,7 +649,7 @@ bool Optimizer::detect_rewrite_PUSHREF_CTOS() {
   p_ = 2;
   q_ = 1;
   std::string op = "x{" + std::string(hex) + "} PUSHSLICE";
-  oq_[0] = AsmOp::Custom(op_[0]->origin, op, 0, 1);
+  oq_[0] = AsmOp::Custom(op_[1]->origin, op, 0, 1);
   if (op_[1]->op == "CTOS STRDUMP DROP") {    // debug.printString("str")
     q_ = 2;
     oq_[1] = AsmOp::Custom(op_[1]->origin, "STRDUMP DROP", 1, 0);
@@ -672,7 +677,7 @@ bool Optimizer::detect_rewrite_xxx_NOT() {
       p_ = 2;
       q_ = 1;
       std::string new_op = op_[0]->op.substr(0, f.rfind(' ')) + repl_with[i];
-      oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 0, 1);
+      oq_[0] = AsmOp::Custom(op_[1]->origin, new_op, 0, 1);
       return true;
     }
   }
@@ -680,7 +685,7 @@ bool Optimizer::detect_rewrite_xxx_NOT() {
     if (f == equl_to[i]) {
       p_ = 2;
       q_ = 1;
-      oq_[0] = AsmOp::Custom(op_[0]->origin, repl_to[i], 2, 1);
+      oq_[0] = AsmOp::Custom(op_[1]->origin, repl_to[i], 2, 1);
       return true;
     }
   }
@@ -699,7 +704,7 @@ bool Optimizer::detect_rewrite_xxx_NOT() {
       p_ = 2;
       q_ = 1;
       std::string new_op = number->to_dec_string() + (is_gtint ? " LESSINT" : " GTINT");
-      oq_[0] = AsmOp::Custom(op_[0]->origin, new_op, 2, 1);
+      oq_[0] = AsmOp::Custom(op_[1]->origin, new_op, 2, 1);
       return true;
     }
   }

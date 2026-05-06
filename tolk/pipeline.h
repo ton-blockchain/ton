@@ -55,8 +55,6 @@ void pipeline_find_unused_symbols();
 void pipeline_collect_symbol_types();
 void pipeline_generate_fif_output(std::ostream& os);
 void pipeline_collect_abi_output(std::ostream& os);
-void pipeline_collect_symbol_types_output(std::ostream& os);
-void pipeline_collect_debug_marks_output(std::ostream& os);
 
 // these pipes also can be called per-function individually
 // they are called for instantiated generics functions, when `f<T>` is deeply cloned as `f<int>`
@@ -66,13 +64,11 @@ FunctionPtr pipeline_register_instantiated_lambda_function(FunctionPtr base_fun_
 void pipeline_resolve_identifiers_and_assign_symbols(FunctionPtr);
 void pipeline_resolve_types_and_aliases(FunctionPtr);
 void pipeline_calculate_rvalue_lvalue(FunctionPtr);
-void pipeline_detect_unreachable_statements(FunctionPtr);
 void pipeline_infer_types_and_calls_and_fields(FunctionPtr);
 
 StructPtr pipeline_register_instantiated_generic_struct(StructPtr base_struct_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs);
 void pipeline_resolve_identifiers_and_assign_symbols(StructPtr);
 void pipeline_resolve_types_and_aliases(StructPtr);
-void pipeline_infer_types_and_calls_and_fields(StructPtr);
 
 AliasDefPtr pipeline_register_instantiated_generic_alias(AliasDefPtr base_alias_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs);
 void pipeline_resolve_types_and_aliases(AliasDefPtr);

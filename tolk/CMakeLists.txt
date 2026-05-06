@@ -90,7 +90,7 @@ if (USE_EMSCRIPTEN)
           -flto
   )
   target_compile_options(tolkfiftlib PRIVATE -fexceptions -fno-stack-protector -flto)
-elseif(EMULATOR_STATIC)
+elseif (EMULATOR_STATIC)
   add_library(tolkfiftlib STATIC tolk-wasm.cpp ${TOLK_SOURCE})
   target_include_directories(tolkfiftlib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
   target_link_libraries(tolkfiftlib PUBLIC fift-lib git)
@@ -100,6 +100,6 @@ elseif(EMULATOR_STATIC)
             "LINKER:-exported_symbol,_tolk_version"
     )
   endif()
-endif ()
+endif()
 
 install(TARGETS tolk RUNTIME DESTINATION bin)

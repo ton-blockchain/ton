@@ -725,9 +725,11 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
         auto v_arm = v->get_arm(i);
         if (v_arm->pattern_kind == MatchArmKind::exact_type) {
           TypePtr exact_type = v_arm->pattern_type_node->resolved_type;
+          int variant_idx = expr_as_union ? expr_as_union->get_variant_idx(exact_type) : 0;   // match over non-union is ok
+          tolk_assert(variant_idx != -1);   // in case of aliases, it may point to another StructPtr (but still equal_to)
+          exact_type = expr_as_union ? expr_as_union->variants[variant_idx] : lazy_expr->expr_type;
           auto v_block = v_arm->get_body()->get_block_statement();
           ExprUsagesWhileCollecting variant_usages = collect_expr_usages_in_block(lazy_expr->name_str, s_expr, exact_type, v_block);
-          int variant_idx = expr_as_union ? expr_as_union->get_variant_idx(exact_type) : 0;   // match over non-union is ok
           lazy_expr->variants[variant_idx].merge_with_sub_block(variant_usages);
         } else {
           parent::visit(v_arm);
@@ -888,6 +890,10 @@ class CollectAllLazyObjectsAndFieldsVisitor final : public ASTVisitorFunctionBod
         auto lhs_var = lhs_var_decl->get_expr()->try_as<ast_local_var_lhs>();
         // collect usages of a lazy var inside the same block statement where it's declared
         LocalVarPtr var_ref = lhs_var->var_ref;
+        if (!var_ref->declared_type->equal_to(rhs_lazy->inferred_type)) {
+          err("`lazy` will not work here, because variable `{}` is declared as `{}`, but lazy expression has type `{}`",
+              var_ref, var_ref->declared_type, rhs_lazy->inferred_type).fire(rhs_lazy->keyword_range(), cur_f);
+        }
         ExprUsagesWhileCollecting var_usages = collect_expr_usages_in_block(var_ref->name, SinkExpression(var_ref), var_ref->declared_type, parent_block);
         LazyVarInFunction lazy_var(cur_f, var_ref, rhs_lazy, std::move(var_usages));
         functions_with_lazy_vars[cur_f].emplace_back(std::move(lazy_var));

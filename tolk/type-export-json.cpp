@@ -47,6 +47,7 @@ struct Escaped {
 static void operator+=(std::string& out, Escaped to_be_escaped) {
   for (char c : to_be_escaped.str) {
     if (c == '"')       { out += '\\'; out += c; }
+    else if (c == '\\') { out += "\\\\"; }
     else if (c == '\n') { out += "\\\\n"; }
     else out += c;
   }
@@ -571,6 +572,22 @@ std::string get_abi_description(const DocCommentLines& doc_lines) {
   return result;
 }
 
+static std::string get_type_description(TypePtr ty) {
+  if (const TypeDataAlias* t_alias = ty->try_as<TypeDataAlias>()) {
+    if (!t_alias->alias_ref->doc_lines.empty()) {
+      return get_abi_description(t_alias->alias_ref->doc_lines);
+    }
+    return get_type_description(t_alias->underlying_type);
+  }
+  if (const TypeDataStruct* t_struct = ty->try_as<TypeDataStruct>()) {
+    return get_abi_description(t_struct->struct_ref->doc_lines);
+  }
+  if (const TypeDataEnum* t_enum = ty->try_as<TypeDataEnum>()) {
+    return get_abi_description(t_enum->enum_ref->doc_lines);
+  }
+  return {};
+}
+
 static void to_json(JsonPrettyOutput& json, SrcRange range) {
   SrcRange::DecodedRange r = range.decode_offsets();
   json << '['
@@ -578,16 +595,6 @@ static void to_json(JsonPrettyOutput& json, SrcRange range) {
        << r.start_line_no << ',' << r.start_char_no << ',' << ' '
        << r.end_line_no << ',' << r.end_char_no
        << ']';
-}
-
-// if any field above a struct has `@abi.clientType`, we output a property in struct's declaration;
-// this means "a struct is binary-compatible, but not type-compatible"
-static bool does_any_field_override_client_type(StructPtr struct_ref) {
-  bool any_field = false;
-  for (StructFieldPtr field_ref : struct_ref->fields) {
-    any_field |= field_ref->abi_client_type != nullptr;
-  }
-  return any_field;
 }
 
 // Writes all type-related top-level arrays in canonical order: unique_types, generic instantiations, and declarations.
@@ -656,12 +663,14 @@ void JsonTypeExporter::emit_unique_ty_and_declarations_json(JsonPrettyOutput& js
       }
       json.start_array("fields");
       for (StructFieldPtr field_ref : struct_ref->fields) {
-        TypePtr export_ty = opts.use_abi_client_types && field_ref->abi_client_type ? field_ref->abi_client_type : field_ref->declared_type;
         json.next_array_item();
         json.start_object();
         json.key_value("name", field_ref->name);
-        json.key_value("ty_idx", get_type_idx(export_ty));
-        if (opts.emit_default_values && field_ref->default_value && !field_ref->declared_type->has_genericT_inside()) {
+        json.key_value("ty_idx", get_type_idx(field_ref->declared_type));
+        if (opts.emit_abi_client_types && field_ref->abi_client_type) {
+          json.key_value("client_ty_idx", get_type_idx(field_ref->abi_client_type));
+        }
+        if (opts.emit_default_values && field_ref->default_value && !field_ref->abi_client_type && !struct_ref->is_generic_struct()) {
           ConstValExpression default_value = eval_field_default_value(field_ref);
           json.key_value("default_value", const_val_json(default_value));
         }
@@ -674,11 +683,12 @@ void JsonTypeExporter::emit_unique_ty_and_declarations_json(JsonPrettyOutput& js
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(TypeDataStruct::create(struct_ref))) {
         json.key_value("custom_pack_unpack", f);
       }
-      if (opts.use_abi_client_types && does_any_field_override_client_type(struct_ref)) {
-        json.key_value("overrides_client_type", true);
+      if (opts.emit_descriptions && !struct_ref->doc_lines.empty()) {
+        json.key_value("description", get_abi_description(struct_ref->doc_lines));
       }
     } else if (AliasDefPtr alias_ref = symbol->try_as<AliasDefPtr>()) {
       TypePtr ty = alias_ref->is_generic_alias() ? construct_generic_alias_type(alias_ref) : TypeDataAlias::create(alias_ref);
+      std::string description = get_type_description(TypeDataAlias::create(alias_ref));   // if doc_comment is absent, take from underlying_type
       json.key_value("kind", "alias");
       json.key_value("name", alias_ref->name);
       json.key_value("ty_idx", get_type_idx(ty));
@@ -691,6 +701,9 @@ void JsonTypeExporter::emit_unique_ty_and_declarations_json(JsonPrettyOutput& js
       }
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(TypeDataAlias::create(alias_ref))) {
         json.key_value("custom_pack_unpack", f);
+      }
+      if (opts.emit_descriptions && !description.empty()) {
+        json.key_value("description", description);
       }
     } else if (EnumDefPtr enum_ref = symbol->try_as<EnumDefPtr>()) {
       TypePtr ty = TypeDataEnum::create(enum_ref);
@@ -715,6 +728,9 @@ void JsonTypeExporter::emit_unique_ty_and_declarations_json(JsonPrettyOutput& js
       json.end_array();
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(TypeDataEnum::create(enum_ref))) {
         json.key_value("custom_pack_unpack", f);
+      }
+      if (opts.emit_descriptions && !enum_ref->doc_lines.empty()) {
+        json.key_value("description", get_abi_description(enum_ref->doc_lines));
       }
     } else {
       tolk_assert(false);

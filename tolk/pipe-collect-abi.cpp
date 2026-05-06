@@ -19,7 +19,6 @@
 #include "abi.h"
 #include "type-system.h"
 #include "compiler-state.h"
-#include "compiler-settings.h"
 #include "contract-directive.h"
 #include "generics-helpers.h"
 
@@ -27,8 +26,12 @@ namespace tolk {
 
 class CollectAbiFromBodyVisitor final : public ASTVisitorFunctionBody {
   ContractABI* abi;
+  bool collect_outgoing_messages;
+  bool collect_emitted_events;
 
   void on_assert_throw(AnyExprV v_err_code) const {
+    // on `throw ERR`, `assert (cond, ERR)` and similar we register that constant;
+    // note, that even if it's a local exception caught by `catch`, it's also registered, for simplicity
     while (auto v_cast = v_err_code->try_as<ast_cast_as_operator>()) {
       v_err_code = v_cast->get_expr();
     }
@@ -72,9 +75,9 @@ class CollectAbiFromBodyVisitor final : public ASTVisitorFunctionBody {
       std::string_view f_name = called_f->base_fun_ref->name;
       if (f_name == "map<K,V>.mustGet" && v->get_num_args() > 1) {
         on_assert_throw(v->get_arg(1)->get_expr());
-      } else if (f_name == "createMessage") {
+      } else if (f_name == "createMessage" && collect_outgoing_messages) {
         abi->register_outgoing_message(called_f->substitutedTs->typeT_at(0));
-      } else if (f_name == "createExternalLogMessage") {
+      } else if (f_name == "createExternalLogMessage" && collect_emitted_events) {
         abi->register_emitted_event(called_f->substitutedTs->typeT_at(0));
       }
     }
@@ -93,12 +96,13 @@ class CollectAbiFromBodyVisitor final : public ASTVisitorFunctionBody {
   }
 
 public:
-  explicit CollectAbiFromBodyVisitor(ContractABI* cur_abi)
-    : abi(cur_abi) {}
+  CollectAbiFromBodyVisitor(ContractABI* cur_abi, bool collect_outgoing_messages, bool collect_emitted_events)
+    : abi(cur_abi)
+    , collect_outgoing_messages(collect_outgoing_messages)
+    , collect_emitted_events(collect_emitted_events) {}
 
   bool should_visit_function(FunctionPtr fun_ref) override {
-    // todo only really used functions
-    return fun_ref->is_code_function() && !fun_ref->is_generic_function();
+    return fun_ref->is_code_function() && fun_ref->is_really_used();
   }
 
   void on_exit_function(V<ast_function_declaration> v_function) override {
@@ -108,8 +112,17 @@ public:
   }
 };
 
-static std::vector<TypePtr> ungroup_union_type(TypePtr specified_type) {
+// For `incomingMessages`, `forceAbiExport`, etc. the user may specify:
+// - a union, like `AllowedMessages` or directly `Msg1 | Msg2 | Msg3`
+// - a tensor, like `(Msg1, Msg2, Msg3)`
+// If so, this type is ungrouped to distinct types.
+static std::vector<TypePtr> ungroup_union_type(AnyTypeV specified_type_node) {
+  if (specified_type_node == nullptr) {
+    return {};
+  }
+  TypePtr specified_type = specified_type_node->resolved_type;
   tolk_assert(specified_type != nullptr);
+
   if (const TypeDataUnion* i_union = specified_type->unwrap_alias()->try_as<TypeDataUnion>()) {
     return i_union->variants;
   }
@@ -128,23 +141,23 @@ static void populate_abi_from_contract_directive(ContractABI* abi, const Contrac
   abi->version        = d->version;
   abi->description    = d->description;
 
-  if (d->incomingMessages) {
-    for (TypePtr t_incoming : ungroup_union_type(d->incomingMessages->resolved_type)) {
-      abi->register_incoming_message(t_incoming);
-    }
+  for (TypePtr t_incoming : ungroup_union_type(d->incomingMessages)) {
+    abi->register_incoming_message(t_incoming);
   }
-  if (d->incomingExternal) {
-    for (TypePtr t_external : ungroup_union_type(d->incomingExternal->resolved_type)) {
-      abi->register_external_message(t_external);
-    }
+  for (TypePtr t_external : ungroup_union_type(d->incomingExternal)) {
+    abi->register_external_message(t_external);
+  }
+  for (TypePtr t_outgoing : ungroup_union_type(d->outgoingMessages)) {
+    abi->register_outgoing_message(t_outgoing);
+  }
+  for (TypePtr t_event : ungroup_union_type(d->emittedEvents)) {
+    abi->register_emitted_event(t_event);
   }
   if (d->storage) {
     abi->register_storage(d->storage->resolved_type, d->storageAtDeployment ? d->storageAtDeployment->resolved_type : nullptr);
   }
-  if (d->forceAbiExport) {
-    for (TypePtr t_export : ungroup_union_type(d->forceAbiExport->resolved_type)) {
-      abi->json_types.register_used_type(t_export);
-    }
+  for (TypePtr t_export : ungroup_union_type(d->forceAbiExport)) {
+    abi->json_types.register_used_type(t_export);
   }
 
   if (!d->incomingExternal && lookup_global_symbol("onExternalMessage")) {
@@ -154,16 +167,21 @@ static void populate_abi_from_contract_directive(ContractABI* abi, const Contrac
 
 void pipeline_collect_abi_output(std::ostream& os) {
   ContractABI abi;
+  bool collect_outgoing_messages = true;
+  bool collect_emitted_events = true;
 
   SrcFilePtr entrypoint_file = G.all_src_files.get_entrypoint_file();
   if (entrypoint_file->has_contract_directive()) {
-    populate_abi_from_contract_directive(&abi, entrypoint_file->contract_directive);
+    const ContractDirective* directive = entrypoint_file->contract_directive;
+    populate_abi_from_contract_directive(&abi, directive);
+    collect_outgoing_messages = !directive->outgoingMessages;
+    collect_emitted_events = !directive->emittedEvents;
   }
   if (const Symbol* f_main = lookup_global_symbol("main"); f_main && f_main->try_as<FunctionPtr>()) {
     abi.register_get_method(f_main->try_as<FunctionPtr>());
   }
 
-  CollectAbiFromBodyVisitor visitor(&abi);
+  CollectAbiFromBodyVisitor visitor(&abi, collect_outgoing_messages, collect_emitted_events);
   visit_ast_of_all_functions(visitor);
 
   abi.to_pretty_json(os);

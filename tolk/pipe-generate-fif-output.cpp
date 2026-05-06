@@ -349,20 +349,19 @@ void pipeline_generate_fif_output(std::ostream& os) {
   os << std::endl;
   os << "PROGRAM{\n";
 
-  bool has_main_procedure = false;
+  bool has_fun_main = false;
+  bool has_onInternalMessage = false;
   int n_inlined_in_place = 0;
   std::vector<FunctionPtr> all_contract_getters;
   for (FunctionPtr fun_ref : G.all_functions) {
     if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
-      if (G_settings.verbosity >= 2 && fun_ref->is_code_function()) {
-        std::cerr << fun_ref->name << ": code not generated, function does not need codegen\n";
-      }
       n_inlined_in_place += fun_ref->is_inlined_in_place() && fun_ref->is_really_used();
       continue;
     }
 
-    if (fun_ref->is_entrypoint() && (fun_ref->name == "main" || fun_ref->name == "onInternalMessage")) {
-      has_main_procedure = true;
+    if (fun_ref->is_entrypoint()) {
+      has_fun_main |= fun_ref->name == "main";
+      has_onInternalMessage |= fun_ref->name == "onInternalMessage";
     }
 
     os << "  ";
@@ -382,12 +381,15 @@ void pipeline_generate_fif_output(std::ostream& os) {
     }
   }
 
-  if (!has_main_procedure && G_settings.allow_no_entrypoint) {
-    os << "DECLPROC main // fake main\n";
+  if (!has_fun_main && !has_onInternalMessage) {
+    if (G_settings.allow_no_entrypoint) {
+      os << "DECLPROC main // fake main\n";
+    } else {
+      throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
+    }
   }
-
-  if (!has_main_procedure && !G_settings.allow_no_entrypoint) {
-    throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
+  if (has_fun_main && has_onInternalMessage) {
+    throw Fatal("both `main` and `onInternalMessage` are not allowed");
   }
 
   if (n_inlined_in_place) {
@@ -410,8 +412,8 @@ void pipeline_generate_fif_output(std::ostream& os) {
     os << "  " << "DECLGLOBVAR " << CodeBlob::fift_name(var_ref) << "\n";
   }
 
-  if (!has_main_procedure && G_settings.allow_no_entrypoint) {
-    os << "main PROC:<{ }>\n";
+  if (!has_fun_main && !has_onInternalMessage) {
+    os << "main PROC:<{ }>\n";  // then allow_no_entrypoint is true, checked above
   }
 
   for (FunctionPtr fun_ref : G.all_functions) {

@@ -335,6 +335,38 @@ fun test17(a: AA<slice>, b: BB<slice>) {
     __expect_type(BB<slice>.calcStatic(), "int6");
 }
 
+type BoxForHash<T> = cell
+
+fun BoxForHash<T>.hash(self): int {
+    return 123;
+}
+
+@method_id(118)
+fun test18(): int {
+    var b: BoxForHash<int> = beginCell().endCell();
+    __expect_type(b.hash(), "int");
+    return b.hash();        // not `cell.hash`
+}
+
+type GenericCellForWhich<T> = cell
+type GenericCellForWhichInt = GenericCellForWhich<int>
+
+fun GenericCellForWhich<T>.which(self): int1 {
+    return 1;
+}
+
+fun T.which(self): int3 {
+    return 3;
+}
+
+@method_id(119)
+fun test19() {
+    val direct: GenericCellForWhich<int> = createEmptyCell();
+    val throughAlias: GenericCellForWhichInt = createEmptyCell();
+    __expect_type(direct.which(), "int1");
+    __expect_type(throughAlias.which(), "int1");
+}
+
 fun main() {
     // besides these positive tests, there are many negative resulting in "ambiguous call"
     return 0
@@ -344,11 +376,15 @@ fun main() {
 @testcase | 0   |   | 0
 @testcase | 113 |   | [ 1 2 258 1 2 -777 ]
 @testcase | 116 |   | 111222
+@testcase | 118 |   | 123
 
 @fif_codegen
 """
   test16() PROC:<{
     111222 PUSHINT
+  }>
+  test18() PROC:<{
+    123 PUSHINT
   }>
 """
  */

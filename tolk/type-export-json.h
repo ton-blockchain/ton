@@ -81,7 +81,7 @@ struct JsonTypeExporter {
     bool emit_ident_loc = false;            // "ident_loc": [file_id, start_line, start_col, end_line, end_col]
     bool emit_default_values = false;       // "default_value": ABIConstExpression
     bool emit_descriptions = false;         // "description": from doc comment
-    bool use_abi_client_types = false;      // use `@abi.clientType` if exists, not field's declared_type
+    bool emit_abi_client_types = false;     // emit optional "client_ty_idx" for `@abi.clientType`
   };
 
   void emit_unique_ty_and_declarations_json(JsonPrettyOutput& json, const EmitOptions& opts) const;

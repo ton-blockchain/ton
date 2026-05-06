@@ -1944,7 +1944,8 @@ void pipeline_infer_types_and_calls_and_fields() {
   }
 
   // infer types for default values in structs
-  for (StructPtr struct_ref : get_all_declared_structs()) {
+  for (size_t i = 0; i < get_all_declared_structs().size(); ++i) { // NOLINT(*-loop-convert)
+    StructPtr struct_ref = get_all_declared_structs()[i];   // generic instantiations can be appended while inferring
     if (!struct_ref->is_generic_struct()) {
       visitor.start_visiting_struct_fields(struct_ref);
     }
@@ -1963,11 +1964,6 @@ void pipeline_infer_types_and_calls_and_fields() {
 void pipeline_infer_types_and_calls_and_fields(FunctionPtr fun_ref) {
   InferTypesAndCallsAndFieldsVisitor visitor;
   visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
-}
-
-void pipeline_infer_types_and_calls_and_fields(StructPtr struct_ref) {
-  InferTypesAndCallsAndFieldsVisitor visitor;
-  visitor.start_visiting_struct_fields(struct_ref);
 }
 
 } // namespace tolk

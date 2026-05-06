@@ -55,14 +55,14 @@ fun Pair<AA,BB>.compareWith<U,V>(self, f: U, s: V) {
 
 
 // @stderr can not apply operator `==` to `int` and `int?`
-// @stderr in function `Pair<int,slice>.demoInvalid`
+// @stderr in function `Pair<int, slice>.demoInvalid`
 // @stderr check on `null` first, or use unsafe operator `!`
 fun instantiatePairAndCall(p: Pair<int,slice>) {
     p.demoInvalid();
 }
 
 // @stderr can not apply operator `==` to `address` and `address?`
-// @stderr in function `Pair<address,slice>.compareWith<address?,slice?>`
+// @stderr in function `Pair<address, slice>.compareWith<address?, slice?>`
 // @stderr check on `null` first, or use unsafe operator `!`
 fun callGenericMethodOnGenericReceiver(p: Pair<address,slice>) {
     p.compareWith<address?,slice?>(null, null);

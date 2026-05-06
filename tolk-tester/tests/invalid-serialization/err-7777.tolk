@@ -21,5 +21,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr ambiguous method, both `Pair<X,int8>.packToBuilder` and `Pair<string,Y>.packToBuilder` are applicable
+@stderr ambiguous method, both `Pair<X, int8>.packToBuilder` and `Pair<string, Y>.packToBuilder` are applicable
  */

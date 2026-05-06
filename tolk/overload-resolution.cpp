@@ -108,7 +108,24 @@ static ShapeScore calculate_shape_score(TypePtr t) {
   }
 
   if (const auto* t_alias = t->try_as<TypeDataAlias>()) {
+    if (t_alias->alias_ref->is_instantiation_of_generic_alias()) {
+      int d = 0;
+      for (int i = 0; i < t_alias->alias_ref->substitutedTs->size(); ++i) {
+        d = std::max(d, calculate_shape_score(t_alias->alias_ref->substitutedTs->typeT_at(i)).depth);
+      }
+      return {ShapeKind::Instantiated, 1 + d};
+    }
     return calculate_shape_score(t_alias->underlying_type);
+  }
+
+  if (const auto* t_struct = t->try_as<TypeDataStruct>()) {
+    if (t_struct->struct_ref->is_instantiation_of_generic_struct()) {
+      int d = 0;
+      for (int i = 0; i < t_struct->struct_ref->substitutedTs->size(); ++i) {
+        d = std::max(d, calculate_shape_score(t_struct->struct_ref->substitutedTs->typeT_at(i)).depth);
+      }
+      return {ShapeKind::Instantiated, 1 + d};
+    }
   }
 
   return {ShapeKind::Primitive, 1};
@@ -169,10 +186,12 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
   // 1) exact match candidates with equal_to()
   //    (for instance, an alias equals to its underlying type, as well as `T1|T2` equals to `T2|T1`)
   std::vector<MethodCallCandidate> exact;
+  size_t n_generics = 0;
   for (const MethodCallCandidate& candidate : viable) {
     if (candidate.instantiated_receiver->equal_to(provided_receiver)) {
       exact.push_back(candidate);
     }
+    n_generics += candidate.is_generic();
   }
   if (exact.size() == 1) {
     return exact;
@@ -180,24 +199,13 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
   if (!exact.empty()) {
     viable = std::move(exact);
   }
-
-  // 2) if there are both generic and non-generic functions, filter out generic
-  size_t n_generics = 0;
-  for (const MethodCallCandidate& candidate : viable) {
-    n_generics += candidate.is_generic();
-  }
-  if (n_generics < viable.size()) {
-    std::vector<MethodCallCandidate> non_generic;
-    for (const MethodCallCandidate& candidate : viable) {
-      if (!candidate.is_generic()) {
-        non_generic.push_back(candidate);
-      }
-    }
-    // all the code below is dedicated to choosing between generic Ts, so return if non-generic
-    return non_generic;
+  if (n_generics == 0) {
+    // with only non-generic candidates, do not use shape as a tie-breaker:
+    // if none was an exact single match above, the call is ambiguous
+    return viable;
   }
 
-  // 3) better shape in terms of structural depth
+  // 2) better shape in terms of structural depth
   //    (prefer `Container<T>` over `T` and `map<K1, map<K2,V2>>` over `map<K,V>`)
   ShapeScore best_shape = {ShapeKind::GenericT, -999};
   for (const MethodCallCandidate& candidate : viable) {
@@ -218,6 +226,21 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
   }
   if (!best_by_shape.empty()) {
     viable = std::move(best_by_shape);
+  }
+
+  // 3) if there are both generic and non-generic functions of the same shape, filter out generic
+  n_generics = 0;
+  for (const MethodCallCandidate& candidate : viable) {
+    n_generics += candidate.is_generic();
+  }
+  if (n_generics < viable.size()) {
+    std::vector<MethodCallCandidate> non_generic;
+    for (const MethodCallCandidate& candidate : viable) {
+      if (!candidate.is_generic()) {
+        non_generic.push_back(candidate);
+      }
+    }
+    return non_generic;
   }
 
   // 4) find the overload that dominates all others

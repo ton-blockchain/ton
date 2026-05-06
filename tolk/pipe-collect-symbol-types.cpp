@@ -20,7 +20,20 @@
 #include "tolk.h"
 
 /*
- *    todo comment here and all functions below
+ *   Walk all reachable code and fill `G.symbol_types_pool` for `out.symbolTypes.json` artifact.
+ *   This artifact is emitted always, even if debug marks are not. It's used by Acton toolchain
+ * for `println`, FFI assertions, and other type-dependent work.
+ *
+ *   Note, that we traverse not AST, but IR code already generated from AST.
+ *   After this pipe, we have symbol types filled:
+ *   - all used functions, with their prototypes
+ *   - all unique types and unique declarations inside them
+ *   The resulting `out.symbolTypes.json` contains files, functions, unique types, generic monomorphisations.
+ * Its core (JsonTypeExporter) is common with ABI export (`out.abi.json` also contains unique types and generics),
+ * but they are different artifacts for different purposes:
+ *   - out.abi.json is "how the contract is seen by the outer world, how to encode messages and call get methods"
+ *   - out.symbolTypes.json is for the toolchain (println/format, build cache using import files, etc.)
+ *   - out.debugMarks.json is for the debugger and references ty_idx from symbol types
  */
 
 namespace tolk {
@@ -28,8 +41,6 @@ namespace tolk {
 static void collect_from_debug_mark(const DebugMarkInfo& debug_mark) {
   if (const auto* m_enter = std::get_if<DebugMarkEnterFunction>(&debug_mark)) {
     G.symbol_types_pool.register_used_function(m_enter->fun_ref);
-  } else if (const auto* m_leave = std::get_if<DebugMarkLeaveFunction>(&debug_mark)) {
-    G.symbol_types_pool.register_used_function(m_leave->fun_ref);
   } else if (const auto* m_local = std::get_if<DebugMarkLocalVar>(&debug_mark)) {
     G.symbol_types_pool.register_used_type(m_local->local_ref->declared_type);
   } else if (const auto* m_sc = std::get_if<DebugMarkSmartCast>(&debug_mark)) {
@@ -40,7 +51,7 @@ static void collect_from_debug_mark(const DebugMarkInfo& debug_mark) {
 }
 
 static void walk_ops_collect_symbol_types(const OpList& ops) {
-  for (const std::unique_ptr<Op>& op : ops.list) {
+  for (const auto& op : ops.list) {
     if (!std::holds_alternative<std::nullptr_t>(op->debug_mark)) {
       collect_from_debug_mark(op->debug_mark);
     }
@@ -49,25 +60,23 @@ static void walk_ops_collect_symbol_types(const OpList& ops) {
   }
 }
 
+static void register_contract_directive_type(AnyTypeV type_node) {
+  if (type_node) {
+    G.symbol_types_pool.register_used_type(type_node->resolved_type);
+  }
+}
+
 void pipeline_collect_symbol_types() {
   SrcFilePtr entrypoint_file = G.all_src_files.get_entrypoint_file();
   if (entrypoint_file->has_contract_directive()) {
     const ContractDirective* c = entrypoint_file->contract_directive;
-    if (c->incomingMessages) {
-      G.symbol_types_pool.register_used_type(c->incomingMessages->resolved_type);
-    }
-    if (c->incomingExternal) {
-      G.symbol_types_pool.register_used_type(c->incomingExternal->resolved_type);
-    }
-    if (c->storage) {
-      G.symbol_types_pool.register_used_type(c->storage->resolved_type);
-    }
-    if (c->storageAtDeployment) {
-      G.symbol_types_pool.register_used_type(c->storageAtDeployment->resolved_type);
-    }
-    if (c->forceAbiExport) {
-      G.symbol_types_pool.register_used_type(c->forceAbiExport->resolved_type);
-    }
+    register_contract_directive_type(c->incomingMessages);
+    register_contract_directive_type(c->incomingExternal);
+    register_contract_directive_type(c->outgoingMessages);
+    register_contract_directive_type(c->emittedEvents);
+    register_contract_directive_type(c->storage);
+    register_contract_directive_type(c->storageAtDeployment);
+    register_contract_directive_type(c->forceAbiExport);
   }
 
   for (SrcFilePtr src_file : G.all_src_files) {
@@ -75,12 +84,10 @@ void pipeline_collect_symbol_types() {
   }
 
   for (FunctionPtr fun_ref : G.all_functions) {
-    if (!fun_ref->is_code_function() || !fun_ref->does_need_codegen()) {
-      continue;
+    if (fun_ref->does_need_codegen() && fun_ref->is_code_function()) {
+      G.symbol_types_pool.register_used_function(fun_ref);
+      walk_ops_collect_symbol_types(std::get<FunctionBodyCode*>(fun_ref->body)->code->ops);
     }
-
-    G.symbol_types_pool.register_used_function(fun_ref);
-    walk_ops_collect_symbol_types(std::get<FunctionBodyCode*>(fun_ref->body)->code->ops);
   }
 }
 

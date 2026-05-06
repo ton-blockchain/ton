@@ -177,7 +177,7 @@ fun (int, int).increment(mutate self) {
     self.1 += 1;
 }
 
-// @stderr can not borrow `x33` for mutation once again, it is already being mutated by `(int,int).increment`
+// @stderr can not borrow `x33` for mutation once again, it is already being mutated by `(int, int).increment`
 fun errCantBorrowViaTensorIndex() {
     var x33 = 0;
     ((x33, x33).0, (x33, x33).1).increment();

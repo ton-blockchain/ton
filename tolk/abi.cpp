@@ -70,18 +70,8 @@ static ParsedDocComment parse_doc_comment(const DocCommentLines& doc_lines) {
   return result;
 }
 
-static std::string get_abi_description(TypePtr ty) {
-  if (const TypeDataStruct* t_struct = ty->unwrap_alias()->try_as<TypeDataStruct>()) {
-    return get_abi_description(t_struct->struct_ref->doc_lines);
-  }
-  if (const TypeDataEnum* t_enum = ty->unwrap_alias()->try_as<TypeDataEnum>()) {
-    return get_abi_description(t_enum->enum_ref->doc_lines);
-  }
-  return {};
-}
-
 static TypePtr normalize_createMessage_ty(TypePtr body_ty) {
-  if (const TypeDataStruct* t_struct = body_ty->try_as<TypeDataStruct>()) {
+  if (const TypeDataStruct* t_struct = body_ty->unwrap_alias()->try_as<TypeDataStruct>()) {
     if (t_struct->struct_ref->is_instantiation_of_CellT() || t_struct->struct_ref->is_instantiation_of_UnsafeBodyNoRef()) {
       body_ty = t_struct->struct_ref->substitutedTs->typeT_at(0);
     }
@@ -92,7 +82,6 @@ static TypePtr normalize_createMessage_ty(TypePtr body_ty) {
 void ContractABI::register_storage(TypePtr storage_ty, TypePtr storage_at_deployment_ty) {
   if (storage_ty != nullptr && storage_ty != TypeDataNullLiteral::create()) {
     storage.storage_ty = storage_ty;
-    storage.description = get_abi_description(storage_ty);
     json_types.register_used_type(storage_ty);
   }
   if (storage_at_deployment_ty != nullptr && storage_at_deployment_ty != TypeDataNullLiteral::create()) {
@@ -137,7 +126,6 @@ void ContractABI::register_get_method(FunctionPtr fun_ref) {
 void ContractABI::register_incoming_message(TypePtr body_ty) {
   incoming_messages.emplace_back(ABIInternalMessage{
     .body_ty = body_ty,
-    .description = get_abi_description(body_ty),
   });
   json_types.register_used_type(body_ty);
 }
@@ -145,7 +133,6 @@ void ContractABI::register_incoming_message(TypePtr body_ty) {
 void ContractABI::register_external_message(TypePtr body_ty) {
   incoming_external.emplace_back(ABIExternalMessage{
     .body_ty = body_ty,
-    .description = get_abi_description(body_ty),
   });
   json_types.register_used_type(body_ty);
 }
@@ -162,7 +149,6 @@ void ContractABI::register_outgoing_message(TypePtr body_ty) {
   
   outgoing_messages.emplace_back(ABIOutgoingMessage{
     .body_ty = body_ty,
-    .description = get_abi_description(body_ty),
   });
   json_types.register_used_type(body_ty);
 }
@@ -179,7 +165,6 @@ void ContractABI::register_emitted_event(TypePtr body_ty) {
   
   emitted_events.emplace_back(ABIOutgoingMessage{
     .body_ty = body_ty,
-    .description = get_abi_description(body_ty),
   });
   json_types.register_used_type(body_ty);
 }
@@ -265,7 +250,7 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
   this->json_types.emit_unique_ty_and_declarations_json(json, {
     .emit_default_values = true,
     .emit_descriptions = true,
-    .use_abi_client_types = true,
+    .emit_abi_client_types = true,
   });
 
   json.start_object("storage");
@@ -275,9 +260,6 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
   if (this->storage.storage_at_deployment_ty != nullptr) {
     json.key_value("storage_at_deployment_ty_idx", this->json_types.get_type_idx(this->storage.storage_at_deployment_ty));
   }
-  if (!this->storage.description.empty()) {
-    json.key_value("description", this->storage.description);
-  }
   json.end_object();
 
   json.start_array("incoming_messages");
@@ -285,9 +267,6 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
     json.next_array_item();
     json.start_object();
     json.key_value("body_ty_idx", this->json_types.get_type_idx(m.body_ty));
-    if (!m.description.empty()) {
-      json.key_value("description", m.description);
-    }
     json.end_object();
   }
   json.end_array();
@@ -297,9 +276,6 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
     json.next_array_item();
     json.start_object();
     json.key_value("body_ty_idx", this->json_types.get_type_idx(m.body_ty));
-    if (!m.description.empty()) {
-      json.key_value("description", m.description);
-    }
     json.end_object();
   }
   json.end_array();
@@ -309,9 +285,6 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
     json.next_array_item();
     json.start_object();
     json.key_value("body_ty_idx", this->json_types.get_type_idx(m.body_ty));
-    if (!m.description.empty()) {
-      json.key_value("description", m.description);
-    }
     json.end_object();
   }
   json.end_array();
@@ -321,9 +294,6 @@ void ContractABI::to_pretty_json(std::ostream& os) const {
     json.next_array_item();
     json.start_object();
     json.key_value("body_ty_idx", this->json_types.get_type_idx(m.body_ty));
-    if (!m.description.empty()) {
-      json.key_value("description", m.description);
-    }
     json.end_object();
   }
   json.end_array();
