@@ -48,7 +48,7 @@ CertObserved::CertObserved(Vote vote) : vote_(std::move(vote)) {
 
 bool Flow::is_normal() const {
   if (!(candidate_received && validation_started && validation_finished && notarize_voted && notarize_cert_observed &&
-        finalize_voted && finalize_cert_observed && block_id.has_value())) {
+        finalize_voted && finalize_cert_observed && manager_accepted && block_id.has_value())) {
     return false;
   }
   if (is_collator) {
