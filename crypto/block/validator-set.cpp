@@ -42,6 +42,7 @@ ValidatorSet::ValidatorSet(ton::CatchainSeqno cc_seqno, ton::ShardIdFull from, s
   ids_map_.reserve(ids_.size());
 
   for (std::size_t i = 0; i < ids_.size(); i++) {
+    // Validator sets loaded from config are capped at 2^61, so this sum fits in uint64.
     total_weight_ += ids_[i].weight;
     ids_map_.emplace_back(ton::PublicKey{ton::pubkeys::Ed25519{ids_[i].key}}.compute_short_id().bits256_value(), i);
   }
