@@ -19,6 +19,7 @@
 #include "lite-client/lite-client-common.h"
 #include "td/utils/JsonBuilder.h"
 #include "ton/lite-tl.hpp"
+#include "ton/ton-io.hpp"
 #include "tonlib/LastBlock.h"
 #include "tonlib/LastConfig.h"
 #include "tonlib/utils.h"
@@ -125,7 +126,7 @@ void LastBlock::sync_loop() {
 
 void LastBlock::do_get_last_block() {
   //liteServer.getBlockProof mode:# known_block:tonNode.blockIdExt target_block:mode.0?tonNode.blockIdExt = liteServer.PartialBlockProof;
-  VLOG(last_block) << "get_last_block: continue " << state_.last_key_block_id.to_str() << " -> ?";
+  VLOG(last_block) << "get_last_block: continue " << state_.last_key_block_id << " -> ?";
   get_last_block_stats_.queries_++;
   client_.send_query(
       ton::lite_api::liteServer_getBlockProof(0, create_tl_lite_block_id(state_.last_key_block_id), nullptr),
@@ -135,7 +136,7 @@ void LastBlock::do_get_last_block() {
 }
 
 void LastBlock::do_check_init_block(ton::BlockIdExt from, ton::BlockIdExt to) {
-  VLOG(last_block) << "check_init_block: continue " << from.to_str() << " -> " << to.to_str();
+  VLOG(last_block) << "check_init_block: continue " << from << " -> " << to;
   //liteServer.getBlockProof mode:# known_block:tonNode.blockIdExt target_block:mode.0?tonNode.blockIdExt = liteServer.PartialBlockProof;
   check_init_block_stats_.queries_++;
   client_.send_query(
@@ -157,8 +158,8 @@ td::Result<std::unique_ptr<block::BlockProofChain>> LastBlock::process_block_pro
   VLOG(last_block) << "Got proof FROM\n" << to_string(block_proof->from_) << "TO\n" << to_string(block_proof->to_);
   TRY_RESULT(chain, liteclient::deserialize_proof_chain(std::move(block_proof)));
   if (chain->from != from) {
-    return td::Status::Error(PSLICE() << "block proof chain starts from block " << chain->from.to_str()
-                                      << ", not from requested block " << from.to_str());
+    return td::Status::Error(PSLICE() << "block proof chain starts from block " << chain->from
+                                      << ", not from requested block " << from);
   }
   TRY_STATUS(chain->validate(cancellation_token_));
   return std::move(chain);
@@ -239,8 +240,8 @@ void LastBlock::on_init_block_proof(
   if (chain->complete && chain->to != to) {
     check_init_block_state_ = QueryState::Empty;
     on_sync_error(TonlibError::ValidateBlockProof().move_as_error_suffix(
-        PSLICE() << "complete block proof chain ends at " << chain->to.to_str() << " instead of requested "
-                 << to.to_str() << " (during check init block)"));
+        PSLICE() << "complete block proof chain ends at " << chain->to << " instead of requested " << to
+                 << " (during check init block)"));
     sync_loop();
     return;
   }
@@ -309,7 +310,7 @@ bool LastBlock::update_mc_last_block(ton::BlockIdExt mc_block_id) {
   }
   if (!state_.last_block_id.is_valid() || state_.last_block_id.id.seqno < mc_block_id.id.seqno) {
     state_.last_block_id = mc_block_id;
-    VLOG(last_block) << "Update masterchain block id: " << state_.last_block_id.to_str();
+    VLOG(last_block) << "Update masterchain block id: " << state_.last_block_id;
     return true;
   }
   return false;
@@ -325,7 +326,7 @@ bool LastBlock::update_mc_last_key_block(ton::BlockIdExt mc_key_block_id) {
   }
   if (!state_.last_key_block_id.is_valid() || state_.last_key_block_id.id.seqno < mc_key_block_id.id.seqno) {
     state_.last_key_block_id = mc_key_block_id;
-    VLOG(last_block) << "Update masterchain key block id: " << state_.last_key_block_id.to_str();
+    VLOG(last_block) << "Update masterchain key block id: " << state_.last_key_block_id;
     if (true) {
       td::JsonBuilder jb;
       auto jo = jb.enter_object();
@@ -356,7 +357,7 @@ bool LastBlock::update_init_block(ton::BlockIdExt init_block_id) {
   }
   if (state_.init_block_id != init_block_id) {
     state_.init_block_id = init_block_id;
-    VLOG(last_block) << "Update init block id: " << state_.init_block_id.to_str();
+    VLOG(last_block) << "Update init block id: " << state_.init_block_id;
     return true;
   }
   return false;

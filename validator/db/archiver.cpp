@@ -47,7 +47,7 @@ td::actor::Task<> BlockArchiver::run() {
 }
 
 td::actor::Task<> BlockArchiver::run_inner() {
-  VLOG(VALIDATOR_DEBUG) << "started block archiver for " << handle_->id().to_str();
+  VLOG(VALIDATOR_DEBUG) << "started block archiver for " << handle_->id();
   if (handle_->moved_to_archive()) {
     VLOG(VALIDATOR_DEBUG) << "already moved";
     co_return {};

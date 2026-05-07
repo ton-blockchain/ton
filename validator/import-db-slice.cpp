@@ -328,10 +328,10 @@ void ArchiveImporter::download_shard_archives(td::Ref<MasterchainState> start_st
       if (opts_->need_monitor(shard_prefix, start_state)) {
         if (have_new_shards(last_masterchain_state_, start_state_, shard_prefix)) {
           ++pending_shard_archives_;
-          LOG(INFO) << "Downloading shard archive #" << start_import_seqno_ << " " << shard_prefix.to_str();
+          LOG(INFO) << "Downloading shard archive #" << start_import_seqno_ << " " << shard_prefix;
           download_shard_archive(shard_prefix);
         } else {
-          LOG(INFO) << "Not downloading shard archive #" << start_import_seqno_ << " " << shard_prefix.to_str()
+          LOG(INFO) << "Not downloading shard archive #" << start_import_seqno_ << " " << shard_prefix
                     << " : no new shard blocks";
         }
       }
@@ -350,12 +350,12 @@ void ArchiveImporter::download_shard_archive(ShardIdFull shard_prefix) {
       td::Timestamp::in(3600.0),
       [SelfId = actor_id(this), seqno = start_import_seqno_, shard_prefix](td::Result<std::string> R) {
         if (R.is_error()) {
-          LOG(WARNING) << "Failed to download archive slice #" << seqno << " for shard " << shard_prefix.to_str();
+          LOG(WARNING) << "Failed to download archive slice #" << seqno << " for shard " << shard_prefix;
           delay_action(
               [=]() { td::actor::send_closure(SelfId, &ArchiveImporter::download_shard_archive, shard_prefix); },
               td::Timestamp::in(2.0));
         } else {
-          LOG(DEBUG) << "Downloaded shard archive #" << seqno << " " << shard_prefix.to_str();
+          LOG(DEBUG) << "Downloaded shard archive #" << seqno << " " << shard_prefix;
           td::actor::send_closure(SelfId, &ArchiveImporter::downloaded_shard_archive, R.move_as_ok());
         }
       });
@@ -422,7 +422,7 @@ void ArchiveImporter::checked_shard_client_seqno(BlockSeqno seqno) {
 
 void ArchiveImporter::apply_shard_block(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                         td::Promise<td::Unit> promise) {
-  LOG(DEBUG) << "Applying shard block " << block_id.id.to_str();
+  LOG(DEBUG) << "Applying shard block " << block_id.id;
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), masterchain_block_id, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
         R.ensure();
@@ -525,7 +525,7 @@ void ArchiveImporter::check_shard_block_applied(BlockIdExt block_id, td::Promise
           if (!handle->is_applied()) {
             promise.set_error(td::Status::Error(ErrorCode::notready, "not applied"));
           } else {
-            LOG(DEBUG) << "Applied shard block " << handle->id().id.to_str();
+            LOG(DEBUG) << "Applied shard block " << handle->id().id;
             promise.set_value(td::Unit());
           }
         }

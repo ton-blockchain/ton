@@ -81,11 +81,11 @@ td::Result<std::vector<ExtMessage::Hash>> get_applied_external_messages_hashes(t
     hashes.erase(std::unique(hashes.begin(), hashes.end()), hashes.end());
     return hashes;
   } catch (vm::VmError &err) {
-    return td::Status::Error(PSTRING() << "error while parsing applied block " << block->block_id().to_str() << ": "
+    return td::Status::Error(PSTRING() << "error while parsing applied block " << block->block_id() << ": "
                                        << err.get_msg());
   } catch (vm::VmVirtError &err) {
-    return td::Status::Error(PSTRING() << "virtualization error while parsing applied block "
-                                       << block->block_id().to_str() << ": " << err.get_msg());
+    return td::Status::Error(PSTRING() << "virtualization error while parsing applied block " << block->block_id()
+                                       << ": " << err.get_msg());
   }
 }
 
@@ -93,7 +93,7 @@ td::Result<std::vector<ExtMessage::Hash>> get_applied_external_messages_hashes(t
 
 void AppliedExtMessageCleanupActor::got_block_data(BlockIdExt block_id, td::Result<td::Ref<BlockData>> block) {
   if (block.is_error()) {
-    LOG(WARNING) << "failed to load block data for applied external cleanup of block " << block_id.to_str() << " : "
+    LOG(WARNING) << "failed to load block data for applied external cleanup of block " << block_id << " : "
                  << block.move_as_error();
     return;
   }
@@ -123,8 +123,7 @@ void AppliedExtMessageCleanupActor::cleanup_applied_block(BlockHandle handle, td
   if (values.empty()) {
     return;
   }
-  LOG(INFO) << "cleanup applied externals for block " << block->block_id().to_str()
-            << " : normalized_hashes=" << values.size();
+  LOG(INFO) << "cleanup applied externals for block " << block->block_id() << " : normalized_hashes=" << values.size();
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::erase_external_messages, std::move(values));
 }
 

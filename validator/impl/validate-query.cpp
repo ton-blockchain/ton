@@ -134,11 +134,11 @@ void ValidateQuery::abort_query(td::Status error) {
  */
 bool ValidateQuery::reject_query(std::string error, td::BufferSlice reason) {
   error = error_ctx() + error;
-  LOG(ERROR) << "REJECT: aborting validation of block candidate for " << shard_.to_str() << " : " << error;
+  LOG(ERROR) << "REJECT: aborting validation of block candidate for " << shard_ << " : " << error;
   if (main_promise) {
     record_stats(false, error);
-    errorlog::ErrorLog::log(PSTRING() << "REJECT: aborting validation of block candidate for " << shard_.to_str()
-                                      << " : " << error << ": data=" << block_candidate.id.file_hash.to_hex()
+    errorlog::ErrorLog::log(PSTRING() << "REJECT: aborting validation of block candidate for " << shard_ << " : "
+                                      << error << ": data=" << block_candidate.id.file_hash.to_hex()
                                       << " collated_data=" << block_candidate.collated_file_hash.to_hex());
     errorlog::ErrorLog::log_file(block_candidate.data.clone());
     errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
@@ -172,11 +172,11 @@ bool ValidateQuery::reject_query(std::string err_msg, td::Status error, td::Buff
  */
 bool ValidateQuery::soft_reject_query(std::string error, td::BufferSlice reason) {
   error = error_ctx() + error;
-  LOG(ERROR) << "SOFT REJECT: aborting validation of block candidate for " << shard_.to_str() << " : " << error;
+  LOG(ERROR) << "SOFT REJECT: aborting validation of block candidate for " << shard_ << " : " << error;
   if (main_promise) {
     record_stats(false, error);
-    errorlog::ErrorLog::log(PSTRING() << "SOFT REJECT: aborting validation of block candidate for " << shard_.to_str()
-                                      << " : " << error << ": data=" << block_candidate.id.file_hash.to_hex()
+    errorlog::ErrorLog::log(PSTRING() << "SOFT REJECT: aborting validation of block candidate for " << shard_ << " : "
+                                      << error << ": data=" << block_candidate.id.file_hash.to_hex()
                                       << " collated_data=" << block_candidate.collated_file_hash.to_hex());
     errorlog::ErrorLog::log_file(block_candidate.data.clone());
     errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
@@ -195,13 +195,13 @@ bool ValidateQuery::soft_reject_query(std::string error, td::BufferSlice reason)
  */
 bool ValidateQuery::fatal_error(td::Status error) {
   error.ensure_error();
-  LOG(ERROR) << "aborting validation of block candidate for " << shard_.to_str() << " : " << error.to_string();
+  LOG(ERROR) << "aborting validation of block candidate for " << shard_ << " : " << error.to_string();
   if (main_promise) {
     record_stats(false, error.message().str());
     auto c = error.code();
     if (c <= -667 && c >= -670) {
-      errorlog::ErrorLog::log(PSTRING() << "FATAL ERROR: aborting validation of block candidate for " << shard_.to_str()
-                                        << " : " << error << ": data=" << block_candidate.id.file_hash.to_hex()
+      errorlog::ErrorLog::log(PSTRING() << "FATAL ERROR: aborting validation of block candidate for " << shard_ << " : "
+                                        << error << ": data=" << block_candidate.id.file_hash.to_hex()
                                         << " collated_data=" << block_candidate.collated_file_hash.to_hex());
       errorlog::ErrorLog::log_file(block_candidate.data.clone());
       errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
@@ -276,14 +276,14 @@ void ValidateQuery::finish_query() {
  * Then the function also sends requests to the ValidatorManager to fetch blocks and shard stated.
  */
 void ValidateQuery::start_up() {
-  LOG(WARNING) << "validate query for " << block_candidate.id.to_str() << " started";
+  LOG(WARNING) << "validate query for " << block_candidate.id << " started";
   alarm_timestamp() = timeout;
   created_by_ = block_candidate.pubkey;
 
   REJECT_UNLESS_VOID(id_ == block_candidate.id);
   if (ShardIdFull(id_) != shard_) {
-    soft_reject_query(PSTRING() << "block candidate belongs to shard " << ShardIdFull(id_).to_str()
-                                << " different from current shard " << shard_.to_str());
+    soft_reject_query(PSTRING() << "block candidate belongs to shard " << ShardIdFull(id_)
+                                << " different from current shard " << shard_);
     return;
   }
   if (workchain() != ton::masterchainId && workchain() != ton::basechainId) {
@@ -431,7 +431,7 @@ void ValidateQuery::load_prev_states() {
     // 4.1. load state
     ++pending;
     if (preloaded_prev_block_state_roots_.empty()) {
-      LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i].to_str() << " to Manager";
+      LOG(DEBUG) << "sending wait_block_state() query #" << i << " for " << prev_blocks[i] << " to Manager";
       td::actor::send_closure_later(
           manager, &ValidatorManager::wait_block_state_short, prev_blocks[i], priority(), timeout, false,
           [self = get_self(), i, token = perf_log_.start_action(PSTRING() << "wait_block_state #" << i)](
@@ -526,8 +526,8 @@ bool ValidateQuery::init_parse() {
   }
   for (std::size_t i = 0; i < prev_blks.size(); i++) {
     if (prev_blks[i] != prev_blocks[i]) {
-      return soft_reject_query(PSTRING() << "previous block #" << i + 1 << " mismatch: expected "
-                                         << prev_blocks[i].to_str() << ", found in header " << prev_blks[i]);
+      return soft_reject_query(PSTRING() << "previous block #" << i + 1 << " mismatch: expected " << prev_blocks[i]
+                                         << ", found in header " << prev_blks[i]);
     }
   }
   if (after_split != after_split_) {
@@ -576,7 +576,7 @@ bool ValidateQuery::init_parse() {
                     PSTRING() << "block header declares validator set hash " << info.gen_validator_list_hash_short
                               << ", expected " << validator_set_->get_validator_set_hash());
   if (is_key_block_) {
-    LOG(INFO) << "validating key block " << id_.to_str();
+    LOG(INFO) << "validating key block " << id_;
   }
   if (start_lt_ >= end_lt_) {
     return reject_query("block has start_lt greater than or equal to end_lt");
@@ -814,7 +814,7 @@ void ValidateQuery::after_get_latest_mc_state(td::Result<std::pair<Ref<Mastercha
 void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res, td::PerfLogAction token) {
   token.finish(res);
   REJECT_UNLESS_VOID(!is_masterchain());
-  LOG(WARNING) << "in ValidateQuery::after_get_mc_state() for " << mc_blkid_.to_str();
+  LOG(WARNING) << "in ValidateQuery::after_get_mc_state() for " << mc_blkid_;
   --pending;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
@@ -839,7 +839,7 @@ void ValidateQuery::after_get_mc_state(td::Result<Ref<ShardState>> res, td::Perf
  */
 void ValidateQuery::got_mc_handle(td::Result<BlockHandle> res, td::PerfLogAction token) {
   token.finish(res);
-  LOG(DEBUG) << "in ValidateQuery::got_mc_handle() for " << mc_blkid_.to_str();
+  LOG(DEBUG) << "in ValidateQuery::got_mc_handle() for " << mc_blkid_;
   if (res.is_error()) {
     fatal_error(res.move_as_error());
     return;
@@ -1020,7 +1020,7 @@ bool ValidateQuery::try_unpack_mc_state() {
     if (prev_key_seqno_ != prev_key_block_seqno_) {
       return reject_query(PSTRING() << "previous key block seqno value in candidate block header is " << prev_key_seqno_
                                     << " while the correct value corresponding to reference masterchain state "
-                                    << mc_blkid_.to_str() << " is " << prev_key_block_seqno_);
+                                    << mc_blkid_ << " is " << prev_key_block_seqno_);
     }
     auto limits = config_->get_block_limits(is_masterchain());
     if (limits.is_error()) {
@@ -1175,19 +1175,18 @@ bool ValidateQuery::fetch_config_params() {
  */
 bool ValidateQuery::check_prev_block(const BlockIdExt& listed, const BlockIdExt& prev, bool chk_chain_len) {
   if (listed.seqno() > prev.seqno()) {
-    return reject_query(PSTRING() << "cannot generate a shardchain block after previous block " << prev.to_str()
-                                  << " because masterchain configuration already contains a newer block "
-                                  << listed.to_str());
+    return reject_query(PSTRING() << "cannot generate a shardchain block after previous block " << prev
+                                  << " because masterchain configuration already contains a newer block " << listed);
   }
   if (listed.seqno() == prev.seqno() && listed != prev) {
-    return reject_query(PSTRING() << "cannot generate a shardchain block after previous block " << prev.to_str()
-                                  << " because masterchain configuration lists another block " << listed.to_str()
+    return reject_query(PSTRING() << "cannot generate a shardchain block after previous block " << prev
+                                  << " because masterchain configuration lists another block " << listed
                                   << " of the same height");
   }
   if (chk_chain_len && prev.seqno() >= listed.seqno() + 8) {
-    return reject_query(PSTRING() << "cannot generate next block after " << prev.to_str()
-                                  << " because this would lead to an unregistered chain of length > 8 (only "
-                                  << listed.to_str() << " is registered in the masterchain)");
+    return reject_query(PSTRING() << "cannot generate next block after " << prev
+                                  << " because this would lead to an unregistered chain of length > 8 (only " << listed
+                                  << " is registered in the masterchain)");
   }
   return true;
 }
@@ -1203,10 +1202,9 @@ bool ValidateQuery::check_prev_block(const BlockIdExt& listed, const BlockIdExt&
  */
 bool ValidateQuery::check_prev_block_exact(const BlockIdExt& listed, const BlockIdExt& prev) {
   if (listed != prev) {
-    return reject_query(PSTRING() << "cannot generate shardchain block for shard " << shard_.to_str()
-                                  << " after previous block " << prev.to_str()
-                                  << " because masterchain configuration expects another previous block "
-                                  << listed.to_str() << " and we are immediately after a split/merge event");
+    return reject_query(PSTRING() << "cannot generate shardchain block for shard " << shard_ << " after previous block "
+                                  << prev << " because masterchain configuration expects another previous block "
+                                  << listed << " and we are immediately after a split/merge event");
   }
   return true;
 }
@@ -1248,28 +1246,27 @@ bool ValidateQuery::check_this_shard_mc_info() {
   }
   auto left = config_->get_shard_hash(shard_ - 1, false);
   if (left.is_null()) {
-    return reject_query(PSTRING() << "cannot create new block for shard " << shard_.to_str()
+    return reject_query(PSTRING() << "cannot create new block for shard " << shard_
                                   << " because there is no similar shard in existing masterchain configuration");
   }
   if (left->shard() == shard_) {
     // no split/merge
     if (after_merge_ || after_split_) {
       return reject_query(
-          PSTRING() << "cannot generate new shardchain block for " << shard_.to_str()
+          PSTRING() << "cannot generate new shardchain block for " << shard_
                     << " after a supposed split or merge event because this event is not reflected in the masterchain");
     }
     if (!check_prev_block(left->blk_, prev_blocks[0])) {
       return false;
     }
     if (left->before_split_) {
-      return reject_query(PSTRING() << "cannot generate new unsplit shardchain block for " << shard_.to_str()
-                                    << " after previous block " << left->blk_.to_str() << " with before_split set");
+      return reject_query(PSTRING() << "cannot generate new unsplit shardchain block for " << shard_
+                                    << " after previous block " << left->blk_ << " with before_split set");
     }
     auto sib = config_->get_shard_hash(shard_sibling(shard_));
     if (left->before_merge_ && sib->before_merge_) {
-      return reject_query(PSTRING() << "cannot generate new unmerged shardchain block for " << shard_.to_str()
-                                    << " after both " << left->blk_.to_str() << " and " << sib->blk_.to_str()
-                                    << " set before_merge flags");
+      return reject_query(PSTRING() << "cannot generate new unmerged shardchain block for " << shard_ << " after both "
+                                    << left->blk_ << " and " << sib->blk_ << " set before_merge flags");
     }
     if (left->is_fsm_split()) {
       if (now_ >= left->fsm_utime() && now_ < left->fsm_utime_end()) {
@@ -1279,30 +1276,28 @@ bool ValidateQuery::check_this_shard_mc_info() {
   } else if (shard_is_parent(shard_, left->shard())) {
     // after merge
     if (!left->before_merge_) {
-      return reject_query(PSTRING() << "cannot create new merged block for shard " << shard_.to_str()
-                                    << " because its left ancestor " << left->blk_.to_str()
-                                    << " has no before_merge flag");
+      return reject_query(PSTRING() << "cannot create new merged block for shard " << shard_
+                                    << " because its left ancestor " << left->blk_ << " has no before_merge flag");
     }
     auto right = config_->get_shard_hash(shard_ + 1, false);
     if (right.is_null()) {
       return reject_query(
           PSTRING()
-          << "cannot create new block for shard " << shard_.to_str()
+          << "cannot create new block for shard " << shard_
           << " after a preceding merge because there is no right ancestor shard in existing masterchain configuration");
     }
     if (!shard_is_parent(shard_, right->shard())) {
-      return reject_query(PSTRING() << "cannot create new block for shard " << shard_.to_str()
+      return reject_query(PSTRING() << "cannot create new block for shard " << shard_
                                     << " after a preceding merge because its right ancestor appears to be "
-                                    << right->blk_.to_str());
+                                    << right->blk_);
     }
     if (!right->before_merge_) {
-      return reject_query(PSTRING() << "cannot create new merged block for shard " << shard_.to_str()
-                                    << " because its right ancestor " << right->blk_.to_str()
-                                    << " has no before_merge flag");
+      return reject_query(PSTRING() << "cannot create new merged block for shard " << shard_
+                                    << " because its right ancestor " << right->blk_ << " has no before_merge flag");
     }
     if (after_split_) {
       return reject_query(
-          PSTRING() << "cannot create new block for shard " << shard_.to_str()
+          PSTRING() << "cannot create new block for shard " << shard_
                     << " after a purported split because existing shard configuration suggests a merge");
     } else if (after_merge_) {
       if (!(check_prev_block_exact(left->blk_, prev_blocks[0]) &&
@@ -1312,28 +1307,26 @@ bool ValidateQuery::check_this_shard_mc_info() {
     } else {
       auto cseqno = std::max(left->seqno(), right->seqno());
       if (prev_blocks[0].seqno() <= cseqno) {
-        return reject_query(PSTRING() << "cannot create new block for shard " << shard_.to_str()
-                                      << " after previous block " << prev_blocks[0].to_str()
-                                      << " because masterchain contains newer possible ancestors "
-                                      << left->blk_.to_str() << " and " << right->blk_.to_str());
+        return reject_query(PSTRING() << "cannot create new block for shard " << shard_ << " after previous block "
+                                      << prev_blocks[0] << " because masterchain contains newer possible ancestors "
+                                      << left->blk_ << " and " << right->blk_);
       }
       if (prev_blocks[0].seqno() >= cseqno + 8) {
         return reject_query(
-            PSTRING() << "cannot create new block for shard " << shard_.to_str() << " after previous block "
-                      << prev_blocks[0].to_str()
+            PSTRING() << "cannot create new block for shard " << shard_ << " after previous block " << prev_blocks[0]
                       << " because this would lead to an unregistered chain of length > 8 (masterchain contains only "
-                      << left->blk_.to_str() << " and " << right->blk_.to_str() << ")");
+                      << left->blk_ << " and " << right->blk_ << ")");
       }
     }
   } else if (shard_is_parent(left->shard(), shard_)) {
     // after split
     if (!left->before_split_) {
-      return reject_query(PSTRING() << "cannot generate new split shardchain block for " << shard_.to_str()
-                                    << " after previous block " << left->blk_.to_str() << " without before_split");
+      return reject_query(PSTRING() << "cannot generate new split shardchain block for " << shard_
+                                    << " after previous block " << left->blk_ << " without before_split");
     }
     if (after_merge_) {
       return reject_query(
-          PSTRING() << "cannot create new block for shard " << shard_.to_str()
+          PSTRING() << "cannot create new block for shard " << shard_
                     << " after a purported merge because existing shard configuration suggests a split");
     } else if (after_split_) {
       if (!(check_prev_block_exact(left->blk_, prev_blocks[0]))) {
@@ -1345,11 +1338,11 @@ bool ValidateQuery::check_this_shard_mc_info() {
       }
     }
   } else {
-    return reject_query(PSTRING() << "masterchain configuration contains only block " << left->blk_.to_str()
-                                  << " which belongs to a different shard from ours " << shard_.to_str());
+    return reject_query(PSTRING() << "masterchain configuration contains only block " << left->blk_
+                                  << " which belongs to a different shard from ours " << shard_);
   }
   if (before_split_ && !split_allowed) {
-    return reject_query(PSTRING() << "new block " << id_.to_str()
+    return reject_query(PSTRING() << "new block " << id_
                                   << " has before_split set, but this is forbidden by masterchain configuration");
   }
   return true;
@@ -1373,7 +1366,7 @@ bool ValidateQuery::compute_prev_state() {
     for (size_t i = 0; i < prev_states.size(); i++) {
       Ref<vm::Cell> root = get_virt_state_root(prev_blocks[i]);
       if (root.is_null()) {
-        return reject_query(PSTRING() << "cannot get previous state from collated data: " << prev_blocks[i].to_str());
+        return reject_query(PSTRING() << "cannot get previous state from collated data: " << prev_blocks[i]);
       }
       auto r_state = create_shard_state(prev_blocks[i], std::move(root));
       if (r_state.is_error()) {
@@ -1563,8 +1556,8 @@ bool ValidateQuery::unpack_one_prev_state(block::ShardState& ss, BlockIdExt blki
     return fatal_error(std::move(res));
   }
   if (ss.vert_seqno_ > vert_seqno_) {
-    return reject_query(PSTRING() << "one of previous states " << ss.id_.to_str() << " has vertical seqno "
-                                  << ss.vert_seqno_ << " larger than that of the new block " << vert_seqno_);
+    return reject_query(PSTRING() << "one of previous states " << ss.id_ << " has vertical seqno " << ss.vert_seqno_
+                                  << " larger than that of the new block " << vert_seqno_);
   }
   return true;
 }
@@ -1579,7 +1572,7 @@ bool ValidateQuery::unpack_one_prev_state(block::ShardState& ss, BlockIdExt blki
  * @returns True if the split operation is successful, false otherwise.
  */
 bool ValidateQuery::split_prev_state(block::ShardState& ss) {
-  LOG(INFO) << "Splitting previous state " << ss.id_.to_str() << " to subshard " << shard_.to_str();
+  LOG(INFO) << "Splitting previous state " << ss.id_ << " to subshard " << shard_;
   REJECT_UNLESS(after_split_);
   auto sib_shard = ton::shard_sibling(shard_);
   auto res1 = ss.compute_split_out_msg_queue(sib_shard);
@@ -1613,13 +1606,12 @@ bool ValidateQuery::unpack_next_state() {
     return reject_query("cannot unpack new state", std::move(res));
   }
   if (ns_.utime_ != now_) {
-    return reject_query(PSTRING() << "new state of " << id_.to_str() << " claims to have been generated at unixtime "
+    return reject_query(PSTRING() << "new state of " << id_ << " claims to have been generated at unixtime "
                                   << ns_.utime_ << ", but the block header contains " << now_);
   }
   if (ns_.lt_ != end_lt_) {
-    return reject_query(PSTRING() << "new state of " << id_.to_str()
-                                  << " claims to have been generated at logical time " << ns_.lt_
-                                  << ", but the block header contains end lt " << end_lt_);
+    return reject_query(PSTRING() << "new state of " << id_ << " claims to have been generated at logical time "
+                                  << ns_.lt_ << ", but the block header contains end lt " << end_lt_);
   }
   if (!is_masterchain() && ns_.mc_blk_ref_ != mc_blkid_) {
     return reject_query("new state refers to masterchain block "s + ns_.mc_blk_ref_.to_str() + " different from " +
@@ -1642,7 +1634,7 @@ bool ValidateQuery::unpack_next_state() {
 bool ValidateQuery::request_neighbor_queues() {
   REJECT_UNLESS(new_shard_conf_);
   auto neighbor_list = new_shard_conf_->get_neighbor_shard_hash_ids(shard_);
-  LOG(DEBUG) << "got a preliminary list of " << neighbor_list.size() << " neighbors for " << shard_.to_str();
+  LOG(DEBUG) << "got a preliminary list of " << neighbor_list.size() << " neighbors for " << shard_;
   for (ton::BlockId blk_id : neighbor_list) {
     if (blk_id.seqno == 0 && blk_id.shard_full() != shard_) {
       continue;
@@ -1660,7 +1652,7 @@ bool ValidateQuery::request_neighbor_queues() {
   int i = 0;
   if (full_collated_data_) {
     for (block::McShardDescr& descr : neighbors_) {
-      LOG(DEBUG) << "getting outbound queue of neighbor #" << i << " from collated data : " << descr.blk_.to_str();
+      LOG(DEBUG) << "getting outbound queue of neighbor #" << i << " from collated data : " << descr.blk_;
       if (descr.blk_.is_masterchain()) {
         if (descr.blk_ != mc_state_->get_block_id()) {
           return fatal_error("neighbor from masterchain is not the last mc block");
@@ -1673,7 +1665,7 @@ bool ValidateQuery::request_neighbor_queues() {
       }
       auto state_root = get_virt_state_root(descr.blk_);
       if (state_root.is_null()) {
-        return reject_query(PSTRING() << "cannot get state root form collated data: " << descr.blk_.to_str());
+        return reject_query(PSTRING() << "cannot get state root form collated data: " << descr.blk_);
       }
       auto state = ShardStateQ::fetch(descr.blk_, {}, std::move(state_root));
       if (state.is_error()) {
@@ -1686,7 +1678,7 @@ bool ValidateQuery::request_neighbor_queues() {
     }
   } else {
     for (block::McShardDescr& descr : neighbors_) {
-      LOG(DEBUG) << "requesting outbound queue of neighbor #" << i << " : " << descr.blk_.to_str();
+      LOG(DEBUG) << "requesting outbound queue of neighbor #" << i << " : " << descr.blk_;
       ++pending;
       if (int prev_idx = prev_block_idx(descr.blk_); prev_idx >= 0) {
         td::actor::send_closure(actor_id(this), &ValidateQuery::got_neighbor_out_queue, i,
@@ -1723,10 +1715,9 @@ void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> 
     }
     Ref<MessageQueue> outq_descr = res.move_as_ok();
     block::McShardDescr& descr = neighbors_.at(i);
-    LOG(WARNING) << "obtained outbound queue for neighbor #" << i << " : " << descr.shard().to_str();
+    LOG(WARNING) << "obtained outbound queue for neighbor #" << i << " : " << descr.shard();
     if (outq_descr->get_block_id() != descr.blk_) {
-      LOG(DEBUG) << "outq_descr->id = " << outq_descr->get_block_id().to_str()
-                 << " ; descr.id = " << descr.blk_.to_str();
+      LOG(DEBUG) << "outq_descr->id = " << outq_descr->get_block_id() << " ; descr.id = " << descr.blk_;
       fatal_error(-667, "invalid outbound queue information returned for "s + descr.shard().to_str() +
                             " : id or hash mismatch");
       return;
@@ -1748,7 +1739,7 @@ void ValidateQuery::got_neighbor_out_queue(int i, td::Result<Ref<MessageQueue>> 
       REJECT_UNLESS_VOID(block::tlb::t_OutMsgQueueInfo.validate_ref(1000000, outq_descr->root_cell()));
     }
     // unpack ProcessedUpto
-    LOG(DEBUG) << "unpacking ProcessedUpto of neighbor " << descr.blk_.to_str();
+    LOG(DEBUG) << "unpacking ProcessedUpto of neighbor " << descr.blk_;
     if (verbosity >= 2) {
       FLOG(INFO) {
         block::gen::t_ProcessedInfo.print(sb, qinfo.proc_info);
@@ -1846,14 +1837,14 @@ bool ValidateQuery::request_aux_mc_state(BlockSeqno seqno, Ref<MasterchainStateQ
                                  << " to load corresponding state as required");
   }
   REJECT_UNLESS(blkid.is_valid_ext() && blkid.is_masterchain());
-  LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid.to_str() << " to Manager";
+  LOG(DEBUG) << "sending auxiliary wait_block_state() query for " << blkid << " to Manager";
   ++pending;
   td::actor::send_closure_later(
       manager, &ValidatorManager::wait_block_state_short, blkid, priority(), timeout, false,
       [self = get_self(), blkid,
        token = perf_log_.start_action(PSTRING() << "auxiliary wait_block_state " << blkid.seqno())](
           td::Result<Ref<ShardState>> res) mutable {
-        LOG(DEBUG) << "got answer to wait_block_state query for " << blkid.to_str();
+        LOG(DEBUG) << "got answer to wait_block_state query for " << blkid;
         td::actor::send_closure_later(std::move(self), &ValidateQuery::after_get_aux_shard_state, blkid, std::move(res),
                                       std::move(token));
       });
@@ -1889,7 +1880,7 @@ Ref<MasterchainStateQ> ValidateQuery::get_aux_mc_state(BlockSeqno seqno) const {
 void ValidateQuery::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<Ref<ShardState>> res,
                                               td::PerfLogAction token) {
   token.finish(res);
-  LOG(DEBUG) << "in ValidateQuery::after_get_aux_shard_state(" << blkid.to_str() << ")";
+  LOG(DEBUG) << "in ValidateQuery::after_get_aux_shard_state(" << blkid << ")";
   --pending;
   if (res.is_error()) {
     fatal_error("cannot load auxiliary masterchain state for "s + blkid.to_str() + " : " +
@@ -1930,7 +1921,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                                     const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc,
                                     bool& is_new) {
   auto shard = info.shard();
-  LOG(DEBUG) << "checking shard " << shard.to_str() << " in new shard configuration";
+  LOG(DEBUG) << "checking shard " << shard << " in new shard configuration";
   if (info.next_validator_shard_ != shard.shard) {
     return reject_query("new shard configuration for shard "s + shard.to_str() +
                         " contains different next_validator_shard_ " +
@@ -1954,7 +1945,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                           " for an inactive workchain");
     }
     if (info.seqno()) {
-      return reject_query(PSTRING() << "newly-created shard " << shard.to_str() << " starts with non-zero seqno "
+      return reject_query(PSTRING() << "newly-created shard " << shard << " starts with non-zero seqno "
                                     << info.seqno());
     }
     if (info.blk_.root_hash != wc_info->zerostate_root_hash || info.blk_.file_hash != wc_info->zerostate_file_hash) {
@@ -1962,11 +1953,11 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                           " with incorrect zerostate hashes");
     }
     if (info.end_lt_ >= start_lt_) {
-      return reject_query(PSTRING() << "newly-created shard " << shard.to_str() << " has incorrect logical time "
-                                    << info.end_lt_ << " for a new block with start_lt=" << start_lt_);
+      return reject_query(PSTRING() << "newly-created shard " << shard << " has incorrect logical time " << info.end_lt_
+                                    << " for a new block with start_lt=" << start_lt_);
     }
     if (info.gen_utime_ > now_) {
-      return reject_query(PSTRING() << "newly-created shard " << shard.to_str() << " has incorrect creation time "
+      return reject_query(PSTRING() << "newly-created shard " << shard << " has incorrect creation time "
                                     << info.gen_utime_ << " for a new block created only at " << now_);
     }
     if (info.before_split_ || info.before_merge_ || info.want_split_ || info.want_merge_) {
@@ -1976,7 +1967,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
       return reject_query("newly-created shard "s + shard.to_str() + " has finite min_ref_mc_seqno");
     }
     if (info.reg_mc_seqno_ != id_.seqno()) {
-      return reject_query(PSTRING() << "newly-created shard " << shard.to_str() << " has registration mc seqno "
+      return reject_query(PSTRING() << "newly-created shard " << shard << " has registration mc seqno "
                                     << info.reg_mc_seqno_ << " different from seqno of current block " << id_.seqno());
     }
     if (!info.fees_collected_.is_zero()) {
@@ -1985,7 +1976,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
     cc_seqno = 0;
   } else if (old->top_block_id() == info.top_block_id()) {
     // shard unchanged ?
-    LOG(DEBUG) << "shard " << shard.to_str() << " unchanged";
+    LOG(DEBUG) << "shard " << shard << " unchanged";
     if (!old->basic_info_equal(info, true, true)) {
       return reject_query("shard information for block "s + info.top_block_id().to_str() +
                           " listed in new shard configuration differs from that present in the old shard configuration "
@@ -1996,10 +1987,9 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
     // ...
   } else {
     // shard changed, extract and check TopShardBlockDescr from collated data
-    LOG(DEBUG) << "shard " << shard.to_str() << " changed from " << old->top_block_id().to_str() << " to "
-               << info.top_block_id().to_str();
+    LOG(DEBUG) << "shard " << shard << " changed from " << old->top_block_id() << " to " << info.top_block_id();
     if (info.reg_mc_seqno_ != id_.seqno()) {
-      return reject_query(PSTRING() << "shard information for block "s << info.top_block_id().to_str()
+      return reject_query(PSTRING() << "shard information for block "s << info.top_block_id()
                                     << " has been updated in the new shard configuration, but it has reg_mc_seqno="
                                     << info.reg_mc_seqno_ << " different from that of the current block "
                                     << id_.seqno());
@@ -2030,17 +2020,16 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
       auto chk_res = sh_bd->prevalidate(mc_blkid_, mc_state_,
                                         ShardTopBlockDescrQ::fail_new | ShardTopBlockDescrQ::fail_too_new, res_flags);
       if (chk_res.is_error()) {
-        return reject_query(PSTRING() << "ShardTopBlockDescr for " << sh_bd->block_id().to_str()
-                                      << " is invalid: res_flags=" << res_flags << " "
-                                      << chk_res.move_as_error().to_string());
+        return reject_query(PSTRING() << "ShardTopBlockDescr for " << sh_bd->block_id() << " is invalid: res_flags="
+                                      << res_flags << " " << chk_res.move_as_error().to_string());
       }
       int chain_len = chk_res.move_as_ok();
       if (chain_len <= 0 || chain_len > 8) {
-        return reject_query(PSTRING() << "ShardTopBlockDescr for " << sh_bd->block_id().to_str()
+        return reject_query(PSTRING() << "ShardTopBlockDescr for " << sh_bd->block_id()
                                       << " is invalid: its chain length is " << chain_len << " (not in range 1..8)");
       }
       if (sh_bd->generated_at() > now_) {
-        return reject_query(PSTRING() << "ShardTopBlockDescr for " << sh_bd->block_id().to_str()
+        return reject_query(PSTRING() << "ShardTopBlockDescr for " << sh_bd->block_id()
                                       << " is invalid: it claims to be generated at " << sh_bd->generated_at()
                                       << " while it is still " << now_);
       }
@@ -2100,7 +2089,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
     }
     if (ton::shard_is_parent(old->shard(), shard)) {
       // shard has been split
-      LOG(INFO) << "detected shard split " << old->shard().to_str() << " -> " << shard.to_str();
+      LOG(INFO) << "detected shard split " << old->shard() << " -> " << shard;
       // ...
     } else if (ton::shard_is_parent(shard, old->shard())) {
       // shard has been merged
@@ -2110,8 +2099,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
         return reject_query("shard "s + shard.to_str() + " has been impossibly merged from more than two shards " +
                             old->shard().to_str() + ", " + old2->shard().to_str() + " and others");
       }
-      LOG(INFO) << "detected shard merge " << old->shard().to_str() << " + " << old2->shard().to_str() << " -> "
-                << shard.to_str();
+      LOG(INFO) << "detected shard merge " << old->shard() << " + " << old2->shard() << " -> " << shard;
       // ...
     } else if (shard == old->shard()) {
       // shard updated without split/merge
@@ -2133,7 +2121,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
     fsm_inherited = !prev->is_fsm_none() && prev->fsm_equal(info);
     if (fsm_inherited && (now_ > prev->fsm_utime_end() || info.before_split_)) {
       return reject_query(
-          PSTRING() << "future split/merge information for shard " << shard.to_str()
+          PSTRING() << "future split/merge information for shard " << shard
                     << "has been carried on to the new shard configuration, but it is either expired (expire time "
                     << prev->fsm_utime_end() << ", now " << now_ << "), or before_split bit has been set ("
                     << (int)info.before_split_ << ")");
@@ -2156,7 +2144,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
         info.fsm_utime_end() < info.fsm_utime() + wc_info->min_split_merge_interval ||
         info.fsm_utime_end() > now_ + wc_info->max_split_merge_delay) {
       return reject_query(PSTRING() << "incorrect future split/merge interval " << info.fsm_utime() << " .. "
-                                    << info.fsm_utime_end() << " set for shard " << shard.to_str()
+                                    << info.fsm_utime_end() << " set for shard " << shard
                                     << " in new shard configuration (it is " << now_ << " now)");
     }
     if (info.is_fsm_split() && !split_cond) {
@@ -2190,24 +2178,22 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
   }
   bool cc_updated = (info.next_catchain_seqno_ != cc_seqno);
   if (info.next_catchain_seqno_ != cc_seqno + (unsigned)cc_updated) {
-    return reject_query(PSTRING() << "new shard configuration for shard " << shard.to_str()
-                                  << " changed catchain seqno from " << cc_seqno << " to " << info.next_catchain_seqno_
+    return reject_query(PSTRING() << "new shard configuration for shard " << shard << " changed catchain seqno from "
+                                  << cc_seqno << " to " << info.next_catchain_seqno_
                                   << " (only updates by at most one are allowed)");
   }
   if (!cc_updated && update_shard_cc_) {
-    return reject_query(PSTRING() << "new shard configuration for shard " << shard.to_str()
-                                  << " has unchanged catchain seqno " << cc_seqno
-                                  << ", but it must have been updated for all shards");
+    return reject_query(PSTRING() << "new shard configuration for shard " << shard << " has unchanged catchain seqno "
+                                  << cc_seqno << ", but it must have been updated for all shards");
   }
   bool bm_cleared = !info.before_merge_ && old_before_merge;
   if (!cc_updated && bm_cleared && !workchain_created) {
-    return reject_query(PSTRING() << "new shard configuration for shard " << shard.to_str()
-                                  << " has unchanged catchain seqno " << cc_seqno
-                                  << " while the before_merge bit has been cleared");
+    return reject_query(PSTRING() << "new shard configuration for shard " << shard << " has unchanged catchain seqno "
+                                  << cc_seqno << " while the before_merge bit has been cleared");
   }
   if (cc_updated && !(update_shard_cc_ || bm_cleared)) {
-    return reject_query(PSTRING() << "new shard configuration for shard " << shard.to_str()
-                                  << " has increased catchain seqno " << cc_seqno << " without a good reason");
+    return reject_query(PSTRING() << "new shard configuration for shard " << shard << " has increased catchain seqno "
+                                  << cc_seqno << " without a good reason");
   }
   min_shard_ref_mc_seqno_ = std::min(min_shard_ref_mc_seqno_, info.min_ref_mc_seqno_);
   max_shard_utime_ = std::max(max_shard_utime_, info.gen_utime_);
@@ -2336,7 +2322,7 @@ bool ValidateQuery::check_cur_validator_set() {
     if (validator_set_->get_catchain_seqno() != cc_seqno) {
       return reject_query(PSTRING() << "current validator set catchain seqno mismatch: this validator set has cc_seqno="
                                     << validator_set_->get_catchain_seqno() << ", only validator set with cc_seqno="
-                                    << cc_seqno << " is entitled to create block " << id_.to_str());
+                                    << cc_seqno << " is entitled to create block " << id_);
     }
     export_nodes = validator_set_->export_vector();
   }
@@ -2549,10 +2535,10 @@ bool ValidateQuery::fix_one_processed_upto(block::MsgProcessedUpto& proc, ton::S
   } else {
     auto state = get_aux_mc_state(seqno);
     if (state.is_null()) {
-      return fatal_error(
-          -666, PSTRING() << "cannot obtain masterchain state with seqno " << seqno << " (originally required "
-                          << proc.mc_seqno << ") in a MsgProcessedUpto record for "
-                          << ton::ShardIdFull{owner.workchain, proc.shard}.to_str() << " owned by " << owner.to_str());
+      return fatal_error(-666, PSTRING() << "cannot obtain masterchain state with seqno " << seqno
+                                         << " (originally required " << proc.mc_seqno
+                                         << ") in a MsgProcessedUpto record for "
+                                         << ton::ShardIdFull{owner.workchain, proc.shard} << " owned by " << owner);
     }
     proc.compute_shard_end_lt = state->get_config()->get_compute_shard_end_lt_func();
   }
@@ -2618,7 +2604,7 @@ bool ValidateQuery::add_trivial_neighbor_after_merge() {
     auto& nb = neighbors_.at(i);
     if (ton::shard_intersects(nb.shard(), shard_)) {
       ++found;
-      LOG(DEBUG) << "neighbor #" << i << " : " << nb.blk_.to_str() << " intersects our shard " << shard_.to_str();
+      LOG(DEBUG) << "neighbor #" << i << " : " << nb.blk_ << " intersects our shard " << shard_;
       if (!ton::shard_is_parent(shard_, nb.shard()) || found > 2) {
         return fatal_error("impossible shard configuration in add_trivial_neighbor_after_merge()");
       }
@@ -2631,10 +2617,10 @@ bool ValidateQuery::add_trivial_neighbor_after_merge() {
         nb.set_queue_root(ps_.out_msg_queue_->get_root_cell());
         nb.processed_upto = ps_.processed_upto_;
         nb.blk_.id.shard = shard_.shard;
-        LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb.blk_.to_str()
+        LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb.blk_
                    << " with shard expansion (immediate after-merge adjustment)";
       } else {
-        LOG(DEBUG) << "disabling neighbor #" << i << " : " << nb.blk_.to_str() << " (immediate after-merge adjustment)";
+        LOG(DEBUG) << "disabling neighbor #" << i << " : " << nb.blk_ << " (immediate after-merge adjustment)";
         nb.disable();
       }
     }
@@ -2690,7 +2676,7 @@ bool ValidateQuery::add_trivial_neighbor() {
     auto& nb = neighbors_.at(i);
     if (ton::shard_intersects(nb.shard(), shard_)) {
       ++found;
-      LOG(DEBUG) << "neighbor #" << i << " : " << nb.blk_.to_str() << " intersects our shard " << shard_.to_str();
+      LOG(DEBUG) << "neighbor #" << i << " : " << nb.blk_ << " intersects our shard " << shard_;
       if (nb.shard() == prev_shard) {
         if (prev_shard == shard_) {
           // case 1. Normal.
@@ -2698,7 +2684,7 @@ bool ValidateQuery::add_trivial_neighbor() {
           nb = *descr_ref;
           nb.set_queue_root(ps_.out_msg_queue_->get_root_cell());
           nb.processed_upto = ps_.processed_upto_;
-          LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb.blk_.to_str() << " (simple replacement)";
+          LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb.blk_ << " (simple replacement)";
           cs = 1;
         } else if (ton::shard_is_parent(nb.shard(), shard_)) {
           // case 2. Immediate after-split.
@@ -2711,13 +2697,13 @@ bool ValidateQuery::add_trivial_neighbor() {
           nb2.set_queue_root(sibling_out_msg_queue_->get_root_cell());
           nb2.processed_upto = sibling_processed_upto_;
           nb2.blk_.id.shard = ton::shard_sibling(shard_.shard);
-          LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb2.blk_.to_str()
+          LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb2.blk_
                      << " with shard shrinking to our sibling (immediate after-split adjustment)";
           auto& nb1 = neighbors_.at(n);
           nb1.set_queue_root(ps_.out_msg_queue_->get_root_cell());
           nb1.processed_upto = ps_.processed_upto_;
           nb1.blk_.id.shard = shard_.shard;
-          LOG(DEBUG) << "created neighbor #" << n << " : " << nb1.blk_.to_str()
+          LOG(DEBUG) << "created neighbor #" << n << " : " << nb1.blk_
                      << " with shard shrinking to our (immediate after-split adjustment)";
           cs = 2;
         } else {
@@ -2749,12 +2735,12 @@ bool ValidateQuery::add_trivial_neighbor() {
           return fatal_error("error splitting ProcessedUpto for our virtual sibling");
         }
         nb2.blk_.id.shard = ton::shard_sibling(shard_.shard);
-        LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb2.blk_.to_str()
+        LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb2.blk_
                    << " with shard shrinking to our sibling (continued after-split adjustment)";
         auto& nb1 = neighbors_.at(n);
         nb1.set_queue_root(ps_.out_msg_queue_->get_root_cell());
         nb1.processed_upto = ps_.processed_upto_;
-        LOG(DEBUG) << "created neighbor #" << n << " : " << nb1.blk_.to_str()
+        LOG(DEBUG) << "created neighbor #" << n << " : " << nb1.blk_
                    << " from our preceding state (continued after-split adjustment)";
         cs = 3;
       } else if (ton::shard_is_parent(shard_, nb.shard()) && shard_ == prev_shard) {
@@ -2768,11 +2754,10 @@ bool ValidateQuery::add_trivial_neighbor() {
           nb = *descr_ref;
           nb.set_queue_root(ps_.out_msg_queue_->get_root_cell());
           nb.processed_upto = ps_.processed_upto_;
-          LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb.blk_.to_str()
+          LOG(DEBUG) << "adjusted neighbor #" << i << " : " << nb.blk_
                      << " with shard expansion (continued after-merge adjustment)";
         } else {
-          LOG(DEBUG) << "disabling neighbor #" << i << " : " << nb.blk_.to_str()
-                     << " (continued after-merge adjustment)";
+          LOG(DEBUG) << "disabling neighbor #" << i << " : " << nb.blk_ << " (continued after-merge adjustment)";
           nb.disable();
         }
       } else {
@@ -5187,7 +5172,7 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
   }
   if (enq.lt_ != lt) {
     return reject_query(PSTRING() << "EnqueuedMsg with key " << key.to_hex(352) << " in outbound queue of our neighbor "
-                                  << nb.blk_.to_str() << " pretends to have been created at lt " << lt
+                                  << nb.blk_ << " pretends to have been created at lt " << lt
                                   << " but its actual creation lt is " << enq.lt_);
   }
   REJECT_UNLESS(shard_contains(shard_, enq.next_prefix_));
@@ -5254,7 +5239,7 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
           -669, PSTRING() << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
                           << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()
                           << "), but we had somehow already processed a message (" << lt << "," << enq.hash_.to_hex()
-                          << ") from OutMsgQueue of neighbor " << nb.blk_.to_str() << " key " << key.to_hex(352));
+                          << ") from OutMsgQueue of neighbor " << nb.blk_ << " key " << key.to_hex(352));
     }
     return true;
   }
@@ -5266,7 +5251,7 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
           -669, PSTRING() << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
                           << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()
                           << "), but we had somehow processed in this block a message (" << lt << ","
-                          << enq.hash_.to_hex() << ") from OutMsgQueue of neighbor " << nb.blk_.to_str() << " key "
+                          << enq.hash_.to_hex() << ") from OutMsgQueue of neighbor " << nb.blk_ << " key "
                           << key.to_hex(352));
     }
     // must have a msg_import_fin or msg_import_tr InMsg record
@@ -5306,7 +5291,7 @@ bool ValidateQuery::check_neighbor_outbound_message(Ref<vm::CellSlice> enq_msg, 
         -669, PSTRING() << "internal inconsistency: new ProcessedInfo claims to have processed all messages up to ("
                         << claimed_proc_lt_ << "," << claimed_proc_hash_.to_hex()
                         << "), but we somehow have not processed a message (" << lt << "," << enq.hash_.to_hex()
-                        << ") from OutMsgQueue of neighbor " << nb.blk_.to_str() << " key " << key.to_hex(352));
+                        << ") from OutMsgQueue of neighbor " << nb.blk_ << " key " << key.to_hex(352));
   }
   return true;
 }
@@ -5399,8 +5384,8 @@ bool ValidateQuery::check_delivered_dequeued() {
   LOG(INFO) << "scanning new outbound queue and checking delivery status of all messages";
   for (const auto& nb : neighbors_) {
     if (!nb.is_disabled() && (!nb.processed_upto || !nb.processed_upto->can_check_processed())) {
-      return fatal_error(-667, PSTRING() << "internal error: no info for checking processed messages from neighbor "
-                                         << nb.blk_.to_str());
+      return fatal_error(
+          -667, PSTRING() << "internal error: no info for checking processed messages from neighbor " << nb.blk_);
     }
   }
   size_t cnt = 0;
@@ -5435,7 +5420,7 @@ bool ValidateQuery::check_delivered_dequeued() {
                   PSTRING()
                   << "outbound queue not cleaned up completely: outbound message with (lt,hash)=(" << enq.lt_ << ","
                   << enq.hash_.to_hex() << ") enqueued_lt=" << enq.enqueued_lt_
-                  << " has been already delivered and processed by neighbor " << nb.blk_.to_str()
+                  << " has been already delivered and processed by neighbor " << nb.blk_
                   << " but it has not been dequeued in this block and it is still present in the new outbound queue");
             }
             break;
@@ -6662,7 +6647,7 @@ bool ValidateQuery::check_new_state() {
       std::min(std::min(my_mc_seqno, min_shard_ref_mc_seqno_), ns_.processed_upto_->min_mc_seqno());
   if (ns_.min_ref_mc_seqno_ != ref_mc_seqno) {
     return reject_query(
-        PSTRING() << "new state of " << id_.to_str() << " has minimal referenced masterchain block seqno "
+        PSTRING() << "new state of " << id_ << " has minimal referenced masterchain block seqno "
                   << ns_.min_ref_mc_seqno_
                   << " but the value computed from all shard references and previous masterchain block reference is "
                   << ref_mc_seqno << " = min(" << my_mc_seqno << "," << min_shard_ref_mc_seqno_ << ","
@@ -6799,7 +6784,7 @@ bool ValidateQuery::check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<
   }
   if (block::important_config_parameters_changed(new_cfg_root, old_cfg_root)) {
     // same as the check in Collator::create_mc_state_extra()
-    LOG(WARNING) << "the global configuration changes in block " << id_.to_str();
+    LOG(WARNING) << "the global configuration changes in block " << id_;
     if (!is_key_block_) {
       return reject_query(
           "important parameters in the global configuration have changed, but the block is not marked as a key block");
@@ -6908,18 +6893,18 @@ bool ValidateQuery::check_one_prev_dict_update(ton::BlockSeqno seqno, Ref<vm::Ce
   }
   if (blkid.seqno() != seqno) {
     return reject_query(PSTRING() << "new previous blocks dictionary entry with seqno " << seqno
-                                  << " in fact describes a block " << blkid.to_str() << " with different seqno");
+                                  << " in fact describes a block " << blkid << " with different seqno");
   }
   if (blkid != prev_blocks.at(0)) {
     return reject_query("new previous blocks dictionary has a new entry for previous block " + blkid.to_str() +
                         " while the correct previous block is " + prev_blocks[0].to_str());
   }
   if (lt != config_->lt) {
-    return reject_query(PSTRING() << "previous blocks dictionary has new entry for previous block " << blkid.to_str()
+    return reject_query(PSTRING() << "previous blocks dictionary has new entry for previous block " << blkid
                                   << " indicating end_lt=" << lt << " but the correct value is " << config_->lt);
   }
   if (is_key != config_->is_key_state()) {
-    return reject_query(PSTRING() << "previous blocks dictionary has new entry for previous block " << blkid.to_str()
+    return reject_query(PSTRING() << "previous blocks dictionary has new entry for previous block " << blkid
                                   << " indicating is_key_block=" << is_key << " but the correct value is "
                                   << (int)config_->is_key_state());
   }
@@ -7007,9 +6992,9 @@ bool ValidateQuery::check_mc_state_extra() {
                                     << key.to_ulong());
     }
     if (key.to_ulong() != mc_seqno_) {
-      return reject_query(
-          PSTRING() << "previous block dictionary for the new state of masterchain block " << id_.to_str()
-                    << " does not contain information about immediately previous block with seqno " << mc_seqno_);
+      return reject_query(PSTRING() << "previous block dictionary for the new state of masterchain block " << id_
+                                    << " does not contain information about immediately previous block with seqno "
+                                    << mc_seqno_);
     }
   } catch (vm::VmError& err) {
     return reject_query(
@@ -7044,10 +7029,10 @@ bool ValidateQuery::check_mc_state_extra() {
     REJECT_UNLESS(cs.fetch_ulong(1) == 1);
     REJECT_UNLESS(block::tlb::t_ExtBlkRef.unpack(cs, blkid, &lt));
     if (blkid != prev_blocks.at(0) || lt != config_->lt) {
-      return reject_query(PSTRING() << "last_key_block has been set in the new masterchain state to " << blkid.to_str()
+      return reject_query(PSTRING() << "last_key_block has been set in the new masterchain state to " << blkid
                                     << " with lt " << lt
                                     << ", but the only possible value for this update is the previous block "
-                                    << prev_blocks[0].to_str() << " with lt " << config_->lt);
+                                    << prev_blocks[0] << " with lt " << config_->lt);
     }
     if (!config_->is_key_state()) {
       return reject_query("last_key_block has been updated to the previous block "s + blkid.to_str() +
@@ -7347,7 +7332,7 @@ bool ValidateQuery::postcheck_value_flow() {
   auto expected_fees =
       value_flow_.fees_imported + value_flow_.created + transaction_fees_ + import_fees_ - fees_burned_;
   if (value_flow_.fees_collected != expected_fees) {
-    return reject_query(PSTRING() << "ValueFlow for " << id_.to_str() << " declares fees_collected="
+    return reject_query(PSTRING() << "ValueFlow for " << id_ << " declares fees_collected="
                                   << value_flow_.fees_collected.to_str() << " but the total message import fees are "
                                   << import_fees_ << ", the total transaction fees are " << transaction_fees_.to_str()
                                   << ", creation fee for this block is " << value_flow_.created.to_str()
@@ -7356,7 +7341,7 @@ bool ValidateQuery::postcheck_value_flow() {
                                   << expected_fees.to_str());
   }
   if (total_burned_ != value_flow_.burned) {
-    return reject_query(PSTRING() << "invalid burned in value flow: " << id_.to_str() << " declared "
+    return reject_query(PSTRING() << "invalid burned in value flow: " << id_ << " declared "
                                   << value_flow_.burned.to_str() << ", correct value is " << total_burned_.to_str());
   }
   return true;
@@ -7440,7 +7425,7 @@ bool ValidateQuery::try_validate() {
     }
     if (stage_ == 1) {
       LOG(WARNING) << "try_validate stage 1";
-      LOG(INFO) << "running automated validity checks for block candidate " << id_.to_str();
+      LOG(INFO) << "running automated validity checks for block candidate " << id_;
       {
         td::RealCpuTimer timer;
         SCOPE_EXIT {

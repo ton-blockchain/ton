@@ -19,6 +19,7 @@
 #include "adnl/adnl-node-id.hpp"
 #include "auto/tl/ton_api_json.h"
 #include "td/utils/JsonBuilder.h"
+#include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 
 #include "Config.h"
@@ -90,7 +91,7 @@ td::Result<Config> Config::parse(std::string str) {
 
   for (auto hardfork : res.hardforks) {
     if (!res.init_block_id.is_valid() || hardfork.seqno() > res.init_block_id.seqno()) {
-      LOG(INFO) << "Replace init_block with hardfork: " << res.init_block_id.to_str() << " -> " << hardfork.to_str();
+      LOG(INFO) << "Replace init_block with hardfork: " << res.init_block_id << " -> " << hardfork;
       res.init_block_id = hardfork;
     }
   }

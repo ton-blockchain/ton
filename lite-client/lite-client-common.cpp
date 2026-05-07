@@ -21,6 +21,7 @@
 #include "td/utils/overloaded.h"
 #include "tl-utils/lite-utils.hpp"
 #include "ton/lite-tl.hpp"
+#include "ton/ton-io.hpp"
 
 #include "lite-client-common.h"
 
@@ -87,9 +88,9 @@ td::Result<std::unique_ptr<block::BlockProofChain>> deserialize_proof_chain(
       }
       link.state_proof = d_res.move_as_ok();
     }
-    LOG(DEBUG) << "deserialized a " << (link.is_fwd ? "forward" : "backward") << " BlkProofLink from "
-               << link.from.to_str() << " to " << link.to.to_str() << " with "
-               << (link.sig_set.not_null() ? link.sig_set->get_size() : 0) << " signatures";
+    LOG(DEBUG) << "deserialized a " << (link.is_fwd ? "forward" : "backward") << " BlkProofLink from " << link.from
+               << " to " << link.to << " with " << (link.sig_set.not_null() ? link.sig_set->get_size() : 0)
+               << " signatures";
   }
   LOG(DEBUG) << "deserialized a BlkProofChain of " << chain->link_count() << " links";
   return std::move(chain);

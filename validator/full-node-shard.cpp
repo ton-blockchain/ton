@@ -290,7 +290,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
     }
   });
   BlockIdExt block_id = create_block_id(query.prev_block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query getNextBlockDescription " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query getNextBlockDescription " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_next_block, block_id, std::move(P));
 }
 
@@ -312,7 +312,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
     }
   });
   BlockIdExt block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query prepareBlock " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query prepareBlock " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle, block_id, false,
                           std::move(P));
 }
@@ -333,7 +333,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
     }
   });
   BlockIdExt block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadBlock " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadBlock " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle, block_id, false,
                           std::move(P));
 }
@@ -341,14 +341,14 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockFull &query,
                                       td::Promise<td::BufferSlice> promise) {
   BlockIdExt block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadBlockFull " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadBlockFull " << block_id << " from " << src;
   td::actor::create_actor<BlockFullSender>("sender", block_id, false, validator_manager_, std::move(promise)).release();
 }
 
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadNextBlockFull &query,
                                       td::Promise<td::BufferSlice> promise) {
   BlockIdExt block_id = create_block_id(query.prev_block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadNextBlockFull " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadNextBlockFull " << block_id << " from " << src;
   td::actor::create_actor<BlockFullSender>("sender", block_id, true, validator_manager_, std::move(promise)).release();
 }
 
@@ -382,7 +382,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
   });
 
   BlockIdExt block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query prepareBlockProof " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query prepareBlockProof " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle, block_id, false,
                           std::move(P));
 }
@@ -408,8 +408,8 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
       });
 
   BlockIdExt block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query prepareKeyBlockProof " << block_id.to_str() << " " << query.allow_partial_
-                        << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query prepareKeyBlockProof " << block_id << " " << query.allow_partial_ << " from "
+                        << src;
   if (query.allow_partial_) {
     td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof_link, block_id,
                             std::move(P));
@@ -439,7 +439,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
       });
 
   BlockIdExt block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadBlockProof " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadBlockProof " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle, block_id, false,
                           std::move(P));
 }
@@ -464,7 +464,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
       });
 
   BlockIdExt block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadBlockProofLink " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadBlockProofLink " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle, block_id, false,
                           std::move(P));
 }
@@ -484,7 +484,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
   });
 
   BlockIdExt block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadKeyBlockProof " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadKeyBlockProof " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof, block_id, std::move(P));
 }
 
@@ -503,7 +503,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
   });
 
   BlockIdExt block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadKeyBlockProofLink " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadKeyBlockProofLink " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_key_block_proof_link, block_id,
                           std::move(P));
 }
@@ -522,7 +522,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
         promise.set_value(std::move(x));
       });
   auto block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query prepareZeroState " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query prepareZeroState " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::check_zero_state_exists, block_id,
                           std::move(P));
 }
@@ -541,8 +541,8 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
       });
   auto block_id = create_block_id(query.block_);
   auto masterchain_block_id = create_block_id(query.masterchain_block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query preparePersistentState " << block_id.to_str() << " "
-                        << masterchain_block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query preparePersistentState " << block_id << " " << masterchain_block_id << " from "
+                        << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state_size, block_id,
                           masterchain_block_id, UnsplitStateType{}, std::move(P));
 }
@@ -575,7 +575,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
         promise.set_value(std::move(x));
       });
   auto block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query getNextKeyBlockIds " << block_id.to_str() << " " << cnt << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query getNextKeyBlockIds " << block_id << " " << cnt << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_next_key_blocks, block_id, cnt,
                           std::move(P));
 }
@@ -592,7 +592,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
         promise.set_value(R.move_as_ok());
       });
   auto block_id = create_block_id(query.block_);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadZeroState " << block_id.to_str() << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadZeroState " << block_id << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_zero_state, block_id, std::move(P));
 }
 
@@ -629,7 +629,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
         }
       });
   ShardIdFull shard_prefix = create_shard_id(query.shard_prefix_);
-  VLOG(FULL_NODE_DEBUG) << "Got query getShardArchiveInfo " << query.masterchain_seqno_ << " " << shard_prefix.to_str()
+  VLOG(FULL_NODE_DEBUG) << "Got query getShardArchiveInfo " << query.masterchain_seqno_ << " " << shard_prefix
                         << " from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_id, query.masterchain_seqno_,
                           shard_prefix, std::move(P));
@@ -699,9 +699,9 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
 void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadPersistentStateSliceV2 &query,
                                       td::Promise<td::BufferSlice> promise) {
   auto [block_id, mc_block_id, state_type] = persistent_state_from_v2_query(query);
-  VLOG(FULL_NODE_DEBUG) << "Got query downloadPersistentStateSlice " << block_id.to_str() << " " << mc_block_id.to_str()
-                        << " (" << persistent_state_type_to_string(block_id.shard_full(), state_type) << ") "
-                        << query.offset_ << " " << query.max_size_ << " from " << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query downloadPersistentStateSlice " << block_id << " " << mc_block_id << " ("
+                        << persistent_state_type_to_string(block_id.shard_full(), state_type) << ") " << query.offset_
+                        << " " << query.max_size_ << " from " << src;
   if (query.max_size_ < 0 || query.max_size_ > (1 << 24)) {
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "invalid max_size"));
     return;
@@ -730,9 +730,8 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
         }
       });
   auto [block_id, mc_block_id, state_type] = persistent_state_from_v2_query(query);
-  VLOG(FULL_NODE_DEBUG) << "Got query getPersistentStateSize " << block_id.to_str() << " " << mc_block_id.to_str()
-                        << " (" << persistent_state_type_to_string(block_id.shard_full(), state_type) << ") from "
-                        << src;
+  VLOG(FULL_NODE_DEBUG) << "Got query getPersistentStateSize " << block_id << " " << mc_block_id << " ("
+                        << persistent_state_type_to_string(block_id.shard_full(), state_type) << ") from " << src;
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_persistent_state_size, block_id,
                           mc_block_id, state_type, std::move(P));
 }
@@ -779,7 +778,7 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ex
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
   BlockIdExt block_id = create_block_id(query.block_->block_);
-  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast from " << src << ": " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
                           std::move(query.block_->data_));
 }
@@ -817,7 +816,7 @@ void FullNodeShardImpl::process_block_candidate_broadcast(PublicKeyHash src, ton
     VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate from " << src << ": " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
                           validator_set_hash, std::move(data));
 }
@@ -868,7 +867,7 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
   //  return;
   //}
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
-                        << "from " << src << ": " << B.ok().block_id.to_str();
+                        << "from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
 }
 
@@ -904,7 +903,7 @@ void FullNodeShardImpl::process_block_broadcast_with_state(PublicKeyHash src,
     LOG(DEBUG) << "Failed to deserialize block broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true);
 }
 
@@ -977,7 +976,7 @@ void FullNodeShardImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno
     UNREACHABLE();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast: " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast: " << block_id;
   auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
   auto source = choose_outbound_source(static_cast<td::uint32>(B.size()),
@@ -1003,7 +1002,7 @@ void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno 
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate: " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate: " << block_id;
   auto payload = B.move_as_ok();
   auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
@@ -1015,7 +1014,7 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
     UNREACHABLE();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id;
   auto B = serialize_block_broadcast(broadcast, k_called_from_public);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
@@ -1038,10 +1037,9 @@ void FullNodeShardImpl::download_block(BlockIdExt id, td::uint32 priority, td::T
 
 void FullNodeShardImpl::download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                             td::Promise<td::BufferSlice> promise) {
-  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, BlockIdExt{},
-                                         UnsplitStateType{}, adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(),
-                                         priority, timeout, validator_manager_, rldp2_, overlays_, adnl_, client_,
-                                         std::move(promise))
+  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id, id, BlockIdExt{}, UnsplitStateType{},
+                                         adnl_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), priority, timeout,
+                                         validator_manager_, rldp2_, overlays_, adnl_, client_, std::move(promise))
       .release();
 }
 
@@ -1049,8 +1047,8 @@ void FullNodeShardImpl::download_persistent_state(BlockIdExt id, BlockIdExt mast
                                                   PersistentStateType type, td::uint32 priority, td::Timestamp timeout,
                                                   td::Promise<td::BufferSlice> promise) {
   auto &b = choose_neighbour();
-  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id.to_str(), id, masterchain_block_id,
-                                         type, adnl_id_, overlay_id_, b.adnl_id, priority, timeout, validator_manager_,
+  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id, id, masterchain_block_id, type,
+                                         adnl_id_, overlay_id_, b.adnl_id, priority, timeout, validator_manager_,
                                          rldp2_, overlays_, adnl_, client_, std::move(promise))
       .release();
 }
@@ -1314,7 +1312,7 @@ void FullNodeShardImpl::import_overlay_certificate(PublicKeyHash signed_key,
   auto adnl_source = full_node_adnl_source();
   bool usable_for_local_source = signed_key == local_id_;
   bool usable_for_adnl_source = !adnl_source.is_zero() && signed_key == adnl_source;
-  LOG(INFO) << "shard overlay cert accepted shard=" << shard_.to_str() << " signed_key=" << signed_key
+  LOG(INFO) << "shard overlay cert accepted shard=" << shard_ << " signed_key=" << signed_key
             << " local_id=" << local_id_ << " adnl_source=" << adnl_source << " issuer=" << cert->issuer_hash()
             << " usable_for_local_source=" << usable_for_local_source
             << " usable_for_adnl_source=" << usable_for_adnl_source;
@@ -1562,7 +1560,7 @@ td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
     td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active) {
-  return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "tonnode" << shard.to_str(), shard, local_id, adnl_id,
+  return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "tonnode" << shard, shard, local_id, adnl_id,
                                                     zero_state_file_hash, opts, std::move(limiter), keyring, adnl, rldp,
                                                     rldp2, overlays, validator_manager, client, full_node, active);
 }

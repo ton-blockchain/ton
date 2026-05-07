@@ -481,11 +481,11 @@ void RootDb::archive(BlockHandle handle, td::Promise<td::Unit> promise) {
   auto [it, inserted] = archive_block_waiters_.emplace(handle->id(), std::vector<td::Promise<td::Unit>>{});
   it->second.push_back(std::move(promise));
   if (!inserted) {
-    VLOG(VALIDATOR_DEBUG) << "archive block " << handle->id().id.to_str() << " : already in progress";
+    VLOG(VALIDATOR_DEBUG) << "archive block " << handle->id().id << " : already in progress";
     return;
   }
   td::actor::create_actor<BlockArchiver>(
-      PSTRING() << "archiver" << handle->id().id.to_str(), handle, archive_db_.get(), actor_id(this),
+      PSTRING() << "archiver" << handle->id().id, handle, archive_db_.get(), actor_id(this),
       [this, SelfId = actor_id(this), block_id = handle->id()](td::Result<td::Unit> R) {
         td::actor::send_lambda(SelfId, [this, R = std::move(R), block_id]() {
           auto it2 = archive_block_waiters_.find(block_id);

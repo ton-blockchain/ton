@@ -82,13 +82,13 @@ void ValidatorManagerImpl::wait_state_by_prev_blocks(BlockIdExt block_id, std::v
   }
 
   if (prev_blocks.size() == 1) {
-    LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0].to_str() << " for " << block_id.to_str();
+    LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0] << " for " << block_id;
     wait_block_state_short(prev_blocks[0], 0, td::Timestamp::in(10.0), false, std::move(promise));
     return;
   }
 
-  LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0].to_str() << " and "
-             << prev_blocks[1].to_str() << " for " << block_id.to_str();
+  LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0] << " and " << prev_blocks[1] << " for "
+             << block_id;
   wait_block_state_merge(prev_blocks[0], prev_blocks[1], 0, td::Timestamp::in(10.0), std::move(promise));
 }
 
@@ -205,7 +205,7 @@ void ValidatorManagerImpl::write_fake(BlockCandidate candidate, std::vector<Bloc
 }
 
 void ValidatorManagerImpl::complete_fake(BlockIdExt block_id) {
-  LOG(ERROR) << "success, block " << block_id << " = " << block_id.to_str() << " saved to disk";
+  LOG(ERROR) << "success, block " << block_id << " saved to disk";
   std::exit(0);
 }
 

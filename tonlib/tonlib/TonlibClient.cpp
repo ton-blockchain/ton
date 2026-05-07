@@ -39,6 +39,7 @@
 #include "td/utils/port/path.h"
 #include "td/utils/tests.h"
 #include "ton/lite-tl.hpp"
+#include "ton/ton-io.hpp"
 #include "ton/ton-shard.h"
 #include "tonlib/ExtClientOutbound.h"
 #include "tonlib/LastBlock.h"
@@ -3124,7 +3125,7 @@ td::Result<TonlibClient::FullConfig> TonlibClient::validate_config(tonlib_api::o
   if (new_config.init_block_id.is_valid() && state.last_key_block_id.id.seqno < new_config.init_block_id.id.seqno) {
     state.last_key_block_id = new_config.init_block_id;
     user_defined_init_block = true;
-    LOG(INFO) << "Use init block from USER config: " << new_config.init_block_id.to_str();
+    LOG(INFO) << "Use init block from USER config: " << new_config.init_block_id;
   }
 
   if (o_master_config && !user_defined_init_block) {
@@ -3132,7 +3133,7 @@ td::Result<TonlibClient::FullConfig> TonlibClient::validate_config(tonlib_api::o
     if (master_config.init_block_id.is_valid() &&
         state.last_key_block_id.id.seqno < master_config.init_block_id.id.seqno) {
       state.last_key_block_id = master_config.init_block_id;
-      LOG(INFO) << "Use init block from MASTER config: " << master_config.init_block_id.to_str();
+      LOG(INFO) << "Use init block from MASTER config: " << master_config.init_block_id;
     }
     if (!master_config.name.empty()) {
       if (new_config.name != master_config.name) {
@@ -6417,9 +6418,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& req
                              }
                            }
                          } catch (vm::VmError& err) {
-                           return err.as_status(PSLICE() << "error processing header for " << blk_id.to_str() << " :");
+                           return err.as_status(PSLICE() << "error processing header for " << blk_id << " :");
                          } catch (vm::VmVirtError& err) {
-                           return err.as_status(PSLICE() << "error processing header for " << blk_id.to_str() << " :");
+                           return err.as_status(PSLICE() << "error processing header for " << blk_id << " :");
                          } catch (...) {
                            return td::Status::Error("Unhandled exception catched while processing header");
                          }

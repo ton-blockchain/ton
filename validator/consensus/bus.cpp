@@ -6,6 +6,7 @@
 
 #include "auto/tl/ton_api_json.h"
 #include "tl/tl_json.h"
+#include "ton/ton-io.hpp"
 
 #include "bus.h"
 
@@ -14,7 +15,7 @@ namespace ton::validator::consensus {
 namespace {
 
 std::string block_candidate_to_string(const BlockCandidate& candidate) {
-  return PSTRING() << "BlockCandidate{id=" << candidate.id.to_str() << ", block_size=" << candidate.data.size()
+  return PSTRING() << "BlockCandidate{id=" << candidate.id << ", block_size=" << candidate.data.size()
                    << ", collated_size=" << candidate.collated_data.size()
                    << ", collated_file_hash=" << candidate.collated_file_hash
                    << ", pubkey=" << candidate.pubkey.as_bits256() << "}";
@@ -22,7 +23,7 @@ std::string block_candidate_to_string(const BlockCandidate& candidate) {
 
 std::string candidate_to_string(const CandidateRef& candidate) {
   auto block_fn = [](const BlockCandidate& block) { return block_candidate_to_string(block); };
-  auto empty_fn = [](const BlockIdExt& id) { return PSTRING() << id.to_str() << " (referenced)"; };
+  auto empty_fn = [](const BlockIdExt& id) { return PSTRING() << id << " (referenced)"; };
 
   return PSTRING() << "Candidate{id=" << candidate->id << ", parent=" << candidate->parent_id
                    << ", leader=" << candidate->leader
@@ -121,7 +122,7 @@ std::string OutgoingOverlayRequest::response_to_string(const ReturnType& respons
 }
 
 std::string BlockFinalizedInMasterchain::contents_to_string() const {
-  return PSTRING() << "{block=" << block.to_str() << "}";
+  return PSTRING() << "{block=" << block << "}";
 }
 
 std::string MisbehaviorReport::contents_to_string() const {

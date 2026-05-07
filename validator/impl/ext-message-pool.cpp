@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "td/utils/Random.h"
+#include "ton/ton-io.hpp"
 
 #include "ext-message-pool.hpp"
 #include "external-message.hpp"
@@ -96,8 +97,8 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
         ++pushed;
       }
     }
-    LOG(WARNING) << "install_collator_queue: pushed " << pushed << " existing messages to shard " << shard.to_str()
-                 << " in " << t.elapsed() << "s";
+    LOG(WARNING) << "install_collator_queue: pushed " << pushed << " existing messages to shard " << shard << " in "
+                 << t.elapsed() << "s";
     co_return {};
   };
   push_existing(callback->queue, callback->cancellation_token, shard, std::move(snapshot), callback->sync_only)

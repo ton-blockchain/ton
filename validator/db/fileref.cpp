@@ -20,6 +20,7 @@
 #include "td/utils/base64.h"
 #include "td/utils/misc.h"
 #include "td/utils/overloaded.h"
+#include "ton/ton-io.hpp"
 
 #include "fileref.hpp"
 
@@ -76,7 +77,7 @@ BlockShort Block::shortref() const {
 }
 
 std::string Block::filename() const {
-  return PSTRING() << "block_" << block_id.to_str();
+  return PSTRING() << "block_" << block_id;
 }
 
 std::string Block::filename_short() const {
@@ -97,7 +98,7 @@ ZeroStateShort ZeroState::shortref() const {
 }
 
 std::string ZeroState::filename() const {
-  return PSTRING() << "zerostate_" << block_id.to_str();
+  return PSTRING() << "zerostate_" << block_id;
 }
 
 std::string ZeroState::filename_short() const {
@@ -123,7 +124,7 @@ PersistentStateShort PersistentState::shortref() const {
 }
 
 std::string PersistentState::filename() const {
-  return PSTRING() << "state_" << masterchain_block_id.to_str() << "_" << block_id.to_str();
+  return PSTRING() << "state_" << masterchain_block_id << "_" << block_id;
 }
 
 std::string PersistentState::filename_short() const {
@@ -144,7 +145,7 @@ ProofShort Proof::shortref() const {
 }
 
 std::string Proof::filename() const {
-  return PSTRING() << "proof_" << block_id.to_str();
+  return PSTRING() << "proof_" << block_id;
 }
 
 std::string Proof::filename_short() const {
@@ -165,7 +166,7 @@ ProofLinkShort ProofLink::shortref() const {
 }
 
 std::string ProofLink::filename() const {
-  return PSTRING() << "prooflink_" << block_id.to_str();
+  return PSTRING() << "prooflink_" << block_id;
 }
 
 std::string ProofLink::filename_short() const {
@@ -186,7 +187,7 @@ SignaturesShort Signatures::shortref() const {
 }
 
 std::string Signatures::filename() const {
-  return PSTRING() << "signatures_" << block_id.to_str();
+  return PSTRING() << "signatures_" << block_id;
 }
 
 std::string Signatures::filename_short() const {
@@ -208,7 +209,7 @@ CandidateShort Candidate::shortref() const {
 }
 
 std::string Candidate::filename() const {
-  return PSTRING() << "candidate_" << block_id.to_str() << "_" << collated_data_file_hash.to_hex() << "_"
+  return PSTRING() << "candidate_" << block_id << "_" << collated_data_file_hash.to_hex() << "_"
                    << td::base64url_encode(source.export_as_slice());
 }
 
@@ -230,7 +231,7 @@ CandidateRefShort CandidateRef::shortref() const {
 }
 
 std::string CandidateRef::filename() const {
-  return PSTRING() << "candidateref_" << block_id.to_str();
+  return PSTRING() << "candidateref_" << block_id;
 }
 
 std::string CandidateRef::filename_short() const {
@@ -252,7 +253,7 @@ BlockInfoShort BlockInfo::shortref() const {
 }
 
 std::string BlockInfo::filename() const {
-  return PSTRING() << "info_" << block_id.to_str();
+  return PSTRING() << "info_" << block_id;
 }
 
 std::string BlockInfo::filename_short() const {

@@ -18,6 +18,7 @@
 
 #include "auto/tl/ton_api.h"
 #include "block/block.h"
+#include "ton/ton-io.hpp"
 
 #include "mc-config.h"
 #include "validator-set.h"
@@ -89,11 +90,10 @@ Ref<ValidatorSet> ValidatorSetCompute::compute_validator_set(ton::ShardIdFull sh
   if (!config_) {
     return {};
   }
-  LOG(DEBUG) << "in compute_validator_set() for " << shard.to_str();
+  LOG(DEBUG) << "in compute_validator_set() for " << shard;
   auto nodes = config_->compute_validator_set(shard, vset, time, cc_seqno);
   if (nodes.empty()) {
-    LOG(ERROR) << "compute_validator_set() for " << shard.to_str() << "," << time << "," << cc_seqno
-               << " returned empty list";
+    LOG(ERROR) << "compute_validator_set() for " << shard << "," << time << "," << cc_seqno << " returned empty list";
     return {};
   }
   return Ref<ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};

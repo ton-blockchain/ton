@@ -182,7 +182,7 @@ void WaitBlockData::loaded_block_data(td::Ref<BlockData> block) {
                                                         R.move_as_error_prefix("validate proof link error: "));
                                 return;
                               }
-                              LOG(DEBUG) << "Created and validated proof link for " << id.to_str();
+                              LOG(DEBUG) << "Created and validated proof link for " << id;
                               td::actor::send_closure(SelfId, &WaitBlockData::checked_proof_link);
                             });
     return;

@@ -189,7 +189,7 @@ bool AcceptBlockQuery::create_new_proof() {
                        blk_id.to_str());
   }
   if (info.after_merge + 1U != prev_.size()) {
-    return fatal_error(PSTRING() << "block header of " << id_.to_str() << " announces " << info.after_merge + 1
+    return fatal_error(PSTRING() << "block header of " << id_ << " announces " << info.after_merge + 1
                                  << " previous blocks, but " << prev_.size() << " are actually present");
   }
   if (is_masterchain() && (info.after_merge | info.after_split | info.before_split)) {
@@ -629,12 +629,12 @@ void AcceptBlockQuery::written_block_proof() {
 }
 
 void AcceptBlockQuery::got_last_mc_block(std::pair<td::Ref<MasterchainState>, BlockIdExt> last) {
-  VLOG(VALIDATOR_DEBUG) << "got_last_mc_block(): " << last.second.to_str();
+  VLOG(VALIDATOR_DEBUG) << "got_last_mc_block(): " << last.second;
   last_mc_state_ = Ref<MasterchainStateQ>(std::move(last.first));
   last_mc_id_ = std::move(last.second);
   CHECK(last_mc_state_.not_null());
   if (last_mc_id_.id.seqno < mc_blkid_.id.seqno) {
-    VLOG(VALIDATOR_DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_.to_str()
+    VLOG(VALIDATOR_DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_
                           << ", trying to obtain it";
     td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout_,
                                   false, [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
@@ -693,16 +693,16 @@ void AcceptBlockQuery::find_known_ancestors() {
       written_block_next();
       return;
     }
-    VLOG(VALIDATOR_DEBUG) << "found two ancestors: " << ancestor->blk_.to_str() << " and " << ancestor2->blk_.to_str();
+    VLOG(VALIDATOR_DEBUG) << "found two ancestors: " << ancestor->blk_ << " and " << ancestor2->blk_;
     ancestors_seqno_ = std::max(ancestor->blk_.id.seqno, ancestor2->blk_.id.seqno);
     ancestors_.emplace_back(std::move(ancestor));
     ancestors_.emplace_back(std::move(ancestor2));
   } else if (ancestor->shard() == shard) {
-    VLOG(VALIDATOR_DEBUG) << "found one regular ancestor " << ancestor->blk_.to_str();
+    VLOG(VALIDATOR_DEBUG) << "found one regular ancestor " << ancestor->blk_;
     ancestors_seqno_ = ancestor->seqno();
     ancestors_.emplace_back(std::move(ancestor));
   } else if (ton::shard_is_parent(ancestor->shard(), shard)) {
-    VLOG(VALIDATOR_DEBUG) << "found one parent ancestor " << ancestor->blk_.to_str();
+    VLOG(VALIDATOR_DEBUG) << "found one parent ancestor " << ancestor->blk_;
     ancestors_seqno_ = ancestor->seqno();
     ancestors_.emplace_back(std::move(ancestor));
     ancestors_split_ = true;
@@ -719,9 +719,8 @@ void AcceptBlockQuery::find_known_ancestors() {
     return;
   }
   if (ancestors_seqno_ >= id_.id.seqno) {
-    VLOG(VALIDATOR_WARNING) << "skipping ShardTopBlockDescr creation for " << id_.to_str() << " because a newer block "
-                            << ancestors_.at(0)->blk_.to_str() << " is already present in masterchain block "
-                            << last_mc_id_.to_str();
+    VLOG(VALIDATOR_WARNING) << "skipping ShardTopBlockDescr creation for " << id_ << " because a newer block "
+                            << ancestors_.at(0)->blk_ << " is already present in masterchain block " << last_mc_id_;
     written_block_next();
     return;
   }
@@ -739,7 +738,7 @@ void AcceptBlockQuery::find_known_ancestors() {
 }
 
 void AcceptBlockQuery::require_proof_link(BlockIdExt id) {
-  VLOG(VALIDATOR_DEBUG) << "require_proof_link(" << id.to_str() << ")";
+  VLOG(VALIDATOR_DEBUG) << "require_proof_link(" << id << ")";
   CHECK(ton::ShardIdFull(id) == ton::ShardIdFull(id_));
   CHECK(id.id.seqno == id_.id.seqno - 1 - proof_links_.size());
   td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_proof_link_short, id, timeout_,
@@ -822,7 +821,7 @@ bool AcceptBlockQuery::unpack_proof_link(BlockIdExt id, Ref<ProofLink> proof_lin
 }
 
 void AcceptBlockQuery::got_proof_link(BlockIdExt id, Ref<ProofLink> proof) {
-  VLOG(VALIDATOR_DEBUG) << "got_proof_link(" << id.to_str() << ")";
+  VLOG(VALIDATOR_DEBUG) << "got_proof_link(" << id << ")";
   CHECK(proof.not_null());
   proof_links_.push_back(proof);
   if (!unpack_proof_link(id, std::move(proof))) {
@@ -913,7 +912,7 @@ void AcceptBlockQuery::create_topshard_blk_descr() {
 void AcceptBlockQuery::top_block_descr_validated(td::Result<Ref<ShardTopBlockDescription>> R) {
   VLOG(VALIDATOR_DEBUG) << "top_block_descr_validated()";
   if (R.is_error()) {
-    VLOG(VALIDATOR_WARNING) << "error validating newly-created ShardTopBlockDescr for " << id_.to_str() << ": "
+    VLOG(VALIDATOR_WARNING) << "error validating newly-created ShardTopBlockDescr for " << id_ << ": "
                             << R.move_as_error().to_string();
   } else {
     top_block_descr_ = R.move_as_ok();
