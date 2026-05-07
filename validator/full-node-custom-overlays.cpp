@@ -224,7 +224,7 @@ void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast to custom overlay \"" << name_
                         << "\": " << broadcast.block_id.to_str();
-  auto B = serialize_block_broadcast(broadcast, k_called_from_custom);
+  auto B = serialize_block_broadcast(broadcast, k_called_from_custom, StateUsage::DecompressOnly);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
@@ -238,8 +238,8 @@ void FullNodeCustomOverlay::send_block_candidate(BlockIdExt block_id, CatchainSe
   if (!inited_) {
     return;
   }
-  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
-                                               k_called_from_custom);  // compression enabled
+  auto B =
+      serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true, k_called_from_custom);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
