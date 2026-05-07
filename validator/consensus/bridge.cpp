@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "td/db/KeyValueAsync.h"
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
 #include "validator/consensus/simplex/bus.h"

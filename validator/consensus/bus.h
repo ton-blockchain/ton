@@ -7,12 +7,9 @@
 #pragma once
 
 #include "consensus/misbehavior.h"
-#include "keyring/keyring.hpp"
+#include "keyring/keyring.h"
 #include "overlay/overlays.h"
-#include "quic/quic-sender.h"
-#include "rldp2/rldp.h"
 #include "td/actor/BusRuntime.h"
-#include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
 #include "chain-state.h"
