@@ -74,7 +74,7 @@ class BlockHandleLru : public td::ListNode {
   BlockHandle handle_;
 };
 
-class ValidatorManagerImpl : public ValidatorManager {
+class ValidatorManagerImpl : public ValidatorManager, public virtual metrics::CollectorWrapper {
  private:
   // WAITERS
   //
@@ -315,8 +315,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block_proof_link(BlockIdExt block_id, td::BufferSlice proof, td::Promise<td::Unit> promise) override;
   void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                 td::Promise<td::Unit> promise) override;
-  void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
-  void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override;
+  void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
+  td::actor::Task<> new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
+                                        BroadcastSource source) override;
   void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
   td::actor::Task<> validated_accepted_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 
@@ -351,8 +352,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
-  td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                  td::BufferSlice data) override;
+  td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
+                                                  BroadcastSource source) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -457,12 +458,13 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) override;
   void new_block_cont(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise);
+  void on_block_accepted(BlockIdExt block_id) override;
   void get_top_masterchain_state(td::Promise<td::Ref<MasterchainState>> promise) override;
   void get_top_masterchain_block(td::Promise<BlockIdExt> promise) override;
   void get_top_masterchain_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
   void get_last_liteserver_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
 
-  void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override;
+  td::actor::Task<ReceivedBlock> send_get_block_request(BlockIdExt id, td::uint32 priority) override;
   void send_get_zero_state_request(BlockIdExt id, td::uint32 priority, td::Promise<td::BufferSlice> promise) override;
   void send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                          td::uint32 priority, td::Promise<td::BufferSlice> promise) override;
@@ -542,6 +544,7 @@ class ValidatorManagerImpl : public ValidatorManager {
       , rldp2_(rldp2)
       , quic_(quic)
       , overlays_(overlays) {
+    add_collector(collector_.get());
   }
 
  public:
@@ -763,6 +766,59 @@ class ValidatorManagerImpl : public ValidatorManager {
   bool is_valid_nonfinal_group(ShardIdFull shard, CatchainSeqno cc_seqno);
   void process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno);
   void cleanup_nonfinal_groups();
+
+  struct BlockReceiveStats {
+    enum Type {
+      block_broadcast_public = 0,
+      block_broadcast_fast_sync = 1,
+      block_broadcast_custom = 2,
+      block_download = 3,
+      candidate_broadcast_public = 4,
+      candidate_broadcast_fast_sync = 5,
+      candidate_broadcast_custom = 6,
+      candidate_stored = 7,
+      block_accepted = 8,
+      unknown = 9
+    };
+    static constexpr size_t N_TYPES = 10;
+    static constexpr const char *TYPE_NAMES[] = {"block_broadcast_public",
+                                                 "block_broadcast_fast_sync",
+                                                 "block_broadcast_custom",
+                                                 "block_download",
+                                                 "candidate_broadcast_public",
+                                                 "candidate_broadcast_fast_sync",
+                                                 "candidate_broadcast_custom",
+                                                 "candidate_stored",
+                                                 "block_accepted",
+                                                 "unknown"};
+    td::Timestamp received_at[N_TYPES];
+    bool applied = false;
+
+    Type get_earliest_type() const {
+      Type result = unknown;
+      td::Timestamp result_ts;
+      for (size_t i = 0; i < N_TYPES; i++) {
+        if (received_at[i] && (!result_ts || received_at[i] < result_ts)) {
+          result = (Type)i;
+          result_ts = received_at[i];
+        }
+      }
+      return result;
+    }
+  };
+  td::LRUCache<BlockIdExt, BlockReceiveStats> block_receive_stats_{1000};
+
+  td::actor::ActorOwn<metrics::MultiCollector> collector_ = metrics::MultiCollector::create("blocks");
+  metrics::MultiLabeled<metrics::AtomicCounter<size_t>, std::string, std::string>::Ptr first_received_from_total_ =
+      metrics::MultiLabeled<metrics::AtomicCounter<size_t>, std::string, std::string>::make(
+          "wc", "type", "first_received_from_total");
+  metrics::MultiLabeled<metrics::AtomicCounter<size_t>, std::string, std::string>::Ptr received_from_total_ =
+      metrics::MultiLabeled<metrics::AtomicCounter<size_t>, std::string, std::string>::make("wc", "type",
+                                                                                            "received_from_total");
+  metrics::MultiLabeled<metrics::AtomicCounter<size_t>, std::string>::Ptr new_total_ =
+      metrics::MultiLabeled<metrics::AtomicCounter<size_t>, std::string>::make("wc", "new_total");
+
+  void update_block_receive_stats(BlockIdExt block_id, BlockReceiveStats::Type type);
 };
 
 }  // namespace validator

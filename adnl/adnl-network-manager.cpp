@@ -30,6 +30,26 @@ td::actor::ActorOwn<AdnlNetworkManager> AdnlNetworkManager::create(td::uint16 po
   return td::actor::create_actor<AdnlNetworkManagerImpl>("NetworkManager", port);
 }
 
+void AdnlNetworkManagerImpl::start_up() {
+  alarm_timestamp() = td::Timestamp::in(60.0);
+  add_collector(metrics_collector_.get());
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, udp_ingress_bytes_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, udp_ingress_packets_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, udp_ingress_drops_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector,
+                          udp_ingress_proxy_control_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector,
+                          udp_proxy_ingress_bytes_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, udp_egress_bytes_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, udp_egress_packets_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, udp_egress_drops_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector,
+                          udp_proxy_egress_bytes_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector,
+                          udp_proxy_egress_packets_);
+  td::actor::send_closure(metrics_collector_.get(), &metrics::MultiCollector::add_sync_collector, listening_sockets_);
+}
+
 AdnlNetworkManagerImpl::OutDesc *AdnlNetworkManagerImpl::choose_out_iface(td::uint8 cat, td::uint32 priority) {
   auto it = out_desc_.upper_bound(priority);
   while (true) {
@@ -108,19 +128,25 @@ void AdnlNetworkManagerImpl::add_proxy_addr(td::IPAddress addr, td::uint16 local
 }
 
 void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t idx) {
+  udp_ingress_packets_->add(1);
+  udp_ingress_bytes_->add(message.data.size());
   if (!callback_) {
+    udp_ingress_drop_no_callback_->add(1);
     LOG(ERROR) << this << ": dropping IN message [?->?]: peer table unitialized";
     return;
   }
   if (message.error.is_error()) {
+    udp_ingress_drop_error_->add(1);
     VLOG(ADNL_WARNING) << this << ": dropping ERROR message: " << message.error;
     return;
   }
   if (message.data.size() < 32) {
+    udp_ingress_drop_too_short_->add(1);
     VLOG(ADNL_WARNING) << this << ": received too small proxy packet of size " << message.data.size();
     return;
   }
   if (message.data.size() >= get_mtu() + 128) {
+    udp_ingress_drop_too_huge_->add(1);
     VLOG(ADNL_NOTICE) << this << ": received huge packet of size " << message.data.size();
   }
   CHECK(idx < udp_sockets_.size());
@@ -138,10 +164,12 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t 
       CHECK(proxy_iface.is_proxy());
       auto R = in_desc_[it->second].proxy->decrypt(std::move(message.data));
       if (R.is_error()) {
+        udp_ingress_drop_bad_proxy_decrypt_->add(1);
         VLOG(ADNL_WARNING) << this << ": failed to decrypt proxy mesage: " << R.move_as_error();
         return;
       }
       auto packet = R.move_as_ok();
+      udp_proxy_ingress_bytes_->add(packet.data.size());
       if (packet.flags & 1) {
         message.address.init_host_port(td::IPAddress::ipv4_to_str(packet.ip), packet.port).ensure();
       } else {
@@ -149,27 +177,33 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t 
       }
       if ((packet.flags & 6) == 6) {
         if (packet.seqno <= 0 || packet.adnl_start_time < 0) {
+          udp_ingress_drop_bad_proxy_seqno_->add(1);
           VLOG(ADNL_WARNING) << this << ": dropping proxy packet: invalid start_time/seqno";
           return;
         }
         if (proxy_iface.received.packet_is_delivered(packet.adnl_start_time, packet.seqno)) {
+          udp_ingress_drop_bad_proxy_seqno_->add(1);
           VLOG(ADNL_WARNING) << this << ": dropping duplicate proxy packet";
           return;
         }
       }
       if (packet.flags & 8) {
         if (packet.date < td::Clocks::system() - 60 || packet.date > td::Clocks::system() + 60) {
+          udp_ingress_drop_bad_proxy_time_->add(1);
           VLOG(ADNL_WARNING) << this << ": dropping proxy packet: bad time " << packet.date;
           return;
         }
       }
       if (!(packet.flags & (1 << 16))) {
+        udp_ingress_drop_bad_proxy_outflag_->add(1);
         VLOG(ADNL_WARNING) << this << ": dropping proxy packet: packet has outbound flag";
         return;
       }
       if (packet.flags & (1 << 17)) {
+        udp_ingress_proxy_control_->add(1);
         auto F = fetch_tl_object<ton_api::adnl_ProxyControlPacket>(std::move(packet.data), true);
         if (F.is_error()) {
+          udp_ingress_drop_bad_control_->add(1);
           VLOG(ADNL_WARNING) << this << ": dropping proxy packet: bad control packet";
           return;
         }
@@ -205,6 +239,7 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t 
   }
   if (!from_proxy) {
     if (socket.in_desc == std::numeric_limits<size_t>::max()) {
+      udp_ingress_drop_no_in_desc_->add(1);
       VLOG(ADNL_WARNING) << this << ": received bad packet to proxy-only listenung port";
       return;
     }
@@ -226,12 +261,14 @@ void AdnlNetworkManagerImpl::send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdS
                                              td::uint32 priority, td::BufferSlice data) {
   auto it = adnl_id_2_cat_.find(src_id);
   if (it == adnl_id_2_cat_.end()) {
+    udp_egress_drop_unknown_src_->add(1);
     VLOG(ADNL_WARNING) << this << ": dropping OUT message [" << src_id << "->" << dst_id << "]: unknown src";
     return;
   }
 
   auto out = choose_out_iface(it->second, priority);
   if (!out) {
+    udp_egress_drop_no_route_->add(1);
     VLOG(ADNL_WARNING) << this << ": dropping OUT message [" << src_id << "->" << dst_id << "]: no out rules";
     return;
   }
@@ -246,12 +283,15 @@ void AdnlNetworkManagerImpl::send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdS
 
     CHECK(M.data.size() <= get_mtu());
 
+    udp_egress_packets_->add(1);
+    udp_egress_bytes_->add(M.data.size());
     td::actor::send_closure(socket.server, &td::UdpServer::send, std::move(M));
   } else {
     AdnlProxy::Packet p;
     p.flags = 7;
     p.ip = dst_addr.get_ipv4();
     p.port = static_cast<td::uint16>(dst_addr.get_port());
+    auto inner_size = data.size();
     p.data = std::move(data);
     p.adnl_start_time = Adnl::adnl_start_time();
     p.seqno = ++v.out_seqno;
@@ -262,6 +302,10 @@ void AdnlNetworkManagerImpl::send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdS
     M.address = v.proxy_addr;
     M.data = std::move(enc);
 
+    udp_egress_packets_->add(1);
+    udp_egress_bytes_->add(M.data.size());
+    udp_proxy_egress_packets_->add(1);
+    udp_proxy_egress_bytes_->add(inner_size);
     td::actor::send_closure(socket.server, &td::UdpServer::send, std::move(M));
   }
 }
@@ -282,6 +326,8 @@ void AdnlNetworkManagerImpl::proxy_register(OutDesc &desc) {
   M.address = desc.proxy_addr;
   M.data = std::move(enc);
 
+  udp_egress_packets_->add(1);
+  udp_egress_bytes_->add(M.data.size());
   auto &socket = udp_sockets_[desc.socket_idx];
   td::actor::send_closure(socket.server, &td::UdpServer::send, std::move(M));
 }

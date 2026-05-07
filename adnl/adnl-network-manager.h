@@ -27,6 +27,8 @@
 #include "adnl-node-id.hpp"
 #include "adnl-proxy-types.h"
 
+#include "metrics/metrics-collectors.h"
+
 namespace td {
 class UdpServer;
 }
@@ -54,7 +56,7 @@ class AdnlNetworkConnection : public td::actor::Actor {
   virtual ~AdnlNetworkConnection() = default;
 };
 
-class AdnlNetworkManager : public td::actor::Actor {
+class AdnlNetworkManager : public td::actor::Actor, public virtual metrics::CollectorWrapper {
  public:
   //using ConnHandle = td::uint64;
   class Callback {

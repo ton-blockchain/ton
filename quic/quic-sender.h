@@ -5,6 +5,7 @@
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl-sender-ex.h"
 #include "keyring/keyring.h"
+#include "metrics/app-traffic-metrics.h"
 #include "metrics/metrics-collectors.h"
 #include "td/actor/coro_task.h"
 
@@ -42,10 +43,11 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
       }
 
       [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
-    };
-
-    Entry summary = {.server_stats = {.total_conns = 0}};
+    } summary = {};
     std::map<AdnlPath, Entry> per_path;
+
+    // Server-level UDP wire counters aggregated across all QuicServers.
+    UdpCounters udp = {};
 
     [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
   };
@@ -86,6 +88,8 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
 
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> servers_;
   std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
+
+  metrics::AppTrafficMetrics::Ptr app_metrics_ = metrics::AppTrafficMetrics::make();
 
   void start_up() override;
 

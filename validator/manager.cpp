@@ -195,7 +195,7 @@ void ValidatorManagerImpl::validate_block_proof_rel(BlockIdExt block_id, BlockId
   }
 }
 
-void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
+void ValidatorManagerImpl::got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
   auto blkid = block.id;
   auto pp = create_block(std::move(block));
   if (pp.is_error()) {
@@ -203,6 +203,7 @@ void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<Block
     return;
   }
   CHECK(blkid.is_masterchain());
+  update_block_receive_stats(blkid, BlockReceiveStats::block_download);
 
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), promise = std::move(promise), id = blkid](td::Result<td::Unit> R) mutable {
@@ -215,30 +216,39 @@ void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<Block
   run_apply_block_query(block.id, pp.move_as_ok(), block.id, actor_id(this), td::Timestamp::in(10.0), std::move(P));
 }
 
-void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
-                                               td::Promise<td::Unit> promise) {
+td::actor::Task<> ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
+                                                            BroadcastSource source) {
   if (!started_) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "node not started"));
-    return;
+    co_return td::Status::Error(ErrorCode::notready, "node not started");
   }
   if (!need_monitor(broadcast.block_id.shard_full())) {
-    promise.set_error(td::Status::Error("not monitoring shard"));
-    return;
+    co_return td::Status::Error("not monitoring shard");
   }
-  promise = [SelfId = actor_id(this), promise = std::move(promise), block_id = broadcast.block_id,
-             cc_seqno = broadcast.sig_set->get_catchain_seqno(),
-             is_final = broadcast.sig_set->is_final()](td::Result<td::Unit> R) mutable {
-    if (R.is_ok() && is_final) {
-      td::actor::ask(SelfId, &ValidatorManagerImpl::validated_accepted_block_broadcast, block_id, cc_seqno).detach();
-    }
-    promise.set_result(std::move(R));
-  };
   BlockIdExt block_id = broadcast.block_id;
+  switch (source) {
+    case BroadcastSource::public_overlay:
+      update_block_receive_stats(block_id, BlockReceiveStats::block_broadcast_public);
+      break;
+    case BroadcastSource::fast_sync_overlay:
+      update_block_receive_stats(block_id, BlockReceiveStats::block_broadcast_fast_sync);
+      break;
+    case BroadcastSource::custom_overlay:
+      update_block_receive_stats(block_id, BlockReceiveStats::block_broadcast_custom);
+      break;
+  }
+  bool is_final = broadcast.sig_set->is_final();
+  CatchainSeqno cc_seqno = broadcast.sig_set->get_catchain_seqno();
+  auto [task, promise] = td::actor::StartedTask<>::make_bridge();
   td::actor::create_actor<ValidateBroadcast>(PSTRING() << "broadcast" << block_id.id.to_str(), std::move(broadcast),
                                              last_masterchain_block_handle_, last_masterchain_state_,
                                              last_known_key_block_handle_, actor_id(this), td::Timestamp::in(20.0),
                                              std::move(promise), false, signatures_checked)
       .release();
+  co_await std::move(task);
+  if (is_final) {
+    validated_accepted_block_broadcast(block_id, cc_seqno).start().detach();
+  }
+  co_return {};
 }
 
 void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
@@ -505,7 +515,7 @@ void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt bloc
 }
 
 td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                                      td::BufferSlice data) {
+                                                                      td::BufferSlice data, BroadcastSource source) {
   if (!last_masterchain_block_handle_ || !started_) {
     VLOG(VALIDATOR_DEBUG) << "dropping top shard block broadcast: not inited";
     co_return td::Unit{};
@@ -515,6 +525,17 @@ td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt
     co_return td::Unit{};
   }
   add_cached_block_data(block_id, data.clone());
+  switch (source) {
+    case BroadcastSource::public_overlay:
+      update_block_receive_stats(block_id, BlockReceiveStats::candidate_broadcast_public);
+      break;
+    case BroadcastSource::fast_sync_overlay:
+      update_block_receive_stats(block_id, BlockReceiveStats::candidate_broadcast_fast_sync);
+      break;
+    case BroadcastSource::custom_overlay:
+      update_block_receive_stats(block_id, BlockReceiveStats::candidate_broadcast_custom);
+      break;
+  }
 
   if (opts_->nonfinal_ls_queries_enabled()) {
     auto handle = co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::get_block_handle, block_id, true);
@@ -1468,6 +1489,7 @@ void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate can
                                                td::Promise<td::Unit> promise) {
   if (!id.is_masterchain()) {
     add_cached_block_data(id, candidate.data.clone());
+    update_block_receive_stats(id, BlockReceiveStats::candidate_stored);
   }
   if (cache_only) {
     promise.set_value(td::Unit{});
@@ -1602,6 +1624,25 @@ void ValidatorManagerImpl::new_block_cont(BlockHandle handle, td::Ref<ShardState
                    create_tl_object<ton_api::db_event_blockApplied>(create_tl_block_id(handle->id())))
         .detach();
   }
+
+  auto &receive_stats = block_receive_stats_.get(handle->id());
+  if (!receive_stats.applied && started_) {
+    receive_stats.applied = true;
+    auto wc_label = handle->id().is_masterchain() ? "-1" : "0";
+    new_total_->label(wc_label)->add(1);
+    first_received_from_total_->label(wc_label)
+        ->label(BlockReceiveStats::TYPE_NAMES[(int)receive_stats.get_earliest_type()])
+        ->add(1);
+    for (size_t i = 0; i < BlockReceiveStats::N_TYPES; ++i) {
+      if (receive_stats.received_at[i]) {
+        received_from_total_->label(wc_label)->label(BlockReceiveStats::TYPE_NAMES[i])->add(1);
+      }
+    }
+  }
+}
+
+void ValidatorManagerImpl::on_block_accepted(BlockIdExt block_id) {
+  update_block_receive_stats(block_id, BlockReceiveStats::block_accepted);
 }
 
 void ValidatorManagerImpl::new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) {
@@ -1744,13 +1785,16 @@ void ValidatorManagerImpl::get_last_liteserver_state_block(
   }
 }
 
-void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 priority,
-                                                  td::Promise<ReceivedBlock> promise) {
+td::actor::Task<ReceivedBlock> ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 priority) {
   if (auto cached = cached_block_data_.get_if_exists(id, false)) {
     LOG(DEBUG) << "send_get_block_request: got result from block data cache for " << id.to_str();
-    return promise.set_value(ReceivedBlock{id, cached->clone()});
+    co_return ReceivedBlock{id, cached->clone()};
   }
+  auto [task, promise] = td::actor::StartedTask<ReceivedBlock>::make_bridge();
   callback_->download_block(id, priority, td::Timestamp::in(10.0), std::move(promise));
+  auto result = co_await std::move(task);
+  update_block_receive_stats(id, BlockReceiveStats::block_download);
+  co_return result;
 }
 
 void ValidatorManagerImpl::send_get_zero_state_request(BlockIdExt id, td::uint32 priority,
@@ -1891,7 +1935,6 @@ void ValidatorManagerImpl::get_block_proof_link_from_import(BlockIdExt block_id,
 }
 
 namespace {
-
 class StatsCallback final : public ton::stats::Callback {
  public:
   StatsCallback(td::actor::ActorId<ValidatorManagerImpl> manager) : manager_(manager) {
@@ -1923,6 +1966,9 @@ class StatsCallback final : public ton::stats::Callback {
 
 void ValidatorManagerImpl::start_up() {
   stats::install_callback(std::make_unique<StatsCallback>(actor_id(this)));
+  td::actor::send_closure(collector_, &metrics::MultiCollector::add_sync_collector, received_from_total_);
+  td::actor::send_closure(collector_, &metrics::MultiCollector::add_sync_collector, first_received_from_total_);
+  td::actor::send_closure(collector_, &metrics::MultiCollector::add_sync_collector, new_total_);
 
   db_ = create_db_actor(actor_id(this), db_root_, opts_);
   actor_stats_ = td::actor::create_actor<td::actor::ActorStats>("actor_stats");
@@ -3780,6 +3826,18 @@ void ValidatorManagerImpl::cleanup_nonfinal_groups() {
     } else {
       it = nonfinal_info_.erase(it);
     }
+  }
+}
+
+void ValidatorManagerImpl::update_block_receive_stats(BlockIdExt block_id, BlockReceiveStats::Type type) {
+  auto &stats = block_receive_stats_.get(block_id);
+  auto idx = (int)type;
+  if (stats.received_at[idx]) {
+    return;
+  }
+  stats.received_at[idx] = td::Timestamp::now();
+  if (stats.applied) {
+    new_total_->label(block_id.is_masterchain() ? "-1" : "0")->add(1);
   }
 }
 

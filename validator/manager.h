@@ -18,6 +18,7 @@
 */
 #pragma once
 #include "adnl/adnl.h"
+#include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
 #include "validator/validator.h"

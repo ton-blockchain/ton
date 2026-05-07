@@ -675,6 +675,11 @@ void OverlayImpl::update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec
       src_peer->broadcast_errors++;
     }
   }
+  if (is_fec) {
+    fec_broadcast_errors_acc_++;
+  } else {
+    broadcast_errors_acc_++;
+  }
 }
 
 void OverlayImpl::update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::uint64 msg_size, bool is_query,
@@ -690,8 +695,10 @@ void OverlayImpl::update_throughput_out_ctr(adnl::AdnlNodeIdShort peer_id, td::u
     }
   }
   total_traffic_ctr.add_packet(msg_size, false);
+  total_traffic_acc.add_packet(msg_size, false);
   if (is_response) {
     total_traffic_responses_ctr.add_packet(msg_size, false);
+    total_traffic_responses_acc.add_packet(msg_size, false);
   }
 }
 
@@ -708,8 +715,10 @@ void OverlayImpl::update_throughput_in_ctr(adnl::AdnlNodeIdShort peer_id, td::ui
     }
   }
   total_traffic_ctr.add_packet(msg_size, true);
+  total_traffic_acc.add_packet(msg_size, true);
   if (is_response) {
     total_traffic_responses_ctr.add_packet(msg_size, true);
+    total_traffic_responses_acc.add_packet(msg_size, true);
   }
 }
 

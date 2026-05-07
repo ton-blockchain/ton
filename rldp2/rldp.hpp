@@ -19,8 +19,10 @@
 #pragma once
 
 #include <map>
+#include <memory>
 
 #include "adnl/adnl-query.h"
+#include "metrics/metrics-collectors.h"
 #include "tl-utils/tl-utils.hpp"
 
 #include "rldp.h"
@@ -36,6 +38,19 @@ constexpr int VERBOSITY_NAME(RLDP_DEBUG) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(RLDP_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 
 using TransferId = td::Bits256;
+
+struct Rldp2Metrics {
+  using CounterPtr = std::shared_ptr<metrics::AtomicCounter<td::uint64>>;
+  CounterPtr bytes_sent_to_adnl;
+  CounterPtr parts_sent_to_adnl;
+  CounterPtr bytes_received_from_adnl;
+  CounterPtr parts_received_from_adnl;
+  CounterPtr parse_errors;
+  CounterPtr transfers_received_ok;
+  CounterPtr transfers_received_err;
+  CounterPtr transfers_sent_ok;
+  CounterPtr transfers_sent_err;
+};
 
 class RldpImpl : public Rldp {
  public:
