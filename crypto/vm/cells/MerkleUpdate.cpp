@@ -195,11 +195,17 @@ td::Result<std::pair<Ref<Cell>, Ref<Cell>>> MerkleUpdate::generate_raw(Ref<Cell>
                                                                        CellUsageTree *usage_tree) {
   // create Merkle update cell->new_cell
   TRY_RESULT(update_to, MerkleProof::generate_raw(to, [tree = usage_tree](const Ref<Cell> &cell) {
-               auto loaded_cell = cell->load_cell().move_as_ok();  // FIXME
-               if (loaded_cell.data_cell->size_refs() == 0) {
-                 return false;
+               CellUsageTree::NodePtr node;
+               if (cell->is_loaded()) {
+                 auto loaded_cell = cell->load_cell().move_as_ok();
+                 if (loaded_cell.data_cell->size_refs() == 0) {
+                   return false;
+                 }
+                 node = loaded_cell.tree_node;
+               } else {
+                 node = cell->get_tree_node();
                }
-               return !loaded_cell.tree_node.empty() && loaded_cell.tree_node.mark_path(tree);
+               return !node.empty() && node.mark_path(tree);
              }));
   usage_tree->set_use_mark_for_is_loaded(true);
   TRY_RESULT(update_from, MerkleProof::generate_raw(from, usage_tree));
