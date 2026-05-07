@@ -84,7 +84,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
         auto slot = state_->slot_at(i);
         if (slot.has_value() && !slot->state->voted_final) {
           slot->state->voted_skip = true;
-          owning_bus().publish<BroadcastVote>(SkipVote{i}).start().detach();
+          owning_bus().publish<BroadcastVote>(SkipVote{i});
         }
       }
     }
@@ -146,7 +146,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     for (td::uint32 i = range_start; i < window_end; ++i) {
       auto slot = state_->slot_at(i);
       if (slot && !slot->state->voted_final) {
-        owning_bus().publish<BroadcastVote>(SkipVote{i}).start().detach();
+        owning_bus().publish<BroadcastVote>(SkipVote{i});
         slot->state->voted_skip = true;
         previous_window_had_skip_ = true;
       }
@@ -241,7 +241,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
     slot.state->voted_notar = candidate->id;
 
-    owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id}).start().detach();
+    owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id});
     try_vote_final(slot);  // If we've observed NotarCert already, it might be possible to vote final.
     co_return {};
   }
@@ -279,7 +279,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     CHECK(slot.state->voted_notar || slot.state->notar_cert);
 
     if (!slot.state->voted_skip && !slot.state->voted_final && slot.state->voted_notar == slot.state->notar_cert) {
-      owning_bus().publish<BroadcastVote>(FinalizeVote{*slot.state->voted_notar}).start().detach();
+      owning_bus().publish<BroadcastVote>(FinalizeVote{*slot.state->voted_notar});
       slot.state->voted_final = true;
     }
   }

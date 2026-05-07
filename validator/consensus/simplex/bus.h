@@ -13,8 +13,6 @@
 namespace ton::validator::consensus::simplex {
 
 struct BroadcastVote {
-  using ReturnType = td::Unit;
-
   Vote vote;
 
   std::string contents_to_string() const;
@@ -35,8 +33,6 @@ struct FinalizationObserved {
 };
 
 struct LeaderWindowObserved {
-  using ReturnType = td::Unit;
-
   td::uint32 start_slot;
   ParentId base;
 

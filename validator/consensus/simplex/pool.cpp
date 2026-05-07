@@ -747,7 +747,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
       CHECK(maybe_base.has_value());
       base = maybe_base.value();
     }
-    owning_bus().publish<LeaderWindowObserved>(now_, base).start().detach();
+    owning_bus().publish<LeaderWindowObserved>(now_, base);
   }
 
   State::SlotRef next_nonskipped_slot_after(int slot) {
