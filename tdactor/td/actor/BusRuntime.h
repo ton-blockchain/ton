@@ -109,28 +109,28 @@ class SpawnsWith;
 template <typename B, typename E>
 class BusEventPublishImplBase {
  public:
-  struct EventDispatcher {
-    using EventDispatcherFn = void (BusListeningActor::*)(BusHandle<B> bus, std::shared_ptr<const E> event);
+  struct EventHandler {
+    using EventHandlerFn = void (BusListeningActor::*)(BusHandle<B> bus, std::shared_ptr<const E> event);
 
     td::actor::ActorId<BusListeningActor> actor;
-    EventDispatcherFn dispatcher_fn;
+    EventHandlerFn handler_fn;
   };
 
   void publish(std::shared_ptr<E> event, BusHandle<B> handle) {
-    for (const auto& [actor, dispatcher_fn] : dispatchers) {
-      td::actor::send_closure(actor, dispatcher_fn, handle, event);
+    for (const auto& [actor, handler_fn] : handlers) {
+      td::actor::send_closure(actor, handler_fn, handle, event);
     }
   }
 
-  void add_handler(EventDispatcher dispatcher) {
-    dispatchers.push_back(std::move(dispatcher));
+  void add_handler(EventHandler handler) {
+    handlers.push_back(std::move(handler));
   }
 
  private:
   friend class Runtime;
 
   // Can only have actors that are owned by (non-strict) predecessor of the current bus.
-  std::vector<EventDispatcher> dispatchers;
+  std::vector<EventHandler> handlers;
 };
 
 template <typename B, typename E>
@@ -142,8 +142,8 @@ class BusEventPublishImpl<B, E> : public BusEventPublishImplBase<B, E> {
 
  public:
   td::actor::Task<ReturnType> publish(std::shared_ptr<E> event, BusHandle<B> handle) {
-    CHECK(dispatcher_fn != nullptr);
-    auto result = co_await td::actor::ask(actor, dispatcher_fn, handle, event).wrap();
+    CHECK(processor_fn != nullptr);
+    auto result = co_await td::actor::ask(actor, processor_fn, handle, event).wrap();
     log_response(*event, result);
     if (result.is_ok()) {
       static_cast<BusEventPublishImplBase<B, E>>(*this).publish(event, handle);
@@ -154,11 +154,11 @@ class BusEventPublishImpl<B, E> : public BusEventPublishImplBase<B, E> {
  private:
   friend class Runtime;
 
-  using EventDispatcherFn = td::actor::Task<typename E::ReturnType> (BusListeningActor::*)(BusHandle<B> bus,
-                                                                                           std::shared_ptr<E> event);
+  using EventProcessorFn = td::actor::Task<typename E::ReturnType> (BusListeningActor::*)(BusHandle<B> bus,
+                                                                                          std::shared_ptr<E> event);
 
   td::actor::ActorId<BusListeningActor> actor;
-  EventDispatcherFn dispatcher_fn = nullptr;
+  EventProcessorFn processor_fn = nullptr;
 };
 
 template <typename, typename>
@@ -349,15 +349,12 @@ class ListenerInstaller {
 };
 
 // Base class for all actors that handle bus events.
-//
-// Actor-type-erased `dispatch_event' method dispatches event to an actual handler. It is called
-// from BusEventPublishImpl::publish.
 class BusListeningActor : public td::actor::Actor {
  private:
   friend class Runtime;
 
   template <typename A, typename B, typename BOrigin, typename E>
-  void dispatch_event(BusHandle<BOrigin> bus, std::shared_ptr<const E> event) {
+  void handle_event(BusHandle<BOrigin> bus, std::shared_ptr<const E> event) {
     log_event(false, bus._node(td::Badge<BusListeningActor>{}), *event);
     if constexpr (!std::same_as<B, BOrigin>) {
       // When we install listeners, we guarantee that the actual bus type is at most B.
@@ -538,13 +535,13 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
           // bus (of type BNew) as having type new_bus_type (one of types in its inheritance chain).
           bus_impl->add_handler({
               .actor = params.actor_id,
-              .dispatcher_fn = &BusListeningActor::dispatch_event<A, B, BOrigin, E>,
+              .handler_fn = &BusListeningActor::handle_event<A, B, BOrigin, E>,
           });
         }
         if constexpr (CanActorProcessEvent<A, B, E>) {
-          CHECK(bus_impl->dispatcher_fn == nullptr);
+          CHECK(bus_impl->processor_fn == nullptr);
           bus_impl->actor = params.actor_id;
-          bus_impl->dispatcher_fn = &BusListeningActor::process_event<A, B, BOrigin, E>;
+          bus_impl->processor_fn = &BusListeningActor::process_event<A, B, BOrigin, E>;
         }
       }
     }
