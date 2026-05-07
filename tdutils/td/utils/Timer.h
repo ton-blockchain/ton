@@ -110,7 +110,7 @@ class RealCpuTimer {
       return {.real = real - other.real, .cpu = cpu - other.cpu};
     }
     Time operator*(double x) const {
-      return {.real = real * x, .cpu = cpu * cpu};
+      return {.real = real * x, .cpu = cpu * x};
     }
   };
   Time elapsed_both() const {
