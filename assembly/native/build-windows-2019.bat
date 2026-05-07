@@ -1,4 +1,4 @@
-REM execute this script inside elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2022"
+REM execute this script inside elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2019"
 
 echo off
 
@@ -30,12 +30,20 @@ IF %errorlevel% NEQ 0 (
 )
 SET PATH=%PATH%;C:\Program Files\NASM
 
-cd ..
+where clang-cl
+IF %errorlevel% NEQ 0 (
+  echo clang-cl not found. Install LLVM toolset for Visual Studio 2019.
+  exit /b %errorlevel%
+)
+
 echo Current dir %cd%
 
 mkdir build
 cd build
-cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release ^
+-DCMAKE_C_COMPILER=clang-cl ^
+-DCMAKE_CXX_COMPILER=clang-cl ^
+-DCMAKE_LINKER=lld-link ^
 -DCCACHE_FOUND= ^
 -DCMAKE_CXX_COMPILER_LAUNCHER= ^
 -DPORTABLE=1 ^

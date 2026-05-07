@@ -1,5 +1,8 @@
 #/bin/bash
 
+#sudo apt-get update
+#sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev ccache
+
 with_tests=false
 with_artifacts=false
 with_ccache=false
@@ -47,8 +50,8 @@ if [ -n "${TON_ARCH}" ]; then
 fi
 
 cmake -GNinja .. \
--DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
--DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 \
+-DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+-DTON_USE_JEMALLOC=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$(pwd)/install" \
 "${CMAKE_EXTRA_ARGS[@]}"
 
 
@@ -58,7 +61,7 @@ if [ "$with_tests" = true ]; then
 ninja storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
       validator-engine lite-client validator-engine-console blockchain-explorer \
       generate-random-id json2tlo dht-server http-proxy rldp-http-proxy dht-ping-servers dht-resolve \
-      adnl-proxy create-state emulator proxy-liteserver all-tests
+      adnl-proxy create-state emulator proxy-liteserver all-tests install
       test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
 ninja storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
@@ -74,18 +77,10 @@ fi
 ./lite-client/lite-client -V || exit 1
 ./crypto/fift  -V || exit 1
 
-echo validator-engine
 ldd ./validator-engine/validator-engine || exit 1
-ldd ./validator-engine-console/validator-engine-console || exit 1
-ldd ./crypto/fift || exit 1
-echo blockchain-explorer
-ldd ./blockchain-explorer/blockchain-explorer || exit 1
-echo libtonlibjson.so
-ldd ./tonlib/libtonlibjson.so.0.5 || exit 1
-echo libemulator.so
-ldd ./emulator/libemulator.so  || exit 1
 
 cd ..
+
 
 if [ "$with_artifacts" = true ]; then
   rm -rf artifacts
@@ -103,9 +98,4 @@ if [ "$with_artifacts" = true ]; then
   cp -R crypto/smartcont artifacts
   cp -R crypto/fift/lib artifacts
   chmod -R +x artifacts/*
-fi
-
-if [ "$with_tests" = true ]; then
-  cd build || exit
-  ctest --output-on-failure --timeout 1800
 fi

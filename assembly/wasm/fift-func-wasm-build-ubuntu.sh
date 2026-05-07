@@ -20,8 +20,8 @@ while getopts 'af' flag; do
   esac
 done
 
-export CC=$(which clang-21)
-export CXX=$(which clang++-21)
+export CC=$(which clang-22)
+export CXX=$(which clang++-22)
 export CCACHE_DISABLE=1
 ROOT_DIR=$(pwd)
 EMSCRIPTEN_3PP_DIR="$ROOT_DIR/build/3pp_emscripten"

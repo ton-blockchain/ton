@@ -3,7 +3,7 @@ name: Emscripten TON build (wasm)
 on:
   pull_request:
     branches: [master, testnet]
-    types: [opened, reopened, synchronize, ready_for_review]
+    types: [opened, reopened, synchronize]
   push:
     branches: [master, testnet]
   workflow_dispatch:
@@ -29,11 +29,11 @@ jobs:
         sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev
         mkdir -p 3pp_emscripten
 
-    - name: Install clang-21
+    - name: Install clang-22
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        sudo ./llvm.sh 21 clang
+        sudo ./llvm.sh 22 clang
 
     - name: Cache 3pp Emscripten
       id: cache-3pp-emscripten
