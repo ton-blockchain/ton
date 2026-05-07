@@ -1,4 +1,5 @@
 #include "td/actor/BusRuntime.h"
+#include "td/actor/TestScheduler.h"
 #include "td/utils/tests.h"
 
 namespace td::actor::test_simple_message_to_self {
@@ -615,3 +616,161 @@ TEST(Runtime, ActorCanTakeBusInConstructor) {
 
 }  // namespace
 }  // namespace td::actor::test_actor_constructor
+
+namespace td::actor::test_prehandlers {
+namespace {
+
+// Exercises prehandlers for both non-request and request paths:
+//   - PingEvent has one prehandler (single-prehandler co_await branch)
+//   - SingleRequest has one prehandler + processor + handler
+//   - MultiRequest has two prehandlers (general all_wrap branch); also runs a
+//     cancellation scenario where one prehandler fails, request returns cancelled,
+//     processor and handlers must not fire.
+
+struct MainBus : Bus {
+  struct PingEvent {
+    int value;
+  };
+  struct SingleRequest {
+    using ReturnType = int;
+    int value;
+  };
+  struct MultiRequest {
+    using ReturnType = int;
+    int value;
+  };
+
+  using Events = td::TypeList<PingEvent, SingleRequest, MultiRequest>;
+};
+
+int g_ping_pre = 0;
+int g_ping_handle = 0;
+int g_single_pre = 0;
+int g_single_proc = 0;
+int g_single_handle = 0;
+int g_multi_pre_a = 0;
+int g_multi_pre_b = 0;
+int g_multi_proc = 0;
+int g_multi_handle = 0;
+bool g_cancel_b = false;
+
+class PrehandlerA : public SpawnsWith<MainBus>, public ConnectsTo<MainBus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  template <>
+  td::actor::Task<> prehandle(BusHandle<MainBus>, std::shared_ptr<const MainBus::PingEvent>) {
+    g_ping_pre++;
+    co_return td::Unit{};
+  }
+
+  template <>
+  td::actor::Task<> prehandle(BusHandle<MainBus>, std::shared_ptr<const MainBus::SingleRequest>) {
+    g_single_pre++;
+    co_return td::Unit{};
+  }
+
+  template <>
+  td::actor::Task<> prehandle(BusHandle<MainBus>, std::shared_ptr<const MainBus::MultiRequest>) {
+    g_multi_pre_a++;
+    co_return td::Unit{};
+  }
+};
+
+class PrehandlerB : public SpawnsWith<MainBus>, public ConnectsTo<MainBus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  template <>
+  td::actor::Task<> prehandle(BusHandle<MainBus>, std::shared_ptr<const MainBus::MultiRequest>) {
+    g_multi_pre_b++;
+    if (g_cancel_b) {
+      co_return td::Status::Error(653, "cancelled");
+    }
+    co_return td::Unit{};
+  }
+};
+
+class Provider : public SpawnsWith<MainBus>, public ConnectsTo<MainBus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  template <>
+  td::actor::Task<int> process(BusHandle<MainBus>, std::shared_ptr<MainBus::SingleRequest> req) {
+    g_single_proc++;
+    co_return req->value + 1;
+  }
+
+  template <>
+  td::actor::Task<int> process(BusHandle<MainBus>, std::shared_ptr<MainBus::MultiRequest> req) {
+    g_multi_proc++;
+    co_return req->value * 10;
+  }
+
+  template <>
+  void handle(BusHandle<MainBus>, std::shared_ptr<const MainBus::PingEvent>) {
+    g_ping_handle++;
+  }
+
+  template <>
+  void handle(BusHandle<MainBus>, std::shared_ptr<const MainBus::SingleRequest>) {
+    g_single_handle++;
+  }
+
+  template <>
+  void handle(BusHandle<MainBus>, std::shared_ptr<const MainBus::MultiRequest>) {
+    g_multi_handle++;
+  }
+};
+
+TEST(Runtime, Prehandlers) {
+  TestScheduler ts;
+  Runtime runtime;
+  runtime.register_actor<PrehandlerA>("PrehandlerA");
+  runtime.register_actor<PrehandlerB>("PrehandlerB");
+  runtime.register_actor<Provider>("Provider");
+
+  ts.run([&]() -> Task<Unit> {
+    auto bus = runtime.start(std::make_shared<MainBus>());
+    co_await ts.wait_sync_work();
+
+    // Non-request, single prehandler. Dispatch is via a detached task; drain it.
+    bus.publish<MainBus::PingEvent>(7);
+    co_await ts.wait_sync_work();
+    EXPECT_EQ(g_ping_pre, 1);
+    EXPECT_EQ(g_ping_handle, 1);
+
+    // Request, single prehandler succeeds -> processor runs.
+    int single = co_await bus.publish<MainBus::SingleRequest>(41);
+    EXPECT_EQ(single, 42);
+    EXPECT_EQ(g_single_pre, 1);
+    EXPECT_EQ(g_single_proc, 1);
+    co_await ts.wait_sync_work();
+    EXPECT_EQ(g_single_handle, 1);
+
+    // Request, two prehandlers, both succeed -> processor runs.
+    int multi = co_await bus.publish<MainBus::MultiRequest>(5);
+    EXPECT_EQ(multi, 50);
+    EXPECT_EQ(g_multi_pre_a, 1);
+    EXPECT_EQ(g_multi_pre_b, 1);
+    EXPECT_EQ(g_multi_proc, 1);
+    co_await ts.wait_sync_work();
+    EXPECT_EQ(g_multi_handle, 1);
+
+    // Cancellation: prehandler B fails -> request returns cancelled, no processor, no handler.
+    g_cancel_b = true;
+    auto cancelled = co_await bus.publish<MainBus::MultiRequest>(99).wrap();
+    EXPECT(cancelled.is_error());
+    EXPECT_EQ(cancelled.error().code(), 653);
+    EXPECT_EQ(g_multi_pre_a, 2);
+    EXPECT_EQ(g_multi_pre_b, 2);
+    EXPECT_EQ(g_multi_proc, 1);
+    co_await ts.wait_sync_work();
+    EXPECT_EQ(g_multi_handle, 1);
+
+    co_return {};
+  });
+}
+
+}  // namespace
+}  // namespace td::actor::test_prehandlers

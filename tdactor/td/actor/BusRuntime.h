@@ -16,7 +16,6 @@
 #include "td/actor/coro_utils.h"
 #include "td/utils/Badge.h"
 #include "td/utils/TypeRegistry.h"
-#include "td/utils/buffer.h"
 #include "td/utils/logging.h"
 #include "td/utils/type_traits.h"
 
@@ -70,6 +69,15 @@ void append_event_typename(td::StringBuilder& sb, const E& event) {
   sb << "@" << &event;
 }
 
+template <typename E>
+void log_prehandler_cancelled(const E& event, const td::Status& error) {
+  LOG(INFO) << td::LambdaPrint{} << [&](td::StringBuilder& sb) {
+    sb << "Prehandler cancelled ";
+    append_event_typename(sb, event);
+    sb << ": " << error;
+  };
+}
+
 template <typename E, typename R>
 void log_response(const E& event, const td::Result<R>& response) {
   auto printer = [&](td::StringBuilder& sb) {
@@ -109,6 +117,14 @@ class SpawnsWith;
 template <typename B, typename E>
 class BusEventPublishImplBase {
  public:
+  struct EventPrehandler {
+    using EventPrehandlerFn = td::actor::Task<> (BusListeningActor::*)(BusHandle<B> bus,
+                                                                       std::shared_ptr<const E> event);
+
+    td::actor::ActorId<BusListeningActor> actor;
+    EventPrehandlerFn prehandler_fn;
+  };
+
   struct EventHandler {
     using EventHandlerFn = void (BusListeningActor::*)(BusHandle<B> bus, std::shared_ptr<const E> event);
 
@@ -117,13 +133,65 @@ class BusEventPublishImplBase {
   };
 
   void publish(std::shared_ptr<E> event, BusHandle<B> handle) {
-    for (const auto& [actor, handler_fn] : handlers) {
-      td::actor::send_closure(actor, handler_fn, handle, event);
+    if (prehandlers.empty()) {
+      dispatch_handlers(event, handle);
+      return;
     }
+    auto task = [](BusEventPublishImplBase* self, std::shared_ptr<E> event, BusHandle<B> handle) -> td::actor::Task<> {
+      if ((co_await self->run_prehandlers(event, handle).wrap()).is_ok()) {
+        self->dispatch_handlers(std::move(event), std::move(handle));
+      }
+      co_return td::Unit{};
+    }(this, std::move(event), std::move(handle));
+    std::move(task).start().detach();
   }
 
   void add_handler(EventHandler handler) {
     handlers.push_back(std::move(handler));
+  }
+
+  void add_prehandler(EventPrehandler prehandler) {
+    prehandlers.push_back(std::move(prehandler));
+  }
+
+ protected:
+  bool has_prehandlers() const noexcept {
+    return !prehandlers.empty();
+  }
+
+  td::actor::Task<> run_prehandlers(std::shared_ptr<const E> event, BusHandle<B> handle) {
+    CHECK(!prehandlers.empty());
+    auto check = [&](td::Result<td::Unit>& r) {
+      if (r.is_ok()) {
+        return;
+      }
+      LOG_CHECK(r.error().code() == 653 /* ErrorCode::cancelled */) << "prehandler failed: " << r.error();
+      log_prehandler_cancelled(*event, r.error());
+    };
+    if (prehandlers.size() == 1) {
+      auto& [actor, fn] = prehandlers[0];
+      auto r = co_await td::actor::ask(actor, fn, std::move(handle), event).wrap();
+      check(r);
+      co_return std::move(r);
+    }
+    std::vector<td::actor::StartedTask<>> tasks;
+    tasks.reserve(prehandlers.size());
+    for (auto& [actor, fn] : prehandlers) {
+      tasks.push_back(td::actor::ask(actor, fn, handle, event));
+    }
+    for (auto& r : co_await td::actor::all_wrap(std::move(tasks))) {
+      check(r);
+      if (r.is_error()) {
+        co_return std::move(r);
+      }
+    }
+    co_return td::Unit{};
+  }
+
+  void dispatch_handlers(std::shared_ptr<const E> event, const BusHandle<B>& handle) {
+    for (const auto& [actor, handler_fn] : handlers) {
+      td::actor::send_closure(actor, handler_fn, handle, event);
+    }
   }
 
  private:
@@ -131,6 +199,7 @@ class BusEventPublishImplBase {
 
   // Can only have actors that are owned by (non-strict) predecessor of the current bus.
   std::vector<EventHandler> handlers;
+  std::vector<EventPrehandler> prehandlers;
 };
 
 template <typename B, typename E>
@@ -139,14 +208,20 @@ class BusEventPublishImpl : public BusEventPublishImplBase<B, E> {};
 template <typename B, ValidRequestFor<B> E>
 class BusEventPublishImpl<B, E> : public BusEventPublishImplBase<B, E> {
   using ReturnType = E::ReturnType;
+  using Base = BusEventPublishImplBase<B, E>;
 
  public:
   td::actor::Task<ReturnType> publish(std::shared_ptr<E> event, BusHandle<B> handle) {
     CHECK(processor_fn != nullptr);
+    if (this->has_prehandlers()) {
+      if (auto r = co_await this->run_prehandlers(event, handle).wrap(); r.is_error()) {
+        co_return r.move_as_error();
+      }
+    }
     auto result = co_await td::actor::ask(actor, processor_fn, handle, event).wrap();
     log_response(*event, result);
     if (result.is_ok()) {
-      static_cast<BusEventPublishImplBase<B, E>>(*this).publish(event, handle);
+      this->dispatch_handlers(event, handle);
     }
     co_return result;
   }
@@ -375,6 +450,17 @@ class BusListeningActor : public td::actor::Actor {
     }
   }
 
+  template <typename A, typename B, typename BOrigin, typename E>
+  auto prehandle_event(BusHandle<BOrigin> bus, std::shared_ptr<const E> event) {
+    log_event(false, bus._node(td::Badge<BusListeningActor>{}), *event);
+    if constexpr (!std::same_as<B, BOrigin>) {
+      return static_cast<A*>(this)->template prehandle<B, E>(bus.template unsafe_static_downcast_to<B>(),
+                                                             std::move(event));
+    } else {
+      return static_cast<A*>(this)->template prehandle<B, E>(std::move(bus), std::move(event));
+    }
+  }
+
   std::shared_ptr<ListenerInstaller> installer_;
 };
 
@@ -415,6 +501,11 @@ concept CanActorHandleEvent =
 template <typename A, typename B, typename E>
 concept CanActorProcessEvent =
     requires(A& actor, BusHandle<B> bus, std::shared_ptr<E> event) { actor.template process<B, E>(bus, event); };
+
+template <typename A, typename B, typename E>
+concept CanActorPrehandleEvent = requires(A& actor, BusHandle<B> bus, std::shared_ptr<const E> event) {
+  actor.template prehandle<B, E>(bus, event);
+};
 
 class Runtime : public std::enable_shared_from_this<Runtime> {
  public:
@@ -543,6 +634,12 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
           bus_impl->actor = params.actor_id;
           bus_impl->processor_fn = &BusListeningActor::process_event<A, B, BOrigin, E>;
         }
+        if constexpr (CanActorPrehandleEvent<A, B, E>) {
+          bus_impl->add_prehandler({
+              .actor = params.actor_id,
+              .prehandler_fn = &BusListeningActor::prehandle_event<A, B, BOrigin, E>,
+          });
+        }
       }
     }
   };
@@ -649,12 +746,15 @@ class Runtime {
   std::shared_ptr<detail::Runtime> impl_ = std::make_shared<detail::Runtime>();
 };
 
-#define TON_RUNTIME_DEFINE_EVENT_HANDLER()                                                         \
-  template <::td::In<ConnectToBuses> B, ::td::actor::detail::ValidPublishTargetFor<B> E>           \
-  constexpr void handle(::td::actor::BusHandle<B> bus, ::std::shared_ptr<E const> event) = delete; \
-                                                                                                   \
-  template <::td::In<ConnectToBuses> B, ::td::actor::detail::ValidRequestFor<B> E>                 \
-  constexpr td::actor::Task<typename E::ReturnType> process(::td::actor::BusHandle<B> bus,         \
+#define TON_RUNTIME_DEFINE_EVENT_HANDLER()                                                                         \
+  template <::td::In<ConnectToBuses> B, ::td::actor::detail::ValidPublishTargetFor<B> E>                           \
+  constexpr td::actor::Task<> prehandle(::td::actor::BusHandle<B> bus, ::std::shared_ptr<E const> event) = delete; \
+                                                                                                                   \
+  template <::td::In<ConnectToBuses> B, ::td::actor::detail::ValidPublishTargetFor<B> E>                           \
+  constexpr void handle(::td::actor::BusHandle<B> bus, ::std::shared_ptr<E const> event) = delete;                 \
+                                                                                                                   \
+  template <::td::In<ConnectToBuses> B, ::td::actor::detail::ValidRequestFor<B> E>                                 \
+  constexpr td::actor::Task<typename E::ReturnType> process(::td::actor::BusHandle<B> bus,                         \
                                                             ::std::shared_ptr<E> request) = delete;
 
 }  // namespace td::actor
