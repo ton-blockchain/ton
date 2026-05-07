@@ -17,81 +17,100 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <atomic>
-#include <cmath>
 #include <mutex>
 
 #include "td/utils/Time.h"
 
 namespace td {
 
-bool operator==(Timestamp a, Timestamp b) {
-  return std::abs(a.at() - b.at()) < 1e-6;
-}
 namespace {
-std::atomic<double> time_diff;
+
+std::atomic<SteadyClock::duration> time_diff{};
+static_assert(time_diff.is_always_lock_free);
 
 bool freezes_allowed{false};
 std::mutex time_mutex;
 bool is_frozen{false};
-double frozen_time;
-double frozen_system;
+SteadyTime frozen_steady;
+UTCTime frozen_utc;
+
+SteadyTime steady_unadjusted() {
+  return SteadyTime{std::chrono::steady_clock::now().time_since_epoch()};
+}
+
+UTCTime utc_unadjusted() {
+  return UTCTime{std::chrono::system_clock::now().time_since_epoch()};
+}
+
 }  // namespace
 
-double Time::now() {
+SteadyTime SteadyClock::now() {
   if (freezes_allowed) {
     std::lock_guard lock(time_mutex);
     if (is_frozen) {
-      return frozen_time;
+      return frozen_steady;
     }
-    return now_unadjusted() + time_diff;
+    return steady_unadjusted() + time_diff.load();
   }
 
-  return now_unadjusted() + time_diff.load(std::memory_order_relaxed);
+  return steady_unadjusted() + time_diff.load(std::memory_order_relaxed);
+}
+
+UTCTime UTCClock::now() {
+  if (freezes_allowed) {
+    std::lock_guard lock(time_mutex);
+    if (is_frozen) {
+      return frozen_utc;
+    }
+  }
+
+  return utc_unadjusted();
+}
+
+double Time::now() {
+  return detail::duration_to_s(SteadyClock::now().time_since_epoch());
 }
 
 double Time::now_unadjusted() {
-  return Clocks::monotonic();
+  return detail::duration_to_s(steady_unadjusted().time_since_epoch());
 }
 
 double Time::system_now() {
-  if (freezes_allowed) {
-    std::lock_guard lock(time_mutex);
-    if (is_frozen) {
-      return frozen_system;
-    }
-  }
-
-  return Clocks::system();
+  return detail::duration_to_s(UTCClock::now().time_since_epoch());
 }
 
-void Time::jump_in_future(double at) {
+void Time::jump_in_future(SteadyTime ts) {
   if (freezes_allowed) {
     std::lock_guard lock(time_mutex);
     if (is_frozen) {
-      if (at > frozen_time) {
-        frozen_system += at - frozen_time;
-        frozen_time = at;
+      if (ts > frozen_steady) {
+        frozen_utc += (ts - frozen_steady);
+        frozen_steady = ts;
       }
     } else {
-      time_diff = at - now_unadjusted();
-      if (time_diff < 0) {
-        time_diff = 0;
+      auto diff = ts - steady_unadjusted();
+      if (diff < SteadyClock::duration::zero()) {
+        diff = SteadyClock::duration::zero();
       }
+      time_diff.store(diff);
     }
     return;
   }
 
   auto old_time_diff = time_diff.load();
-
   while (true) {
-    auto diff = at - now();
-    if (diff < 0) {
+    auto diff = ts - SteadyClock::now();
+    if (diff < SteadyClock::duration::zero()) {
       return;
     }
     if (time_diff.compare_exchange_strong(old_time_diff, old_time_diff + diff)) {
       return;
     }
   }
+}
+
+void Time::jump_in_future(double at) {
+  jump_in_future(SteadyClock::from_double_ts(at));
 }
 
 void Time::allow_freezes() {
@@ -101,8 +120,8 @@ void Time::allow_freezes() {
 void Time::freeze() {
   CHECK(freezes_allowed);
   std::lock_guard lock(time_mutex);
-  frozen_time = now_unadjusted() + time_diff.load(std::memory_order_relaxed);
-  frozen_system = Clocks::system();
+  frozen_steady = steady_unadjusted() + time_diff.load(std::memory_order_relaxed);
+  frozen_utc = utc_unadjusted();
   is_frozen = true;
 }
 
@@ -110,7 +129,7 @@ void Time::unfreeze() {
   CHECK(freezes_allowed);
   std::lock_guard lock(time_mutex);
   if (is_frozen) {
-    time_diff.store(frozen_time - now_unadjusted(), std::memory_order_relaxed);
+    time_diff.store(frozen_steady - steady_unadjusted(), std::memory_order_relaxed);
     is_frozen = false;
   }
 }

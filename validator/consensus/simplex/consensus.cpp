@@ -134,7 +134,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
     if (timeout_slot_ <= event->start_slot) {
       timeout_slot_ = event->start_slot + 1;
-      timeout_base_ = td::Timestamp::in(first_block_timeout_);
+      timeout_base_ = td::Timestamp::in(std::chrono::round<std::chrono::nanoseconds>(first_block_timeout_));
       alarm_timestamp() = td::Timestamp::in(params_.target_rate, timeout_base_);
     }
   }
