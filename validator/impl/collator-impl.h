@@ -182,7 +182,7 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<ShardTopBlockDescrQ>> used_shard_block_descr_;
   std::unique_ptr<vm::Dictionary> shard_libraries_;
   Ref<vm::Cell> mc_state_extra_;
-  std::unique_ptr<vm::AugmentedDictionary> account_dict;
+  std::unique_ptr<vm::AugmentedDictionary> account_dict, old_account_dict;
   std::map<ton::StdSmcAddress, std::unique_ptr<block::Account>> accounts;
   std::vector<block::StoragePrices> storage_prices_;
   block::StoragePhaseConfig storage_phase_cfg_{&storage_prices_};
@@ -409,7 +409,7 @@ class Collator final : public td::actor::Actor {
   bool create_block();
 
   Ref<vm::Cell> collate_shard_block_descr_set();
-  bool prepare_msg_queue_proof();
+  bool prepare_proofs();
   bool create_collated_data();
 
   bool create_block_candidate();

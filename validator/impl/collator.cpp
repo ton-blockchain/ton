@@ -1278,6 +1278,8 @@ bool Collator::split_last_state(block::ShardState& ss) {
  */
 bool Collator::import_shard_state_data(block::ShardState& ss) {
   account_dict = std::move(ss.account_dict_);
+  old_account_dict =
+      std::make_unique<vm::AugmentedDictionary>(account_dict->get_root(), 256, block::tlb::aug_ShardAccounts);
   account_dict_estimator_ = std::make_unique<vm::AugmentedDictionary>(*account_dict);
   shard_libraries_ = std::move(ss.shard_libraries_);
   mc_state_extra_ = std::move(ss.mc_state_extra_);
@@ -6199,12 +6201,17 @@ Ref<vm::Cell> Collator::collate_shard_block_descr_set() {
 }
 
 /**
- * Visits certain cells in out msg queue and dispatch queue to add them to the proof
+ * Visits certain cells in state to add them to the proof
  *
  * @returns True on success, False if error occurred
  */
-bool Collator::prepare_msg_queue_proof() {
-  auto res = old_out_msg_queue_->scan_diff(
+bool Collator::prepare_proofs() {
+  auto res = old_account_dict->scan_diff(
+      *account_dict, [](td::ConstBitPtr, int, Ref<vm::CellSlice>, Ref<vm::CellSlice>) { return true; }, 2);
+  if (!res) {
+    return false;
+  }
+  res = old_out_msg_queue_->scan_diff(
       *out_msg_queue_,
       [this](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_value, Ref<vm::CellSlice> new_value) {
         old_value = old_out_msg_queue_->extract_value(std::move(old_value));
@@ -6282,11 +6289,11 @@ bool Collator::create_collated_data() {
   for (const auto& p : block_state_proofs_) {
     collated_roots_.push_back(p.second);
   }
-  // 3. Previous state proof (only shadchains)
+  // 3. Previous state proof (only shardchains)
   std::map<td::Bits256, Ref<vm::Cell>> proofs;
   if (!is_masterchain()) {
-    if (!prepare_msg_queue_proof()) {
-      return fatal_error("cannot prepare message queue proof");
+    if (!prepare_proofs()) {
+      return fatal_error("cannot prepare proof for collated data");
     }
 
     state_usage_tree_->set_use_mark_for_is_loaded(false);

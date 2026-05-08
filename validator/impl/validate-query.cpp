@@ -676,7 +676,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (!ins.second) {
       return reject_query("Merkle proof with duplicate virtual root hash "s + virt_hash.to_hex());
     }
-    // full_collated_data_ = true;
+    full_collated_data_ = true;
     return true;
   }
   if (block::gen::t_TopBlockDescrSet.has_valid_tag(cs)) {
@@ -706,7 +706,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     if (!virt_account_storage_dicts_.emplace(virt_root->get_hash().bits(), virt_root).second) {
       return reject_query("duplicate AccountStorageDictProof");
     }
-    // full_collated_data_ = true;
+    full_collated_data_ = true;
     return true;
   }
   if (block::gen::t_ConsensusExtraData.has_valid_tag(cs)) {
