@@ -1,7 +1,7 @@
 #/bin/bash
 
 #sudo apt-get update
-#sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev ccache
+#sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev ccache libc++-22-dev libc++abi-22-dev
 
 with_tests=false
 with_artifacts=false
@@ -24,6 +24,16 @@ if [ "$with_ccache" = true ]; then
   test $? -eq 0 || { echo "ccache not installed"; exit 1; }
 else
   export CCACHE_DISABLE=1
+fi
+
+is_installed() {
+  dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed"
+}
+
+if ! is_installed libc++-22-dev || ! is_installed libc++abi-22-dev; then
+  echo "Missing libc++ development packages for clang-22."
+  echo "Run: sudo apt-get update && sudo apt-get install -y libc++-22-dev libc++abi-22-dev"
+  exit 1
 fi
 
 # Avoid -march=native with shared CI ccache to prevent illegal instructions.
@@ -54,7 +64,7 @@ if [ "${TON_WERROR_BUILD}" = "1" ]; then
 fi
 
 cmake -GNinja .. \
--DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
+-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 -DCMAKE_CXX_FLAGS=-stdlib=libc++ \
 -DTON_USE_JEMALLOC=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$(pwd)/install" \
 "${CMAKE_EXTRA_ARGS[@]}"
 

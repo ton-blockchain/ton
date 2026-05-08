@@ -1,5 +1,10 @@
 option(TONLIBJSON_STATIC "Build tonlibjson as static library" OFF)
 
+set(TON_USES_LIBCXX OFF)
+if (CMAKE_CXX_FLAGS MATCHES "(^| )-stdlib=libc\\+\\+($| )")
+  set(TON_USES_LIBCXX ON)
+endif()
+
 set(TONLIB_SOURCE
   tonlib/Client.cpp
   tonlib/Config.cpp
@@ -117,7 +122,7 @@ if (TONLIBJSON_STATIC)
   target_compile_definitions(tonlibjson_public_interface INTERFACE TONLIBJSON_STATIC_DEFINE)
 endif()
 
-if (NOT TONLIBJSON_STATIC AND PORTABLE AND NOT APPLE)
+if (NOT TONLIBJSON_STATIC AND PORTABLE AND NOT APPLE AND NOT TON_USES_LIBCXX)
   target_link_options(tonlibjson PRIVATE -static-libgcc -static-libstdc++)
 endif()
 
@@ -127,7 +132,7 @@ if (APPLE)
   set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 endif()
 
-if (APPLE AND PORTABLE)
+if (APPLE AND PORTABLE AND NOT TON_USES_LIBCXX)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libstdc++")
 endif()

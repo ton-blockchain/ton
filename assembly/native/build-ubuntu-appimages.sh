@@ -23,6 +23,16 @@ else
   export CCACHE_DISABLE=1
 fi
 
+is_installed() {
+  dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q "install ok installed"
+}
+
+if ! is_installed libc++-22-dev || ! is_installed libc++abi-22-dev; then
+  echo "Missing libc++ development packages for clang-22."
+  echo "Run: sudo apt-get update && sudo apt-get install -y libc++-22-dev libc++abi-22-dev"
+  exit 1
+fi
+
 # Avoid -march=native with shared CI ccache to prevent illegal instructions.
 if [ "${GITHUB_ACTIONS}" = "true" ] || [ "$with_ccache" = true ]; then
   HOST_ARCH="$(uname -m)"
@@ -47,7 +57,7 @@ if [ -n "${TON_ARCH}" ]; then
 fi
 
 cmake -GNinja .. \
--DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
+-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 -DCMAKE_CXX_FLAGS=-stdlib=libc++ \
 -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 \
 "${CMAKE_EXTRA_ARGS[@]}"
 

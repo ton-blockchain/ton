@@ -35,7 +35,7 @@ jobs:
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
         echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-22 main" | sudo tee /etc/apt/sources.list.d/llvm.list
         sudo apt-get -y update
-        sudo apt-get install -y clang-22
+        sudo apt-get install -y clang-22 libc++-22-dev libc++abi-22-dev
 
     - name: Cache Android NDK
       id: cache-android-ndk

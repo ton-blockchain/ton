@@ -1,5 +1,10 @@
 option(EMULATOR_STATIC "Build emulator as static library" OFF)
 
+set(TON_USES_LIBCXX OFF)
+if (CMAKE_CXX_FLAGS MATCHES "(^| )-stdlib=libc\\+\\+($| )")
+  set(TON_USES_LIBCXX ON)
+endif()
+
 set(EMULATOR_STATIC_SOURCE
   transaction-emulator.cpp
   tvm-emulator.hpp
@@ -24,7 +29,7 @@ else()
   add_library(emulator SHARED ${EMULATOR_SOURCE})
 endif()
 
-if (PORTABLE AND NOT APPLE)
+if (PORTABLE AND NOT APPLE AND NOT TON_USES_LIBCXX)
   target_link_libraries(emulator PUBLIC emulator_static git -static-libgcc -static-libstdc++)
 else()
   target_link_libraries(emulator PUBLIC emulator_static git)
@@ -36,7 +41,7 @@ if (APPLE)
   set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 endif()
 
-if (APPLE AND PORTABLE)
+if (APPLE AND PORTABLE AND NOT TON_USES_LIBCXX)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
   set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -static-libstdc++")
 endif()
