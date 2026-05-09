@@ -32,6 +32,7 @@ struct ContractDirective {
   AnyTypeV incomingExternal = nullptr;
   AnyTypeV outgoingMessages = nullptr;
   AnyTypeV emittedEvents = nullptr;
+  AnyTypeV thrownErrors = nullptr;
   AnyTypeV storage = nullptr;
   AnyTypeV storageAtDeployment = nullptr;
 

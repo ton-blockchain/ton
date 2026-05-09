@@ -43,7 +43,27 @@ std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, Ty
 std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, AnyV origin);
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
-static std::vector<MethodCallCandidate> filter_pack_candidates(TypePtr receiver_type, std::vector<MethodCallCandidate> candidates) {
+// Unlike regular methods, custom serializers must not leak from aliases to underlying types.
+// Example:
+// > struct Box { ... }
+// > type BoxAlias = Box
+// > fun BoxAlias.packToBuilder
+// It must NOT be auto-applicable to `Box`. Whereas for other methods, like `fun BoxAlias.xyz`, `box.xyz()` is okay.
+static bool is_same_custom_serialization_receiver(TypePtr receiver_type, TypePtr candidate_receiver) {
+  if (const TypeDataAlias* t_alias = receiver_type->try_as<TypeDataAlias>()) {
+    const TypeDataAlias* c_alias = candidate_receiver->try_as<TypeDataAlias>();
+    return c_alias && c_alias->alias_ref == t_alias->alias_ref;
+  }
+  if (receiver_type->try_as<TypeDataStruct>()) {
+    return candidate_receiver->try_as<TypeDataStruct>() && candidate_receiver->equal_to(receiver_type);
+  }
+  if (receiver_type->try_as<TypeDataEnum>()) {
+    return candidate_receiver->try_as<TypeDataEnum>() && candidate_receiver->equal_to(receiver_type);
+  }
+  return false;
+}
+
+static std::vector<MethodCallCandidate> filter_pack_candidates(TypePtr receiver_type, const std::vector<MethodCallCandidate>& candidates) {
   int min_generics = 100;
   for (const MethodCallCandidate& c : candidates) {
     int n_generics = c.is_generic() ? c.substitutedTs.size() : 0;
@@ -53,7 +73,7 @@ static std::vector<MethodCallCandidate> filter_pack_candidates(TypePtr receiver_
   std::vector<MethodCallCandidate> filtered;
   for (MethodCallCandidate c : candidates) {
     int n_generics = c.is_generic() ? c.substitutedTs.size() : 0;
-    if (n_generics == min_generics && (n_generics != 0 || c.method_ref->receiver_type->equal_to(receiver_type))) {
+    if (n_generics == min_generics && is_same_custom_serialization_receiver(receiver_type, c.instantiated_receiver)) {
       filtered.emplace_back(std::move(c));
     }
   }
@@ -1380,7 +1400,7 @@ struct S_IntegerEnum final : ISerializer {
       // enum's members are A...B one by one (probably, 0...M);
       // then validation is: "throw if v<A or v>B", but "LESSINT + THROWIF" 2 times is more generalized
       td::RefInt256 min_value = enum_ref->members.front()->computed_value;
-      bool dont_check_min = intN != nullptr && intN->is_unsigned && min_value == 0;
+      bool dont_check_min = intN != nullptr && intN->is_unsigned && !intN->is_variadic && min_value == 0;
       if (!dont_check_min) {    // LDU can't load < 0 
         std::vector ir_min_value = code.create_tmp_var(TypeDataInt::create(), origin, "(enum-min)");
         code.add_int_const(origin, ir_min_value, min_value);
@@ -1390,7 +1410,7 @@ struct S_IntegerEnum final : ISerializer {
         code.add_call(origin, {}, std::move(args_throwif), lookup_function("__throw_if"));
       }
       td::RefInt256 max_value = enum_ref->members.back()->computed_value;
-      bool dont_check_max = intN != nullptr && intN->is_unsigned && intN->n_bits < 32 && max_value == (1ULL << intN->n_bits) - 1;
+      bool dont_check_max = intN != nullptr && intN->is_unsigned && !intN->is_variadic && intN->n_bits < 32 && max_value == (1ULL << intN->n_bits) - 1;
       if (!dont_check_max) {    // LDU can't load >= 1<<N
         std::vector ir_max_value = code.create_tmp_var(TypeDataInt::create(), origin, "(enum-max)");
         code.add_int_const(origin, ir_max_value, max_value);
@@ -1684,6 +1704,9 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
   if (const auto* t_union = any_type->try_as<TypeDataUnion>()) {
     // `T?` is always `(Maybe T)`, even if T has custom opcode (opcode will follow bit '1')
     if (t_union->or_null) {
+      if (get_custom_pack_unpack_function(t_union->or_null)) {
+        return std::make_unique<S_Maybe>(t_union);
+      }
       TypePtr or_null = t_union->or_null->unwrap_alias();
       if (or_null->is_cell_or_CellT()) {
         return std::make_unique<S_RawTVMcellOrNull>();

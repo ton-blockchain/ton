@@ -25,6 +25,7 @@ bool is_contract_property_type_node(std::string_view name) {
       || name == "incomingExternal"
       || name == "outgoingMessages"
       || name == "emittedEvents"
+      || name == "thrownErrors"
       || name == "storage"
       || name == "storageAtDeployment"
       || name == "forceAbiExport"
@@ -71,6 +72,7 @@ ContractDirective* parse_contract_directive(AnyV v) {
     else if (prop == "incomingExternal")      d->incomingExternal     = expect_type(ith);
     else if (prop == "outgoingMessages")      d->outgoingMessages     = expect_type(ith);
     else if (prop == "emittedEvents")         d->emittedEvents        = expect_type(ith);
+    else if (prop == "thrownErrors")          d->thrownErrors         = expect_type(ith);
     else if (prop == "storage")               d->storage              = expect_type(ith);
     else if (prop == "storageAtDeployment")   d->storageAtDeployment  = expect_type(ith);
     else if (prop == "forceAbiExport")        d->forceAbiExport       = expect_type(ith);

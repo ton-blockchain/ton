@@ -420,6 +420,87 @@ struct (0x0ec3c86d) RecursiveStructByRef {
     value: uint8
 }
 
+struct Box {
+    x: uint8
+}
+
+type IdenticalBox = Box
+
+type TaggedBox = Box
+
+fun TaggedBox.packToBuilder(self, mutate b: builder) {
+    b.storeUint(1, 1);
+    b.storeUint(self.x, 8);
+}
+
+fun TaggedBox.unpackFromSlice(mutate s: slice): TaggedBox {
+    s.loadUint(1);
+    return Box { x: s.loadUint(8) };
+}
+
+@method_id(119)
+fun test19() {
+    var box = Box { x: 0 };
+    val plainBits = box.toCell().beginParse().remainingBitsCount();
+    val identBits = (box as IdenticalBox).toCell().beginParse().remainingBitsCount();
+    val taggedBits = (box as TaggedBox).toCell().beginParse().remainingBitsCount();
+    return (plainBits, identBits, taggedBits);
+}
+
+struct AnotherS {
+    x: int8
+}
+
+type AliasAnotherS = AnotherS;
+
+fun AliasAnotherS.packToBuilder(self, mutate b: builder): void {
+    b.storeInt(self.x, 8);
+}
+
+fun AliasAnotherS.unpackFromSlice(mutate s: slice): AliasAnotherS {
+    return {x: s.loadInt(8)}
+}
+
+fun AnotherS.unpackFromSlice(mutate s: slice): AnotherS {
+    return {x: s.loadInt(16)};
+}
+
+fun AnotherS.packToBuilder(self, mutate b: builder): void {
+    b.storeInt(self.x, 16);
+}
+
+@method_id(120)
+fun test20() {
+    val plainS: AnotherS = {x: 10};
+    val aliasS: AliasAnotherS = {x: 10};
+    val slicePlain = plainS.toCell().beginParse();
+    val sliceAlias = aliasS.toCell().beginParse();
+    return (
+        slicePlain.remainingBitsCount(), sliceAlias.remainingBitsCount(),
+        AnotherS.fromSlice(slicePlain), AliasAnotherS.fromSlice(sliceAlias),
+    );
+}
+
+
+get fun exposeToAbi(p: (Box, TaggedBox, AnotherS, AliasAnotherS)) {}
+
+type MyAddress = address
+
+fun MyAddress.packToBuilder(self, mutate b: builder) {
+    b.storeUint(0xFFFF, 16);
+}
+
+@method_id(121)
+fun test21() {
+    // will be serialized not as `address?` (none/internal), but 0/1+packToBuilder
+    var a = address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c") as MyAddress?;
+    var s = a.toCell().beginParse();
+    return (s.skipBits(1).loadUint(16), s.remainingBitsCount())
+}
+
+get fun myAddress(): MyAddress? {
+    return null
+}
 
 fun main(x: MInt, y: MInt?) {
     return y == null ? x : x + y;
@@ -433,6 +514,9 @@ fun main(x: MInt, y: MInt?) {
 @testcase | 112 | -1  | [ 2 1 ]
 @testcase | 115 |     | 0 1 2 10 11 12 20 21 22
 @testcase | 118 |     | 5 0 1
+@testcase | 119 |     | 8 8 9
+@testcase | 120 |     | 16 8 10 10
+@testcase | 121 |     | 65535 0
 
 @fif_codegen
 """
@@ -445,4 +529,80 @@ fun main(x: MInt, y: MInt?) {
     TRUE	//  '5
   }>
 """
+
+@abi_json
+"""
+    {
+      "kind": "struct",
+      "name": "Box",
+      "ty_idx": 14,
+      "fields": [
+        {
+          "name": "x",
+          "ty_idx": 15
+        }
+      ]
+    },
+"""
+
+@abi_json
+"""
+    {
+      "kind": "alias",
+      "name": "TaggedBox",
+      "ty_idx": 16,
+      "target_ty_idx": 14,
+      "custom_pack_unpack": {
+        "pack_to_builder": true,
+        "unpack_from_slice": true
+      }
+    },
+"""
+
+@abi_json
+"""
+    {
+      "kind": "struct",
+      "name": "AnotherS",
+      "ty_idx": 17,
+      "fields": [
+        {
+          "name": "x",
+          "ty_idx": 18
+        }
+      ],
+      "custom_pack_unpack": {
+        "pack_to_builder": true,
+        "unpack_from_slice": true
+      }
+    },
+"""
+
+@abi_json
+"""
+    {
+      "kind": "alias",
+      "name": "AliasAnotherS",
+      "ty_idx": 19,
+      "target_ty_idx": 17,
+      "custom_pack_unpack": {
+        "pack_to_builder": true,
+        "unpack_from_slice": true
+      }
+    },
+"""
+
+@abi_json
+"""
+    {
+      "tvm_method_id": 77701,
+      "name": "myAddress",
+      "parameters": [
+      ],
+      "return_ty_idx": 22
+    }
+"""
+
+@abi_json_avoid {"kind":"addressOpt"}
+@abi_json_avoid {"kind":"addressOpt"},
  */

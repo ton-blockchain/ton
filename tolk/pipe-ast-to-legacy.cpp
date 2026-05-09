@@ -420,9 +420,11 @@ static bool is_ternary_arg_trivial_for_condsel(AnyExprV v, bool require_1slot = 
   if (require_1slot && v->inferred_type->get_width_on_stack() != 1) {
     return false;
   }
-  if (v->kind == ast_int_const || v->kind == ast_string_const || v->kind == ast_bool_const ||
-      v->kind == ast_null_keyword || v->kind == ast_reference) {
+  if (v->kind == ast_int_const || v->kind == ast_string_const || v->kind == ast_bool_const || v->kind == ast_null_keyword) {
     return true;
+  }
+  if (auto v_ref = v->try_as<ast_reference>()) {
+    return !v_ref->sym->try_as<GlobalVarPtr>();
   }
   if (auto v_dot = v->try_as<ast_dot_access>()) {
     TypePtr obj_type = v_dot->get_obj()->inferred_type;
@@ -1466,16 +1468,20 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     // it's `local_var(args)`, treat args like a tensor:
     // 1) when variables are modified like `local_var(x, x += 2, x)`, regular mechanism of watching automatically works
     // 2) when `null` is passed to `(int, int)?`, or any other type transitions, it automatically works
-    std::vector tfunc = pre_compile_expr(v->get_callee(), code, nullptr);
-    tolk_assert(tfunc.size() == 1);
+    const std::vector<TypePtr>& callee_params_types = v->get_callee()->inferred_type->unwrap_alias()->try_as<TypeDataFunCallable>()->params_types;
     std::vector<AnyExprV> args;
-    args.reserve(v->get_num_args());
+    std::vector<TypePtr> params_types;
+    args.reserve(v->get_num_args() + 1);
+    params_types.reserve(v->get_num_args() + 1);
+    // callee as a pseudo-argument (the first one, in order of execution) + user-provided arguments
+    args.push_back(v->get_callee());
+    params_types.push_back(nullptr);
     for (int i = 0; i < v->get_num_args(); ++i) {
       args.push_back(v->get_arg(i)->get_expr());
+      params_types.push_back(callee_params_types[i]);
     }
-    std::vector<TypePtr> params_types = v->get_callee()->inferred_type->unwrap_alias()->try_as<TypeDataFunCallable>()->params_types;
     std::vector args_vars = pre_compile_tensor(code, args, nullptr, params_types);
-    args_vars.push_back(tfunc[0]);
+    std::rotate(args_vars.begin(), args_vars.begin() + 1, args_vars.end());   // move callee to the end
     std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(call-ind)");
     if (args_vars.size() >= 254 || rvect.size() >= 254) {
       err("too many arguments on a stack for an indirect call").fire(v->get_callee());
@@ -1575,8 +1581,9 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   // detect what a function really returns from the stack perspective;
   // for instance, `fun f(mutate x: int): slice` puts `(int, slice)` onto a stack
+  bool returns_self_from_asm_stack = fun_ref->does_return_self() && !fun_ref->does_mutate_self() && fun_ref->is_asm_function();
   TypePtr op_call_type = v->inferred_type;
-  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self()) {
+  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self() && !returns_self_from_asm_stack) {
     op_call_type = TypeDataVoid::create();    // `return self` actually puts nothing onto a stack
   }
   if (fun_ref->has_mutate_params()) {
@@ -1586,7 +1593,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
         types_list.push_back(fun_ref->parameters[i].declared_type);
       }
     }
-    bool self_already_added = fun_ref->does_return_self();
+    bool self_already_added = fun_ref->does_return_self() && !returns_self_from_asm_stack;
     if (!self_already_added) {
       types_list.push_back(v->inferred_type);
     }
@@ -1618,7 +1625,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   std::vector<var_idx_t> return_self_snapshot;
   // preserve by-value `self` before separate `mutate` parameters are written back to caller lvalues
-  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self() && fun_ref->has_mutate_params()) {
+  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self() && !returns_self_from_asm_stack && fun_ref->has_mutate_params()) {
     int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
     return_self_snapshot = code.create_tmp_var(fun_ref->parameters[0].declared_type, call_origin, "(return-self)");
     code.add_let(call_origin, return_self_snapshot, vars_per_arg[orig_self_i]);
@@ -1643,7 +1650,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   // `beginCell().storeUint()` / `sb.append()` / etc. — dot call for methods returning `self`
   TypePtr rvect_type = v->inferred_type;
-  if (fun_ref->does_return_self()) {
+  if (fun_ref->does_return_self() && !returns_self_from_asm_stack) {
     int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
     rvect = return_self_snapshot.empty() ? vars_per_arg[orig_self_i] : std::move(return_self_snapshot);
     if (fun_ref->does_mutate_self()) {
@@ -2125,12 +2132,16 @@ static void process_try_catch_statement(V<ast_try_catch_statement> v, CodeBlob& 
 
   // transform catch (excNo, arg) into TVM-catch (arg, excNo), where arg is untyped and thus almost useless now
   const std::vector<AnyExprV>& catch_vars = v->get_catch_expr()->get_items();
+  V<ast_block_statement> catch_body = v->get_catch_body();
   tolk_assert(catch_vars.size() == 2);
+
+  code.add_debug_mark(DebugMarkScopeStart{.range = catch_body->range});
   process_catch_variable(catch_vars[0], code);
   process_catch_variable(catch_vars[1], code);
   try_catch_op.left = pre_compile_tensor(code, {catch_vars[1], catch_vars[0]});
-  process_any_statement(v->get_catch_body(), code);
-  code.close_pop_cur(v->get_catch_body());
+  process_block_statement(catch_body, code);
+  code.add_debug_mark(DebugMarkScopeEnd{});
+  code.close_pop_cur(catch_body);
 }
 
 static void process_repeat_statement(V<ast_repeat_statement> v, CodeBlob& code) {
@@ -2149,11 +2160,11 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
   tolk_assert(ir_cond.size() == 1);
 
   if (v->get_cond()->is_always_true) {
-    process_any_statement(v->get_if_body(), code);      // v->is_ifnot does not matter here
+    process_any_statement(v->is_ifnot ? v->get_else_body() : v->get_if_body(), code);
     return;
   }
   if (v->get_cond()->is_always_false) {
-    process_any_statement(v->get_else_body(), code);
+    process_any_statement(v->is_ifnot ? v->get_if_body() : v->get_else_body(), code);
     return;
   }
 

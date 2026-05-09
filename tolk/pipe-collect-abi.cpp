@@ -28,8 +28,13 @@ class CollectAbiFromBodyVisitor final : public ASTVisitorFunctionBody {
   ContractABI* abi;
   bool collect_outgoing_messages;
   bool collect_emitted_events;
+  bool collect_thrown_errors;
 
   void on_assert_throw(AnyExprV v_err_code) const {
+    if (!collect_thrown_errors) {
+      return;
+    }
+
     // on `throw ERR`, `assert (cond, ERR)` and similar we register that constant;
     // note, that even if it's a local exception caught by `catch`, it's also registered, for simplicity
     while (auto v_cast = v_err_code->try_as<ast_cast_as_operator>()) {
@@ -96,10 +101,11 @@ class CollectAbiFromBodyVisitor final : public ASTVisitorFunctionBody {
   }
 
 public:
-  CollectAbiFromBodyVisitor(ContractABI* cur_abi, bool collect_outgoing_messages, bool collect_emitted_events)
+  CollectAbiFromBodyVisitor(ContractABI* cur_abi, bool collect_outgoing_messages, bool collect_emitted_events, bool collect_thrown_errors)
     : abi(cur_abi)
     , collect_outgoing_messages(collect_outgoing_messages)
-    , collect_emitted_events(collect_emitted_events) {}
+    , collect_emitted_events(collect_emitted_events)
+    , collect_thrown_errors(collect_thrown_errors) {}
 
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && fun_ref->is_really_used();
@@ -153,6 +159,16 @@ static void populate_abi_from_contract_directive(ContractABI* abi, const Contrac
   for (TypePtr t_event : ungroup_union_type(d->emittedEvents)) {
     abi->register_emitted_event(t_event);
   }
+  for (TypePtr t_errors : ungroup_union_type(d->thrownErrors)) {
+    if (const TypeDataEnum* t_enum = t_errors->unwrap_alias()->try_as<TypeDataEnum>()) {
+      for (EnumMemberPtr member_ref : t_enum->enum_ref->members) {
+        abi->register_thrown_error(t_enum->enum_ref, member_ref);
+      }
+      abi->json_types.register_used_type(t_enum);
+    } else {
+      err("`thrownErrors` must be an enum type, got `{}`", t_errors).fire(d->thrownErrors);
+    }
+  }
   if (d->storage) {
     abi->register_storage(d->storage->resolved_type, d->storageAtDeployment ? d->storageAtDeployment->resolved_type : nullptr);
   }
@@ -169,6 +185,7 @@ void pipeline_collect_abi_output(std::ostream& os) {
   ContractABI abi;
   bool collect_outgoing_messages = true;
   bool collect_emitted_events = true;
+  bool collect_thrown_errors = true;
 
   SrcFilePtr entrypoint_file = G.all_src_files.get_entrypoint_file();
   if (entrypoint_file->has_contract_directive()) {
@@ -176,12 +193,13 @@ void pipeline_collect_abi_output(std::ostream& os) {
     populate_abi_from_contract_directive(&abi, directive);
     collect_outgoing_messages = !directive->outgoingMessages;
     collect_emitted_events = !directive->emittedEvents;
+    collect_thrown_errors = !directive->thrownErrors;
   }
   if (const Symbol* f_main = lookup_global_symbol("main"); f_main && f_main->try_as<FunctionPtr>()) {
     abi.register_get_method(f_main->try_as<FunctionPtr>());
   }
 
-  CollectAbiFromBodyVisitor visitor(&abi, collect_outgoing_messages, collect_emitted_events);
+  CollectAbiFromBodyVisitor visitor(&abi, collect_outgoing_messages, collect_emitted_events, collect_thrown_errors);
   visit_ast_of_all_functions(visitor);
 
   abi.to_pretty_json(os);

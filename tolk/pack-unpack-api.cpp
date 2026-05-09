@@ -117,7 +117,7 @@ public:
       StructPtr struct_ref = t_struct->struct_ref;
 
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_struct, out_un_pack_candidates)) {
-        return check_custom_pack_unpack(t_struct, f, is_pack);
+        return out_un_pack_candidates ? std::nullopt : check_custom_pack_unpack(t_struct, f, is_pack);
       }
 
       // give an error for `struct A { next: [A?] }`
@@ -141,7 +141,7 @@ public:
 
     if (const auto* t_enum = any_type->try_as<TypeDataEnum>()) {
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_enum, out_un_pack_candidates)) {
-        return check_custom_pack_unpack(t_enum, f, is_pack);
+        return out_un_pack_candidates ? std::nullopt : check_custom_pack_unpack(t_enum, f, is_pack);
       }
 
       if (t_enum->enum_ref->members.empty()) {
@@ -215,7 +215,7 @@ public:
       }
 
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_alias, out_un_pack_candidates)) {
-        return check_custom_pack_unpack(t_alias, f, is_pack);
+        return out_un_pack_candidates ? std::nullopt : check_custom_pack_unpack(t_alias, f, is_pack);
       }
 
       if (auto why = detect_why_cant_serialize(t_alias->underlying_type, is_pack)) {

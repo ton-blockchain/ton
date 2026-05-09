@@ -362,6 +362,25 @@ fun testCalleeEvaluatedFirst() {
     )
 }
 
+fun addOne122(x: int): int {
+    return x + 1;
+}
+
+fun addTen122(x: int): int {
+    return x + 10;
+}
+
+fun replaceWithAddTen122(mutate f: (int) -> int): int {
+    f = addTen122;
+    return 5;
+}
+
+@method_id(122)
+fun testIndirectCalleeSnapshotBeforeArgs() {
+    var f: (int) -> int = addOne122;
+    return (f(5), f(replaceWithAddTen122(mutate f)), f(5));
+}
+
 
 fun main() {}
 
@@ -394,4 +413,5 @@ fun main() {}
 @testcase | 119 |            | 6
 @testcase | 120 |            | []
 @testcase | 121 |            | 100 [ 10 30 40 20 ]
+@testcase | 122 |            | 6 6 15
  */

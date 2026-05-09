@@ -128,32 +128,35 @@ static void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_
 
 // given `f(x: mutate int?)` and a call `f(expr)`, check that `int?` is assignable to expr_type
 // (for instance, can't call `f(mutate intVal)`, since f can potentially assign null to it)
-static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr param_type, AnyExprV ith_arg, bool is_obj_of_dot_call) {
+static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr arg_type_before_mutate, AnyExprV ith_arg, bool is_obj_of_dot_call) {
+  // while inferring, `f(mutate x)` (ith_arg = `x`), assigned "type of `x` = param_type of `f`",
+  // and arg_type_before_mutate is before this back-assignment exactly at this point
+  TypePtr param_type = ith_arg->inferred_type;
+
   // important: use declared_type of variable, not inferred_type: if arg is a smart-casted,
   // it narrows the type, but writeback happens to declared_type, so param_type must be compatible with declared_type
-  TypePtr orig_type = calc_declared_type_before_smart_cast(ith_arg);
-  if (orig_type == nullptr) {
-    orig_type = ith_arg->inferred_type;   // then it's a temporary object, like `f(mutate g().field)`
+  TypePtr arg_type_orig = calc_declared_type_before_smart_cast(ith_arg);
+  if (arg_type_orig == nullptr) {
+    arg_type_orig = arg_type_before_mutate;   // then it's a temporary object, like `f(mutate g().field)`
   }
 
-  // while inferring, `f(mutate x)` assigned "type of `x` = param_type of `f`",
-  // and here, in checking mutations, we will emit an error if this back-assignment is incompatible;
+  // here, in checking mutations, we will emit an error if this back-assignment is incompatible;
   // we don't allow passing `int` to mutate `coins` and similar: not can_rhs_be_assigned(), but equal_to()
-  bool ok = orig_type->equal_to(param_type);
+  bool ok = arg_type_orig->equal_to(param_type);
   if (!ok) {
     // the only exception, if we originally have `var x: int|builder`, and `x` is smart-cast to `builder`,
     // we allow calling method for `builder`; we also don't allow intersection between unions
-    if (const TypeDataUnion* orig_union = orig_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+    if (const TypeDataUnion* orig_union = arg_type_orig->unwrap_alias()->try_as<TypeDataUnion>()) {
       TypePtr only_t = orig_union->calculate_exact_variant_to_fit_rhs(param_type);
-      ok = only_t != nullptr && only_t->equal_to(param_type);
+      ok = only_t != nullptr && only_t->equal_to(param_type) && arg_type_before_mutate->equal_to(param_type);
     }
   }
 
   if (!ok) {
     if (is_obj_of_dot_call) {
-      err("can not call method for mutate `{}` with object of type `{}`, because mutation is not type compatible", param_type, orig_type).collect(ith_arg, cur_f);
+      err("can not call method for mutate `{}` with object of type `{}`, because mutation is not type compatible", param_type, arg_type_orig).collect(ith_arg, cur_f);
     } else {
-      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", orig_type, param_type).collect(ith_arg, cur_f);
+      err("can not pass `{}` to mutate `{}`, because mutation is not type compatible", arg_type_orig, param_type).collect(ith_arg, cur_f);
     }
   }
 }
@@ -477,7 +480,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).collect(arg_i, cur_f);
       }
       if (param_i.is_mutate_parameter()) {
-        check_function_argument_mutate_back(cur_f, param_type, arg_i->get_expr(), false);
+        check_function_argument_mutate_back(cur_f, arg_i->inferred_type, arg_i->get_expr(), false);
       }
     }
 
@@ -657,7 +660,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       if (h_shaped->size() != v->size()) {
         err("invalid `[...]` constructor for `{}`: expected {} items", h_shaped, h_shaped->size()).collect(v, cur_f);
       }
-      for (int i = 0; i < h_shaped->size(); ++i) {
+      for (int i = 0; i < std::min(h_shaped->size(), v->size()); ++i) {
         if (!h_shaped->items[i]->can_rhs_be_assigned(v->get_item(i)->inferred_type)) {
           err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", v->get_item(i)->inferred_type, h_shaped->items[i]).collect(v->get_item(i), cur_f);
         }

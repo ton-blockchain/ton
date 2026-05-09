@@ -24,7 +24,8 @@
 namespace tolk {
 
 static bool is_builtin_unexported_struct(StructPtr struct_ref) {
-  return struct_ref->name == "Cell" || struct_ref->name == "lisp_list";
+  return (struct_ref->is_generic_struct() && (struct_ref->name == "Cell" || struct_ref->name == "lisp_list"))
+       || struct_ref->is_instantiation_of_CellT() || struct_ref->is_instantiation_of_LispListT();
 }
 
 static bool is_builtin_unexported_alias(AliasDefPtr alias_ref) {
@@ -238,8 +239,11 @@ void TypeDataBitsN::as_abi_json(std::string& out, JsonTypeExporter& registry) co
 
 void TypeDataUnion::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   if (or_null && or_null->unwrap_alias()->try_as<TypeDataAddress>() && or_null->unwrap_alias()->try_as<TypeDataAddress>()->is_internal()) {
-    out += R"({"kind":"addressOpt"})";  // for `AddressAlias?` we also emit `address?`, not a nullable alias
-    return;
+    // for `AddressAlias?` we also emit `address?`, unless it has custom serializers
+    if (!get_custom_pack_unpack_function(or_null)) {
+      out += R"({"kind":"addressOpt"})";
+      return;
+    }
   }
   if (or_null) {
     out += R"({"kind":"nullable","inner_ty_idx":)";
@@ -371,6 +375,9 @@ static void register_referenced_declarations(JsonTypeExporter& reg, TypePtr type
       if (field_ref->abi_client_type) {
         reg.register_used_type(field_ref->abi_client_type);
       }
+      if (field_ref->default_value && !field_ref->abi_client_type && !struct_decl->is_generic_struct()) {
+        reg.register_used_const_val(eval_field_default_value(field_ref));
+      }
     }
   }
   if (alias_decl && !is_builtin_unexported_alias(alias_decl) && reg.register_used_symbol(alias_decl)) {
@@ -415,11 +422,11 @@ int JsonTypeExporter::register_used_type(TypePtr type) {
   } else if (const auto* t_alias = type->try_as<TypeDataAlias>(); t_alias &&
              t_alias->alias_ref->is_instantiation_of_generic_alias() &&
              !is_builtin_unexported_alias(t_alias->alias_ref->base_alias_ref)) {
-    int target_idx = register_used_type(t_alias->alias_ref->underlying_type);
+    int target_ty_idx = register_used_type(t_alias->alias_ref->underlying_type);
     alias_instantiations.push_back(AliasInstantiation{
       .ty_idx = ty_idx,
       .alias_ref = t_alias->alias_ref,
-      .monomorphic_target_ty_idx = target_idx,
+      .monomorphic_target_ty_idx = target_ty_idx,
     });
   }
 
@@ -433,6 +440,29 @@ bool JsonTypeExporter::register_used_symbol(const Symbol* symbol) {
   }
   used_symbols.push_back(symbol);
   return true;
+}
+
+// ensure that `cast_to_ty_idx` will exist in a registry
+void JsonTypeExporter::register_used_const_val(const ConstValExpression& v) {
+  if (const auto* t = std::get_if<ConstValTensor>(&v)) {
+    for (const ConstValExpression& item : t->items) {
+      register_used_const_val(item);
+    }
+  } else if (const auto* h = std::get_if<ConstValShapedTuple>(&v)) {
+    for (const ConstValExpression& item : h->items) {
+      register_used_const_val(item);
+    }
+  } else if (const auto* o = std::get_if<ConstValObject>(&v)) {
+    register_used_type(TypeDataStruct::create(o->struct_ref));
+    for (const ConstValExpression& field : o->fields) {
+      register_used_const_val(field);
+    }
+  } else if (const auto* c = std::get_if<ConstValCastToType>(&v)) {
+    register_used_type(c->cast_to);
+    for (const ConstValExpression& inner : c->inner) {
+      register_used_const_val(inner);
+    }
+  }
 }
 
 int JsonTypeExporter::find_unique_type(TypePtr t) const {
@@ -574,12 +604,12 @@ std::string get_abi_description(const DocCommentLines& doc_lines) {
 
 static std::string get_type_description(TypePtr ty) {
   if (const TypeDataAlias* t_alias = ty->try_as<TypeDataAlias>()) {
-    if (!t_alias->alias_ref->doc_lines.empty()) {
+    if (!t_alias->alias_ref->doc_lines.empty() && !is_builtin_unexported_alias(t_alias->alias_ref)) {
       return get_abi_description(t_alias->alias_ref->doc_lines);
     }
     return get_type_description(t_alias->underlying_type);
   }
-  if (const TypeDataStruct* t_struct = ty->try_as<TypeDataStruct>()) {
+  if (const TypeDataStruct* t_struct = ty->try_as<TypeDataStruct>(); t_struct && !is_builtin_unexported_struct(t_struct->struct_ref)) {
     return get_abi_description(t_struct->struct_ref->doc_lines);
   }
   if (const TypeDataEnum* t_enum = ty->try_as<TypeDataEnum>()) {
@@ -619,6 +649,9 @@ void JsonTypeExporter::emit_unique_ty_and_declarations_json(JsonPrettyOutput& js
       json.write_value(idx);
     }
     json.end_array();
+    if (CustomPackUnpackF f = get_custom_pack_unpack_function(TypeDataStruct::create(s.struct_ref))) {
+      json.key_value("custom_pack_unpack", f);
+    }
     json.end_object();
   }
   json.end_array();
@@ -630,6 +663,9 @@ void JsonTypeExporter::emit_unique_ty_and_declarations_json(JsonPrettyOutput& js
     json.key_value("ty_idx", a.ty_idx);
     json.key_value("alias_name", a.alias_ref->name);
     json.key_value("monomorphic_target_ty_idx", a.monomorphic_target_ty_idx);
+    if (CustomPackUnpackF f = get_custom_pack_unpack_function(TypeDataAlias::create(a.alias_ref))) {
+      json.key_value("custom_pack_unpack", f);
+    }
     json.end_object();
   }
   json.end_array();

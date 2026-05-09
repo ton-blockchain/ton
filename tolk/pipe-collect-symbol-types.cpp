@@ -74,6 +74,7 @@ void pipeline_collect_symbol_types() {
     register_contract_directive_type(c->incomingExternal);
     register_contract_directive_type(c->outgoingMessages);
     register_contract_directive_type(c->emittedEvents);
+    register_contract_directive_type(c->thrownErrors);
     register_contract_directive_type(c->storage);
     register_contract_directive_type(c->storageAtDeployment);
     register_contract_directive_type(c->forceAbiExport);

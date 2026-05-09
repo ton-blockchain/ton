@@ -92,7 +92,10 @@ void ContractABI::register_storage(TypePtr storage_ty, TypePtr storage_at_deploy
 
 void ContractABI::register_get_method(FunctionPtr fun_ref) {
   tolk_assert(fun_ref->is_contract_getter() || fun_ref->name == "main");
-  json_types.register_used_type(fun_ref->inferred_full_type);
+  json_types.register_used_type(fun_ref->inferred_return_type);
+  for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+    json_types.register_used_type(fun_ref->get_param(i).declared_type);
+  }
 
   ParsedDocComment doc = parse_doc_comment(fun_ref->doc_lines);
 
@@ -103,6 +106,7 @@ void ContractABI::register_get_method(FunctionPtr fun_ref) {
     std::optional<ConstValExpression> default_value;
     if (param_ref.default_value) {
       default_value = eval_expression_if_const_or_fire(param_ref.default_value);
+      json_types.register_used_const_val(default_value.value());
     }
     parameters.emplace_back(ABIFunctionParameter{
       .name = param_ref.name,

@@ -28,8 +28,10 @@ namespace tolk {
 static constexpr AnyV NULL_ORIGIN = nullptr;
 
 static void sanitize_fift_name(std::string &name) {
-  if (name.find(' ') != std::string::npos) {
-    std::replace(name.begin(), name.end(), ' ', '`');
+  for (char &c : name) {
+    if (c == ' ' || c == '\t') {
+      c = '`';
+    }
   }
 }
 

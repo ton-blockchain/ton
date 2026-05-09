@@ -536,7 +536,6 @@ struct AsmOp {
   static AsmOp Custom(AnyV origin, std::string custom_op, int args, int retv = 1) {
     return AsmOp(a_custom, origin, args, retv, std::move(custom_op));
   }
-  static AsmOp Parse(AnyV origin, const std::string& custom_op);
   static AsmOp Parse(AnyV origin, std::string custom_op, int args, int retv = 1);
   static AsmOp Tuple(AnyV origin, int a);
   static AsmOp UnTuple(AnyV origin, int a);

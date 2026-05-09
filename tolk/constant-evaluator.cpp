@@ -201,6 +201,21 @@ static ConstValExpression create_const_cast(ConstValExpression&& inner, TypePtr 
   return ConstValCastToType{{std::move(inner)}, cast_to};
 }
 
+// for cases like
+// > const A: coins = 10
+// > const A: lisp_list<int> = []
+// > (field) x: array<int>? = [2]
+// insert a cast for correctness
+static ConstValExpression create_const_cast_for_declared(ConstValExpression&& inner, TypePtr inferred_type, TypePtr declared_type) {
+  if (declared_type) {
+    if (!inferred_type->equal_to(declared_type)) {
+      inner = create_const_cast(std::move(inner), inferred_type);
+    }
+    inner = create_const_cast(std::move(inner), declared_type);
+  }
+  return inner;
+}
+
 // extract `5` from `(5 as int32 as int64)` in terms of ConstValExpression
 static ConstValExpression unwrap_const_cast(ConstValExpression val) {
   while (const ConstValCastToType* val_cast = std::get_if<ConstValCastToType>(&val)) {
@@ -616,9 +631,11 @@ public:
           }
         }
         if (v_init_val) {
-          fields.emplace_back(eval_any_v_or_fire(v_init_val));
+          ConstValExpression field_val = eval_any_v_or_fire(v_init_val);
+          fields.emplace_back(create_const_cast_for_declared(std::move(field_val), v_init_val->inferred_type, field_ref->declared_type));
         } else if (field_ref->default_value) {
-          fields.emplace_back(eval_field_default_value(field_ref));
+          ConstValExpression field_val = eval_field_default_value(field_ref);
+          fields.emplace_back(create_const_cast_for_declared(std::move(field_val), field_ref->default_value->inferred_type, field_ref->declared_type));
         } else {    // type `void` and missing fields not supported
           err("field `{}` of a struct is missing", field_ref).fire(v);
         }
@@ -657,12 +674,7 @@ ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {
 
   ConstValExpression v = ConstExpressionEvaluator::eval_any_v_or_fire(const_ref->init_value);
   // for `const A: coins = 10` or `const A: lisp_list<int> = []` insert a cast for correctness
-  if (TypePtr cast_to = const_ref->declared_type) {
-    if (!const_ref->init_value->inferred_type->equal_to(const_ref->declared_type)) {
-      v = create_const_cast(std::move(v), const_ref->init_value->inferred_type);
-    }
-    v = create_const_cast(std::move(v), cast_to);
-  }
+  v = create_const_cast_for_declared(std::move(v), const_ref->init_value->inferred_type, const_ref->declared_type);
   called_stack.pop_back();
   computed_constants_cache[const_ref] = v;
   return v;

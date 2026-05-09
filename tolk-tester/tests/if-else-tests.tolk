@@ -289,6 +289,24 @@ fun test17(x: int) {
     return 20;
 }
 
+@method_id(118)
+fun test18(x: bool): int {
+    if (!((x is bool) == true)) {
+        return 111;
+    } else {
+        return 222;
+    }
+}
+
+@method_id(119)
+fun test19(x: bool): int {
+    if (!((x !is bool) == true)) {
+        return 333;
+    } else {
+        return 444;
+    }
+}
+
 
 fun main() {
 
@@ -328,6 +346,8 @@ fun main() {
 @testcase | 116 |     | 1 0 1 2 0
 @testcase | 117 | 0   | 10
 @testcase | 117 | 5   | 20
+@testcase | 118 | -1  | 222
+@testcase | 119 | -1  | 333
 
 @fif_codegen
 """
@@ -523,6 +543,14 @@ fun main() {
       10 PUSHINT
     }>
     20 PUSHINT
+  }>
+"""
+
+@fif_codegen
+"""
+  test18() PROC:<{
+    DROP
+    222 PUSHINT
   }>
 """
 

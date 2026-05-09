@@ -136,6 +136,17 @@ const nul_list_i_n: lisp_list<int>? = null
 const coins_or_int8: coins | int8 = Wrapper { item: ton("0.05") }.item
 const arr_or_int: array<int> | int = []
 
+struct WithNullableArray {
+    x: array<int>?
+}
+
+struct WithNullableArrayDef {
+    x: array<int>? = [2]
+}
+
+const objWithNullableArray: WithNullableArray = { x: [1] }
+const objWithNullableArrayDef: WithNullableArrayDef = {}
+
 
 fun iget240(): MInt { return int240; }
 
@@ -300,6 +311,13 @@ fun test124() {
     )
 }
 
+@method_id(125)
+fun test125() {
+    val manual = objWithNullableArray.x!;
+    val def = objWithNullableArrayDef.x!;
+    return (manual.size(), manual.get(0), def.size(), def.get(0));
+}
+
 fun main() {
     var i1: int = iget1();
     var i2: int = iget2();
@@ -348,6 +366,7 @@ fun main() {
 @testcase | 122 |   | 48 64
 @testcase | 123 |   | [ 1 ] [ 1 (null) ] 777 (null) 0
 @testcase | 124 |   | 0 50000000
+@testcase | 125 |   | 1 1 1 2
 
-@code_hash 41551730774289540416176689552884787548788573333296944769005512316359616868450
+@code_hash 112630949630661007029774670083026056546591178981553693940505124712245440095740
 */

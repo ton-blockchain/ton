@@ -706,6 +706,7 @@ public:
     if (d->incomingExternal)      finalize_type_node(d->incomingExternal);
     if (d->outgoingMessages)      finalize_type_node(d->outgoingMessages);
     if (d->emittedEvents)         finalize_type_node(d->emittedEvents);
+    if (d->thrownErrors)          finalize_type_node(d->thrownErrors);
     if (d->storage)               finalize_type_node(d->storage);
     if (d->storageAtDeployment)   finalize_type_node(d->storageAtDeployment);
     if (d->forceAbiExport)        finalize_type_node(d->forceAbiExport);

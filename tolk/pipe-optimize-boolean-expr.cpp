@@ -80,6 +80,10 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
     return false;
   }
 
+  static bool is_compile_time_true_false(AnyExprV cond) {
+    return cond->is_always_true || cond->is_always_false;
+  }
+
   AnyExprV replace(V<ast_unary_operator> v) override {
     parent::replace(v);
 
@@ -137,7 +141,7 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
 
     // don't deal with always true/false conditions, they will anyway be erased at compile-time later;
     // because below, we swap v->is_ifnot and is_negated flags, it's hard to keep them in sync
-    if (v->get_cond()->is_always_true || v->get_cond()->is_always_false) {
+    if (is_compile_time_true_false(v->get_cond())) {
       return v;
     }
 
@@ -154,6 +158,10 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
       }
       v = createV<ast_if_statement>(v->range, !v->is_ifnot, v_cond_unary->get_rhs(), v->get_if_body(), v->get_else_body());
     }
+    if (is_compile_time_true_false(v->get_cond())) {
+      return v;
+    }
+
     // `if (x != null)` -> ifnot(x == null)
     if (auto v_cond_istype = v->get_cond()->try_as<ast_is_type_operator>(); v_cond_istype && v_cond_istype->is_negated) {
       v_cond_istype->mutate()->assign_is_negated(!v_cond_istype->is_negated);

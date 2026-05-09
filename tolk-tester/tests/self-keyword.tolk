@@ -213,7 +213,13 @@ fun T.id(self): self {
     return self;
 }
 
+fun int.asmSelfId(self): self
+    asm "NOP"
 
+@method_id(112)
+fun test112() {
+    return (1.asmSelfId(), 2.asmSelfId().asmSelfId());
+}
 
 fun main() { }
 
@@ -237,6 +243,7 @@ fun main() { }
 @testcase | 109 | 102 | 102 2 1 2
 @testcase | 110 | 0   | 24 [ 2 13 ]
 @testcase | 111 |     | 10 3 [ 1 2 3 ]
+@testcase | 112 |     | 1 2
 
 @fif_codegen
 """
@@ -261,6 +268,14 @@ fun main() { }
     int.incChained2() CALLDICT	    //  x
     int.incChained3() CALLDICT	    //  x
     int.incChained4() CALLDICT	    //  x
+  }>
+"""
+
+@fif_codegen
+"""
+  test112() PROC:<{             //
+    1 PUSHINT                   //  '1
+    2 PUSHINT                   //  '1 '4
   }>
 """
 

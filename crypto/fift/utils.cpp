@@ -166,11 +166,11 @@ td::Result<fift::SourceLookup> create_source_lookup(std::string&& main, bool nee
 }
 
 td::Result<fift::SourceLookup> run_fift(fift::SourceLookup source_lookup, std::ostream* stream,
-                                        bool preload_fift = true, bool enable_debug = false, std::vector<std::string> args = {}) {
+                                        bool preload_fift = true, std::vector<std::string> args = {}) {
   fift::Fift::Config config;
   config.source_lookup = std::move(source_lookup);
   fift::init_words_common(config.dictionary);
-  fift::init_words_vm(config.dictionary, enable_debug);
+  fift::init_words_vm(config.dictionary);
   fift::init_words_ton(config.dictionary);
   config.error_stream = stream;
   config.output_stream = stream;
@@ -193,7 +193,7 @@ td::Result<FiftOutput> mem_run_fift(std::string source, std::vector<std::string>
   std::stringstream ss;
   TRY_RESULT(source_lookup,
              create_source_lookup(std::move(source), true, true, true, true, true, true, true, fift_dir));
-  TRY_RESULT_ASSIGN(source_lookup, run_fift(std::move(source_lookup), &ss, true, false, std::move(args)));
+  TRY_RESULT_ASSIGN(source_lookup, run_fift(std::move(source_lookup), &ss, true, std::move(args)));
   FiftOutput res;
   res.source_lookup = std::move(source_lookup);
   res.output = ss.str();
@@ -201,7 +201,7 @@ td::Result<FiftOutput> mem_run_fift(std::string source, std::vector<std::string>
 }
 td::Result<FiftOutput> mem_run_fift(SourceLookup source_lookup, std::vector<std::string> args) {
   std::stringstream ss;
-  TRY_RESULT_ASSIGN(source_lookup, run_fift(std::move(source_lookup), &ss, true, false, std::move(args)));
+  TRY_RESULT_ASSIGN(source_lookup, run_fift(std::move(source_lookup), &ss, true, std::move(args)));
   FiftOutput res;
   res.source_lookup = std::move(source_lookup);
   res.output = ss.str();

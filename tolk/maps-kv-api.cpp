@@ -360,7 +360,7 @@ AsmOp compile_createEmptyMap(std::vector<VarDescr>& res, std::vector<VarDescr>& 
 // "convert dict to map" is just NOP; it's extracted as a built-in to allow non-1 width K/V
 AsmOp compile_createMapFromLowLevelDict(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1 && args.size() == 1);
-  return AsmOp::Parse(origin, "NOP");
+  return AsmOp::Nop(origin);
 }
 
 // DICTGET: k D n => (x −1) OR (0); + NULLSWAPIFNOT => (x -1) OR (null 0)

@@ -1800,8 +1800,8 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
           err("@method_id can be specified only for regular functions").fire(v_annotation);
         }
         auto v_int = v_annotation->expr_arg->as<ast_int_const>();
-        if (v_int->intval.is_null() || !v_int->intval->signed_fits_bits(32)) {
-          err("invalid integer constant").fire(v_int);
+        if (v_int->intval.is_null() || v_int->intval < 0 || v_int->intval >= 262144) {
+          err("invalid @method_id").fire(v_int);
         }
         tvm_method_id = static_cast<int>(v_int->intval->to_long());
         break;

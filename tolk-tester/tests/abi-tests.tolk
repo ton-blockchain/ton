@@ -115,6 +115,9 @@ struct Holder<T> {
     v: Box<T>
 }
 
+fun Holder<T>.packToBuilder(self, mutate b: builder) {}
+fun Holder<T>.unpackFromSlice(mutate s: slice): Holder<T> { return { v: 0 as int32 } }
+
 /// Alias fallback source.
 struct AliasFallbackSource {
     value: int32
@@ -126,8 +129,16 @@ get fun multiple(): (Box<int64>, Holder<int32>, OneOrTwo<int32, int64>)? {
     return null
 }
 
-get fun fallbackAlias(): AliasFallback? {
+get fun fallbackAlias(d: Defaults): AliasFallback? {
     return null
+}
+
+type Small = uint8
+
+const C: Small = 7
+
+struct Defaults {
+    a: int = C
 }
 
 /**
@@ -275,7 +286,7 @@ get fun fallbackAlias(): AliasFallback? {
     {
       "kind": "struct",
       "name": "OneOrTwo",
-      "ty_idx": 33,
+      "ty_idx": 32,
       "type_params": [
         "T1",
         "T2"
@@ -283,7 +294,7 @@ get fun fallbackAlias(): AliasFallback? {
       "fields": [
         {
           "name": "uni",
-          "ty_idx": 34
+          "ty_idx": 33
         }
       ]
     },
@@ -312,35 +323,39 @@ get fun fallbackAlias(): AliasFallback? {
 
 @abi_json
 """
-    {"kind":"nullable","inner_ty_idx":35,"stack_type_id":137,"stack_width":6},
+    {"kind":"nullable","inner_ty_idx":34,"stack_type_id":137,"stack_width":6},
 """
 
 @abi_json
 """
   "struct_instantiations": [
     {
-      "ty_idx": 26,
+      "ty_idx": 25,
       "struct_name": "Holder<int32>",
       "monomorphic_fields_ty_idx": [
-        27
-      ]
+        26
+      ],
+      "custom_pack_unpack": {
+        "pack_to_builder": true,
+        "unpack_from_slice": true
+      }
     },
     {
-      "ty_idx": 29,
+      "ty_idx": 28,
       "struct_name": "OneOrTwo<int32, int64>",
       "monomorphic_fields_ty_idx": [
-        30
+        29
       ]
     }
   ],
   "alias_instantiations": [
     {
-      "ty_idx": 21,
+      "ty_idx": 20,
       "alias_name": "Box<int64>",
-      "monomorphic_target_ty_idx": 22
+      "monomorphic_target_ty_idx": 21
     },
     {
-      "ty_idx": 27,
+      "ty_idx": 26,
       "alias_name": "Box<int32>",
       "monomorphic_target_ty_idx": 8
     }
@@ -351,9 +366,27 @@ get fun fallbackAlias(): AliasFallback? {
 """
   "outgoing_messages": [
     {
-      "body_ty_idx": 20
+      "body_ty_idx": 19
     }
   ],
+"""
+
+@abi_json
+"""
+      "fields": [
+        {
+          "name": "a",
+          "ty_idx": 1,
+          "default_value": {
+            "kind": "castTo",
+            "inner": {
+              "kind": "int",
+              "v": "7"
+            },
+            "cast_to_ty_idx": 40
+          }
+        }
+      ]
 """
 
 @abi_json_avoid UnusedOutgoing

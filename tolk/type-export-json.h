@@ -70,6 +70,7 @@ struct JsonTypeExporter {
 
   int register_used_type(TypePtr type);
   bool register_used_symbol(const Symbol* symbol);
+  void register_used_const_val(const ConstValExpression& v);
 
   int find_unique_type(TypePtr t) const;
   int get_type_idx(TypePtr t) const;

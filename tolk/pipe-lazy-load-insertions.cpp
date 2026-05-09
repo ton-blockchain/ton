@@ -431,8 +431,9 @@ struct ExprUsagesWhileCollecting {
         future_fields.emplace_back(LazyStructLoadInfo::SaveImmutableTail, "`tail`", TypeDataSlice::create());
       }
 
-      if (field_usages.used_for_matching == 1 && !used_anyhow_but_match && !object_used_as_a_whole && !used_for_toCell && !is_variant_of_union && field_idx == struct_ref->get_num_fields() - 1 &&
-        field_type->unwrap_alias()->try_as<TypeDataUnion>() && !is_union_type_prevented_from_lazy_loading(field_type->unwrap_alias()->try_as<TypeDataUnion>())) {
+      const TypeDataUnion* field_union = field_type->unwrap_alias()->try_as<TypeDataUnion>();
+      bool can_lazy_match_field = field_union && !get_custom_pack_unpack_function(field_type) && !is_union_type_prevented_from_lazy_loading(field_union);
+      if (field_usages.used_for_matching == 1 && !used_anyhow_but_match && !object_used_as_a_whole && !used_for_toCell && !is_variant_of_union && field_idx == struct_ref->get_num_fields() - 1 && can_lazy_match_field) {
         future_fields.emplace_back(LazyStructLoadInfo::LazyMatchField, orig_field->name, orig_field->declared_type);
         continue;
       }

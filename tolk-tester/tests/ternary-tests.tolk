@@ -9,6 +9,8 @@ struct Point {
     y: int;
 }
 
+global gPoint: Point;
+
 @noinline
 fun Point.create0NoInline(): Point {
     return { x: 0, y: 0 }
@@ -179,6 +181,12 @@ fun test306(cond: bool) {
     return cond ? t!.0 : 112;   // `t!.0` is not trivial because it's a shape, not a tensor
 }
 
+@method_id(307)
+fun test307(flag: bool): int {
+    // gPoint is not initialized, but this ternaly is not CONDSEL because of a global
+    return flag ? 0 : gPoint.x;
+}
+
 
 fun main() {}
 
@@ -223,6 +231,7 @@ fun main() {}
 @testcase | 305 | 0       | 5
 @testcase | 305 | 0       | 5
 @testcase | 306 | 0       | 112
+@testcase | 307 | -1      | 0
 
 @fif_codegen
 """
@@ -278,9 +287,12 @@ fun main() {}
 @fif_codegen
 """
   helper106() PROC:<{
-    $gTup GETGLOB
     SWAP
-    CONDSEL
+    IF:<{
+      DROP
+      $gTup GETGLOB
+    }>ELSE<{
+    }>
   }>
 """
 

@@ -20,6 +20,55 @@
 #include "compiler-state.h"
 #include <algorithm>
 
+/*
+ *   Source maps in Tolk make it possible to debug optimized TVM bytecode without
+ *   changing the bytecode itself. The compiler still inlines functions, folds
+ * constants, and emits production Fift; the source-map artifacts only
+ * describe how the original program can be replayed afterwards.
+ *
+ *   There are two JSON layers.
+ *   - `out.symbolTypes.json` is emitted by default. It contains the shared tables
+ *     of source files, declarations, unique types, and reachable functions. These
+ *     tables are also useful outside the debugger — for example, for `println` in Acton.
+ *   - `out.debugMarks.json` is emitted only with `--emit-debug-marks`. It contains
+ *     a sequential list of semantic marks. Marks refer back to symbol types by
+ *     `f_idx` and `ty_idx`, so debug marks require symbol types to be present.
+ *
+ *   This file serializes both layers. It does not decide where marks are placed:
+ *   AST-to-IR conversion emits marks for function enter/leave, locals, scopes,
+ * smart casts, and global writes; codegen emits current stack layouts; Fift output
+ * inserts location marks from `Op::origin` before real asm instructions. The same
+ * `Op::origin->range` is also used for human line comments in generated Fift.
+ *
+ *   When debug marks are enabled, `pipe-generate-fif-output.cpp` assigns `mark_id`,
+ * stores the C++ `DebugMarkInfo` here, and prints pseudo-instructions like
+ * `12 MARK_LOC` or `13 MARK_STACK` into Fift. Asm.fif consumes them as metadata.
+ *
+ *   Asm.fif records where each mark lands in assembler coordinates: cell hash plus
+ * bit offset inside that cell. It writes this lookup as `out.debugMarks.boc`.
+ * Method dictionary cells need an extra hash/offset remap later, because TVM sees
+ * the code under a hashmap label, not exactly the raw cell hashed by the assembler.
+ *
+ *   The replayer (debugger) combines four inputs: symbol types JSON, debug marks
+ * JSON and BOC, and a VM execution log. For each `(cell_hash, bit_offset)` reached
+ * by TVM, it expands all mark ids at that point into ticks: enter or leave a frame,
+ * update current source location, refresh the IR-to-stack layout, etc.
+ *
+ *   The central abstraction is the IR slot. Tolk values are numbered as IR
+ * variables, and `MARK_STACK` describes which IR slots currently correspond to the
+ * visible part of the TVM stack. Since every variable has a type in symbol types,
+ * the replayer can match raw stack values back to named locals and render them in
+ * a debugger, including values from inlined calls and "last seen" locals.
+ *
+ *   Because marks describe compiler intent rather than changing execution, source
+ * maps keep working with optimized contracts: stepping can enter inlined functions,
+ * variables can be reconstructed from the stack, and the final code stays the same
+ * code that will run on chain.
+ *
+ *   For implementation of debugger/replayer, proceed to Acton repo, search `TolkReplayer`:
+ * https://github.com/ton-blockchain/acton.
+ */
+
 namespace tolk {
 
 static SrcRange get_function_body_end(FunctionPtr fun_ref) {

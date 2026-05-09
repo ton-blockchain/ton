@@ -192,6 +192,20 @@ struct(0x51) LazyAliasBox<T> { value: T; }
 struct(0x52) LazyAliasEmpty {}
 type LazyAliasUnion = LazyAliasBox<LazyAliasInt32> | LazyAliasEmpty;
 
+struct CustomOk<T> { value: T; }
+struct CustomErr { code: int32; }
+type CustomResponse<T> = CustomOk<T> | CustomErr
+
+fun CustomResponse<T>.unpackFromSlice(mutate s: slice): CustomResponse<T> {
+    return s.loadUint(1) == 0
+        ? CustomOk<T>{ value: s.loadAny<T>() }
+        : CustomErr{ code: s.loadInt(32) }
+}
+
+struct CustomAliasContainer {
+    response: CustomResponse<int32>;
+}
+
 struct AutoP1 { f1: int8; f2: int8; }
 struct AutoP2 { f1: int8; f2: int8; f3: int8; }
 struct AutoP3;
@@ -1869,6 +1883,16 @@ fun demo416(s: slice): int32 {
     return result;
 }
 
+@method_id(417)
+fun demo417(s: slice): int32 {
+    val c = lazy CustomAliasContainer.fromSlice(s);
+    __expect_lazy("[c] load response");
+    return match (c.response) {
+        CustomOk<int32> => c.response.value,
+        CustomErr => c.response.code,
+    };
+}
+
 
 fun main() {
     val s = stringHexToSlice("0102");
@@ -2051,6 +2075,8 @@ fun main() {
 @testcase | 415 |                             | 777
 @testcase | 416 | x{510000002A}               | 42
 @testcase | 416 | x{52}                       | 0
+@testcase | 417 | x{000000154_}               | 42
+@testcase | 417 | x{800000154_}               | 42
 
 @fif_codegen
 """

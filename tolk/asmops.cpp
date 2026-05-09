@@ -195,7 +195,7 @@ AsmOp AsmOp::BoolConst(AnyV origin, bool f) {
   return AsmOp::Const(origin, f ? "TRUE" : "FALSE");
 }
 
-AsmOp AsmOp::Parse(AnyV origin, const std::string& custom_op) {
+AsmOp AsmOp::Parse(AnyV origin, std::string custom_op, int args, int retv) {
   if (custom_op == "NOP") {
     return AsmOp::Nop(origin);
   } else if (custom_op == "SWAP") {
@@ -209,17 +209,8 @@ AsmOp AsmOp::Parse(AnyV origin, const std::string& custom_op) {
   } else if (custom_op == "OVER") {
     return AsmOp::Push(origin, 1);
   } else {
-    return AsmOp::Custom(origin, custom_op);
+    return AsmOp::Custom(origin, std::move(custom_op), args, retv);
   }
-}
-
-AsmOp AsmOp::Parse(AnyV origin, std::string custom_op, int args, int retv) {
-  auto res = Parse(origin, custom_op);
-  if (res.is_custom()) {
-    res.a = args;
-    res.b = retv;
-  }
-  return res;
 }
 
 int AsmOp::out(std::ostream& os) const {
