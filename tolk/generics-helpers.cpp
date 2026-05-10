@@ -68,7 +68,7 @@ std::string GenericsSubstitutions::as_human_readable(bool show_nullptr) const {
   std::string result;
   for (int i = 0; i < size(); ++i) {
     if (valuesTs[i] == nullptr && !show_nullptr) {
-      continue;;
+      continue;
     }
     if (!result.empty()) {
       result += ", ";
