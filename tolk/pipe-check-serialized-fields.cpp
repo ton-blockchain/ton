@@ -17,6 +17,8 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
+#include "compiler-state.h"
+#include "contract-directive.h"
 #include "pack-unpack-api.h"
 #include "maps-kv-api.h"
 #include "generics-helpers.h"
@@ -86,6 +88,42 @@ static void check_abi_client_type_can_be_serialized(StructFieldPtr field_ref) {
   if (!check_struct_can_be_packed_or_unpacked(field_ref->abi_client_type, true, &because_msg)) {
     err("invalid `@abi.clientType`: type `{}` can not be serialized\n{}", field_ref->abi_client_type, because_msg).collect(field_ref->abi_type_node);
   }
+}
+
+// validate a contract directive item (e.g., `incomingMessages: T`) to be serializable
+static void check_contract_directive_item(AnyTypeV type_node, std::string_view prop_name) {
+  if (type_node == nullptr) {
+    return;
+  }
+  TypePtr root_type = type_node->resolved_type;
+  if (root_type == nullptr || root_type == TypeDataNullLiteral::create()) {
+    return;
+  }
+
+  std::string because_msg;
+  if (!check_struct_can_be_packed_or_unpacked(root_type, true, &because_msg) ||
+      !check_struct_can_be_packed_or_unpacked(root_type, false, &because_msg)) {
+    err("`{}` can not be serialized: type `{}`\n{}", prop_name, root_type, because_msg).collect(type_node);
+  }
+}
+
+// validate every type referenced by the `contract {...}` directive of the entrypoint file;
+// prevent `storage: int` and other non-serializable types to leak into `out.abi.json`
+static void check_contract_directive_serializability() {
+  SrcFilePtr entrypoint_file = G.all_src_files.get_entrypoint_file();
+  if (!entrypoint_file->has_contract_directive()) {
+    return;
+  }
+  const ContractDirective* d = entrypoint_file->contract_directive;
+
+  check_contract_directive_item(d->incomingMessages,    "incomingMessages");
+  check_contract_directive_item(d->incomingExternal,    "incomingExternal");
+  check_contract_directive_item(d->outgoingMessages,    "outgoingMessages");
+  check_contract_directive_item(d->emittedEvents,       "emittedEvents");
+  check_contract_directive_item(d->storage,             "storage");
+  check_contract_directive_item(d->storageAtDeployment, "storageAtDeployment");
+  // forceAbiExport is not required to be serialized (maybe, it's used only to refer to from TS)
+  // thrownErrors is validated separately (must be an enum) in pipe-collect-abi.cpp
 }
 
 // given `enum Role: int8` check colon type (not struct/slice etc.)
@@ -242,6 +280,8 @@ void pipeline_check_serialized_fields() {
   for (GlobalConstPtr const_ref : get_all_declared_constants()) {
     check_mapKV_inside_type(const_ref->type_node);
   }
+
+  check_contract_directive_serializability();
 }
 
 } // namespace tolk

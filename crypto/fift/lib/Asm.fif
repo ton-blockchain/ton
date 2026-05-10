@@ -16,15 +16,16 @@ variable @currentdebugmarks
   <b swap ref, // markid markiddictb
   swap @debugmarks @ @marksize b>udict! { abort"could not set debug mark" } ifnot @debugmarks ! } : @adddebugmark
 { over bbits @adddebugmark } : DEBUGMARK
-{ DEBUGMARK } : MARK_LOC
-{ DEBUGMARK } : MARK_STACK
-{ DEBUGMARK } : MARK_ENTER_FUN
-{ DEBUGMARK } : MARK_LEAVE_FUN
-{ DEBUGMARK } : MARK_VAR
-{ DEBUGMARK } : MARK_SCOPE_START
-{ DEBUGMARK } : MARK_SCOPE_END
-{ DEBUGMARK } : MARK_SMART_CAST
-{ DEBUGMARK } : MARK_SET_GLOB
+{ over bbits @adddebugmark } : MARK_LOC
+{ over bbits @adddebugmark } : MARK_STACK
+{ over bbits @adddebugmark } : MARK_ENTER_FUN
+{ over bbits @adddebugmark } : MARK_LEAVE_FUN
+{ over bbits @adddebugmark } : MARK_VAR
+{ over bbits @adddebugmark } : MARK_SCOPE_START
+{ over bbits @adddebugmark } : MARK_SCOPE_END
+{ over bbits @adddebugmark } : MARK_SMART_CAST
+{ over bbits @adddebugmark } : MARK_LAZY_VAR
+{ over bbits @adddebugmark } : MARK_SET_GLOB
 
 32 constant @zcount
 { u@?+ { swap abort"first bits are not zeroes" } if } : @cut-zeroes
@@ -1126,7 +1127,7 @@ x{EDFB} @Defop SAMEALTSAVE
 } dup : JMP : JMPDICT
 { dup 14 ufits
   { <b x{F1A_} s, swap 14 u, @addopb }
-  { PUSHINT c3 PREPAREVAR } cond
+  { PUSHINT PREPAREVAR } cond
 } dup : PREPARE : PREPAREDICT
 //
 // inline support
@@ -1691,7 +1692,7 @@ forget @proclist  forget @proccnt
 { }END> b> } : }END>c
 { }END>c <s } : }END>s
 { }END> b> swap drop } : }END>c
-{ }END>c <s swap drop } : }END>s
+{ }END> b> <s swap drop } : }END>s
 
 { }END> b> swap } : }END>cd
 

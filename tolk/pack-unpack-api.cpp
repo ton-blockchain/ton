@@ -191,6 +191,12 @@ public:
         if (!because_msg.empty()) {
           return CantSerializeBecause("because could not automatically generate serialization prefixes for a union\n" + because_msg);
         }
+        if (t_union->size() == 2 && t_union->variants.back() == TypeDataVoid::create()) {
+          PackSize sizeT = estimate_serialization_size(t_union->variants[0]);
+          if (sizeT.min_bits == 0 && sizeT.min_refs == 0) {   // `Empty | void` and `remaining | void` clash
+            return CantSerializeBecause("because variant `" + t_union->variants[0]->as_human_readable() + "` can be indistinguishable from `void`");
+          }
+        }
       }
       return {};
     }

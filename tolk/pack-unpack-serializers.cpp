@@ -1569,7 +1569,9 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
   // for instance, `A | B` is not either (0/1 + data), but uses manual opcodes;
   // they must still form a valid prefix tree
   if (n_have_opcode == n_dispatch) {
-    check_opcodes_are_not_equal(t_union->variants, because_msg);
+    if (because_msg.empty()) {
+      check_opcodes_are_not_equal(t_union->variants, because_msg);
+    }
     for (TypePtr variant : t_union->variants) {
       if (variant != TypeDataVoid::create()) {
         result.push_back(variant->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref->opcode);
