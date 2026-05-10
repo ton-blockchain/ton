@@ -88,7 +88,6 @@ option(TON_USE_UBSAN "Use \"ON\" to enable UndefinedBehaviorSanitizer." OFF)
 option(TON_USE_COVERAGE "Use \"ON\" to enable code coverage with gcov." OFF)
 set(TON_ARCH "native" CACHE STRING "Architecture, will be passed to -march=")
 
-option(TON_PRINT_BACKTRACE_ON_CRASH "Attempt to print a backtrace when a fatal signal is caught" ON)
 option(TON_INSERT_GDB_HOOKS "Insert GDB hooks" OFF)
 
 #BEGIN M1 support
