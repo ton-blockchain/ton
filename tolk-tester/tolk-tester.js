@@ -369,7 +369,9 @@ class TolkTestFile {
 
     async run_and_check() {
         const wasmModule = await compileWasm(TOLKFIFTLIB_MODULE, TOLKFIFTLIB_WASM)
-        let res = compileFile(wasmModule, this.tolk_filename, this.enable_tolk_lines_comments, this.path_mappings)
+        let outputStr = compileFile(wasmModule, this.tolk_filename, this.enable_tolk_lines_comments, this.path_mappings)
+        /** @var {{status: string, message: string, fiftCode: string, codeBoc: string, codeHashHex: string, abiJson: Object}} */
+        let res = JSON.parse(outputStr);
         let exit_code = res.status === 'ok' ? 0 : 1
         let stderr = res.message || res.stderr
         let stdout = ''
@@ -424,7 +426,7 @@ class TolkTestFile {
         }
 
         if (this.abi_json.length) {
-            const abi_output = JSON.stringify(abiJson, null, 2).split(/\r?\n/)
+            const abi_output = outputStr.substring(outputStr.indexOf("\"abiJson\":"), outputStr.indexOf("\"compiler_version\"")).split('\n')
             for (let abi_json of this.abi_json)
                 abi_json.check(abi_output)
         }
@@ -518,7 +520,7 @@ function copyFromCString(mod, ptr) {
     return mod.UTF8ToString(ptr);
 }
 
-/** @return {{status: string, message: string, fiftCode: string, codeBoc: string, codeHashHex: string}} */
+/** @return string */
 function compileFile(mod, filename, withSrcLineComments, pathMappings) {
     // see tolk-wasm.cpp: typedef void (*WasmFsReadCallback)(int, char const*, char**, char**)
     const callbackPtr = mod.addFunction((kind, dataPtr, destContents, destError) => {
@@ -587,7 +589,7 @@ function compileFile(mod, filename, withSrcLineComments, pathMappings) {
 
     const responsePtr = mod._tolk_compile(configPtr, callbackPtr);
 
-    return JSON.parse(copyFromCString(mod, responsePtr));
+    return copyFromCString(mod, responsePtr);
 }
 
 async function compileWasm(tolkFiftLibJsFileName, tolkFiftLibWasmFileName) {
