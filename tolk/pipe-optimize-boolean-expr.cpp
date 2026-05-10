@@ -20,8 +20,8 @@
 
 /*
  *   AST-level normalizations of boolean conditions.
- *   1. `!!boolVar` -> `boolVar`,    `!!intVar` -> `intVar != 0`
- *   2. compile-time fold of `!true` / `!false` / `!0` / `!123`
+ *   1. `!!boolVar` -> `boolVar`
+ *   2. compile-time fold of `!true` / `!false`
  *   3. `boolVar == true`  / `boolVar != false`  ->  `boolVar`
  *      `boolVar != true`  / `boolVar == false`  ->  `!boolVar`
  *   4. `if (!x)`               ->  if(x) with `is_ifnot`
@@ -47,13 +47,6 @@ namespace tolk {
 
 class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBody {
 
-  static V<ast_int_const> create_int_const(SrcRange range, td::RefInt256&& intval) {
-    auto v_int = createV<ast_int_const>(range, std::move(intval), {});
-    v_int->assign_inferred_type(TypeDataInt::create());
-    v_int->assign_rvalue_true();
-    return v_int;
-  }
-
   static V<ast_bool_const> create_bool_const(SrcRange range, bool bool_val) {
     auto v_bool = createV<ast_bool_const>(range, bool_val);
     v_bool->assign_inferred_type(TypeDataBool::create());
@@ -67,19 +60,6 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
     v_not->assign_rvalue_true();
     v_not->assign_fun_ref(lookup_function("!b_"));
     return v_not;
-  }
-
-  static bool expect_integer(TypePtr inferred_type) {
-    if (inferred_type == TypeDataInt::create()) {
-      return true;
-    }
-    if (inferred_type->try_as<TypeDataIntN>() || inferred_type == TypeDataCoins::create()) {
-      return true;
-    }
-    if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
-      return expect_integer(as_alias->underlying_type);
-    }
-    return false;
   }
 
   static bool expect_boolean(TypePtr inferred_type) {
@@ -100,29 +80,13 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
     parent::replace(v);
 
     if (v->tok == tok_logical_not) {
+      // `!!boolVar` => `boolVar` (the inner operand is always bool, integers disallowed by type checker)
       if (auto inner_not = v->get_rhs()->try_as<ast_unary_operator>(); inner_not && inner_not->tok == tok_logical_not) {
-        AnyExprV cond_not_not = inner_not->get_rhs();
-        // `!!boolVar` => `boolVar`
-        if (expect_boolean(cond_not_not->inferred_type)) {
-          return cond_not_not;
-        }
-        // `!!intVar` => `intVar != 0`
-        if (expect_integer(cond_not_not->inferred_type)) {
-          auto v_zero = create_int_const(v->range, td::make_refint(0));
-          auto v_neq = createV<ast_binary_operator>(v->range, v->operator_range, "!=", tok_neq, cond_not_not, v_zero);
-          v_neq->mutate()->assign_rvalue_true();
-          v_neq->mutate()->assign_inferred_type(TypeDataBool::create());
-          v_neq->mutate()->assign_fun_ref(lookup_function("_!=_"));
-          return v_neq;
-        }
+        return inner_not->get_rhs();
       }
+      // `!true` / `!false`
       if (auto inner_bool = v->get_rhs()->try_as<ast_bool_const>()) {
-        // `!true` / `!false`
         return create_bool_const(v->range, !inner_bool->bool_val);
-      }
-      if (auto inner_int = v->get_rhs()->try_as<ast_int_const>()) {
-        // `!0` / `!123`
-        return create_bool_const(v->range, inner_int->intval == 0);
       }
     }
 
