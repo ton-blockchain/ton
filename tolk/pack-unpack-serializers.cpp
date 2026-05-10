@@ -897,6 +897,12 @@ struct S_MultipleConstructors final : ISerializer {
     tolk_assert(this->opcodes.size() == t_union->variants.size());
   }
 
+  // `void` (if present) is required to be the LAST variant — see auto_generate_opcodes_for_union.
+  // It's matched at runtime by `slice.isEmpty()`, it does not participate in a prefix tree
+  bool has_void() const {
+    return t_union->variants.back() == TypeDataVoid::create();
+  }
+
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
     for (int i = 0; i < t_union->size() - 1; ++i) {
       TypePtr variant = t_union->variants[i];
@@ -910,7 +916,7 @@ struct S_MultipleConstructors final : ISerializer {
       code.push_set_cur(if_op.block1);  // open ELSE
     }
 
-    // we're inside the last ELSE
+    // we're inside the last ELSE; for `void` variant it's a no-op (zero bits, no body)
     TypePtr last_variant = t_union->variants.back();
     std::vector last_rvect = transition_to_target_type(std::move(rvect), code, t_union, last_variant, origin);
     ctx->storeUint(code.create_int(origin, opcodes.back().pack_prefix, "(ith-prefix)"), opcodes.back().prefix_len);
@@ -922,13 +928,36 @@ struct S_MultipleConstructors final : ISerializer {
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
     // assume that opcodes (either automatically generated or manually specified)
-    // form a valid prefix tree, and the order of reading does not matter; we'll definitely match the one;
-    FunctionPtr f_tryStripPrefix = lookup_function("slice.tryStripPrefix");
-
+    // form a valid prefix tree over the non-void variants;
+    // if the union has a `void` variant (always at the end), an empty slice maps to it
     std::vector ir_result = code.create_tmp_var(t_union, origin, "(loaded-union)");
-    std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
 
-    for (int i = 0; i < t_union->size(); ++i) {
+    if (t_union->size() == 2 && has_void()) {
+      // exactly `T | void`: empty slice -> void, otherwise -> T (its own serializer reads the prefix);
+      // kept separate from the loop below because if T's prefix_len is 0 (e.g. `int32 | void`)
+      std::vector ir_is_empty = code.create_tmp_var(TypeDataBool::create(), origin, "(is-empty)");
+      code.add_call(origin, ir_is_empty, ctx->ir_slice, lookup_function("slice.isEmpty"));
+      Op& if_empty = code.add_if_else(origin, ir_is_empty);
+      code.push_set_cur(if_empty.block0);
+      {
+        std::vector void_rvect = transition_to_target_type({}, code, TypeDataVoid::create(), t_union, origin);
+        code.add_let(origin, ir_result, std::move(void_rvect));
+      }
+      code.close_pop_cur(origin);
+      code.push_set_cur(if_empty.block1);
+      {
+        TypePtr variant = t_union->variants[0];
+        std::vector ith_rvect = ctx->generate_unpack_any(variant);
+        ith_rvect = transition_to_target_type(std::move(ith_rvect), code, variant, t_union, origin);
+        code.add_let(origin, ir_result, std::move(ith_rvect));
+      }
+      code.close_pop_cur(origin);
+      return ir_result;
+    }
+
+    FunctionPtr f_tryStripPrefix = lookup_function("slice.tryStripPrefix");
+    std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
+    for (int i = 0; i < t_union->size() - has_void(); ++i) {
       TypePtr variant = t_union->variants[i];
       std::vector args = { ctx->ir_slice0, code.create_int(origin, opcodes[i].pack_prefix, "(pack-prefix)"), code.create_int(origin, opcodes[i].prefix_len, "(prefix-len)") };
       code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix);
@@ -941,10 +970,20 @@ struct S_MultipleConstructors final : ISerializer {
       code.push_set_cur(if_prefix_eq.block1);    // open ELSE
     }
 
-    // we're inside last ELSE
-    ctx->throwInvalidOpcode();
-    for (int j = 0; j < t_union->size(); ++j) {
-      code.close_pop_cur(origin);    // close all outer IFs
+    // we're inside the deepest ELSE — no prefix matched
+    if (has_void()) {
+      std::vector ir_is_empty = code.create_tmp_var(TypeDataBool::create(), origin, "(is-empty)");
+      code.add_call(origin, ir_is_empty, ctx->ir_slice, lookup_function("slice.isEmpty"));
+      std::vector args_throwifnot = { ctx->option_throwIfOpcodeDoesNotMatch(), ir_is_empty[0] };
+      code.add_call(origin, {}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
+      std::vector void_rvect = transition_to_target_type({}, code, TypeDataVoid::create(), t_union, origin);
+      code.add_let(origin, ir_result, std::move(void_rvect));
+    } else {
+      ctx->throwInvalidOpcode();
+    }
+
+    for (int j = 0; j < t_union->size() - has_void(); ++j) {
+      code.close_pop_cur(origin);    // close all inner IFs
     }
     return ir_result;
   }
@@ -970,6 +1009,7 @@ struct S_MultipleConstructors final : ISerializer {
 
     for (int i = 0; i < t_union->size(); ++i) {
       StructData::PackOpcode opcode = opcodes[opcodes_order_mapping[i]];
+      tolk_assert(opcode.prefix_len > 0);     // prefix_len == 0 only for `void`, not allowed in lazy
       std::vector args = { ctx->ir_slice0, code.create_int(origin, opcode.pack_prefix, "(pack-prefix)"), code.create_int(origin, opcode.prefix_len, "(prefix-len)") };
       code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix);
       Op& if_op = code.add_if_else(origin, ir_prefix_eq);
@@ -1007,25 +1047,7 @@ struct S_MultipleConstructors final : ISerializer {
   }
 
   void skip(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    FunctionPtr f_tryStripPrefix = lookup_function("slice.tryStripPrefix");
-    std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
-
-    for (int i = 0; i < t_union->size(); ++i) {
-      TypePtr variant = t_union->variants[i];
-      std::vector args = { ctx->ir_slice0, code.create_int(origin, opcodes[i].pack_prefix, "(pack-prefix)"), code.create_int(origin, opcodes[i].prefix_len, "(prefix-len)") };
-      code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix);
-      Op& if_prefix_eq = code.add_if_else(origin, ir_prefix_eq);
-      code.push_set_cur(if_prefix_eq.block0);
-      ctx->generate_skip_any(variant, PrefixReadMode::DoNothingAlreadyLoaded);
-      code.close_pop_cur(origin);
-      code.push_set_cur(if_prefix_eq.block1);    // open ELSE
-    }
-
-    // we're inside last ELSE
-    ctx->throwInvalidOpcode();
-    for (int j = 0; j < t_union->size(); ++j) {
-      code.close_pop_cur(origin);    // close all outer IFs
-    }
+    unpack(ctx, code, origin);
   }
 
   PackSize estimate(const EstimateContext* ctx) override {
@@ -1487,19 +1509,21 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
 // for union types like `T1 | T2 | ...`, if prefixes for structs are not manually specified,
 // the compiler generates a valid prefix tree: for `int32 | int64 | int128` it's '00' '01' '10';
 // it works both for structs (with unspecified prefixes) and primitives: `int32 | A | B` is ok;
-// but if some prefixes are specified, some not — it's an error
-//
+// but if some prefixes are specified, some not — it's an error.
+// Special case: a `void` variant doesn't participate in the prefix tree —
+// it's matched at runtime by `slice.isEmpty()`, not by reading any prefix bits.
 
 // Check opcodes within a union are not equal to each other, e.g.
 // > struct (0x1234) A
 // > struct (0x1234) B
 // If so, `because_msg` is filled and shown to a user.
 // Note that we do NOT check that prefixes form a valid prefix tree, because an invalid tree is okay in some cases.
-static void check_opcodes_are_not_equal(const TypeDataUnion* t_union, std::string& because_msg) {
-  for (int i = 0; i < t_union->size(); ++i) {
-    StructPtr lhs_struct = t_union->variants[i]->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
-    for (int j = i + 1; j < t_union->size(); ++j) {
-      StructPtr rhs_struct = t_union->variants[j]->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
+static void check_opcodes_are_not_equal(const std::vector<TypePtr>& variants, std::string& because_msg) {
+  int n = static_cast<int>(variants.size()) - (variants.back() == TypeDataVoid::create());
+  for (int i = 0; i < n; ++i) {
+    StructPtr lhs_struct = variants[i]->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
+    for (int j = i + 1; j < n; ++j) {
+      StructPtr rhs_struct = variants[j]->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
       if (lhs_struct->opcode == rhs_struct->opcode) {
         because_msg = "because both structs `" + lhs_struct->as_human_readable() + "` and `" + rhs_struct->as_human_readable() + "` have serialization prefix " + lhs_struct->opcode.format_as_string(false);
         return;
@@ -1516,9 +1540,11 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
 
   int n_have_opcode = 0;
   bool has_null = false;
+  bool has_void = false;
   StructPtr last_struct_with_opcode = nullptr;    // for error message
   StructPtr last_struct_no_opcode = nullptr;
-  for (TypePtr variant : t_union->variants) {
+  for (int i = 0; i < t_union->size(); ++i) {
+    TypePtr variant = t_union->variants[i];
     if (const TypeDataStruct* variant_struct = variant->unwrap_alias()->try_as<TypeDataStruct>()) {
       if (variant_struct->struct_ref->opcode.exists()) {
         n_have_opcode++;
@@ -1528,16 +1554,28 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
       }
     } else if (variant == TypeDataNullLiteral::create()) {
       has_null = true;
+    } else if (variant == TypeDataVoid::create()) {
+      if (i != t_union->size() - 1) {
+        because_msg = "because `void` must be the last variant of a union";
+      }
+      has_void = true;
     }
   }
+
+  // `void` (if present) is at the last index and gets zero-len opcode; it's excluded from the tree
+  int n_dispatch = t_union->size() - has_void;
 
   // `A | B | C`, all of them have opcodes — just use them;
   // for instance, `A | B` is not either (0/1 + data), but uses manual opcodes;
   // they must still form a valid prefix tree
-  if (n_have_opcode == t_union->size()) {
-    check_opcodes_are_not_equal(t_union, because_msg);
+  if (n_have_opcode == n_dispatch) {
+    check_opcodes_are_not_equal(t_union->variants, because_msg);
     for (TypePtr variant : t_union->variants) {
-      result.push_back(variant->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref->opcode);
+      if (variant != TypeDataVoid::create()) {
+        result.push_back(variant->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref->opcode);
+      } else {
+        result.emplace_back(0, 0);
+      }
     }
     tree_auto_generated = false;
     return result;
@@ -1558,13 +1596,16 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
   // okay, none of the opcodes are specified, generate a prefix tree;
   // examples: `int32 | int64 | int128` / `int32 | A | null` / `A | B` / `A | B | C`;
   // if `null` exists, it's 0, all others are 1+tree: A|B|C|D|null => 0 | 100+A | 101+B | 110+C | 111+D;
-  // if no `null`, just distribute sequentially: A|B|C => 00+A | 01+B | 10+C
-  int n_without_null = t_union->size() - has_null; 
-  int prefix_len = static_cast<int>(std::ceil(std::log2(n_without_null)));
+  // if no `null`, just distribute sequentially: A|B|C => 00+A | 01+B | 10+C;
+  // for struct `T | void`, no prefix bits are emitted (prefix_len = 0 for T)
+  int n_without_null = n_dispatch - has_null;
+  int prefix_len = n_without_null > 1 ? static_cast<int>(std::ceil(std::log2(n_without_null))) : 0;
   int cur_prefix = 0;
   for (TypePtr variant : t_union->variants) {
     if (variant == TypeDataNullLiteral::create()) {
       result.emplace_back(0, 1);
+    } else if (variant == TypeDataVoid::create()) {
+      result.emplace_back(0, 0);
     } else if (has_null) {
       result.emplace_back((1<<prefix_len) + (cur_prefix++), prefix_len + 1);
     } else {
@@ -1717,13 +1758,17 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
       return std::make_unique<S_Maybe>(t_union);
     }
 
-    // `T1 | T2` is `(Either T1 T2)` (0/1 + contents) unless they both have custom prefixes
+    // `T1 | T2` is `(Either T1 T2)` (0/1 + contents) unless they both have custom prefixes;
+    // exception: if one of the variants is `void`, we route through S_MultipleConstructors,
+    // which dispatches it via `slice.isEmpty()` instead of a 0/1 bit
     bool all_have_opcode = true;
+    bool has_void = false;
     for (TypePtr variant : t_union->variants) {
       const TypeDataStruct* variant_struct = variant->unwrap_alias()->try_as<TypeDataStruct>();
       all_have_opcode &= variant_struct && variant_struct->struct_ref->opcode.exists();
+      has_void |= variant == TypeDataVoid::create();
     }
-    if (t_union->size() == 2 && !all_have_opcode) {
+    if (t_union->size() == 2 && !all_have_opcode && !has_void) {
       return std::make_unique<S_Either>(t_union);
     }
     // `T1 | T2 | T3`, probably nullable, probably with primitives, probably with custom opcodes;

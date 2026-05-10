@@ -274,6 +274,17 @@ fun test25() {
     )
 }
 
+type Test26_simple = int32 | void
+type Test26_complex = Test6_1 | Test6_2 | void
+
+@method_id(126)
+fun test26() {
+    return (
+        Test26_simple.estimate(),
+        Test26_complex.estimate(),
+    )
+}
+
 fun main() {
     __expect_type(reflect.estimateSerializationOf<int8>(), "(int, int, int, int)");
 }
@@ -296,4 +307,5 @@ fun main() {
 @testcase | 123 | | [ 9 9 0 1 ] [ 9 9 0 1 ]
 @testcase | 124 | | [ 42 74 0 1 ] [ 0 0 0 0 ]
 @testcase | 125 | | [ 0 0 1 1 ] [ 0 0 1 1 ] [ 9 9 0 1 ]
+@testcase | 126 | | [ 0 32 0 0 ] [ 0 64 0 1 ]
  */

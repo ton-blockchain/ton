@@ -776,6 +776,7 @@ template<>
 struct Vertex<ast_function_call> final : ASTExprBinary {
   FunctionPtr fun_maybe = nullptr;  // filled while type inferring for `globalF()` / `obj.f()`; remains nullptr for `local_var()` / `getF()()`
   bool dot_obj_is_self = false;     // true for `obj.method()` (obj will be `self` in method); false for `globalF()` / `Point.create()`
+  TypePtr self_type_before_mutate = nullptr;  // filled while inferring `obj.mutateSelf()` before `obj` is assigned the mutate parameter type
 
   AnyExprV get_callee() const { return lhs; }
   AnyExprV get_self_obj() const { return dot_obj_is_self ? lhs->as<ast_dot_access>()->get_obj() : nullptr; }
@@ -785,6 +786,7 @@ struct Vertex<ast_function_call> final : ASTExprBinary {
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref, bool dot_obj_is_self);
+  void assign_self_type_before_mutate(TypePtr type);
 
   Vertex(SrcRange range, AnyExprV lhs_f, V<ast_argument_list> arguments)
     : ASTExprBinary(ast_function_call, range, lhs_f, arguments) {}

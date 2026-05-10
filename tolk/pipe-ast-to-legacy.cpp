@@ -442,25 +442,6 @@ static bool is_ternary_arg_trivial_for_condsel(AnyExprV v, bool require_1slot = 
   return false;
 }
 
-static bool is_zero_int_const(AnyExprV v) {
-  auto v_int = v->try_as<ast_int_const>();
-  return v_int && v_int->intval == 0;
-}
-
-// conditions are type-checked as bool-only: instead of `if (num)` we force `if (num != 0)`;
-// here we detect this pattern to avoid generating `0 NEQINT` asm instruction
-static AnyExprV maybe_strip_neq_0_from_condition(AnyExprV cond) {
-  if (auto v_binary = cond->try_as<ast_binary_operator>(); v_binary && v_binary->tok == tok_neq) {
-    if (is_zero_int_const(v_binary->get_rhs())) {
-      return v_binary->get_lhs();
-    }
-    if (is_zero_int_const(v_binary->get_lhs())) {
-      return v_binary->get_rhs();
-    }
-  }
-  return cond;
-}
-
 // choose a function for operator `==` or (the same) for `match` expression
 static FunctionPtr choose_eq_function_for_types(TypePtr lhs_type, TypePtr rhs_type) {
   lhs_type = lhs_type->unwrap_alias();
@@ -1121,8 +1102,7 @@ static std::vector<var_idx_t> process_unary_operator(V<ast_unary_operator> v, Co
 }
 
 static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v, CodeBlob& code, TypePtr target_type) {
-  AnyExprV cond = maybe_strip_neq_0_from_condition(v->get_cond());
-  std::vector ir_cond = pre_compile_expr(cond, code, nullptr);
+  std::vector ir_cond = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(ir_cond.size() == 1);
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(ternary)");
 
@@ -2075,7 +2055,6 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
 }
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
-  AnyExprV cond = maybe_strip_neq_0_from_condition(v->get_cond());
   bool excno_is_const = true;
   try { eval_expression_if_const_or_fire(v->get_thrown_code()); }
   catch (...) { excno_is_const = false; }
@@ -2083,7 +2062,7 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
   if (excno_is_const) {
     // all practical cases: `assert(cond) throw SOME_ERR_CODE`, it's safe to put it on a stack
     std::vector ir_thrown_code = pre_compile_expr(v->get_thrown_code(), code);
-    std::vector ir_cond = pre_compile_expr(cond, code);
+    std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
     tolk_assert(ir_cond.size() == 1 && ir_thrown_code.size() == 1);
 
     if (v->get_cond()->is_always_false) {
@@ -2097,7 +2076,7 @@ static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) 
 
   } else {
     // weird case: `assert(cond) throw fn()`, fn may throw or produce side effects, call it if `!cond`
-    std::vector ir_cond = pre_compile_expr(cond, code);
+    std::vector ir_cond = pre_compile_expr(v->get_cond(), code);
     Op& if_op = code.add_if_else(v, ir_cond);
     code.push_set_cur(if_op.block0);
     code.close_pop_cur(v);
@@ -2155,8 +2134,9 @@ static void process_repeat_statement(V<ast_repeat_statement> v, CodeBlob& code) 
 
 static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
   code.add_extra_mark_location(v->keyword_range());
-  AnyExprV cond = maybe_strip_neq_0_from_condition(v->get_cond());
-  std::vector ir_cond = pre_compile_expr(cond, code, nullptr);
+  // generate the condition as-is; redundant `(... != 0)` / `(... == 0)` are stripped in `optimize_conditional_branches`
+  // (the same below for loops, ternary, and assert)
+  std::vector ir_cond = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(ir_cond.size() == 1);
 
   if (v->get_cond()->is_always_true) {
@@ -2192,7 +2172,7 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
   code.push_set_cur(until_op.block0);
   process_any_statement(v->get_body(), code);
 
-  AnyExprV cond = maybe_strip_neq_0_from_condition(v->get_cond());
+  AnyExprV cond = v->get_cond();
   std::vector ir_cond = pre_compile_expr(cond, code, nullptr);
   tolk_assert(ir_cond.size() == 1);
 
@@ -2209,7 +2189,7 @@ static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
   code.add_extra_mark_location(v->keyword_range());
   Op& while_op = code.add_while_loop(v);
   code.push_set_cur(while_op.block0);
-  while_op.left = pre_compile_expr(maybe_strip_neq_0_from_condition(v->get_cond()), code, nullptr);
+  while_op.left = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(while_op.left.size() == 1);
   code.close_pop_cur(v->get_body());
   code.push_set_cur(while_op.block1);

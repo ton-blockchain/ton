@@ -98,6 +98,20 @@ fun test8(): cell | int {
     }
 }
 
+struct RecursiveWithNestedCell {
+    value: int8
+    withCell: Cell<(RecursiveWithNestedCell, int8)>?
+}
+
+@method_id(109)
+fun test9() {
+    val inner: RecursiveWithNestedCell = { value: 10, withCell: null };
+    val outer: RecursiveWithNestedCell = { value: 20, withCell: (inner, 30 as int8).toCell() };
+    val loaded = outer.toCell().load();
+    val (loadedInner, loadedTail) = loaded.withCell!.load();
+    return (loaded.value, loadedInner.value, loadedTail, loadedInner.withCell == null);
+}
+
 fun main(c: cell) {
     c as Cell<Point>;
     (c as Cell<Point>) as cell;
@@ -118,6 +132,7 @@ fun main(c: cell) {
 @testcase | 107 | x{2}          | 5 1
 @testcase | 107 | x{0234}       | 6 16
 @testcase | 108 |               | 5 1
+@testcase | 109 |               | 20 10 30 -1
 
 @fif_codegen
 """

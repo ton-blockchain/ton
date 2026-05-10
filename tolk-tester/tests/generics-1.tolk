@@ -71,7 +71,7 @@ fun manyEq<T1, T2, T3>(a: T1, b: T2, c: T3): [T1, T2, T3] {
 @method_id(104)
 fun test104(f: int) {
     var result = (
-        manyEq(true ? 1 : 1, f != 0 ? 0 : null, !f ? getTwo() as int : null),
+        manyEq(true ? 1 : 1, f != 0 ? 0 : null, f == 0 ? getTwo() as int : null),
         manyEq(f != 0 ? null as int? : eq2(2), beginCell().storeBool(true).endCell().beginParse().loadBool(), eq4(f))
     );
     __expect_type(result, "([int, int?, int?], [int?, bool, int])");

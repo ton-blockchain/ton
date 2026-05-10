@@ -19,11 +19,23 @@
 #include "type-system.h"
 
 /*
- *   This pipe does some optimizations related to booleans.
- *   It happens after type inferring, when we know types of all expressions.
+ *   AST-level normalizations of boolean conditions.
+ *   1. `!!boolVar` -> `boolVar`,    `!!intVar` -> `intVar != 0`
+ *   2. compile-time fold of `!true` / `!false` / `!0` / `!123`
+ *   3. `boolVar == true`  / `boolVar != false`  ->  `boolVar`
+ *      `boolVar != true`  / `boolVar == false`  ->  `!boolVar`
+ *   4. `if (!x)`               ->  if(x) with `is_ifnot`
+ *   5. `if (x !is null)`       ->  if(x is null) with `is_ifnot`
+ *      `if (addr1 != addr2)`   ->  if(addr1 == addr2) with `is_ifnot`
  *
- *   Example: `boolVar == true` -> `boolVar`.
- *   Example: `!!boolVar` -> `boolVar`.
+ *   Note: it's an AST-level pass, but it's still needed.
+ * At IR level (see `optimize_conditional_branches`) we simplify `(x != 0)` / `(x == 0)` in conditions.
+ * But it cannot recognize higher-level shapes and booleans.
+ *
+ *   Without this pass `if (!x)` compiles to `NOT IFJMP` instead of `IFNOTJMP`,
+ * and null checks keep an extra `0 NEQINT`.
+ *
+ *   Some day, this pass should also be IR-level.
  *
  *   todo some day, replace && || with & | when it's safe (currently, && always produces IFs in Fift)
  * It's tricky to implement whether replacing is safe.
@@ -144,12 +156,6 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
     if (is_compile_time_true_false(v->get_cond())) {
       return v;
     }
-
-    // here we optimize common conditions to generate IFNOT instead of IF;
-    // obviously, this should be done later, around peephole optimizer,
-    // but with current implementation of stack transformations (inherited from FunC) we have no chance,
-    // so the best for now is to do some AST-based condition rewrites;
-    // in the future, I'll fully rewrite optimizer, and this part will be removed
 
     // `if (!x)` -> ifnot(x)
     while (auto v_cond_unary = v->get_cond()->try_as<ast_unary_operator>()) {

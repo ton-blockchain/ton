@@ -294,6 +294,11 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
       std::cerr << "after fwd_analyze: \n";
       code->print(std::cerr, 6);
     }
+    code->optimize_conditional_branches();
+    if (G_settings.verbosity >= 5) {
+      std::cerr << "after optimize_conditional_branches: \n";
+      code->print(std::cerr, 6);
+    }
     code->prune_unreachable_code();
     if (G_settings.verbosity >= 5) {
       std::cerr << "after prune_unreachable: \n";

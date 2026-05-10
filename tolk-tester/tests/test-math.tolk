@@ -106,7 +106,7 @@ fun is_nan(x: int): int
 @pure
 @inline_ref
 fun geom_mean(a: int, b: int): int {
-    if (!min(a, b)) {
+    if (min(a, b) == 0) {
     return 0;
     }
     var s: int = log2_floor_p1(a);   // throws out of range error if a < 0 or b < 0
@@ -658,7 +658,7 @@ fun fixed248_log2(x: int): int {
 @pure
 @inline_ref
 fun fixed248_pow(x: int, y: int): int {
-    if (!y) {
+    if (y == 0) {
     return 1 << 248;   // x^0 = 1
     }
     if (x <= 0) {
@@ -837,7 +837,7 @@ fun atan_f256_small(x: int): int {
 @inline_ref
 fun asin_f255(x: int): int {
     var a: int = fixed255_One - fixed255_sqr(x);  // a:=1-x^2
-    if (!a) {
+    if (a == 0) {
     return sign(x) * Pi_const_f254();   // Pi/2 or -Pi/2
     }
     var y: int = fixed255_sqrt(a);   // sqrt(1-x^2)
@@ -942,7 +942,7 @@ fun nrand_f252(): int {
                 }
             }
         }
-    } while (!(~ is_nan(x)));
+    } while ((~ is_nan(x)) == 0);
     return x;
 }
 

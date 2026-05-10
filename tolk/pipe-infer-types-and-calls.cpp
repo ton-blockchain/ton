@@ -1207,6 +1207,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
       if (param_0.is_mutate_parameter()) {
         if (SinkExpression s_expr = extract_sink_expression_from_vertex(self_obj)) {
+          v->mutate()->assign_self_type_before_mutate(self_obj->inferred_type);
           assign_inferred_type(self_obj, param_type);
           flow.register_known_type(s_expr, param_type);
         }

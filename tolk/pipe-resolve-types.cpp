@@ -62,7 +62,7 @@ static Error err_unknown_type_name(std::string_view text) {
   return err("unknown type name `{}`", text);
 }
 
-static Error err_void_type_not_allowed_inside_union(TypePtr disallowed_variant) {
+static Error err_never_type_not_allowed_inside_union(TypePtr disallowed_variant) {
   return err("type `{}` is not allowed inside a union", disallowed_variant);
 }
 
@@ -371,8 +371,8 @@ class TypeNodesVisitorResolver {
 
   static void validate_resulting_union_type(const TypeDataUnion* t_union, FunctionPtr cur_f, SrcRange range) {
     for (TypePtr variant : t_union->variants) {
-      if (variant == TypeDataVoid::create() || variant == TypeDataNever::create() || variant == TypeDataUnknown::create()) {
-        err_void_type_not_allowed_inside_union(variant).fire(range, cur_f);
+      if (variant == TypeDataNever::create() || variant == TypeDataUnknown::create()) {
+        err_never_type_not_allowed_inside_union(variant).fire(range, cur_f);
       }
     }
   }

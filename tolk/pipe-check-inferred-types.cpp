@@ -91,6 +91,14 @@ static Error err_not_bool_as_condition(std::string_view keyword, AnyExprV cond) 
   return err("can not use `{}` as a boolean condition", cond->inferred_type);
 }
 
+// make an error on `!someNumber`, suggest `someNumber == 0`
+static Error err_not_bool_in_unary_not(AnyExprV unary_expr) {
+  if (expect_integer(unary_expr)) {
+    return err("can not apply operator `!` to `{}`\n""hint: use not `!someNumber` but `someNumber == 0`", unary_expr->inferred_type);
+  }
+  return err_cannot_apply_operator("!", unary_expr);
+}
+
 GNU_ATTRIBUTE_NOINLINE
 static void warning_condition_always_true_or_false(FunctionPtr cur_f, SrcRange keyword_range, AnyExprV cond, const char* operator_name) {
   bool no_warning = cond->kind == ast_bool_const || cond->kind == ast_int_const;
@@ -310,8 +318,8 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     switch (v->tok) {
       case tok_logical_not:
-        if (!expect_integer(rhs) && !expect_boolean(rhs)) {
-          err_cannot_apply_operator(v->operator_name, rhs).collect(v->operator_range, cur_f);
+        if (!expect_boolean(rhs)) {
+          err_not_bool_in_unary_not(rhs).collect(v->operator_range, cur_f);
         }
         break;
       default:
@@ -463,11 +471,12 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (self_obj && fun_ref->does_accept_self()) {
       const LocalVarData& param_0 = fun_ref->parameters[0];
       TypePtr param_type = param_0.declared_type;
-      if (!param_type->can_rhs_be_assigned(self_obj->inferred_type)) {
-        err("can not call method for `{}` with object of type `{}`", param_type, self_obj->inferred_type).collect(self_obj, cur_f);
+      TypePtr self_type_before_mutate = v->self_type_before_mutate ? v->self_type_before_mutate : self_obj->inferred_type;
+      if (!param_type->can_rhs_be_assigned(self_type_before_mutate)) {
+        err("can not call method for `{}` with object of type `{}`", param_type, self_type_before_mutate).collect(self_obj, cur_f);
       }
       if (param_0.is_mutate_parameter()) {
-        check_function_argument_mutate_back(cur_f, param_type, self_obj, true);
+        check_function_argument_mutate_back(cur_f, self_type_before_mutate, self_obj, true);
       }
     }
     for (int i = 0; i < std::min(v->get_num_args(), fun_ref->get_num_params() - delta_self); ++i) {

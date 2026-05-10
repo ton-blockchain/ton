@@ -270,6 +270,7 @@ struct OpList {
   VarDescrList fwd_analyze(VarDescrList values) const;
   bool mark_noreturn();
   bool prune_unreachable();
+  bool optimize_conditional_branches();
   void mark_function_used_dfs() const;
   void show(std::ostream& os, const std::vector<TmpVar>& vars, const std::string& indent, int mode = 0) const;
 };
@@ -1095,6 +1096,7 @@ struct CodeBlob {
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();
+  bool optimize_conditional_branches();
 
   std::vector<AsmOp> generate_asm_code(int mode) const;
 

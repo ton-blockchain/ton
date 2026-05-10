@@ -80,6 +80,14 @@ static void check_mapKV_inside_type(AnyTypeV type_node) {
   }
 }
 
+// check `@abi.clientType` annotation over a struct field: it must be serializable
+static void check_abi_client_type_can_be_serialized(StructFieldPtr field_ref) {
+  std::string because_msg;
+  if (!check_struct_can_be_packed_or_unpacked(field_ref->abi_client_type, true, &because_msg)) {
+    err("invalid `@abi.clientType`: type `{}` can not be serialized\n{}", field_ref->abi_client_type, because_msg).collect(field_ref->abi_type_node);
+  }
+}
+
 // given `enum Role: int8` check colon type (not struct/slice etc.)
 static bool check_enum_colon_type_to_be_intN(EnumDefPtr enum_ref, AnyTypeV colon_type_node) {
   bool colon_valid = true;
@@ -223,6 +231,9 @@ void pipeline_check_serialized_fields() {
     for (StructFieldPtr field_ref : struct_ref->fields) {
       check_mapKV_inside_type(field_ref->type_node);
       check_mapKV_inside_type(field_ref->abi_type_node);
+      if (field_ref->abi_client_type) {
+        check_abi_client_type_can_be_serialized(field_ref);
+      }
     }
   }
   for (GlobalVarPtr glob_ref : get_all_declared_global_vars()) {

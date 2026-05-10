@@ -66,7 +66,7 @@ enum Color {
 const boolOpsWithInts = (10 < 3, 10 <= 3, 10 > 3, 10 >= 3, 10 == 3, 10 != 3, 10 <= 10, 10 >= (9 + 1), )
 const boolOpsWithBools = (true == true, true != true, false == false, !!false != !!false)
 const boolBitwise = (true & true, true & false, false & true, false & false, true | false, true ^ true, true ^ false)
-const intBitwise = (2 & 3, 2 ^ 3, 2 | 3, 1 | 5, 0xFF & 0x80, !0, !100)
+const intBitwise = (2 & 3, 2 ^ 3, 2 | 3, 1 | 5, 0xFF & 0x80, 0 == 0, 100 == 0)
 const alsoBlue = Color.blue
 const also2 = Color.blue as int
 
@@ -368,5 +368,5 @@ fun main() {
 @testcase | 124 |   | 0 50000000
 @testcase | 125 |   | 1 1 1 2
 
-@code_hash 112630949630661007029774670083026056546591178981553693940505124712245440095740
+@code_hash 108440790824773606102294831194495672355462123034127652878583577204193565477401
 */

@@ -1230,6 +1230,12 @@ bool TypeDataNever::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataVoid::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {  // `void` to `T | void`
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
   return cast_to == singleton || cast_to == TypeDataUnknown::create();
 }
 

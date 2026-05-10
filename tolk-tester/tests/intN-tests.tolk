@@ -171,7 +171,7 @@ fun test9(c: coins, i: int8) {
     var new = amount * percent / 100;
     amount = new;
     __expect_type(amount, "coins");
-    if (!amount) { while (amount != 0) { amount -= 1; } }
+    if (amount == 0) { while (amount != 0) { amount -= 1; } }
 
     takeAnyInt(amount);
     takeAnyInt(percent);

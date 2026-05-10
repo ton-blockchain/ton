@@ -39,12 +39,12 @@ fun test1(x: int, y: int) {
 }
 
 fun test2(x: int, y: bool) {
-    __expect_type(!x, "bool");
+    __expect_type(x == 0, "bool");
     __expect_type(x != x, "bool");
     __expect_type(x <= x, "bool");
     __expect_type(x <=> x, "int");
     __expect_type(x <=> x, "int");
-    __expect_type(!random.uint256(), "bool");
+    __expect_type(random.uint256() == 0, "bool");
     __expect_type(!!(x != null), "bool");
     __expect_type(x != 0 ? x != null : null == x, "bool");
     __expect_type(y & true, "bool");
@@ -52,12 +52,12 @@ fun test2(x: int, y: bool) {
     __expect_type(x && y, "bool");
     __expect_type(true && false && true, "bool");
     __expect_type(x || x, "bool");
-    __expect_type(x || !x || (true & false), "bool");
+    __expect_type(x || x == 0 || (true & false), "bool");
 }
 
 fun test3() {
     __expect_type(true as int, "int");
-    __expect_type(!random.uint256() as int, "int");
+    __expect_type((random.uint256() == 0) as int, "int");
 }
 
 fun test4(x: int) {

@@ -145,6 +145,10 @@ void Vertex<ast_function_call>::assign_fun_ref(FunctionPtr fun_ref, bool dot_obj
   this->dot_obj_is_self = dot_obj_is_self;
 }
 
+void Vertex<ast_function_call>::assign_self_type_before_mutate(TypePtr type) {
+  this->self_type_before_mutate = type;
+}
+
 void Vertex<ast_is_type_operator>::assign_is_negated(bool is_negated) {
   this->is_negated = is_negated;
 }

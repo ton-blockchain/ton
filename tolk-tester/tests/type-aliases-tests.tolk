@@ -46,7 +46,7 @@ fun test1(x: MInt): MVoid {
     __expect_type(d2, "Pair2_v2");
     __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "Pair2_v1");
 
-    __expect_type(!x, "bool");
+    __expect_type(x == 0, "bool");
 
     __expect_type(x as int?, "int?");
     __expect_type(x as MInt?, "MInt?");
@@ -157,7 +157,7 @@ fun test9(b: MBool): MBool {
         __expect_type(b, "MBool");
         return !b;
     }
-    return !!(5 as MInt);
+    return (5 as MInt) != 0;
 }
 
 @method_id(110)

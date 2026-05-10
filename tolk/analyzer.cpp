@@ -1053,4 +1053,288 @@ void CodeBlob::mark_noreturn() {
   ops.mark_noreturn();
 }
 
+/*
+ *   Strip redundant `!= 0` / `== 0` from `if`, `while`, etc.
+ *   `if (x != 0)` -> IF (no `0 NEQINT`)
+ *   `if (x == 0)` -> IFNOT
+ *   The same trick is applied to ternary (`__condsel`) and assertions (`__throw_if` / `__throw_ifnot`).
+ *
+ *   This is absent in FunC (whereas almost everything here is inherited, to be rewritten some day).
+ *   Done at IR level (after `fwd_analyze`) to optimize code after inlining.
+ *
+ *   Tricky case: `if (... == 0) return; else <big_block>`
+ *   We want `IFJMP:<{ return }>` followed by `else` body.
+ *   But if we naively swap the branches for `_==_`, the noreturn block ends up in `else`,
+ * producing worse bytecode (`0 EQINT` removed but extra `c2 SAVE` / `RETALT` added).
+ *   So we explicitly search for that shape — see `try_fold_condition`.
+ *
+ *   How `_!=_` / `_==_` are removed.
+ * We don't disable the matched `_Call`: we just stop using its result.
+ * On the next iteration, `compute_used_code_vars` sees that nobody reads it anymore, and DCE prunes it.
+ */
+
+// Recognize `tmp := x != 0` or `tmp := x == 0`. On match:
+// - `out_is_eq` is true for `==`, false for `!=`,
+// - `out_zero_arg_idx` is the position of the literal zero (0 or 1)
+//    so the caller knows which slot of `op.right` holds the actual `x`.
+static bool match_eq_neq_zero(const Op& op, bool& out_is_eq, int& out_zero_arg_idx) {
+  if (op.cl != Op::_Call || op.disabled() || op.f_sym == nullptr) {
+    return false;
+  }
+  bool is_eq = op.f_sym->name == "_==_";
+  bool is_neq = op.f_sym->name == "_!=_";
+  if (!is_eq && !is_neq) {
+    return false;
+  }
+  if (op.args.size() < 2 || op.right.size() < 2) {    // if `fwd_analyze` hasn't run yet
+    return false;
+  }
+  if (op.args[0].is_int_const() && op.args[0].int_const == 0) {
+    out_zero_arg_idx = 0;
+    out_is_eq = is_eq;
+    return true;
+  }
+  if (op.args[1].is_int_const() && op.args[1].int_const == 0) {
+    out_zero_arg_idx = 1;
+    out_is_eq = is_eq;
+    return true;
+  }
+  return false;
+}
+
+// Walk `list` backwards looking for the most recent op that produces `target`.
+// Single-slot `_Let([a], [b])` ops are just renames — we step through them.
+// Example:
+// > fun isZero(x: int): bool { return x == 0; }
+// gets inlined inside
+// > if (isZero(y)) { ... }
+//
+// Then the IR right before the `_If` is:
+//     _Let  [t1] := y             // x bound to y when inlining
+//     _Call [t2] := _==_(t1, 0)   // body of isZero
+//     _Let  [t3] := t2            // return value of isZero
+//     _If   cond=t3 ...
+//
+// We're called with target = t3:
+//   1. We see `_Let [t3] := t2` — single-slot rename, switch target to t2.
+//   2. We see `_Call [t2] := _==_(t1, 0)` — writes target and is not a `_Let`, so we return it.
+//
+// Returns nullptr if non-`_Let` writer of `target` not found.
+static Op* find_producer_in_list(OpList& list, int max_idx_exclusive, var_idx_t target) {
+  for (int i = max_idx_exclusive - 1; i >= 0; --i) {
+    Op* op = list[i].get();
+    if (op->disabled()) {
+      continue;
+    }
+
+    bool writes_target = false;
+    for (var_idx_t v : op->left) {
+      if (v == target) {
+        writes_target = true;
+        break;
+      }
+    }
+    if (!writes_target) {
+      continue;
+    }
+
+    if (op->cl == Op::_Let && op->left.size() == 1 && op->right.size() == 1) {
+      target = op->right[0];
+      continue;
+    }
+
+    return op;
+  }
+  return nullptr;
+}
+
+// Cheap "does this block end with a return?" check for `if (... == 0) return; else <big_block>` corner case.
+// We can't use `mark_noreturn` here: that pass runs only after the whole optimize loop.
+static bool block_ends_with_return(const OpList& block) {
+  for (int i = static_cast<int>(block.size()) - 1; i >= 0; --i) {
+    const Op* op = block[i].get();
+    if (op->disabled() || op->cl == Op::_Nop) {
+      continue;
+    }
+    return op->cl == Op::_Return;
+  }
+  return false;
+}
+
+// Try to simplify the condition of an `if` / `while` / `do...until` op.
+//
+// Tolk:                    IR before:
+//   if (y != 0) { ... }      _Call [t] := _!=_(y, 0)
+//                            _If   cond=t  then=block0  else=block1
+//
+// Result in: cond=y, not t:
+//                            _Call [t] := _!=_(y, 0)        (now dead, DCE will remove it)
+//                            _If   cond=y  then=...  else=...
+//
+// For `_==_` we additionally swap `then`/`else`.
+// Returns true if any rewrite happened (to keep iterating).
+static bool try_fold_condition(Op& cond_op, OpList& search_list, int search_max_idx_exclusive) {
+  if (cond_op.left.size() != 1) {
+    return false;
+  }
+  bool is_loop = (cond_op.cl == Op::_While || cond_op.cl == Op::_Until);
+  bool any_changed = false;
+
+  while (true) {
+    var_idx_t cond_var = cond_op.left[0];
+    Op* producer = find_producer_in_list(search_list, search_max_idx_exclusive, cond_var);
+    if (!producer) {
+      break;
+    }
+
+    bool is_eq = false;
+    int zero_arg_idx = -1;
+    if (!match_eq_neq_zero(*producer, is_eq, zero_arg_idx)) {
+      break;
+    }
+    // for loops, the would-be branch swap would also flip "iterate"/"stop" — skip
+    if (is_eq && is_loop) {
+      break;
+    }
+    // for `if (... == 0) return; else <big_block>` — see the section header
+    if (is_eq && cond_op.cl == Op::_If && block_ends_with_return(cond_op.block0) && !cond_op.block1.is_empty_block()) {
+      break;
+    }
+
+    var_idx_t inner_var = producer->right[1 - zero_arg_idx];
+    cond_op.left[0] = inner_var;
+    if (is_eq) {
+      std::swap(cond_op.block0, cond_op.block1);
+    }
+    any_changed = true;
+    // keep looping to detect cases like `(x != 0) != 0`
+  }
+  return any_changed;
+}
+
+// Besides `if` and `loops`, we want to simplify conditions of ternary and assert.
+//
+//   Tolk                     IR (Ops)
+//   ----------------------   --------------------------------------
+//   cond ? a : b             _Call [t] := __condsel(cond, a, b)
+//   assert(cond, code)       _Call []  := __throw_ifnot(code, cond)
+//   assert(!cond, code)      _Call []  := __throw_if(code, cond)
+//
+// This helper does: "if `call_op` is one of these, return (by ref) index of its
+// `cond` argument, and what to do for the `_==_(x, 0)` case to preserve semantics":
+// - for the ternary, "negate the cond" means swapping the arguments
+// - for the conditional throw, it means flipping the function
+// On unsupported ops, returns -1.
+static int detect_cond_arg_for_pseudo_builtin(const Op& call_op, int& out_swap_a, int& out_swap_b, std::string_view& out_flip_to) {
+  out_swap_a = out_swap_b = -1;
+  out_flip_to = {};
+  if (call_op.cl != Op::_Call || call_op.disabled() || call_op.f_sym == nullptr) {
+    return -1;
+  }
+  const std::string& name = call_op.f_sym->name;
+  if (name == "__condsel" && call_op.right.size() == 3) {
+    out_swap_a = 1;
+    out_swap_b = 2;
+    return 0;
+  }
+  if (name == "__throw_if" && call_op.right.size() == 2) {
+    out_flip_to = "__throw_ifnot";
+    return 1;
+  }
+  if (name == "__throw_ifnot" && call_op.right.size() == 2) {
+    out_flip_to = "__throw_if";
+    return 1;
+  }
+  return -1;
+}
+
+// Same idea as `try_fold_condition`, but for ternary and assert calls:
+//
+//   Tolk:                       IR (Ops):
+//     hasNext(m) ? a : b          _Call [t1] := _!=_(z, 0)         // body of inlined `hasNext`
+//                                 _Call [t2] := __condsel(t1, a, b)
+//   After: replace `t1` with `z`
+//
+//   Tolk:                       IR before:
+//     assert(isEmpty(m), 100)     _Call [t1] := _==_(z, 0)          // body of inlined `isEmpty`
+//                                 _Call []  := __throw_ifnot(100, t1)
+//   After: replace __throw_ifnot with __throw_if and `t1` with `z`
+static bool try_fold_call_cond_arg(Op& call_op, OpList& search_list, int search_max_idx_exclusive) {
+  int swap_a, swap_b;
+  std::string_view flip_to;
+  int cond_arg_idx = detect_cond_arg_for_pseudo_builtin(call_op, swap_a, swap_b, flip_to);
+  if (cond_arg_idx < 0) {
+    return false;
+  }
+  bool any_changed = false;
+
+  while (true) {
+    var_idx_t cond_var = call_op.right[cond_arg_idx];
+    Op* producer = find_producer_in_list(search_list, search_max_idx_exclusive, cond_var);
+    if (!producer) {
+      break;
+    }
+
+    bool is_eq = false;
+    int zero_arg_idx = -1;
+    if (!match_eq_neq_zero(*producer, is_eq, zero_arg_idx)) {
+      break;
+    }
+
+    var_idx_t inner_var = producer->right[1 - zero_arg_idx];
+    call_op.right[cond_arg_idx] = inner_var;
+    if (is_eq) {
+      if (swap_a >= 0 && swap_b >= 0) {
+        // `__condsel(cond, a, b)` -> `__condsel(cond, b, a)`
+        std::swap(call_op.right[swap_a], call_op.right[swap_b]);
+      } else if (!flip_to.empty()) {
+        // `__throw_if(code, cond)` <-> `__throw_ifnot(code, cond)`
+        call_op.f_sym = lookup_function(flip_to);
+      }
+    }
+    // important: `args` is cached, wipe it. `compute_used_vars` reads variable indices from `args`, not from `right`.
+    call_op.args.clear();
+    any_changed = true;
+  }
+  return any_changed;
+}
+
+// Top-level public function: walk the op list, try to simplify each conditional / pseudo-builtin ops,
+// and recurse into nested blocks (then-branch, else-branch, loop body, try/catch).
+bool OpList::optimize_conditional_branches() {
+  bool any_changed = false;
+  for (size_t i = 0; i < list.size(); ++i) {
+    Op& op = *list[i];
+    if (op.cl == Op::_If) {
+      if (try_fold_condition(op, *this, static_cast<int>(i))) {
+        any_changed = true;
+      }
+      any_changed |= op.block0.optimize_conditional_branches();
+      any_changed |= op.block1.optimize_conditional_branches();
+    } else if (op.cl == Op::_While || op.cl == Op::_Until) {
+      if (try_fold_condition(op, op.block0, static_cast<int>(op.block0.size()))) {
+        any_changed = true;
+      }
+      any_changed |= op.block0.optimize_conditional_branches();
+      if (op.cl == Op::_While) {
+        any_changed |= op.block1.optimize_conditional_branches();
+      }
+    } else if (op.cl == Op::_Repeat || op.cl == Op::_Again) {
+      any_changed |= op.block0.optimize_conditional_branches();
+    } else if (op.cl == Op::_TryCatch) {
+      any_changed |= op.block0.optimize_conditional_branches();
+      any_changed |= op.block1.optimize_conditional_branches();
+    } else if (op.cl == Op::_Call) {
+      if (try_fold_call_cond_arg(op, *this, static_cast<int>(i))) {
+        any_changed = true;
+      }
+    }
+  }
+  return any_changed;
+}
+
+bool CodeBlob::optimize_conditional_branches() {
+  return ops.optimize_conditional_branches();
+}
+
 }  // namespace tolk

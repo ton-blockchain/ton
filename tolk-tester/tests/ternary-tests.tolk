@@ -364,8 +364,7 @@ fun main() {}
 """
   test220() PROC:<{
     s3 POP
-    0 EQINT
-    IFJMP:<{
+    IFNOTJMP:<{
       20 PUSHINT
       CONDSEL
     }>

@@ -72,3 +72,13 @@ fun notBooleanCondition(i: int, c: coins, i16: int16) {
     do {} while (c);
     while (i16) {};
 }
+
+// @stderr can not apply operator `!` to `int`
+// @stderr can not apply operator `!` to `coins`
+// @stderr can not apply operator `!` to `int16`
+// @stderr hint: use not `!someNumber` but `someNumber == 0`
+fun notIntegerLogicalNot(i: int, c: coins, i16: int16) {
+    var a = !i;
+    var b = !c;
+    var d = !i16;
+}
