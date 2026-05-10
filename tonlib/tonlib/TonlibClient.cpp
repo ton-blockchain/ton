@@ -6340,7 +6340,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactionsExt&
         auto raw_transactions =
             ToRawTransactions(td::optional<td::Ed25519::PrivateKey>()).to_raw_transactions(info.move_as_ok());
         if (raw_transactions.is_error()) {
-          return raw_transactions.move_as_error_prefix("Error occured while creating tonlib_api::raw_transaction: ");
+          return raw_transactions.move_as_error_prefix("Error occurred while creating tonlib_api::raw_transaction: ");
         }
 
         tonlib_api::blocks_transactionsExt r;

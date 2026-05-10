@@ -658,7 +658,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
       if (auto misbehavior = add_result.misbehavior) {
         LOG_CHECK(validator != owning_bus()->local_id || tolerate_conflicts)
-            << "We produced conflicting votes! Conflict occured for " << vote.vote;
+            << "We produced conflicting votes! Conflict occurred for " << vote.vote;
         // The following line cannot be simply
         // `owning_bus().publish<MisbehaviorReport>(validator.idx, *misbehavior);` as this would
         // _sometimes_ result in link errors (at least with clang-21 and libstdc++-15) because of a

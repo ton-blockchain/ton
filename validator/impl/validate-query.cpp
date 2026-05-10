@@ -5488,7 +5488,7 @@ std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::make_account_fro
  * @param addr The 256-bit address of the account.
  *
  * @returns Pointer to the account if found or created successfully.
- *          Returns nullptr if an error occured.
+ *          Returns nullptr if an error occurred.
  */
 std::unique_ptr<block::Account> ValidateQuery::CheckAccountTxs::unpack_account(td::ConstBitPtr addr) {
   auto dict_entry = vq_.ps_.account_dict_->lookup_extra(addr, 256);

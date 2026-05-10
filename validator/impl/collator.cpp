@@ -3648,7 +3648,7 @@ bool Collator::is_our_address(const ton::StdSmcAddress& addr) const {
  *          0 - message was enqueued.
  *          1 - message was processed.
  *          3 - message was processed, all future messages must be enqueued.
- *          -1 - error occured.
+ *          -1 - error occurred.
  */
 int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, Ref<vm::Cell>* is_special) {
   bool from_dispatch_queue = msg.msg_env_from_dispatch_queue.not_null();
