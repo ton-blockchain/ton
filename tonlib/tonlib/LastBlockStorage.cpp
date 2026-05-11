@@ -59,9 +59,9 @@ td::Result<LastBlockState> LastBlockStorage::get_state(td::Slice name) {
     auto key_depr = get_file_name_depr(name);
     auto data_depr = kv_->get(key_depr);
     if (data_depr.is_ok()) {
-      kv_->set(get_file_name(name), data_depr.move_as_ok());
-      kv_->erase(key_depr);
       data_r = std::move(data_depr);
+      kv_->set(get_file_name(name), data_r.ok());
+      kv_->erase(key_depr);
     } else {
       return td::Status::Error("not found");
     }
