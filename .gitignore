@@ -33,3 +33,4 @@ build-ucrt64/
 build/
 3pp_emscripten/
 /android-ndk-r27d-linux.zip
+validator/consensus/specification/states
