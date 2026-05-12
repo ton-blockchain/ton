@@ -6260,6 +6260,11 @@ bool Collator::prepare_proofs() {
         return true;
       },
       2);
+  for (auto& [addr, account] : accounts) {
+    if (!account->transactions.empty()) {
+      old_dispatch_queue_->lookup(addr);
+    }
+  }
   return res;
 }
 
