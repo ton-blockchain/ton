@@ -1,112 +1,72 @@
 ---- MODULE simplex ----
-\******************************************************************************
-\* TLA+ Specification of the Simplex Consensus Protocol (TON Catchain 2.0)
+\* Simplex consensus (TON Catchain 2.0) in TLA+.
 \*
-\* Design decisions and abstractions:
-\*   - Real time is abstracted away; timeouts are modeled as nondeterministic
-\*     actions guarded by window activation. Fairness conditions ensure they
-\*     eventually fire, matching the "finite timeout" guarantee of Rule 6.
-\*   - The probabilistic post-GST network (Section 3.2) is modeled by
-\*     nondeterministic message delivery + optional dropping. Fairness on
-\*     delivery abstracts the "probability 1" delivery guarantee.
-\*   - ValidSeq (Section 1.2) is an abstract constant operator. In the default
-\*     model it is always TRUE, matching the spec's statement that "consensus
-\*     does not depend on the internal structure of payloads."
-\*   - Candidates are tracked per-validator (knownCandidates[v]) to model
-\*     that a validator must *receive* a candidate before voting (Rule 4).
-\*   - Leaders select bases using only locally provable state
-\*     (observedNotar, observedSkip), not global oracle state (Rule 3).
-\******************************************************************************
+\* A few abstractions worth knowing about up front:
+\*   - No real-time clock. Timeouts are non-deterministic actions guarded
+\*     by window activation; fairness gives us the "finite timeout" of
+\*     Rule 6.
+\*   - Post-GST probabilistic delivery is replaced by non-determinism
+\*     plus fairness on delivery.
+\*   - ValidSeq is left as an abstract predicate (default TRUE). The
+\*     protocol's safety doesn't care about payload contents.
+\*   - Candidates live per-validator in knownCandidates[v]: a vote on a
+\*     candidate requires having received it first.
+\*   - Leaders pick bases from their own observed state, not the global
+\*     oracle.  This matches what a real node can prove locally.
 
 EXTENDS Integers, Sequences, FiniteSets, TLC, Naturals
 
-\******************************************************************************
-\*                      SYSTEM MODEL
-\******************************************************************************
+\* ---- system parameters -----------------------------------------------------
 
-\* Number of validators (n in the spec)
-CONSTANT NumValidators
+CONSTANT NumValidators            \* n
+CONSTANT ByzantineSet             \* subset of 1..NumValidators; weight < W/3
+CONSTANT Weight(_)                \* w_i; 1-arg operator so TLC can substitute
+CONSTANT LeaderWindowSize         \* L
 
-\* Set of Byzantine validators (subset of 1..NumValidators)
-\* At most f < W/3 total weight may be Byzantine
-CONSTANT ByzantineSet
+\* ---- model-checking bounds -------------------------------------------------
 
-\* Weight of each validator: w_i (Section 1.1)
-\* Declared as 1-arg operator for TLC config substitution
-CONSTANT Weight(_)
+CONSTANT MaxSlot                  \* keeps the state space finite
+CONSTANT MaxMessages              \* in-flight cap
 
-\* Leader window size L (Section 1.3)
-CONSTANT LeaderWindowSize
-
-\******************************************************************************
-\*                     MODEL CHECKING PARAMETERS
-\******************************************************************************
-
-\* Maximum slot number (bounds finite state space for TLC)
-CONSTANT MaxSlot
-
-\* Maximum messages in transit
-CONSTANT MaxMessages
-
-\* Network failure toggle: adversarial phase allows arbitrary message drops
-CONSTANT EnableMessageDrop
-
-\* Byzantine behavior toggles
+CONSTANT EnableMessageDrop        \* adversarial phase on/off
 CONSTANT EnableByzantineEquivocation
 CONSTANT EnableByzantineWithholding
 
-\******************************************************************************
-\*     LEDGER VALIDITY (ValidSeq abstraction)
-\*
-\* ValidSeq : D* -> {true, false} with:
-\*   1. Genesis validity: ValidSeq(empty) = true
-\*   2. Extendability: for every valid seq, an extension exists
-\*
-\* "Consensus does not depend on the internal structure of payloads
-\*  beyond these properties." —simplex.md §1.2
-\*
-\* We abstract ValidSeq as always TRUE. Override in cfg for payload checks.
-\******************************************************************************
-
+\* ValidSeq abstraction. The spec only relies on (a) genesis validity and
+\* (b) extendability, both of which we get for free by defaulting to TRUE.
+\* If you want payload checks, override in the config.
 CONSTANT ValidSeq(_)
 
-\******************************************************************************
-\*                     DERIVED CONSTANTS
-\******************************************************************************
+\* ---- derived sets ----------------------------------------------------------
 
 Validators == 1..NumValidators
 HonestValidators == Validators \ ByzantineSet
 
-\* W = sum of all weights (Section 1.1)
+\* W = sum of weights.  Encoded as a folded recursion since TLA+ doesn't
+\* give us a primitive sum over a set.
 TotalWeight == LET Sum[S \in SUBSET Validators] ==
                    IF S = {} THEN 0
                    ELSE LET v == CHOOSE x \in S : TRUE
                         IN Weight(v) + Sum[S \ {v}]
                IN Sum[Validators]
 
-\* q = floor(2W/3) + 1 (Section 1.1)
-QuorumThreshold == (2 * TotalWeight) \div 3 + 1
+QuorumThreshold == (2 * TotalWeight) \div 3 + 1     \* q
 
-\* f = total Byzantine weight
 ByzantineWeight == LET Sum[S \in SUBSET Validators] ==
                        IF S = {} THEN 0
                        ELSE LET v == CHOOSE x \in S : TRUE
                             IN Weight(v) + Sum[S \ {v}]
-                   IN Sum[ByzantineSet]
+                   IN Sum[ByzantineSet]                          \* f
 
 Slots == 0..MaxSlot
 HashValues == Validators \cup {0}
 
-\* Genesis: Notar(-1, 0) and Final(-1, 0) are implicitly reached (Section 1.4)
+\* Genesis: Notar(-1, 0) and Final(-1, 0) are reached implicitly.
 GenesisSlot == -1
 GenesisHash == 0
 
-\******************************************************************************
-\*                   PROTOCOL OBJECTS
-\******************************************************************************
-
-\* Leader rotation: window k has leader v_{(k mod n)+1}
-\* Window k covers slots [kL, (k+1)L)
+\* Leader rotation.  Window k spans slots [kL, (k+1)L), led by validator
+\* (k mod n) + 1.
 LeaderOf(slot) == ((slot \div LeaderWindowSize) % NumValidators) + 1
 WindowOf(slot) == slot \div LeaderWindowSize
 FirstSlotInWindow(k) == k * LeaderWindowSize
@@ -114,7 +74,6 @@ LastSlotInWindow(k)  == (k + 1) * LeaderWindowSize - 1
 
 IsHonest(v) == v \notin ByzantineSet
 
-\* Weight of a set of validators
 WeightOf(S) == LET Sum[T \in SUBSET Validators] ==
                    IF T = {} THEN 0
                    ELSE LET v == CHOOSE x \in T : TRUE
@@ -123,54 +82,31 @@ WeightOf(S) == LET Sum[T \in SUBSET Validators] ==
 
 IsQuorum(S) == WeightOf(S) >= QuorumThreshold
 
-\******************************************************************************
-\*                        STATE VARIABLES
-\*
-\* Organized by the concepts they model from the spec.
-\******************************************************************************
+\* ---- state -----------------------------------------------------------------
 
 VARIABLES
-    \* --- Section 1.4: Per-validator voting state ---
-    \* Each honest validator tracks which votes it has cast.
+    \* per-validator votes
+    notarVotes,         \* set of <<slot, hash>> per validator
+    skipVotes,          \* set of slot per validator
+    finalVotes,         \* set of <<slot, hash>> per validator
 
-    notarVotes,         \* notarVotes[v] : set of <<slot, hash>>
-                        \* v has cast a vote for Notar(slot, hash)
+    \* per-validator "observed" certificates (what each node can prove locally)
+    observedNotar,
+    observedSkip,
+    observedFinal,
 
-    skipVotes,          \* skipVotes[v] : set of slot
-                        \* v has cast a vote for Skip(slot)
+    \* global "reached" oracle: what would be visible to an oracle that sees
+    \* every cast vote.  Distinct from observed: a statement can be reached
+    \* without any single node knowing it yet.
+    reachedNotar,
+    reachedSkip,
+    reachedFinal,
 
-    finalVotes,         \* finalVotes[v] : set of <<slot, hash>>
-                        \* v has cast a vote for Final(slot, hash)
-
-    \* --- Section 1.3 (Certificates): Per-validator observed certificates ---
-    \* "S is observed on validator v when v receives enough votes to
-    \*  construct a certificate for S" —simplex.md §1.3
-
-    observedNotar,      \* observedNotar[v] : set of <<slot, hash>>
-    observedSkip,       \* observedSkip[v] : set of slot
-    observedFinal,      \* observedFinal[v] : set of <<slot, hash>>
-
-    \* --- Section 1.3 (Certificates): Global reached state ---
-    \* "S is reached if a certificate can be produced by an oracle that
-    \*  knows all cast votes." —simplex.md §1.3
-
-    reachedNotar,       \* set of <<slot, hash>>
-    reachedSkip,        \* set of slot
-    reachedFinal,       \* set of <<slot, hash>>
-
-    \* --- Rule 1 (Frontier tracking) ---
-    \* "F_v(t) is the smallest slot that is not cleared for v." —§3.1
-    frontier,           \* frontier[v] : Nat
-
-    \* --- Rule 2 (Candidate resolution): Per-validator candidate knowledge ---
-    \* "Honest validators store candidates they have voted Notar for."
-    \* A validator must *receive* a candidate before it can vote on it.
-    knownCandidates,    \* knownCandidates[v] : set of candidate records
-                        \* each record: [slot, hash, parentSlot, parentHash, leader]
-
-    \* --- Network (Section 3.2) ---
-    messages,           \* set of message records in transit
-    droppedMessages     \* auxiliary: dropped messages (for debugging)
+    frontier,           \* smallest slot not yet cleared for v
+    knownCandidates,    \* per-validator candidate store; record has
+                        \* [slot, hash, parentSlot, parentHash, leader]
+    messages,           \* in-flight messages
+    droppedMessages     \* dropped messages; kept around for diagnostics
 
 vars == <<notarVotes, skipVotes, finalVotes,
           observedNotar, observedSkip, observedFinal,
@@ -178,9 +114,7 @@ vars == <<notarVotes, skipVotes, finalVotes,
           frontier, knownCandidates,
           messages, droppedMessages>>
 
-\******************************************************************************
-\*                       MESSAGE TYPES
-\******************************************************************************
+\* ---- message constructors --------------------------------------------------
 
 NotarVoteMsg(src, dst, slot, hash) ==
     [type |-> "notarVote", src |-> src, dst |-> dst, slot |-> slot, hash |-> hash]
@@ -205,7 +139,6 @@ CandidateMsg(src, dst, slot, hash, parentSlot, parentHash) ==
      slot |-> slot, hash |-> hash,
      parentSlot |-> parentSlot, parentHash |-> parentHash]
 
-\* Rule 2: candidate resolution request/reply
 CandidateRequestMsg(src, dst, slot, hash) ==
     [type |-> "candidateReq", src |-> src, dst |-> dst, slot |-> slot, hash |-> hash]
 
@@ -214,13 +147,12 @@ CandidateReplyMsg(src, dst, slot, hash, parentSlot, parentHash) ==
      slot |-> slot, hash |-> hash,
      parentSlot |-> parentSlot, parentHash |-> parentHash]
 
-\* Rule 8: standstill broadcast bundles all data in one message
+\* Standstill bundles the cert/vote payload in a single message; in the
+\* spec we deliver each enclosed piece as its own message for simplicity.
 StandstillMsg(src, dst) ==
     [type |-> "standstill", src |-> src, dst |-> dst]
 
-\******************************************************************************
-\*                       INITIAL STATE
-\******************************************************************************
+\* ---- initial state ---------------------------------------------------------
 
 Init ==
     /\ notarVotes = [v \in Validators |-> {}]
@@ -237,12 +169,9 @@ Init ==
     /\ frontier = [v \in Validators |-> 0]
     /\ droppedMessages = {}
 
-\******************************************************************************
-\*      CERTIFICATE FORMATION
-\*
-\* "A certificate for S is a set of votes for S from distinct validators
-\*  with total weight >= q." —simplex.md §1.3
-\******************************************************************************
+\* ---- certificate helpers ---------------------------------------------------
+\* A certificate is just the set of distinct voters whose combined weight
+\* meets the quorum threshold.
 
 NotarVotersFor(slot, hash)  == {v \in Validators : <<slot, hash>> \in notarVotes[v]}
 SkipVotersFor(slot)          == {v \in Validators : slot \in skipVotes[v]}
@@ -252,50 +181,39 @@ NotarReached(slot, hash) == WeightOf(NotarVotersFor(slot, hash)) >= QuorumThresh
 SkipReached(slot)        == WeightOf(SkipVotersFor(slot))         >= QuorumThreshold
 FinalReached(slot, hash) == WeightOf(FinalVotersFor(slot, hash)) >= QuorumThreshold
 
-\******************************************************************************
-\*      CANDIDATE KNOWLEDGE HELPERS
-\*
-\* Unlike the previous version which used a global candidates array,
-\* this version tracks per-validator knowledge. A validator can only
-\* vote on candidates it has received (Rule 4: "Upon receiving a candidate").
-\******************************************************************************
+\* ---- candidate-knowledge helpers -------------------------------------------
 
-\* Check if validator v knows a candidate at (slot, hash)
 ValidatorKnowsCandidate(v, slot, hash) ==
     \E c \in knownCandidates[v] : c.slot = slot /\ c.hash = hash
 
-\* Get the candidate record known to v
 GetKnownCandidate(v, slot, hash) ==
     CHOOSE c \in knownCandidates[v] : c.slot = slot /\ c.hash = hash
 
-\* Check if any validator knows a candidate at (slot, hash) — for invariant checking
+\* Convenience predicates used in invariants.
 AnyCandidateExists(slot, hash) ==
     \E v \in Validators : ValidatorKnowsCandidate(v, slot, hash)
 
-\* Get any known candidate record — for invariant checking
 AnyKnownCandidate(slot, hash) ==
     LET v == CHOOSE v \in Validators : ValidatorKnowsCandidate(v, slot, hash)
     IN GetKnownCandidate(v, slot, hash)
 
-\******************************************************************************
-\*   CHAIN VALIDITY
-\*
-\* "A candidate (s,h) is called valid if there exists a chain ending at
-\*  (s,h) with a state that is valid." —simplex.md §1.3
-\*
-\* Chain validity requires:
-\*   - First candidate has genesis parent (-1, 0)
-\*   - Each subsequent candidate references the previous one
-\*   - ValidSeq holds for the chain state
-\*
-\* For notarization, Rule 4 requires the chain to satisfy:
-\*   - Parent Notar is reached
-\*   - Intermediate slots are skipped
-\*   - Candidate is valid
-\******************************************************************************
+\* ---- chain walking ---------------------------------------------------------
+\* Walks the parent chain of (s, h) and returns the hash recorded at the
+\* given target slot, or -1 if (target, _) is not on the chain.  Used by
+\* the chain-prefix safety invariant.
 
-\* Check chain validity from validator v's perspective
-\* v can prove a candidate is valid if it knows the chain
+RECURSIVE WalkChainHashAt(_, _, _)
+WalkChainHashAt(target, s, h) ==
+    IF s = target THEN h
+    ELSE IF s <= target THEN -1
+    ELSE IF ~AnyCandidateExists(s, h) THEN -1
+    ELSE LET c == AnyKnownCandidate(s, h)
+         IN IF c.parentSlot < target THEN -1
+            ELSE WalkChainHashAt(target, c.parentSlot, c.parentHash)
+
+\* Rule-4 validity predicate, expanded recursively over the parent chain.
+\* VoteNotarize uses the inline form, so this is here mainly for clarity
+\* (and as a sanity check when extending the spec).
 RECURSIVE ChainValidForValidator(_, _, _)
 ChainValidForValidator(v, slot, hash) ==
     IF slot = GenesisSlot THEN TRUE
@@ -308,20 +226,12 @@ ChainValidForValidator(v, slot, hash) ==
               /\ (c.parentSlot = GenesisSlot \/
                   ChainValidForValidator(v, c.parentSlot, c.parentHash))
 
-\******************************************************************************
-\*     WINDOW ACTIVATION (Rule 1 helper)
-\*
-\* "When F_v crosses a window boundary kL, window k becomes active for v."
-\******************************************************************************
-
+\* Window k is active for v once v's frontier crosses kL.
 WindowActiveFor(v, k) == frontier[v] >= FirstSlotInWindow(k)
 
-\******************************************************************************
-\*     RULE 1 (Frontier tracking)
-\*
-\* "A slot s is cleared for v if v has observed Notar(s,·), Skip(s),
-\*  or Final(s',·) for some s' >= s." —simplex.md §3.1
-\******************************************************************************
+\* ---- Rule 1: frontier tracking ---------------------------------------------
+\* A slot is cleared once v has seen any of (Notar(s,_), Skip(s), Final(s',_)
+\* with s' >= s).  The frontier is the smallest still-uncleared slot.
 
 SlotClearedFor(v, s) ==
     \/ \E h \in HashValues : <<s, h>> \in observedNotar[v]
@@ -341,24 +251,16 @@ UpdateFrontier(v) ==
                    reachedNotar, reachedSkip, reachedFinal,
                    droppedMessages>>
 
-\******************************************************************************
-\*     RULE 2 (Candidate resolution)
-\*
-\* "Validator v can obtain a notarized candidate identified by (s,h) by
-\*  requesting it from a uniformly random peer and retrying after an
-\*  exponentially increasing timeout." —simplex.md §3.1
-\*
-\* Modeled as: v can request a candidate, and any validator that has it
-\* can reply. The exponential backoff is abstracted by nondeterminism.
-\******************************************************************************
+\* ---- Rule 2: candidate resolution ------------------------------------------
+\* A node that knows a notarization cert but doesn't yet have the candidate
+\* asks a peer for it.  Retries with exponential backoff become arbitrary
+\* re-tries here; the model checker explores all interleavings.
 
-\* v requests candidate (slot, hash) from peer dst
 RequestCandidate(v, dst, slot, hash) ==
     /\ IsHonest(v)
     /\ slot \in Slots
     /\ ~ValidatorKnowsCandidate(v, slot, hash)
-    \* v must know the candidate exists (has seen a notar cert for it)
-    /\ <<slot, hash>> \in observedNotar[v]
+    /\ <<slot, hash>> \in observedNotar[v]    \* must have a reason to ask
     /\ messages' = messages \cup {CandidateRequestMsg(v, dst, slot, hash)}
     /\ UNCHANGED <<notarVotes, skipVotes, finalVotes,
                    knownCandidates,
@@ -366,8 +268,7 @@ RequestCandidate(v, dst, slot, hash) ==
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
 
-\* v replies to a candidate request (only if v has the candidate stored)
-\* "When v receives such a request for a candidate it has stored, it replies."
+\* Reply with a stored candidate.  No reply if we don't have it.
 ReplyCandidate(v, msg) ==
     /\ IsHonest(v)
     /\ msg \in messages
@@ -383,51 +284,38 @@ ReplyCandidate(v, msg) ==
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
 
-\******************************************************************************
-\*     RULE 3 (Leader duty)
-\*
-\* "When window k becomes active and v is its leader, v chooses any base
-\*  (s_p, h_p) for which it can prove all of the following:
-\*    1. s_p < kL,
-\*    2. Notar(s_p, h_p) is reached,
-\*    3. Skip(s') is reached for every s_p < s' < kL."
-\*
-\* KEY: The leader uses only what it can LOCALLY prove, i.e., its own
-\* observedNotar and observedSkip, not the global oracle state.
-\******************************************************************************
+\* ---- Rule 3: leader duty ---------------------------------------------------
+\* The leader's three conditions are checked against its own observed state
+\* (observedNotar / observedSkip).  Real nodes can't see the global oracle,
+\* and neither does this action.  An honest leader produces exactly one
+\* candidate per slot (the inner guard rules out a second one).
+\* The candidate's hash is taken to be the leader's id; that gives us a
+\* unique candidate per honest-leader/slot pair without needing a real
+\* hash function.
 
 ProposeCandidate(leader, slot) ==
     /\ slot \in Slots
     /\ slot <= MaxSlot
     /\ LeaderOf(slot) = leader
     /\ IsHonest(leader)
-    \* Window must be active for the leader (Rule 3: "when window k becomes active")
     /\ WindowActiveFor(leader, WindowOf(slot))
-    \* Leader selects a base using LOCAL proof (observedNotar, observedSkip)
     /\ \E parentSlot \in {GenesisSlot} \cup (0..(slot-1)) :
         \E parentHash \in HashValues :
-            \* Condition 1: s_p < kL (parent before this window)
-            /\ parentSlot < FirstSlotInWindow(WindowOf(slot))
-            \* Condition 2: Leader can LOCALLY prove Notar(s_p, h_p) is reached
+            /\ parentSlot < FirstSlotInWindow(WindowOf(slot))         \* (1)
             /\ (parentSlot = GenesisSlot \/
-                <<parentSlot, parentHash>> \in observedNotar[leader])
-            \* Condition 3: Leader can LOCALLY prove Skip(s') for all intermediate
-            /\ \A s \in (parentSlot+1)..(slot-1) : s \in observedSkip[leader]
-            \* Honest leader produces only one candidate per slot
+                <<parentSlot, parentHash>> \in observedNotar[leader]) \* (2)
+            /\ \A s \in (parentSlot+1)..(slot-1) :
+                   s \in observedSkip[leader]                         \* (3)
             /\ ~(\E c \in knownCandidates[leader] :
                     c.slot = slot /\ c.leader = leader)
-            \* ValidSeq check: the chain state is valid (§1.2)
-            \* Abstracted: ValidSeq is assumed satisfiable (Extendability)
             /\ LET hash == leader
                    cand == [slot |-> slot, hash |-> hash,
                             parentSlot |-> parentSlot,
                             parentHash |-> parentHash,
                             leader |-> leader]
                IN
-                \* Leader stores its own candidate (Rule 2: "store candidates")
                 /\ knownCandidates' = [knownCandidates EXCEPT
                     ![leader] = @ \cup {cand}]
-                \* Broadcast candidate to all validators (Rule 3)
                 /\ messages' = messages \cup
                     {CandidateMsg(leader, dst, slot, hash, parentSlot, parentHash) :
                      dst \in Validators \ {leader}}
@@ -436,47 +324,26 @@ ProposeCandidate(leader, slot) ==
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
 
-\******************************************************************************
-\*     RULE 4 (Notarize)
-\*
-\* "Upon receiving a candidate (s,d,s_p,h_p,σ) identified by (s,h),
-\*  validator v ... votes Notar(s,h) and broadcasts the vote as soon as
-\*  it can prove all of the following:
-\*    1. v has not previously voted Notar(s,·) for any candidate at slot s.
-\*    2. Notar(s_p, h_p) is reached.
-\*    3. For every slot s' with s_p < s' < s, Skip(s') is reached.
-\*    4. Candidate (s,h) is valid."
-\*
-\* Conditions 2–4 are checked using v's LOCAL knowledge (observedNotar,
-\* observedSkip, knownCandidates).
-\******************************************************************************
+\* ---- Rule 4: notarize ------------------------------------------------------
+\* Vote Notar(s,h) once we've seen the candidate, haven't voted for a
+\* different hash at this slot already, and can prove parent + intermediate
+\* skips from our own observed state.  ValidSeq is the abstract payload
+\* predicate; default TRUE here.
 
 VoteNotarize(v, slot, hash) ==
     /\ IsHonest(v)
     /\ slot \in Slots
-    \* Rule 4.1: No prior Notar vote at this slot for a different hash
     /\ ~(\E h2 \in HashValues : h2 /= hash /\ <<slot, h2>> \in notarVotes[v])
-    \* Not already voted for this exact candidate
     /\ <<slot, hash>> \notin notarVotes[v]
-    \* "Upon receiving a candidate" — v must have the candidate locally
     /\ ValidatorKnowsCandidate(v, slot, hash)
     /\ LET c == GetKnownCandidate(v, slot, hash)
        IN
-        \* Rule 4.2: v can LOCALLY prove parent notarization is reached
         /\ (c.parentSlot = GenesisSlot \/
             <<c.parentSlot, c.parentHash>> \in observedNotar[v])
-        \* Rule 4.3: v can LOCALLY prove all intermediate slots are skipped
         /\ \A s \in (c.parentSlot+1)..(slot-1) : s \in observedSkip[v]
-        \* Rule 4.4: Candidate (s,h) is valid
-        \* Abstracted: ValidSeq always TRUE; chain structure checked above
-    \* Cast the vote
     /\ notarVotes' = [notarVotes EXCEPT ![v] = @ \cup {<<slot, hash>>}]
-    \* "Honest validators store candidates they have voted Notar for" (Rule 2)
-    \* (Already stored since we checked ValidatorKnowsCandidate above)
-    \* Broadcast the vote to all validators
     /\ messages' = messages \cup
         {NotarVoteMsg(v, dst, slot, hash) : dst \in Validators \ {v}}
-    \* Update global reached state (oracle)
     /\ LET newVoters == NotarVotersFor(slot, hash) \cup {v}
        IN IF WeightOf(newVoters) >= QuorumThreshold
           THEN reachedNotar' = reachedNotar \cup {<<slot, hash>>}
@@ -485,33 +352,20 @@ VoteNotarize(v, slot, hash) ==
                    observedNotar, observedSkip, observedFinal,
                    reachedSkip, reachedFinal, frontier, droppedMessages>>
 
-\******************************************************************************
-\*     RULE 5 (Finalize)
-\*
-\* "Validator v votes Final(s,h) and broadcasts the vote as soon as
-\*  it can prove all of the following:
-\*    1. v has voted Notar(s,h),
-\*    2. Notar(s,h) is reached,
-\*    3. v has not voted Skip(s)."
-\******************************************************************************
+\* ---- Rule 5: finalize ------------------------------------------------------
+\* Vote Final(s,h) if we already voted Notar(s,h), have observed that
+\* Notar(s,h) is reached, and haven't skipped slot s.
 
 VoteFinalize(v, slot, hash) ==
     /\ IsHonest(v)
     /\ slot \in Slots
-    \* Rule 5.1: v has voted Notar(slot, hash)
     /\ <<slot, hash>> \in notarVotes[v]
-    \* Rule 5.2: v can prove Notar(slot, hash) is reached (observed)
     /\ <<slot, hash>> \in observedNotar[v]
-    \* Rule 5.3: v has not voted Skip(slot)
     /\ slot \notin skipVotes[v]
-    \* Not already voted final for this
     /\ <<slot, hash>> \notin finalVotes[v]
-    \* Cast the vote
     /\ finalVotes' = [finalVotes EXCEPT ![v] = @ \cup {<<slot, hash>>}]
-    \* Broadcast the vote
     /\ messages' = messages \cup
         {FinalVoteMsg(v, dst, slot, hash) : dst \in Validators \ {v}}
-    \* Update global reached state
     /\ LET newVoters == FinalVotersFor(slot, hash) \cup {v}
        IN IF WeightOf(newVoters) >= QuorumThreshold
           THEN reachedFinal' = reachedFinal \cup {<<slot, hash>>}
@@ -520,29 +374,11 @@ VoteFinalize(v, slot, hash) ==
                    observedNotar, observedSkip, observedFinal,
                    reachedNotar, reachedSkip, frontier, droppedMessages>>
 
-\******************************************************************************
-\*     RULE 6 (Skip)
-\*
-\* "For each window k, after the window becomes active for v, and for
-\*  each slot s in the window, there is a finite timeout T_skip(s) >= T_0
-\*  after which v votes Skip(s) (unless it has already voted Final(s,·)),
-\*  and broadcasts the vote."
-\*
-\* Timeout modeling: "Let k* be the window containing the largest slot s*
-\*  such that v can prove Final(s*,·) is reached at the moment window k
-\*  becomes active. Then T_skip(s) >= T_0 · α^{k-k*-1}."
-\*
-\* In TLA+, real time is abstracted. The skip action is nondeterministically
-\* enabled when the window is active. The exponential growth constraint
-\* means that in a real execution, the skip fires later when there is a
-\* large gap since the last finalization. Fairness ensures it eventually
-\* fires, matching the "finite timeout" guarantee.
-\*
-\* The ordering between skip and finalize is enforced by:
-\*   - Skip requires: v has not voted Final(s,·)
-\*   - Final requires: v has not voted Skip(s)
-\* These mutual exclusions encode the critical safety constraint from §1.4.
-\******************************************************************************
+\* ---- Rule 6: skip ----------------------------------------------------------
+\* Skip the slot if its window is active and we haven't already finalized
+\* it.  The exponential growth of T_skip is irrelevant for safety; what
+\* matters here is the mutual exclusion with Final, which is the local
+\* constraint that lifts to the global Final/Skip exclusion lemma.
 
 VoteSkip(v, slot) ==
     /\ IsHonest(v)
@@ -553,12 +389,9 @@ VoteSkip(v, slot) ==
     /\ slot \notin skipVotes[v]
     \* Rule 6: Window containing slot must be active for v
     /\ WindowActiveFor(v, WindowOf(slot))
-    \* Cast the vote
     /\ skipVotes' = [skipVotes EXCEPT ![v] = @ \cup {slot}]
-    \* Broadcast
     /\ messages' = messages \cup
         {SkipVoteMsg(v, dst, slot) : dst \in Validators \ {v}}
-    \* Update global reached state
     /\ LET newVoters == SkipVotersFor(slot) \cup {v}
        IN IF WeightOf(newVoters) >= QuorumThreshold
           THEN reachedSkip' = reachedSkip \cup {slot}
@@ -567,13 +400,10 @@ VoteSkip(v, slot) ==
                    observedNotar, observedSkip, observedFinal,
                    reachedNotar, reachedFinal, frontier, droppedMessages>>
 
-\******************************************************************************
-\*     RULE 7 (Certificate formation and rebroadcast)
-\*
-\* "When v has received votes for a statement S with total weight at
-\*  least q, it forms the corresponding certificate. Upon forming or
-\*  receiving any certificate, v broadcasts it."
-\******************************************************************************
+\* ---- Rule 7: certificate rebroadcast ---------------------------------------
+\* Once we observe a certificate, push it to a peer that hasn't seen it
+\* yet.  The "form a certificate at quorum" step happens inside the vote
+\* delivery handler below; this action handles the "rebroadcast" half.
 
 RebroadcastNotarCert(v, slot, hash) ==
     /\ <<slot, hash>> \in observedNotar[v]
@@ -605,22 +435,11 @@ RebroadcastFinalCert(v, slot, hash) ==
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
 
-\******************************************************************************
-\*     RULE 8 (Standstill resolution)
-\*
-\* "When v has not observed any new finalized blocks since time t_0,
-\*  the j-th standstill-resolution attempt occurs at time t_0 + (j+1)T_s.
-\*  Each standstill-resolution attempt is a broadcast that sends:
-\*    1. the certificate for Final(s,·) with largest slot s that v has observed,
-\*    2. all certificates v holds for slots > s,
-\*    3. all votes cast by v for slots > s."
-\*
-\* Modeled as: if v has certificates or votes above its latest observed
-\* finalization, it can (nondeterministically) send them to any peer.
-\* Fairness ensures this eventually happens.
-\******************************************************************************
+\* ---- Rule 8: standstill resolution -----------------------------------------
+\* When nothing has finalized in a while, dump everything we know above
+\* the last finalized slot to a peer.  We split the rule's bundled payload
+\* into individual cert/vote sends; a fair scheduler covers every piece.
 
-\* Largest finalized slot observed by v, or -1
 LatestObservedFinalSlot(v) ==
     IF observedFinal[v] = {} THEN GenesisSlot
     ELSE LET maxSlot == CHOOSE s \in {p[1] : p \in observedFinal[v]} :
@@ -631,9 +450,7 @@ StandstillBroadcast(v) ==
     /\ IsHonest(v)
     /\ LET sF == LatestObservedFinalSlot(v)
        IN \E dst \in Validators \ {v} :
-           \* Send all certificates and votes for slots > sF
-           \* Modeled as individual cert/vote messages (TLA+ abstraction)
-           \/ \* Send a final cert above sF
+           \/ \* latest final cert (>= sF: covers the sF cert itself)
               /\ \E sh \in observedFinal[v] : sh[1] >= sF
               /\ \E sh \in observedFinal[v] :
                     messages' = messages \cup
@@ -643,7 +460,7 @@ StandstillBroadcast(v) ==
                    observedNotar, observedSkip, observedFinal,
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
-           \/ \* Send a notar cert above sF
+           \/ \* a notar cert above sF
               /\ \E sh \in observedNotar[v] : sh[1] > sF
               /\ \E sh \in observedNotar[v] :
                     /\ sh[1] > sF
@@ -654,7 +471,7 @@ StandstillBroadcast(v) ==
                    observedNotar, observedSkip, observedFinal,
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
-           \/ \* Send a skip cert above sF
+           \/ \* a skip cert above sF
               /\ \E s \in observedSkip[v] : s > sF
               /\ \E s \in observedSkip[v] :
                     /\ s > sF
@@ -665,7 +482,7 @@ StandstillBroadcast(v) ==
                    observedNotar, observedSkip, observedFinal,
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
-           \/ \* Send own votes above sF
+           \/ \* our own notar votes above sF
               /\ \E sh \in notarVotes[v] : sh[1] > sF
               /\ \E sh \in notarVotes[v] :
                     /\ sh[1] > sF
@@ -676,7 +493,7 @@ StandstillBroadcast(v) ==
                    observedNotar, observedSkip, observedFinal,
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
-           \/ \* Send own skip votes above sF
+           \/ \* our own skip votes above sF
               /\ \E s \in skipVotes[v] : s > sF
               /\ \E s \in skipVotes[v] :
                     /\ s > sF
@@ -687,7 +504,7 @@ StandstillBroadcast(v) ==
                    observedNotar, observedSkip, observedFinal,
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
-           \/ \* Send own final votes above sF
+           \/ \* our own final votes above sF
               /\ \E sh \in finalVotes[v] : sh[1] > sF
               /\ \E sh \in finalVotes[v] :
                     /\ sh[1] > sF
@@ -699,13 +516,10 @@ StandstillBroadcast(v) ==
                    reachedNotar, reachedSkip, reachedFinal,
                    frontier, droppedMessages>>
 
-\******************************************************************************
-\*     BYZANTINE BEHAVIOR
-\*
-\* Byzantine validators may violate any honest rule constraint.
-\* They can: vote multiple times for conflicting statements, propose
-\* conflicting candidates (equivocation), withhold votes, etc.
-\******************************************************************************
+\* ---- Byzantine behaviour ---------------------------------------------------
+\* Byzantine nodes are free to ignore every honest constraint: equivocating
+\* proposals, conflicting votes, anything goes.  Witholding is modelled by
+\* simply not taking these actions.
 
 ByzantinePropose(leader, slot) ==
     /\ EnableByzantineEquivocation
@@ -733,6 +547,7 @@ ByzantinePropose(leader, slot) ==
 
 ByzantineVote(v) ==
     /\ ~IsHonest(v)
+    /\ EnableByzantineEquivocation \/ EnableByzantineWithholding
     /\ \E slot \in Slots :
         \/ \E hash \in HashValues :
             /\ notarVotes' = [notarVotes EXCEPT ![v] = @ \cup {<<slot, hash>>}]
@@ -763,20 +578,10 @@ ByzantineVote(v) ==
     /\ UNCHANGED <<knownCandidates, observedNotar, observedSkip, observedFinal,
                    frontier, droppedMessages>>
 
-\******************************************************************************
-\*     NETWORK MODEL
-\*
-\* "Adversarial phase (t < T_GST): The adversary controls message delivery…
-\*  it may delay, reorder, or drop messages arbitrarily.
-\*  Good phase (t >= T_GST): Each message…is delivered within time δ
-\*  with probability 1-r and lost otherwise."
-\*
-\* Modeled as:
-\*   - DeliverMessage: nondeterministically delivers any message in transit.
-\*   - DropMessage: enabled when EnableMessageDrop=TRUE (adversarial phase).
-\*   - Fairness on delivery abstracts the post-GST probabilistic guarantee:
-\*     with probability 1, messages are eventually delivered.
-\******************************************************************************
+\* ---- network ---------------------------------------------------------------
+\* Delivery is non-deterministic; the dropping action is gated by
+\* EnableMessageDrop to model the adversarial phase.  Fairness on
+\* DeliverMessage stands in for the post-GST "delivered with prob > 0".
 
 DeliverMessage(msg) ==
     /\ msg \in messages
@@ -858,7 +663,6 @@ DeliverMessage(msg) ==
                            frontier, droppedMessages>>
 
         [] msg.type = "candidate" ->
-            \* Deliver candidate: store in recipient's knownCandidates
             /\ LET cand == [slot |-> msg.slot, hash |-> msg.hash,
                             parentSlot |-> msg.parentSlot,
                             parentHash |-> msg.parentHash,
@@ -871,7 +675,6 @@ DeliverMessage(msg) ==
                            frontier, droppedMessages>>
 
         [] msg.type = "candidateReply" ->
-            \* Rule 2: deliver resolved candidate to requester
             /\ LET cand == [slot |-> msg.slot, hash |-> msg.hash,
                             parentSlot |-> msg.parentSlot,
                             parentHash |-> msg.parentHash,
@@ -884,7 +687,7 @@ DeliverMessage(msg) ==
                            frontier, droppedMessages>>
 
         [] msg.type = "candidateReq" ->
-            \* Route to ReplyCandidate (just remove from messages here)
+            \* Routed to ReplyCandidate; nothing to do here besides consume.
             /\ UNCHANGED <<notarVotes, skipVotes, finalVotes,
                            knownCandidates,
                            observedNotar, observedSkip, observedFinal,
@@ -892,14 +695,13 @@ DeliverMessage(msg) ==
                            frontier, droppedMessages>>
 
         [] msg.type = "standstill" ->
-            \* Standstill messages are handled by cert/vote delivery
+            \* Standstill payload is delivered as individual cert/vote msgs.
             /\ UNCHANGED <<notarVotes, skipVotes, finalVotes,
                            knownCandidates,
                            observedNotar, observedSkip, observedFinal,
                            reachedNotar, reachedSkip, reachedFinal,
                            frontier, droppedMessages>>
 
-\* Adversarial phase: messages can be dropped
 DropMessage(msg) ==
     /\ EnableMessageDrop
     /\ msg \in messages
@@ -909,87 +711,60 @@ DropMessage(msg) ==
                    observedNotar, observedSkip, observedFinal,
                    reachedNotar, reachedSkip, reachedFinal, frontier>>
 
-\******************************************************************************
-\*                      NEXT STATE RELATION
-\******************************************************************************
+\* ---- next-state relation ---------------------------------------------------
 
 Next ==
-    \* Rule 3: Leader proposes candidate
     \/ \E v \in HonestValidators : \E s \in Slots :
         /\ LeaderOf(s) = v
         /\ ProposeCandidate(v, s)
-    \* Byzantine leader equivocation
     \/ \E v \in ByzantineSet : \E s \in Slots :
         ByzantinePropose(v, s)
-    \* Rule 4: Notarize
     \/ \E v \in HonestValidators : \E s \in Slots : \E h \in HashValues :
         VoteNotarize(v, s, h)
-    \* Rule 5: Finalize
     \/ \E v \in HonestValidators : \E s \in Slots : \E h \in HashValues :
         VoteFinalize(v, s, h)
-    \* Rule 6: Skip (timeout)
     \/ \E v \in HonestValidators : \E s \in Slots :
         VoteSkip(v, s)
-    \* Byzantine arbitrary voting
     \/ \E v \in ByzantineSet :
         ByzantineVote(v)
-    \* Network: message delivery
     \/ \E msg \in messages :
         DeliverMessage(msg)
-    \* Network: message drop (adversarial phase)
     \/ \E msg \in messages :
         DropMessage(msg)
-    \* Rule 1: Update frontier
     \/ \E v \in HonestValidators :
         UpdateFrontier(v)
-    \* Rule 2: Candidate resolution (request)
     \/ \E v \in HonestValidators : \E dst \in Validators :
         \E s \in Slots : \E h \in HashValues :
             RequestCandidate(v, dst, s, h)
-    \* Rule 2: Candidate resolution (reply)
     \/ \E v \in HonestValidators : \E msg \in messages :
         ReplyCandidate(v, msg)
-    \* Rule 7: Certificate rebroadcast
     \/ \E v \in Validators : \E s \in Slots : \E h \in HashValues :
         RebroadcastNotarCert(v, s, h)
     \/ \E v \in Validators : \E s \in Slots :
         RebroadcastSkipCert(v, s)
     \/ \E v \in Validators : \E s \in Slots : \E h \in HashValues :
         RebroadcastFinalCert(v, s, h)
-    \* Rule 8: Standstill resolution
     \/ \E v \in HonestValidators :
         StandstillBroadcast(v)
 
-\******************************************************************************
-\*        FAIRNESS (Section 3.1 + 3.2)
-\*
-\* Safety is unconditional (no fairness needed).
-\* Liveness requires:
-\*   - Honest validators eventually act when their preconditions are met
-\*     (WF = weak fairness: "if continuously enabled, eventually taken")
-\*   - Messages are eventually delivered (SF = strong fairness: "if
-\*     repeatedly enabled, eventually taken" — models the probabilistic
-\*     post-GST guarantee that each delivery attempt succeeds w.p. > 0)
-\*   - Standstill broadcasts eventually reach peers (Rule 8 + Assumption 9)
-\******************************************************************************
+\* ---- fairness --------------------------------------------------------------
+\* Safety doesn't need any of this; it's here for liveness checks.
+\* Weak fairness on honest actions: if a vote is continuously enabled, it
+\* gets taken.  Strong fairness on delivery stands in for the
+\* "delivered with positive probability" guarantee after GST.
 
 Fairness ==
-    \* Honest validators eventually vote when preconditions are met
     /\ \A v \in HonestValidators : \A s \in Slots : \A h \in HashValues :
         WF_vars(VoteNotarize(v, s, h))
     /\ \A v \in HonestValidators : \A s \in Slots : \A h \in HashValues :
         WF_vars(VoteFinalize(v, s, h))
     /\ \A v \in HonestValidators : \A s \in Slots :
         WF_vars(VoteSkip(v, s))
-    \* Rule 1: Frontier advances when possible
     /\ \A v \in HonestValidators :
         WF_vars(UpdateFrontier(v))
-    \* Rule 3: Leaders propose when window becomes active
     /\ \A v \in HonestValidators : \A s \in Slots :
         WF_vars(ProposeCandidate(v, s))
-    \* Section 3.2: Messages are eventually delivered
     /\ SF_vars(\E msg \in messages : DeliverMessage(msg))
-    \* Rule 7: Certificates are rebroadcast
     /\ \A v \in Validators : \A s \in Slots : \A h \in HashValues :
         WF_vars(RebroadcastNotarCert(v, s, h))
     /\ \A v \in Validators : \A s \in Slots :
@@ -997,72 +772,82 @@ Fairness ==
     /\ \A v \in Validators : \A s \in Slots : \A h \in HashValues :
         WF_vars(RebroadcastFinalCert(v, s, h))
 
-\* Full specification: Init, Next, Fairness
-Spec == Init /\ [][Next]_vars /\ Fairness
+Spec       == Init /\ [][Next]_vars /\ Fairness
+SafetySpec == Init /\ [][Next]_vars             \* faster, invariant-only
 
-\* Safety-only spec (no fairness, for faster invariant checking)
-SafetySpec == Init /\ [][Next]_vars
+\* ============================================================================
+\*                            SAFETY INVARIANTS
+\* ============================================================================
 
-\******************************************************************************
-\*                   SAFETY INVARIANTS
-\******************************************************************************
+\* TypeOK: stay inside the declared types.  Cheap, catches regressions.
+TypeOK ==
+    /\ notarVotes  \in [Validators -> SUBSET (Slots \X HashValues)]
+    /\ skipVotes   \in [Validators -> SUBSET Slots]
+    /\ finalVotes  \in [Validators -> SUBSET (Slots \X HashValues)]
+    /\ observedNotar \in [Validators -> SUBSET (Slots \X HashValues)]
+    /\ observedSkip  \in [Validators -> SUBSET Slots]
+    /\ observedFinal \in [Validators -> SUBSET (Slots \X HashValues)]
+    /\ reachedNotar \subseteq (Slots \X HashValues)
+    /\ reachedSkip  \subseteq Slots
+    /\ reachedFinal \subseteq (Slots \X HashValues)
+    /\ frontier \in [Validators -> 0..(MaxSlot+1)]
+    /\ knownCandidates \in
+        [Validators -> SUBSET [slot : Slots,
+                               hash : HashValues,
+                               parentSlot : {GenesisSlot} \cup Slots,
+                               parentHash : HashValues,
+                               leader : Validators]]
 
-\*--------------------------------------------------------------------------
-\* Lemma 2.1 (Final–Skip exclusion)
-\* "For any slot s and hash h, Final(s,h) and Skip(s) cannot both be reached."
-\*--------------------------------------------------------------------------
+\* Lemma 2.1: Final(s,h) and Skip(s) cannot both be reached.
 FinalSkipExclusion ==
     \A s \in Slots : \A h \in HashValues :
         ~(<<s, h>> \in reachedFinal /\ s \in reachedSkip)
 
-\*--------------------------------------------------------------------------
-\* Lemma 2.2 (Unique notarization)
-\* "For any slot s, at most one h can have Notar(s,h) reached."
-\*--------------------------------------------------------------------------
+\* Lemma 2.2: at most one h with Notar(s,h) reached, per slot.
 UniqueNotarization ==
     \A s \in Slots : \A h1, h2 \in HashValues :
         (<<s, h1>> \in reachedNotar /\ <<s, h2>> \in reachedNotar) => h1 = h2
 
-\*--------------------------------------------------------------------------
-\* Lemma 2.3 (Finalization implies notarization)
-\* "If Final(s,h) is reached, then Notar(s,h) is reached."
-\*--------------------------------------------------------------------------
+\* Lemma 2.3: reached Final implies reached Notar.
 FinalizationImpliesNotarization ==
     \A s \in Slots : \A h \in HashValues :
         <<s, h>> \in reachedFinal => <<s, h>> \in reachedNotar
 
-\*--------------------------------------------------------------------------
-\* Lemma 2.4 (Unique finalization)
-\* "For any slot s, at most one h can have Final(s,h) reached."
-\*--------------------------------------------------------------------------
+\* Lemma 2.4: at most one h with Final(s,h) reached, per slot.
 UniqueFinalization ==
     \A s \in Slots : \A h1, h2 \in HashValues :
         (<<s, h1>> \in reachedFinal /\ <<s, h2>> \in reachedFinal) => h1 = h2
 
-\*--------------------------------------------------------------------------
-\* Section 1.4: Honest validator local uniqueness constraints
-\* An honest validator never votes Notar for two different hashes at same slot
-\*--------------------------------------------------------------------------
+\* §1.4 honest local rules.
+
 HonestNotarUniqueness ==
     \A v \in HonestValidators : \A s \in Slots : \A h1, h2 \in HashValues :
         (<<s, h1>> \in notarVotes[v] /\ <<s, h2>> \in notarVotes[v]) => h1 = h2
 
-\*--------------------------------------------------------------------------
-\* Section 1.4: Honest vote consistency
-\* An honest validator never votes both Final(s,*) and Skip(s)
-\*--------------------------------------------------------------------------
 HonestVoteConsistency ==
     \A v \in HonestValidators : \A s \in Slots :
         ~(\E h \in HashValues : <<s, h>> \in finalVotes[v]) \/ s \notin skipVotes[v]
 
+HonestLeaderNoEquivocation ==
+    \A v \in HonestValidators : \A s \in Slots :
+        Cardinality({c \in knownCandidates[v] :
+                        c.slot = s /\ c.leader = v /\ IsHonest(c.leader)}) <= 1
+
+\* Theorem 2.6: chain ending at the earlier finalized slot is a prefix of
+\* the chain ending at the later one.  WalkChainHashAt returns -1 when
+\* the chain doesn't pass through (s1, _), which is the violation case.
+ChainPrefixSafety ==
+    \A s1 \in Slots : \A h1 \in HashValues :
+        \A s2 \in Slots : \A h2 \in HashValues :
+            (/\ <<s1, h1>> \in reachedFinal
+             /\ <<s2, h2>> \in reachedFinal
+             /\ s1 < s2
+             /\ AnyCandidateExists(s2, h2)) =>
+                WalkChainHashAt(s1, s2, h2) = h1
+
 \*--------------------------------------------------------------------------
-\* Theorem 2.6 (Safety)
-\* "If Final(s_a,h_a) and Final(s_b,h_b) are both reached with s_a<=s_b,
-\*  then the chain ending at (s_a,h_a) is a prefix of the chain ending at
-\*  (s_b,h_b)."
-\*
-\* Checked as: if slot s1 is finalized and s2>s1 is also finalized, then
-\* s1 is NOT skipped in the chain of s2 (contradicts Lemma 2.1).
+\* Legacy parent-check form of safety (kept for backward compatibility).
+\* This follows directly from Lemma 2.1 (FinalSkipExclusion).
 \*--------------------------------------------------------------------------
 SafetyInvariant ==
     \A s1 \in Slots : \A h1 \in HashValues :
@@ -1087,60 +872,42 @@ OutputLogConsistency ==
                  /\ <<s2, h2>> \in observedFinal[v2]
                  /\ s1 = s2) => h1 = h2
 
-\*--------------------------------------------------------------------------
-\* Byzantine Fault Tolerance
-\* Safety holds when f < W/3
-\*--------------------------------------------------------------------------
+\* Safety holds under 3f < W; trivially implied by ByzantineWeightBound,
+\* but explicit so it shows up in the trace if someone configures past
+\* the bound.
 ByzantineFaultTolerance ==
     ByzantineWeight * 3 < TotalWeight => FinalSkipExclusion
 
-\******************************************************************************
-\*                LIVENESS PROPERTIES
-\******************************************************************************
+\* ============================================================================
+\*                            LIVENESS PROPERTIES
+\* ============================================================================
 
-\*--------------------------------------------------------------------------
-\* Theorem 3.6: "With probability 1 some slot s > s_f is eventually finalized."
-\* Under fairness and non-adversarial network (no drops), eventually a
-\* slot is finalized.
-\*--------------------------------------------------------------------------
+\* Theorem 3.6: some slot eventually gets finalized.
 EventualFinalization ==
     <>(\E s \in Slots : \E h \in HashValues : <<s, h>> \in reachedFinal)
 
-\*--------------------------------------------------------------------------
-\* Lemma 3.2: Every slot is eventually cleared; frontier -> infinity.
-\*--------------------------------------------------------------------------
+\* Lemma 3.2: every slot is eventually cleared (frontier grows).
 FrontierProgress ==
     \A v \in HonestValidators :
         \A s \in Slots :
             (frontier[v] = s) ~> (frontier[v] > s)
 
-\*--------------------------------------------------------------------------
-\* Theorem 3.7: "With probability 1, infinitely many slots are finalized."
-\* If one slot is finalized, another later slot will be eventually.
-\*--------------------------------------------------------------------------
+\* Theorem 3.7: one finalization is followed by another.
 InfiniteFinalization ==
     \A s \in 0..(MaxSlot-1) :
         (\E h \in HashValues : <<s, h>> \in reachedFinal) ~>
         (\E s2 \in (s+1)..MaxSlot : \E h2 \in HashValues : <<s2, h2>> \in reachedFinal)
 
-\*--------------------------------------------------------------------------
-\* No Deadlock: some action is always enabled
-\*--------------------------------------------------------------------------
 NoDeadlock == ENABLED(Next)
 
-\******************************************************************************
-\*        COMBINED TEMPORAL SAFETY PROPERTIES
-\******************************************************************************
-
+\* Compact box-form safety, handy as a single PROPERTY in cfgs.
 SafetyUnderFaults ==
     [](FinalSkipExclusion /\ UniqueNotarization /\ UniqueFinalization)
 
 SafetyUnderDrops ==
     [](FinalSkipExclusion /\ UniqueNotarization /\ UniqueFinalization)
 
-\******************************************************************************
-\*                  MODEL CHECKING CONSTRAINTS
-\******************************************************************************
+\* ---- state-space constraints (TLC) -----------------------------------------
 
 StateConstraint ==
     /\ \A v \in Validators : Cardinality(notarVotes[v]) <= MaxSlot + 1
@@ -1148,39 +915,27 @@ StateConstraint ==
     /\ \A v \in Validators : Cardinality(finalVotes[v]) <= MaxSlot + 1
     /\ Cardinality(messages) <= MaxMessages
 
-\******************************************************************************
-\*                    ASSUMPTIONS
-\******************************************************************************
+\* ---- assumptions -----------------------------------------------------------
 
-\* Section 1.1: f < W/3
-ASSUME ByzantineWeightBound == ByzantineWeight * 3 < TotalWeight
-
-\* Section 1.1: positive weights
-ASSUME PositiveWeights == \A v \in Validators : Weight(v) > 0
-
+ASSUME ByzantineWeightBound == ByzantineWeight * 3 < TotalWeight   \* f < W/3
+ASSUME PositiveWeights      == \A v \in Validators : Weight(v) > 0
 ASSUME MaxSlot > 0
 ASSUME LeaderWindowSize > 0
 
-\******************************************************************************
-\*   WEIGHT/CONFIG OPERATOR DEFINITIONS FOR TLC SUBSTITUTION
-\******************************************************************************
+\* Quorum intersection.  Two quorums always share an honest validator;
+\* this is the foundation of every safety lemma below.
+ASSUME QuorumIntersectionLemma ==
+    \A Q1, Q2 \in SUBSET Validators :
+        (IsQuorum(Q1) /\ IsQuorum(Q2)) =>
+            \E v \in (Q1 \cap Q2) : IsHonest(v)
 
-\* Uniform weight 1
-UniformWeight1(v) == 1
+\* ---- helpers for cfg substitution ------------------------------------------
 
-\* Uniform weight 10
-UniformWeight10(v) == 10
-
-\* Validator 1 has weight 3, others 1
-HeavyWeight1(v) == IF v = 1 THEN 3 ELSE 1
-
-\* Validator 1 has weight 5, others 1
-HeavyWeight1x5(v) == IF v = 1 THEN 5 ELSE 1
-
-\* Empty set for ByzantineSet
-NoByzantine == {}
-
-\* ValidSeq always true (§1.2 abstraction)
+UniformWeight1(v)   == 1
+UniformWeight10(v)  == 10
+HeavyWeight1(v)     == IF v = 1 THEN 3 ELSE 1
+HeavyWeight1x5(v)   == IF v = 1 THEN 5 ELSE 1
+NoByzantine         == {}
 AlwaysValidSeq(chainState) == TRUE
 
 ====
