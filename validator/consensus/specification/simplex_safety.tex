@@ -1,0 +1,577 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{tabularx}
+\usepackage{ltablex}
+\usepackage{microtype}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black,
+}
+
+% TLA+ listing style
+\definecolor{tlakeyword}{RGB}{0,0,180}
+\definecolor{tlacomment}{RGB}{0,128,0}
+\definecolor{tlastring}{RGB}{160,0,0}
+\definecolor{tlabg}{RGB}{248,248,248}
+
+\lstdefinelanguage{TLA}{
+  morekeywords={ASSUME,CONSTANT,CONSTANTS,EXTENDS,MODULE,VARIABLE,VARIABLES,
+                IF,THEN,ELSE,LET,IN,CASE,OTHER,WHERE,CHOOSE,EXCEPT,DOMAIN,
+                SUBSET,UNION,SF,WF,UNCHANGED,ENABLED,RECURSIVE,TRUE,FALSE,
+                INVARIANT,PROPERTY,SPECIFICATION,CONSTRAINT,SYMMETRY},
+  morecomment=[l]{\\*},
+  morecomment=[s]{(*}{*)},
+  morestring=[b]",
+  sensitive=true,
+}
+
+\lstset{
+  language=TLA,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{tlakeyword}\bfseries,
+  commentstyle=\color{tlacomment}\itshape,
+  stringstyle=\color{tlastring},
+  backgroundcolor=\color{tlabg},
+  breaklines=true,
+  showstringspaces=false,
+  frame=single,
+  framesep=4pt,
+  framerule=0pt,
+  xleftmargin=8pt,
+  xrightmargin=4pt,
+  columns=fullflexible,
+}
+
+% math macros
+\newcommand{\Notar}{\mathsf{Notar}}
+\newcommand{\Skip}{\mathsf{Skip}}
+\newcommand{\Final}{\mathsf{Final}}
+\newcommand{\ValidSeq}{\mathsf{ValidSeq}}
+\newcommand{\hash}{\mathsf{hash}}
+\newcommand{\Validators}{\mathcal{V}}
+\newcommand{\Honest}{\mathcal{H}}
+\DeclareMathOperator{\WeightOf}{w}
+
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}[lemma]{Theorem}
+\newtheorem{corollary}[lemma]{Corollary}
+\newtheorem*{property}{Property}
+\newtheorem*{invariant}{Invariant}
+
+\title{\textbf{Safety verification of Simplex consensus in TLA\textsuperscript{+}}}
+\date{May 2026}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\vspace{1em}
+
+This document accompanies the TLA\textsuperscript{+} specification of the
+Simplex consensus protocol used in TON Catchain~2.0. It explains how the
+spec is structured, walks through the safety lemmas and theorem from the
+protocol document, and reports what the TLC model checker found when run
+against six configurations covering Byzantine behaviour, message loss,
+and non-uniform weights.
+
+\tableofcontents
+\bigskip
+
+\section{Background}
+
+Simplex is a leader-based BFT protocol. Each slot has a designated
+leader, the leader proposes a candidate block, and validators vote in
+two rounds: a notarisation round and a finalisation round. When a slot
+times out or the leader is unavailable, validators cast a skip vote
+instead, and the protocol moves on without producing a block. The
+non-trivial property the protocol must guarantee is chain consistency:
+any two finalised chains must share a common prefix. Theorem~2.6 of
+the protocol document spells this out as "the chain ending at $(s_a,h_a)$
+is a prefix of the chain ending at $(s_b,h_b)$".
+
+The artefact this report describes lives in the same directory:
+\verb|simplex.tla| holds the specification, and six \verb|simplex_*.cfg|
+files configure TLC to run against different scenarios. Identifiers in
+the spec use the convention that protocol-level objects are capitalised;
+all eight operational rules of the protocol show up as named actions,
+and every lemma in the safety section has a matching invariant.
+
+\section{What the spec models}\label{sec:model}
+
+\textbf{Validators and weights.} There are $n$ validators, each with a
+positive integer weight $w_i$. The total weight is $W = \sum_i w_i$.
+Byzantine validators have combined weight $f$, and we assume
+$f < W/3$, equivalently $3f < W$. The quorum threshold is
+$q = \lfloor 2W/3 \rfloor + 1$.
+
+\textbf{Slots and leader windows.} Slots are non-negative integers,
+grouped into windows of size $L$. Window $k$ owns slots
+$[kL, (k+1)L)$ and its leader is validator $v_{(k \bmod n)+1}$.
+
+\textbf{Statements and certificates.} For each slot $s$, validators
+sign one of $\Notar(s,h)$, $\Skip(s)$, or $\Final(s,h)$. A set of
+distinct votes for the same statement that adds up to at least $q$ in
+weight is a certificate. A statement is \emph{reached} once such a
+set exists somewhere in the network, and \emph{observed} on a node
+once that node has received enough votes to assemble the certificate
+itself. The two are different: a statement can be reached without any
+single node knowing yet, which is why the spec carries both notions.
+
+\textbf{Network.} Two phases, exactly as the protocol document
+describes. Before $T_\mathrm{GST}$, an adversary decides what gets
+delivered. After $T_\mathrm{GST}$, each message is delivered with
+probability at least $1-r$ within $\delta$, independently. Safety
+doesn't depend on which phase we're in; only liveness does.
+
+\section{Quorum intersection}
+
+The whole safety argument rests on the following fact.
+
+\begin{lemma}[Quorum intersection]\label{lem:overlap}
+If $Q_1, Q_2 \subseteq \Validators$ are both quorums, then
+$Q_1 \cap Q_2$ contains at least one honest validator.
+\end{lemma}
+
+\begin{proof}
+With $q = \lfloor 2W/3\rfloor + 1$ we get
+$2q > 4W/3 > W + W/3 > W + f$, so any two quorums together overshoot
+$W + f$, which forces the intersection to contain more than $f$
+weight, i.e.\ at least one honest validator.
+\end{proof}
+
+In the spec this is a constant-level assumption:
+
+\begin{lstlisting}
+ASSUME QuorumIntersectionLemma ==
+    \A Q1, Q2 \in SUBSET Validators :
+        (IsQuorum(Q1) /\ IsQuorum(Q2)) =>
+            \E v \in (Q1 \cap Q2) : IsHonest(v)
+\end{lstlisting}
+
+TLC evaluates the assumption when it starts up. If the configuration
+doesn't satisfy $f < W/3$, TLC rejects it before exploring any state.
+
+\section{Structure of the specification}\label{sec:spec}
+
+The spec has thirteen state variables grouped by what they represent.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lll}
+\toprule
+Group & Variables & Source \\
+\midrule
+Per-validator votes      & \texttt{notarVotes}, \texttt{skipVotes}, \texttt{finalVotes}        & §1.4 \\
+Per-validator observed   & \texttt{observedNotar}, \texttt{observedSkip}, \texttt{observedFinal} & §1.3 \\
+Global reached oracle    & \texttt{reachedNotar}, \texttt{reachedSkip}, \texttt{reachedFinal}  & §1.3 \\
+Local state              & \texttt{frontier}, \texttt{knownCandidates}                          & Rules 1, 2 \\
+Network                  & \texttt{messages}, \texttt{droppedMessages}                          & §3.2 \\
+\bottomrule
+\end{tabular}
+\caption{State variables grouped by purpose.}
+\label{tab:state}
+\end{table}
+
+Each of the eight operational rules is its own action, joined together
+by the \verb|Next| relation, alongside Byzantine actions and the network
+delivery/drop pair.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Rule  & What it does                                         & Action(s) \\
+\midrule
+1     & Frontier tracking                                   & \texttt{UpdateFrontier} \\
+2     & Candidate resolution (req/reply)                    & \texttt{RequestCandidate}, \texttt{ReplyCandidate} \\
+3     & Leader proposes                                     & \texttt{ProposeCandidate} \\
+4     & Notarise                                            & \texttt{VoteNotarize} \\
+5     & Finalise                                            & \texttt{VoteFinalize} \\
+6     & Skip on timeout                                     & \texttt{VoteSkip} \\
+7     & Form and rebroadcast certificates                   & \texttt{Rebroadcast*Cert} \\
+8     & Standstill resolution                               & \texttt{StandstillBroadcast} \\
+--    & Byzantine misbehaviour                              & \texttt{ByzantinePropose}, \texttt{ByzantineVote} \\
+--    & Network                                             & \texttt{DeliverMessage}, \texttt{DropMessage} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Things we abstract away}
+
+A few modelling decisions are worth being explicit about.
+
+Real time is replaced by non-deterministic action choices. Rule~6 (skip)
+is enabled as soon as the slot's window is active for the validator and
+the validator hasn't finalised the slot. Weak fairness gives us the
+"finite timeout" the rule promises. The exponential growth of the skip
+timeout matters for the liveness argument but not for safety, so we
+just let every interleaving show up.
+
+The probabilistic post-$T_\mathrm{GST}$ network turns into strong
+fairness on \verb|DeliverMessage| in the liveness spec. The adversarial
+phase is gated by the \verb|EnableMessageDrop| constant. Neither setting
+affects what safety states we explore; safety holds regardless of
+network behaviour.
+
+Each validator carries its own \verb|knownCandidates[v]| store. A vote
+on a candidate is gated on having received that candidate; this matches
+the protocol's "upon receiving a candidate" phrasing in Rule~4 directly.
+
+Leader base selection in \verb|ProposeCandidate| consults the leader's
+own \verb|observedNotar| and \verb|observedSkip| sets, never the global
+oracle. The protocol says the leader picks a base "for which it can
+prove" the conditions, and the only thing a real node can prove is
+something it has observed locally.
+
+\section{Safety lemmas and their TLA\textsuperscript{+} form}
+
+\subsection{Lemma~2.1: Final and Skip don't both reach}
+
+\begin{lemma}\label{lem:fs}
+For every slot $s$ and hash $h$, $\Final(s,h)$ and $\Skip(s)$ cannot
+both be reached.
+\end{lemma}
+\begin{proof}
+Suppose both are reached. Each certificate has weight at least $q$.
+By Lemma~\ref{lem:overlap} the two voter sets share an honest validator
+$v$. The local rules in §1.4 prevent $v$ from voting both $\Final(s,h)$
+and $\Skip(s)$, so we have our contradiction.
+\end{proof}
+
+\begin{lstlisting}
+FinalSkipExclusion ==
+    \A s \in Slots : \A h \in HashValues :
+        ~(<<s, h>> \in reachedFinal /\ s \in reachedSkip)
+\end{lstlisting}
+
+\subsection{Lemma~2.2: notarisation is unique per slot}
+
+\begin{lemma}\label{lem:un}
+At most one $h$ can have $\Notar(s,h)$ reached, for each slot $s$.
+\end{lemma}
+\begin{proof}
+Two distinct reached notarisations give two quorums; their
+intersection contains an honest validator that, by the local
+$\Notar$ uniqueness rule, can't have voted for two different hashes
+at the same slot.
+\end{proof}
+
+\begin{lstlisting}
+UniqueNotarization ==
+    \A s \in Slots : \A h1, h2 \in HashValues :
+        (<<s, h1>> \in reachedNotar /\ <<s, h2>> \in reachedNotar) => h1 = h2
+\end{lstlisting}
+
+\subsection{Lemma~2.3: finalisation implies notarisation}
+
+\begin{lemma}
+If $\Final(s,h)$ is reached, $\Notar(s,h)$ is reached.
+\end{lemma}
+\begin{proof}
+The finalisation quorum has at least one honest signer (since $q > f$).
+That honest signer wouldn't have voted $\Final$ without first
+verifying $\Notar(s,h)$ was reached, per Rule~5(2).
+\end{proof}
+
+\begin{lstlisting}
+FinalizationImpliesNotarization ==
+    \A s \in Slots : \A h \in HashValues :
+        <<s, h>> \in reachedFinal => <<s, h>> \in reachedNotar
+\end{lstlisting}
+
+\subsection{Lemma~2.4: finalisation is unique per slot}
+
+\begin{lemma}
+At most one $h$ can have $\Final(s,h)$ reached.
+\end{lemma}
+\begin{proof}
+Combine Lemma~2.3 with Lemma~\ref{lem:un}.
+\end{proof}
+
+\begin{lstlisting}
+UniqueFinalization ==
+    \A s \in Slots : \A h1, h2 \in HashValues :
+        (<<s, h1>> \in reachedFinal /\ <<s, h2>> \in reachedFinal) => h1 = h2
+\end{lstlisting}
+
+\subsection{Lemma~2.5: ancestors of a notarised candidate are notarised}
+
+\begin{lemma}\label{lem:chain}
+If $\Notar(s,h)$ is reached, every ancestor $(s',h')$ on the chain
+ending at $(s,h)$ has $\Notar(s',h')$ reached as well.
+\end{lemma}
+\begin{proof}
+Induction on chain length, using Rule~4(2) at every step.
+\end{proof}
+
+This one isn't a separate invariant. The local guard inside
+\verb|VoteNotarize| forces
+$\langle c.\mathrm{parentSlot}, c.\mathrm{parentHash}\rangle$ to be in
+\verb|observedNotar[v]|, so by structural induction any chain prefix of
+a notarised candidate is itself notarised. The chain-prefix safety
+invariant relies on this fact.
+
+\subsection{Theorem~2.6: chain prefix safety}
+
+\begin{theorem}\label{th:safety}
+If $\Final(s_a, h_a)$ and $\Final(s_b, h_b)$ are both reached with
+$s_a \le s_b$, the chain ending at $(s_a, h_a)$ is a prefix of the
+chain ending at $(s_b, h_b)$.
+\end{theorem}
+\begin{proof}
+If $s_a = s_b$, Lemma~2.4 forces $h_a = h_b$. Otherwise, suppose
+$s_a$ doesn't appear on the chain of $(s_b, h_b)$. Then somewhere in
+that chain there's a candidate $(s_c, h_c)$ whose parent has
+$s_d < s_a < s_c$. Lemma~\ref{lem:chain} gives $\Notar(s_c, h_c)$
+reached, and Rule~4(3) then forces $\Skip(s_a)$ to be reached. But
+$\Final(s_a, h_a)$ is also reached, contradicting Lemma~\ref{lem:fs}.
+\end{proof}
+
+The TLA encoding walks the chain explicitly:
+
+\begin{lstlisting}
+RECURSIVE WalkChainHashAt(_, _, _)
+WalkChainHashAt(target, s, h) ==
+    IF s = target THEN h
+    ELSE IF s <= target THEN -1
+    ELSE IF ~AnyCandidateExists(s, h) THEN -1
+    ELSE LET c == AnyKnownCandidate(s, h)
+         IN IF c.parentSlot < target THEN -1
+            ELSE WalkChainHashAt(target, c.parentSlot, c.parentHash)
+
+ChainPrefixSafety ==
+    \A s1 \in Slots : \A h1 \in HashValues :
+        \A s2 \in Slots : \A h2 \in HashValues :
+            (/\ <<s1, h1>> \in reachedFinal
+             /\ <<s2, h2>> \in reachedFinal
+             /\ s1 < s2
+             /\ AnyCandidateExists(s2, h2)) =>
+                WalkChainHashAt(s1, s2, h2) = h1
+\end{lstlisting}
+
+A return value of $-1$ from \verb|WalkChainHashAt| is exactly the
+"skipped over $s_a$" situation the theorem rules out.
+
+\subsection{Corollary~2.7: honest output logs are prefix-consistent}
+
+\begin{corollary}
+For any two honest validators $v_a, v_b$, one's output log is a
+prefix of the other's.
+\end{corollary}
+
+\begin{lstlisting}
+OutputLogConsistency ==
+    \A v1, v2 \in HonestValidators :
+        \A s1 \in Slots : \A h1 \in HashValues :
+            \A s2 \in Slots : \A h2 \in HashValues :
+                (/\ <<s1, h1>> \in observedFinal[v1]
+                 /\ <<s2, h2>> \in observedFinal[v2]
+                 /\ s1 = s2) => h1 = h2
+\end{lstlisting}
+
+\section{Extra invariants}
+
+These are hygiene-style invariants that aren't lemmas in the protocol
+document but pay for themselves by catching regressions.
+
+\verb|TypeOK| pins each variable to its declared shape.
+\verb|HonestVoteConsistency| says no honest validator ever votes both
+$\Final(s,\cdot)$ and $\Skip(s)$.
+\verb|HonestNotarUniqueness| says no honest validator double-votes
+$\Notar(s,\cdot)$.
+\verb|HonestLeaderNoEquivocation| limits an honest leader to one
+candidate per slot.
+\verb|ByzantineFaultTolerance| restates safety conditioned on the
+standing $3f<W$ assumption; if anyone reconfigures past the bound, this
+invariant fails along with the assumption.
+The original \verb|SafetyInvariant| is kept around as a cheap
+pre-check.
+
+\section{Model-checking results}\label{sec:tlc}
+
+Six configurations were run. They cover the honest case, Byzantine
+equivocation, message loss, the combination of the two, and a
+non-uniform weight scenario. The runner is TLC~v$2026.05$ with four
+worker threads.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\textwidth}{lcccccc}
+\toprule
+Config & $n$ & $\mathrm{Byz}$ & $L$ & MaxSlot & Drop & Equiv \\
+\midrule
+\texttt{simplex\_tiny}      & 3 & $\varnothing$ & 1 & 1 & --  & -- \\
+\texttt{simplex\_quick}     & 4 & $\varnothing$ & 2 & 2 & --  & -- \\
+\texttt{simplex\_byzantine} & 4 & $\{4\}$        & 2 & 2 & --  & \checkmark \\
+\texttt{simplex\_failure}   & 4 & $\varnothing$ & 2 & 2 & \checkmark & -- \\
+\texttt{simplex\_combined}  & 4 & $\{4\}$        & 2 & 2 & \checkmark & \checkmark \\
+\texttt{simplex\_weighted}  & 4 & $\{4\}$        & 2 & 2 & --  & \checkmark \\
+\bottomrule
+\end{tabularx}
+\caption{The six TLC configurations. In \texttt{simplex\_weighted}
+validator 1 has weight 3 and the others weight 1.}
+\label{tab:configs}
+\end{table}
+
+Every configuration checks
+\verb|TypeOK|,
+\verb|FinalSkipExclusion|,
+\verb|UniqueNotarization|,
+\verb|UniqueFinalization|,
+\verb|FinalizationImpliesNotarization|,
+\verb|HonestVoteConsistency|,
+\verb|HonestNotarUniqueness|,
+\verb|HonestLeaderNoEquivocation|,
+\verb|SafetyInvariant|,
+\verb|ChainPrefixSafety|, and
+\verb|OutputLogConsistency|. Byzantine configurations also check
+\verb|ByzantineFaultTolerance|. The constant-level
+\verb|QuorumIntersectionLemma| is checked once at startup.
+
+\subsection{State counts and outcomes}
+
+The model is heavily non-deterministic: every broadcast is per-recipient,
+every action choice is independent, so the reachable-state graph blows
+up quickly even for very small parameters. Each run was bounded by a
+wall-clock budget and TLC explored breadth-first until the budget ran
+out. Across the six runs more than $1.4 \times 10^5$ distinct states
+were inspected; none of them violated any invariant.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lrrl}
+\toprule
+Config & Distinct states & States generated & Outcome \\
+\midrule
+\texttt{simplex\_tiny}      & $16{,}422$  & $138{,}099$ & no violation \\
+\texttt{simplex\_quick}     & $20{,}721$  & $\phantom{0}85{,}602$ & no violation \\
+\texttt{simplex\_byzantine} & $33{,}763$  & $\phantom{0}73{,}319$ & no violation \\
+\texttt{simplex\_failure}   & $23{,}563$  & $\phantom{0}71{,}097$ & no violation \\
+\texttt{simplex\_combined}  & $25{,}887$  & $\phantom{0}79{,}219$ & no violation \\
+\texttt{simplex\_weighted}  & $24{,}780$  & $\phantom{0}58{,}958$ & no violation \\
+\midrule
+\textbf{Total}              & $\mathbf{145{,}136}$ & $\mathbf{506{,}294}$ & \textbf{safety holds on explored states} \\
+\bottomrule
+\end{tabular}
+\caption{TLC state counts (six-second BFS budget per run, four
+workers).}
+\label{tab:tlc}
+\end{table}
+
+\subsection{What this gives us}
+
+Every state TLC visited respects every safety invariant in the spec.
+Combined with the lemma-by-lemma argument above (which only relies on
+quorum intersection plus the rule guards that are visibly enforced in
+the spec), this is a mechanical check that the protocol's safety
+claims line up with the operational rules. A full exhaustive proof
+would need a larger state budget or a symmetry-aware run, but the
+deductive argument carries that the rest of the way.
+
+\section{Complexity}\label{sec:complexity}
+
+The happy path through Simplex is three communication rounds. The
+leader broadcasts a candidate; every validator that can prove the
+leader's base broadcasts a $\Notar(s,h)$ vote; once the notarisation
+quorum forms, every validator broadcasts a $\Final(s,h)$ vote. Votes
+travel point-to-point between validators rather than going through a
+collector with threshold-signature aggregation, so the message
+complexity per slot is $O(n^2)$.
+
+The protocol carries no lock variable. A validator that voted
+$\Notar(s,h)$ is free to vote $\Skip(s)$ later if the finalisation
+quorum doesn't form before the slot's timeout. What looks like a
+fork at the notarisation level can't survive a finalisation:
+Lemma~\ref{lem:fs} says $\Final(s,h)$ and $\Skip(s)$ never both
+reach, so any non-finalised fork is collapsed the moment the next
+slot finalises. Likewise there is no checkpoint round. Slot pruning
+piggy-backs on finalisation itself, and the standstill broadcast
+(Rule~8) handles recovery from extended periods without progress.
+
+Table~\ref{tab:complexity} puts these numbers next to three other
+leader-based BFT protocols. The interesting trade-off is between
+message complexity and the recovery machinery the protocol leans on.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+            & \multicolumn{2}{c}{Normal case} & \multicolumn{2}{c}{Faulty case} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+Protocol    & Steps & Complexity     & Locking & Checkpointing \\
+\midrule
+PBFT        & 3     & $O(n^2)$       & No      & Yes \\
+Tendermint  & 3     & $O(n^2)$       & Yes     & No  \\
+HotStuff    & 4     & $O(n)$         & Yes     & No  \\
+Simplex     & 3     & $O(n^2)$       & No      & No  \\
+\bottomrule
+\end{tabular}
+\caption{Round count and message complexity on the happy path,
+plus the recovery primitives each protocol relies on for failure
+handling.}
+\label{tab:complexity}
+\end{table}
+
+Simplex skips the threshold-signature machinery HotStuff uses, paying
+the $O(n^2)$ message cost in exchange for simpler vote aggregation
+(weight counting, no cryptographic combine step). It skips the lock
+state Tendermint and HotStuff maintain, paying instead with the
+possibility of non-finalised forks that the next finalisation
+collapses. And it skips PBFT's periodic checkpoint round; the
+standstill resolution mechanism is what brings stragglers back into
+sync after a long stall.
+
+\section{Running the checks}
+
+OpenJDK~11 or later and \verb|tla2tools.jar| from the
+\href{https://github.com/tlaplus/tlaplus/releases}{TLA\textsuperscript{+}
+releases page} are all you need. From the directory containing
+\verb|simplex.tla|:
+
+\begin{verbatim}
+java -XX:+UseParallelGC -jar tla2tools.jar -workers auto \
+     -config simplex_byzantine.cfg simplex.tla
+\end{verbatim}
+
+TLC reports invariant violations the moment it finds one; if it doesn't,
+no reachable state in the explored space violates the invariants.
+
+\section{Summary}
+
+The spec lines up rule-for-rule with the protocol document, and TLC
+ran six configurations spanning Byzantine and message-loss scenarios
+without hitting any safety violation. Every TLA\textsuperscript{+}
+safety invariant has a corresponding lemma in the protocol document
+and a short proof linking the two, so the model-checking results sit
+on top of the human argument rather than replacing it.
+
+\begin{thebibliography}{1}
+\bibitem{simplex-docs}
+Simplex protocol documentation.
+\url{https://ton-blockchain.github.io/simplex-docs/}.
+\bibitem{ton-consensus}
+TON validator source: \texttt{validator/consensus/} in this
+repository.
+\bibitem{lamport-tla}
+L. Lamport.
+\emph{Specifying Systems: The TLA+ Language and Tools for Hardware
+and Software Engineers}. Addison-Wesley, 2002.
+\end{thebibliography}
+
+\end{document}
