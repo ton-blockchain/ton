@@ -2542,20 +2542,8 @@ bool Collator::out_msg_queue_cleanup() {
             -667, PSTRING() << "internal error: no info for checking processed messages from neighbor " << nb.blk_);
       }
     }
-    auto queue_root = out_msg_queue_->get_root_cell();
-    if (queue_root.is_null()) {
-      LOG(DEBUG) << "out_msg_queue is empty";
-      return true;
-    }
-    // Unwrap UsageCell: don't build proof for visiting output queue (unless something is deleted)
-    auto r_cell = queue_root->load_cell();
-    if (r_cell.is_error()) {
-      return fatal_error(r_cell.move_as_error());
-    }
-    auto pure_out_msg_queue =
-        std::make_unique<vm::AugmentedDictionary>(r_cell.move_as_ok().data_cell, 352, block::tlb::aug_OutMsgQueue);
     td::uint32 deleted = 0;
-    bool ok = pure_out_msg_queue->check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) -> bool {
+    bool ok = out_msg_queue_->check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) -> bool {
       vm::CellSlice& cs = value.write();
       assert(n == 352);
       block::EnqueuedMsgDescr enq_msg_descr;
@@ -2586,14 +2574,7 @@ bool Collator::out_msg_queue_cleanup() {
         --out_msg_queue_size_;
         LOG(DEBUG) << "outbound message with (lt,hash)=(" << enq_msg_descr.lt_ << "," << enq_msg_descr.hash_.to_hex()
                    << ") enqueued_lt=" << enq_msg_descr.enqueued_lt_ << " has been already delivered, dequeueing";
-        // Get value from out_msg_queue_ instead of pure_out_msg_queue (for proof)
-        auto value2 = out_msg_queue_->lookup_delete_with_extra(key, n);
-        CHECK(value2.not_null());
-        vm::CellSlice& cs2 = value2.write();
-        CHECK(cs2.fetch_ulong_bool(64, created_lt)  // augmentation
-              && enq_msg_descr.unpack(cs2)          // unpack EnqueuedMsg
-              && enq_msg_descr.check_key(key)       // check key
-              && enq_msg_descr.lt_ == created_lt);
+        out_msg_queue_->lookup_delete(key, n);
 
         if (!dequeue_message(std::move(enq_msg_descr.msg_env_), deliver_lt)) {
           fatal_error(PSTRING() << "cannot dequeue outbound message with (lt,hash)=(" << enq_msg_descr.lt_ << ","
