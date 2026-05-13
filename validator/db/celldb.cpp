@@ -226,7 +226,7 @@ void CellDbIn::start_up() {
         .use_arena = false,
         .use_less_memory_during_creation = true,
     };
-    LOG(WARNING) << "Using InMemory DynamicBagOfCells with options " << *boc_v2_options;
+    LOG(WARNING) << "Using InMemory DynamicBagOfCells with options " << *boc_in_memory_options;
   } else {
     boc_v1_options = vm::DynamicBagOfCellsDb::CreateV1Options{};
     LOG(WARNING) << "Using V1 DynamicBagOfCells with options " << *boc_v1_options;
