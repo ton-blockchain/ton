@@ -106,19 +106,20 @@ fun is_nan(x: int): int
 @pure
 @inline_ref
 fun geom_mean(a: int, b: int): int {
-    if (!min(a, b)) {
+    if (min(a, b) == 0) {
     return 0;
     }
     var s: int = log2_floor_p1(a);   // throws out of range error if a < 0 or b < 0
     var t: int = log2_floor_p1(b);
     // NB: (a-b)/2+b == (a+b)/2, but without overflow for large a and b
     var x: int = (s == t ? (a - b) / 2 + b : 1 << ((s + t) / 2));
+    var q: int;
     do {
     // if always used with b=2^const, may be optimized to "const LSHIFTDIVC#"
     // it is important to use `mulDivCeil` here, not `mulDivFloor` or `mulDivRound`
-    var q: int = (mulDivCeil(a, b, x) - x) / 2;
+    q = (mulDivCeil(a, b, x) - x) / 2;
     x += q;
-    } while (q);
+    } while (q != 0);
     return x;
 }
 
@@ -465,7 +466,7 @@ fun fixed248_tan(x_: int): int {
     var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (a, b) = tan_aux_f256(x);  // now a/b = tan(x')
-    if (q & 1) {
+    if ((q & 1) != 0) {
     (a, b) = (b, -a);
     }
     return mulDivRound(a, 1 << 248, b);   // either -b/a or a/b as fixed248
@@ -479,7 +480,7 @@ fun fixed248_cot(x_: int): int {
     var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (b, a) = tan_aux_f256(x);  // now b/a = tan(x')
-    if (q & 1) {
+    if ((q & 1) != 0) {
     (a, b) = (b, -a);
     }
     return mulDivRound(a, 1 << 248, b);   // either -b/a or a/b as fixed248
@@ -657,7 +658,7 @@ fun fixed248_log2(x: int): int {
 @pure
 @inline_ref
 fun fixed248_pow(x: int, y: int): int {
-    if (!y) {
+    if (y == 0) {
     return 1 << 248;   // x^0 = 1
     }
     if (x <= 0) {
@@ -808,7 +809,7 @@ fun atan_auxx_f256(x: int): (int, int) {
 fun atan_f255(x: int): int {
     var s: int = (x ~>> 256);
     x.stackMoveToTop();
-    if (s) {
+    if (s != 0) {
         x = lshift256divr(-1 << 255, x);   // x:=-1/x as fixed256
     } else {
         x *= 2;   // convert to fixed256
@@ -836,7 +837,7 @@ fun atan_f256_small(x: int): int {
 @inline_ref
 fun asin_f255(x: int): int {
     var a: int = fixed255_One - fixed255_sqr(x);  // a:=1-x^2
-    if (!a) {
+    if (a == 0) {
     return sign(x) * Pi_const_f254();   // Pi/2 or -Pi/2
     }
     var y: int = fixed255_sqrt(a);   // sqrt(1-x^2)
@@ -881,7 +882,7 @@ fun fixed248_acos(x: int): int {
 fun fixed248_atan(x: int): int {
     var s: int = (x ~>> 249);
     x.stackMoveToTop();
-    if (s) {
+    if (s != 0) {
         s = sign(s);
         x = lshift256divr(-1 << 248, x);   // x:=-1/x as fixed256
     } else {
@@ -898,7 +899,7 @@ fun fixed248_atan(x: int): int {
 fun fixed248_acot(x: int): int {
     var s: int = (x ~>> 249);
     x.stackMoveToTop();
-    if (s) {
+    if (s != 0) {
         x = lshift256divr(-1 << 248, x);   // x:=-1/x as fixed256
         s = 0;
     } else {
@@ -941,7 +942,7 @@ fun nrand_f252(): int {
                 }
             }
         }
-    } while (!(~ is_nan(x)));
+    } while ((~ is_nan(x)) == 0);
     return x;
 }
 

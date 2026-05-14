@@ -17,6 +17,7 @@
 #include "constant-evaluator.h"
 #include "ast.h"
 #include "compilation-errors.h"
+#include "compiler-state.h"
 #include "generics-helpers.h"
 #include "type-system.h"
 #include "openssl/digest.hpp"
@@ -184,10 +185,35 @@ static ConstValBool create_const_bool(bool bool_val) {
 }
 
 // a simple wrapper for ConstValCastToType constructor
-static ConstValCastToType create_const_cast(ConstValExpression&& inner, TypePtr cast_to) {
+static ConstValExpression create_const_cast(ConstValExpression&& inner, TypePtr cast_to) {
+  // don't insert a cast when it's not required actually
+  const ConstValCastToType* already_cast = std::get_if<ConstValCastToType>(&inner);
+  if (already_cast && already_cast->cast_to->equal_to(cast_to)) {
+    return inner;
+  }
+  const ConstValInt* already_int = std::get_if<ConstValInt>(&inner);
+  if (already_int && cast_to == TypeDataInt::create()) {
+    return inner;
+  }
+
   // to store ConstValExpression inside (recursively), we need to place it into the heap;
   // the best way I've found is to create std::vector with a single element (std::unique_ptr doesn't work)
   return ConstValCastToType{{std::move(inner)}, cast_to};
+}
+
+// for cases like
+// > const A: coins = 10
+// > const A: lisp_list<int> = []
+// > (field) x: array<int>? = [2]
+// insert a cast for correctness
+static ConstValExpression create_const_cast_for_declared(ConstValExpression&& inner, TypePtr inferred_type, TypePtr declared_type) {
+  if (declared_type) {
+    if (!inferred_type->equal_to(declared_type)) {
+      inner = create_const_cast(std::move(inner), inferred_type);
+    }
+    inner = create_const_cast(std::move(inner), declared_type);
+  }
+  return inner;
 }
 
 // extract `5` from `(5 as int32 as int64)` in terms of ConstValExpression
@@ -246,6 +272,13 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
       return ConstValString{typeT->as_human_readable()};
     }
 
+    if (f_name == "typeUniqueIdxOf" || f_name == "typeUniqueIdxOfObject") {
+      TypePtr typeT = v->fun_maybe->substitutedTs->typeT_at(0);
+      G.symbol_types_pool.register_used_type(typeT);
+      int ty_idx = G.symbol_types_pool.get_type_idx(typeT);
+      return ConstValInt{td::make_refint(ty_idx)};
+    }
+
     if (f_name == "sourceLocation") {
       SrcRange::DecodedRange d = v->range.decode_offsets();
       StructPtr s_SourceLocation = v->fun_maybe->declared_return_type->try_as<TypeDataStruct>()->struct_ref;
@@ -269,7 +302,11 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
     f_name = v->fun_maybe->method_name;
 
     // support both `"abc".crc32()` and `string.crc32("abc")`
-    tolk_assert(v->get_num_args() == !v->dot_obj_is_self);
+    int expected_args = !v->dot_obj_is_self;
+    if (v->get_num_args() != expected_args) {
+      // an error "too few arguments" has already been collected at type checker; the user will see it later
+      return ConstValNullLiteral{};
+    }
     AnyExprV self_obj = v->dot_obj_is_self ? v->get_self_obj() : v->get_arg(0)->get_expr();
     std::string str;
     if (!extract_string_literal_from_v(self_obj, str)) {
@@ -315,7 +352,9 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
     }
   }
 
-  tolk_assert(v->get_num_args() == 1);    // checked by type inferring
+  if (v->get_num_args() != 1) {
+    return ConstValNullLiteral{};
+  }
   AnyExprV v_arg = v->get_arg(0)->get_expr();
 
   std::string str;
@@ -336,7 +375,7 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
   if (f_name == "address") {              // previously, postfix "..."a
     unsigned char data[267];
     parse_any_std_address(str, v_arg->range, &data);
-    return ConstValAddress{td::BitSlice{data, sizeof(data)}.to_hex()};
+    return ConstValAddress{static_cast<std::string>(str), td::BitSlice{data, sizeof(data)}.to_hex()};
   }
 
   if (f_name == "stringCrc32") {          // previously, postfix "..."c
@@ -476,6 +515,9 @@ class ConstExpressionEvaluator {
     ConstValExpression val = eval_any_v_or_fire(v->get_expr());
 
     TypePtr cast_to = v->inferred_type;
+    if (cast_to == TypeDataUnknown::create()) {   // `unknown` is forbidden in constants
+      err("not a constant expression").fire(v);
+    }
     return create_const_cast(std::move(val), cast_to);
   }
 
@@ -581,17 +623,22 @@ public:
       std::vector<ConstValExpression> fields;
       fields.reserve(struct_ref->get_num_fields());
       for (StructFieldPtr field_ref : struct_ref->fields) {   // in the declared order
-        AnyExprV v_init_val = field_ref->default_value;
+        AnyExprV v_init_val = nullptr;
         for (int i = 0; i < v_body->get_num_fields(); ++i) {
           if (v_body->get_field(i)->get_field_name() == field_ref->name) {
             v_init_val = v_body->get_field(i)->get_init_val();
             break;
           }
         }
-        if (!v_init_val) {    // type `void` and missing fields not supported
-          err("some fields of a struct are missing").fire(v);
+        if (v_init_val) {
+          ConstValExpression field_val = eval_any_v_or_fire(v_init_val);
+          fields.emplace_back(create_const_cast_for_declared(std::move(field_val), v_init_val->inferred_type, field_ref->declared_type));
+        } else if (field_ref->default_value) {
+          ConstValExpression field_val = eval_field_default_value(field_ref);
+          fields.emplace_back(create_const_cast_for_declared(std::move(field_val), field_ref->default_value->inferred_type, field_ref->declared_type));
+        } else {    // type `void` and missing fields not supported
+          err("field `{}` of a struct is missing", field_ref).fire(v);
         }
-        fields.emplace_back(eval_any_v_or_fire(v_init_val));
       }
       return ConstValObject{struct_ref, std::move(fields)};
     }
@@ -616,20 +663,36 @@ ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {
     return it->second;
   }
 
-  // constants initializers are not recursive (checked at inferring), so no stack guards here
+  // direct const-to-const cycles are detected at inferring, but more tricky cycles can survive until here
+  // (e.g. `struct S { x: int = C.x } const C: S = {}`)
+  static thread_local std::vector<GlobalConstPtr> called_stack;
+  bool contains = std::find(called_stack.begin(), called_stack.end(), const_ref) != called_stack.end();
+  if (contains) {
+    err("const `{}` appears, directly or indirectly, in its own initializer", const_ref).fire(const_ref->ident_anchor);
+  }
+  called_stack.push_back(const_ref);
+
   ConstValExpression v = ConstExpressionEvaluator::eval_any_v_or_fire(const_ref->init_value);
   // for `const A: coins = 10` or `const A: lisp_list<int> = []` insert a cast for correctness
-  if (TypePtr cast_to = const_ref->declared_type) {
-    // but don't insert for obvious `const A: coins = ton("1")` or `const A: int = 1`
-    const ConstValCastToType* already_cast = std::get_if<ConstValCastToType>(&v);
-    const ConstValInt* already_int = std::get_if<ConstValInt>(&v);
-    bool insert_cast = already_cast ? !already_cast->cast_to->equal_to(cast_to) : already_int ? cast_to != TypeDataInt::create() : true;
-    if (insert_cast) {
-      v = create_const_cast(std::move(v), cast_to);
-    }
-  }
+  v = create_const_cast_for_declared(std::move(v), const_ref->init_value->inferred_type, const_ref->declared_type);
+  called_stack.pop_back();
   computed_constants_cache[const_ref] = v;
   return v;
+}
+
+ConstValExpression eval_field_default_value(StructFieldPtr field_ref) {
+  tolk_assert(field_ref->default_value);
+
+  static thread_local std::vector<StructFieldPtr> called_stack;
+  bool contains = std::find(called_stack.begin(), called_stack.end(), field_ref) != called_stack.end();
+  if (contains) {
+    err("field `{}` default value circularly references itself", field_ref).fire(field_ref->ident_anchor);
+  }
+  called_stack.push_back(field_ref);
+
+  ConstValExpression def_val = ConstExpressionEvaluator::eval_any_v_or_fire(field_ref->default_value);
+  called_stack.pop_back();
+  return def_val;
 }
 
 std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_ref) {

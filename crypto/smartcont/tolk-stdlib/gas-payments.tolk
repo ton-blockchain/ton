@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.3
+tolk 1.4
 
 /**
   Gas and payment related primitives.
@@ -13,7 +13,7 @@ fun getGasConsumedAtTheMoment(): int
 /// and "accept" it to blockchain.
 /// Without calling this function, an external message would be discarded.
 /// As an effect, the current smart contract agrees to buy some gas to finish the current transaction.
-/// For more details, check [accept_message effects](https://ton.org/docs/#/smart-contracts/accept).
+/// For more details, check [accept_message effects](https://docs.ton.org/foundations/messages/external-in#accepting-message).
 fun acceptExternalMessage(): void
     asm "ACCEPT"
 
@@ -37,9 +37,9 @@ fun setGasLimit(limit: int): void
 fun calculateGasFee(workchain: int8, gasUsed: int): coins
     asm(gasUsed workchain) "GETGASFEE"
 
-/// Same as [calculateGasFee], but without flat price. [Docs about fees](https://docs.ton.org/develop/howto/fees-low-level)
+/// Same as [calculateGasFee], but without flat price. [Docs about fees](https://docs.ton.org/foundations/fees)
 @pure
-fun calculateGasFeeWithoutFlatPrice(workchain: int8, gasUsed: coins): coins
+fun calculateGasFeeWithoutFlatPrice(workchain: int8, gasUsed: int): coins
     asm(gasUsed workchain) "GETGASFEESIMPLE"
 
 /// Calculates amount of nanotoncoins you should pay for storing a contract of provided size for `seconds`.
@@ -52,7 +52,7 @@ fun calculateStorageFee(workchain: int8, seconds: int, bits: int, cells: int): c
 fun calculateForwardFee(workchain: int8, bits: int, cells: int): coins
     asm(cells bits workchain) "GETFORWARDFEE"
 
-/// Same as [calculateForwardFee], but without lump price. [Docs about fees](https://docs.ton.org/develop/howto/fees-low-level)
+/// Same as [calculateForwardFee], but without lump price. [Docs about fees](https://docs.ton.org/foundations/fees)
 @pure
 fun calculateForwardFeeWithoutLumpPrice(workchain: int8, bits: int, cells: int): coins
     asm(cells bits workchain) "GETFORWARDFEESIMPLE"
@@ -64,11 +64,12 @@ fun calculateOriginalForwardFee(workchain: int8, incomingFwdFee: coins): coins
 
 /// Returns the amount of nanotoncoins current contract debts for storage. ("due" and "debt" are synonyms)
 /// If it has no debt, `0` is returned.
+@pure
 fun contract.getStorageDuePayment(): coins
     asm "DUEPAYMENT"
 
 /// Returns the amount of nanotoncoins charged for storage.
-/// (during storage phase preceeding to current computation phase)
+/// (during the storage phase preceding the current computation phase)
 @pure
 fun contract.getStoragePaidPayment(): coins
     asm "STORAGEFEES"

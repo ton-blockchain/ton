@@ -80,11 +80,11 @@ fun`main`(){}
 @testcase | 115 |    | [ 0 0 ]
 @testcase | 116 |    | [ 1 2 3 4 ]
 
-@fif_codegen DECLGLOBVAR $some()-var
+@fif_codegen DECLGLOBVAR $some()`var
 
 @fif_codegen
 """
-  get-+-+1() PROC:<{
+  get`+-+1() PROC:<{
     -1 PUSHINT
   }>
 """

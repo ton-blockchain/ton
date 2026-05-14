@@ -639,6 +639,45 @@ fun test47() {
     )
 }
 
+@method_id(148)
+fun test48() {
+    var s = beginCell().storeUint(1, 8).endCell().beginParse();
+    slice.skipBits(mutate s, 1);
+    var b = beginCell();
+    val b2 = builder.storeAny<int32>(mutate b, 1);
+    return (s.remainingBitsCount(), b2.bitsCount());
+}
+
+@method_id(149)
+fun test49() {
+    var c1 = (1 as int32).toCell();
+    var c2 = (1 as int32).toCell();
+    var c3 = (1 as int64).toCell();
+    var raw1: cell = c1;
+    var raw3: cell = c3;
+    return (
+        c1 == c1,
+        c1 == c2,
+        c1 == c3,
+        c1 != c3,
+        c1 != c2,
+        c1 == raw1,
+        raw1 == c2,
+        c1 != raw3,
+    );
+}
+
+@method_id(150)
+fun test50(s: slice): int {
+    try {
+        s.skipBits(800);    // they are not merged (since >1023), and
+        s.skipBits(800);    // triggers "cell underflow", not 'invalid integer"
+        return s.remainingBitsCount();
+    } catch (errCode) {
+        return errCode;
+    }
+}
+
 fun main(): int {
     return 0;
 }
@@ -691,6 +730,9 @@ fun main(): int {
 @testcase | 144 |     | 0 0 0 0 -1 3820012610 -1 0 0
 @testcase | 146 |     | 64898 64898 30460 59911 15354 54467 54467 54467 15533 16598 20076 64898 64898 30460 11765
 @testcase | 147 |     | -1 0 0 0 -1 0 0 -1 0 -1 0 -1 0 777 -1 -1 -1
+@testcase | 148 |     | 7 32
+@testcase | 149 |     | -1 -1 0 -1 0 -1 -1 -1
+@testcase | 150 | x{} | 9
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 

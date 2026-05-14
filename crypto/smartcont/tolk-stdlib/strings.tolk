@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.3
+tolk 1.4
 
 /**
     A string is a language primitive — a cell containing snake-formatted text data.
@@ -61,7 +61,7 @@ fun string.hash(self): uint256 {
 /// For example, "abcd" is equal to "ab" + (ref "cd") is equal to "a" + (ref "bc" + (ref "d")).
 @pure
 fun string.equalTo(self, another: string): bool {
-    return self.depth() + another.depth()
+    return self.depth() + another.depth() != 0
         // some is snake, so we have "ab->cd" / "a->bc->d" / etc., do full traverse
         ? self.hash() == another.hash()
         // fast path for flat strings (no refs), use native cell hashes
@@ -145,7 +145,7 @@ fun StringBuilder.build(self): string {
         idx -= 1;
         var chunk = self.chunks.get(idx).beginParse();
         // in case the middle string is a snake: "ab->c->d" + tail
-        if (chunk.depth()) {
+        if (chunk.depth() != 0) {
             // split "ab->c->d" into [ "ab", "c", "d" ]
             var snake = chunk;
             var subBits = array<slice> [];

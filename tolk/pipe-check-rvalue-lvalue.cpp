@@ -55,6 +55,9 @@ static void validate_function_used_as_noncall(FunctionPtr cur_f, AnyExprV v, Fun
   if (fun_ref->has_mutate_params()) {
     err("saving `{}` into a variable is impossible, since it has `mutate` parameters and thus can only be called directly", fun_ref).collect(v, cur_f);
   }
+  if (fun_ref->does_return_self()) {
+    err("saving `{}` into a variable is impossible, since it returns `self` and should be used as a method", fun_ref).collect(v, cur_f);
+  }
 }
 
 class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
@@ -80,7 +83,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
         err("modifying a global `{}` in a pure function", glob_ref->name).collect(range, cur_f);
       }
 
-    } else if (sym->try_as<const TypeReferenceUsedAsSymbol*>()) {
+    } else if (sym->try_as<const TypeReferenceUsedAsSymbol*>() || sym->try_as<FunctionPtr>()) {
       // `Point.create = f` or `Enum.value = v`
       err("invalid left side of assignment").collect(range, cur_f);
     }

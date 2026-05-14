@@ -246,14 +246,19 @@ td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program
   return CompiledProgramOutput{
       std::move(boc.data),
       std::move(hex.data),
+      "",
   };
 }
 
 td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program_code, std::string&& fift_fif,
-                                                      std::string&& asm_fif) {
+                                                      std::string&& asm_fif, bool with_debug_marks) {
   std::string main_fif;
   main_fif.reserve(program_code.size() + 100);
   main_fif.append(program_code.data(), program_code.size());
+  if (with_debug_marks) {
+    // then debug marks dict is on top of the stack, save them into a memory file
+    main_fif.append(R"(   boc>B B>base64 $>B "debugMarks" B>file)");
+  }
   main_fif.append(R"( dup hashB B>X      $>B "hex" B>file)");  // write codeHashHex to a file
   main_fif.append(R"(     boc>B B>base64 $>B "boc" B>file)");  // write codeBoc64 to a file
 
@@ -270,10 +275,17 @@ td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program
   TRY_RESULT(boc, res.read_file("boc"));
   TRY_RESULT(hex, res.read_file("hex"));
 
+  FileLoader::File marks;
+  if (with_debug_marks) {
+    TRY_RESULT(marks_, res.read_file("debugMarks"));
+    marks = marks_;
+  }
+
   // compiled Fift program_code = "PROGRAM{ ... }" into TVM bytecode (BoC, bag-of-cells)
   return CompiledProgramOutput{
       std::move(boc.data),
       std::move(hex.data),
+      std::move(marks.data),
   };
 }
 

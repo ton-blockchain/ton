@@ -130,3 +130,8 @@ fun invalidMapKeyInsideCasts() {
     m.set(null, "");
     return m;
 }
+
+// @stderr too few arguments in call to `add1`, expected 1, have 0
+fun tooFewArguments() {
+    add1();
+}

@@ -1,7 +1,7 @@
 // Standard library for Tolk (LGPL licence).
 // It contains common functions that are available out of the box, the user doesn't have to import anything.
 // More specific functions are required to be imported explicitly, like "@stdlib/gas-payments".
-tolk 1.3
+tolk 1.4
 
 /**
     Built-in types.
@@ -18,7 +18,6 @@ type bool = builtin
 /// `cell` is a data structure, which can hold of up to 1023 bits (not bytes!)
 /// and up to 4 references (refs) to other cells.
 /// Both contract code and contract state are represented by a tree of cells.
-/// [See docs](https://docs.ton.org/v3/documentation/data-formats/tlb/cell-boc)
 type cell = builtin
 
 /// `slice` is a "cell opened for reading".
@@ -43,7 +42,7 @@ type continuation = builtin
 /// When set to `null`, `address?` will be serialized as '00' ("none address"):
 /// '00' (two zero bits) is a standard representation of a "missing" ("none") address.
 /// At the TVM level, addresses are slices, so it's possible to  `someAddress as slice`.
-/// [See docs](https://docs.ton.org/learn/overviews/addresses#address-of-smart-contract)
+/// [See docs](https://docs.ton.org/foundations/addresses/overview)
 type address = builtin
 
 /// `any_address` represents an internal/external/none address.
@@ -51,7 +50,7 @@ type address = builtin
 /// If you wish to describe "internal or none address", use `address?` (nullable)
 /// instead of "any". That's why `any_address` is used in practice extremely rarely.
 /// At the TVM level, addresses are slices, so it's possible to  `anyAddress as slice`.
-/// [See docs](https://docs.ton.org/learn/overviews/addresses#address-of-smart-contract)
+/// [See docs](https://docs.ton.org/foundations/addresses/overview)
 type any_address = builtin
 
 /// `never` is a special type that represents computations that never complete normally.
@@ -187,6 +186,7 @@ type void = builtin
 /// ```
 /// Note, that `st = MyStorage.fromSlice(s)` does NOT deep-load any refs; `st.extra` is `Cell<T>`, not `T`;
 /// you should manually call `st.extra.load()` to get `T` (ExtraData in this example).
+/// Typed cells are comparable with `==` and `!=`, just like raw `cell`.
 struct Cell<T> {
     private readonly tvmCell: cell
 }
@@ -670,14 +670,14 @@ fun slice.bitsHash(self): uint256
 fun cell.hashEqual(self, another: cell): bool
     asm "HASHCU" "SWAP" "HASHCU" "EQUAL"
 
-/// Checks the Ed25519-`signature` of a `hash` (a 256-bit unsigned integer, usually computed as the hash of some data)
+/// Checks the Ed25519-`signature` of a `hash` (uint256, usually computed as the hash of some data)
 /// using `publicKey` (also represented by a 256-bit unsigned integer).
 /// The signature must contain at least 512 data bits; only the first 512 bits are used.
 /// Note that `CHKSIGNU` creates a 256-bit slice with the hash and calls `CHKSIGNS`.
 /// That is, if parameter `hash` is computed as the hash of some data, these data are hashed twice,
 /// the second hashing occurring inside `CHKSIGNS`.
 @pure
-fun isSignatureValid(hash: int, signature: slice, publicKey: int): bool
+fun isSignatureValid(hash: uint256, signature: slice, publicKey: uint256): bool
     asm "CHKSIGNU"
 
 /// Checks whether `signature` is a valid Ed25519-signature of the data portion of slice `data` using `publicKey`,
@@ -698,7 +698,7 @@ struct random
 fun random.uint256(): uint256
     asm "RANDU256"
 
-/// Generates a new pseudo-random integer z in the range 0..limit−1 (or limit..−1, if upto < 0).
+/// Generates a new pseudo-random integer z in the range 0..limit−1 (or limit..−1, if limit < 0).
 /// More precisely, an unsigned random value x is generated as in random; then z := x * limit / 2^256 is computed.
 /// Ensure you've called [random.initialize] in advance to make it unpredictable!
 fun random.range(limit: int): int
@@ -717,8 +717,9 @@ fun random.setSeed(seed: uint256): void
 fun random.initializeBy(mixSeedWith: uint256): void
     asm "ADDRAND"
 
-/// Initializes random seed with current time to make random generation unpredictable.
-/// Typically, you call this function once before calling [random.uint256] / [random.range].
+/// Mixes the random seed with this transaction's logical time ([blockchain.logicalTime], asm `LTIME`).
+/// LTIME is the network ordering value for this transaction (not unixtime).
+/// Typically, call once before [random.uint256] / [random.range].
 fun random.initialize(): void
     asm "LTIME" "ADDRAND"
 
@@ -738,14 +739,14 @@ fun random.initialize(): void
 /// otherwise the computation is aborted before visiting the `(maxCells + 1)`-st cell and
 /// a zero flag is returned to indicate failure.
 @pure
-fun cell.calculateSize(self, maxCells: int): (int, int, int, bool)
+fun cell.calculateSize(self, maxCells: int): (int?, int?, int?, bool)
     asm "CDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT"
 
 /// Similar to [cell.calculateSize], but accepting a slice instead of a cell.
 /// The returned value of `x` does not take into account the cell that contains the slice itself;
 /// however, its data bits and cell references are accounted for in `y` and `z`.
 @pure
-fun slice.calculateSize(self, maxCells: int): (int, int, int, bool)
+fun slice.calculateSize(self, maxCells: int): (int?, int?, int?, bool)
     asm "SDATASIZEQ NULLSWAPIFNOT2 NULLSWAPIFNOT"
 
 /// A non-quiet version of [cell.calculateSize] that throws a cell overflow exception (`8`) on failure.
@@ -1410,7 +1411,7 @@ fun slice.isEndOfBits(self): bool
 fun slice.isEndOfRefs(self): bool
     asm "SREMPTY"
 
-/// Checks whether data parts of two slices coinside.
+/// Checks whether data parts of two slices coincide.
 @pure
 fun slice.bitsEqual(self, b: slice): bool
     asm "SDEQ"
@@ -1534,7 +1535,7 @@ const RESERVE_MODE_EXACT_AMOUNT = 0
 const RESERVE_MODE_ALL_BUT_AMOUNT = 1
 /// +2: Actually set `min(amount, currentContractBalance)` (without this mode, if amount is greater, the action will fail)
 const RESERVE_MODE_AT_MOST = 2
-/// +4: [amount] is increased by the _original_ balance of the current account (before the compute phase).
+/// +4: `amount` is increased by the _original_ balance of the current account (before the compute phase).
 const RESERVE_MODE_INCREASE_BY_ORIGINAL_BALANCE = 4
 /// +8: Actually sets `amount = -amount` before performing any further actions.
 const RESERVE_MODE_NEGATE_AMOUNT = 8
@@ -1561,13 +1562,13 @@ fun reserveExtraCurrenciesOnBalance(nanoTonCoins: coins, extraAmount: dict, rese
     ```
  */
 
-/// mode = 0 is used for ordinary messages; the gas fees are deducted from the senging amount; action phaes should NOT be ignored.
+/// mode = 0 is used for ordinary messages; the gas fees are deducted from the sending amount; action phases should NOT be ignored.
 const SEND_MODE_REGULAR = 0
 /// +1 means that the sender wants to pay transfer fees separately.
 const SEND_MODE_PAY_FEES_SEPARATELY = 1
 /// +2 means that any errors arising while processing this message during the action phase should be ignored.
 const SEND_MODE_IGNORE_ERRORS = 2
-/// in the case of action fail - bounce transaction. No effect if SEND_MODE_IGNORE_ERRORS (+2) is used. [TVM UPGRADE 2023-07](https://docs.ton.org/learn/tvm-instructions/tvm-upgrade-2023-07#sending-messages)
+/// in the case of action fail - bounce transaction. No effect if SEND_MODE_IGNORE_ERRORS (+2) is used.
 const SEND_MODE_BOUNCE_ON_ACTION_FAIL = 16
 /// mode = 32 means that the current account must be destroyed if its resulting balance is zero.
 const SEND_MODE_DESTROY = 32
@@ -1575,10 +1576,10 @@ const SEND_MODE_DESTROY = 32
 const SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE = 64
 /// mode = 128 is used for messages that are to carry all the remaining balance of the current smart contract (instead of the value originally indicated in the message).
 const SEND_MODE_CARRY_ALL_BALANCE = 128
-/// do not create an action, only estimate fee. [TVM UPGRADE 2023-07](https://docs.ton.org/learn/tvm-instructions/tvm-upgrade-2023-07#sending-messages)
+/// do not create an action, only estimate fee.
 const SEND_MODE_ESTIMATE_FEE_ONLY = 1024
 /// Other modes affect the fee calculation as follows:
-/// +64 substitutes the entire balance of the incoming message as an outcoming value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).
+/// +64 substitutes the entire balance of the incoming message as an outgoing value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).
 /// +128 substitutes the value of the entire balance of the contract before the start of the computation phase (slightly inaccurate, since gas expenses that cannot be estimated before the completion of the computation phase are not taken into account).
 
 /// `ExtraCurrenciesMap` represents a dictionary of "extra currencies" other than TON coin.
@@ -1935,7 +1936,7 @@ struct InMessageBounced {
     senderAddress: address          // an internal address from which the message was bounced
     valueCoins: coins               // ton amount attached to a message
     valueExtra: ExtraCurrenciesMap  // extra currencies attached to a message
-    originalForwardFee: coins       // comission that the sender has payed to send this message
+    originalForwardFee: coins       // commission that the sender has paid to send this message
     createdLt: uint64               // logical time when a message was created (and bounced)
     createdAt: uint32               // unixtime when a message was created (and bounced)
     bouncedBody: slice              // populated depending on `BounceMode` for `createMessage`

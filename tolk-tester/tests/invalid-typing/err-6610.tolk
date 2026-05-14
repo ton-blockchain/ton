@@ -11,6 +11,6 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr can not convert type `int` to return type `slice` 
-@stderr in lambda in function `some<int,slice>`
+@stderr in lambda in function `some<int, slice>`
 @stderr return c
  */

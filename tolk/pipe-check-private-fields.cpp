@@ -27,7 +27,7 @@ static Error err_private_field_used_outside_method(StructPtr struct_ref, StructF
 
 static bool is_private_field_usage_allowed(FunctionPtr cur_f, StructPtr struct_ref) {
   // private fields are accessible only inside methods for that struct
-  if (!cur_f->is_method()) {
+  if (!cur_f || !cur_f->is_method()) {
     return false;
   }
   const TypeDataStruct* receiver_struct = cur_f->receiver_type->unwrap_alias()->try_as<TypeDataStruct>(); 
@@ -76,11 +76,20 @@ public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function();
   }
+
+  void start_visiting_constant(GlobalConstPtr const_ref) {
+    parent::visit(const_ref->init_value);
+  }
 };
 
 void pipeline_check_private_fields_usage() {
   CheckPrivateFieldsUsageVisitor visitor;
   visit_ast_of_all_functions(visitor);
+
+  // deny `const BAD = SomeStruct { privField: 1 }`
+  for (GlobalConstPtr const_ref : get_all_declared_constants()) {
+    visitor.start_visiting_constant(const_ref);
+  }
 }
 
 } // namespace tolk

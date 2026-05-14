@@ -40,6 +40,97 @@ void FunctionBodyAsm::set_code(std::vector<AsmOp>&& code) {
   this->ops = std::move(code);
 }
 
+struct IRVarsList {
+  const std::vector<TmpVar>& var_names;
+  const std::vector<var_idx_t>& ir_idx_arr;
+};
+
+struct StackCommentInFif {
+  const std::vector<DebugMarkCurrentStack::StackSlot>& stack_slots;
+  bool always_show_ir_idx;
+};
+
+struct CommentForDebugMarkInFif {
+  const std::vector<TmpVar>& var_names;
+  const DebugMarkInfo& debug_mark;
+};
+
+static std::ostream& operator<<(std::ostream& os, const IRVarsList& ir_vars) {
+  os << '[';
+  for (var_idx_t var_idx : ir_vars.ir_idx_arr) {
+    tolk_assert(var_idx < static_cast<int>(ir_vars.var_names.size()));
+    os << ' ' << '\'' << var_idx;
+    if (!ir_vars.var_names[var_idx].name.empty()) {
+      os << '_' << ir_vars.var_names[var_idx].name;
+    }
+  }
+  os << ' ' << ']';
+  return os;
+}
+
+static std::ostream& operator<<(std::ostream& os, const SrcRange& range) {
+  std::string_view substr = range.decode_offsets().text_inside;
+  if (std::string::size_type nl = substr.find('\n'); nl != std::string::npos) {
+    os << substr.substr(0, nl) << "...";
+  } else {
+    os << substr;
+  }
+  return os;
+}
+
+static std::ostream& operator<<(std::ostream& os, const StackCommentInFif& sc) {
+  for (DebugMarkCurrentStack::StackSlot slot : sc.stack_slots) {
+    if (sc.always_show_ir_idx) {
+      os << ' ' << '\'' << slot.ir_var->ir_idx;
+      if (!slot.ir_var->name.empty()) {
+        os << '_' << slot.ir_var->name;
+      } else {
+#ifdef TOLK_DEBUG
+        // uncomment for detailed stack output, like `'15(binary-op) '16(glob-var)`
+        // if (tmp_var->purpose) os << tmp_var->purpose;
+#endif
+      }
+    } else {
+      if (!slot.ir_var->name.empty()) {
+        os << ' ' << slot.ir_var->name;
+      } else {
+        os << ' ' << '\'' << slot.ir_var->ir_idx;
+      }
+    }
+    if (!slot.int_val.is_null()) {
+      os << '=' << slot.int_val->to_dec_string();
+    }
+  }
+
+  return os;
+}
+
+static std::ostream& operator<<(std::ostream& os, const CommentForDebugMarkInFif& sc) {
+  if (const auto* stack_info = std::get_if<DebugMarkCurrentStack>(&sc.debug_mark)) {
+    os << '[' << StackCommentInFif(stack_info->stack_slots, true) << ' ' << ']';
+  } else if (const auto* cur_loc = std::get_if<DebugMarkLocation>(&sc.debug_mark)) {
+    os << '`' << cur_loc->range << '`';
+  } else if (const auto* enter_info = std::get_if<DebugMarkEnterFunction>(&sc.debug_mark)) {
+    os << "-> enter " << enter_info->fun_ref->as_human_readable() << ", "
+       << "import " << IRVarsList(sc.var_names, enter_info->ir_import);
+  } else if (const auto* leave_info = std::get_if<DebugMarkLeaveFunction>(&sc.debug_mark)) {
+    os << "<- leave " << leave_info->fun_ref->as_human_readable() << ", "
+       << "return " << IRVarsList(sc.var_names, leave_info->ir_return);
+  } else if (const auto* local_info = std::get_if<DebugMarkLocalVar>(&sc.debug_mark)) {
+    os << (local_info->local_ref->is_parameter() ? "param " : "var ") << local_info->local_ref->name
+       << " " << IRVarsList(sc.var_names, local_info->ir_slots);
+  } else if (const auto* sm_info = std::get_if<DebugMarkSmartCast>(&sc.debug_mark)) {
+    os << sm_info->local_ref->name << " is " << sm_info->smart_cast_type->as_human_readable();
+  } else if (const auto* sg_info = std::get_if<DebugMarkSetGlob>(&sc.debug_mark)) {
+    os << "set_glob " << sg_info->glob_ref->name << " " << IRVarsList(sc.var_names, sg_info->ir_slots);
+  } else if (std::get_if<DebugMarkScopeStart>(&sc.debug_mark)) {
+    os << "scope {";
+  } else if (std::get_if<DebugMarkScopeEnd>(&sc.debug_mark)) {
+    os << "} scope";
+  }
+  return os;
+}
+
 // If "print line comments" is true in settings, every asm instruction is preceded by an original line from Tolk sources.
 // This helper prints the first line of SrcRange and tracks last line printed to avoid duplicates.
 struct LineCommentsOutput {
@@ -85,10 +176,11 @@ struct LineCommentsOutput {
   }
 };
 
-static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::vector<AsmOp>&& asm_code, bool print_stack_comments, bool print_line_comments) {
+static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::vector<AsmOp>&& asm_code, bool print_stack_comments, bool print_line_comments, bool emit_debug_marks) {
   tolk_assert(!asm_code.empty());
-  const AsmOp& enter_comment = asm_code.front();    // a comment with stack layout when entering a function
-  tolk_assert(enter_comment.is_comment());
+  const AsmOp& mark_enter = asm_code.front();
+  tolk_assert(mark_enter.is_debug_mark() && std::holds_alternative<DebugMarkEnterFunction>(mark_enter.debug_mark));
+  const std::vector<TmpVar>& var_names = std::get<FunctionBodyCode*>(fun_ref->body)->code->vars;
 
   const char* modifier = "PROC";
   if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif) {
@@ -101,13 +193,17 @@ static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::
   }
   std::string fun_fift_name = CodeBlob::fift_name(fun_ref);
   os << "  " << fun_fift_name << " " << modifier << ":<{";
-  if (print_stack_comments) {
+  if (print_stack_comments && !emit_debug_marks) {
     size_t len = 2 + fun_fift_name.size() + 1 + std::strlen(modifier) + 3;
     while (len < 28) {      // align "// stack state"
       os << ' ';
       len++;
     }
-    os << "\t// " << enter_comment.op;
+    os << "\t// ";
+    for (var_idx_t var_idx : std::get<DebugMarkEnterFunction>(mark_enter.debug_mark).ir_import) {
+      tolk_assert(var_idx < static_cast<int>(var_names.size()));
+      os << ' ' << var_names[var_idx].name;
+    }
   }
   os << std::endl;
 
@@ -116,35 +212,52 @@ static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::
   LineCommentsOutput line_output;
 
   for (int i = 0; i < len; ++i) {
-    const AsmOp& op = asm_code[i];
-    if (op.is_comment()) {
+    AsmOp& op = asm_code[i];
+    if (op.is_debug_mark() && !emit_debug_marks) {
       continue;
     }
 
-    tolk_assert(op.origin);
-    SrcRange range = op.origin->range;
-    // it's `}>ELSE<{` or similar, not actually an asm instruction
-    bool need_line_comment = range.is_valid() && !op.op.starts_with("}>");
+    SrcRange range = op.origin ? op.origin->range : SrcRange::undefined();
+    // origin = nullptr is for DROP, NIP, and other stack-alignment
+    // (they don't have actual "origin" of execution; assigning previous/next produce spurious jumps in debugger)
+    // also, `}>ELSE<{` and similar don't have origin, it's not actually an asm instruction
+    bool need_loc_mark = range.is_valid();
 
-    if (need_line_comment && print_line_comments) {
+    if (need_loc_mark && print_line_comments) {
       line_output.output_first_line(os, indent, range);
     }
 
-    // there may be several consecutive stack comments reflecting permutations, e.g.
-    // [ "10 PUSHINT", "// '1=10", "// a=10", "// b=10" ]
-    // take the last one
-    const AsmOp* fwd_comment_op = nullptr;
-    for (int j = i + 1; j < len && asm_code[j].is_comment(); ++j) {
-      fwd_comment_op = &asm_code[j];
+    if (emit_debug_marks && need_loc_mark) {
+      AsmOp op_mark = AsmOp::DebugMark(DebugMarkLocation{
+        .range = range,
+      });
+      op_mark.a = G.debug_marks.register_debug_mark(std::move(op_mark.debug_mark));
+      op_mark.output_to_fif(os, indent, print_stack_comments);
+      if (print_stack_comments) {
+        os << '`' << range << '`';
+      }
+      os << std::endl;
     }
 
-    bool show_comment = print_stack_comments && fwd_comment_op;
+    const DebugMarkCurrentStack* fwd_stack_op = nullptr;
+    for (int j = i + 1; j < len && asm_code[j].is_debug_mark(); ++j) {
+      if (const auto* stack_op = std::get_if<DebugMarkCurrentStack>(&asm_code[j].debug_mark)) {
+        fwd_stack_op = stack_op;
+      }
+    }
+
+    bool show_comment = print_stack_comments && (op.is_debug_mark() || (!emit_debug_marks && fwd_stack_op));
     indent -= op.op.starts_with("}>");
+    if (op.is_debug_mark() && emit_debug_marks) {
+      op.a = G.debug_marks.register_debug_mark(op.debug_mark);
+    }
     op.output_to_fif(os, indent, show_comment);
     indent += op.op.ends_with("<{");
 
-    if (show_comment) {   // leading slashes already printed with proper indentation
-      os << fwd_comment_op->op;
+    if (op.is_debug_mark() && show_comment) {
+      os << CommentForDebugMarkInFif(var_names, op.debug_mark);
+    } else if (!emit_debug_marks && show_comment) {
+      os << StackCommentInFif(fwd_stack_op->stack_slots, false);
     }
     os << std::endl;
   }
@@ -181,6 +294,11 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
       std::cerr << "after fwd_analyze: \n";
       code->print(std::cerr, 6);
     }
+    code->optimize_conditional_branches();
+    if (G_settings.verbosity >= 5) {
+      std::cerr << "after optimize_conditional_branches: \n";
+      code->print(std::cerr, 6);
+    }
     code->prune_unreachable_code();
     if (G_settings.verbosity >= 5) {
       std::cerr << "after prune_unreachable: \n";
@@ -211,7 +329,8 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
     fun_ref,
     std::move(asm_code),
     G_settings.stack_layout_comments,
-    G_settings.tolk_src_as_line_comments
+    G_settings.tolk_src_as_line_comments,
+    G_settings.emit_debug_marks
   );
 
   if (G_settings.verbosity >= 2) {
@@ -223,7 +342,7 @@ void pipeline_generate_fif_output(std::ostream& os) {
   os << "\"Asm.fif\" include\n";
   os << "// automatically generated from ";
   bool need_comma = false;
-  for (const SrcFile* file : G.all_src_files) {
+  for (SrcFilePtr file : G.all_src_files) {
     if (!file->is_stdlib_file) {
       if (need_comma) {
         os << ", ";
@@ -235,20 +354,19 @@ void pipeline_generate_fif_output(std::ostream& os) {
   os << std::endl;
   os << "PROGRAM{\n";
 
-  bool has_main_procedure = false;
+  bool has_fun_main = false;
+  bool has_onInternalMessage = false;
   int n_inlined_in_place = 0;
   std::vector<FunctionPtr> all_contract_getters;
   for (FunctionPtr fun_ref : G.all_functions) {
     if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
-      if (G_settings.verbosity >= 2 && fun_ref->is_code_function()) {
-        std::cerr << fun_ref->name << ": code not generated, function does not need codegen\n";
-      }
       n_inlined_in_place += fun_ref->is_inlined_in_place() && fun_ref->is_really_used();
       continue;
     }
 
-    if (fun_ref->is_entrypoint() && (fun_ref->name == "main" || fun_ref->name == "onInternalMessage")) {
-      has_main_procedure = true;
+    if (fun_ref->is_entrypoint()) {
+      has_fun_main |= fun_ref->name == "main";
+      has_onInternalMessage |= fun_ref->name == "onInternalMessage";
     }
 
     os << "  ";
@@ -268,8 +386,15 @@ void pipeline_generate_fif_output(std::ostream& os) {
     }
   }
 
-  if (!has_main_procedure && !G_settings.allow_no_entrypoint) {
-    throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
+  if (!has_fun_main && !has_onInternalMessage) {
+    if (G_settings.allow_no_entrypoint) {
+      os << "DECLPROC main // fake main\n";
+    } else {
+      throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
+    }
+  }
+  if (has_fun_main && has_onInternalMessage) {
+    throw Fatal("both `main` and `onInternalMessage` are not allowed");
   }
 
   if (n_inlined_in_place) {
@@ -292,6 +417,10 @@ void pipeline_generate_fif_output(std::ostream& os) {
     os << "  " << "DECLGLOBVAR " << CodeBlob::fift_name(var_ref) << "\n";
   }
 
+  if (!has_fun_main && !has_onInternalMessage) {
+    os << "main PROC:<{ }>\n";  // then allow_no_entrypoint is true, checked above
+  }
+
   for (FunctionPtr fun_ref : G.all_functions) {
     if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
       continue;
@@ -299,10 +428,15 @@ void pipeline_generate_fif_output(std::ostream& os) {
     generate_output_func(os, fun_ref);
   }
 
-  os << "}END>c\n";
-  if (!G_settings.boc_output_filename.empty()) {
-    os << "boc>B \"" << G_settings.boc_output_filename << "\" B>file\n";
+  if (G_settings.emit_debug_marks) {
+    os << "}END>cd\n";
+    // after this, on a stack: BoC (TVM bytecode) + debug marks (dict)
+  } else {
+    os << "}END>c\n";
+    // after this, on a stack: BoC (TVM bytecode)
   }
+  // TVM bytecode and marks dictionary will be ready after Fift compilation;
+  // final result is handled depending on launch mode (CLI — tolk-main.cpp, or LIB/WASM — tolk-wasm.cpp)
 }
 
 } // namespace tolk

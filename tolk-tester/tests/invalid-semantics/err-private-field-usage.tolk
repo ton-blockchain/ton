@@ -21,3 +21,14 @@ fun errUsePrivateInF(w: Wrap<int32>) {
     w = w;
     return w.item!;
 }
+
+struct Secret {
+    private x: int
+}
+
+fun Secret.reveal(self): int {
+    return self.x
+}
+
+// @stderr field `Secret.x` is private
+const BAD: Secret = { x: 1 }

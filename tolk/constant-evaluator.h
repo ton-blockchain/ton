@@ -70,6 +70,7 @@ struct ConstValString {
 };
 
 struct ConstValAddress {
+  std::string orig_str;
   std::string std_addr_hex;
 };
 
@@ -95,6 +96,7 @@ struct ConstValCastToType {
 };
 
 ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref);
+ConstValExpression eval_field_default_value(StructFieldPtr field_ref);
 ConstValExpression eval_expression_if_const_or_fire(AnyExprV v);
 
 std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_ref);

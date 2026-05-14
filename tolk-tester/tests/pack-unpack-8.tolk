@@ -189,6 +189,25 @@ fun test14() {
     )
 }
 
+type Byte = uint8
+
+fun Byte.packToBuilder(self, mutate b: builder) {
+    b.storeUint(self, 8);
+}
+
+fun Byte.unpackFromSlice(mutate s: slice) {
+    return s.loadUint(8) as uint8;
+}
+
+@method_id(115)
+fun test15(): int {
+    try {
+        return Role.fromCell(beginCell().storeUint(111, 8).endCell());
+    } catch (ex) {
+        return ex;
+    }
+}
+
 fun main() {
     
 }
@@ -216,6 +235,7 @@ fun main() {
 @testcase | 112 |               | 1 0 -1
 @testcase | 113 |               | 980881731 -1
 @testcase | 114 |               | -1 -1 4 36 50000000 -1 -1 50000001 5
+@testcase | 115 |               | 5
 
 @fif_codegen
 """

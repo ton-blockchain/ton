@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.3
+tolk 1.4
 
 /**
     Low-level API working with TVM dictionaries.

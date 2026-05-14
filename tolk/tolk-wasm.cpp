@@ -32,6 +32,7 @@
 #include "json-output.h"
 #include "fift/utils.h"
 #include "td/utils/Status.h"
+#include "vm/cp0.h"
 #include <mutex>
 #include <sstream>
 
@@ -57,6 +58,7 @@ static void output_errors_as_json_array(JsonPrettyOutput& json, const std::vecto
   json.start_array("errors");
   for (const ThrownParseError& error : errors) {
     if (shown >= JSON_ERROR_LIMIT) break;
+    json.next_array_item();
     error.output_to_json(json);
     shown++;
   }
@@ -70,6 +72,8 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(opt_level, config.get_optional_int_field("optimizationLevel", 2));
   TRY_RESULT(stack_comments, config.get_optional_bool_field("withStackComments", false));
   TRY_RESULT(src_line_comments, config.get_optional_bool_field("withSrcLineComments", false));
+  TRY_RESULT(emit_symbol_types, config.get_optional_bool_field("withSymbolTypes", true));
+  TRY_RESULT(emit_debug_marks, config.get_optional_bool_field("withDebugMarks", false));
   TRY_RESULT(entrypoint_filename, config.get_required_string_field("entrypointFileName"));
   TRY_RESULT(show_errors_as_json, config.get_optional_bool_field("jsonErrors", false));
   TRY_RESULT(check_only_no_output, config.get_optional_bool_field("checkOnly", false));
@@ -82,17 +86,22 @@ static td::Result<std::string> compile_internal(char *config_json) {
   G_settings.tolk_src_as_line_comments = src_line_comments;
   G_settings.show_errors_as_json = show_errors_as_json;
   G_settings.check_only_no_output = check_only_no_output;
+  G_settings.emit_contract_abi = true;
+  G_settings.emit_symbol_types = emit_symbol_types;
+  G_settings.emit_debug_marks = emit_symbol_types && emit_debug_marks;
   G_settings.allow_no_entrypoint = allow_no_entrypoint;
 
   std::ostringstream errs;
-  std::cerr.rdbuf(errs.rdbuf());
+  std::streambuf* old_err = std::cerr.rdbuf(errs.rdbuf());
 
   TolkCompilationResult result = tolk_proceed(entrypoint_filename);
   if (!result.fatal_msg.empty()) {
+    std::cerr.rdbuf(old_err);
     // no location or errors in json, just a message "fatal", something unexpected happened
     return td::Status::Error(td::Slice(result.fatal_msg.c_str()));
   }
   if (!result.errors.empty()) {
+    std::cerr.rdbuf(old_err);
     // regular response with a list of compilation errors
     std::ostringstream result_json_str;
     JsonPrettyOutput json(result_json_str);
@@ -109,6 +118,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
 
   // for IDE in background: all checks passed, skip codegen
   if (G_settings.check_only_no_output) {
+    std::cerr.rdbuf(old_err);
     std::ostringstream result_json_str;
     JsonPrettyOutput json(result_json_str);
     json.start_object();
@@ -117,6 +127,8 @@ static td::Result<std::string> compile_internal(char *config_json) {
     json.end_object();
     return result_json_str.str();
   }
+
+  std::cerr.rdbuf(old_err);
 
   // an external wrapper should handle not only `@stdlib/`, but also `@fiftlib/`;
   // in tolk-js particularly, .fif files are embedded into distribution, next to tolk-stdlib/ folder
@@ -128,7 +140,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   static std::mutex fift_mutex;
   std::lock_guard<std::mutex> fift_lock(fift_mutex);
 
-  td::Result<fift::CompiledProgramOutput> fift_result = fift::compile_asm_program(result.fift_code, std::move(fift_fif), std::move(asm_fif));
+  td::Result<fift::CompiledProgramOutput> fift_result = fift::compile_asm_program(result.fift_code, std::move(fift_fif), std::move(asm_fif), G_settings.emit_debug_marks);
   if (fift_result.is_error()) {
     std::ostringstream result_json_str;
     JsonPrettyOutput json(result_json_str);
@@ -142,6 +154,9 @@ static td::Result<std::string> compile_internal(char *config_json) {
   }
   fift::CompiledProgramOutput fift_res = fift_result.move_as_ok();
 
+  std::string_view symbol_types_json = G_settings.emit_symbol_types ? std::string_view(result.symbols_json) : std::string_view("null");
+  std::string_view debug_marks_json = G_settings.emit_debug_marks ? std::string_view(result.marks_json) : std::string_view("null");
+
   std::ostringstream result_json_str;
   JsonPrettyOutput json(result_json_str);
   json.start_object();
@@ -149,6 +164,10 @@ static td::Result<std::string> compile_internal(char *config_json) {
   json.key_value("fiftCode", result.fift_code);
   json.key_value("codeBoc64", JsonPrettyOutput::Unescaped{fift_res.codeBoc64});
   json.key_value("codeHashHex", JsonPrettyOutput::Unescaped{fift_res.codeHashHex});
+  json.key_value("symbolTypesJson", JsonPrettyOutput::Unquoted{symbol_types_json});
+  json.key_value("debugMarksJson", JsonPrettyOutput::Unquoted{debug_marks_json});
+  json.key_value("debugMarksBase64", JsonPrettyOutput::Unescaped{fift_res.debugMarksBase64});
+  json.key_value("abiJson", JsonPrettyOutput::Unquoted{result.abi_json});
   json.key_value("tolkVersion", JsonPrettyOutput::Unescaped{TOLK_VERSION});
   json.key_value("stderr", errs.str());
   json.end_object();
@@ -190,6 +209,13 @@ const char* tolk_version() {
   json.key_value("tolkFiftLibCommitDate", JsonPrettyOutput::Unescaped{GitMetadata::CommitDate()});
   json.end_object();
   return strdup(result_json_str.str().c_str());
+}
+
+const char* tolk_prime_debug_cp0() {
+  if (!vm::init_op_cp0(true)) {
+    return strdup("failed to initialize cp0 with debug enabled");
+  }
+  return nullptr;
 }
 
 const char *tolk_compile(char *config_json, WasmFsReadCallback callback, void* callback_payload) {

@@ -57,6 +57,11 @@ fun testFlatten() {
         int => 10>3 ? match(0) { int => 0 } : match (10>3 ? 6 : null) { null => 0, int => { return; } },
         null => match(null) { null => 0 }
     }, "int");
+
+    __expect_type(0 as (int | void | int | void), "int | void");
+    __expect_type(0 as (int | void)?, "int | void | null");
+    __expect_type(0 !is void, "bool");
+    __expect_type(match (0 as int | void) { int => 0, void => 1 }, "int");
 }
 
 @method_id(101)
@@ -785,10 +790,10 @@ fun myFromTuple<T>(t: tuple): T {
 @method_id(162)
 fun test62() {
     return (
-        ((5 as int32) as int32 | int64).toTuple(),
-        ((5 as int64) as int32 | int64).toTuple(),
-        myFromTuple<int32 | int64>([10, 48] as tuple) is int64,
-        reflect.typeNameOfObject(myFromTuple<int32 | int64>([10, 48] as tuple)).beginParse().bitsEqual("int32 | int64".literalSlice()),
+        ((5 as int32) as int32 | varint32).toTuple(),
+        ((5 as varint32) as int32 | varint32).toTuple(),
+        myFromTuple<int32 | varint32>([10, 143] as tuple) is varint32,
+        reflect.typeNameOfObject(myFromTuple<int32 | varint32>([10, 48] as tuple)).beginParse().bitsEqual("int32 | varint32".literalSlice()),
     ) 
 }
 
@@ -848,6 +853,131 @@ fun test66(x: int) {
     var t: tuple = [1];
     var u: tuple | int = x == 0 ? t : 5;
     return u is array<U>
+}
+
+fun (int8 | int16).unionId(self): self {
+    return self;
+}
+
+@method_id(167)
+fun test67(x: int8, y: int16) {
+    __expect_type(x.unionId(), "int8 | int16");
+    return (x.unionId(), y.unionId());
+}
+
+type BoolOrInt = bool | int1;
+
+@method_id(168)
+fun test68(): int {
+    var x: BoolOrInt = 1;
+    __expect_type(x, "int1");
+    do {
+        x += 1;
+    } while (x !is int1);
+    __expect_type(x, "int1");
+    return x;
+}
+
+
+@noinline
+fun makeIntOrVoid(case: int): int | void {
+    if (case == 1) { return 42; }
+    return;
+}
+
+fun makeWide(case: int): int | slice | void {
+    if (case == 1) { return 42; }
+    if (case == 2) { return getSlice32(); }
+    return;
+}
+
+struct PointV { x: int8; y: int8; }
+
+fun makePointOrIntOrVoid(case: int): PointV | int32 | void {
+    if (case == 1) { return PointV { x: 7, y: 9 }; }
+    if (case == 2) { return 100 as int32; }
+    return;
+}
+
+@method_id(169)
+fun test69(case: int) {
+    var a = makeIntOrVoid(case);
+    __expect_type(a, "int | void");
+    var r1 = a is int;
+    var r2 = a is void;
+    var r3 = a !is void;
+    if (a is int) {
+        __expect_type(a, "int");
+    } else {
+        __expect_type(a, "void");
+    }
+    if (a !is void) {
+        __expect_type(a, "int");
+        return (r1, r2, r3, a);
+    }
+    __expect_type(a, "void");
+    return (r1, r2, r3, -1);
+}
+
+@method_id(170)
+fun test70(case: int) {
+    return match (var b = makeWide(case)) {
+        int    => b + 1000,
+        slice  => b.loadInt(32) + 2000,
+        void   => -3000,
+    }
+}
+
+@method_id(171)
+fun test71(case: int) {
+    var b = makeWide(case);
+    var r: int = match (b) {
+        int   => 1,
+        slice => 2,
+        void  => -1,
+    };
+    return (r, b is int, b is slice, b is void);
+}
+
+@method_id(172)
+fun test72(case: int) {
+    var p = makePointOrIntOrVoid(case);
+    var u: unknown = p;
+    var p2 = u as PointV | int32 | void;
+    return match (p2) {
+        PointV => p2.x as int + p2.y,
+        int32  => p2 as int * 10,
+        void   => -1,
+    }
+}
+
+fun isVoidOf<T>(v: T | void) {
+    return v is void
+}
+
+@noinline
+fun makeSliceOrVoid(emit: bool): slice | void {
+    if (emit) { return getSlice32(); }
+    return
+}
+
+@method_id(173)
+fun test73() {
+    return (
+        isVoidOf<int>(makeIntOrVoid(0)),
+        isVoidOf<int>(makeIntOrVoid(1)),
+        isVoidOf<slice>(makeSliceOrVoid(false)),
+        isVoidOf<slice>(makeSliceOrVoid(true)),
+    );
+}
+
+@method_id(174)
+fun test74(case: int) {
+    var a: int | void = makeIntOrVoid(case);
+    if (a is void) {
+        a = 7;
+    }
+    return a + 0;
 }
 
 
@@ -923,13 +1053,29 @@ fun main() {
 @testcase | 159 | null 0    | 123
 @testcase | 160 |           | 10 0
 @testcase | 161 | 100 48    | 20
-@testcase | 162 |           | [ 5 46 ] [ 5 48 ] -1 -1
+@testcase | 162 |           | [ 5 46 ] [ 5 typeid-15 ] -1 -1
 @testcase | 163 | -1        | 0 0 -1 10 -1
 @testcase | 163 | 0         | -1 0 0 3 3
 @testcase | 164 | -1        | -1 0 0 -1 0 [ -1 0 ]
 @testcase | 164 | 0         | 0 0 -1 0 0 [ 0 2 ]
 @testcase | 165 |           | 3
 @testcase | 166 | 0         | -1
+@testcase | 167 | 1 2       | 1 42 2 44
+@testcase | 168 |           | 2
+@testcase | 169 | 0         | 0 -1 0 -1
+@testcase | 169 | 1         | -1 0 -1 42
+@testcase | 170 | 0         | -3000
+@testcase | 170 | 1         | 1042
+@testcase | 170 | 2         | 2032
+@testcase | 171 | 0         | -1 0 0 -1
+@testcase | 171 | 1         | 1 -1 0 0
+@testcase | 171 | 2         | 2 0 -1 0
+@testcase | 172 | 0         | -1
+@testcase | 172 | 1         | 16
+@testcase | 172 | 2         | 1000
+@testcase | 173 |           | -1 0 -1 0
+@testcase | 174 | 0         | 7
+@testcase | 174 | 1         | 42
 
 
 @fif_codegen
@@ -977,6 +1123,6 @@ fun main() {
   }>
 """
 
-@fif_codegen DECLPROC checkGeneric3<int,int8,int16>()
+@fif_codegen DECLPROC checkGeneric3<int,`int8,`int16>()
 
  */

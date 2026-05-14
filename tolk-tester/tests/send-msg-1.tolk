@@ -60,6 +60,8 @@ struct(0x12345678) MyBody {
     queryId: uint64;
 }
 
+type MyBodyCell = Cell<MyBody>
+
 @noinline
 fun test1_manual() {
     return beginCell()
@@ -130,7 +132,7 @@ fun test3_manual() {
 @method_id(103)
 fun test3() {
     var b = createMessage({
-        body: MyBody{ queryId: 127493264572 }.toCell(),
+        body: MyBody{ queryId: 127493264572 }.toCell() as MyBodyCell,
         bounce: false,
         dest: address("1:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8"),
         value: 90,
@@ -751,6 +753,40 @@ fun test25() {
     return b.hash();
 }
 
+type CustomAmount = int
+
+fun CustomAmount.packToBuilder(self, mutate b: builder) {
+    b.storeUint(self, 8);
+}
+
+fun CustomAmount.unpackFromSlice(mutate s: slice): CustomAmount {
+    return s.loadUint(8);
+}
+
+@noinline
+fun test26_manual(x: CustomAmount) {
+    val bodyRef = beginCell().storeUint(x, 8).endCell();
+    return beginCell()
+        .storeUint(0x10, 6)
+        .storeAddress(address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"))
+        .storeCoins(0)
+        .storeUint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .storeRef(bodyRef)
+        .endCell();
+}
+
+@method_id(126)
+fun test26(x: CustomAmount) {
+    val b = createMessage({
+        bounce: BounceMode.NoBounce,
+        dest: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"),
+        value: 0,
+        body: x,
+    });
+    assert (b.hash() == test26_manual(x).hash()) throw 101;
+    return b.hash();
+}
+
 
 fun main() {
 }
@@ -781,4 +817,5 @@ fun main() {
 @testcase | 123 | 999      | 93691386126134034953606952841435771108648354412078750046821446829279390964584
 @testcase | 124 |          | 21886688052816798288463190773103865772534937765373272039597499398551023701577
 @testcase | 125 |          | 12745496241890009334837209777890803918215266832624965751220009451486906344811
+@testcase | 126 | 18       | 84921636467547097455392057787121070688594237898746455161406565301555532818373
  */

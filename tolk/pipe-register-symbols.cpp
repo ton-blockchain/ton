@@ -20,6 +20,7 @@
 #include "compiler-state.h"
 #include "generics-helpers.h"
 #include "pack-unpack-serializers.h"
+#include "contract-directive.h"
 #include "td/utils/crypto.h"
 #include <unordered_set>
 
@@ -96,7 +97,7 @@ static void validate_arg_ret_order_of_asm_function(V<ast_asm_body> v_body, int n
 
 static GlobalConstPtr register_constant(V<ast_constant_declaration> v) {
   V<ast_identifier> v_ident = v->get_identifier();
-  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v_ident->name), v_ident, v->type_node, v->get_init_value());
+  GlobalConstData* c_sym = new GlobalConstData(static_cast<std::string>(v_ident->name), v_ident, v->type_node, v->get_init_value(), DocCommentLines(v->doc_lines));
 
   G.symtable.add_global_symbol(c_sym);
   G.all_constants.push_back(c_sym);
@@ -120,8 +121,11 @@ static AliasDefPtr register_type_alias(V<ast_type_alias_declaration> v, AliasDef
   if (name.empty()) {
     name = v_ident->name;
   }
+  if (name == "T") {
+    err("`T` is a reserved system name for generics").fire(v_ident);
+  }
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  AliasDefData* a_sym = new AliasDefData(std::move(name), v_ident, v->underlying_type_node, genericTs, substitutedTs, v);
+  AliasDefData* a_sym = new AliasDefData(std::move(name), v_ident, v->underlying_type_node, DocCommentLines(v->doc_lines), genericTs, substitutedTs, v);
   a_sym->base_alias_ref = base_alias_ref;   // for `Response<int>`, here is `Response<T>`
 
   G.symtable.add_global_symbol(a_sym);
@@ -144,11 +148,11 @@ static EnumDefPtr register_enum(V<ast_enum_declaration> v) {
         err("redeclaration of member `{}`", member_name).fire(v_member);
       }
     }
-    members.emplace_back(new EnumMemberData(std::move(member_name), v_ident, i, v_member->init_value));
+    members.emplace_back(new EnumMemberData(std::move(member_name), v_ident, i, v_member->init_value, DocCommentLines(v_member->doc_lines)));
   }
 
   V<ast_identifier> v_ident = v->get_identifier();
-  EnumDefData* e_sym = new EnumDefData(static_cast<std::string>(v_ident->name), v_ident, v->colon_type, std::move(members));
+  EnumDefData* e_sym = new EnumDefData(static_cast<std::string>(v_ident->name), v_ident, v->colon_type, std::move(members), DocCommentLines(v->doc_lines));
 
   G.symtable.add_global_symbol(e_sym);
   G.all_enums.push_back(e_sym);
@@ -171,7 +175,7 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
         err("redeclaration of field `{}`", field_name).fire(v_field);
       }
     }
-    fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->default_value));
+    fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->abi_type_node, v_field->default_value, DocCommentLines(v_field->doc_lines)));
   }
   if (fields.size() >= 64) {
     err("too big struct (64 or more fields)").fire(v->get_identifier());
@@ -186,10 +190,14 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     opcode.pack_prefix = v_opcode->intval->to_long();
 
     std::string_view prefix_str = v_opcode->orig_str;
+    int prefix_digit_len = 0;
+    for (char c : prefix_str.substr(2)) {
+      prefix_digit_len += c != '_';
+    }
     if (prefix_str.starts_with("0x")) {
-      opcode.prefix_len = static_cast<int>(prefix_str.size() - 2) * 4;
+      opcode.prefix_len = prefix_digit_len * 4;
     } else if (prefix_str.starts_with("0b")) {
-      opcode.prefix_len = static_cast<int>(prefix_str.size() - 2);
+      opcode.prefix_len = prefix_digit_len;
     } else {
       tolk_assert(false);
     }
@@ -201,7 +209,7 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
     name = v_ident->name;
   }
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  StructData* s_sym = new StructData(std::move(name), v_ident, std::move(fields), opcode, v->overflow1023_policy, genericTs, substitutedTs, v);
+  StructData* s_sym = new StructData(std::move(name), v_ident, std::move(fields), opcode, v->overflow1023_policy, DocCommentLines(v->doc_lines), genericTs, substitutedTs, v);
   s_sym->base_struct_ref = base_struct_ref;   // for `Container<int>`, here is `Container<T>`
 
   G.symtable.add_global_symbol(s_sym);
@@ -254,7 +262,7 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
 
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
   FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
-  FunctionData* f_sym = new FunctionData(std::move(name), v_ident, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, f_body, v);
+  FunctionData* f_sym = new FunctionData(std::move(name), v_ident, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, DocCommentLines(v->doc_lines), f_body, v);
   f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`; for a lambda, a containing function
 
   if (auto v_asm = v->get_body()->try_as<ast_asm_body>()) {
@@ -288,19 +296,90 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   return f_sym;
 }
 
-static void iterate_through_file_symbols(const SrcFile* file, std::unordered_set<const SrcFile*>& seen) {
-  if (!seen.insert(file).second) {
-    return;
+struct FileSymbolsRegistrationContext {
+  std::unordered_set<SrcFilePtr> registered_files;
+  std::vector<SrcFilePtr> import_stack;
+
+  bool is_in_import_stack(SrcFilePtr file) const {
+    return std::find(import_stack.begin(), import_stack.end(), file) != import_stack.end();
+  }
+
+  // find a bottommost file with `contract` directive
+  SrcFilePtr find_nearest_contract_file() const {
+    for (auto it = import_stack.rbegin(); it != import_stack.rend(); ++it) {
+      if ((*it)->has_contract_directive()) {
+        return *it;
+      }
+    }
+    return nullptr;
+  }
+};
+
+static void iterate_through_file_symbols(SrcFilePtr file, FileSymbolsRegistrationContext& ctx) {
+  if (ctx.is_in_import_stack(file)) {
+    return;   // import cycle, already being checked in this path
   }
   tolk_assert(file && file->ast);
 
+  // first pass: detect `contract XXX { ... }` anywhere in a file, before processing all declarations
+  for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
+    if (v->kind == ast_contract_directive && !file->has_contract_directive()) {
+      file->mutate()->assign_contract_directive(parse_contract_directive(v));
+      break;
+    }
+  }
+
+  bool is_imported = !ctx.import_stack.empty();
+  ctx.import_stack.push_back(file);
+  bool should_register_symbols = ctx.registered_files.insert(file).second;
+  SrcFilePtr nearest_contract_file = ctx.find_nearest_contract_file();
+  std::vector<V<ast_function_declaration>> skipped_get_fun;
+
+  // second pass: recursively visit imports and validate contract entrypoints in this import stack
   for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
     switch (v->kind) {
       case ast_import_directive:
         // on `import "another-file.tolk"`, register symbols from that file at first
-        iterate_through_file_symbols(v->as<ast_import_directive>()->file, seen);
+        iterate_through_file_symbols(v->as<ast_import_directive>()->file, ctx);
         break;
+      case ast_function_declaration: {
+        auto v_fun = v->as<ast_function_declaration>();
+        bool is_entrypoint = v_fun->flags & FunctionData::flagIsEntrypoint;    // fun main / onInternalMessage / onBouncedMessage
+        bool is_get_method = v_fun->flags & FunctionData::flagContractGetter;  // get fun seqno
+        if (is_entrypoint || is_get_method) {
+          // when importing a file with `contract`, its onInternalMessage and getters are not imported;
+          // it allows having multiple contracts importing one another, "seeing" only declarations;
+          // it also allows writing external scripts: `import "contract"` + `fun main` don't conflict
+          if (is_imported && file->has_contract_directive()) {
+            if (should_register_symbols) {
+              // remember `get fun seqno()` on import "wallet" for error messages if used incorrectly
+              G.skipped_imported_getters.emplace_back(v_fun->get_identifier()->name, file);
+            }
+            skipped_get_fun.push_back(v_fun);
+            break;
+          }
+          // if a contract file imports entrypoints, it should contain all of them within,
+          // we do not allow `import "something"` having `get fun` inside;
+          // we force the convention: all getters to be visible at a glance, in the contract file
+          if (nearest_contract_file && file != nearest_contract_file) {
+            err("all contract entrypoints must be placed in the contract file `{}`\n""hint: keep `onInternalMessage` and `get fun` just below `contract`, not in other files", nearest_contract_file->extract_short_name()).fire(v_fun->get_identifier());
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
 
+  if (!should_register_symbols) {
+    ctx.import_stack.pop_back();
+    return;
+  }
+
+  // third pass: register all declarations in symtable (functions, structs, etc.)
+  for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
+    switch (v->kind) {
       case ast_constant_declaration:
         register_constant(v->as<ast_constant_declaration>());
         break;
@@ -316,19 +395,26 @@ static void iterate_through_file_symbols(const SrcFile* file, std::unordered_set
       case ast_struct_declaration:
         register_struct(v->as<ast_struct_declaration>());
         break;
-      case ast_function_declaration:
-        register_function(v->as<ast_function_declaration>());
+      case ast_function_declaration: {
+        auto v_fun = v->as<ast_function_declaration>();
+        if (std::find(skipped_get_fun.begin(), skipped_get_fun.end(), v_fun) != skipped_get_fun.end()) {
+          break;    // v_fun->fun_ref is left nullptr in AST
+        }
+        register_function(v_fun);
         break;
+      }
       default:
         break;
     }
   }
+
+  ctx.import_stack.pop_back();
 }
 
 void pipeline_register_global_symbols() {
-  std::unordered_set<const SrcFile*> seen;
-  iterate_through_file_symbols(G.all_src_files.get_stdlib_common_file(), seen);
-  iterate_through_file_symbols(G.all_src_files.get_entrypoint_file(), seen);
+  FileSymbolsRegistrationContext ctx;
+  iterate_through_file_symbols(G.all_src_files.get_stdlib_common_file(), ctx);
+  iterate_through_file_symbols(G.all_src_files.get_entrypoint_file(), ctx);
 }
 
 FunctionPtr pipeline_register_instantiated_generic_function(FunctionPtr base_fun_ref, AnyV cloned_v, std::string&& name, const GenericsSubstitutions* substitutedTs) {

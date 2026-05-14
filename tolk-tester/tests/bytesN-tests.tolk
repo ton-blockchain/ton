@@ -6,8 +6,8 @@ const someBytes = "asdf".literalSlice() as bytes16;
 const anotherBytes: bytes16 = "asdf".literalSlice() as bytes16;
 
 fun autoInferBytes16() {
-    if (random.uint256()) { return someBytes; }
-    else if (random.uint256()) { return true ? "".beginParse() as bytes16 : anotherBytes; }
+    if (random.uint256() != 0) { return someBytes; }
+    else if (random.uint256() != 0) { return true ? "".beginParse() as bytes16 : anotherBytes; }
     else { return someBytes!; }
 }
 

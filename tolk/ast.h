@@ -137,6 +137,8 @@ enum ASTNodeKind {
   ast_enum_body,
   ast_enum_declaration,
   ast_tolk_required_version,
+  ast_contract_directive_item,
+  ast_contract_directive,
   ast_import_directive,
   ast_tolk_file,
 };
@@ -149,6 +151,7 @@ enum class AnnotationKind {
   pure,
   overflow1023_policy,
   on_bounced_policy,
+  abi_clientType,
   custom,
   unknown,
 };
@@ -773,6 +776,7 @@ template<>
 struct Vertex<ast_function_call> final : ASTExprBinary {
   FunctionPtr fun_maybe = nullptr;  // filled while type inferring for `globalF()` / `obj.f()`; remains nullptr for `local_var()` / `getF()()`
   bool dot_obj_is_self = false;     // true for `obj.method()` (obj will be `self` in method); false for `globalF()` / `Point.create()`
+  TypePtr self_type_before_mutate = nullptr;  // filled while inferring `obj.mutateSelf()` before `obj` is assigned the mutate parameter type
 
   AnyExprV get_callee() const { return lhs; }
   AnyExprV get_self_obj() const { return dot_obj_is_self ? lhs->as<ast_dot_access>()->get_obj() : nullptr; }
@@ -782,6 +786,7 @@ struct Vertex<ast_function_call> final : ASTExprBinary {
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref, bool dot_obj_is_self);
+  void assign_self_type_before_mutate(TypePtr type);
 
   Vertex(SrcRange range, AnyExprV lhs_f, V<ast_argument_list> arguments)
     : ASTExprBinary(ast_function_call, range, lhs_f, arguments) {}
@@ -1046,7 +1051,7 @@ struct Vertex<ast_object_literal> final : ASTExprUnary {
 };
 
 template<>
-// ast_lambda_fun is an anonymous function (a lambda); no capturing allowed, so it's not a closure
+// ast_lambda_fun is an anonymous function (a lambda), optionally capturing outer locals by value
 // example: `var cb = fun(a: int) { return abs(a) }`, rhs is a lambda;
 // note that from the AST point of view, it's a LEAF: it's an expression, but parameters and body are not expressions;
 // hence, ASTVisitor does not traverse any lambda's body, scopes are not mixed, etc.;
@@ -1059,6 +1064,7 @@ private:
 public:
   AnyTypeV return_type_node;              // `fun(): <return_type> {}` or nullptr for `fun() {}`
   FunctionPtr lambda_ref = nullptr;       // filled in type-inferring (instantiating lambdas is similar to generic functions)
+  std::vector<LocalVarPtr> captured_vars; // filled in resolve-identifiers; outer-scope vars captured by this lambda
 
   int get_num_params()  const { return parameters->size(); }
   auto get_param_list() const { return parameters; }
@@ -1068,6 +1074,7 @@ public:
   
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_lambda_ref(FunctionPtr lambda_ref);
+  void assign_captured_vars(std::vector<LocalVarPtr>&& captured_vars);
 
   Vertex(SrcRange range, V<ast_parameter_list> parameters, V<ast_block_statement> body, AnyTypeV return_type_node)
     : ASTExprLeaf(ast_lambda_fun, range)
@@ -1291,17 +1298,19 @@ struct Vertex<ast_instantiationT_list> final : ASTOtherVararg {
 template<>
 // ast_annotation is @annotation above a declaration
 // example: `@pure fun ...`
-struct Vertex<ast_annotation> final : ASTOtherVararg {
+struct Vertex<ast_annotation> final : ASTOtherLeaf {
   std::string_view name;
   AnnotationKind kind;
+  AnyExprV expr_arg;     // @method_id(123), etc.; ast_tensor for multi-args; nullptr for non-args like @noinline
+  AnyTypeV type_arg;     // exists for @abi.clientType(<type>), otherwise nullptr
 
-  auto get_arg() const { return children.at(0)->as<ast_tensor>(); }
+  SrcRange keyword_range() const { return SrcRange::span(range, static_cast<int>(name.size())); }
 
   static AnnotationKind parse_kind(std::string_view name);
 
-  Vertex(SrcRange range, std::string_view name, AnnotationKind kind, V<ast_tensor> arg_probably_empty)
-    : ASTOtherVararg(ast_annotation, range, {arg_probably_empty})
-    , name(name), kind(kind) {}
+  Vertex(SrcRange range, std::string_view name, AnnotationKind kind, AnyExprV expr_arg, AnyTypeV type_arg)
+    : ASTOtherLeaf(ast_annotation, range)
+    , name(name), kind(kind), expr_arg(expr_arg), type_arg(type_arg) {}
 };
 
 template<>
@@ -1321,6 +1330,7 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   AnyTypeV receiver_type_node;            // for `fun builder.storeInt`, here is `builder`
   AnyTypeV return_type_node;              // if unspecified (nullptr), means "auto infer"
   V<ast_genericsT_list> genericsT_list;   // for non-generics it's nullptr
+  DocCommentLines doc_lines;              // from /// doc-comments above declaration
   int tvm_method_id;                      // specified via @method_id annotation
   int flags;                              // from enum in FunctionData
   FunctionInlineMode inline_mode;         // from annotations like `@inline` or auto-detected "in-place"
@@ -1332,9 +1342,9 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, int tvm_method_id, int flags, FunctionInlineMode inline_mode)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_parameter_list> parameters, AnyV body, AnyTypeV receiver_type_node, AnyTypeV return_type_node, V<ast_genericsT_list> genericsT_list, DocCommentLines doc_lines, int tvm_method_id, int flags, FunctionInlineMode inline_mode)
     : ASTOtherVararg(ast_function_declaration, range, {name_identifier, parameters, body})
-    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), tvm_method_id(tvm_method_id), flags(flags), inline_mode(inline_mode) {}
+    , receiver_type_node(receiver_type_node), return_type_node(return_type_node), genericsT_list(genericsT_list), doc_lines(std::move(doc_lines)), tvm_method_id(tvm_method_id), flags(flags), inline_mode(inline_mode) {}
 };
 
 template<>
@@ -1361,6 +1371,7 @@ template<>
 struct Vertex<ast_constant_declaration> final : ASTOtherVararg {
   GlobalConstPtr const_ref = nullptr;          // filled after register
   AnyTypeV type_node;                          // exists for `const op: int = rhs`, otherwise nullptr
+  DocCommentLines doc_lines;                   // from /// doc-comments above declaration
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   AnyExprV get_init_value() const { return child_as_expr(1); }
@@ -1368,9 +1379,9 @@ struct Vertex<ast_constant_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_const_ref(GlobalConstPtr const_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV type_node, AnyExprV init_value)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV type_node, AnyExprV init_value, DocCommentLines doc_lines)
     : ASTOtherVararg(ast_constant_declaration, range, {name_identifier, init_value})
-    , type_node(type_node) {}
+    , type_node(type_node), doc_lines(std::move(doc_lines)) {}
 };
 
 template<>
@@ -1379,33 +1390,36 @@ template<>
 // see TypeDataAlias in type-system.h
 struct Vertex<ast_type_alias_declaration> final : ASTOtherVararg {
   AliasDefPtr alias_ref = nullptr;          // filled after register
-  V<ast_genericsT_list> genericsT_list;             // exists for `type Response<TResult>`; otherwise, nullptr
-  AnyTypeV underlying_type_node;                    // at the right of `=`
+  V<ast_genericsT_list> genericsT_list;     // exists for `type Response<TResult>`; otherwise, nullptr
+  AnyTypeV underlying_type_node;            // at the right of `=`
+  DocCommentLines doc_lines;                // from /// doc-comments above declaration
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_alias_ref(AliasDefPtr alias_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, AnyTypeV underlying_type_node)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, AnyTypeV underlying_type_node, DocCommentLines doc_lines)
     : ASTOtherVararg(ast_type_alias_declaration, range, {name_identifier})
-    , genericsT_list(genericsT_list), underlying_type_node(underlying_type_node) {}
+    , genericsT_list(genericsT_list), underlying_type_node(underlying_type_node), doc_lines(std::move(doc_lines)) {}
 };
 
 template<>
 // ast_struct_field is one field at struct declaration
 // example: `struct Point { x: int, y: int }` is struct declaration, its body contains 2 fields
 struct Vertex<ast_struct_field> final : ASTOtherVararg {
+  DocCommentLines doc_lines;      // from /// doc-comments above field
   bool is_private;                // declared as `private field: int`
   bool is_readonly;               // declared as `readonly field: int`
   AnyTypeV type_node;             // always exists, typing struct fields is mandatory
+  AnyTypeV abi_type_node;         // exists for @abi.clientType(<type>)
   AnyExprV default_value;         // nullptr if no default
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, bool is_private, bool is_readonly, AnyExprV default_value, AnyTypeV type_node)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, DocCommentLines doc_lines, bool is_private, bool is_readonly, AnyExprV default_value, AnyTypeV type_node, AnyTypeV abi_type_node)
     : ASTOtherVararg(ast_struct_field, range, {name_identifier})
-    , is_private(is_private), is_readonly(is_readonly), type_node(type_node), default_value(default_value) {}
+    , doc_lines(std::move(doc_lines)), is_private(is_private), is_readonly(is_readonly), type_node(type_node), abi_type_node(abi_type_node), default_value(default_value) {}
 };
 
 template<>
@@ -1428,6 +1442,7 @@ template<>
 struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
   StructPtr struct_ref = nullptr;           // filled after register
   V<ast_genericsT_list> genericsT_list;     // exists for `Wrapper<T>`; otherwise, nullptr
+  DocCommentLines doc_lines;                // from /// doc-comments above declaration
   StructData::Overflow1023Policy overflow1023_policy;
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
@@ -1438,22 +1453,23 @@ struct Vertex<ast_struct_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_struct_ref(StructPtr struct_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, StructData::Overflow1023Policy overflow1023_policy, AnyExprV opcode, V<ast_struct_body> struct_body)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, V<ast_genericsT_list> genericsT_list, DocCommentLines doc_lines, StructData::Overflow1023Policy overflow1023_policy, AnyExprV opcode, V<ast_struct_body> struct_body)
     : ASTOtherVararg(ast_struct_declaration, range, {name_identifier, opcode, struct_body})
-    , genericsT_list(genericsT_list), overflow1023_policy(overflow1023_policy) {}
+    , genericsT_list(genericsT_list), doc_lines(std::move(doc_lines)), overflow1023_policy(overflow1023_policy) {}
 };
 
 template<>
 // ast_enum_member is one member at enum declaration
 // example: `enum Color { Red = 1, Green, Blue }` is enum declaration, its body contains 3 members
 struct Vertex<ast_enum_member> final : ASTOtherVararg {
-  AnyExprV init_value;         // nullptr if no default
+  DocCommentLines doc_lines; // from /// doc-comments above member
+  AnyExprV init_value;       // nullptr if no default
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyExprV init_value)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, DocCommentLines doc_lines, AnyExprV init_value)
     : ASTOtherVararg(ast_enum_member, range, {name_identifier})
-    , init_value(init_value) {}
+    , doc_lines(std::move(doc_lines)), init_value(init_value) {}
 };
 
 template<>
@@ -1475,6 +1491,7 @@ template<>
 struct Vertex<ast_enum_declaration> final : ASTOtherVararg {
   EnumDefPtr enum_ref = nullptr;          // filled after register
   AnyTypeV colon_type = nullptr;          // serialization type after `:` if exists
+  DocCommentLines doc_lines;              // from /// doc-comments above declaration
 
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   auto get_enum_body() const { return children.at(1)->as<ast_enum_body>(); }
@@ -1482,9 +1499,9 @@ struct Vertex<ast_enum_declaration> final : ASTOtherVararg {
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_enum_ref(EnumDefPtr enum_ref);
 
-  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV colon_type, V<ast_enum_body> enum_body)
+  Vertex(SrcRange range, V<ast_identifier> name_identifier, AnyTypeV colon_type, DocCommentLines doc_lines, V<ast_enum_body> enum_body)
     : ASTOtherVararg(ast_enum_declaration, range, {name_identifier, enum_body})
-    , colon_type(colon_type) {}
+    , colon_type(colon_type), doc_lines(std::move(doc_lines)) {}
 };
 
 template<>
@@ -1500,17 +1517,49 @@ struct Vertex<ast_tolk_required_version> final : ASTOtherLeaf {
 };
 
 template<>
+// ast_contract_directive_item is a key-value pair inside a `contract` directive
+// example: `author: "me"`            (expression)
+// example: `incomingMessages: A | B` (type)
+struct Vertex<ast_contract_directive_item> final : ASTOtherLeaf {
+  std::string_view name;
+  AnyExprV v_as_expr;
+  AnyTypeV v_as_type;
+
+  bool is_value_expr() const { return v_as_expr != nullptr; }
+  bool is_value_type() const { return v_as_type != nullptr; }
+  SrcRange name_range() const { return SrcRange::span(range, static_cast<int>(name.size())); }
+
+  Vertex(SrcRange range, std::string_view name, AnyExprV v_as_expr, AnyTypeV v_as_type)
+    : ASTOtherLeaf(ast_contract_directive_item, range)
+    , name(name), v_as_expr(v_as_expr), v_as_type(v_as_type) {}
+};
+
+template<>
+// ast_contract_directive is a `contract` in a file with `onInternalMessage` and `get fun` entrypoints
+// in practice, `incomingMessages` and `storage` are specified for proper ABI generation,
+// whereas other ABI output like `thrown_errors` are calculated automatically;
+// note that `import "FileWithContract"` does NOT import its `get fun`, see pipe-register-symbols.cpp
+struct Vertex<ast_contract_directive> final : ASTOtherVararg {
+  int size_items() const { return size() - 1; }
+  auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
+  auto get_ith_item(int i) const { return children.at(i + 1)->as<ast_contract_directive_item>(); }
+
+  Vertex(SrcRange range, std::vector<AnyV>&& name_and_items)
+    : ASTOtherVararg(ast_contract_directive, range, std::move(name_and_items)) {}
+};
+
+template<>
 // ast_import_directive is an import at the top of the file
 // examples: `import "another.tolk"` / `import "@stdlib/tvm-dicts"`
 struct Vertex<ast_import_directive> final : ASTOtherVararg {
-  const SrcFile* file = nullptr;    // assigned after imports have been resolved, just after parsing a file to ast
+  SrcFilePtr file = nullptr;    // assigned after imports have been resolved, just after parsing a file to ast
 
   auto get_file_leaf() const { return children.at(0)->as<ast_string_const>(); }
 
   std::string get_file_name() const { return static_cast<std::string>(children.at(0)->as<ast_string_const>()->str_val); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_src_file(const SrcFile* file);
+  void assign_src_file(SrcFilePtr file);
 
   Vertex(SrcRange range, V<ast_string_const> file_name)
     : ASTOtherVararg(ast_import_directive, range, {file_name}) {}
@@ -1522,11 +1571,11 @@ template<>
 // particularly, it contains imports that lead to loading other files
 // a whole program consists of multiple parsed files, each of them has a parsed ast tree (stdlib is also parsed)
 struct Vertex<ast_tolk_file> final : ASTOtherVararg {
-  const SrcFile* const file;
+  SrcFilePtr file;
 
   const std::vector<AnyV>& get_toplevel_declarations() const { return children; }
 
-  Vertex(const SrcFile* file, SrcRange range, std::vector<AnyV> toplevel_declarations)
+  Vertex(SrcFilePtr file, SrcRange range, std::vector<AnyV> toplevel_declarations)
     : ASTOtherVararg(ast_tolk_file, range, std::move(toplevel_declarations))
     , file(file) {}
 };

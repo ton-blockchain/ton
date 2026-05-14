@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.3
+tolk 1.4
 
 /// Usually `c3` has a continuation initialized by the whole code of the contract. It is used for function calls.
 /// The primitive returns the current value of `c3`.
@@ -51,7 +51,7 @@ enum VmExitCode {
     FatalError = 12                 // thrown by TVM in situations deemed impossible
     OutOfGasError = 13              // not enough gas to finish execution (shown as -14 at runtime)
     VirtualizationError = 14        // reserved, but never thrown
-    ActionListInvalid = 32          // action list contains exotic or unparseable cells
+    ActionListInvalid = 32          // action list contains exotic or unparsable cells
     ActionListTooLong = 33          // more than 255 actions queued
     ActionInvalid = 34              // action is invalid or not supported
     InvalidSourceAddress = 35       // invalid source address in outbound message

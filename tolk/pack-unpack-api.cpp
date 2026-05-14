@@ -51,7 +51,12 @@ struct CantSerializeBecause {
 };
 
 class PackUnpackAvailabilityChecker {
-  std::vector<StructPtr> called_stack;      // to prevent recursion (give an error)
+  struct CalledStackEntry {
+    StructPtr struct_ref;
+    int cell_ref_depth;
+  };
+
+  std::vector<CalledStackEntry> called_stack;      // to prevent recursion unless it passes through `Cell<T>`
   std::vector<MethodCallCandidate>* out_un_pack_candidates;
 
   // check custom pack/unpack functions; their prototypes have already been checked at type inferring,
@@ -81,7 +86,7 @@ public:
   explicit PackUnpackAvailabilityChecker(std::vector<MethodCallCandidate>* out_un_pack_candidates)
     : out_un_pack_candidates(out_un_pack_candidates) {}
 
-  std::optional<CantSerializeBecause> detect_why_cant_serialize(TypePtr any_type, bool is_pack) {
+  std::optional<CantSerializeBecause> detect_why_cant_serialize(TypePtr any_type, bool is_pack, int cell_ref_depth) {
     if (any_type->try_as<TypeDataIntN>()) {
       return {};
     }
@@ -108,8 +113,8 @@ public:
     }
 
     if (const auto* t_map = any_type->try_as<TypeDataMapKV>()) {
-      detect_why_cant_serialize(t_map->TKey, is_pack);    // collect out_un_pack_candidates if custom values
-      detect_why_cant_serialize(t_map->TValue, is_pack);
+      detect_why_cant_serialize(t_map->TKey, is_pack, cell_ref_depth);    // collect out_un_pack_candidates if custom values
+      detect_why_cant_serialize(t_map->TValue, is_pack, cell_ref_depth);
       return {};
     }
 
@@ -117,31 +122,41 @@ public:
       StructPtr struct_ref = t_struct->struct_ref;
 
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_struct, out_un_pack_candidates)) {
-        return check_custom_pack_unpack(t_struct, f, is_pack);
+        return out_un_pack_candidates ? std::nullopt : check_custom_pack_unpack(t_struct, f, is_pack);
+      }
+
+      if (struct_ref->is_instantiation_of_CellT()) {
+        TypePtr innerT = struct_ref->substitutedTs->typeT_at(0);
+        return detect_why_cant_serialize(innerT, is_pack, cell_ref_depth + 1);
       }
 
       // give an error for `struct A { next: [A?] }`
       // (it's okay from the stack point of view, but not okay for serialization)
-      bool in_recursion = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
-      if (in_recursion) {
+      auto it_recursion = std::find_if(called_stack.begin(), called_stack.end(), [struct_ref](CalledStackEntry entry) {
+        return entry.struct_ref == struct_ref;
+      });
+      if (it_recursion != called_stack.end()) {
+        // Recursion is allowed only if this cycle has crossed at least one `Cell<T>` boundary
+        // since the previous occurrence of the same struct.
+        if (cell_ref_depth > it_recursion->cell_ref_depth) {
+          return {};
+        }
         return CantSerializeBecause("because struct `" + struct_ref->as_human_readable() + "` appears recursively in itself");
       }
 
-      called_stack.push_back(struct_ref);
+      called_stack.push_back({struct_ref, cell_ref_depth});
       for (StructFieldPtr field_ref : struct_ref->fields) {
-        if (auto why = detect_why_cant_serialize(field_ref->declared_type, is_pack)) {
+        if (auto why = detect_why_cant_serialize(field_ref->declared_type, is_pack, cell_ref_depth)) {
           return CantSerializeBecause("because field `" + struct_ref->name + "." + field_ref->name + "` of type `" + field_ref->declared_type->as_human_readable() + "` can't be serialized", why.value());
         }
       }
-      // having `Cell<T>`, don't check `T` to allow recursion `struct A { next: Cell<A>? }`
-      // (T will be automatically checked when a user tries to operate it via `typedCell.load()` or `objT.toCell()`)
       called_stack.pop_back();
       return {};
     }
 
     if (const auto* t_enum = any_type->try_as<TypeDataEnum>()) {
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_enum, out_un_pack_candidates)) {
-        return check_custom_pack_unpack(t_enum, f, is_pack);
+        return out_un_pack_candidates ? std::nullopt : check_custom_pack_unpack(t_enum, f, is_pack);
       }
 
       if (t_enum->enum_ref->members.empty()) {
@@ -162,15 +177,25 @@ public:
         if (variant == TypeDataNullLiteral::create()) {
           continue;
         }
-        if (auto why = detect_why_cant_serialize(variant, is_pack)) {
+        if (auto why = detect_why_cant_serialize(variant, is_pack, cell_ref_depth)) {
           return CantSerializeBecause("because variant #" + std::to_string(i + 1) + " of type `" + variant->as_human_readable() + "` can't be serialized", why.value());
         }
       }
+      if (t_union->or_null == TypeDataVoid::create()) {
+        return CantSerializeBecause("because `void | null` has no binary representation");
+      }
       if (!t_union->or_null) {
         std::string because_msg;
-        auto_generate_opcodes_for_union(t_union, because_msg);
+        bool tree_auto_generated;
+        auto_generate_opcodes_for_union(t_union, because_msg, tree_auto_generated);
         if (!because_msg.empty()) {
           return CantSerializeBecause("because could not automatically generate serialization prefixes for a union\n" + because_msg);
+        }
+        if (t_union->size() == 2 && t_union->variants.back() == TypeDataVoid::create()) {
+          PackSize sizeT = estimate_serialization_size(t_union->variants[0]);
+          if (sizeT.min_bits == 0 && sizeT.min_refs == 0) {   // `Empty | void` and `remaining | void` clash
+            return CantSerializeBecause("because variant `" + t_union->variants[0]->as_human_readable() + "` can be indistinguishable from `void`");
+          }
         }
       }
       return {};
@@ -178,7 +203,7 @@ public:
 
     if (const auto* t_tensor = any_type->try_as<TypeDataTensor>()) {
       for (int i = 0; i < t_tensor->size(); ++i) {
-        if (auto why = detect_why_cant_serialize(t_tensor->items[i], is_pack)) {
+        if (auto why = detect_why_cant_serialize(t_tensor->items[i], is_pack, cell_ref_depth)) {
           return CantSerializeBecause("because element `tensor." + std::to_string(i) + "` of type `" + t_tensor->items[i]->as_human_readable() + "` can't be serialized", why.value());
         }
       }
@@ -187,7 +212,7 @@ public:
 
     if (const auto* t_shaped = any_type->try_as<TypeDataShapedTuple>()) {
       for (int i = 0; i < t_shaped->size(); ++i) {
-        if (auto why = detect_why_cant_serialize(t_shaped->items[i], is_pack)) {
+        if (auto why = detect_why_cant_serialize(t_shaped->items[i], is_pack, cell_ref_depth)) {
           return CantSerializeBecause("because element `shaped." + std::to_string(i) + "` of type `" + t_shaped->items[i]->as_human_readable() + "` can't be serialized", why.value());
         }
       }
@@ -195,7 +220,7 @@ public:
     }
 
     if (const auto* t_array = any_type->try_as<TypeDataArray>()) {
-      if (auto why = detect_why_cant_serialize(t_array->innerT, is_pack)) {
+      if (auto why = detect_why_cant_serialize(t_array->innerT, is_pack, cell_ref_depth)) {
         return CantSerializeBecause("because array of type `" + t_array->innerT->as_human_readable() + "` can't be serialized", why.value());
       }
       PackSize sizeT = estimate_serialization_size(t_array->innerT);
@@ -214,10 +239,10 @@ public:
       }
 
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_alias, out_un_pack_candidates)) {
-        return check_custom_pack_unpack(t_alias, f, is_pack);
+        return out_un_pack_candidates ? std::nullopt : check_custom_pack_unpack(t_alias, f, is_pack);
       }
 
-      if (auto why = detect_why_cant_serialize(t_alias->underlying_type, is_pack)) {
+      if (auto why = detect_why_cant_serialize(t_alias->underlying_type, is_pack, cell_ref_depth)) {
         return CantSerializeBecause("because alias `" + t_alias->as_human_readable() + "` expands to `" + t_alias->underlying_type->as_human_readable() + "`", why.value());
       }
       return {};
@@ -253,7 +278,7 @@ public:
 
 bool check_struct_can_be_packed_or_unpacked(TypePtr any_type, bool is_pack, std::string* because_msg, std::vector<MethodCallCandidate>* out_un_pack_candidates) {
   PackUnpackAvailabilityChecker checker(out_un_pack_candidates);
-  if (auto why = checker.detect_why_cant_serialize(any_type, is_pack)) {
+  if (auto why = checker.detect_why_cant_serialize(any_type, is_pack, 0)) {
     if (because_msg != nullptr) {
       *because_msg = why.value().because_msg;
     }

@@ -2,36 +2,33 @@ import "imports/use-dicts.ext.tolk"
 
 @method_id(90)
 fun simpleAllConst() {
-    return (!0, !!0 & !false, !!!0, !1, !!1, !-1, !!-1, (!5 as int == 0) == !0, !0 == true);
+    return (0 == 0, (0 != 0) & !false, 0 == 0, 1 == 0, 1 != 0, -1 == 0, -1 != 0, ((5 == 0) as int == 0) == (0 == 0), (0 == 0) == true);
 }
 
 @method_id(91)
 fun compileTimeEval1(x: int) {
-    // todo now compiler doesn't understand that bool can't be equal to number other than 0/-1
-    // (but understands that it can't be positive)
-    // that's why for now, the last condition is evaluated at runtime
-    return (!x, !x as int > 10, (!x as int) < 10, !!x as int == 5, !x as int == -10);
+    return (x == 0, (x == 0) as int > 10, ((x == 0) as int) < 10, (x != 0) as int == 5, (x == 0) as int == -10);
 }
 
 @method_id(101)
 fun withIfNot(x: int, y: int) {
-    if (!x) { return 10 }
-    else if (!y) { { return 20 } }
+    if (x == 0) { return 10 }
+    else if (y == 0) { { return 20 } }
     return x+y
 }
 
 @method_id(102)
 fun withAndOr(x: int, y: int, z: int) {
     var return_at_end = -1;
-    if (!x & !y) {
-        if (!z & !y) { return 10; }
-        else if ((z != 0) | !!y) { return_at_end = 20; }
-    } else if (!!x & !!y & !z) {
-        if (!z & (x > 10)) { return_at_end = 30; }
-        if ((x != 11) & !z) { return 40; }
+    if ((x == 0) & (y == 0)) {
+        if ((z == 0) & (y == 0)) { return 10; }
+        else if ((z != 0) | (y != 0)) { return_at_end = 20; }
+    } else if ((x != 0) & (y != 0) & (z == 0)) {
+        if ((z == 0) & (x > 10)) { return_at_end = 30; }
+        if ((x != 11) & (z == 0)) { return 40; }
         return_at_end = 50;
     } else {
-        return_at_end = !x ? !y as int : (!z as int) | 1;
+        return_at_end = x == 0 ? (y == 0) as int : ((z == 0) as int) | 1;
     }
     return return_at_end;
 }
@@ -40,7 +37,7 @@ fun withAndOr(x: int, y: int, z: int) {
 fun someSum(upto: int) {
     var x = 0;
     var should_break = false;
-    while (!x & !should_break) {
+    while ((x == 0) & !should_break) {
         if (upto < 10) { x = upto; should_break = true; }
         else { upto = upto - 1; }
     }
@@ -50,7 +47,7 @@ fun someSum(upto: int) {
 @method_id(104)
 fun testDict(last: int) {
     // prepare dict: [3 => 30, 4 => 40, 5 => x]
-    var dict = prepareDict_3_30_4_40_5_x(!last ? 100 : last);
+    var dict = prepareDict_3_30_4_40_5_x(last == 0 ? 100 : last);
     return (lookupIdxByValue(dict, 30), lookupIdxByValue(dict, last), lookupIdxByValue(dict, 100));
 }
 
@@ -128,11 +125,11 @@ fun testLogicalOps2(first: int) {
 @method_id(112)
 fun mixLogicalIntsAndBools(first: int, cond: bool) {
     return (
-        (first && cond) || (!first && cond),
+        (first && cond) || (first == 0 && cond),
         ((first & -1) & cond as int) == ((first && true) && cond) as int,
         7 && cond,
         first || cond || !cond || alwaysThrows(),
-        cond || first || !first || alwaysThrows()
+        cond || first || first == 0 || alwaysThrows()
     );
 }
 
@@ -157,7 +154,7 @@ fun get123(): int
 @method_id(114)
 fun test114() {
     val fals = (get123() < 0) as int;
-    return (fals ? -1 : fals) != 0;
+    return (fals != 0 ? -1 : fals) != 0;
 }
 
 @method_id(115)
@@ -181,8 +178,8 @@ fun testCodegenOptimizeThrowIF(b: bool, i: int) {
     assert (b == false) throw 100;
     assert (b != false) throw 100;
 
-    assert (!i) throw 101;
-    assert (!!i) throw 101;
+    assert (i == 0) throw 101;
+    assert (i != 0) throw 101;
     assert (i == 0) throw 101;
     assert (i != 0) throw 101;
 }
@@ -201,13 +198,13 @@ fun test117(x: int) {
     catch (ex) { t.push(ex); }
     try { assert (!!(x != 100)) throw 104; }
     catch (ex) { t.push(ex); }
-    try { assert (x) throw 105; }
+    try { assert (x != 0) throw 105; }
     catch (ex) { t.push(ex); }
-    try { assert (!x) throw 106; }
+    try { assert (x == 0) throw 106; }
     catch (ex) { t.push(ex); }
-    try { assert (~x) throw 107; }
+    try { assert ((~x) != 0) throw 107; }
     catch (ex) { t.push(ex); }
-    try { assert (~(x + 1)) throw 108; }
+    try { assert ((~(x + 1)) != 0) throw 108; }
     catch (ex) { t.push(ex); }
 
     return t;
@@ -262,6 +259,36 @@ fun test121() {
 fun test122(cond: bool) {
     var x = 1;
     return (x, cond && (x = 2), x, cond && (x = 3), x);
+}
+
+@method_id(123)
+fun test123(x: int) {
+    var iterations = 0;
+    do {
+        iterations += 1;
+        if (x > 0) {
+            x -= 1;
+        } else if (x < 0) {
+            x += 1;
+        }
+    } while ((x <=> 0) != 0);
+    return iterations;
+}
+
+@method_id(124)
+fun test124(c: bool): int {
+    var x: int;
+    if ((c && ((x = 1) == 1)) || ((x = 2) == 2)) {
+    }
+    return x;
+}
+
+@method_id(125)
+fun test125(c: bool): int {
+    var x: (int, int);
+    if ((c && (x = (10, 20)).0 == 10) || ((x = (30, 40)).0 == 30)) {
+    }
+    return x.0 + x.1 * 100;
 }
 
 
@@ -319,6 +346,13 @@ fun main() {
 @testcase | 121 |        | 1 -1 2 -1 3
 @testcase | 122 | -1     | 1 -1 2 -1 3
 @testcase | 122 | 0      | 1 0 1 0 1
+@testcase | 123 | 5      | 5
+@testcase | 123 | 0      | 1
+@testcase | 123 | -5     | 5
+@testcase | 124 | -1     | 1
+@testcase | 124 | 0      | 2
+@testcase | 125 | -1     | 2010
+@testcase | 125 | 0      | 4030
 
 @fif_codegen
 """
@@ -339,35 +373,33 @@ fun main() {
 """
   compileTimeEval1() PROC:<{  //  x
     DUP	//  x x
-    0 EQINT	//  x '1
-    FALSE	//  x '1 '4
-    TRUE	//  x '1 '4 '7
-    FALSE	//  x '1 '4 '7 '11
-    s0 s4 XCHG	//  '11 '1 '4 '7 x
-    0 EQINT	//  '11 '1 '4 '7 '12
-    -10 EQINT	//  '11 '1 '4 '7 '14
-    s3 s4 XCHG
-    s1 s3 s0 XCHG3	//  '1 '4 '7 '11 '14
+    0 EQINT	//  x '2
+    FALSE	//  x '2 '6
+    TRUE	//  x '2 '6 '10
+    FALSE	//  x '2 '6 '10 '14
+    s0 s4 XCHG	//  '14 '2 '6 '10 x
+    0 EQINT	//  '14 '2 '6 '10 '16
+    -10 EQINT	//  '14 '2 '6 '10 '18
+    s3 s4 XCHG	//  '2 '14 '6 '10 '18
+    s1 s3 s0 XCHG3	//  '2 '6 '10 '14 '18
   }>
 """
 
 @fif_codegen
 """
   withIfNot() PROC:<{  //  x y
-    c2 SAVE
-    SAMEALTSAVE
     OVER	//  x y x
-    IFNOTJMP:<{	//  x y
+    0 EQINT   // x y '3
+    IFJMP:<{	//  x y
       2DROP	//
-      10 PUSHINT	//  '2=10
+      10 PUSHINT	//  '4=10
     }>	//  x y
     DUP	//  x y y
     IFNOTJMP:<{	//  x y
       2DROP	//
-      20 PUSHINT	//  '3=20
-      RETALT
+      20 PUSHINT	//  '7=20
     }>	//  x y
-    ADD	//  '4
+    ADD	//  '8
   }>
 """
 

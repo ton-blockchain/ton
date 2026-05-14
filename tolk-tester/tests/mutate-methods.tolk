@@ -283,7 +283,7 @@ fun testLoadIntForTemporaryObject() {
     return (
         beginCell().storeUint(1, 32).endCell().beginParse().loadUint(32),
         beginCell().storeUint(2, 32).endCell().beginParse().loadUint(32),
-        c0.beginParse().loadUint(32) ? alwaysThrows() : loadIntFromCell(c4, 32)
+        c0.beginParse().loadUint(32) != 0 ? alwaysThrows() : loadIntFromCell(c4, 32)
     );
 }
 
@@ -409,6 +409,25 @@ fun test135() {
     )
 }
 
+@noinline
+fun int.keepSelfAndBump(self, mutate n: int): self {
+    n += 1;
+    return self;
+}
+
+fun (int, int).keepSelfAndBumpFirst(self, mutate n: int): self {
+    n += 1;
+    return self;
+}
+
+@method_id(136)
+fun test136() {
+    var x1 = 10;
+    var t1 = (10, 20);
+    var oldSelfX = x1.keepSelfAndBump(mutate x1);
+    var oldSelfTensor = t1.keepSelfAndBumpFirst(mutate t1.0);
+    return (oldSelfX, x1, oldSelfTensor, t1);
+}
 
 fun main(){
     // mark used to codegen them
@@ -437,6 +456,7 @@ fun main(){
 @testcase | 128 |    | 111 222
 @testcase | 133 |    | 7
 @testcase | 135 |    | 0 0
+@testcase | 136 |    | 10 11 10 20 11 20
 
 @fif_codegen
 """

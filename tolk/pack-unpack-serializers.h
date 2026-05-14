@@ -110,6 +110,7 @@ struct LazyMatchOptions {
   bool is_statement;              // it's `match` statement, not expression, so it does not return any result
   bool add_return_to_all_arms;    // it's the last statement in a function, add "return" to its cases for better Fift code
   std::vector<MatchBlock> match_blocks;
+  LocalVarPtr lazy_var_ref = nullptr; // for emitting MARK_SMART_CAST at the start of each arm
 
   const MatchBlock* find_match_block(TypePtr variant) const;
   void save_match_result_on_arm_end(CodeBlob& code, AnyV origin, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const;
@@ -185,9 +186,8 @@ struct CustomPackUnpackF {
 
 struct MethodCallCandidate;
 
-bool is_type_cellT(TypePtr any_type);
 CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::vector<MethodCallCandidate>* out_candidates = nullptr);
-std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg);
+std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg, bool& tree_auto_generated);
 TypePtr calculate_intN_to_serialize_enum(EnumDefPtr enum_ref);
 
 std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, AnyV origin);

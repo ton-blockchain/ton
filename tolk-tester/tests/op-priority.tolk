@@ -55,7 +55,7 @@ fun test7(b: int): int {
 
 @method_id(108)
 fun test8(b: int): int {
-    var a = b == 3 ? 3 : b == 4 ? 4 : b = 5 ? 5 : 100;
+    var a = b == 3 ? 3 : b == 4 ? 4 : (b = (5 != 0 ? 5 : 100));
     return a;
 }
 

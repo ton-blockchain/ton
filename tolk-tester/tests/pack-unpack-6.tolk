@@ -1,4 +1,4 @@
-struct (0x01) CounterIncrement { byValue: int8; }
+struct (0x0_1) CounterIncrement { byValue: int8; }
 struct (0x03) CounterDecrementBy1 {}
 type CounterMsg = CounterIncrement | CounterDecrementBy1;
 

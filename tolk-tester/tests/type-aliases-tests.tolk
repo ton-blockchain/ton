@@ -31,22 +31,22 @@ fun test1(x: MInt): MVoid {
     __expect_type(~x, "int");
     __expect_type(x as int, "int");
     __expect_type(x as int8, "int8");
-    __expect_type(rand() ? x : y, "MInt");
+    __expect_type(rand() != 0 ? x : y, "MInt");
     __expect_type((x, 1, y), "(MInt, int, MInt)");
 
-    __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
-    __expect_type(rand() ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
-    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
-    __expect_type(rand() ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
+    __expect_type(rand() != 0 ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
+    __expect_type(rand() != 0 ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
+    __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
+    __expect_type(rand() != 0 ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
 
     // since `Pair2_v1` and `Pair2_v2` underlying type is equal, a union of them can't be created
     var d1 = (1, 2) as Pair2_v1 | Pair2_v2;
     var d2 = (1, 2) as Pair2_v2 | Pair2_v1;
     __expect_type(d1, "Pair2_v1");
     __expect_type(d2, "Pair2_v2");
-    __expect_type(rand() ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "Pair2_v1");
+    __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "Pair2_v1");
 
-    __expect_type(!x, "bool");
+    __expect_type(x == 0, "bool");
 
     __expect_type(x as int?, "int?");
     __expect_type(x as MInt?, "MInt?");
@@ -56,7 +56,7 @@ fun test1(x: MInt): MVoid {
     __expect_type(PointAlias2{x:0,y:0}, "Point");
     __expect_type(Point{x:0,y:0} as PointAlias, "PointAlias");
 
-    if (x) { return; }
+    if (x != 0) { return; }
 }
 
 fun test2() {
@@ -86,10 +86,10 @@ fun test4(x: MIntN, y: MIntN) {
     }
     __expect_type(x, "MIntN");
     __expect_type(x!, "MInt");
-    __expect_type(rand() ? x : y, "MIntN");
-    __expect_type(rand() ? x : 0, "MInt?");
-    __expect_type(rand() ? 0 : x, "int?");
-    __expect_type(rand() ? 0 : x!, "int");
+    __expect_type(rand() != 0 ? x : y, "MIntN");
+    __expect_type(rand() != 0 ? x : 0, "MInt?");
+    __expect_type(rand() != 0 ? 0 : x, "int?");
+    __expect_type(rand() != 0 ? 0 : x!, "int");
     return y!;
 }
 
@@ -157,7 +157,7 @@ fun test9(b: MBool): MBool {
         __expect_type(b, "MBool");
         return !b;
     }
-    return !!(5 as MInt);
+    return (5 as MInt) != 0;
 }
 
 @method_id(110)
@@ -321,7 +321,7 @@ fun test15() {
     var m: MInt1 = 10;
     var t: MInt2 = 20;
 
-    if (0) {
+    if (false) {
         i = m; i = t;
         m = i; m = t;
         t = i; t = m;
@@ -389,6 +389,118 @@ fun test17(a: SnakedCell<int>, b: SnakedCell<MInt>, c: SnakedCell<MInt_v2>) {
     c as SnakedCell<MInt_v2>;
 }
 
+type MyInt32 = int32
+type PlainInt = int
+
+global gUnpacked: int;
+
+fun PlainInt.packToBuilder(self, mutate b: builder) {
+    b.storeUint(100, 32);
+}
+fun PlainInt.unpackFromSlice(mutate s: slice): int {
+    assert(s.loadUint(32) == 100) throw 100;
+    gUnpacked += 1;
+    return 0;
+}
+
+@method_id(118)
+fun test18() {
+    gUnpacked = 0;
+    var c_mi = (5 as MyInt32).toCell();
+    var c_pi = (5 as PlainInt).toCell();
+    return (c_mi.load(), c_pi.load(), gUnpacked);
+}
+
+struct EmptyRecursiveVariant
+
+type RecursiveStructOrEmpty = RecursiveStructByRef | EmptyRecursiveVariant
+
+struct (0x0ec3c86d) RecursiveStructByRef {
+    prev: Cell<RecursiveStructOrEmpty>  // just ensure it compiles
+    value: uint8
+}
+
+struct Box {
+    x: uint8
+}
+
+type IdenticalBox = Box
+
+type TaggedBox = Box
+
+fun TaggedBox.packToBuilder(self, mutate b: builder) {
+    b.storeUint(1, 1);
+    b.storeUint(self.x, 8);
+}
+
+fun TaggedBox.unpackFromSlice(mutate s: slice): TaggedBox {
+    s.loadUint(1);
+    return Box { x: s.loadUint(8) };
+}
+
+@method_id(119)
+fun test19() {
+    var box = Box { x: 0 };
+    val plainBits = box.toCell().beginParse().remainingBitsCount();
+    val identBits = (box as IdenticalBox).toCell().beginParse().remainingBitsCount();
+    val taggedBits = (box as TaggedBox).toCell().beginParse().remainingBitsCount();
+    return (plainBits, identBits, taggedBits);
+}
+
+struct AnotherS {
+    x: int8
+}
+
+type AliasAnotherS = AnotherS;
+
+fun AliasAnotherS.packToBuilder(self, mutate b: builder): void {
+    b.storeInt(self.x, 8);
+}
+
+fun AliasAnotherS.unpackFromSlice(mutate s: slice): AliasAnotherS {
+    return {x: s.loadInt(8)}
+}
+
+fun AnotherS.unpackFromSlice(mutate s: slice): AnotherS {
+    return {x: s.loadInt(16)};
+}
+
+fun AnotherS.packToBuilder(self, mutate b: builder): void {
+    b.storeInt(self.x, 16);
+}
+
+@method_id(120)
+fun test20() {
+    val plainS: AnotherS = {x: 10};
+    val aliasS: AliasAnotherS = {x: 10};
+    val slicePlain = plainS.toCell().beginParse();
+    val sliceAlias = aliasS.toCell().beginParse();
+    return (
+        slicePlain.remainingBitsCount(), sliceAlias.remainingBitsCount(),
+        AnotherS.fromSlice(slicePlain), AliasAnotherS.fromSlice(sliceAlias),
+    );
+}
+
+
+get fun exposeToAbi(p: (Box, TaggedBox, AnotherS, AliasAnotherS)) {}
+
+type MyAddress = address
+
+fun MyAddress.packToBuilder(self, mutate b: builder) {
+    b.storeUint(0xFFFF, 16);
+}
+
+@method_id(121)
+fun test21() {
+    // will be serialized not as `address?` (none/internal), but 0/1+packToBuilder
+    var a = address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c") as MyAddress?;
+    var s = a.toCell().beginParse();
+    return (s.skipBits(1).loadUint(16), s.remainingBitsCount())
+}
+
+get fun myAddress(): MyAddress? {
+    return null
+}
 
 fun main(x: MInt, y: MInt?) {
     return y == null ? x : x + y;
@@ -401,6 +513,10 @@ fun main(x: MInt, y: MInt?) {
 @testcase | 112 | 0   | [ 1 1 ]
 @testcase | 112 | -1  | [ 2 1 ]
 @testcase | 115 |     | 0 1 2 10 11 12 20 21 22
+@testcase | 118 |     | 5 0 1
+@testcase | 119 |     | 8 8 9
+@testcase | 120 |     | 16 8 10 10
+@testcase | 121 |     | 65535 0
 
 @fif_codegen
 """
@@ -413,4 +529,80 @@ fun main(x: MInt, y: MInt?) {
     TRUE	//  '5
   }>
 """
+
+@abi_json
+"""
+    {
+      "kind": "struct",
+      "name": "Box",
+      "ty_idx": 14,
+      "fields": [
+        {
+          "name": "x",
+          "ty_idx": 15
+        }
+      ]
+    },
+"""
+
+@abi_json
+"""
+    {
+      "kind": "alias",
+      "name": "TaggedBox",
+      "ty_idx": 16,
+      "target_ty_idx": 14,
+      "custom_pack_unpack": {
+        "pack_to_builder": true,
+        "unpack_from_slice": true
+      }
+    },
+"""
+
+@abi_json
+"""
+    {
+      "kind": "struct",
+      "name": "AnotherS",
+      "ty_idx": 17,
+      "fields": [
+        {
+          "name": "x",
+          "ty_idx": 18
+        }
+      ],
+      "custom_pack_unpack": {
+        "pack_to_builder": true,
+        "unpack_from_slice": true
+      }
+    },
+"""
+
+@abi_json
+"""
+    {
+      "kind": "alias",
+      "name": "AliasAnotherS",
+      "ty_idx": 19,
+      "target_ty_idx": 17,
+      "custom_pack_unpack": {
+        "pack_to_builder": true,
+        "unpack_from_slice": true
+      }
+    },
+"""
+
+@abi_json
+"""
+    {
+      "tvm_method_id": 77701,
+      "name": "myAddress",
+      "parameters": [
+      ],
+      "return_ty_idx": 22
+    }
+"""
+
+@abi_json_avoid {"kind":"addressOpt"}
+@abi_json_avoid {"kind":"addressOpt"},
  */

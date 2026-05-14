@@ -20,7 +20,7 @@ fun errAssignIntToTensor() {
 // @stderr const errConstIntToSlice
 const errConstIntToSlice: slice = 123 + 456;
 
-// @stderr can not assign `[int, int, int]` to `[int, int]`
+// @stderr can not assign `[int, int, int]` to `[...]`
 fun errAssignArraySizeMismatch() {
     var [x, y] = [2, 3, 4];
     x + y;

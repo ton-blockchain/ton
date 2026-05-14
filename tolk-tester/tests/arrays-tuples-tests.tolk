@@ -133,18 +133,18 @@ fun test101() {
 
     __expect_type((1, [1]), "(int, array<int>)");
 
-    __expect_type((rand ? [1,2] : [3, null]) as array<int?>, "array<int?>");
-    __expect_type(rand ? [""] : [] as array<string>, "array<string>");
-    __expect_type(rand ? [] : [""] as tuple, "array<unknown>");
+    __expect_type((rand != 0 ? [1,2] : [3, null]) as array<int?>, "array<int?>");
+    __expect_type(rand != 0 ? [""] : [] as array<string>, "array<string>");
+    __expect_type(rand != 0 ? [] : [""] as tuple, "array<unknown>");
 
     __expect_type(array<int> [], "array<int>");
     __expect_type(tuple [1, "aba", []], "tuple");
     __expect_type(array<array<slice?>?> [[null], null], "array<array<slice?>?>");
     __expect_type(array<Point> [{}, {y: 30}], "array<Point>");
 
-    __expect_type((rand ? array<int?> [1,2] : array<int?> [3, null]), "array<int?>");
-    __expect_type(rand ? [""] : array<string> [], "array<string>");
-    __expect_type(rand ? [] : tuple [""], "array<unknown>");
+    __expect_type((rand != 0 ? array<int?> [1,2] : array<int?> [3, null]), "array<int?>");
+    __expect_type(rand != 0 ? [""] : array<string> [], "array<string>");
+    __expect_type(rand != 0 ? [] : tuple [""], "array<unknown>");
 
     t1.push(123);
     t2.push(456);
@@ -789,7 +789,7 @@ fun through_unknown<T>(src: T?): T? {
 }
 
 fun inferArrayUnknown(): array<unknown> {
-    if ([0].get(0)) {
+    if ([0].get(0) != 0) {
         return [1,2,3];
     }
     return ["aba"];

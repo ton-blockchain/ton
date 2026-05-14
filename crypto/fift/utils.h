@@ -33,6 +33,7 @@ struct FiftOutput {
 struct CompiledProgramOutput {
   std::string codeBoc64;
   std::string codeHashHex;
+  std::string debugMarksBase64;
 };
 
 td::Result<fift::SourceLookup> create_mem_source_lookup(std::string main, std::string fift_dir = "",
@@ -44,5 +45,5 @@ td::Result<FiftOutput> mem_run_fift(SourceLookup source_lookup, std::vector<std:
 td::Result<td::Ref<vm::Cell>> compile_asm(td::Slice asm_code);
 td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program_code, const std::string& fift_dir);
 td::Result<CompiledProgramOutput> compile_asm_program(const std::string& program_code, std::string&& fift_fif,
-                                                      std::string&& asm_fif);
+                                                      std::string&& asm_fif, bool with_debug_marks);
 }  // namespace fift

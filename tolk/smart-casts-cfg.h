@@ -160,6 +160,7 @@ public:
   }
 
   bool is_unreachable() const { return unreachable; }
+  bool equivalent_to(const FlowContext& another) const;
 
   bool smart_cast_exists(SinkExpression s_expr) const { return known_facts.find(s_expr) != known_facts.end(); }
   TypePtr smart_cast_or_original(SinkExpression s_expr, TypePtr originally_declared_type) const;

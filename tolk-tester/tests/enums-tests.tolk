@@ -40,6 +40,10 @@ enum Err {
     DisabledId,
 }
 
+struct SearchParamsW {
+    exitCode: int32 | (int32 -> bool) | null = null
+}
+
 struct Box<T> { 
     value: T 
 }
@@ -260,6 +264,25 @@ fun test14(x: InvertedColor) {
     return (InvertedColor.Red, InvertedColor.Green, InvertedColor.Blue, InvertedColor.OneTon, x == InvertedColor.Red);
 }
 
+@method_id(115)
+fun test15(): (int, int) {
+    var x: int = Color.Red;     // enums are assignable to int, which feels strange for Color,
+    __expect_type(x, "int");    // but reasonable for ExitCode
+    return (x, Color.Blue);
+}
+
+@method_id(116)
+fun test16() {
+    var p1 = SearchParamsW {
+        exitCode: Err.TooHighId,
+    };
+    var p2 = SearchParamsW {
+        exitCode: fun(x: int) { return (x as Err) == Err.TooLowId },
+    };
+    var x: int32 = Err.DisabledId;
+    return (p1.exitCode is int32, p2.exitCode is int32, p2.exitCode is (int32 -> bool), x);
+}
+
 
 fun main(c: Color) {
     __expect_type(c, "Color");
@@ -294,6 +317,8 @@ fun main(c: Color) {
 @testcase | 113 | 10  | 258 0 
 @testcase | 113 | 50  | 0 0 
 @testcase | 114 | 2   | 2 1 0 1000000000 -1 
+@testcase | 115 |     | 0 2
+@testcase | 116 |     | -1 0 -1 258
 
 @fif_codegen
 """
@@ -320,6 +345,6 @@ fun main(c: Color) {
   }>
 """
 
-@fif_codegen DECLPROC checkIsColor<EPartialAssigned|builder>()
+@fif_codegen DECLPROC checkIsColor<EPartialAssigned`|`builder>()
 
 */

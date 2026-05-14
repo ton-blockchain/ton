@@ -132,8 +132,8 @@ bool SinkExpression::is_child_of(SinkExpression rhs) const {
 SinkExpression SinkExpression::get_child_s_expr(int field_idx) const {
   uint64_t new_index_path = index_path;    // if we have c.1 (index_path = 2) and construct c.1.N, calc (N<<8 + 2)
   for (int empty_byte = 0; empty_byte < 8; ++empty_byte) {
-    if ((index_path & (0xFF << (empty_byte*8))) == 0) {
-      new_index_path += (field_idx + 1) << (empty_byte*8);
+    if ((index_path & (static_cast<uint64_t>(0xFF) << (empty_byte*8))) == 0) {
+      new_index_path += (static_cast<uint64_t>(field_idx) + 1) << (empty_byte*8);
       break;
     }
   }
@@ -355,6 +355,25 @@ void FlowContext::mark_unreachable(UnreachableKind reason) {
   static_cast<void>(reason);
 }
 
+// compare FlowContext with another; used to infer loops until facts reach a fixed point
+bool FlowContext::equivalent_to(const FlowContext& another) const {
+  if (unreachable != another.unreachable || known_facts.size() != another.known_facts.size()) {
+    return false;
+  }
+
+  for (auto it_lhs = known_facts.begin(), it_rhs = another.known_facts.begin(); it_lhs != known_facts.end(); ++it_lhs, ++it_rhs) {
+    const FactsAboutExpr& lhs = it_lhs->second;
+    const FactsAboutExpr& rhs = it_rhs->second;
+    bool equal = lhs.expr_type->equal_to(rhs.expr_type)
+              && lhs.sign_state == rhs.sign_state
+              && lhs.bool_state == rhs.bool_state
+              && it_lhs->first == it_rhs->first;
+    if (!equal) {
+      return false;
+    }
+  }
+  return true;
+}
 
 // "merge" two data-flow contexts occurs on control flow rejoins (if/else branches merging, for example)
 // it's generating a new context that describes "knowledge that definitely outcomes from these two"
@@ -455,18 +474,20 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
   if (auto as_dot = v->try_as<ast_dot_access>()) {
     V<ast_dot_access> cur_dot = as_dot;
     uint64_t index_path = 0;
+    int depth = 0;
     while (cur_dot->is_target_indexed_access() || cur_dot->is_target_struct_field()) {
       int index_at = cur_dot->is_target_indexed_access()
           ? std::get<int>(cur_dot->target)
           : std::get<StructFieldPtr>(cur_dot->target)->field_idx;
       index_path = (index_path << 8) + index_at + 1;
+      depth++;
       if (auto parent_dot = unwrap_not_null_operator(cur_dot->get_obj())->try_as<ast_dot_access>()) {
         cur_dot = parent_dot;
       } else {
         break;
       }
     }
-    if (index_path) {     // `(x = rhs).field` is the same sink as `x.field`
+    if (index_path && depth < 8) {     // `(x = rhs).field` is the same sink as `x.field`
       if (SinkExpression inner = extract_sink_expression_from_vertex(cur_dot->get_obj())) {
         int inner_n_bits = 0;
         for (uint64_t tmp = inner.index_path; tmp; tmp >>= 8) {
@@ -584,13 +605,13 @@ TypePtr calc_declared_type_before_smart_cast(AnyExprV v) {
   }
 
   if (auto as_dot = v->try_as<ast_dot_access>()) {
-    TypePtr obj_type = as_dot->get_obj()->inferred_type->unwrap_alias();    // v already inferred; hence, index_at is correct
     if (as_dot->is_target_struct_field()) {
       StructFieldPtr field_ref = std::get<StructFieldPtr>(as_dot->target);
       return field_ref->declared_type;
     }
     if (as_dot->is_target_indexed_access()) {
       int index_at = std::get<int>(as_dot->target);
+      TypePtr obj_type = as_dot->get_obj()->inferred_type->unwrap_alias();    // v already inferred; hence, index_at is correct
       if (const auto* t_tensor = obj_type->try_as<TypeDataTensor>()) {
         return t_tensor->items[index_at];
       }

@@ -15,7 +15,7 @@ fun test1(x: int, y: int) {
     __expect_type(x = x, "int");
     __expect_type(x += x, "int");
     __expect_type(x &= x, "int");
-    __expect_type(random.uint256() ? x : y, "int");
+    __expect_type(random.uint256() != 0 ? x : y, "int");
     __expect_type(eq(x), "int");
     __expect_type(eq<int>(x), "int");
     __expect_type(eq<int?>(null), "int?");
@@ -39,25 +39,25 @@ fun test1(x: int, y: int) {
 }
 
 fun test2(x: int, y: bool) {
-    __expect_type(!x, "bool");
+    __expect_type(x == 0, "bool");
     __expect_type(x != x, "bool");
     __expect_type(x <= x, "bool");
-    __expect_type(x <=> x, "bool");
-    __expect_type(x <=> x, "bool");
-    __expect_type(!random.uint256(), "bool");
+    __expect_type(x <=> x, "int");
+    __expect_type(x <=> x, "int");
+    __expect_type(random.uint256() == 0, "bool");
     __expect_type(!!(x != null), "bool");
-    __expect_type(x ? x != null : null == x, "bool");
+    __expect_type(x != 0 ? x != null : null == x, "bool");
     __expect_type(y & true, "bool");
     __expect_type(y ^= false, "bool");
     __expect_type(x && y, "bool");
     __expect_type(true && false && true, "bool");
     __expect_type(x || x, "bool");
-    __expect_type(x || !x || (true & false), "bool");
+    __expect_type(x || x == 0 || (true & false), "bool");
 }
 
 fun test3() {
     __expect_type(true as int, "int");
-    __expect_type(!random.uint256() as int, "int");
+    __expect_type((random.uint256() == 0) as int, "int");
 }
 
 fun test4(x: int) {
@@ -169,6 +169,39 @@ fun test12(): int {
     return 1;
 }
 
+fun test13(c: cell) {
+    while (c == null) {
+        var x = c;
+        __expect_type(x, "never");
+    }
+}
+
+@method_id(114)
+fun test14() {
+    var a: string? = "A";
+    var b: string? = "B";
+    var c: string? = "C";
+    var i = 0;
+
+    while (a != null) {
+        i += 1;
+        if (i == 5) {
+            __expect_type(a, "string");
+            __expect_type(b, "string?");
+            __expect_type(c, "string?");
+            throw 99;
+        }
+        a = b;
+        b = c;
+        c = null;
+    }
+
+    __expect_type(a, "null");
+    __expect_type(b, "string?");
+    __expect_type(c, "string?");
+    return (a, b, c, i);
+}
+
 
 fun main() {
     return 0;
@@ -178,4 +211,5 @@ fun main() {
 @testcase | 0   |      | 0
 @testcase | 108 | 1 10 | -1
 @testcase | 112 |      | 1
+@testcase | 114 |      | (null) (null) (null) 3
 */

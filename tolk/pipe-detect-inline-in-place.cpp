@@ -52,10 +52,10 @@ static bool is_called_implicitly_by_compiler(FunctionPtr f) {
   if (f->name == "onBouncedMessage") {
     return true;
   }
-  if (f->is_method() && f->method_name == "packToBuilder") {
+  if (f->is_packToBuilder()) {
     return f->does_accept_self() && !f->does_mutate_self() && f->get_num_params() == 2 && f->has_mutate_params();
   }
-  if (f->is_method() && f->method_name == "unpackFromSlice") {
+  if (f->is_unpackFromSlice()) {
     return !f->does_accept_self() && f->get_num_params() == 1 && f->has_mutate_params();
   }
   return false;

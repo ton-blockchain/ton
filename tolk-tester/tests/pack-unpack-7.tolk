@@ -335,6 +335,48 @@ fun test13() {
     )
 }
 
+struct Raw {
+    value: int
+}
+
+type PackedArray = array<Raw>
+
+fun PackedArray.packToBuilder(self, mutate b: builder): void {
+    b.storeUint(0, 8);
+}
+
+fun PackedArray.unpackFromSlice(mutate s: slice): PackedArray {
+    s.skipBits(8);
+    return [];
+}
+
+@method_id(114)
+fun test14() {
+    var value: PackedArray = [ { value: 100 } ];
+    var s = value.toCell().beginParse();
+    return (s.remainingBitsCount(), s.loadUint(8));
+}
+
+struct Box115<T> {
+    value: int
+}
+
+@inline
+fun Box115<T>.packToBuilder(self, mutate b: builder) {
+    b.storeUint(self.value, 8);
+}
+
+struct Wrap115 {
+    a: Box115<int>
+    b: Box115<slice>
+}
+
+@method_id(115)
+fun test15(): int {
+    var w: Wrap115 = { a: { value: 1 }, b: { value: 2 } };
+    return w.toCell().beginParse().loadUint(16);
+}
+
 
 fun main() {
     __expect_type(createEmptySlice() as TelegramString, "TelegramString");
@@ -357,6 +399,8 @@ fun main() {
 @testcase | 111 |     | 1 (null) 15 15 255
 @testcase | 112 |     | 32 0 0 1 0 1 0 -1 -1 [ 0 1 ] [ 1 2 ] [ 1 2 ]
 @testcase | 113 |     | -1 -1 0 100 100
+@testcase | 114 |     | 8 0
+@testcase | 115 |     | 258
 
 @fif_codegen
 """
