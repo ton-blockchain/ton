@@ -61,6 +61,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   void start_up() override;
   void tear_down() override;
+  void alarm() override;
 
   void set_validators(std::vector<PublicKeyHash> root_public_keys,
                       std::vector<adnl::AdnlNodeIdShort> current_validators_adnl);
@@ -119,10 +120,21 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   overlay::OverlayIdFull overlay_id_full_;
   overlay::OverlayIdShort overlay_id_;
   UnixTime created_at_ = (UnixTime)td::Clocks::system();
+  std::vector<adnl::AdnlNodeIdShort> protected_peer_ids_;
+  td::actor::ActorId<adnl::AdnlSenderEx> protected_peers_sender_;
+  td::Timestamp next_protected_peers_log_at_ = td::Timestamp::never();
 
   void try_init();
   void init();
   void get_stats_extra(td::Promise<std::string> promise);
+  bool uses_quic_sender() const;
+  std::vector<adnl::AdnlNodeIdShort> get_desired_protected_peer_ids() const;
+  void sync_protected_peers();
+  void unregister_protected_peers();
+  void maybe_log_protected_peers(std::string reason, bool force = false);
+
+  static constexpr double PROTECTED_PEERS_LOG_PERIOD = 1800.0;
+  static constexpr size_t PROTECTED_PEERS_LOG_LIMIT = 32;
 
   td::actor::ActorOwn<ValidatorTelemetry> telemetry_sender_;
   bool collect_telemetry_ = false;

@@ -13,6 +13,14 @@ namespace {
 
 constexpr ngtcp2_duration RETRY_TOKEN_TIMEOUT = 10 * NGTCP2_SECONDS;
 
+std::string flood_ip_bucket_key(td::Slice ip_host) {
+  return PSTRING() << "ip:" << ip_host;
+}
+
+std::string flood_endpoint_bucket_key(const td::IPAddress &remote_address) {
+  return PSTRING() << "endpoint:" << remote_address.get_ip_host() << ":" << remote_address.get_port();
+}
+
 ngtcp2_tstamp retry_token_now() {
   return static_cast<ngtcp2_tstamp>(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
@@ -20,6 +28,15 @@ ngtcp2_tstamp retry_token_now() {
 }
 
 }  // namespace
+
+bool is_private_rfc1918_ipv4(const td::IPAddress &address) {
+  if (!address.is_valid() || !address.is_ipv4()) {
+    return false;
+  }
+
+  const td::uint32 ip = address.get_ipv4();
+  return (ip & 0xFF000000u) == 0x0A000000u || (ip & 0xFFF00000u) == 0xAC100000u || (ip & 0xFFFF0000u) == 0xC0A80000u;
+}
 
 td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
                                                                std::unique_ptr<Callback> callback,
@@ -173,7 +190,7 @@ void QuicServer::unbind_all_cids(ConnectionState &state) {
 
 td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::install_connection(
     std::unique_ptr<QuicConnectionPImpl> p_impl, const td::IPAddress &remote_address, bool is_outbound,
-    std::optional<QuicConnectionId> bootstrap_routed_cid) {
+    std::optional<QuicConnectionId> bootstrap_routed_cid, std::optional<std::string> flood_bucket_key) {
   TRY_RESULT(initial_cid_state, p_impl->take_initial_cid_state());
 
   auto state = std::make_shared<ConnectionState>(ConnectionState{
@@ -182,6 +199,7 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::install_con
       .cid = initial_cid_state.primary_scid,
       .bootstrap_routed_cid = {},
       .routed_cids = {},
+      .flood_bucket_key = std::move(flood_bucket_key),
       .is_outbound = is_outbound,
   });
   LOG(INFO) << "creating " << *state;
@@ -210,32 +228,45 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::install_con
   return state;
 }
 
-td::Status QuicServer::ensure_flood_allowed(const std::string &flood_addr) {
+std::optional<std::string> QuicServer::classify_flood_bucket(const td::IPAddress &remote_address) const {
+  if (options_.exempt_private_rfc1918_from_per_ip_flood && is_private_rfc1918_ipv4(remote_address)) {
+    return std::nullopt;
+  }
+  if (options_.protect_validator_endpoints_from_shared_ip_flood &&
+      protected_flood_endpoints_.find(remote_address) != protected_flood_endpoints_.end()) {
+    return flood_endpoint_bucket_key(remote_address);
+  }
+  return flood_ip_bucket_key(remote_address.get_ip_host());
+}
+
+td::Status QuicServer::ensure_flood_allowed(const std::optional<std::string> &flood_bucket_key) {
   if (!options_.flood_control.has_value()) {
     return td::Status::OK();
   }
-  if (auto it = flood_map_.find(flood_addr); it != flood_map_.end() && it->second >= *options_.flood_control) {
-    return td::Status::Error("flood control overflow");
+  if (flood_bucket_key.has_value()) {
+    if (auto it = flood_map_.find(*flood_bucket_key); it != flood_map_.end() && it->second >= *options_.flood_control) {
+      return td::Status::Error("flood control overflow");
+    }
+    TRY_STATUS(conn_rate_limiters_.take_new_connection(*flood_bucket_key));
   }
-  TRY_STATUS(conn_rate_limiters_.take_new_connection(flood_addr));
   if (!global_conn_rate_limiter_.take()) {
     return td::Status::Error("global new connection rate limit exceeded");
   }
   return td::Status::OK();
 }
 
-void QuicServer::flood_on_inbound_connection_created(const std::string &flood_addr) {
-  if (!options_.flood_control.has_value()) {
+void QuicServer::flood_on_inbound_connection_created(const std::optional<std::string> &flood_bucket_key) {
+  if (!options_.flood_control.has_value() || !flood_bucket_key.has_value()) {
     return;
   }
-  flood_map_[flood_addr]++;
+  flood_map_[*flood_bucket_key]++;
 }
 
-void QuicServer::flood_on_inbound_connection_closed(const std::string &flood_addr) {
-  if (!options_.flood_control.has_value()) {
+void QuicServer::flood_on_inbound_connection_closed(const std::optional<std::string> &flood_bucket_key) {
+  if (!options_.flood_control.has_value() || !flood_bucket_key.has_value()) {
     return;
   }
-  auto it = flood_map_.find(flood_addr);
+  auto it = flood_map_.find(*flood_bucket_key);
   if (it == flood_map_.end()) {
     return;
   }
@@ -259,6 +290,28 @@ void QuicServer::on_local_cid_issued(const QuicConnectionId &primary_cid, const 
 
 void QuicServer::on_local_cid_retired(const QuicConnectionId &primary_cid, const QuicConnectionId &cid) {
   unbind_cid(primary_cid, cid);
+}
+
+void QuicServer::add_protected_flood_endpoint(td::IPAddress endpoint, size_t refs) {
+  if (refs == 0) {
+    return;
+  }
+  protected_flood_endpoints_[endpoint] += refs;
+}
+
+void QuicServer::remove_protected_flood_endpoint(td::IPAddress endpoint, size_t refs) {
+  if (refs == 0) {
+    return;
+  }
+  auto it = protected_flood_endpoints_.find(endpoint);
+  if (it == protected_flood_endpoints_.end()) {
+    return;
+  }
+  if (it->second <= refs) {
+    protected_flood_endpoints_.erase(it);
+  } else {
+    it->second -= refs;
+  }
 }
 
 td::Result<std::optional<ServerInitialInfo>> QuicServer::prepare_server_initial_info(
@@ -448,7 +501,7 @@ void QuicServer::on_connection_closed(QuicConnectionId cid) {
     timeout_heap_.erase(state.get());
   }
   if (!state->is_outbound) {
-    flood_on_inbound_connection_closed(state->remote_address.get_ip_host());
+    flood_on_inbound_connection_closed(state->flood_bucket_key);
   }
   connections_.erase(it);
   callback_->on_closed(cid);
@@ -596,8 +649,8 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
 
   TRY_RESULT(initial_packet, VersionCid::from_initial_datagram(td::Slice(msg_in.storage)));
 
-  auto flood_addr = msg_in.address.get_ip_host();
-  TRY_STATUS(ensure_flood_allowed(flood_addr));
+  auto flood_bucket_key = classify_flood_bucket(msg_in.address);
+  TRY_STATUS(ensure_flood_allowed(flood_bucket_key));
 
   TRY_RESULT(initial_info, prepare_server_initial_info(initial_packet, msg_in.address));
   if (!initial_info.has_value()) {
@@ -611,9 +664,10 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
                                                         *initial_info, std::move(pimpl_callback), conn_options));
-  TRY_RESULT(state, install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid));
+  TRY_RESULT(state, install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid,
+                                       std::move(flood_bucket_key)));
 
-  flood_on_inbound_connection_created(flood_addr);
+  flood_on_inbound_connection_created(state->flood_bucket_key);
 
   return state;
 }
