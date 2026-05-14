@@ -68,7 +68,7 @@ class Rfc {
       while (t.b1 >= P)
         t.b1 = (t.b1 + t.a1) % P1;
       f(W + t.b1);
-      for (uint16 j = 1; j < t.d1; ++j) {
+      for (uint32 j = 1; j < t.d1; ++j) {
         t.b1 = (t.b1 + t.a1) % P1;
         while (t.b1 >= P)
           t.b1 = (t.b1 + t.a1) % P1;
