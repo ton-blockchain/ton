@@ -908,7 +908,7 @@ void answer_error(HttpStatusCode code, std::string reason,
         break;
     }
   }
-  auto response = HttpResponse::create("HTTP/1.0", code, reason, false, false).move_as_ok();
+  auto response = HttpResponse::create("HTTP/1.1", code, reason, false, false).move_as_ok();
   response->add_header(HttpHeader{"Content-Length", "0"});
   response->complete_parse_header();
   auto payload = response->create_empty_payload().move_as_ok();
