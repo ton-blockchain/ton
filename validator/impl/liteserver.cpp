@@ -321,19 +321,19 @@ void LiteQuery::perform_getMasterchainInfo(int mode) {
   auto get_state = (ext_mode & get_masterchain_info_ext_shard_client_state)
                        ? &ton::validator::ValidatorManager::get_shard_client_state_block
                        : &ton::validator::ValidatorManager::get_last_liteserver_state_block;
-  td::actor::send_closure_later(manager_, get_state,
-                                [Self = actor_id(this), return_state = bool(acc_state_promise_), ext_mode,
-                                 is_legacy](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) {
-                                  if (res.is_error()) {
-                                    td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
-                                  } else {
-                                    auto pair = res.move_as_ok();
-                                    auto func = return_state ? &LiteQuery::gotMasterchainInfoForAccountState
-                                                             : &LiteQuery::continue_getMasterchainInfo;
-                                    td::actor::send_closure_later(Self, func, std::move(pair.first), pair.second,
-                                                                  is_legacy ? -1 : ext_mode);
-                                  }
-                                });
+  td::actor::send_closure_later(
+      manager_, get_state,
+      [Self = actor_id(this), return_state = bool(acc_state_promise_), ext_mode,
+       is_legacy](td::Result<std::pair<Ref<ton::validator::MasterchainState>, BlockIdExt>> res) {
+        if (res.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query, res.move_as_error());
+        } else {
+          auto pair = res.move_as_ok();
+          auto func =
+              return_state ? &LiteQuery::gotMasterchainInfoForAccountState : &LiteQuery::continue_getMasterchainInfo;
+          td::actor::send_closure_later(Self, func, std::move(pair.first), pair.second, is_legacy ? -1 : ext_mode);
+        }
+      });
 }
 
 void LiteQuery::gotMasterchainInfoForAccountState(Ref<ton::validator::MasterchainState> mc_state, BlockIdExt blkid,

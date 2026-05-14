@@ -423,8 +423,8 @@ bool TestNode::get_server_shard_client_mc_block_id() {
         auto blk_id = create_block_id(f->last_);
         auto zstate_id = create_zero_state_id(f->init_);
         LOG(INFO) << "last shard client state masterchain block is " << blk_id.to_str();
-        td::actor::send_closure_later(Self, &TestNode::got_server_shard_client_state_mc_block_id_ext, blk_id,
-                                      zstate_id, f->version_, f->capabilities_, f->last_utime_, f->now_);
+        td::actor::send_closure_later(Self, &TestNode::got_server_shard_client_state_mc_block_id_ext, blk_id, zstate_id,
+                                      f->version_, f->capabilities_, f->last_utime_, f->now_);
       }
     }
   });
