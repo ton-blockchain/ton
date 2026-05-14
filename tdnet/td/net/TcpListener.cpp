@@ -36,7 +36,6 @@ void TcpListener::start_up() {
   if (server_address_ == "@vsock") {
     r_socket = ServerSocketFd::open_vsock(port_);
   } else {
-    LOG(ERROR) << server_address_ << " " << port_;
     r_socket = ServerSocketFd::open(port_, server_address_);
   }
 
