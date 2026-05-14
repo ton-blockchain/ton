@@ -891,8 +891,14 @@ void answer_error(HttpStatusCode code, std::string reason,
       case status_bad_request:
         reason = "Bad Request";
         break;
+      case status_not_found:
+        reason = "Not Found";
+        break;
       case status_method_not_allowed:
         reason = "Method Not Allowed";
+        break;
+      case status_payload_too_large:
+        reason = "Payload Too Large";
         break;
       case status_internal_server_error:
         reason = "Internal Server Error";
