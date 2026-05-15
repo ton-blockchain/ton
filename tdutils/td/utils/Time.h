@@ -69,6 +69,11 @@ struct UTCClock {
 };
 
 using UTCTime = UTCClock::time_point;
+using UTCMilliseconds = std::chrono::time_point<UTCClock, std::chrono::milliseconds>;
+
+class StringBuilder;
+StringBuilder &operator<<(StringBuilder &sb, td::UTCTime ts);
+StringBuilder &operator<<(StringBuilder &sb, td::UTCMilliseconds ts);
 
 inline SteadyTime to_steady_time(UTCTime ts) {
   auto steady_now = SteadyClock::now();
@@ -156,8 +161,14 @@ class Timestamp {
   static Timestamp at(double ts) {
     return Timestamp{SteadyClock::from_double_ts(ts)};
   }
+  static Timestamp at(SteadyTime ts) {
+    return Timestamp{ts};
+  }
   static Timestamp at_unix(double ts) {
     return Timestamp{to_steady_time(UTCClock::from_double_ts(ts))};
+  }
+  static Timestamp at_unix(UTCTime ts) {
+    return Timestamp{to_steady_time(ts)};
   }
 
   static Timestamp in(auto timeout, td::Timestamp now = td::Timestamp::now_cached())

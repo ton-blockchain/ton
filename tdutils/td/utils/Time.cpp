@@ -17,8 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <atomic>
+#include <iomanip>
 #include <mutex>
 
+#include "td/utils/StringBuilder.h"
 #include "td/utils/Time.h"
 
 namespace td {
@@ -132,6 +134,36 @@ void Time::unfreeze() {
     time_diff.store(frozen_steady - steady_unadjusted(), std::memory_order_relaxed);
     is_frozen = false;
   }
+}
+
+namespace {
+
+template <typename TimeUnit, int power>
+std::string format_timestamp(auto timestamp) {
+  TimeUnit time_unit = timestamp.time_since_epoch();
+  bool negative = false;
+  if (time_unit < time_unit.zero()) {
+    negative = true;
+    time_unit = -time_unit;
+  }
+  auto s = std::chrono::duration_cast<std::chrono::seconds>(time_unit);
+  time_unit -= s;
+  std::ostringstream ss;
+  if (negative) {
+    ss << "-";
+  }
+  ss << s.count() << "." << std::setfill('0') << std::setw(power) << time_unit.count();
+  return ss.str();
+}
+
+}  // namespace
+
+StringBuilder &operator<<(StringBuilder &sb, td::UTCTime ts) {
+  return sb << format_timestamp<std::chrono::nanoseconds, 9>(ts);
+}
+
+StringBuilder &operator<<(StringBuilder &sb, td::UTCMilliseconds ts) {
+  return sb << format_timestamp<std::chrono::milliseconds, 3>(ts);
 }
 
 }  // namespace td
