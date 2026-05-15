@@ -824,7 +824,7 @@ class TestConsensus : public td::actor::Actor {
     LOG(WARNING) << "TEST FINISHED";
     std::vector<td::actor::Task<>> tasks;
     for (size_t idx = 0; idx < N_NODES; ++idx) {
-      for (size_t i = 0; i < nodes_[i].instances.size(); ++i) {
+      for (size_t i = 0; i < nodes_[idx].instances.size(); ++i) {
         tasks.push_back(stop_instance(idx, i));
       }
     }
