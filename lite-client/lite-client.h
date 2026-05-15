@@ -46,7 +46,9 @@ class TestNode : public td::actor::Actor {
   std::string global_config_ = "ton-global.config";
   enum {
     min_ls_version = 0x101,
-    min_ls_capabilities = 1
+    min_ls_capabilities = 1,
+    masterchain_info_ext_capability = 2,
+    shard_client_state_masterchain_info_capability = 8
   };  // server version >= 1.1, capabilities at least +1 = build proof chains
   td::actor::ActorOwn<liteclient::ExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
@@ -179,9 +181,13 @@ class TestNode : public td::actor::Actor {
   bool get_server_version(int mode = 0);
   void got_server_version(td::Result<td::BufferSlice> res, int mode);
   bool get_server_mc_block_id();
+  bool get_server_shard_client_mc_block_id();
   void got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int created_at);
   void got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int mode, int version,
                                   long long capabilities, int last_utime, int server_now);
+  void got_server_shard_client_state_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int created_at);
+  void got_server_shard_client_state_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int version,
+                                                     long long capabilities, int last_utime, int server_now);
   void set_mc_server_version(td::int32 version, td::int64 capabilities);
   void set_mc_server_time(int server_utime);
   bool request_block(ton::BlockIdExt blkid);
