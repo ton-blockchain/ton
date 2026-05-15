@@ -110,10 +110,10 @@ class ActorInfo : private HeapNode, private ListNode {
   }
 
   Timestamp get_alarm_timestamp() const {
-    return Timestamp::at(alarm_timestamp_at_.load(std::memory_order_relaxed));
+    return alarm_timestamp_at_.load(std::memory_order_relaxed);
   }
   void set_alarm_timestamp(Timestamp timestamp) {
-    alarm_timestamp_at_.store(timestamp.at(), std::memory_order_relaxed);
+    alarm_timestamp_at_.store(timestamp, std::memory_order_relaxed);
   }
 
   void pin(ActorInfoPtr ptr) {
@@ -131,7 +131,8 @@ class ActorInfo : private HeapNode, private ListNode {
   ActorState state_;
   ActorMailbox mailbox_;
   std::string name_;
-  std::atomic<double> alarm_timestamp_at_{0};
+  std::atomic<Timestamp> alarm_timestamp_at_{};
+  static_assert(decltype(alarm_timestamp_at_)::is_always_lock_free);
 
   ActorInfoPtr pin_;
   td::uint64 in_queue_since_{0};
