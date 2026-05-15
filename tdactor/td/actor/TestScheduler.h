@@ -68,7 +68,8 @@ class TestScheduler {
 
   template <class F>
   void run(F &&coro_factory) {
-    Time::freeze();
+    Time::FreezeGuard time_freeze;
+
     ContextImpl context(this);
     core::SchedulerContext::Guard guard(&context);
 
@@ -83,8 +84,6 @@ class TestScheduler {
     LOG_CHECK(task.await_ready())
         << "Deadlock detected: control coroutine is suspended but there is no synchronous work to do";
     drain_all(true);
-
-    Time::unfreeze();
   }
 
  private:

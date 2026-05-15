@@ -54,6 +54,20 @@ class Time {
   static void unfreeze();
 
   static double system_now();
+
+  class FreezeGuard {
+   public:
+    FreezeGuard() {
+      Time::freeze();
+    }
+    ~FreezeGuard() {
+      Time::unfreeze();
+    }
+    FreezeGuard(const FreezeGuard &) = delete;
+    FreezeGuard &operator=(const FreezeGuard &) = delete;
+    FreezeGuard(FreezeGuard &&) = delete;
+    FreezeGuard &operator=(FreezeGuard &&) = delete;
+  };
 };
 
 inline void relax_timeout_at(double *timeout, double new_timeout) {
