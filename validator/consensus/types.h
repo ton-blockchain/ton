@@ -199,12 +199,12 @@ class Event {
   virtual tl::EventRef to_tl() const = 0;
   virtual std::string to_string() const = 0;
 
-  double ts() const {
+  td::UTCTime ts() const {
     return ts_;
   }
 
  protected:
-  double ts_;
+  td::UTCTime ts_;
 };
 
 template <typename Collector>

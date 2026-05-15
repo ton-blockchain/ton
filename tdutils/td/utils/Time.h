@@ -22,6 +22,7 @@
 
 #include "td/utils/common.h"
 #include "td/utils/port/Clocks.h"
+#include "td/utils/type_traits.h"
 
 namespace td {
 
@@ -65,6 +66,30 @@ inline void relax_timeout_at(double *timeout, double new_timeout) {
   }
 }
 
+struct UTCClock {
+  using rep = td::int64;
+  using period = std::nano;
+  using duration = std::chrono::duration<rep, period>;
+  using time_point = std::chrono::time_point<UTCClock>;
+
+  static constexpr bool is_steady = false;
+
+  static time_point now() {
+    return time_point(std::chrono::duration_cast<duration>(std::chrono::duration<double>(Time::system_now())));
+  }
+};
+
+using UTCTime = std::chrono::time_point<UTCClock>;
+using UTCMilliseconds = std::chrono::time_point<UTCClock, std::chrono::milliseconds>;
+
+inline double utc_time_to_double(const UTCTime &time) {
+  return std::chrono::duration<double>(time.time_since_epoch()).count();
+}
+
+class StringBuilder;
+StringBuilder &operator<<(StringBuilder &sb, td::UTCTime ts);
+StringBuilder &operator<<(StringBuilder &sb, td::UTCMilliseconds ts);
+
 class Timestamp {
  public:
   Timestamp() = default;
@@ -79,6 +104,9 @@ class Timestamp {
   }
   static Timestamp at(double timeout) {
     return Timestamp{timeout};
+  }
+  static Timestamp at_unix(UTCTime time) {
+    return Timestamp{utc_time_to_double(time) - Time::system_now() + Time::now()};
   }
   static Timestamp at_unix(double timeout) {
     return Timestamp{timeout - Time::system_now() + Time::now()};

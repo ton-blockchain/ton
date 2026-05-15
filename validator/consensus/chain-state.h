@@ -114,27 +114,33 @@ class ChainState : public td::CntObject {
 
   using Tip = std::variant<NormalTip, BeforeMergeTip, BeforeSplitTip, ZerostateTip>;
 
-  static td::actor::Task<td::Ref<ChainState>> from_manager(td::actor::ActorId<ManagerFacade> manager, ShardIdFull shard,
-                                                           std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id);
+  static td::actor::Task<td::Ref<ChainState>> from_manager(
+      td::actor::ActorId<ManagerFacade> manager, ShardIdFull shard, std::vector<BlockIdExt> blocks,
+      BlockIdExt min_mc_block_id,
+      const BlockCandidate* candidate_or_null  // FIXME: Replace with std::optional<BlockCandidate&>
+  );
 
-  ChainState(Tip tip, BlockIdExt min_mc_block_id);
+  ChainState(Tip tip, BlockIdExt min_mc_block_id, std::optional<td::UTCMilliseconds> utime);
 
   std::vector<BlockIdExt> block_ids() const;
   std::vector<td::Ref<BlockData>> block_data() const;
   std::vector<td::Ref<vm::Cell>> state() const;
   BlockIdExt min_mc_block_id() const;
+  std::optional<td::UTCMilliseconds> utime() const;
 
   BlockSeqno next_seqno() const;
   bool is_before_split() const;
   std::optional<BlockIdExt> as_normal() const;
   BlockIdExt assert_normal() const;
 
+  // candidate must be valid
   td::Ref<ChainState> apply(const BlockCandidate& candidate) const;
 
  private:
   Tip tip_;
   BlockIdExt min_mc_block_id_;
   td::Ref<vm::Cell> root_;
+  std::optional<td::UTCMilliseconds> utime_;
 };
 
 using ChainStateRef = td::Ref<ChainState>;

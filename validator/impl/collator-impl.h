@@ -135,7 +135,7 @@ class Collator final : public td::actor::Actor {
   ton::UnixTime now_;
   ton::UnixTime prev_now_;
   ton::UnixTime now_upper_limit_{~0U};
-  td::uint64 now_ms_;
+  td::UTCMilliseconds now_ms_;
   unsigned out_msg_queue_ops_{}, in_descr_cnt_{}, out_descr_cnt_{};
   Ref<MasterchainStateQ> mc_state_;
   Ref<BlockData> prev_mc_block;

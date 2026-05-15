@@ -6,7 +6,6 @@
 
 #include "consensus/simplex/state.h"
 #include "consensus/stats.h"
-#include "consensus/utils.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
@@ -194,19 +193,12 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
  private:
   td::actor::Task<> start_generation(ParentId base, td::uint32 start_slot) {
-    auto parent = co_await owning_bus().publish<ResolveState>(base);
-    td::Timestamp start_time = td::Timestamp::now();
-    if (parent.gen_utime_exact.has_value()) {
-      start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact) + params_.target_rate);
-      start_time = std::min(start_time, td::Timestamp::in(params_.target_rate));
-    }
-
     if (current_window_ != start_slot / slots_per_leader_window_) {
       co_return {};
     }
 
-    owning_bus().publish<OurLeaderWindowStarted>(base, parent.state, start_slot, start_slot + slots_per_leader_window_,
-                                                 start_time);
+    auto parent = co_await owning_bus().publish<ResolveState>(base);
+    owning_bus().publish<OurLeaderWindowStarted>(base, parent, start_slot, start_slot + slots_per_leader_window_);
     co_return {};
   }
 
@@ -221,15 +213,9 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     }
 
     auto parent = co_await owning_bus().publish<ResolveState>(candidate->parent_id);
+    CHECK(parent->utime().has_value() || !candidate->parent_id.has_value());
 
-    if (!candidate->is_empty() && parent.gen_utime_exact.has_value()) {
-      auto earliest = td::Timestamp::at_unix(*parent.gen_utime_exact) + params_.min_block_interval;
-      if (!earliest.is_in_past()) {
-        co_await td::actor::coro_sleep(earliest);
-      }
-    }
-
-    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate);
+    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent, candidate);
 
     if (validation_result.has<CandidateReject>()) {
       LOG(WARNING) << "Candidate " << candidate->id

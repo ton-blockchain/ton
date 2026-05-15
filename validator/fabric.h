@@ -39,7 +39,7 @@ struct CollateParams {
   adnl::AdnlNodeIdShort collator_node_id = adnl::AdnlNodeIdShort::zero();
   bool skip_store_candidate = false;
   int attempt_idx = 0;
-  td::optional<double> utime = {};
+  td::UTCMilliseconds utime = std::chrono::floor<std::chrono::milliseconds>(td::UTCClock::now());
   td::Timestamp hard_timeout = td::Timestamp::in(10.0);
   td::Timestamp soft_timeout = {};
   td::Timestamp wait_externals_until = {};
@@ -56,6 +56,8 @@ struct ValidateParams {
   std::vector<BlockIdExt> prev;
   td::Ref<block::ValidatorSet> validator_set = {};
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
+
+  std::optional<td::UTCMilliseconds> min_gen_utime = std::nullopt;
 
   bool is_fake = false;
   bool skip_store_candidate = false;

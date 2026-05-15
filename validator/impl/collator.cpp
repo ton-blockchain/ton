@@ -2164,9 +2164,12 @@ bool Collator::init_utime() {
   }
 
   auto prev = std::max<td::uint32>(config_->utime, prev_now_);
-  double now = params_.utime ? params_.utime.value() : td::Clocks::system();
-  now_ms_ = std::max((td::uint64)(prev + (allow_same_timestamp_ ? 0 : 1)) * 1000, (td::uint64)(now * 1000));
-  now_ = (UnixTime)(now_ms_ / 1000);
+
+  auto min_ts = td::UTCMilliseconds{std::chrono::seconds{prev + (allow_same_timestamp_ ? 0 : 1)}};
+  now_ms_ = std::max(min_ts, params_.utime);
+  auto now = std::chrono::floor<std::chrono::seconds>(now_ms_).time_since_epoch().count();
+  now_ = static_cast<UnixTime>(now);
+
   if (now_ > now_upper_limit_) {
     return fatal_error(
         "error initializing unix time for the new block: failed to observe end of fsm_split time interval for this "
@@ -6353,7 +6356,11 @@ bool Collator::create_collated_data() {
   // 1.2 store ConsensusExtraData
   {
     // consensus_extra_data#638eb292 flags:# gen_utime_ms:uint64 = ConsensusExtraData;
-    auto cell = vm::CellBuilder{}.store_long(0x638eb292, 32).store_long(0, 32).store_long(now_ms_, 64).finalize_novm();
+    auto cell = vm::CellBuilder{}
+                    .store_long(0x638eb292, 32)
+                    .store_long(0, 32)
+                    .store_long(now_ms_.time_since_epoch().count(), 64)
+                    .finalize_novm();
     collated_roots_.push_back(std::move(cell));
   }
   if (!full_collated_data_) {

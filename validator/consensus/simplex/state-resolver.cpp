@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
-#include "consensus/utils.h"
 #include "td/actor/SharedFuture.h"
 #include "td/actor/coro_utils.h"
+#include "ton/ton-types.h"
 
 #include "bus.h"
 
@@ -22,8 +22,6 @@ using db_key_finalizedBlockRef = tl_object_ptr<db_key_finalizedBlock>;
 namespace {
 
 class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
-  using ResolvedState = ResolveState::Result;
-
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -70,16 +68,16 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   }
 
   template <>
-  td::actor::Task<ResolvedState> process(BusHandle, std::shared_ptr<ResolveState> request) {
+  td::actor::Task<ChainStateRef> process(BusHandle, std::shared_ptr<ResolveState> request) {
     co_return co_await resolve_state(request->id);
   }
 
  private:
   // ===== State resolution =====
   struct CachedState {
-    std::optional<ResolvedState> result;
+    std::optional<ChainStateRef> result;
     bool started = false;
-    std::vector<td::Promise<ResolvedState>> promises;
+    std::vector<td::Promise<ChainStateRef>> promises;
   };
 
   td::Promise<StartEvent> genesis_promise_;
@@ -87,12 +85,12 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
   std::map<ParentId, CachedState> state_cache_;
 
-  td::actor::Task<ResolvedState> resolve_state(ParentId id) {
+  td::actor::Task<ChainStateRef> resolve_state(ParentId id) {
     CachedState& entry = state_cache_[id];
     if (entry.result.has_value()) {
       co_return *entry.result;
     }
-    auto [task, promise] = td::actor::StartedTask<ResolvedState>::make_bridge();
+    auto [task, promise] = td::actor::StartedTask<ChainStateRef>::make_bridge();
     entry.promises.push_back(std::move(promise));
     if (!entry.started) {
       entry.started = true;
@@ -115,32 +113,30 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     return it != finalized_blocks_.end() && it->second.done;
   }
 
-  td::actor::Task<ResolvedState> resolve_state_inner(ParentId id) {
+  td::actor::Task<ChainStateRef> resolve_state_inner(ParentId id) {
     if (!id.has_value()) {
       auto genesis = co_await genesis_.get();
-      auto state = co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard,
-                                                     genesis->state->block_ids(), genesis->state->min_mc_block_id());
-      co_return ResolvedState{state, std::nullopt};
+      auto state =
+          co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard, genesis->state->block_ids(),
+                                            genesis->state->min_mc_block_id(), nullptr);
+      co_return state;
     }
 
     auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
     if (candidate->is_empty()) {
       co_return co_await resolve_state(candidate->parent_id);
     }
-    auto gen_utime_exact = get_candidate_gen_utime_exact(std::get<BlockCandidate>(candidate->block)).move_as_ok();
 
     if (is_finalized(*id)) {
       auto genesis = co_await genesis_.get();
       auto state = co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard,
-                                                     {candidate->block_id()}, genesis->state->min_mc_block_id());
-      co_return ResolvedState{state, gen_utime_exact};
+                                                     {candidate->block_id()}, genesis->state->min_mc_block_id(),
+                                                     &std::get<BlockCandidate>(candidate->block));
+      co_return state;
     }
 
     auto prev_data_state = co_await resolve_state(candidate->parent_id);
-    co_return ResolvedState{
-        .state = prev_data_state.state->apply(std::get<BlockCandidate>(candidate->block)),
-        .gen_utime_exact = gen_utime_exact,
-    };
+    co_return prev_data_state->apply(std::get<BlockCandidate>(candidate->block));
   }
 
   // ===== Block finalization =====
