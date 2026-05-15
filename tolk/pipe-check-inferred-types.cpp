@@ -618,6 +618,16 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, cond->range, cond, "ternary operator");
+      return;
+    }
+
+    AnyExprV when_true = v->get_when_true();
+    AnyExprV when_false = v->get_when_false();
+    if (!v->inferred_type->can_rhs_be_assigned(when_true->inferred_type)) {
+      err_type_mismatch("can not convert type {src} to ternary result type {dst}", when_true->inferred_type, v->inferred_type).collect(when_true, cur_f);
+    }
+    if (!v->inferred_type->can_rhs_be_assigned(when_false->inferred_type)) {
+      err_type_mismatch("can not convert type {src} to ternary result type {dst}", when_false->inferred_type, v->inferred_type).collect(when_false, cur_f);
     }
   }
 
@@ -692,6 +702,15 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     TypePtr subject_type = v_subject->inferred_type;
     const TypeDataEnum* subject_enum = subject_type->unwrap_alias()->try_as<TypeDataEnum>();
     const TypeDataUnion* subject_union = subject_type->unwrap_alias()->try_as<TypeDataUnion>();
+
+    if (!v->is_statement()) {
+      for (int i = 0; i < v->get_arms_count(); ++i) {
+        AnyExprV arm_body = v->get_arm(i)->get_body();
+        if (!v->inferred_type->can_rhs_be_assigned(arm_body->inferred_type)) {
+          err_type_mismatch("can not convert type {src} to match result type {dst}", arm_body->inferred_type, v->inferred_type).collect(arm_body, cur_f);
+        }
+      }
+    }
 
     std::vector<int> covered_variants;        // union variant indexes; for non-union, the only matching type is 0
     std::vector<EnumMemberPtr> covered_enum;  // for `match` over an enum, we want it to be exhaustive

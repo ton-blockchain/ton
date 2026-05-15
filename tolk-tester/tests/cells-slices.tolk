@@ -147,10 +147,9 @@ fun test11() {
     var size5 = s.remainingBitsCount();
 
     var s32 = stringHexToSlice("00000000");
-    // this call modifes `s32`
-    (s32, 0).0.skipBits(8);
+    s32.skipBits(8);
     // but this will be denied as "can not mutate a temporary exression"
-    // (s32!, 0).0.skipBits(8);
+    // (s32, 0).0.skipBits(8);
     // (s32 as slice, 0).0.skipBits(8);
 
     return (n1, n2, size1, size2, size3, size4, size5, s32.remainingBitsCount());
@@ -678,6 +677,20 @@ fun test50(s: slice): int {
     }
 }
 
+fun dupStoreWithOpaqueStur(b: builder, x: int): (builder, builder)
+    asm "OVER SWAP 8 STUR"
+
+@method_id(151)
+fun test51(): int {
+    try {
+        val (original, stored) = dupStoreWithOpaqueStur(beginCell(), 10);
+        var s = stored.toSlice();
+        return original.bitsCount() * 100 + stored.bitsCount() * 10 + s.loadUint(8);
+    } catch (err) {
+        return err;
+    }
+}
+
 fun main(): int {
     return 0;
 }
@@ -733,6 +746,7 @@ fun main(): int {
 @testcase | 148 |     | 7 32
 @testcase | 149 |     | -1 -1 0 -1 0 -1 -1 -1
 @testcase | 150 | x{} | 9
+@testcase | 151 |     | 90
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 

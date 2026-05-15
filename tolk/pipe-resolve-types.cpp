@@ -49,6 +49,7 @@ void patch_builtins_after_stdlib_loaded();
  * Example: `type A<T> = Ok<T>`, then `Ok<T>` is not ready yet, it's left as TypeDataGenericTypeWithTs.
  */
 
+// `bool` means: false = symbol is being resolved, true = all type pointers are resolved
 static thread_local std::unordered_map<StructPtr, bool> visited_structs;
 static thread_local std::unordered_map<AliasDefPtr, bool> visited_aliases;
 
@@ -68,6 +69,14 @@ static Error err_never_type_not_allowed_inside_union(TypePtr disallowed_variant)
 
 static Error err_generic_type_used_without_T(const std::string& type_name_with_Ts) {
   return err("type `{}` is generic, you should provide type arguments", type_name_with_Ts);
+}
+
+// having `AliasToInt | int` and similar (invalid duplicate inside a union), show an error
+static void validate_no_invalid_duplicates_in_union(const std::vector<TypeDataUnion::InvalidDuplicateVariant>& invalid_duplicates, FunctionPtr cur_f, SrcRange range) {
+  for (const TypeDataUnion::InvalidDuplicateVariant& duplicate : invalid_duplicates) {
+    err("union variants `{}` and `{}` have the same runtime representation\n""hint: remove one variant or wrap it into a distinct struct",
+        duplicate.existing_variant, duplicate.skipped_variant).fire(range, cur_f);
+  }
 }
 
 static TypePtr parse_intN_uintN(std::string_view strN, bool is_unsigned) {
@@ -236,7 +245,9 @@ class TypeNodesVisitorResolver {
 
       case ast_type_vertical_bar_union: {
         std::vector<TypePtr> variants = finalize_type_node(v->as<ast_type_vertical_bar_union>()->get_variants());
-        TypePtr result = TypeDataUnion::create(std::move(variants));
+        std::vector<TypeDataUnion::InvalidDuplicateVariant> invalid_duplicates;
+        TypePtr result = TypeDataUnion::create(std::move(variants), &invalid_duplicates);
+        validate_no_invalid_duplicates_in_union(invalid_duplicates, cur_f, v->range);
         if (const TypeDataUnion* t_union = result->try_as<TypeDataUnion>()) {
           validate_resulting_union_type(t_union, cur_f, v->range);
         }
@@ -261,10 +272,17 @@ class TypeNodesVisitorResolver {
 
   // given `Wrapper<T>`, ensure that resolving was happened, and struct has genericTs now
   static void ensure_struct_genericTs_resolved(StructPtr struct_ref) {
+    static thread_local std::vector<StructPtr> called_stack;
     if (auto v_genericsT_list = struct_ref->ast_root->as<ast_struct_declaration>()->genericsT_list) {
       if (!struct_ref->genericTs) {
+        bool contains = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
+        if (contains) {
+          err("type `{}` circularly references itself", struct_ref).fire(struct_ref->ident_anchor);
+        }
+        called_stack.push_back(struct_ref);
         const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
         struct_ref->mutate()->assign_resolved_genericTs(genericTs);
+        called_stack.pop_back();
       }
     }
   }
@@ -276,9 +294,7 @@ class TypeNodesVisitorResolver {
   // example: `var w: KKK`, nullptr will be returned
   static TypePtr try_resolve_user_defined_type(FunctionPtr cur_f, SrcRange range, const Symbol* sym, bool allow_without_type_arguments) {
     if (AliasDefPtr alias_ref = sym->try_as<AliasDefPtr>()) {
-      if (!visited_aliases.contains(alias_ref)) {
-        visit_symbol(alias_ref);
-      }
+      visit_symbol(alias_ref);
       // check AST for genericsT_list, not is_generic_alias()
       // because during mutual recursion in default type arguments, genericTs may not be assigned yet
       bool has_generic_params = alias_ref->ast_root->as<ast_type_alias_declaration>()->genericsT_list != nullptr;
@@ -420,14 +436,14 @@ public:
   }
 
   static void visit_symbol(AliasDefPtr alias_ref) {
-    static thread_local std::vector<AliasDefPtr> called_stack;
-
+    auto [it_visited, inserted] = visited_aliases.insert({alias_ref, false});
     // prevent recursion like `type A = B; type B = A` (we can't create TypeDataAlias without a resolved underlying type)
-    bool contains = std::find(called_stack.begin(), called_stack.end(), alias_ref) != called_stack.end();
-    if (contains) {
-      err("type `{}` circularly references itself", alias_ref).fire(alias_ref->ident_anchor);
+    if (!inserted) {
+      if (!it_visited->second) {
+        err("type `{}` circularly references itself", alias_ref).fire(alias_ref->ident_anchor);
+      }
+      return;
     }
-    called_stack.push_back(alias_ref);
 
     if (auto v_genericsT_list = alias_ref->ast_root->as<ast_type_alias_declaration>()->genericsT_list) {
       const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
@@ -437,12 +453,14 @@ public:
     TypeNodesVisitorResolver visitor(nullptr, alias_ref->genericTs, alias_ref->substitutedTs, false);
     TypePtr underlying_type = visitor.finalize_type_node(alias_ref->underlying_type_node);
     alias_ref->mutate()->assign_resolved_type(underlying_type);
-    visited_aliases.insert({alias_ref, 1});
-    called_stack.pop_back();
+    it_visited->second = true;
   }
 
   static void visit_symbol(StructPtr struct_ref) {
-    visited_structs.insert({struct_ref, 1});
+    auto [it_visited, inserted] = visited_structs.insert({struct_ref, false});
+    if (!inserted) {
+      return;
+    }
 
     ensure_struct_genericTs_resolved(struct_ref);
 
@@ -459,6 +477,7 @@ public:
         field_ref->mutate()->assign_resolved_abi_type(abi_client_type);
       }
     }
+    it_visited->second = true;
   }
 
   static const GenericsDeclaration* construct_genericTs(TypePtr receiver_type, V<ast_genericsT_list> v_list) {
@@ -756,8 +775,17 @@ class InfiniteStructSizeDetector {
     }
 
     // Some nominal references intentionally defer struct fields until a later top-level pass.
-    if (!visited_structs.contains(struct_ref)) {
+    auto it_visited = visited_structs.find(struct_ref);
+    if (it_visited == visited_structs.end()) {
       TypeNodesVisitorResolver::visit_symbol(struct_ref);
+      it_visited = visited_structs.find(struct_ref);
+    }
+    tolk_assert(it_visited != visited_structs.end());
+
+    if (!it_visited->second) {
+      // a generic instantiation can discover another generic struct while an outer struct
+      // is still resolving its own fields; after the graph becomes complete, it will be re-visited
+      return;
     }
 
     called_stack.push_back(struct_ref);
@@ -803,14 +831,10 @@ void pipeline_resolve_types_and_aliases() {
         visitor.start_visiting_constant(v_const->const_ref);
 
       } else if (auto v_alias = v->try_as<ast_type_alias_declaration>()) {
-        if (!visited_aliases.contains(v_alias->alias_ref)) {
-          TypeNodesVisitorResolver::visit_symbol(v_alias->alias_ref);
-        }
+        TypeNodesVisitorResolver::visit_symbol(v_alias->alias_ref);
 
       } else if (auto v_struct = v->try_as<ast_struct_declaration>()) {
-        if (!visited_structs.contains(v_struct->struct_ref)) {
-          TypeNodesVisitorResolver::visit_symbol(v_struct->struct_ref);
-        }
+        TypeNodesVisitorResolver::visit_symbol(v_struct->struct_ref);
         visitor.start_visiting_struct_fields(v_struct->struct_ref);
 
       } else if (auto v_enum = v->try_as<ast_enum_declaration>()) {

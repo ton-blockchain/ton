@@ -217,19 +217,19 @@ TypePtr TypeDataBitsN::create(int n_width, bool is_bits) {
   return new TypeDataBitsN(n_width, is_bits);
 }
 
-TypePtr TypeDataUnion::create(std::vector<TypePtr>&& variants) {
+TypePtr TypeDataUnion::create(std::vector<TypePtr>&& variants, std::vector<InvalidDuplicateVariant>* out_invalid_duplicates) {
   // flatten variants and remove duplicates
   // note, that `int | slice` and `int | int | slice` are different TypePtr, but actually the same variants;
-  // note, that `UserId | OwnerId` (both are aliases to `int`) will emit `UserId` (OwnerId is a duplicate)
+  // note that `AliasToInt | int` is rejected: out_invalid_duplicates is filled, and fired while resolving AST types
   std::vector<TypePtr> flat_variants;
   flat_variants.reserve(variants.size());
   for (TypePtr variant : variants) {
     if (const TypeDataUnion* nested_union = variant->unwrap_alias()->try_as<TypeDataUnion>()) {
       for (TypePtr nested_variant : nested_union->variants) {
-        append_union_type_variant(nested_variant, flat_variants);
+        append_union_type_variant(nested_variant, flat_variants, out_invalid_duplicates);
       }
     } else {
-      append_union_type_variant(variant, flat_variants);
+      append_union_type_variant(variant, flat_variants, out_invalid_duplicates);
     }
   }
   // detect, whether it's `T?` or `T1 | T2 | ...`
@@ -1253,6 +1253,10 @@ bool TypeDataAlias::can_hold_tvm_null_instead() const {
   return underlying_type->can_hold_tvm_null_instead();
 }
 
+bool TypeDataNullLiteral::can_hold_tvm_null_instead() const {
+  return false;
+}
+
 bool TypeDataStruct::can_hold_tvm_null_instead() const {
   if (get_width_on_stack() != 1) {    // example that can hold null: `{ field: int }`
     return false;                     // another example: `{ e: Empty, field: ((), int) }`
@@ -1467,13 +1471,16 @@ bool TypeDataMapKV::equal_to(TypePtr rhs) const {
 }
 
 
-// union types creation is a bit tricky: nested unions are flattened, duplicates are removed
-// so, a resolved union type has variants, each will be assigned a unique type_id (tagged unions)
-void TypeDataUnion::append_union_type_variant(TypePtr variant, std::vector<TypePtr>& out_unique_variants) {
-  // having `UserId | OwnerId` (both are aliases to `int`) merge them into just `UserId`, because underlying are equal
+void TypeDataUnion::append_union_type_variant(TypePtr variant, std::vector<TypePtr>& out_unique_variants, std::vector<InvalidDuplicateVariant>* out_invalid_duplicates) {
   TypePtr underlying_variant = variant->unwrap_alias();
   for (TypePtr existing : out_unique_variants) {
     if (existing->equal_to(underlying_variant)) {
+      // we allow `int | int`, but disallow `AliasToInt | int` as identical runtime representation;
+      // the same disallows `Wrapper<int|slice> | Wrapper<slice|int>`
+      bool is_invalid = existing->as_human_readable() != variant->as_human_readable();
+      if (out_invalid_duplicates && is_invalid) {
+        out_invalid_duplicates->emplace_back(existing, variant);
+      }
       return;
     }
   }

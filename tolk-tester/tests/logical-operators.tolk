@@ -291,6 +291,19 @@ fun test125(c: bool): int {
     return x.0 + x.1 * 100;
 }
 
+fun failIfTrueKeepWithAsm(x: bool): bool
+    asm "DUP 9 THROWIF"
+
+@method_id(126)
+fun test126(x: int): int {
+    val b = x != 0;
+    try {
+        return failIfTrueKeepWithAsm(!b) as int;
+    } catch (exc) {
+        return 1000 + exc;
+    }
+}
+
 
 fun main() {
 
@@ -353,6 +366,7 @@ fun main() {
 @testcase | 124 | 0      | 2
 @testcase | 125 | -1     | 2010
 @testcase | 125 | 0      | 4030
+@testcase | 126 | 1      | 0
 
 @fif_codegen
 """

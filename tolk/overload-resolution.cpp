@@ -150,6 +150,29 @@ static bool is_more_specific_generic(TypePtr typeA, TypePtr typeB, const Generic
      && !can_substitute_Ts_to_reach_actual(typeA, typeB, genericTsA);
 }
 
+// Find a receiver pattern that dominates all other applicable overloads:
+// - `map<K, slice>` beats both `map<K, V>` and `map<K, V | slice>`
+// - `Container<int>` beats `Container<T>`
+// But `map<int, V>` and `map<K, slice>` are incomparable, so no dominator exists.
+static const MethodCallCandidate* find_the_only_generic_dominator(const std::vector<MethodCallCandidate>& candidates) {
+  const MethodCallCandidate* dominator = nullptr;
+  for (const MethodCallCandidate& candidate : candidates) {
+    bool dominates_all = true;
+    for (const MethodCallCandidate& other : candidates) {
+      if (candidate.method_ref != other.method_ref) {
+        dominates_all &= is_more_specific_generic(candidate.original_receiver, other.original_receiver, candidate.method_ref->genericTs, other.method_ref->genericTs);
+      }
+    }
+    if (dominates_all) {
+      if (dominator) {
+        return nullptr;
+      }
+      dominator = &candidate;
+    }
+  }
+  return dominator;
+}
+
 // the main "overload resolution" entrypoint: given `obj.method()`, find best applicable methods;
 // if there are many (no one is better than others), a caller side will emit "ambiguous call"
 std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_receiver, std::string_view called_name, bool skip_instantiations) {
@@ -205,7 +228,15 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
     return viable;
   }
 
-  // 2) better shape in terms of structural depth
+  // 2) find the overload that dominates all others
+  //    (prefer `Container<int>` over `Container<T>` and `map<K, slice>` over `map<K, V>`)
+  //    Check this before shape scoring, since shape is only a structural fallback:
+  //    for example, `map<K, V | slice>` is deeper, but `map<K, slice>` is more specific.
+  if (const MethodCallCandidate* dominator = find_the_only_generic_dominator(viable)) {
+    return {*dominator};
+  }
+
+  // 3) better shape in terms of structural depth
   //    (prefer `Container<T>` over `T` and `map<K1, map<K2,V2>>` over `map<K,V>`)
   ShapeScore best_shape = {ShapeKind::GenericT, -999};
   for (const MethodCallCandidate& candidate : viable) {
@@ -228,7 +259,7 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
     viable = std::move(best_by_shape);
   }
 
-  // 3) if there are both generic and non-generic functions of the same shape, filter out generic
+  // 4) if there are both generic and non-generic functions of the same shape, filter out generic
   n_generics = 0;
   for (const MethodCallCandidate& candidate : viable) {
     n_generics += candidate.is_generic();
@@ -243,23 +274,8 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
     return non_generic;
   }
 
-  // 4) find the overload that dominates all others
-  //    (prefer `Container<int>` over `Container<T>` and `map<K, slice>` over `map<K, V>`)
-  const MethodCallCandidate* dominator = nullptr;
-  for (const MethodCallCandidate& candidate : viable) {
-    bool dominates_all = true;
-    for (const MethodCallCandidate& other : viable) {
-      if (candidate.method_ref != other.method_ref) {
-        dominates_all &= is_more_specific_generic(candidate.original_receiver, other.original_receiver, candidate.method_ref->genericTs, other.method_ref->genericTs);
-      }
-    }
-    if (dominates_all) {
-      tolk_assert(!dominator);
-      dominator = &candidate;
-    }
-  }
-
-  if (dominator) {
+  // 5) now choose inside the remaining best-shaped subset
+  if (const MethodCallCandidate* dominator = find_the_only_generic_dominator(viable)) {
     return {*dominator};
   }
   return viable;

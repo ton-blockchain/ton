@@ -356,7 +356,7 @@ fun test23(p: Point) {
 }
 
 @method_id(124)
-fun test24(x: JustInt | JustIntAlias2 | JustIntAlias): JustInt {
+fun test24(x: JustIntAlias2): JustInt {
     return match (x) {
         JustIntAlias => x
     };

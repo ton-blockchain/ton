@@ -1119,14 +1119,48 @@ static bool match_eq_neq_zero(const Op& op, bool& out_is_eq, int& out_zero_arg_i
 //   1. We see `_Let [t3] := t2` — single-slot rename, switch target to t2.
 //   2. We see `_Call [t2] := _==_(t1, 0)` — writes target and is not a `_Let`, so we return it.
 //
-// Returns nullptr if non-`_Let` writer of `target` not found.
-static Op* find_producer_in_list(OpList& list, int max_idx_exclusive, var_idx_t target) {
+struct ProducerLookupResult {
+  Op* op;
+  int idx;
+};
+
+static bool does_op_or_nested_blocks_write_var(const Op& op, var_idx_t target);
+
+static bool does_op_list_write_var(const OpList& list, var_idx_t target) {
+  for (const std::unique_ptr<Op>& op : list) {
+    if (does_op_or_nested_blocks_write_var(*op, target)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool does_op_or_nested_blocks_write_var(const Op& op, var_idx_t target) {
+  for (var_idx_t v : op.left) {
+    if (v == target) {
+      return true;
+    }
+  }
+  return does_op_list_write_var(op.block0, target) || does_op_list_write_var(op.block1, target);
+}
+
+// Walk `list` backwards, looking for the op that produced `target`.
+// Single-slot `_Let dst := src` ops are treated as renames (so the search continues with `target = src`).
+//
+// Returns `{op, i}` where `op` is the producing op (any non-`_Let` writer of `target`), `i` is its index in `list`.
+// Returns `{nullptr, -1}` in two cases:
+//   1. no writer of `target` is reachable
+//   2. `target` is conditionally rewritten inside the nested block of some intervening op,
+//      e.g. `var c = x != 0; if (flip) { c = false; } if (c) ...`.
+static ProducerLookupResult find_producer_in_list(OpList& list, int max_idx_exclusive, var_idx_t target) {
   for (int i = max_idx_exclusive - 1; i >= 0; --i) {
     Op* op = list[i].get();
     if (op->disabled()) {
       continue;
     }
 
+    // top-level write check (also handles `if`/`while` cond-var being read into `op.left`,
+    // but that's fine — we'd just stop the search, which is the safe direction)
     bool writes_target = false;
     for (var_idx_t v : op->left) {
       if (v == target) {
@@ -1134,6 +1168,12 @@ static Op* find_producer_in_list(OpList& list, int max_idx_exclusive, var_idx_t 
         break;
       }
     }
+
+    // nested-block write check
+    if (!writes_target && (does_op_list_write_var(op->block0, target) || does_op_list_write_var(op->block1, target))) {
+      return {nullptr, -1};
+    }
+
     if (!writes_target) {
       continue;
     }
@@ -1143,9 +1183,21 @@ static Op* find_producer_in_list(OpList& list, int max_idx_exclusive, var_idx_t 
       continue;
     }
 
-    return op;
+    return {op, i};
   }
-  return nullptr;
+  return {nullptr, -1};
+}
+
+// Guard for the `_==_` / `_!=_` to analyze that operand is NOT reassigned between the comparison and the consumer.
+// Our IR (Ops) is not SSA — `x = ...` reuses the same `var_idx_t`:
+// > val c = (x != 0); x = 555; if (c) { return 1; }
+static bool is_var_written_in_range(const OpList& list, int first_idx, int max_idx_exclusive, var_idx_t target) {
+  for (int i = first_idx; i < max_idx_exclusive; ++i) {
+    if (does_op_or_nested_blocks_write_var(*list[i], target)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Cheap "does this block end with a return?" check for `if (... == 0) return; else <big_block>` corner case.
@@ -1182,14 +1234,14 @@ static bool try_fold_condition(Op& cond_op, OpList& search_list, int search_max_
 
   while (true) {
     var_idx_t cond_var = cond_op.left[0];
-    Op* producer = find_producer_in_list(search_list, search_max_idx_exclusive, cond_var);
-    if (!producer) {
+    ProducerLookupResult producer = find_producer_in_list(search_list, search_max_idx_exclusive, cond_var);
+    if (!producer.op) {
       break;
     }
 
     bool is_eq = false;
     int zero_arg_idx = -1;
-    if (!match_eq_neq_zero(*producer, is_eq, zero_arg_idx)) {
+    if (!match_eq_neq_zero(*producer.op, is_eq, zero_arg_idx)) {
       break;
     }
     // for loops, the would-be branch swap would also flip "iterate"/"stop" — skip
@@ -1201,7 +1253,11 @@ static bool try_fold_condition(Op& cond_op, OpList& search_list, int search_max_
       break;
     }
 
-    var_idx_t inner_var = producer->right[1 - zero_arg_idx];
+    var_idx_t inner_var = producer.op->right[1 - zero_arg_idx];
+    if (is_var_written_in_range(search_list, producer.idx, search_max_idx_exclusive, inner_var)) {
+      break;
+    }
+
     cond_op.left[0] = inner_var;
     if (is_eq) {
       std::swap(cond_op.block0, cond_op.block1);
@@ -1270,18 +1326,22 @@ static bool try_fold_call_cond_arg(Op& call_op, OpList& search_list, int search_
 
   while (true) {
     var_idx_t cond_var = call_op.right[cond_arg_idx];
-    Op* producer = find_producer_in_list(search_list, search_max_idx_exclusive, cond_var);
-    if (!producer) {
+    ProducerLookupResult producer = find_producer_in_list(search_list, search_max_idx_exclusive, cond_var);
+    if (!producer.op) {
       break;
     }
 
     bool is_eq = false;
     int zero_arg_idx = -1;
-    if (!match_eq_neq_zero(*producer, is_eq, zero_arg_idx)) {
+    if (!match_eq_neq_zero(*producer.op, is_eq, zero_arg_idx)) {
       break;
     }
 
-    var_idx_t inner_var = producer->right[1 - zero_arg_idx];
+    var_idx_t inner_var = producer.op->right[1 - zero_arg_idx];
+    if (is_var_written_in_range(search_list, producer.idx, search_max_idx_exclusive, inner_var)) {
+      break;
+    }
+
     call_op.right[cond_arg_idx] = inner_var;
     if (is_eq) {
       if (swap_a >= 0 && swap_b >= 0) {
@@ -1290,6 +1350,7 @@ static bool try_fold_call_cond_arg(Op& call_op, OpList& search_list, int search_
       } else if (!flip_to.empty()) {
         // `__throw_if(code, cond)` <-> `__throw_ifnot(code, cond)`
         call_op.f_sym = lookup_function(flip_to);
+        flip_to = flip_to == "__throw_if" ? "__throw_ifnot" : "__throw_if";
       }
     }
     // important: `args` is cached, wipe it. `compute_used_vars` reads variable indices from `args`, not from `right`.

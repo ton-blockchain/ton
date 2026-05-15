@@ -339,6 +339,20 @@ fun test22(x: int): int {
     return r;
 }
 
+fun chooseAsmIfElse(flag: int): int
+    asm """
+IF:<{
+  1 PUSHINT
+  }>ELSE<{
+  2 PUSHINT
+  }>
+"""
+
+@method_id(123)
+fun test23(x: int): int {
+    return chooseAsmIfElse(x);
+}
+
 
 fun main() {
 
@@ -386,6 +400,8 @@ fun main() {
 @testcase | 121 | null | [ 0 0 0 0 ]
 @testcase | 122 | 0   | 1
 @testcase | 122 | 7   | 14
+@testcase | 123 | 0   | 2
+@testcase | 123 | 4   | 1
 
 @fif_codegen
 """

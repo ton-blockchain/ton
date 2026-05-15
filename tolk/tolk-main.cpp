@@ -237,21 +237,24 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
       return res_realpath;
     }
     case CompilerSettings::FsReadCallbackKind::ReadFile: {
-      struct stat f_stat;
-      int res = stat(query, &f_stat);   // query here is already resolved realpath
-      if (res != 0 || (f_stat.st_mode & S_IFMT) != S_IFREG) {
+      // query here is already resolved realpath
+      std::ifstream ifs(query, std::ios::binary | std::ios::ate);
+      if (!ifs) {
         return td::Status::Error(std::string{"cannot open file "} + query);
       }
 
-      size_t file_size = static_cast<size_t>(f_stat.st_size);
-      std::string str;
-      str.resize(file_size);
-      FILE* f = fopen(query, "rb");
-      if (!f) {
-        return td::Status::Error(std::string{"cannot open file "} + query);
+      std::streampos end_pos = ifs.tellg();
+      if (end_pos == std::ifstream::pos_type(-1)) {
+        return td::Status::Error(std::string{"cannot read file "} + query);
       }
-      fread(str.data(), file_size, 1, f);
-      fclose(f);
+
+      std::string str;
+      str.resize(static_cast<size_t>(end_pos));
+      ifs.seekg(0, std::ios::beg);
+      ifs.read(str.data(), static_cast<std::streamsize>(str.size()));
+      if (!ifs) {
+        return td::Status::Error(std::string{"cannot read file "} + query);
+      }
       return std::move(str);
     }
     default: {
