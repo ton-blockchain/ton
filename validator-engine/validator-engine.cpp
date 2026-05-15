@@ -2450,6 +2450,8 @@ void ValidatorEngine::start_lite_server() {
   for (auto &s : config_.liteservers) {
     add_lite_server(s.second, static_cast<td::uint16>(s.first));
   }
+  td::actor::send_closure(validator_manager_,
+                          &ton::validator::ValidatorManagerInterface::notify_added_initial_liteservers);
 
   started_lite_server();
 }
@@ -2469,10 +2471,10 @@ void ValidatorEngine::start_collator() {
 }
 
 void ValidatorEngine::started_collator() {
-  start_control_interface();
+  start_full_node_masters();
 }
 
-void ValidatorEngine::add_control_interface(ton::PublicKeyHash id, td::uint16 port) {
+void ValidatorEngine::add_control_interface(ton::PublicKeyHash id, td::uint16 port, td::Promise<td::Unit> promise) {
   class Callback : public ton::adnl::Adnl::Callback {
    public:
     void receive_message(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
@@ -2497,7 +2499,7 @@ void ValidatorEngine::add_control_interface(ton::PublicKeyHash id, td::uint16 po
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::subscribe, ton::adnl::AdnlNodeIdShort{id}, std::string(""),
                           std::make_unique<Callback>(actor_id(this), port));
   td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_local_id, ton::adnl::AdnlNodeIdShort{id});
-  td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_tcp_port, port);
+  td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_tcp_port, port, std::move(promise));
 }
 
 void ValidatorEngine::add_control_process(ton::PublicKeyHash id, td::uint16 port, ton::PublicKeyHash pub,
@@ -2519,14 +2521,25 @@ void ValidatorEngine::start_control_interface() {
 
 void ValidatorEngine::started_control_interface(td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server) {
   control_ext_server_ = std::move(control_ext_server);
+
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise(td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), console_ready_fd = std::move(console_ready_fd_)](td::Result<td::Unit> R) mutable {
+        if (!console_ready_fd.empty()) {
+          console_ready_fd.write(R.is_ok() ? "1" : "0").ensure();
+          console_ready_fd.close();
+        }
+      }));
+
   for (auto &s : config_.controls) {
-    add_control_interface(s.second.key, static_cast<td::uint16>(s.first));
+    add_control_interface(s.second.key, static_cast<td::uint16>(s.first), ig.get_promise());
 
     for (auto &p : s.second.clients) {
       add_control_process(s.second.key, static_cast<td::uint16>(s.first), p.first, p.second);
     }
   }
-  start_full_node_masters();
+  started();
 }
 
 void ValidatorEngine::start_full_node_masters() {
@@ -2541,7 +2554,7 @@ void ValidatorEngine::start_full_node_masters() {
 }
 
 void ValidatorEngine::started_full_node_masters() {
-  started();
+  start_control_interface();
 }
 
 void ValidatorEngine::started() {
@@ -5566,6 +5579,50 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getConsen
   }
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_waitForLiteServer &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+    }
+  });
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::wait_liteserver_ready,
+                          std::move(P));
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_waitForInitialSync &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+    }
+  });
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::wait_initial_sync,
+                          std::move(P));
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
@@ -6171,6 +6228,16 @@ int main(int argc, char *argv[]) {
         });
         return td::Status::OK();
       });
+#if !TD_PORT_WINDOWS
+  p.add_checked_option(
+      '\0', "console-ready-fd", "file descriptor to notify when console is ready", [&](td::Slice s) -> td::Status {
+        TRY_RESULT(v, td::to_integer_safe<int>(s));
+        auto fd = std::make_shared<td::FileFd>(td::FileFd::from_native_fd(td::NativeFd(v)));
+        acts.push_back(
+            [&x, fd]() mutable { td::actor::send_closure(x, &ValidatorEngine::set_console_ready_fd, std::move(*fd)); });
+        return td::Status::OK();
+      });
+#endif
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

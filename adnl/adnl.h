@@ -42,7 +42,7 @@ class AdnlNetworkManager;
 class AdnlExtServer : public td::actor::Actor {
  public:
   virtual void add_local_id(AdnlNodeIdShort id) = 0;
-  virtual void add_tcp_port(td::uint16 port) = 0;
+  virtual void add_tcp_port(td::uint16 port, td::Promise<td::Unit> promise) = 0;
   virtual ~AdnlExtServer() = default;
 };
 

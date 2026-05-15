@@ -42,6 +42,7 @@
 #include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
+#include "td/utils/port/FileFd.h"
 #include "validator/full-node-master.h"
 #include "validator/full-node.h"
 #include "validator/manager.h"
@@ -260,6 +261,7 @@ class ValidatorEngine : public td::actor::Actor {
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
+  td::FileFd console_ready_fd_;
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
   std::string validator_telemetry_filename_;
@@ -324,6 +326,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_session_logs_file(std::string f) {
     session_logs_file_ = std::move(f);
+  }
+  void set_console_ready_fd(td::FileFd fd) {
+    console_ready_fd_ = std::move(fd);
   }
   void add_ip(td::IPAddress addr) {
     addrs_.push_back(addr);
@@ -491,7 +496,7 @@ class ValidatorEngine : public td::actor::Actor {
   void start_collator();
   void started_collator();
 
-  void add_control_interface(ton::PublicKeyHash id, td::uint16 port);
+  void add_control_interface(ton::PublicKeyHash id, td::uint16 port, td::Promise<td::Unit> promise = {});
   void add_control_process(ton::PublicKeyHash id, td::uint16 port, ton::PublicKeyHash pub, td::int32 permissions);
   void start_control_interface();
   void started_control_interface(td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server);
@@ -724,6 +729,10 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_getConsensusNoncriticalParamsOverrides &query,
                          td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
                          td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_waitForLiteServer &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_waitForInitialSync &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
 
   template <class T>
   void run_control_query(T &query, td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,

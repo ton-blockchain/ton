@@ -7,10 +7,12 @@ import signal
 import subprocess
 import types
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from enum import IntEnum, auto
 from ipaddress import IPv4Address
+from itertools import chain
 from pathlib import Path
 from typing import Literal, final, override
 
@@ -50,6 +52,24 @@ def _write_model(file: Path, model: TLObject):
 type DebugType = None | Literal["rr"]
 
 
+@final
+class _ChainedCollection[T](Collection[T]):
+    def __init__(self, *collections: Collection[T]):
+        self._collections = collections
+
+    @override
+    def __iter__(self) -> Iterator[T]:
+        return chain.from_iterable(self._collections)
+
+    @override
+    def __len__(self):
+        return sum(len(c) for c in self._collections)
+
+    @override
+    def __contains__(self, item: object):
+        return any(item in c for c in self._collections)
+
+
 @dataclass(frozen=True)
 class StartOptions:
     install: Install | None = None
@@ -57,14 +77,18 @@ class StartOptions:
     env: Mapping[str, str] = types.MappingProxyType(
         {}
     )  # FIXME: Replace with frozendict once we are on Python 3.15
-    args: Sequence[str] = ()
+    args: Collection[str] = ()
     threads: int = 0
     verbosity: int = 3
     console_verbosity: int = 3
+    pass_fds: Collection[int] = ()
 
 
 def _get_install_and_options(
-    options: StartOptions | None, install: Install, additional_args: list[str]
+    options: StartOptions | None,
+    install: Install,
+    additional_args: Collection[str],
+    pass_fds: Collection[int],
 ) -> tuple[StartOptions, Install]:
     if options is None:
         options = StartOptions()
@@ -77,10 +101,11 @@ def _get_install_and_options(
             install=install,
             debug=options.debug,
             env=options.env,
-            args=additional_args + list(options.args),
+            args=_ChainedCollection(additional_args, options.args),
             threads=options.threads,
             verbosity=options.verbosity,
             console_verbosity=options.console_verbosity,
+            pass_fds=_ChainedCollection(pass_fds, options.pass_fds),
         ),
         install,
     )
@@ -207,6 +232,7 @@ class Network:
                         cwd=self._directory,
                         env=process_env,
                         stderr=asyncio.subprocess.PIPE,
+                        pass_fds=start_options.pass_fds,
                     )
                 case "rr":
                     l.info(f"Recording {self.name} with rr")
@@ -218,6 +244,7 @@ class Network:
                         cwd=self._directory,
                         env=process_env,
                         stderr=asyncio.subprocess.PIPE,
+                        pass_fds=start_options.pass_fds,
                     )
 
             assert self.__process.stderr is not None  # to placate pyright
@@ -450,7 +477,7 @@ class DHTNode(Network.Node):
 
     @override
     async def run(self, options: StartOptions | None = None):
-        options, install = _get_install_and_options(options, self._network.install, [])
+        options, install = _get_install_and_options(options, self._network.install, (), ())
         await self._run(
             install.dht_server_exe,
             self._local_config,
@@ -551,6 +578,26 @@ class FullNode(Network.Node):
     def validator_key(self):
         return self._validator_key
 
+    async def _wait_console_ready(self, fd: int):
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future[None] = loop.create_future()
+
+        def on_readable():
+            data = os.read(fd, 1)
+            if not future.done():
+                if data == b"1":
+                    future.set_result(None)
+                else:
+                    future.set_exception(
+                        RuntimeError(
+                            f"validator-engine console of {self.name} did not start successfully"
+                        )
+                    )
+
+        loop.add_reader(fd, on_readable)
+        future.add_done_callback(lambda f: loop.remove_reader(fd))
+        await future
+
     @override
     async def run(self, options: StartOptions | None = None):
         zerostate = self._get_or_generate_zerostate()
@@ -562,25 +609,39 @@ class FullNode(Network.Node):
                 (static_dir / state.file_hash.hex().upper()).symlink_to(state.file)
             self._static_populated = True
 
-        options, install = _get_install_and_options(
-            options,
-            self._network.install,
-            [
-                "--initial-sync-delay",
-                "5",
-                "--session-logs",
-                str(self.session_log_path),
-                "--quic-flood-control",
-                "-1",
-            ],
-        )
+        async with AsyncExitStack() as stack:
+            ready_r, ready_w = os.pipe()
+            closed = False
+            _ = stack.callback(lambda: os.close(ready_r))
+            _ = stack.callback(lambda: os.close(ready_w) if not closed else None)
 
-        await self._run(
-            install.validator_engine_exe,
-            self._local_config,
-            zerostate.as_validator_config(),
-            options,
-        )
+            options, install = _get_install_and_options(
+                options,
+                self._network.install,
+                (
+                    "--initial-sync-delay",
+                    "5",
+                    "--session-logs",
+                    str(self.session_log_path),
+                    "--quic-flood-control",
+                    "-1",
+                    "--console-ready-fd",
+                    str(ready_w),
+                ),
+                (ready_w,),
+            )
+
+            await self._run(
+                install.validator_engine_exe,
+                self._local_config,
+                zerostate.as_validator_config(),
+                options,
+            )
+
+            closed = True
+            os.close(ready_w)
+
+            await self._wait_console_ready(ready_r)
 
     @property
     def _liteserver_config(self):

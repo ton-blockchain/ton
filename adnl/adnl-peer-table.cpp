@@ -411,7 +411,7 @@ void AdnlPeerTableImpl::decrypt_message(AdnlNodeIdShort dst, td::BufferSlice dat
 
 void AdnlPeerTableImpl::create_ext_server(std::vector<AdnlNodeIdShort> ids, std::vector<td::uint16> ports,
                                           td::Promise<td::actor::ActorOwn<AdnlExtServer>> promise) {
-  promise.set_value(AdnlExtServerCreator::create(actor_id(this), std::move(ids), std::move(ports)));
+  AdnlExtServerCreator::create(actor_id(this), std::move(ids), std::move(ports), std::move(promise));
 }
 
 void AdnlPeerTableImpl::create_tunnel(AdnlNodeIdShort dst, td::uint32 size,

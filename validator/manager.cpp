@@ -286,6 +286,11 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
       td::actor::send_closure(v.second.actor, &IValidatorGroup::create_session);
     }
   }
+
+  for (auto &p : pending_sync_promises_) {
+    p.set_value(td::Unit());
+  }
+  pending_sync_promises_.clear();
 }
 
 void ValidatorManagerImpl::get_next_block(BlockIdExt block_id, td::Promise<BlockHandle> promise) {
@@ -743,10 +748,14 @@ void ValidatorManagerImpl::add_ext_server_id(adnl::AdnlNodeIdShort id) {
 }
 
 void ValidatorManagerImpl::add_ext_server_port(td::uint16 port) {
+  td::Promise<td::Unit> promise;
+  if (initial_liteservers_guard_) {
+    promise = initial_liteservers_guard_.get_promise();
+  }
   if (lite_server_.empty()) {
-    pending_ext_ports_.push_back(port);
+    pending_ext_ports_.emplace_back(port, std::move(promise));
   } else {
-    td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port);
+    td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port, std::move(promise));
   }
 }
 
@@ -755,11 +764,40 @@ void ValidatorManagerImpl::created_ext_server(td::actor::ActorOwn<adnl::AdnlExtS
   for (auto &id : pending_ext_ids_) {
     td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_local_id, id);
   }
-  for (auto port : pending_ext_ports_) {
-    td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port);
+  for (auto &[port, promise] : pending_ext_ports_) {
+    td::actor::send_closure(lite_server_, &adnl::AdnlExtServer::add_tcp_port, port, std::move(promise));
   }
+
   pending_ext_ids_.clear();
   pending_ext_ports_.clear();
+}
+
+void ValidatorManagerImpl::notify_added_initial_liteservers() {
+  initial_liteservers_guard_ = {};
+}
+
+void ValidatorManagerImpl::liteserver_ports_bound() {
+  liteserver_ready_ = true;
+  for (auto &p : pending_liteserver_promises_) {
+    p.set_value(td::Unit());
+  }
+  pending_liteserver_promises_.clear();
+}
+
+void ValidatorManagerImpl::wait_liteserver_ready(td::Promise<td::Unit> promise) {
+  if (liteserver_ready_) {
+    promise.set_value(td::Unit());
+  } else {
+    pending_liteserver_promises_.push_back(std::move(promise));
+  }
+}
+
+void ValidatorManagerImpl::wait_initial_sync(td::Promise<td::Unit> promise) {
+  if (started_) {
+    promise.set_value(td::Unit());
+  } else {
+    pending_sync_promises_.push_back(std::move(promise));
+  }
 }
 
 void ValidatorManagerImpl::run_ext_query(td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
@@ -1951,6 +1989,12 @@ void ValidatorManagerImpl::start_up() {
       });
   td::actor::send_closure(adnl_, &adnl::Adnl::create_ext_server, std::vector<adnl::AdnlNodeIdShort>{},
                           std::vector<td::uint16>{}, std::move(Q));
+
+  td::MultiPromise mp;
+  initial_liteservers_guard_ = mp.init_guard();
+  initial_liteservers_guard_.add_promise(td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::liteserver_ports_bound);
+  }));
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ValidatorManagerInitResult> R) {
     R.ensure();
