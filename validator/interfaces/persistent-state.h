@@ -73,9 +73,15 @@ inline std::string persistent_state_type_to_string(const ShardIdFull &shard, con
   std::string result;
   state.visit(td::overloaded([&](UnsplitStateType) { result = "unsplit"; },
                              [&](SplitAccountStateType type) {
-                               int real_pfx_len = shard_prefix_length(shard.shard);
-                               int effective_pfx_len = shard_prefix_length(type.effective_shard_id);
-                               td::uint64 parts_count = 1 << (effective_pfx_len - real_pfx_len);
+                               auto real_pfx_len = shard_prefix_length(shard.shard);
+                               auto effective_pfx_len = shard_prefix_length(type.effective_shard_id);
+                               if (shard.shard == 0 || type.effective_shard_id == 0 ||
+                                   effective_pfx_len <= real_pfx_len ||
+                                   !shard_is_proper_ancestor(shard.shard, type.effective_shard_id)) {
+                                 result = "invalid split part";
+                                 return;
+                               }
+                               td::uint64 parts_count = td::uint64{1} << (effective_pfx_len - real_pfx_len);
                                td::uint64 part_idx =
                                    type.effective_shard_id >> (64 - effective_pfx_len) & (parts_count - 1);
                                result =
