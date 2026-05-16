@@ -130,7 +130,7 @@ class FullNode : public td::actor::Actor {
   static td::actor::ActorOwn<FullNode> create(
       ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
       td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+      td::actor::ActorId<rldp::Rldp> legacy_rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
       td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
       td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
       td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root, td::Promise<td::Unit> started_promise);

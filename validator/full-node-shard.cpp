@@ -138,7 +138,8 @@ void FullNodeShardImpl::create_overlay() {
                                     << ", \"workchain_id\": " << get_workchain() << " }",
                           opts);
 
-  td::actor::send_closure(rldp_, &rldp::Rldp::add_id, adnl_id_);
+  // Do not register full-node shard ADNL IDs with legacy RLDP.
+  // RLDP2 remains the only inbound full-node transport.
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, adnl_id_);
   if (cert_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
@@ -1534,7 +1535,7 @@ void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
 FullNodeShardImpl::FullNodeShardImpl(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
     FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
     td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active)
     : shard_(shard)
@@ -1543,7 +1544,6 @@ FullNodeShardImpl::FullNodeShardImpl(
     , zero_state_file_hash_(zero_state_file_hash)
     , keyring_(keyring)
     , adnl_(adnl)
-    , rldp_(rldp)
     , rldp2_(rldp2)
     , overlays_(overlays)
     , validator_manager_(validator_manager)
@@ -1557,11 +1557,11 @@ FullNodeShardImpl::FullNodeShardImpl(
 td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
     FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
     td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active) {
   return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "tonnode" << shard, shard, local_id, adnl_id,
-                                                    zero_state_file_hash, opts, std::move(limiter), keyring, adnl, rldp,
+                                                    zero_state_file_hash, opts, std::move(limiter), keyring, adnl,
                                                     rldp2, overlays, validator_manager, client, full_node, active);
 }
 
