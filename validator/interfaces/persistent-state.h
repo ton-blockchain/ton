@@ -71,23 +71,21 @@ inline ShardId persistent_state_to_effective_shard(const ShardIdFull &shard, con
 
 inline std::string persistent_state_type_to_string(const ShardIdFull &shard, const PersistentStateType &state) {
   std::string result;
-  state.visit(td::overloaded([&](UnsplitStateType) { result = "unsplit"; },
-                             [&](SplitAccountStateType type) {
-                               auto real_pfx_len = shard_prefix_length(shard.shard);
-                               auto effective_pfx_len = shard_prefix_length(type.effective_shard_id);
-                               if (shard.shard == 0 || type.effective_shard_id == 0 ||
-                                   effective_pfx_len <= real_pfx_len ||
-                                   !shard_is_proper_ancestor(shard.shard, type.effective_shard_id)) {
-                                 result = "invalid split part";
-                                 return;
-                               }
-                               td::uint64 parts_count = td::uint64{1} << (effective_pfx_len - real_pfx_len);
-                               td::uint64 part_idx =
-                                   type.effective_shard_id >> (64 - effective_pfx_len) & (parts_count - 1);
-                               result =
-                                   "part " + std::to_string(part_idx + 1) + " out of " + std::to_string(parts_count);
-                             },
-                             [&](SplitPersistentStateType) { result = "split header"; }));
+  state.visit(
+      td::overloaded([&](UnsplitStateType) { result = "unsplit"; },
+                     [&](SplitAccountStateType type) {
+                       auto real_pfx_len = shard_prefix_length(shard.shard);
+                       auto effective_pfx_len = shard_prefix_length(type.effective_shard_id);
+                       if (shard.shard == 0 || type.effective_shard_id == 0 || effective_pfx_len <= real_pfx_len ||
+                           !shard_is_proper_ancestor(shard.shard, type.effective_shard_id)) {
+                         result = "invalid split part";
+                         return;
+                       }
+                       td::uint64 parts_count = td::uint64{1} << (effective_pfx_len - real_pfx_len);
+                       td::uint64 part_idx = type.effective_shard_id >> (64 - effective_pfx_len) & (parts_count - 1);
+                       result = "part " + std::to_string(part_idx + 1) + " out of " + std::to_string(parts_count);
+                     },
+                     [&](SplitPersistentStateType) { result = "split header"; }));
   return result;
 }
 
