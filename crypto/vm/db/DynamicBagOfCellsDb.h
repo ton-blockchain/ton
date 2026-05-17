@@ -46,6 +46,7 @@ class CellDbReader {
   virtual ~CellDbReader() = default;
   virtual td::Result<Ref<DataCell>> load_cell(td::Slice hash) = 0;
   virtual td::Result<std::vector<Ref<DataCell>>> load_bulk(td::Span<td::Slice> hashes) = 0;
+  virtual Ref<Cell> create_unloaded_cell(const Ref<Cell>& cell, int merkle_depth) = 0;
 };
 
 struct StoreCellHint {

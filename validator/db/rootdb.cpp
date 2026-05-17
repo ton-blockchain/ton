@@ -288,7 +288,7 @@ void RootDb::store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> 
 
         td::actor::send_closure(b, &ArchiveManager::update_handle, std::move(handle), std::move(P));
       });
-  td::actor::send_closure(cell_db_, &CellDb::store_block_state_permanent, std::move(block), std::move(P));
+  td::actor::send_closure(cell_db_, &CellDb::store_block_state_from_data, std::move(block), std::move(P));
 }
 
 void RootDb::store_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {

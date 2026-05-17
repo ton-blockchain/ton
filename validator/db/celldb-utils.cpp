@@ -15,11 +15,15 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "block/block-auto.h"
+#include "impl/accept-block.hpp"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/HashMap.h"
+#include "ton/ton-io.hpp"
+#include "vm/cells/MerkleUpdate.h"
 #include "vm/db/CellStorage.h"
 
-#include "permanent-celldb-utils.h"
+#include "celldb-utils.h"
+#include "fabric.h"
 
 namespace ton::validator {
 
@@ -83,6 +87,97 @@ void calculate_permanent_celldb_update(const std::map<BlockIdExt, td::Ref<BlockD
     TRY_STATUS_PROMISE(promise, R.move_as_status());
     promise.set_value(std::move(*updates));
   });
+}
+
+td::Result<RootHash> unpack_block_state_root_hash(Ref<BlockData> block) {
+  block::gen::Block::Record rec;
+  if (!block::gen::unpack_cell(block->root_cell(), rec)) {
+    return td::Status::Error("cannot unpack Block record");
+  }
+  bool spec;
+  vm::CellSlice update_cs = vm::load_cell_slice_special(rec.state_update, spec);
+  if (update_cs.special_type() != vm::CellTraits::SpecialType::MerkleUpdate) {
+    return td::Status::Error("invalid Merkle update in block");
+  }
+  Ref<vm::Cell> new_state_root = update_cs.prefetch_ref(1);
+  return new_state_root->get_hash(0).bits();
+}
+
+td::Result<Ref<vm::Cell>> apply_block_to_prev_states(Ref<BlockData> block, std::vector<Ref<vm::Cell>> prev_roots,
+                                                     vm::StoreCellHint* hint) {
+  TD_PERF_COUNTER(apply_block_to_state);
+  td::PerfWarningTimer t{"applyblocktostate", 0.1};
+  Ref<vm::Cell> prev_root;
+  if (prev_roots.size() == 1) {
+    prev_root = prev_roots[0];
+  } else {
+    CHECK(prev_roots.size() == 2);
+    CHECK(block::gen::t_ShardState.cell_pack_split_state(prev_root, prev_roots[0], prev_roots[1]));
+  }
+  block::gen::Block::Record rec;
+  if (!block::gen::unpack_cell(block->root_cell(), rec)) {
+    return td::Status::Error("failed to unpack block");
+  }
+  return vm::MerkleUpdate::apply(prev_root, rec.state_update, hint);
+}
+
+Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_reader, vm::StoreCellHint* hint) {
+  TD_PERF_COUNTER(apply_block_to_state_fast);
+  td::PerfWarningTimer t{"applyblocktostatefast", 0.1};
+  block::gen::Block::Record rec;
+  CHECK(block::gen::unpack_cell(block->root_cell(), rec));
+  vm::CellSlice merkle_update{vm::NoVm{}, rec.state_update};
+  CHECK(merkle_update.special_type() == vm::CellTraits::SpecialType::MerkleUpdate);
+  Ref<vm::Cell> proof_root = merkle_update.prefetch_ref(1);
+
+  class BuildNextState {
+   public:
+    BuildNextState(vm::CellDbReader& cell_db_reader, vm::StoreCellHint* hint)
+        : cell_db_reader_(cell_db_reader), hint_(hint) {
+    }
+
+    Ref<vm::Cell> dfs(Ref<vm::Cell> cell, int merkle_depth) {
+      vm::CellSlice cs(vm::NoVm(), cell);
+      if (cs.special_type() == vm::Cell::SpecialType::PrunnedBranch) {
+        if ((int)cell->get_level() == merkle_depth + 1) {
+          vm::CellHash hash = cell->get_hash(merkle_depth);
+          if (hint_ != nullptr) {
+            hint_->prev_state_cells.insert(hash);
+          }
+          auto result = cell_db_reader_.create_unloaded_cell(cell, merkle_depth);
+          CHECK(result->get_hash() == hash);
+          return result;
+        }
+        return cell;
+      }
+      Key key{cell->get_hash(), merkle_depth};
+      if (auto it = ready_cells_.find(key); it != ready_cells_.end()) {
+        return it->second;
+      }
+
+      int child_merkle_depth = cs.child_merkle_depth(merkle_depth);
+      vm::CellBuilder cb;
+      cb.store_bits(cs.fetch_bits(cs.size()));
+      for (unsigned i = 0; i < cs.size_refs(); i++) {
+        auto ref = dfs(cs.prefetch_ref(i), child_merkle_depth);
+        cb.store_ref(std::move(ref));
+      }
+      auto res = cb.finalize_novm(cs.is_special());
+      ready_cells_.emplace(key, res);
+      return res;
+    }
+
+   private:
+    vm::CellDbReader& cell_db_reader_;
+    vm::StoreCellHint* hint_;
+
+    using Key = std::pair<vm::CellHash, int>;
+    td::HashMap<Key, Ref<vm::Cell>> ready_cells_;
+  };
+
+  auto result = BuildNextState{cell_db_reader, hint}.dfs(proof_root, 0);
+  CHECK(result->get_hash() == proof_root->get_hash(0));
+  return result;
 }
 
 }  // namespace ton::validator

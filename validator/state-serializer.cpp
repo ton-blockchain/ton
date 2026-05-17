@@ -322,6 +322,9 @@ class CachedCellDbReader : public vm::CellDbReader {
     LOG(WARNING) << "CachedCellDbReader stats : " << total_reqs_ << " reads, " << cached_reqs_ << " cached, "
                  << bulk_reqs_ << " bulk reqs";
   }
+  Ref<vm::Cell> create_unloaded_cell(const Ref<vm::Cell>& cell, int merkle_depth) override {
+    return parent_->create_unloaded_cell(cell, merkle_depth);
+  }
 
  private:
   std::shared_ptr<vm::CellDbReader> parent_;
