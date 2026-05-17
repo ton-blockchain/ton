@@ -1966,8 +1966,14 @@ bool Transaction::get_compute_phase_result(const ComputePhaseConfig& cfg, Comput
     was_activated = true;
     acc_status = Account::acc_active;
   }
+  td::optional<td::uint64> precompiled_gas_usage;
   if (precompiled) {
-    cp.gas_used = precompiled.value().gas_usage;
+    precompiled_gas_usage = precompiled.value().gas_usage;
+  } else if (cp.precompiled_gas_usage) {
+    precompiled_gas_usage = cp.precompiled_gas_usage.value();
+  }
+  if (precompiled_gas_usage) {
+    cp.gas_used = precompiled_gas_usage.value();
     cp.vm_steps = 0;
     cp.vm_init_state_hash = cp.vm_final_state_hash = td::Bits256::zero();
     if (cp.out_of_gas) {
