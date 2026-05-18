@@ -17,11 +17,31 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <atomic>
+#include <cmath>
 #include <mutex>
 
 #include "td/utils/Time.h"
 
 namespace td {
+
+namespace detail {
+
+std::chrono::nanoseconds to_ns_duration(double value) {
+  if (std::isnan(value)) {
+    return {};
+  }
+
+  constexpr double max_bound = std::chrono::seconds{std::chrono::years{100}}.count();
+  constexpr double min_bound = std::chrono::seconds{-std::chrono::years{100}}.count();
+  if (value < min_bound) {
+    value = min_bound;
+  } else if (value > max_bound) {
+    value = max_bound;
+  }
+  return std::chrono::round<std::chrono::nanoseconds>(std::chrono::duration<double>(value));
+}
+
+}  // namespace detail
 
 namespace {
 

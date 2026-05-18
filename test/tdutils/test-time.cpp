@@ -244,5 +244,19 @@ TEST(Time, StoreParseRoundTrip) {
   EXPECT_APPROX(original_unix, ts.at_unix());
 }
 
+TEST(Time, Overflow) {
+  constexpr SteadyTime max{std::chrono::years{100}};
+  constexpr SteadyTime min{-std::chrono::years{100}};
+
+  auto ts_max1 = Timestamp::at(1. / 0);
+  auto ts_max2 = Timestamp::in(1e13, ts_max1);
+  EXPECT_EQ(ts_max1.get(), max);
+  EXPECT_EQ(ts_max2.get(), SteadyTime{std::chrono::years{200}});
+  auto ts_min = Timestamp::at(-1. / 0);
+  EXPECT_EQ(ts_min.get(), min);
+  auto ts_nan = Timestamp::at(0. / 0);
+  EXPECT_EQ(ts_nan.get(), SteadyTime{});
+}
+
 }  // namespace
 }  // namespace td
