@@ -56,7 +56,7 @@ class SchedulerContext : public Context<SchedulerContext>, public SchedulerDispa
 
   // Timeout interface
   virtual bool has_heap() = 0;
-  virtual KHeap<double> &get_heap() = 0;
+  virtual KHeap<Timestamp> &get_heap() = 0;
 
   // Stop all schedulers
   virtual bool is_stop_requested() = 0;
