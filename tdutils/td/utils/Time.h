@@ -26,9 +26,7 @@ namespace td {
 
 namespace detail {
 
-inline auto to_ns_duration(double value) {
-  return std::chrono::round<std::chrono::nanoseconds>(std::chrono::duration<double>(value));
-}
+std::chrono::nanoseconds to_ns_duration(double value);
 
 inline double duration_to_s(std::chrono::duration<double> duration) {
   return duration.count();

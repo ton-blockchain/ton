@@ -46,24 +46,23 @@ class TestScheduler {
     return WaitSyncWork{this};
   }
 
-  double next_timeout_in() const {
+  std::optional<Timestamp> next_timeout() const {
     if (heap_.empty()) {
-      return std::numeric_limits<double>::infinity();
+      return std::nullopt;
     }
-    double result = heap_.top_key() - Time::now();
-    return result > 0 ? result : 0;
+    return heap_.top_key();
   }
 
-  void advance_time(double delta) {
-    Time::jump_in_future(Time::now() + delta);
-  }
-
-  void advance_time(std::chrono::duration<double> delta) {
-    Time::jump_in_future(Time::now() + delta.count());
+  void advance_time(auto delta)
+    requires requires {
+      { Timestamp::now() + delta } -> std::same_as<Timestamp>;
+    }
+  {
+    Time::jump_in_future((Timestamp::now() + delta).get());
   }
 
   void advance_time_to(td::Timestamp timestamp) {
-    Time::jump_in_future(timestamp.at());
+    Time::jump_in_future(timestamp.get());
   }
 
   template <class F>
@@ -90,7 +89,7 @@ class TestScheduler {
   std::deque<core::ActorInfoPtr> io_queue_;
   std::deque<core::SchedulerToken> cpu_queue_;
 
-  KHeap<double> heap_;
+  KHeap<Timestamp> heap_;
   Poll poll_;
   core::Debug debug_;
   core::ActorInfoCreator creator_{true};
@@ -135,7 +134,7 @@ class TestScheduler {
     bool has_heap() override {
       return true;
     }
-    KHeap<double> &get_heap() override {
+    KHeap<Timestamp> &get_heap() override {
       return sched_->heap_;
     }
 
@@ -159,10 +158,10 @@ class TestScheduler {
       auto timestamp = actor_info_ptr->get_alarm_timestamp();
       if (timestamp) {
         if (heap_node->in_heap()) {
-          heap.fix(timestamp.at(), heap_node);
+          heap.fix(timestamp, heap_node);
         } else {
           actor_info_ptr->pin(actor_info_ptr);
-          heap.insert(timestamp.at(), heap_node);
+          heap.insert(timestamp, heap_node);
         }
       } else {
         if (heap_node->in_heap()) {
@@ -239,11 +238,11 @@ class TestScheduler {
       if (heap_.empty()) {
         break;
       }
-      if (heap_.top_key() > Time::now()) {
+      if (heap_.top_key() > Timestamp::now()) {
         if (!advance_time) {
           break;
         }
-        Time::jump_in_future(heap_.top_key());
+        Time::jump_in_future(heap_.top_key().get());
       }
       process_single_alarm();
     }

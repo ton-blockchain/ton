@@ -44,7 +44,7 @@ bool IoWorker::run_once(double timeout, bool skip_timeouts) {
   auto &heap = SchedulerContext::get().get_heap();
   auto &debug = SchedulerContext::get().get_debug();
 
-  auto now = Time::now();  // update Time::now_cached()
+  auto now = Timestamp::now();
   while (!heap.empty() && heap.top_key() <= now) {
     auto *heap_node = heap.pop();
     auto *actor_info = ActorInfo::from_heap_node(heap_node);
@@ -80,7 +80,7 @@ bool IoWorker::run_once(double timeout, bool skip_timeouts) {
   if (can_sleep) {
     auto wakeup_timestamp = Timestamp::in(timeout);
     if (!heap.empty()) {
-      wakeup_timestamp.relax(Timestamp::at(heap.top_key()));
+      wakeup_timestamp.relax(heap.top_key());
     }
     timeout_ms = static_cast<int>(wakeup_timestamp.in() * 1000) + 1;
     if (timeout_ms < 0) {
