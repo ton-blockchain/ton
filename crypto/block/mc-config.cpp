@@ -422,6 +422,7 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
         .max_collated_data_size = consensus_config.max_collated_data_size,
 
         .use_quic = v2.use_quic,
+        .enable_observers = v2.enable_observers,
         .slots_per_leader_window = v2.slots_per_leader_window,
     };
 

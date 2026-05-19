@@ -42,7 +42,8 @@ class IValidatorGroup : public td::actor::Actor {
       td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
       std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager,
       td::actor::ActorId<CollationManager> collation_manager, bool create_session, bool allow_unsafe_self_blocks_resync,
-      td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard);
+      td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard, bool is_validator,
+      adnl::AdnlNodeIdShort local_adnl_id, std::vector<adnl::AdnlNodeIdShort> overlay_members);
 
   virtual void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) = 0;
   virtual void create_session() = 0;

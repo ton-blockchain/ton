@@ -216,11 +216,10 @@ class ValidatorManagerImpl : public ValidatorManager {
   ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set,
                                           td::Bits256 opts_hash, BlockSeqno last_key_block_seqno,
                                           const validatorsession::ValidatorSessionOptions &opts);
-  td::actor::ActorOwn<IValidatorGroup> create_validator_group(ValidatorSessionId session_id, ShardIdFull shard,
-                                                              td::Ref<block::ValidatorSet> validator_set,
-                                                              BlockSeqno key_seqno,
-                                                              validatorsession::ValidatorSessionOptions opts,
-                                                              bool create_catchain);
+  td::actor::ActorOwn<IValidatorGroup> create_validator_group(
+      ValidatorSessionId session_id, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set,
+      BlockSeqno key_seqno, validatorsession::ValidatorSessionOptions opts, bool create_catchain, bool is_validator,
+      adnl::AdnlNodeIdShort local_adnl_id_override, std::vector<adnl::AdnlNodeIdShort> overlay_members);
   td::actor::ActorId<CollationManager> get_collation_manager(adnl::AdnlNodeIdShort adnl_id);
 
   struct ValidatorGroupEntry {

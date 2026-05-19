@@ -539,6 +539,7 @@ struct NewConsensusConfig {
   td::uint32 max_collated_data_size = (4 << 20);
 
   bool use_quic = false;
+  bool enable_observers = false;
   td::uint32 slots_per_leader_window = 4;
 
   // When adding a new noncritical parameters, also add it to consensus.simplex.noncriticalParams TL scheme
