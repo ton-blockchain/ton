@@ -23,6 +23,7 @@ class SimplexConsensusConfig:
     first_block_timeout_ms: int = 1000
     max_leader_window_desync: int = 2
     use_quic: bool = False
+    use_block_sync: bool = False
 
 
 @dataclass
@@ -329,7 +330,8 @@ def create_zerostate(
                 f"<b {consensus_config.target_block_rate_ms} 32 u, b> <s 0 rot 8 udict! drop\n"
                 f"<b {consensus_config.first_block_timeout_ms} 32 u, b> <s 1 rot 8 udict! drop\n"
                 f"<b {consensus_config.max_leader_window_desync} 32 u, b> <s 10 rot 8 udict! drop\n"
-                "<b x{22} s, 0 7 u, "
+                "<b x{22} s, 0 6 u, "
+                f"{int(consensus_config.use_block_sync)} 1 u, "
                 f"{int(consensus_config.use_quic)} 1 u, "
                 f"{consensus_config.slots_per_leader_window} 32 u, "
                 "swap dict, b>\n"

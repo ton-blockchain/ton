@@ -2437,21 +2437,50 @@ void ValidatorManagerImpl::update_shards() {
 
   BlockSeqno key_seqno = last_key_block_handle_->id().seqno();
 
-  auto get_or_make_next_group = [&](ShardIdFull shard, ValidatorSessionId id, td::Ref<block::ValidatorSet> val_set) {
+  // Params 32/34/36 (prev/curr/next validator sets) only change in key blocks, so reading them from
+  // last_masterchain_state_ is equivalent to reading them at last_key_block_handle_ — same key_seqno
+  // that all groups created here are bound to via val_group_id.
+  std::vector<adnl::AdnlNodeIdShort> overlay_members;
+  std::map<PublicKeyHash, adnl::AdnlNodeIdShort> local_key_to_adnl;
+  for (int i = -1; i <= 1; ++i) {
+    auto vset = last_masterchain_state_->get_total_validator_set(i);
+    if (vset.is_null()) {
+      continue;
+    }
+    for (const auto &val : vset->export_vector()) {
+      PublicKeyHash key_hash = ValidatorFullId{val.key}.compute_short_id();
+      adnl::AdnlNodeIdShort adnl_id{val.addr.is_zero() ? key_hash.bits256_value() : val.addr};
+      overlay_members.push_back(adnl_id);
+      if (temp_keys_.count(key_hash) || permanent_keys_.count(key_hash)) {
+        local_key_to_adnl.emplace(key_hash, adnl_id);
+      }
+    }
+  }
+  std::sort(overlay_members.begin(), overlay_members.end());
+  overlay_members.erase(std::unique(overlay_members.begin(), overlay_members.end()), overlay_members.end());
+
+  adnl::AdnlNodeIdShort observer_local_adnl_id = adnl::AdnlNodeIdShort::zero();
+  if (!local_key_to_adnl.empty()) {
+    observer_local_adnl_id = local_key_to_adnl.begin()->second;
+  }
+
+  auto get_or_make_next_group = [&](ShardIdFull shard, ValidatorSessionId id, td::Ref<block::ValidatorSet> val_set,
+                                    bool is_validator, adnl::AdnlNodeIdShort local_adnl_id_override) {
     CHECK(!validator_groups_.contains(id) && !new_validator_groups.contains(id));
     CHECK(!destroyed_validator_sessions_.contains(id));
     if (auto it = next_validator_groups_.find(id); it != next_validator_groups_.end()) {
       return it;
     }
 
-    auto G = create_validator_group(id, shard, val_set, key_seqno, opts, started_);
+    auto G = create_validator_group(id, shard, val_set, key_seqno, opts, started_, is_validator, local_adnl_id_override,
+                                    overlay_members);
     ValidatorGroupEntry entry{
         .actor = std::move(G),
         .shard = shard,
         .started = false,
         .cc_seqno = val_set->get_catchain_seqno(),
     };
-    LOG(INFO) << "Created " << entry.name() << ":" << id;
+    LOG(INFO) << "Created " << entry.name() << ":" << id << (is_validator ? "" : " [observer]");
     auto [it, success] = next_validator_groups_.emplace(id, std::move(entry));
     CHECK(success);
     return it;
@@ -2474,6 +2503,10 @@ void ValidatorManagerImpl::update_shards() {
 
       auto validator_id = get_validator(shard, val_set);
 
+      auto consensus_config = last_masterchain_state_->get_new_consensus_config(shard.workchain);
+      bool want_observer = validator_id.is_zero() && consensus_config && consensus_config.value().enable_observers &&
+                           !observer_local_adnl_id.is_zero();
+
       if (!validator_id.is_zero()) {
         ++(shard.is_masterchain() ? active_validator_groups_master_ : active_validator_groups_shard_);
         auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
@@ -2494,13 +2527,16 @@ void ValidatorManagerImpl::update_shards() {
           }
         }
 
+        auto descr = val_set->get_validator(validator_id.bits256_value());
+        adnl::AdnlNodeIdShort val_adnl_id{descr->addr.is_zero() ? validator_id.bits256_value() : descr->addr};
+
         auto find_or_create_validator_group = [&] {
           if (auto it = validator_groups_.find(val_group_id); it != validator_groups_.end()) {
             auto &entry = new_validator_groups[val_group_id] = std::move(it->second);
             validator_groups_.erase(it);
             return &entry;
           } else {
-            auto it2 = get_or_make_next_group(shard, val_group_id, val_set);
+            auto it2 = get_or_make_next_group(shard, val_group_id, val_set, /*is_validator=*/true, val_adnl_id);
             auto &entry = new_validator_groups[val_group_id] = std::move(it2->second);
             next_validator_groups_.erase(it2);
             return &entry;
@@ -2515,10 +2551,33 @@ void ValidatorManagerImpl::update_shards() {
         }
 
         if (shard.is_masterchain()) {
-          mc_validator_adnl_id = adnl::AdnlNodeIdShort{val_set->get_validator(validator_id.bits256_value())->addr};
-          if (mc_validator_adnl_id.is_zero()) {
-            mc_validator_adnl_id = adnl::AdnlNodeIdShort{validator_id.bits256_value()};
+          mc_validator_adnl_id = val_adnl_id;
+        }
+      } else if (want_observer) {
+        auto val_group_id = get_validator_set_id(shard, val_set, opts_hash, key_seqno, opts);
+        if (destroyed_validator_sessions_.contains(val_group_id)) {
+          continue;
+        }
+
+        auto find_or_create_observer_group = [&] {
+          if (auto it = validator_groups_.find(val_group_id); it != validator_groups_.end()) {
+            auto &entry = new_validator_groups[val_group_id] = std::move(it->second);
+            validator_groups_.erase(it);
+            return &entry;
+          } else {
+            auto it2 =
+                get_or_make_next_group(shard, val_group_id, val_set, /*is_validator=*/false, observer_local_adnl_id);
+            auto &entry = new_validator_groups[val_group_id] = std::move(it2->second);
+            next_validator_groups_.erase(it2);
+            return &entry;
           }
+        };
+        auto entry = find_or_create_observer_group();
+
+        if (!entry->started) {
+          LOG(INFO) << "Started " << entry->name() << ":" << val_group_id << " [observer]";
+          td::actor::send_closure(entry->actor, &IValidatorGroup::start, prev, last_masterchain_block_id_);
+          entry->started = true;
         }
       }
     }
@@ -2535,12 +2594,11 @@ void ValidatorManagerImpl::update_shards() {
       if (destroyed_validator_sessions_.contains(val_group_id)) {
         continue;
       }
-      get_or_make_next_group(shard, val_group_id, val_set);
+      auto descr = val_set->get_validator(validator_id.bits256_value());
+      adnl::AdnlNodeIdShort val_adnl_id{descr->addr.is_zero() ? validator_id.bits256_value() : descr->addr};
+      get_or_make_next_group(shard, val_group_id, val_set, /*is_validator=*/true, val_adnl_id);
       if (shard.is_masterchain() && mc_validator_adnl_id.is_zero()) {
-        mc_validator_adnl_id = adnl::AdnlNodeIdShort{val_set->get_validator(validator_id.bits256_value())->addr};
-        if (mc_validator_adnl_id.is_zero()) {
-          mc_validator_adnl_id = adnl::AdnlNodeIdShort{validator_id.bits256_value()};
-        }
+        mc_validator_adnl_id = val_adnl_id;
       }
     }
   }
@@ -2699,15 +2757,22 @@ ValidatorSessionId ValidatorManagerImpl::get_validator_set_id(ShardIdFull shard,
 
 td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_group(
     ValidatorSessionId session_id, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set, BlockSeqno key_seqno,
-    validatorsession::ValidatorSessionOptions opts, bool init_session) {
+    validatorsession::ValidatorSessionOptions opts, bool init_session, bool is_validator,
+    adnl::AdnlNodeIdShort local_adnl_id_override, std::vector<adnl::AdnlNodeIdShort> overlay_members) {
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::cleanup_external_messages, shard);
 
   auto validator_id = get_validator(shard, validator_set);
-  CHECK(!validator_id.is_zero());
-  auto descr = validator_set->get_validator(validator_id.bits256_value());
-  CHECK(descr);
-  auto adnl_id = adnl::AdnlNodeIdShort{
-      descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
+  adnl::AdnlNodeIdShort adnl_id;
+  if (is_validator) {
+    CHECK(!validator_id.is_zero());
+    auto descr = validator_set->get_validator(validator_id.bits256_value());
+    CHECK(descr);
+    adnl_id = adnl::AdnlNodeIdShort{
+        descr->addr.is_zero() ? ValidatorFullId{descr->key}.compute_short_id().bits256_value() : descr->addr};
+  } else {
+    CHECK(validator_id.is_zero());
+    adnl_id = local_adnl_id_override;
+  }
 
   auto new_consensus_config = last_masterchain_state_->get_new_consensus_config(shard.workchain);
 
@@ -2725,7 +2790,7 @@ td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_grou
       adnl_, config.use_quic ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_, overlays_, db_root_,
       actor_id(this), get_collation_manager(adnl_id), init_session,
       opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
-      opts_->need_monitor(shard, last_masterchain_state_));
+      opts_->need_monitor(shard, last_masterchain_state_), is_validator, adnl_id, std::move(overlay_members));
 }
 
 td::actor::ActorId<CollationManager> ValidatorManagerImpl::get_collation_manager(adnl::AdnlNodeIdShort adnl_id) {

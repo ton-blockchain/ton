@@ -117,6 +117,10 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
+    if (owning_bus()->config.enable_observers) {
+      return;
+    }
+
     td::BufferSlice extra = create_serialize_tl_object<ton_api::consensus_broadcastExtra>(event->candidate->id.slot);
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_with_extra, local_id_.adnl_id,
                             overlay_id_, local_id_.short_id, 0, event->candidate->serialize(), std::move(extra));
@@ -171,6 +175,10 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     if (src == local_id_.short_id) {
       return;
     }
+    if (owning_bus()->config.enable_observers) {
+      LOG(WARNING) << "Dropping candidate broadcast from " << src << " in private overlay: enable_observers is set";
+      return;
+    }
 
     auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true).move_as_ok();
 
@@ -190,6 +198,9 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
+    if (owning_bus()->config.enable_observers) {
+      co_return td::Status::Error("Precheck failed: candidate broadcasts in private overlay are disabled");
+    }
     auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true);
     if (parsed_extra.is_error()) {
       co_return parsed_extra.move_as_error_prefix("Precheck failed: Failed to parse broadcast extra: ");

@@ -57,9 +57,12 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     if (!sent_candidate_broadcasts_.insert(candidate.id).second) {
       return;
     }
+    int mode = fullnode::FullNode::broadcast_mode_custom;
+    if (!bus->config.enable_observers) {
+      mode |= fullnode::FullNode::broadcast_mode_fast_sync;
+    }
     td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, candidate.id,
-                            candidate.data.clone(),
-                            fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
+                            candidate.data.clone(), mode);
   }
 
  private:
