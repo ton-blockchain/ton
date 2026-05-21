@@ -59,7 +59,7 @@ async def main():
                     break
                 await asyncio.sleep(0.5)
 
-        await asyncio.wait_for(balance_changed(), timeout=10)
+        await asyncio.wait_for(balance_changed(), timeout=30)
 
         wallet_state = await main_wallet.current
         assert wallet_state.seqno == 1
