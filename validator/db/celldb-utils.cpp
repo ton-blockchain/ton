@@ -18,7 +18,6 @@
 #include "impl/accept-block.hpp"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/HashMap.h"
-#include "ton/ton-io.hpp"
 #include "vm/cells/MerkleUpdate.h"
 #include "vm/db/CellStorage.h"
 
@@ -136,10 +135,10 @@ Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_r
         : cell_db_reader_(cell_db_reader), hint_(hint) {
     }
 
-    Ref<vm::Cell> dfs(Ref<vm::Cell> cell, int merkle_depth) {
+    Ref<vm::Cell> dfs(Ref<vm::Cell> cell, unsigned merkle_depth) {
       vm::CellSlice cs(vm::NoVm(), cell);
       if (cs.special_type() == vm::Cell::SpecialType::PrunnedBranch) {
-        if ((int)cell->get_level() == merkle_depth + 1) {
+        if (cell->get_level() == merkle_depth + 1) {
           vm::CellHash hash = cell->get_hash(merkle_depth);
           if (hint_ != nullptr) {
             hint_->prev_state_cells.insert(hash);
@@ -162,7 +161,11 @@ Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_r
         auto ref = dfs(cs.prefetch_ref(i), child_merkle_depth);
         cb.store_ref(std::move(ref));
       }
-      auto res = cb.finalize_novm(cs.is_special());
+      auto hash_hint = [&](unsigned level, const vm::Cell::LevelMask&, vm::CellHash& hash) {
+        hash = cell->get_hash(std::min(level, merkle_depth));
+        return true;
+      };
+      auto res = cb.finalize_novm(cs.is_special(), std::move(hash_hint));
       ready_cells_.emplace(key, res);
       return res;
     }
@@ -171,7 +174,7 @@ Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_r
     vm::CellDbReader& cell_db_reader_;
     vm::StoreCellHint* hint_;
 
-    using Key = std::pair<vm::CellHash, int>;
+    using Key = std::pair<vm::CellHash, unsigned>;
     td::HashMap<Key, Ref<vm::Cell>> ready_cells_;
   };
 

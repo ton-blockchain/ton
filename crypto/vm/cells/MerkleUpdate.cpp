@@ -39,7 +39,7 @@ class MerkleUpdateApply {
   }
 
  private:
-  using Key = std::pair<Cell::Hash, int>;
+  using Key = std::pair<Cell::Hash, unsigned>;
   td::HashMap<Cell::Hash, Ref<Cell>> known_cells_;
   td::HashMap<Key, Ref<Cell>> ready_cells_;
   td::HashSet<Key> visited_from_;
@@ -62,10 +62,10 @@ class MerkleUpdateApply {
     }
   }
 
-  td::Result<Ref<Cell>> dfs(Ref<Cell> cell, int merkle_depth) {
+  td::Result<Ref<Cell>> dfs(Ref<Cell> cell, unsigned merkle_depth) {
     CellSlice cs(NoVm(), cell);
     if (cs.special_type() == Cell::SpecialType::PrunnedBranch) {
-      if ((int)cell->get_level() == merkle_depth + 1) {
+      if (cell->get_level() == merkle_depth + 1) {
         CellHash hash = cell->get_hash(merkle_depth);
         auto it = known_cells_.find(hash);
         if (it != known_cells_.end()) {
@@ -94,7 +94,11 @@ class MerkleUpdateApply {
       TRY_RESULT(ref, dfs(cs.prefetch_ref(i), child_merkle_depth));
       cb.store_ref(std::move(ref));
     }
-    auto res = cb.finalize(cs.is_special());
+    auto hash_hint = [&](unsigned level, const Cell::LevelMask &, CellHash &hash) {
+      hash = cell->get_hash(std::min(level, merkle_depth));
+      return true;
+    };
+    auto res = cb.finalize(cs.is_special(), std::move(hash_hint));
     ready_cells_.emplace(key, res);
     return res;
   }

@@ -88,11 +88,19 @@ td::Result<int> CellSerializationInfo::get_bits(td::Slice cell) const {
 }
 
 // TODO: check usage when result is empty
-td::Result<Ref<DataCell>> CellSerializationInfo::create_data_cell(td::Slice cell_slice,
-                                                                  td::Span<Ref<Cell>> refs) const {
+td::Result<Ref<DataCell>> CellSerializationInfo::create_data_cell(td::Slice cell_slice, td::Span<Ref<Cell>> refs,
+                                                                  bool trust_hashes) const {
   DCHECK(refs_cnt == (td::int64)refs.size());
   TRY_RESULT(bits, get_bits(cell_slice));
-  TRY_RESULT(res, DataCell::create(cell_slice.substr(data_offset), bits, refs, special));
+  DataCell::HashHint hash_hint;
+  if (trust_hashes && with_hashes) {
+    hash_hint = [&](unsigned level, const Cell::LevelMask& level_mask, CellHash& hash) {
+      unsigned hash_i = level_mask.apply(level).get_hash_i();
+      hash.as_slice().copy_from(cell_slice.substr(hashes_offset + Cell::hash_bytes * hash_i, Cell::hash_bytes));
+      return true;
+    };
+  }
+  TRY_RESULT(res, DataCell::create(cell_slice.substr(data_offset), bits, refs, special, std::move(hash_hint)));
   CHECK(!res.is_null());
   if (res->is_special() != special) {
     return td::Status::Error("is_special mismatch");

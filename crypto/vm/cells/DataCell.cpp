@@ -28,12 +28,13 @@ namespace {
 
 class CellChecker {
  public:
-  CellChecker(bool is_special, td::Slice data, int bit_length, td::Span<Ref<Cell>> refs)
+  CellChecker(bool is_special, td::Slice data, int bit_length, td::Span<Ref<Cell>> refs, DataCell::HashHint hash_hint)
       : is_special_(is_special)
       , refs_(refs)
       , refs_cnt_(static_cast<int>(refs.size()))
       , data_(data)
-      , bit_length_(bit_length) {
+      , bit_length_(bit_length)
+      , hash_hint_(std::move(hash_hint)) {
   }
 
   td::Status check_and_compute_level_info() {
@@ -91,7 +92,14 @@ class CellChecker {
         continue;
       }
 
-      compute_hash(i, last_computed_hash);
+      if (hash_hint_ && hash_hint_(i, level_mask_, hash_[i])) {
+        // Debug check:
+        // CellHash hinted = hash_[i];
+        // compute_hash(i, last_computed_hash);
+        // CHECK(hinted == hash_[i]);
+      } else {
+        compute_hash(i, last_computed_hash);
+      }
       for (int j = last_computed_hash + 1; j < i; ++j) {
         hash_[j] = hash_[i];
       }
@@ -311,6 +319,7 @@ class CellChecker {
   int refs_cnt_;
   td::Slice data_;
   int bit_length_;
+  DataCell::HashHint hash_hint_;
 
   Cell::LevelMask level_mask_;
   bool virtualized_{false};
@@ -335,7 +344,8 @@ char* allocate_in_arena(size_t size) {
 
 thread_local bool DataCell::use_arena = false;
 
-td::Result<Ref<DataCell>> DataCell::create(td::Slice data, int bit_length, td::Span<Ref<Cell>> refs, bool is_special) {
+td::Result<Ref<DataCell>> DataCell::create(td::Slice data, int bit_length, td::Span<Ref<Cell>> refs, bool is_special,
+                                           HashHint hash_hint) {
   CHECK(bit_length >= 0 && data.size() * 8 >= static_cast<size_t>(bit_length));
   if (refs.size() > CellTraits::max_refs) {
     return td::Status::Error("Too many references");
@@ -344,7 +354,7 @@ td::Result<Ref<DataCell>> DataCell::create(td::Slice data, int bit_length, td::S
     return td::Status::Error("Too many data bits");
   }
 
-  CellChecker checker{is_special, data, bit_length, refs};
+  CellChecker checker{is_special, data, bit_length, refs, std::move(hash_hint)};
   TRY_STATUS(checker.check_and_compute_level_info());
 
   auto level_info_size = sizeof(detail::LevelInfo) * (checker.level_mask().get_level() + 1);
