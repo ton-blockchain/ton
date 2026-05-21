@@ -35,12 +35,14 @@
 namespace tolk {
 
 static void mark_function_used(FunctionPtr fun_ref) {
-  if (!fun_ref->is_code_function() || fun_ref->is_really_used() || fun_ref->is_inlined_in_place()) { // already handled
+  if (!fun_ref->is_code_function() || fun_ref->is_really_used()) { // already handled
     return;
   }
 
   fun_ref->mutate()->assign_is_really_used();
-  std::get<FunctionBodyCode*>(fun_ref->body)->code->ops.mark_function_used_dfs();
+  if (!fun_ref->is_inlined_in_place()) {
+    std::get<FunctionBodyCode*>(fun_ref->body)->code->ops.mark_function_used_dfs();
+  }
 }
 
 static void mark_global_var_used(GlobalVarPtr glob_ref) {
@@ -49,7 +51,10 @@ static void mark_global_var_used(GlobalVarPtr glob_ref) {
 
 void OpList::mark_function_used_dfs() const {
   for (const auto& op : list) {
-    if (op->f_sym) {  // for Op::_Call
+    if (const auto* m_enter = std::get_if<DebugMarkEnterFunction>(&op->debug_mark)) {
+      mark_function_used(m_enter->fun_ref);
+    }
+    if (op->f_sym) {  // for Op::_Call (noinline)
       mark_function_used(op->f_sym);
     }
     if (op->g_sym) {  // for Op::_GlobVar

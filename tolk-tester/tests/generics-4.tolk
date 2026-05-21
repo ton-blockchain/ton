@@ -268,24 +268,24 @@ fun main() {
 @testcase | 108 |      | 10 (null) 20
 
 @fif_codegen DECLPROC eqUnusedT<null>()
-@fif_codegen DECLPROC eqUnusedU<builder,never>()
-@fif_codegen DECLPROC mySend<void,void>()
-@fif_codegen DECLPROC mySend<int,void>()
-@fif_codegen DECLPROC mySend<int,builder>()
-@fif_codegen DECLPROC mySend<void,[int]?>()
+@fif_codegen DECLPROC eqUnusedU<builder,`never>()
+@fif_codegen DECLPROC mySend<void,`void>()
+@fif_codegen DECLPROC mySend<int,`void>()
+@fif_codegen DECLPROC mySend<int,`builder>()
+@fif_codegen DECLPROC mySend<void,`[int]?>()
 
 @fif_codegen
 """
   test6() PROC:<{               //
     <b b> PUSHREF               //  p.init.USlot2
     -1 PUSHINT                  //  p.init.USlot2 '11=-1
-    FALSE                       //  p.init.USlot2 '11=-1 '12
-    TRUE                        //  p.init.USlot2 '11=-1 '12 '14
-    s0 s3 XCHG                  //  '14 '11=-1 '12 p.init.USlot2
-    CDEPTH                      //  '14 '11=-1 '12 '19
-    0 EQINT                     //  '14 '11=-1 '12 '21
-    0 NEQINT                    //  '14 '11=-1 '12 '18
-    s1 s3 s0 XCHG3              //  '11=-1 '12 '14 '18
+    0 PUSHINT                   //  p.init.USlot2 '11=-1 '12=0
+    TRUE                        //  p.init.USlot2 '11=-1 '12=0 '13
+    s0 s3 XCHG                  //  '13 '11=-1 '12=0 p.init.USlot2
+    CDEPTH                      //  '13 '11=-1 '12=0 '18
+    0 EQINT                     //  '13 '11=-1 '12=0 '20
+    0 NEQINT                    //  '13 '11=-1 '12=0 '17
+    s1 s3 s0 XCHG3              //  '11=-1 '12=0 '13 '17
   }>
 """
  */

@@ -49,8 +49,12 @@ if [ -n "${TON_ARCH}" ]; then
   CMAKE_EXTRA_ARGS+=(-DTON_ARCH=${TON_ARCH})
 fi
 
+if [ "${TON_WERROR_BUILD}" = "1" ]; then
+  CMAKE_EXTRA_ARGS+=(-DTON_WERROR_BUILD=ON)
+fi
+
 cmake -GNinja .. \
--DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
 -DTON_USE_JEMALLOC=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$(pwd)/install" \
 "${CMAKE_EXTRA_ARGS[@]}"
 

@@ -1,5 +1,5 @@
 fun main(x: int) {
-    if (x) {
+    if (x != 0) {
         if (x > 10) {
             return 1; // throw 1;
         } else if (true) {

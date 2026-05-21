@@ -28,7 +28,6 @@
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api_json.h"
-#include "catchain/catchain.h"
 #include "common/errorlog.h"
 #include "crypto/block/block-db.h"
 #include "crypto/vm/vm.h"
@@ -45,7 +44,6 @@
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 #include "ton/ton-types.h"
-#include "validator-session/validator-session.h"
 #include "validator/fabric.h"
 #include "validator/manager-hardfork.h"
 
@@ -97,7 +95,7 @@ class HardforkCreator : public td::actor::Actor {
     global_config_ = path;
   }
   void set_shard(ton::ShardIdFull shard) {
-    LOG(DEBUG) << "setting shard to " << shard.to_str();
+    LOG(DEBUG) << "setting shard to " << shard;
     shard_ = shard;
   }
   void set_shard_top_block(ton::BlockIdExt block_id) {
@@ -317,7 +315,7 @@ int main(int argc, char *argv[]) {
                        [&](td::Slice arg) {
                          ton::BlockIdExt block_id;
                          if (block::parse_block_id_ext(arg, block_id)) {
-                           LOG(INFO) << "setting previous block to " << block_id.to_str();
+                           LOG(INFO) << "setting previous block to " << block_id;
                            td::actor::send_closure(x, &HardforkCreator::set_shard_top_block, block_id);
 
                            return td::Status::OK();

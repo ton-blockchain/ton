@@ -69,7 +69,7 @@ fun string.bytesToArray(self): array<uint8> {
     repeat (snake.remainingBitsCount() / 8) {
       bytes.push(snake.loadUint(8));
     }
-    if (snake.remainingRefsCount()) {
+    if (snake.remainingRefsCount() != 0) {
       snake = snake.loadRef().beginParse();
     }
   }
@@ -102,10 +102,10 @@ fun main() {
   var i_maxi: int = string_maxihash();
   var i_crc32: int = string_crc32();
   var i_crc16: int = string_crc16();
-  assert(sdeq(s_ascii, newc().storeUint(0x737472696E67, 12 * 4).endcs())) throw 101;
-  assert(sdeq(s_raw, newc().storeUint(0xABCDEF, 6 * 4).endcs())) throw 102;
-  assert(sdeq(s_addr as slice, newc().storeUint(4, 3).storeInt(-1, 8)
-    .storeUint(0x3333333333333333333333333333333333333333333333333333333333333333, 256).endcs()), 103);
+  assert(sdeq(s_ascii, newc().storeUint(0x737472696E67, 12 * 4).endcs()) != 0) throw 101;
+  assert(sdeq(s_raw, newc().storeUint(0xABCDEF, 6 * 4).endcs()) != 0) throw 102;
+  assert((sdeq(s_addr as slice, newc().storeUint(4, 3).storeInt(-1, 8)
+    .storeUint(0x3333333333333333333333333333333333333333333333333333333333333333, 256).endcs()) != 0), 103);
   assert(i_hex == 0x4142434445464748494A4B4C4D4E4F505152535455565758595A303132333435) throw 104;
   assert(i_mini == 0x7a62e8a8) throw 105;
   assert(i_maxi == 0x7a62e8a8ebac41bd6de16c65e7be363bc2d2cbc6a0873778dead4795c13db979) throw 106;

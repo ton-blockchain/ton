@@ -119,6 +119,6 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
 
 FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_ref, const std::vector<TypePtr>& params_types, TypePtr return_type);
 
-bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int idxT);
+bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, const GenericsSubstitutions& substitutedTs, int idxT);
 
 }  // namespace tolk

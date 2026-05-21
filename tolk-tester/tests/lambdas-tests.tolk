@@ -34,6 +34,11 @@ fun WithCb.replaceCb<T>(mutate self, newCb: (T, T) -> T) {
     self.cb = newCb
 }
 
+struct Point {
+    x: int
+    y: int
+}
+
 @noinline
 fun assertThrows(cb: () -> void, excno: int) {
     try {
@@ -57,7 +62,7 @@ fun test1() {
     return (
         callMath1020(min),
         callMath1020(fun(x, y) { return x + y }),
-        callMath1020(fun(x: int, y) { return x / y }),
+        callMath1020(fun(x: int, y) { return fun() { return x / y }() }),
         callMath1020(fun(x: int, y: int): int { return abs(x) + abs(y); }),
     )
 }
@@ -220,6 +225,134 @@ fun test13(f1null: bool) {
     return (a.get(0) ?? a.get(1) ?? fun(a: int) { return a * 10 })(6);
 }
 
+// closures (lambdas with capture) are now also supported
+
+@method_id(114)
+fun test14() {
+    var x = 10;
+    var cb = fun() {
+        return x + 1
+    };
+    x = 20;     // this modification is not seen in a lambda, values are captured by value
+    return (cb(), x);
+}
+
+@method_id(115)
+fun test15() {
+    var x = 10;
+    var cb = fun() {
+        x += 5;     // this modification is not seen in outer scope
+        return x;
+    };
+    return (cb(), cb(), x);
+}
+
+@method_id(116)
+fun test16() {
+    var p = Point { x: 3, y: 4 };
+    var cb = fun() {
+        p.x += 100;
+        return p.x + p.y;
+    };
+    p.y = 99;
+    return (cb(), p);
+}
+
+@method_id(117)
+fun test17() {
+    var x: int;
+    match ([0].first()) {
+        0 => x = 7,
+        else => throw 123,
+    }
+    var outer = fun(delta: int) {
+        var y = delta * 2;
+        return fun(z: int) {
+            __expect_type(delta!, "int");
+            return x + y + z
+        };
+    };
+    x = 100;
+    return outer(5)(1);
+}
+
+@method_id(118)
+fun test18() {
+    var add3 = makeAdder(3);
+    return (add3(10), add3(20), makeAdder()(30));
+}
+
+@noinline
+fun makeAdder(delta: int = 0): int -> int {
+    return fun(value) {
+        __expect_type((value, delta), "(int, int)");
+        return value + delta
+    };
+}
+
+fun genericLambdaReuseT<T>(value: T) {
+    return fun(another: T): T? {
+        val inner = fun(nested: T) {
+            return nested;
+        };
+        return inner(another)
+    }(value);
+}
+
+@method_id(119)
+fun test19() {
+    var x = [(1, 2) as (int, int)?].first();
+    if (x != null) {
+        return (fun() {
+            var rr = fun() { return x; };
+            __expect_type(rr, "() -> (int, int)");
+            return rr();
+        })();
+    }
+    x = null;
+    __expect_type(x, "null");
+    throw 123;
+}
+
+@method_id(120)
+fun test20(aa: int) {
+    var l103 = 0;
+    var w: WithCb = { cb: fun(i1, i2) {
+        return (g103 = aa) + (l103 = aa);
+    } };
+    return (g103, l103, w.invoke(0, 0), g103, l103);
+}
+
+@method_id(121)
+fun test21() {
+    var (x, y) = ("", "");
+    var f = fun(x: int, y: int) {
+        var z = x * y;
+        return fun(x: bool, y: bool) {
+            __expect_type(x, "bool");
+            return x && y ? z : 0;
+        }
+    };
+    return f(5, 10)(true, true);
+}
+
+@method_id(122)
+fun test22() {
+    var args = (1, 2, 3);
+    var unused = fun() {
+        args;
+    };
+    return args;
+}
+
+@method_id(123)
+fun test23() {
+    __expect_type(genericLambdaReuseT(123), "int?");
+    __expect_type(genericLambdaReuseT(true), "bool?");
+    return (genericLambdaReuseT(123), genericLambdaReuseT(true));
+}
+
+
 fun main() {
     __expect_type(fun() {}, "() -> void");
     __expect_type(fun(x: int) { x }, "(int) -> void");
@@ -244,4 +377,14 @@ fun main() {
 @testcase | 112 | 0      | 20 0
 @testcase | 113 | -1     | 60
 @testcase | 113 | 0      | 12
+@testcase | 114 |        | 11 20
+@testcase | 115 |        | 15 15 10
+@testcase | 116 |        | 107 3 99
+@testcase | 117 |        | 18
+@testcase | 118 |        | 13 23 30
+@testcase | 119 |        | 1 2
+@testcase | 120 | 5      | (null) 0 10 5 0
+@testcase | 121 |        | 50
+@testcase | 122 |        | 1 2 3
+@testcase | 123 |        | 123 -1
 */

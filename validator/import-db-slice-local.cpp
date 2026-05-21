@@ -21,6 +21,7 @@
 #include "td/actor/coro_utils.h"
 #include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
+#include "ton/ton-io.hpp"
 #include "validator/db/fileref.hpp"
 #include "validator/db/package.hpp"
 #include "validator/fabric.h"
@@ -217,7 +218,7 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::process_masterchain_blocks() {
 td::actor::Task<td::Unit> ArchiveImporterLocal::import_first_key_block() {
   BlockIdExt block_id = masterchain_blocks_.begin()->second;
   BlockInfo &first_block = blocks_[block_id];
-  LOG(INFO) << "First block in archive is key block : " << block_id.id.to_str();
+  LOG(INFO) << "First block in archive is key block : " << block_id.id;
   auto [task, promise] = td::actor::StartedTask<BlockHandle>::make_bridge();
   run_check_proof_query(block_id, first_block.proof, manager_, td::Timestamp::in(600.0), std::move(promise),
                         last_masterchain_state_, opts_->is_hardfork(block_id));
@@ -241,7 +242,7 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::import_first_key_block() {
   imported_any_ = true;
   masterchain_blocks_.erase(masterchain_blocks_.begin());
   blocks_.erase(state->get_block_id());
-  LOG(WARNING) << "Imported key block " << state->get_block_id().id.to_str();
+  LOG(WARNING) << "Imported key block " << state->get_block_id().id;
   co_return td::Unit{};
 }
 
@@ -319,7 +320,7 @@ td::actor::Task<td::Unit> ArchiveImporterLocal::process_shard_blocks() {
   }
 
   for (const BlockIdExt &block_id : new_zerostates_) {
-    LOG(INFO) << "Downloading zerostate " << block_id.to_str();
+    LOG(INFO) << "Downloading zerostate " << block_id;
     auto [task, promise] = td::actor::StartedTask<td::Ref<ShardState>>::make_bridge();
     td::actor::create_actor<DownloadShardState>(
         "downloadstate", block_id, shard_client_state_->get_block_id(),
@@ -370,7 +371,7 @@ td::actor::Task<bool> ArchiveImporterLocal::try_advance_shard_client_seqno() {
     visited_shard_blocks_.insert(block_id);
     auto &info = blocks_[block_id];
     if (info.block.is_null()) {
-      return td::Status::Error(PSTRING() << "no shard block " << block_id.to_str());
+      return td::Status::Error(PSTRING() << "no shard block " << block_id);
     }
 
     std::vector<BlockIdExt> prev;
@@ -407,7 +408,7 @@ td::actor::Task<bool> ArchiveImporterLocal::try_advance_shard_client_seqno() {
     blocks_to_apply_shards_.emplace_back(block_id, mc_block->block_id());
     blocks_[block_id].import = true;
     if (blocks_[block_id].proof_link.is_null()) {
-      co_return td::Status::Error(PSTRING() << "no proof link for block " << block_id.to_str());
+      co_return td::Status::Error(PSTRING() << "no proof link for block " << block_id);
     }
   }
   co_return true;
@@ -531,7 +532,7 @@ td::actor::Task<BlockHandle> ArchiveImporterLocal::apply_block_async_1(BlockIdEx
   CHECK(it != blocks_.end());
   td::Ref<BlockData> block = it->second.block;
   CHECK(block.not_null());
-  LOG(DEBUG) << "Applying block " << block_id.to_str() << ", mc_block_seqno=" << mc_block_id.to_str();
+  LOG(DEBUG) << "Applying block " << block_id << ", mc_block_seqno=" << mc_block_id;
   BlockHandle handle = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, block_id, true);
 
   CHECK(!handle->id().is_masterchain() || handle->inited_proof());

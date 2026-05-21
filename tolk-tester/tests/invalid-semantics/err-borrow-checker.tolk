@@ -16,6 +16,11 @@ fun int.incSelfWithOther(mutate self, mutate other: int) {
     other += 1;
 }
 
+fun int.incAndReturn(mutate self): self {
+    self += 1;
+    return self;
+}
+
 // @stderr can not borrow `x001` for mutation once again, it is already being mutated by `int.add`
 // @stderr hint: split a complex expression into several simple ones
 fun errCantBorrow1() {
@@ -68,6 +73,12 @@ fun errCantBorrowReceiverAndMutate() {
     var y003 = 0;
     x003.incSelfWithOther(mutate y003);       // ok
     x003.incSelfWithOther(mutate x003);
+}
+
+// @stderr can not borrow `x004` for mutation once again, it is already being mutated by `int.incSelfWithOther`
+fun errCantBorrowChainedReceiverAndMutate() {
+    var x004 = 0;
+    x004.incAndReturn().incSelfWithOther(mutate x004);
 }
 
 global d13: Demo;
@@ -177,7 +188,7 @@ fun (int, int).increment(mutate self) {
     self.1 += 1;
 }
 
-// @stderr can not borrow `x33` for mutation once again, it is already being mutated by `(int,int).increment`
+// @stderr can not borrow `x33` for mutation once again, it is already being mutated by `(int, int).increment`
 fun errCantBorrowViaTensorIndex() {
     var x33 = 0;
     ((x33, x33).0, (x33, x33).1).increment();

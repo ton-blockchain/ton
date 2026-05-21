@@ -7,12 +7,9 @@
 #pragma once
 
 #include "consensus/misbehavior.h"
-#include "keyring/keyring.hpp"
+#include "keyring/keyring.h"
 #include "overlay/overlays.h"
-#include "quic/quic-sender.h"
-#include "rldp2/rldp.h"
 #include "td/actor/BusRuntime.h"
-#include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
 
 #include "chain-state.h"
@@ -190,6 +187,9 @@ class Bus : public td::actor::Bus {
   td::uint32 validator_set_hash;
   PeerValidator local_id;
 
+  bool is_validator = true;
+  std::vector<adnl::AdnlNodeIdShort> overlay_members;
+
   NewConsensusConfig config;
 
   td::Ref<CollatorSchedule> collator_schedule;
@@ -208,6 +208,10 @@ struct BlockAccepter {
 };
 
 struct BlockProducer {
+  static void register_in(td::actor::Runtime&);
+};
+
+struct BlockSyncOverlay {
   static void register_in(td::actor::Runtime&);
 };
 

@@ -120,9 +120,9 @@ void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<
                             td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
                             int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
                             td::Promise<td::Unit> promise) {
-  td::actor::create_actor<AcceptBlockQuery>(
-      PSTRING() << "accept" << (signatures.is_null() ? "-nosign" : "") << id.id.to_str(), id, std::move(data), prev,
-      std::move(validator_set), std::move(signatures), send_broadcast_mode, apply, manager, std::move(promise))
+  td::actor::create_actor<AcceptBlockQuery>(PSTRING() << "accept" << (signatures.is_null() ? "-nosign" : "") << id.id,
+                                            id, std::move(data), prev, std::move(validator_set), std::move(signatures),
+                                            send_broadcast_mode, apply, manager, std::move(promise))
       .release();
 }
 
@@ -145,39 +145,38 @@ void run_hardfork_accept_block_query(BlockIdExt id, td::Ref<BlockData> data,
 void run_apply_block_query(BlockIdExt id, td::Ref<BlockData> block, BlockIdExt masterchain_block_id,
                            td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                            td::Promise<td::Unit> promise) {
-  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply" << id.id.to_str(), id, std::move(block),
-                                      masterchain_block_id, manager, timeout, std::move(promise))
+  td::actor::create_actor<ApplyBlock>(PSTRING() << "apply" << id.id, id, std::move(block), masterchain_block_id,
+                                      manager, timeout, std::move(promise))
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof" << id.id.to_str(), id, std::move(proof), manager,
-                                      timeout, std::move(promise), skip_check_signatures)
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof" << id.id, id, std::move(proof), manager, timeout,
+                                      std::move(promise), skip_check_signatures)
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise,
                            td::Ref<ProofLink> rel_key_block_proof, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof/key" << id.id.to_str(), id, std::move(proof), manager,
-                                      timeout, std::move(promise), skip_check_signatures,
-                                      std::move(rel_key_block_proof))
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof/key" << id.id, id, std::move(proof), manager, timeout,
+                                      std::move(promise), skip_check_signatures, std::move(rel_key_block_proof))
       .release();
 }
 
 void run_check_proof_query(BlockIdExt id, td::Ref<Proof> proof, td::actor::ActorId<ValidatorManager> manager,
                            td::Timestamp timeout, td::Promise<BlockHandle> promise,
                            td::Ref<MasterchainState> rel_mc_state, bool skip_check_signatures) {
-  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof/st" << id.id.to_str(), id, std::move(proof), manager,
-                                      timeout, std::move(promise), skip_check_signatures, std::move(rel_mc_state))
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkproof/st" << id.id, id, std::move(proof), manager, timeout,
+                                      std::move(promise), skip_check_signatures, std::move(rel_mc_state))
       .release();
 }
 
 void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::actor::ActorId<ValidatorManager> manager,
                                 td::Timestamp timeout, td::Promise<BlockHandle> promise) {
-  td::actor::create_actor<CheckProof>(PSTRING() << "checkprooflink" << id.id.to_str(), id, std::move(proof), manager,
-                                      timeout, std::move(promise))
+  td::actor::create_actor<CheckProof>(PSTRING() << "checkprooflink" << id.id, id, std::move(proof), manager, timeout,
+                                      std::move(promise))
       .release();
 }
 
@@ -190,10 +189,10 @@ void run_validate_query(BlockCandidate candidate, ValidateParams params, td::act
     }
   }
   static std::atomic<size_t> idx;
-  td::actor::create_actor<ValidateQuery>(
-      PSTRING() << (params.is_fake ? "fakevalidate" : "validateblock") << params.shard.to_str() << ":" << (seqno + 1)
-                << "#" << idx.fetch_add(1),
-      std::move(candidate), std::move(params), std::move(manager), timeout, std::move(promise))
+  td::actor::create_actor<ValidateQuery>(PSTRING() << (params.is_fake ? "fakevalidate" : "validateblock")
+                                                   << params.shard << ":" << (seqno + 1) << "#" << idx.fetch_add(1),
+                                         std::move(candidate), std::move(params), std::move(manager), timeout,
+                                         std::move(promise))
       .release();
 }
 
@@ -205,7 +204,7 @@ void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager
       seqno = p.seqno();
     }
   }
-  td::actor::create_actor<Collator>(PSTRING() << "collate" << params.shard.to_str() << ":" << (seqno + 1)
+  td::actor::create_actor<Collator>(PSTRING() << "collate" << params.shard << ":" << (seqno + 1)
                                               << (params.attempt_idx ? "_" + td::to_string(params.attempt_idx) : ""),
                                     std::move(params), std::move(manager), std::move(cancellation_token),
                                     std::move(promise))

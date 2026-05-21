@@ -137,8 +137,7 @@ void WaitBlockState::start() {
       }
     }
     if (!block_found) {
-      LOG(ERROR) << "invalid persistent state description passed to WaitBlockState for block "
-                 << handle_->id().to_str();
+      LOG(ERROR) << "invalid persistent state description passed to WaitBlockState for block " << handle_->id();
       P.set_error(td::Status::Error("invalid persistent state description"));
     } else {
       td::actor::create_actor<DownloadShardState>("downloadstate", handle_->id(), masterchain_id, split_depth,

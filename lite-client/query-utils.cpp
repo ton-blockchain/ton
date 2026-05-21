@@ -22,6 +22,7 @@
 #include "tl-utils/common-utils.hpp"
 #include "tl-utils/lite-utils.hpp"
 #include "ton/lite-tl.hpp"
+#include "ton/ton-io.hpp"
 #include "ton/ton-shard.h"
 
 #include "block-parse.h"
@@ -349,7 +350,7 @@ td::Result<std::vector<LiteServerConfig>> LiteServerConfig::parse_global_config(
                           for (const auto& shard_obj : s.shards_) {
                             ShardIdFull shard_id = create_shard_id(shard_obj);
                             if (!shard_id.is_valid_ext()) {
-                              S = td::Status::Error(PSTRING() << "invalid shard id " << shard_id.to_str());
+                              S = td::Status::Error(PSTRING() << "invalid shard id " << shard_id);
                               break;
                             }
                             if (!shard_id.is_masterchain()) {
@@ -369,7 +370,7 @@ td::Result<std::vector<LiteServerConfig>> LiteServerConfig::parse_global_config(
                             for (const auto& shard_obj : shard_objs) {
                               ShardIdFull shard_id = create_shard_id(shard_obj->shard_id_);
                               if (!shard_id.is_valid_ext()) {
-                                return td::Status::Error(PSTRING() << "invalid shard id " << shard_id.to_str());
+                                return td::Status::Error(PSTRING() << "invalid shard id " << shard_id);
                               }
                               if (shard_id.is_masterchain()) {
                                 shard_id = ShardIdFull{masterchainId};

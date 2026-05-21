@@ -94,7 +94,7 @@ void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, con
       } else {
         code.add_call(origin, {}, ir_bodySlice, f_onBouncedMessage);
       }
-      code.add_return(origin, {});
+      code.add_return(origin, {}, f_onInternalMessage);
       code.close_pop_cur(origin);
     }
     {

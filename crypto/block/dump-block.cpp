@@ -29,6 +29,7 @@
 #include <iostream>
 
 #include "block/block.h"
+#include "ton/ton-io.hpp"
 #include "vm/boc.h"
 #include "vm/cp0.h"
 
@@ -235,8 +236,8 @@ td::Status test_vset() {
   }
   auto nodes = config->compute_validator_set(shard, *cur_validators, now, cc_seqno);
   if (nodes.empty()) {
-    return td::Status::Error(PSTRING() << "compute_validator_set() for " << shard.to_str() << "," << now << ","
-                                       << cc_seqno << " returned empty list");
+    return td::Status::Error(PSTRING() << "compute_validator_set() for " << shard << "," << now << "," << cc_seqno
+                                       << " returned empty list");
   }
   for (auto& x : nodes) {
     std::cout << "weight=" << x.weight << " key=" << x.key.as_bits256().to_hex() << " addr=" << x.addr.to_hex()

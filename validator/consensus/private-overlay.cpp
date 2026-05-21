@@ -12,6 +12,7 @@
 #include "overlay/overlays.h"
 #include "td/utils/Status.h"
 #include "td/utils/logging.h"
+#include "ton/ton-io.hpp"
 
 #include "bus.h"
 #include "stats.h"
@@ -57,7 +58,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     overlay_id_ = overlay_full_id.compute_short_id();
 
     overlay::OverlayOptions options;
-    options.name_ = PSTRING() << "valgroup" << bus.shard.to_str() << "." << bus.cc_seqno;
+    options.name_ = PSTRING() << "valgroup" << bus.shard << "." << bus.cc_seqno;
     options.broadcast_speed_multiplier_ = bus.validator_opts->get_catchain_broadcast_speed_multiplier();
     options.private_ping_peers_ = true;
     options.twostep_broadcast_sender_ = adnl_sender_;
@@ -67,8 +68,8 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_.adnl_id,
                             std::move(overlay_full_id), std::move(overlay_nodes), make_callback(),
                             overlay::OverlayPrivacyRules{0, 0, std::move(authorized_keys)},
-                            PSTRING() << R"({ "type": "consensus", "shard": ")" << bus.shard.to_str()
-                                      << R"(", "cc_seqno": )" << bus.cc_seqno << R"( })",
+                            PSTRING() << R"({ "type": "consensus", "shard": ")" << bus.shard << R"(", "cc_seqno": )"
+                                      << bus.cc_seqno << R"( })",
                             std::move(options));
   }
 
@@ -116,6 +117,10 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
+    if (owning_bus()->config.enable_observers) {
+      return;
+    }
+
     td::BufferSlice extra = create_serialize_tl_object<ton_api::consensus_broadcastExtra>(event->candidate->id.slot);
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_with_extra, local_id_.adnl_id,
                             overlay_id_, local_id_.short_id, 0, event->candidate->serialize(), std::move(extra));
@@ -170,6 +175,10 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     if (src == local_id_.short_id) {
       return;
     }
+    if (owning_bus()->config.enable_observers) {
+      LOG(WARNING) << "Dropping candidate broadcast from " << src << " in private overlay: enable_observers is set";
+      return;
+    }
 
     auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true).move_as_ok();
 
@@ -189,6 +198,9 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
+    if (owning_bus()->config.enable_observers) {
+      co_return td::Status::Error("Precheck failed: candidate broadcasts in private overlay are disabled");
+    }
     auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true);
     if (parsed_extra.is_error()) {
       co_return parsed_extra.move_as_error_prefix("Precheck failed: Failed to parse broadcast extra: ");

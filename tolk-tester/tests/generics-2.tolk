@@ -32,6 +32,7 @@ struct MaybeJust<T> {
 struct MaybeNothing
 
 type Maybe<T,> = MaybeJust<T> | MaybeNothing
+type MaybeInt = Maybe<int>
 
 
 fun eq<T>(v: T): T { return v; }
@@ -78,6 +79,10 @@ fun Maybe<T>.none(): Maybe<T> {
 
 fun Maybe<T,>.value(value: T): Maybe<T> {
     return MaybeJust{value}
+}
+
+fun createMaybeInt(): MaybeInt {
+    return Maybe.none();
 }
 
 
@@ -327,7 +332,7 @@ fun test16() {
     __expect_type(c1, "ComplexWrapPair<int>");
     var c2 = wrap(makePair(3, 4));
     __expect_type(c2, "Wrapper<Pair<int, int>>");
-    if (0) { c1 = c2; c2 = c1; }
+    if (false) { c1 = c2; c2 = c1; }
     c1 as Wrapper<Pair<int,int>>; c2 as ComplexWrapPair<int>;
     return (c1, c2);
 }
@@ -540,6 +545,9 @@ fun test29() {
     // `Maybe.value()` and `Maybe.none()` don't require explicit T, auto guesses
     var b_true: Maybe<bool> = Maybe.value(true);
     var a_none: Maybe<address> = Maybe.none();
+    var i_none: MaybeInt = Maybe.none();
+    __expect_type(i_none, "MaybeInt");
+    __expect_type(createMaybeInt(), "MaybeInt");
     return (b_true, a_none);
 }
 
@@ -638,6 +646,6 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
   }>
 """
 
-@fif_codegen DECLPROC getWrappervalue1<Wrapper<(int,int)>>()
-@fif_codegen DECLPROC getWrappervalue2<Wrapper<Wrapper<(int,int)>>>()
+@fif_codegen DECLPROC getWrappervalue1<Wrapper<(int,`int)>>()
+@fif_codegen DECLPROC getWrappervalue2<Wrapper<Wrapper<(int,`int)>>>()
  */

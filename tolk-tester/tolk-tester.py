@@ -11,6 +11,7 @@
 
 import os
 import os.path
+import json
 import re
 import shutil
 import subprocess
@@ -263,6 +264,7 @@ class TolkTestFile:
         self.stderr_includes: List[TolkTestCaseStderr] = []
         self.input_output: List[TolkTestCaseInputOutput] = []
         self.fif_codegen: List[TolkTestCaseFifCodegen] = []
+        self.abi_json: List[TolkTestCaseFifCodegen] = []
         self.expected_hash: TolkTestCaseExpectedHash | None = None
         self.more_cmd_line_options: List[str] = []
         self.enable_tolk_lines_comments = False
@@ -297,6 +299,10 @@ class TolkTestFile:
                 self.enable_tolk_lines_comments = True
             elif line.startswith("@fif_codegen"):
                 self.fif_codegen.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), False))
+            elif line.startswith("@abi_json_avoid"):
+                self.abi_json.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), True))
+            elif line.startswith("@abi_json"):
+                self.abi_json.append(TolkTestCaseFifCodegen(self.parse_string_value(lines), False))
             elif line.startswith("@code_hash"):
                 self.expected_hash = TolkTestCaseExpectedHash(self.parse_string_value(lines, False)[0])
             elif line.startswith("@path_mapping"):
@@ -335,11 +341,18 @@ class TolkTestFile:
     def get_compiled_fif_filename(self):
         return self.artifacts_folder + "/compiled.fif"
 
+    def get_compiled_abi_filename(self):
+        return self.artifacts_folder + "/compiled.abi.json"
+
     def get_runner_fif_filename(self):
         return self.artifacts_folder + "/runner.fif"
 
     def run_and_check(self):
-        cmd_args = [TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename()] + self.more_cmd_line_options
+        cmd_args = ([TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename(),
+                     "--no-symbol-types", "--no-compiled-boc"]
+                    + self.more_cmd_line_options)
+        if not self.abi_json:
+            cmd_args += ["--no-contract-abi"]
         if not self.enable_tolk_lines_comments:
             cmd_args = cmd_args + ["--no-line-comments"]
         res = subprocess.run(cmd_args + [self.tolk_filename], capture_output=True, timeout=10)
@@ -392,6 +405,12 @@ class TolkTestFile:
                 fif_output = fd.readlines()
             for fif_codegen in self.fif_codegen:
                 fif_codegen.check(fif_output)
+
+        if len(self.abi_json):
+            with open(self.get_compiled_abi_filename()) as fd:
+                abi_output = fd.readlines()
+            for abi_json in self.abi_json:
+                abi_json.check(abi_output)
 
         if self.expected_hash is not None:
             self.expected_hash.check(fif_code_hash)

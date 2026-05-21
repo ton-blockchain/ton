@@ -107,6 +107,8 @@ class ASTStringifier final : public ASTVisitor {
     {ast_enum_body, "ast_enum_body"},
     {ast_enum_declaration, "ast_enum_declaration"},
     {ast_tolk_required_version, "ast_tolk_required_version"},
+    {ast_contract_directive_item, "ast_contract_directive_item"},
+    {ast_contract_directive, "ast_contract_directive"},
     {ast_import_directive, "ast_import_directive"},
     {ast_tolk_file, "ast_tolk_file"},
   };
@@ -261,6 +263,8 @@ class ASTStringifier final : public ASTVisitor {
         return static_cast<std::string>(v->as<ast_tolk_required_version>()->semver);
       case ast_import_directive:
         return static_cast<std::string>(v->as<ast_import_directive>()->get_file_leaf()->str_val);
+      case ast_contract_directive_item:
+        return static_cast<std::string>(v->as<ast_contract_directive_item>()->name);
       case ast_tolk_file:
         return v->as<ast_tolk_file>()->file->realpath;
       default:
@@ -382,6 +386,8 @@ public:
       case ast_enum_declaration:              return handle_vertex(v->as<ast_enum_declaration>());
       case ast_tolk_required_version:         return handle_vertex(v->as<ast_tolk_required_version>());
       case ast_import_directive:              return handle_vertex(v->as<ast_import_directive>());
+      case ast_contract_directive_item:       return handle_vertex(v->as<ast_contract_directive_item>());
+      case ast_contract_directive:            return handle_vertex(v->as<ast_contract_directive>());
       case ast_tolk_file:                     return handle_vertex(v->as<ast_tolk_file>());
       default:
         throw UnexpectedASTNodeKind(v, "ASTStringifier::visit");

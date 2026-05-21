@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.3
+tolk 1.4
 
 enum ExoticCellType: int8 {
     Ordinary = -1
@@ -49,7 +49,7 @@ fun cell.loadSpecial(self): cell
 @pure
 fun cell.toLibraryReference(self): cell {
     return beginCell()
-        .storeInt(ExoticCellType.LibraryReference as int, 8)
+        .storeInt(ExoticCellType.LibraryReference, 8)
         .storeUint(self.hash(), 256)
         .endCellSpecial()
 }

@@ -43,7 +43,7 @@ TEST(TestScheduler, AlarmWithVirtualTime) {
     co_await ts.wait_sync_work();
 
     EXPECT(!alarm_fired);
-    EXPECT(ts.next_timeout_in() == 5.0);
+    EXPECT_EQ(ts.next_timeout(), Timestamp::in(5.0));
 
     ts.advance_time(5.0);
     co_await ts.wait_sync_work();
@@ -108,8 +108,8 @@ TEST(TestScheduler, RepeatingAlarm) {
 
     for (int i = 0; i < 5; i++) {
       EXPECT_EQ(alarm_count, i);
-      EXPECT_EQ(ts.next_timeout_in(), 1.0);
-      ts.advance_time(ts.next_timeout_in());
+      EXPECT_EQ(ts.next_timeout(), Timestamp::in(1.0));
+      ts.advance_time_to(*ts.next_timeout());
       co_await ts.wait_sync_work();
     }
 
@@ -156,7 +156,7 @@ TEST(TestScheduler, CoroSleep) {
 
     co_await ts.wait_sync_work();
     EXPECT(!woke_up);
-    EXPECT(ts.next_timeout_in() == 3.0);
+    EXPECT_EQ(ts.next_timeout(), Timestamp::in(3.0));
 
     ts.advance_time(3.0);
     co_await ts.wait_sync_work();
@@ -207,7 +207,7 @@ TEST(TestScheduler, MultipleActorsInteracting) {
     EXPECT_EQ(pong_count, 1);
 
     for (int i = 2; i <= 3; i++) {
-      ts.advance_time(ts.next_timeout_in());
+      ts.advance_time_to(ts.next_timeout().value());
       co_await ts.wait_sync_work();
       EXPECT_EQ(pong_count, i);
     }
@@ -219,7 +219,7 @@ TEST(TestScheduler, MultipleActorsInteracting) {
 TEST(TestScheduler, NextTimeoutInfinity) {
   TestScheduler ts;
   ts.run([&]() -> Task<Unit> {
-    EXPECT(ts.next_timeout_in() == std::numeric_limits<double>::infinity());
+    EXPECT_EQ(ts.next_timeout(), std::nullopt);
 
     struct IdleActor : Actor {
       void start_up() override {
@@ -228,7 +228,7 @@ TEST(TestScheduler, NextTimeoutInfinity) {
     create_actor<IdleActor>("idle").release();
     co_await ts.wait_sync_work();
 
-    EXPECT(ts.next_timeout_in() == std::numeric_limits<double>::infinity());
+    EXPECT_EQ(ts.next_timeout(), std::nullopt);
     co_return {};
   });
 }
@@ -285,14 +285,14 @@ TEST(TestScheduler, AdvanceTimePrecise) {
 
     EXPECT(!alarm_a);
     EXPECT(!alarm_b);
-    EXPECT(ts.next_timeout_in() == 2.0);
+    EXPECT_EQ(ts.next_timeout(), Timestamp::in(2.0));
 
     ts.advance_time(2.0);
     co_await ts.wait_sync_work();
     EXPECT(alarm_a);
     EXPECT(!alarm_b);
 
-    EXPECT(ts.next_timeout_in() == 3.0);
+    EXPECT_EQ(ts.next_timeout(), Timestamp::in(3.0));
 
     ts.advance_time(3.0);
     co_await ts.wait_sync_work();
@@ -357,6 +357,60 @@ TEST(TestScheduler, CleanupDrainsPendingAlarmsWithActor) {
 
     co_return {};
   });
+}
+
+TEST(TestScheduler, CleanupDrainsCpuQueue) {
+  static bool started;
+  started = false;
+
+  struct MyActor : Actor {
+    void start_up() override {
+      started = true;
+    }
+  };
+
+  TestScheduler ts;
+  ts.run([]() -> Task<> {
+    create_actor<MyActor>("dummy").release();
+    co_return {};
+  });
+  EXPECT(started);
+}
+
+TEST(TestScheduler, CpuBeforeAlarms) {
+  static std::vector<int> events;
+  events.clear();
+
+  struct MyActor : Actor {
+    double timeout;
+    int event;
+
+    MyActor(double t, int e) : timeout(t), event(e) {
+    }
+
+    void start_up() override {
+      alarm_timestamp() = td::Timestamp::in(timeout);
+    }
+
+    void alarm() override {
+      events.push_back(event);
+      yield();
+    }
+
+    void wake_up() override {
+      events.push_back(event + 1);
+    }
+  };
+
+  TestScheduler ts;
+  ts.run([&]() -> Task<> {
+    create_actor<MyActor>("dummy1", 1, 0).release();
+    create_actor<MyActor>("dummy1", 2, 2).release();
+    co_await ts.wait_sync_work();
+    ts.advance_time(3);
+    co_return {};
+  });
+  EXPECT_EQ(events, (std::vector<int>{0, 1, 2, 3}));
 }
 
 }  // namespace

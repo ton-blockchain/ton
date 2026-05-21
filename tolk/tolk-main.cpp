@@ -43,10 +43,13 @@
 using namespace tolk;
 
 enum LongOnlyOptions {
-  OPT_BOC_OUTPUT = 256,
-  OPT_PATH_MAPPING,
+  OPT_PATH_MAPPING = 256,
   OPT_NO_STACK_COMMENTS,
   OPT_NO_LINE_COMMENTS,
+  OPT_NO_COMPILED_BOC,
+  OPT_NO_CONTRACT_ABI,
+  OPT_NO_SYMBOL_TYPES,
+  OPT_EMIT_DEBUG_MARKS,
   OPT_JSON_ERRORS,
   OPT_CHECK_ONLY,
   OPT_ALLOW_NO_ENTRYPOINT,
@@ -54,11 +57,14 @@ enum LongOnlyOptions {
 
 static struct option long_options[] = {
   {"output", required_argument, nullptr, 'o'},
-  {"boc-output", required_argument, nullptr, OPT_BOC_OUTPUT},
   {"opt-level", required_argument, nullptr, 'O'},
   {"path-mapping", required_argument, nullptr, OPT_PATH_MAPPING},
   {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
   {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
+  {"no-compiled-boc", no_argument, nullptr, OPT_NO_COMPILED_BOC},
+  {"no-contract-abi", no_argument, nullptr, OPT_NO_CONTRACT_ABI},
+  {"no-symbol-types", no_argument, nullptr, OPT_NO_SYMBOL_TYPES},
+  {"emit-debug-marks", no_argument, nullptr, OPT_EMIT_DEBUG_MARKS},
   {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
   {"check-only", no_argument, nullptr, OPT_CHECK_ONLY},
   {"allow-no-entrypoint", no_argument, nullptr, OPT_ALLOW_NO_ENTRYPOINT},
@@ -74,8 +80,7 @@ void usage(const char* progname) {
             "\tGenerates Fift TVM assembler code from a .tolk file\n"
          "-o, --output <fif-filename>\n"
             "\tWrite generated code into specified .fif file instead of stdout\n"
-         "--boc-output <boc-filename>\n"
-            "\tGenerate Fift instructions to save TVM bytecode into .boc file\n"
+            "\tOther artifacts use the same basename: for 'out.fif', also emit 'out.abi.json', etc.\n"
          "-O, --opt-level <level>\n"
             "\tSet optimization level (2 by default)\n"
          "--path-mapping <mapping>\n"
@@ -84,6 +89,10 @@ void usage(const char* progname) {
             "\tDon't include stack layout comments into Fift output\n"
          "--no-line-comments\n"
             "\tDon't include original lines from Tolk src into Fift output\n"
+         "--no-symbol-types\n"
+            "\tDon't output symbol types JSON artifact\n"
+         "--emit-debug-marks\n"
+            "\tOutput debug marks JSON artifact and debug marks to Fift code\n"
          "--json-errors\n"
             "\tShow compilation errors in JSON (not human-readable) format\n"
          "--check-only\n"
@@ -267,6 +276,7 @@ static void compilation_failed_output_errors(const std::vector<ThrownParseError>
     json.start_array("errors");
     for (const ThrownParseError& error : errors) {
       if (shown >= JSON_ERROR_LIMIT) break;
+      json.next_array_item();
       error.output_to_json(json);
       shown++;
     }
@@ -300,9 +310,6 @@ int main(int argc, char* const argv[]) {
       case 'o':
         G_settings.output_filename = optarg;
         break;
-      case OPT_BOC_OUTPUT:
-        G_settings.boc_output_filename = optarg;
-        break;
       case 'O':
         G_settings.optimization_level = std::max(0, atoi(optarg));
         break;
@@ -316,6 +323,18 @@ int main(int argc, char* const argv[]) {
         break;
       case OPT_NO_LINE_COMMENTS:
         G_settings.tolk_src_as_line_comments = false;
+        break;
+      case OPT_NO_COMPILED_BOC:
+        G_settings.emit_compiled_boc = false;
+        break;
+      case OPT_NO_CONTRACT_ABI:
+        G_settings.emit_contract_abi = false;
+        break;
+      case OPT_NO_SYMBOL_TYPES:
+        G_settings.emit_symbol_types = false;
+        break;
+      case OPT_EMIT_DEBUG_MARKS:
+        G_settings.emit_debug_marks = true;
         break;
       case OPT_JSON_ERRORS:
         G_settings.show_errors_as_json = true;
@@ -370,6 +389,11 @@ int main(int argc, char* const argv[]) {
 
   G_settings.read_callback = fs_read_callback;
 
+  if (G_settings.emit_debug_marks && !G_settings.emit_symbol_types) {
+    std::cerr << "--emit-debug-marks requires symbol types; remove --no-symbol-types" << std::endl;
+    return 2;
+  }
+
   TolkCompilationResult result = tolk_proceed(argv[optind]);
   if (!result.fatal_msg.empty()) {
     compilation_failed_with_fatal(result.fatal_msg);
@@ -398,7 +422,51 @@ int main(int argc, char* const argv[]) {
     std::cerr << "Failed to create output file " << G_settings.output_filename << std::endl;
     return 2;
   }
+
+  // for "out.fif", calculate "out.abi.json", "out.boc64.txt", etc.
+  size_t len = G_settings.output_filename.size();
+  std::string out_basename = G_settings.output_filename.substr(0, G_settings.output_filename.ends_with(".fif") ? len - 4 : len);
+  if (out_basename.find_first_of("\"\n") != std::string::npos) {
+    std::cerr << "prohibited symbol in output filename" << std::endl;
+    return 2;
+  }
+
   fif_out_file << result.fift_code;
+  if (G_settings.emit_debug_marks) {
+    // on a stack: BoC (TVM bytecode) + debug marks (dict), save this dict
+    fif_out_file << "boc>B \"" << out_basename << ".debugMarks.boc\" B>file\n";
+  }
+  if (G_settings.emit_compiled_boc || G_settings.emit_debug_marks) {
+    // save BoC (TVM bytecode) to a separate file; if debug marks, we also need it aside
+    fif_out_file << "dup boc>B \"" << out_basename << ".compiled.boc\" B>file\n";
+  }
+
+  if (G_settings.emit_contract_abi) {
+    std::ofstream abi_out_file(out_basename + ".abi.json");
+    if (!abi_out_file.is_open()) {
+      std::cerr << "Failed to create output file " << out_basename << ".abi.json" << std::endl;
+      return 2;
+    }
+    abi_out_file << result.abi_json;
+  }
+
+  if (G_settings.emit_symbol_types) {
+    std::ofstream symbol_types_out_file(out_basename + ".symbolTypes.json");
+    if (!symbol_types_out_file.is_open()) {
+      std::cerr << "Failed to create output file " << out_basename << ".symbolTypes.json" << std::endl;
+      return 2;
+    }
+    symbol_types_out_file << result.symbols_json;
+  }
+
+  if (G_settings.emit_debug_marks) {
+    std::ofstream debug_marks_out_file(out_basename + ".debugMarks.json");
+    if (!debug_marks_out_file.is_open()) {
+      std::cerr << "Failed to create output file " << out_basename << ".debugMarks.json" << std::endl;
+      return 2;
+    }
+    debug_marks_out_file << result.marks_json;
+  }
 
   compilation_succeed_after_output_done();
   return 0;

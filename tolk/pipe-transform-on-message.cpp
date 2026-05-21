@@ -50,6 +50,11 @@ static bool is_onBouncedMessage(FunctionPtr fun_ref) {
   return fun_ref->is_entrypoint() && fun_ref->name == "onBouncedMessage";
 }
 
+// `onExternalMessage` is only one, we'll validate its prototype
+static bool is_onExternalMessage(FunctionPtr fun_ref) {
+  return fun_ref->is_entrypoint() && fun_ref->name == "onExternalMessage";
+}
+
 
 class TransformOnInternalMessageReplacer final : public ASTReplacerInFunctionBody {
   LocalVarPtr param_ref = nullptr;         // `in` for `fun onInternalMessage(in: InMessage)`
@@ -65,6 +70,14 @@ class TransformOnInternalMessageReplacer final : public ASTReplacerInFunctionBod
     const auto* t_struct = f->get_param(0).declared_type->try_as<TypeDataStruct>();
     if (!t_struct || t_struct->struct_ref->name != "InMessageBounced") {
       err("`onBouncedMessage` should have one parameter `InMessageBounced`").fire(f->ident_anchor, f);
+    }
+  }
+
+  static void validate_onExternalMessage(FunctionPtr f) {
+    bool no_param_or_slice = f->get_num_params() == 0 ||
+      (f->get_num_params() == 1 && f->get_param(0).declared_type == TypeDataSlice::create());
+    if (!no_param_or_slice) {
+      err("`onExternalMessage` should have one parameter `slice`").fire(f->ident_anchor, f);
     }
   }
 
@@ -100,12 +113,25 @@ class TransformOnInternalMessageReplacer final : public ASTReplacerInFunctionBod
     return parent::replace(v);
   }
 
+  AnyExprV replace(V<ast_lambda_fun> v) override {
+    for (LocalVarPtr captured_var_ref : v->captured_vars) {
+      if (captured_var_ref == param_ref) {
+        err("capturing `InMessage` in a lambda is prohibited").fire(v, cur_f);
+      }
+    }
+    return parent::replace(v);
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
-    return is_onInternalMessage(fun_ref) || is_onBouncedMessage(fun_ref);
+    return is_onInternalMessage(fun_ref) || is_onBouncedMessage(fun_ref) || is_onExternalMessage(fun_ref);
   }
 
   void on_enter_function(V<ast_function_declaration> v_function) override {
+    if (cur_f->name == "onExternalMessage") {
+      validate_onExternalMessage(cur_f);
+      return;
+    }
     if (cur_f->name == "onBouncedMessage") {
       validate_onBouncedMessage(cur_f);
     }

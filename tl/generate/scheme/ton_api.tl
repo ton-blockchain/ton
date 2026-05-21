@@ -896,6 +896,9 @@ engine.validator.delFastSyncClient adnl_id:int256 = engine.validator.Success;
 engine.validator.setShardBlockVerifierConfig config:engine.validator.shardBlockVerifierConfig = engine.validator.Success;
 engine.validator.showShardBlockVerifierConfig = engine.validator.ShardBlockVerifierConfig;
 
+engine.validator.waitForLiteServer = engine.validator.Success;
+engine.validator.waitForInitialSync = engine.validator.Success;
+
 ---types---
 
 storage.pong = storage.Pong;
@@ -1182,6 +1185,7 @@ quic.answer data:bytes = quic.Response;
 engineConsoleClient.config address:string server_public_key:PublicKey client_private_key:PrivateKey = engineConsoleClient.Config;
 
 consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;
+consensus.blockSyncOverlayId session_id:int256 = consensus.BlockOverlayId;
 consensus.dataToSign session_id:int256 data:bytes = consensus.DataToSign;
 
 consensus.candidateId slot:int hash:int256 = consensus.CandidateId;

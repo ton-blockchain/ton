@@ -111,6 +111,13 @@ TypePtr TypeData::unwrap_alias_slow_path(TypePtr lhs) {
   return unwrapped;
 }
 
+bool TypeData::is_cell_or_CellT() const {
+  if (const TypeDataStruct* t_struct = this->try_as<TypeDataStruct>()) {
+    return t_struct->struct_ref->is_instantiation_of_CellT();
+  }
+  return this == TypeDataCell::create();
+}
+
 // having `type UserId = int` and `type OwnerId = int` (when their underlying types are equal),
 // make `UserId` and `OwnerId` NOT equal and NOT assignable (although they'll have the same type_id);
 // it allows overloading methods for these types independently, e.g.
@@ -123,7 +130,8 @@ static bool are_two_equal_type_aliases_different(const TypeDataAlias* t1, const 
     return false;
   }
   if (t1->alias_ref->is_instantiation_of_generic_alias() && t2->alias_ref->is_instantiation_of_generic_alias()) {
-    return !t1->alias_ref->substitutedTs->equal_to(t2->alias_ref->substitutedTs);
+    return t1->alias_ref->base_alias_ref != t2->alias_ref->base_alias_ref
+       || !t1->alias_ref->substitutedTs->equal_to(t2->alias_ref->substitutedTs);
   }
   // handle `type MInt2 = MInt1`, as well as `type BalanceList = dict`, then they are equal
   const TypeDataAlias* t_und1 = t1->underlying_type->try_as<TypeDataAlias>();
@@ -369,7 +377,7 @@ int TypeDataTensor::get_type_id() const {
 }
 
 int TypeDataIntN::get_type_id() const {
-  switch (n_bits) {
+  switch (n_bits * !is_variadic) {
     case 8:   return type_id_int8   + is_unsigned;    // for common intN, use predefined small numbers
     case 16:  return type_id_int16  + is_unsigned;
     case 32:  return type_id_int32  + is_unsigned;
@@ -525,6 +533,9 @@ std::string TypeDataMapKV::as_human_readable() const {
 }
 
 
+// as_abi_json() implementations are in type-export-json.cpp
+
+
 // --------------------------------------------
 //    replace_children_custom()
 //
@@ -612,6 +623,9 @@ bool TypeDataInt::can_rhs_be_assigned(TypePtr rhs) const {
     return true;
   }
   if (rhs->try_as<TypeDataIntN>()) {
+    return true;
+  }
+  if (rhs->try_as<TypeDataEnum>()) {
     return true;
   }
   if (rhs == TypeDataCoins::create()) {
@@ -804,6 +818,10 @@ bool TypeDataTensor::can_rhs_be_assigned(TypePtr rhs) const {
 bool TypeDataIntN::can_rhs_be_assigned(TypePtr rhs) const {
   if (rhs == TypeDataInt::create()) {
     return true;
+  }
+  if (rhs->try_as<TypeDataEnum>()) {
+    // `ExitCode.NotOwner` can be assigned to `int32`; we don't check that it fits N, just accept
+    return !is_variadic;
   }
   if (const TypeDataIntN* rhs_intN = rhs->try_as<TypeDataIntN>()) {
     // `int8` is NOT assignable to `int32` without `as`
@@ -1200,7 +1218,7 @@ bool TypeDataMapKV::can_be_casted_with_as_operator(TypePtr cast_to) const {
 
 bool TypeDataUnknown::can_be_casted_with_as_operator(TypePtr cast_to) const {
   // anything be cast to `unknown` and back (if T occupies not 1 stack slot, it's converted into a tuple)
-  return true;
+  return cast_to != TypeDataNever::create();
 }
 
 bool TypeDataNotInferred::can_be_casted_with_as_operator(TypePtr cast_to) const {
@@ -1212,6 +1230,12 @@ bool TypeDataNever::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataVoid::can_be_casted_with_as_operator(TypePtr cast_to) const {
+  if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {  // `void` to `T | void`
+    return to_union->calculate_exact_variant_to_fit_rhs(this);
+  }
+  if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
+    return can_be_casted_with_as_operator(to_alias->underlying_type);
+  }
   return cast_to == singleton || cast_to == TypeDataUnknown::create();
 }
 

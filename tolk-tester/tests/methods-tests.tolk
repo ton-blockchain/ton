@@ -288,6 +288,28 @@ fun test18() {
     return cb(10);
 }
 
+struct MethodRefBox { x: int }
+
+fun makeMethodRefBox(): MethodRefBox {
+    callOrder.push(5);
+    return { x: 10 };
+}
+
+fun MethodRefBox.add(self, y: int): int {
+    return self.x + y;
+}
+
+fun invokeMethodRef(cb: (MethodRefBox, int) -> int): int {
+    return cb({ x: 1 }, 2);
+}
+
+@method_id(119)
+fun test119() {
+    callOrder = [];
+    val cb = makeMethodRefBox().add;
+    return (callOrder, invokeMethodRef(cb));
+}
+
 type BalanceList = dict
 type AssetList = dict
 
@@ -342,10 +364,11 @@ fun main() {}
 @testcase | 116 |        | 100 100 5
 @testcase | 117 |        | 3
 @testcase | 118 |        | 10
+@testcase | 119 |        | [ 5 ] 3
 @testcase | 120 | 6      | 12 [ 6 ] 
 @testcase | 120 | null   | 10 [ (null) ] 
 
-@fif_codegen DECLPROC Pair<int16,int8>.createFrom<int,coins>()
-@fif_codegen DECLPROC Pair<int8,int16>.compareWith<int16,int8>()
+@fif_codegen DECLPROC Pair<int16,`int8>.createFrom<int,`coins>()
+@fif_codegen DECLPROC Pair<int8,`int16>.compareWith<int16,`int8>()
 @fif_codegen DECLPROC CounterMsg.onInternalMessage()
  */

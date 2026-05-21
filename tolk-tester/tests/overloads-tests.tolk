@@ -307,6 +307,65 @@ fun test15(
     __expect_type(arrArrInt8_3.mySize(), "int3");
 }
 
+type AA<T> = cell
+type BB<T> = cell
+
+fun AA <T> .pick(self): int1 { return 111 }
+fun BB<int>.pick(self): int2 { return 222 }
+
+fun AA<slice>.calc(self): int3 { return 333 }
+fun BB<slice>.calc(self): int4 { return 444 }
+
+fun AA<slice>.calcStatic(): int5 { return 555 }
+fun BB<slice>.calcStatic(): int6 { return 666 }
+
+@method_id(116)
+fun test16(): int {
+    var a = createEmptyCell() as AA<int>;
+    var b = createEmptyCell() as BB<int>;
+    __expect_type(a.pick(), "int1");
+    __expect_type(b.pick(), "int2");
+    return a.pick() * 1000 + b.pick();
+}
+
+fun test17(a: AA<slice>, b: BB<slice>) {
+    __expect_type(a.calc(), "int3");
+    __expect_type(b.calc(), "int4");
+    __expect_type(AA<slice>.calcStatic(), "int5");
+    __expect_type(BB<slice>.calcStatic(), "int6");
+}
+
+type BoxForHash<T> = cell
+
+fun BoxForHash<T>.hash(self): int {
+    return 123;
+}
+
+@method_id(118)
+fun test18(): int {
+    var b: BoxForHash<int> = beginCell().endCell();
+    __expect_type(b.hash(), "int");
+    return b.hash();        // not `cell.hash`
+}
+
+type GenericCellForWhich<T> = cell
+type GenericCellForWhichInt = GenericCellForWhich<int>
+
+fun GenericCellForWhich<T>.which(self): int1 {
+    return 1;
+}
+
+fun T.which(self): int3 {
+    return 3;
+}
+
+@method_id(119)
+fun test19() {
+    val direct: GenericCellForWhich<int> = createEmptyCell();
+    val throughAlias: GenericCellForWhichInt = createEmptyCell();
+    __expect_type(direct.which(), "int1");
+    __expect_type(throughAlias.which(), "int1");
+}
 
 fun main() {
     // besides these positive tests, there are many negative resulting in "ambiguous call"
@@ -316,4 +375,16 @@ fun main() {
 /**
 @testcase | 0   |   | 0
 @testcase | 113 |   | [ 1 2 258 1 2 -777 ]
+@testcase | 116 |   | 111222
+@testcase | 118 |   | 123
+
+@fif_codegen
+"""
+  test16() PROC:<{
+    111222 PUSHINT
+  }>
+  test18() PROC:<{
+    123 PUSHINT
+  }>
+"""
  */

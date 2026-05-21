@@ -299,6 +299,26 @@ fun test126() {
     return (t.0, g126, g126.0);
 }
 
+global g127: (int, int);
+
+fun getShape127(): [int] {
+    g127.1 += 1;
+    return [5];
+}
+
+fun touch127(mutate x: int) {
+    x = 10;
+}
+
+@method_id(127)
+fun test127() {
+    g127 = (1, 2);
+    touch127(mutate (g127.0, getShape127().0).0);
+    var a = 3;
+    touch127(mutate (getShape127().0, a).1);
+    return (g127, a);
+}
+
 fun main(){
 }
 
@@ -329,6 +349,7 @@ fun main(){
 @testcase | 124 | 0     | [ 0 ]
 @testcase | 125 |       | [ [ 123 2 ] ]
 @testcase | 126 |       | 4 5 [ [ 4 5 ] ] 4 5
+@testcase | 127 |       | 10 4 10
 
 @fif_codegen
 """

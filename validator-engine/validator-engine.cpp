@@ -545,7 +545,7 @@ td::Result<bool> Config::config_add_validator_adnl_id(ton::PublicKeyHash perm_ke
 
 td::Result<bool> Config::config_add_collator(ton::adnl::AdnlNodeIdShort addr, ton::ShardIdFull shard) {
   if (!shard.is_valid_ext()) {
-    return td::Status::Error(PSTRING() << "invalid shard: " << shard.to_str());
+    return td::Status::Error(PSTRING() << "invalid shard: " << shard);
   }
   auto &shards = collators[addr];
   if (std::find(shards.begin(), shards.end(), shard) != shards.end()) {
@@ -557,7 +557,7 @@ td::Result<bool> Config::config_add_collator(ton::adnl::AdnlNodeIdShort addr, to
 
 td::Result<bool> Config::config_del_collator(ton::adnl::AdnlNodeIdShort addr, ton::ShardIdFull shard) {
   if (!shard.is_valid_ext()) {
-    return td::Status::Error(PSTRING() << "invalid shard: " << shard.to_str());
+    return td::Status::Error(PSTRING() << "invalid shard: " << shard);
   }
   auto &shards = collators[addr];
   auto it = std::find(shards.begin(), shards.end(), shard);
@@ -692,7 +692,7 @@ td::Result<bool> Config::config_add_shard(ton::ShardIdFull shard) {
     return td::Status::Error("masterchain is monitored by default");
   }
   if (!shard.is_valid_ext()) {
-    return td::Status::Error(PSTRING() << "invalid shard " << shard.to_str());
+    return td::Status::Error(PSTRING() << "invalid shard " << shard);
   }
   if (std::find(shards_to_monitor.begin(), shards_to_monitor.end(), shard) != shards_to_monitor.end()) {
     return false;
@@ -703,7 +703,7 @@ td::Result<bool> Config::config_add_shard(ton::ShardIdFull shard) {
 
 td::Result<bool> Config::config_del_shard(ton::ShardIdFull shard) {
   if (!shard.is_valid_ext()) {
-    return td::Status::Error(PSTRING() << "invalid shard " << shard.to_str());
+    return td::Status::Error(PSTRING() << "invalid shard " << shard);
   }
   auto it = std::find(shards_to_monitor.begin(), shards_to_monitor.end(), shard);
   if (it == shards_to_monitor.end()) {
@@ -1938,9 +1938,9 @@ void ValidatorEngine::load_local_config(td::Promise<> promise) {
   for (ton::ShardIdFull shard : add_shard_cmds_) {
     auto R = config_.config_add_shard(shard);
     if (R.is_error()) {
-      LOG(WARNING) << "Cannot add shard " << shard.to_str() << " : " << R.move_as_error();
+      LOG(WARNING) << "Cannot add shard " << shard << " : " << R.move_as_error();
     } else if (R.ok()) {
-      LOG(WARNING) << "Adding shard to monitor " << shard.to_str();
+      LOG(WARNING) << "Adding shard to monitor " << shard;
     }
   }
   if (local_config_.size() == 0) {
@@ -2161,9 +2161,9 @@ void ValidatorEngine::load_config(td::Promise<> promise) {
   for (ton::ShardIdFull shard : add_shard_cmds_) {
     auto R = config_.config_add_shard(shard);
     if (R.is_error()) {
-      LOG(WARNING) << "Cannot add shard " << shard.to_str() << " : " << R.move_as_error();
+      LOG(WARNING) << "Cannot add shard " << shard << " : " << R.move_as_error();
     } else if (R.ok()) {
-      LOG(WARNING) << "Adding shard to monitor " << shard.to_str();
+      LOG(WARNING) << "Adding shard to monitor " << shard;
     }
   }
 
@@ -2456,6 +2456,8 @@ void ValidatorEngine::start_lite_server() {
   for (auto &s : config_.liteservers) {
     add_lite_server(s.second, static_cast<td::uint16>(s.first));
   }
+  td::actor::send_closure(validator_manager_,
+                          &ton::validator::ValidatorManagerInterface::notify_added_initial_liteservers);
 
   started_lite_server();
 }
@@ -2475,10 +2477,10 @@ void ValidatorEngine::start_collator() {
 }
 
 void ValidatorEngine::started_collator() {
-  start_control_interface();
+  start_full_node_masters();
 }
 
-void ValidatorEngine::add_control_interface(ton::PublicKeyHash id, td::uint16 port) {
+void ValidatorEngine::add_control_interface(ton::PublicKeyHash id, td::uint16 port, td::Promise<td::Unit> promise) {
   class Callback : public ton::adnl::Adnl::Callback {
    public:
     void receive_message(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
@@ -2503,7 +2505,7 @@ void ValidatorEngine::add_control_interface(ton::PublicKeyHash id, td::uint16 po
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::subscribe, ton::adnl::AdnlNodeIdShort{id}, std::string(""),
                           std::make_unique<Callback>(actor_id(this), port));
   td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_local_id, ton::adnl::AdnlNodeIdShort{id});
-  td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_tcp_port, port);
+  td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_tcp_port, port, std::move(promise));
 }
 
 void ValidatorEngine::add_control_process(ton::PublicKeyHash id, td::uint16 port, ton::PublicKeyHash pub,
@@ -2525,14 +2527,25 @@ void ValidatorEngine::start_control_interface() {
 
 void ValidatorEngine::started_control_interface(td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server) {
   control_ext_server_ = std::move(control_ext_server);
+
+  td::MultiPromise mp;
+  auto ig = mp.init_guard();
+  ig.add_promise(td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), console_ready_fd = std::move(console_ready_fd_)](td::Result<td::Unit> R) mutable {
+        if (!console_ready_fd.empty()) {
+          console_ready_fd.write(R.is_ok() ? "1" : "0").ensure();
+          console_ready_fd.close();
+        }
+      }));
+
   for (auto &s : config_.controls) {
-    add_control_interface(s.second.key, static_cast<td::uint16>(s.first));
+    add_control_interface(s.second.key, static_cast<td::uint16>(s.first), ig.get_promise());
 
     for (auto &p : s.second.clients) {
       add_control_process(s.second.key, static_cast<td::uint16>(s.first), p.first, p.second);
     }
   }
-  start_full_node_masters();
+  started();
 }
 
 void ValidatorEngine::start_full_node_masters() {
@@ -2547,7 +2560,7 @@ void ValidatorEngine::start_full_node_masters() {
 }
 
 void ValidatorEngine::started_full_node_masters() {
-  started();
+  start_control_interface();
 }
 
 void ValidatorEngine::started() {
@@ -3070,21 +3083,20 @@ void ValidatorEngine::register_shard_overlay_certificate_callback() {
                                                               }));
       ton::ShardIdFull shard{ton::WorkchainId{res->workchain_}, static_cast<ton::ShardId>(res->shard_)};
       ton::PublicKeyHash signed_key{res->signed_key_->key_hash_};
-      LOG(INFO) << "shard overlay cert received from=" << src << " dst=" << dst << " shard=" << shard.to_str()
+      LOG(INFO) << "shard overlay cert received from=" << src << " dst=" << dst << " shard=" << shard
                 << " signed_key=" << signed_key << " issuer=" << cert->issuer_hash() << " expire_at=" << expire_at
                 << " max_size=" << max_size << " flags=" << flags;
-      td::actor::send_closure(validator_engine_, &ValidatorEngine::try_import_shard_overlay_certificate, src, shard,
-                              signed_key, expire_at, std::move(cert),
-                              td::PromiseCreator::lambda([src, dst, shard, signed_key](td::Result<> R) {
-                                if (R.is_error()) {
-                                  LOG(WARNING) << "shard overlay cert import failed from=" << src << " dst=" << dst
-                                               << " shard=" << shard.to_str() << " signed_key=" << signed_key
-                                               << " error=" << R.move_as_error();
-                                } else {
-                                  LOG(INFO) << "shard overlay cert imported from=" << src << " dst=" << dst
-                                            << " shard=" << shard.to_str() << " signed_key=" << signed_key;
-                                }
-                              }));
+      td::actor::send_closure(
+          validator_engine_, &ValidatorEngine::try_import_shard_overlay_certificate, src, shard, signed_key, expire_at,
+          std::move(cert), td::PromiseCreator::lambda([src, dst, shard, signed_key](td::Result<> R) {
+            if (R.is_error()) {
+              LOG(WARNING) << "shard overlay cert import failed from=" << src << " dst=" << dst << " shard=" << shard
+                           << " signed_key=" << signed_key << " error=" << R.move_as_error();
+            } else {
+              LOG(INFO) << "shard overlay cert imported from=" << src << " dst=" << dst << " shard=" << shard
+                        << " signed_key=" << signed_key;
+            }
+          }));
     }
     void receive_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                        td::Promise<td::BufferSlice> promise) override {
@@ -3215,8 +3227,8 @@ void ValidatorEngine::try_import_shard_overlay_certificate(ton::adnl::AdnlNodeId
   if (!issuer_is_validator) {
     return promise.set_error(td::Status::Error(PSTRING() << "certificate issuer is not a validator: " << issuer));
   }
-  LOG(INFO) << "shard overlay cert import scheduled from=" << src << " shard=" << shard.to_str()
-            << " signed_key=" << signed_key << " issuer=" << issuer << " expire_at=" << expire_at;
+  LOG(INFO) << "shard overlay cert import scheduled from=" << src << " shard=" << shard << " signed_key=" << signed_key
+            << " issuer=" << issuer << " expire_at=" << expire_at;
   td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::import_shard_overlay_certificate, shard,
                           signed_key, std::move(certificate), std::move(promise));
 }
@@ -3335,19 +3347,19 @@ void ValidatorEngine::issue_shard_overlay_certificates() {
            adnl = adnl_.get()](td::Result<td::BufferSlice> R) mutable {
             if (R.is_error()) {
               LOG(WARNING) << "shard overlay cert issue failed target=" << target << " signed_key=" << signed_key
-                           << " shard=" << shard.to_str() << " issuer=" << issue_by << " error=" << R.move_as_error();
+                           << " shard=" << shard << " issuer=" << issue_by << " error=" << R.move_as_error();
               return;
             }
             auto data = R.move_as_ok();
             auto cert_r = ton::fetch_tl_object<ton::ton_api::overlay_Certificate>(std::move(data), true);
             if (cert_r.is_error()) {
               LOG(WARNING) << "shard overlay cert issue failed target=" << target << " signed_key=" << signed_key
-                           << " shard=" << shard.to_str() << " issuer=" << issue_by
+                           << " shard=" << shard << " issuer=" << issue_by
                            << " error=" << cert_r.move_as_error_prefix("failed to parse signed certificate: ");
               return;
             }
             LOG(INFO) << "shard overlay cert issued target=" << target << " signed_key=" << signed_key
-                      << " shard=" << shard.to_str() << " issuer=" << issue_by << " expire_at=" << expire_at
+                      << " shard=" << shard << " issuer=" << issue_by << " expire_at=" << expire_at
                       << " max_size=" << max_size;
             td::actor::send_closure(
                 adnl, &ton::adnl::Adnl::send_message, src, target,
@@ -5573,6 +5585,50 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getConsen
   }
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_waitForLiteServer &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+    }
+  });
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::wait_liteserver_ready,
+                          std::move(P));
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_waitForInitialSync &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (validator_manager_.empty()) {
+    promise.set_value(
+        create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "validator manager not started")));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_control_query_error(R.move_as_error()));
+    } else {
+      promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
+    }
+  });
+  td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::wait_initial_sync,
+                          std::move(P));
+}
+
 void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNodeIdShort src,
                                             ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                                             td::Promise<td::BufferSlice> promise) {
@@ -6178,6 +6234,16 @@ int main(int argc, char *argv[]) {
         });
         return td::Status::OK();
       });
+#if !TD_PORT_WINDOWS
+  p.add_checked_option(
+      '\0', "console-ready-fd", "file descriptor to notify when console is ready", [&](td::Slice s) -> td::Status {
+        TRY_RESULT(v, td::to_integer_safe<int>(s));
+        auto fd = std::make_shared<td::FileFd>(td::FileFd::from_native_fd(td::NativeFd(v)));
+        acts.push_back(
+            [&x, fd]() mutable { td::actor::send_closure(x, &ValidatorEngine::set_console_ready_fd, std::move(*fd)); });
+        return td::Status::OK();
+      });
+#endif
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();

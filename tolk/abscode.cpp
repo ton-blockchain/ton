@@ -258,6 +258,13 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       show_var_list(os, left, vars);
       os << " := " << str_const << std::endl;
       break;
+    case _DebugMark:
+      if (false) {    // don't pollute IR code in console with debug marks (they will overwhelm IR list)
+        os << indent << dis;
+        AsmOp::DebugMark(debug_mark).out(os);
+        os << std::endl;
+      }
+      break;
     case _Import:
       os << indent << dis << "IMPORT ";
       show_var_list(os, left, vars);
@@ -276,6 +283,13 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
     case _SetGlob:
       os << indent << dis << "SETGLOB ";
       os << (g_sym ? g_sym->name : "(null)") << " := ";
+      show_var_list(os, right, vars);
+      os << std::endl;
+      break;
+    case _SetContArgs:
+      os << indent << dis << "SETCONTARGS ";
+      show_var_list(os, left, vars);
+      os << " := ";
       show_var_list(os, right, vars);
       os << std::endl;
       break;
@@ -318,13 +332,13 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
-    default:
-      os << indent << dis << "<???" << cl << "> ";
+    case _TryCatch:
+      os << indent << dis << "TRYCATCH ";
       show_var_list(os, left, vars);
-      os << " -- ";
-      show_var_list(os, right, vars);
       os << std::endl;
       break;
+    default:
+      tolk_assert(false);
   }
 }
 

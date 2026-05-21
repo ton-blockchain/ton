@@ -53,13 +53,16 @@ enum class DictValueKind {
 // map<int32, V> should use DICTI* instructions
 // note that `struct UserId { v: int32 }` also optimized, since it's just a signed int on a stack
 static int is_TKey_TVM_int(TypePtr TKey) {
+  if (get_custom_pack_unpack_function(TKey)) {
+    return 0;
+  }
   if (const TypeDataIntN* t_intN = TKey->try_as<TypeDataIntN>(); t_intN && !t_intN->is_variadic && !t_intN->is_unsigned) {
     return t_intN->n_bits;
   }
   if (const TypeDataAlias* t_alias = TKey->try_as<TypeDataAlias>()) {
     return is_TKey_TVM_int(t_alias->underlying_type);
   }
-  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1) {
+  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1 && !t_struct->struct_ref->opcode.exists()) {
     return is_TKey_TVM_int(t_struct->struct_ref->get_field(0)->declared_type);
   }
   if (TKey == TypeDataBool::create()) {   // allow `bool` as a key with `DICTI` instructions
@@ -70,13 +73,16 @@ static int is_TKey_TVM_int(TypePtr TKey) {
 
 // map<uint32, V> should use DICTU* instructions
 static int is_TKey_TVM_uint(TypePtr TKey) {
+  if (get_custom_pack_unpack_function(TKey)) {
+    return 0;
+  }
   if (const TypeDataIntN* t_intN = TKey->try_as<TypeDataIntN>(); t_intN && !t_intN->is_variadic && t_intN->is_unsigned) {
     return t_intN->n_bits;
   }
   if (const TypeDataAlias* t_alias = TKey->try_as<TypeDataAlias>()) {
     return is_TKey_TVM_uint(t_alias->underlying_type);
   }
-  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1) {
+  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1 && !t_struct->struct_ref->opcode.exists()) {
     return is_TKey_TVM_uint(t_struct->struct_ref->get_field(0)->declared_type);
   }
   return 0;
@@ -85,6 +91,9 @@ static int is_TKey_TVM_uint(TypePtr TKey) {
 // map<address, V> should use DICT* instructions
 // note that map<slice, V> is forbidden, since a raw slice doesn't define binary width
 static int is_TKey_TVM_slice(TypePtr TKey) {
+  if (get_custom_pack_unpack_function(TKey)) {
+    return 0;
+  }
   if (const TypeDataAddress* t_address = TKey->try_as<TypeDataAddress>()) {
     return t_address->is_internal() ? 3 + 8 + 256 : 0;
   }
@@ -94,7 +103,7 @@ static int is_TKey_TVM_slice(TypePtr TKey) {
   if (const TypeDataAlias* t_alias = TKey->try_as<TypeDataAlias>()) {
     return is_TKey_TVM_slice(t_alias->underlying_type);
   }
-  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1) {
+  if (const TypeDataStruct* t_struct = TKey->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->get_num_fields() == 1 && !t_struct->struct_ref->opcode.exists()) {
     return is_TKey_TVM_slice(t_struct->struct_ref->get_field(0)->declared_type);
   }
   return 0;
@@ -102,12 +111,18 @@ static int is_TKey_TVM_slice(TypePtr TKey) {
 
 // we allow `map<K, slice>` and handle it separately, because we don't need to unpack it
 static bool is_TValue_raw_slice(TypePtr TValue) {
+  if (get_custom_pack_unpack_function(TValue)) {
+    return false;
+  }
   return TValue->unwrap_alias() == TypeDataSlice::create();
 }
 
 // `map<K, Cell<T>>` can emit SETREF instructions
 static bool is_TValue_cell_or_CellT(TypePtr TValue) {
-  return TValue->unwrap_alias() == TypeDataCell::create() || is_type_cellT(TValue->unwrap_alias())
+  if (get_custom_pack_unpack_function(TValue)) {
+    return false;
+  }
+  return TValue->unwrap_alias()->is_cell_or_CellT()
       || TValue->unwrap_alias() == TypeDataString::create();
 }
 
@@ -147,8 +162,9 @@ bool check_mapKV_TValue_is_valid(TypePtr TValue, std::string& because_msg) {
   if (is_TValue_raw_slice(TValue)) {
     return true;
   }
-  // or something that can be packed to/from slice
-  if (!check_struct_can_be_packed_or_unpacked(TValue, false, &because_msg)) {
+  // or something that can be packed to/from slice and unpacked back
+  if (!check_struct_can_be_packed_or_unpacked(TValue, true, &because_msg) ||
+      !check_struct_can_be_packed_or_unpacked(TValue, false, &because_msg)) {
     because_msg = "because it can not be serialized\n" + because_msg;
     return false;
   }
@@ -344,7 +360,7 @@ AsmOp compile_createEmptyMap(std::vector<VarDescr>& res, std::vector<VarDescr>& 
 // "convert dict to map" is just NOP; it's extracted as a built-in to allow non-1 width K/V
 AsmOp compile_createMapFromLowLevelDict(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.size() == 1 && args.size() == 1);
-  return AsmOp::Parse(origin, "NOP");
+  return AsmOp::Nop(origin);
 }
 
 // DICTGET: k D n => (x −1) OR (0); + NULLSWAPIFNOT => (x -1) OR (null 0)
@@ -517,10 +533,11 @@ std::vector<var_idx_t> generate_mapKV_set(FunctionPtr called_f, CodeBlob& code, 
   TypePtr TValue = called_f->substitutedTs->typeT_at(1);
   DictKeyValue kv(code, origin, TKey, &args[1], TValue, &args[2], true);
 
+  std::vector ir_mutated_map = code.create_tmp_var(TypeDataMapKV::create(TKey, TValue), origin, "(map)");
   std::vector dict_args = { kv.ir_key_kind(), kv.ir_value_kind(), kv.ir_value_val(), kv.ir_key_val(), args[0][0], kv.ir_key_len() };
-  code.add_call(origin, args[0], std::move(dict_args), lookup_function("__dict.set"));
+  code.add_call(origin, ir_mutated_map, std::move(dict_args), lookup_function("__dict.set"));
 
-  return args[0];   // return mutated map
+  return ir_mutated_map;
 }
 
 // fun map<K,V>.setAndGetPrevious(mutate self, key: K, value: V): MapLookupResult<V>

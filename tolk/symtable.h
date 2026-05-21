@@ -18,6 +18,7 @@
 
 #include "fwd-declarations.h"
 #include "crypto/common/refint.h"
+#include <forward_list>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -46,6 +47,8 @@ struct Symbol {
   bool is_builtin() const { return ident_anchor == nullptr; }
   void check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) const;
 };
+
+using DocCommentLines = std::forward_list<std::string_view>;
 
 struct LocalVarData final : Symbol {
   enum {
@@ -145,11 +148,12 @@ struct FunctionData final : Symbol {
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
+  DocCommentLines doc_lines;
   FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`; for a lambda, a containing function
   FunctionBody body;
   AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
 
-  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, DocCommentLines doc_lines, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
     , flags(initial_flags)
     , inline_mode(inline_mode)
@@ -159,10 +163,11 @@ struct FunctionData final : Symbol {
     , return_type_node(return_type_node)
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
+    , doc_lines(std::move(doc_lines))
     , body(body)
     , ast_root(ast_root) {
   }
-  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, FunctionBody body, AnyV ast_root)
+  FunctionData(std::string name, AnyV ident_anchor, std::string method_name, TypePtr receiver_type, TypePtr declared_return_type, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, DocCommentLines doc_lines, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
     , flags(initial_flags)
     , inline_mode(inline_mode)
@@ -174,6 +179,7 @@ struct FunctionData final : Symbol {
     , declared_return_type(declared_return_type)
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
+    , doc_lines(std::move(doc_lines))
     , body(body)
     , ast_root(ast_root) {
   }
@@ -195,6 +201,9 @@ struct FunctionData final : Symbol {
   bool is_asm_function() const { return std::holds_alternative<FunctionBodyAsm*>(body); }
   bool is_method() const { return !method_name.empty(); }
   bool is_static_method() const { return is_method() && !does_accept_self(); }
+
+  bool is_packToBuilder() const { return method_name == "packToBuilder"; }
+  bool is_unpackFromSlice() const { return method_name == "unpackFromSlice"; }
 
   bool is_generic_function() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
@@ -259,11 +268,13 @@ struct GlobalConstData final : Symbol {
   TypePtr declared_type = nullptr;    // = resolved type_node
   TypePtr inferred_type = nullptr;
   AnyExprV init_value;
+  DocCommentLines doc_lines;
 
-  GlobalConstData(std::string name, AnyV ident_anchor, AnyTypeV type_node, AnyExprV init_value)
+  GlobalConstData(std::string name, AnyV ident_anchor, AnyTypeV type_node, AnyExprV init_value, DocCommentLines doc_lines)
     : Symbol(std::move(name), ident_anchor)
     , type_node(type_node)
-    , init_value(init_value) {
+    , init_value(init_value)
+    , doc_lines(std::move(doc_lines)) {
   }
 
   GlobalConstData* mutate() const { return const_cast<GlobalConstData*>(this); }
@@ -275,15 +286,17 @@ struct GlobalConstData final : Symbol {
 struct AliasDefData final : Symbol {
   AnyTypeV underlying_type_node;
   TypePtr underlying_type = nullptr;    // = resolved underlying_type_node
+  DocCommentLines doc_lines;
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
   AliasDefPtr base_alias_ref = nullptr;           // for `Response<int>`, here is `Response<T>`
   AnyV ast_root;                                  // V<ast_type_alias_declaration>
 
-  AliasDefData(std::string name, AnyV ident_anchor, AnyTypeV underlying_type_node, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+  AliasDefData(std::string name, AnyV ident_anchor, AnyTypeV underlying_type_node, DocCommentLines doc_lines, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
     , underlying_type_node(underlying_type_node)
+    , doc_lines(std::move(doc_lines))
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
     , ast_root(ast_root) {
@@ -305,21 +318,27 @@ struct StructFieldData final : Symbol {
   bool is_readonly;
   AnyTypeV type_node;
   TypePtr declared_type = nullptr;      // = resolved type_node
+  AnyTypeV abi_type_node = nullptr;     // @abi.clientType(<type>) if exists
+  TypePtr abi_client_type = nullptr;    // = resolved abi_type_node
   AnyExprV default_value;               // nullptr if no default
+  DocCommentLines doc_lines;
 
   bool has_default_value() const { return default_value != nullptr; }
 
   StructFieldData* mutate() const { return const_cast<StructFieldData*>(this); }
   void assign_resolved_type(TypePtr declared_type);
+  void assign_resolved_abi_type(TypePtr abi_client_type);
   void assign_default_value(AnyExprV default_value);
 
-  StructFieldData(std::string name, AnyV ident_anchor, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyExprV default_value)
+  StructFieldData(std::string name, AnyV ident_anchor, int field_idx, bool is_private, bool is_readonly, AnyTypeV type_node, AnyTypeV abi_type_node, AnyExprV default_value, DocCommentLines doc_lines)
     : Symbol(std::move(name), ident_anchor)
     , field_idx(field_idx)
     , is_private(is_private)
     , is_readonly(is_readonly)
     , type_node(type_node)
-    , default_value(default_value) {
+    , abi_type_node(abi_type_node)
+    , default_value(default_value)
+    , doc_lines(std::move(doc_lines)) {
   }
 };
 
@@ -337,13 +356,15 @@ struct StructData final : Symbol {
       : pack_prefix(pack_prefix), prefix_len(prefix_len) {}
 
     bool exists() const { return prefix_len != 0; }
+    bool operator==(const PackOpcode& rhs) const { return pack_prefix == rhs.pack_prefix && prefix_len == rhs.prefix_len; }
 
-    std::string format_as_slice() const;    // "x{...}" (or "b{...}")
+    std::string format_as_string(bool as_fift_slice) const;  // "0x..." / "0b..." or "x{...}" / "b{...}"
   };
 
   std::vector<StructFieldPtr> fields;
   PackOpcode opcode;
   Overflow1023Policy overflow1023_policy;
+  DocCommentLines doc_lines;
 
   const GenericsDeclaration* genericTs;
   const GenericsSubstitutions* substitutedTs;
@@ -364,11 +385,12 @@ struct StructData final : Symbol {
   StructData* mutate() const { return const_cast<StructData*>(this); }
   void assign_resolved_genericTs(const GenericsDeclaration* genericTs);
 
-  StructData(std::string name, AnyV ident_anchor, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
+  StructData(std::string name, AnyV ident_anchor, std::vector<StructFieldPtr>&& fields, PackOpcode opcode, Overflow1023Policy overflow1023_policy, DocCommentLines doc_lines, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
     , fields(std::move(fields))
     , opcode(opcode)
     , overflow1023_policy(overflow1023_policy)
+    , doc_lines(std::move(doc_lines))
     , genericTs(genericTs)
     , substitutedTs(substitutedTs)
     , ast_root(ast_root) {
@@ -381,13 +403,15 @@ struct EnumMemberData final : Symbol {
   int member_idx;
   AnyExprV init_value;                // nullptr if no init (`Red`, not `Red = 1`)
   td::RefInt256 computed_value;       // auto-calculated or assigned from init if integer
+  DocCommentLines doc_lines;          // from /// doc-comments above member
 
   bool has_init_value() const { return init_value != nullptr; }
 
-  EnumMemberData(std::string name, AnyV ident_anchor, int member_idx, AnyExprV init_value)
+  EnumMemberData(std::string name, AnyV ident_anchor, int member_idx, AnyExprV init_value, DocCommentLines doc_lines)
     : Symbol(std::move(name), ident_anchor)
     , member_idx(member_idx)
-    , init_value(init_value) {
+    , init_value(init_value)
+    , doc_lines(std::move(doc_lines)) {
   }
 
   EnumMemberData* mutate() const { return const_cast<EnumMemberData*>(this); }
@@ -399,13 +423,15 @@ struct EnumDefData final : Symbol {
   AnyTypeV colon_type_node;             // nullptr if no serialization type after `:`
   TypePtr colon_type = nullptr;         // = resolved colon_type_node
   std::vector<EnumMemberPtr> members;
+  DocCommentLines doc_lines;
 
   EnumMemberPtr find_member(std::string_view member_name) const;
 
-  EnumDefData(std::string name, AnyV ident_anchor, AnyTypeV colon_type_node, std::vector<EnumMemberPtr>&& members)
+  EnumDefData(std::string name, AnyV ident_anchor, AnyTypeV colon_type_node, std::vector<EnumMemberPtr>&& members, DocCommentLines doc_lines)
     : Symbol(std::move(name), ident_anchor)
     , colon_type_node(colon_type_node)
-    , members(std::move(members)) {
+    , members(std::move(members))
+    , doc_lines(std::move(doc_lines)) {
   }
 
   std::string as_human_readable() const;

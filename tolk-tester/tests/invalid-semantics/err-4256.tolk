@@ -12,7 +12,7 @@ fun main(p: int|slice) {
 /**
 @compilation_should_fail
 @stderr call to method `method` for type `int | slice` is ambiguous
-@stderr candidate function: `(int|slice).method`
-@stderr candidate function: `(slice|MInt).method`
+@stderr candidate function: `(int | slice).method`
+@stderr candidate function: `(slice | MInt).method`
 @stderr candidate function: `IntOrSlice.method`
 */

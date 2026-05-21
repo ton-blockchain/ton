@@ -1,5 +1,5 @@
 fun main() {
-    var t: [int, int, int] = [0].get(0) ? [1,2] : [3,4];
+    var t: [int, int, int] = [0].get(0) != 0 ? [1,2] : [3,4];
 }
 
 /**

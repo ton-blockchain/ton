@@ -57,6 +57,7 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
   G = CompilerState{};
   clear_computed_constants_cache();
   define_builtins();    // add built-in functions into G.symtable
+  G.symbol_types_pool.seed_primitive_types();
 
   // enable error collecting for check stages (multiple errors can be reported):
   // - if used err("...").fire() — execution is stopped immediately (it's `throw`)
@@ -88,6 +89,9 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
         .errors = error_collector.flush(),
         .fatal_msg = "",
         .fift_code = "",
+        .abi_json = "",
+        .symbols_json = "",
+        .marks_json = "",
       };
     }
     // output warnings to console, if any collected
@@ -110,6 +114,9 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
         .errors = {},
         .fatal_msg = "",
         .fift_code = "",
+        .abi_json = "",
+        .symbols_json = "",
+        .marks_json = "",
       };
     }
 
@@ -117,15 +124,29 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
 
     pipeline_find_unused_symbols();
 
+    pipeline_collect_symbol_types();
+
     std::ostringstream os_fif;
     pipeline_generate_fif_output(os_fif);
+    std::ostringstream os_abi;
+    pipeline_collect_abi_output(os_abi);
+    std::ostringstream os_symbol_types;
+    if (G_settings.emit_symbol_types) {
+      G.symbol_types_pool.to_pretty_json(os_symbol_types);
+    }
+    std::ostringstream os_debug_marks;
+    if (G_settings.emit_debug_marks) {
+      G.debug_marks.to_pretty_json(os_debug_marks, G.symbol_types_pool);
+    }
 
     return TolkCompilationResult{
       .errors = {},
       .fatal_msg = "",
       .fift_code = os_fif.str(),
+      .abi_json = os_abi.str(),
+      .symbols_json = os_symbol_types.str(),
+      .marks_json = os_debug_marks.str(),
     };
-
   } catch (const ThrownParseError& error) {
     // append `err("...").fire()` to earlier `err("...").collect()`
     error_collector.add(error);
@@ -133,6 +154,9 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
       .errors = error_collector.flush(),
       .fatal_msg = "",
       .fift_code = "",
+      .abi_json = "",
+      .symbols_json = "",
+      .marks_json = "",
     };
 
   } catch (const Fatal& fatal) {
@@ -140,6 +164,9 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
       .errors = {},
       .fatal_msg = fatal.message,
       .fift_code = "",
+      .abi_json = "",
+      .symbols_json = "",
+      .marks_json = "",
     };
 
   } catch (const UnexpectedASTNodeKind& error) {
@@ -147,6 +174,9 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
       .errors = {},
       .fatal_msg = error.message,
       .fift_code = "",
+      .abi_json = "",
+      .symbols_json = "",
+      .marks_json = "",
     };
   }
 }

@@ -207,7 +207,7 @@ fun check_assoc_2(a: int, b: MInt, c: MIntN): bool {
 @method_id(112)
 fun testApplyGlobalVar(x: int, y: int, z: int): bool? {
   op = `_+_`;
-  if (0) { return null; }
+  if (false) { return null; }
   return check_assoc_2(x, y, z);
 }
 
@@ -362,6 +362,25 @@ fun testCalleeEvaluatedFirst() {
     )
 }
 
+fun addOne122(x: int): int {
+    return x + 1;
+}
+
+fun addTen122(x: int): int {
+    return x + 10;
+}
+
+fun replaceWithAddTen122(mutate f: (int) -> int): int {
+    f = addTen122;
+    return 5;
+}
+
+@method_id(122)
+fun testIndirectCalleeSnapshotBeforeArgs() {
+    var f: (int) -> int = addOne122;
+    return (f(5), f(replaceWithAddTen122(mutate f)), f(5));
+}
+
 
 fun main() {}
 
@@ -394,4 +413,5 @@ fun main() {}
 @testcase | 119 |            | 6
 @testcase | 120 |            | []
 @testcase | 121 |            | 100 [ 10 30 40 20 ]
+@testcase | 122 |            | 6 6 15
  */

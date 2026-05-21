@@ -19,11 +19,23 @@
 #include "type-system.h"
 
 /*
- *   This pipe does some optimizations related to booleans.
- *   It happens after type inferring, when we know types of all expressions.
+ *   AST-level normalizations of boolean conditions.
+ *   1. `!!boolVar` -> `boolVar`
+ *   2. compile-time fold of `!true` / `!false`
+ *   3. `boolVar == true`  / `boolVar != false`  ->  `boolVar`
+ *      `boolVar != true`  / `boolVar == false`  ->  `!boolVar`
+ *   4. `if (!x)`               ->  if(x) with `is_ifnot`
+ *   5. `if (x !is null)`       ->  if(x is null) with `is_ifnot`
+ *      `if (addr1 != addr2)`   ->  if(addr1 == addr2) with `is_ifnot`
  *
- *   Example: `boolVar == true` -> `boolVar`.
- *   Example: `!!boolVar` -> `boolVar`.
+ *   Note: it's an AST-level pass, but it's still needed.
+ * At IR level (see `optimize_conditional_branches`) we simplify `(x != 0)` / `(x == 0)` in conditions.
+ * But it cannot recognize higher-level shapes and booleans.
+ *
+ *   Without this pass `if (!x)` compiles to `NOT IFJMP` instead of `IFNOTJMP`,
+ * and null checks keep an extra `0 NEQINT`.
+ *
+ *   Some day, this pass should also be IR-level.
  *
  *   todo some day, replace && || with & | when it's safe (currently, && always produces IFs in Fift)
  * It's tricky to implement whether replacing is safe.
@@ -34,13 +46,6 @@
 namespace tolk {
 
 class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBody {
-
-  static V<ast_int_const> create_int_const(SrcRange range, td::RefInt256&& intval) {
-    auto v_int = createV<ast_int_const>(range, std::move(intval), {});
-    v_int->assign_inferred_type(TypeDataInt::create());
-    v_int->assign_rvalue_true();
-    return v_int;
-  }
 
   static V<ast_bool_const> create_bool_const(SrcRange range, bool bool_val) {
     auto v_bool = createV<ast_bool_const>(range, bool_val);
@@ -57,19 +62,6 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
     return v_not;
   }
 
-  static bool expect_integer(TypePtr inferred_type) {
-    if (inferred_type == TypeDataInt::create()) {
-      return true;
-    }
-    if (inferred_type->try_as<TypeDataIntN>() || inferred_type == TypeDataCoins::create()) {
-      return true;
-    }
-    if (const TypeDataAlias* as_alias = inferred_type->try_as<TypeDataAlias>()) {
-      return expect_integer(as_alias->underlying_type);
-    }
-    return false;
-  }
-
   static bool expect_boolean(TypePtr inferred_type) {
     if (inferred_type == TypeDataBool::create()) {
       return true;
@@ -80,33 +72,21 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
     return false;
   }
 
+  static bool is_compile_time_true_false(AnyExprV cond) {
+    return cond->is_always_true || cond->is_always_false;
+  }
+
   AnyExprV replace(V<ast_unary_operator> v) override {
     parent::replace(v);
 
     if (v->tok == tok_logical_not) {
+      // `!!boolVar` => `boolVar` (the inner operand is always bool, integers disallowed by type checker)
       if (auto inner_not = v->get_rhs()->try_as<ast_unary_operator>(); inner_not && inner_not->tok == tok_logical_not) {
-        AnyExprV cond_not_not = inner_not->get_rhs();
-        // `!!boolVar` => `boolVar`
-        if (expect_boolean(cond_not_not->inferred_type)) {
-          return cond_not_not;
-        }
-        // `!!intVar` => `intVar != 0`
-        if (expect_integer(cond_not_not->inferred_type)) {
-          auto v_zero = create_int_const(v->range, td::make_refint(0));
-          auto v_neq = createV<ast_binary_operator>(v->range, v->operator_range, "!=", tok_neq, cond_not_not, v_zero);
-          v_neq->mutate()->assign_rvalue_true();
-          v_neq->mutate()->assign_inferred_type(TypeDataBool::create());
-          v_neq->mutate()->assign_fun_ref(lookup_function("_!=_"));
-          return v_neq;
-        }
+        return inner_not->get_rhs();
       }
+      // `!true` / `!false`
       if (auto inner_bool = v->get_rhs()->try_as<ast_bool_const>()) {
-        // `!true` / `!false`
         return create_bool_const(v->range, !inner_bool->bool_val);
-      }
-      if (auto inner_int = v->get_rhs()->try_as<ast_int_const>()) {
-        // `!0` / `!123`
-        return create_bool_const(v->range, inner_int->intval == 0);
       }
     }
 
@@ -137,15 +117,9 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
 
     // don't deal with always true/false conditions, they will anyway be erased at compile-time later;
     // because below, we swap v->is_ifnot and is_negated flags, it's hard to keep them in sync
-    if (v->get_cond()->is_always_true || v->get_cond()->is_always_false) {
+    if (is_compile_time_true_false(v->get_cond())) {
       return v;
     }
-
-    // here we optimize common conditions to generate IFNOT instead of IF;
-    // obviously, this should be done later, around peephole optimizer,
-    // but with current implementation of stack transformations (inherited from FunC) we have no chance,
-    // so the best for now is to do some AST-based condition rewrites;
-    // in the future, I'll fully rewrite optimizer, and this part will be removed
 
     // `if (!x)` -> ifnot(x)
     while (auto v_cond_unary = v->get_cond()->try_as<ast_unary_operator>()) {
@@ -154,6 +128,10 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
       }
       v = createV<ast_if_statement>(v->range, !v->is_ifnot, v_cond_unary->get_rhs(), v->get_if_body(), v->get_else_body());
     }
+    if (is_compile_time_true_false(v->get_cond())) {
+      return v;
+    }
+
     // `if (x != null)` -> ifnot(x == null)
     if (auto v_cond_istype = v->get_cond()->try_as<ast_is_type_operator>(); v_cond_istype && v_cond_istype->is_negated) {
       v_cond_istype->mutate()->assign_is_negated(!v_cond_istype->is_negated);

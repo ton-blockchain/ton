@@ -209,6 +209,19 @@ fun test124() {
     return (a1, a18);
 }
 
+const C125: (int, int) = (1, 2);
+
+struct P125 {
+    x: int;
+}
+
+@method_id(125)
+fun test125() {
+    var x = 1;
+    (x, Point { x: C125.0, y: C125.1 }).0 = 5;
+    return x;
+}
+
 
 fun main(value: int, ) {
     var (x: int?, y,) = (autoInferIntNull(value), autoInferIntNull(value * 2));
@@ -231,6 +244,7 @@ fun main(value: int, ) {
 @testcase | 122 |        | 0 10 0
 @testcase | 123 |        | 13
 @testcase | 124 |        | 1 18
+@testcase | 125 |        | 5
 
 
 @fif_codegen

@@ -228,7 +228,7 @@ fun Point3d.sumOther(self, other: Point3d): int {
 
 fun algo1() {
     val o = lazy Fields9.fromSlice(S0);
-    if (rand()) {
+    if (rand() != 0) {
         __expect_lazy("[o] load f1");
         o.f1;
     }
@@ -237,7 +237,7 @@ fun algo1() {
 fun algo2() {
     val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1");
-    if (rand()) {
+    if (rand() != 0) {
         o.f1;
     } else {
         o.f1 + o.f1;
@@ -246,7 +246,7 @@ fun algo2() {
 
 fun algo3() {
     val o = lazy Fields9.fromSlice(S0);
-    if (rand()) {
+    if (rand() != 0) {
         return;
     }
     __expect_lazy("[o] load f1");
@@ -256,7 +256,7 @@ fun algo3() {
 fun algo4() {
     val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1 f2");
-    if (rand()) {
+    if (rand() != 0) {
         o.f1;
     } else {
         o.f2;
@@ -273,7 +273,7 @@ fun algo5() {
 fun algo6() {
     val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1 f2, skip (bits40), load f8");
-    if (rand()) {
+    if (rand() != 0) {
         o.f8;
     }
     o.f2;
@@ -282,7 +282,7 @@ fun algo6() {
 
 fun algo7() {
     val o = lazy Fields9.fromSlice(S0);
-    if (rand()) {
+    if (rand() != 0) {
         __expect_lazy("[o] load f1 f2 f3 f4 f5 f6 f7 f8 f9");
         o;
     } else {
@@ -290,7 +290,7 @@ fun algo7() {
 }
 
 fun algo8() {
-    if (rand()) {
+    if (rand() != 0) {
         val o: Fields9 = lazy Fields9.fromSlice(S0);
         __expect_lazy("[o] load f1 f2 f3 f4 f5 f6 f7 f8 f9");
         o.method();
@@ -313,7 +313,7 @@ fun algo10() {
     val p = lazy Point3d.fromSlice(S0);
     __expect_lazy("[p] load x, skip (bits32), load z");
     p.z;
-    if (rand()) {
+    if (rand() != 0) {
         p.x;
         return;
     }
@@ -326,7 +326,7 @@ fun algo11() {
         num += 1;
     }
     __expect_lazy("[p] load x");
-    rand()
+    rand() != 0
         ? p.x as int
         : p.x + num;
 }
@@ -354,7 +354,7 @@ fun algo13() {
 fun algo14() {
     val p = lazy Point.fromSlice(S0);
     __expect_lazy("[p] load x");
-    while (rand()) {
+    while (rand() != 0) {
         p.x;
     }
 }
@@ -364,7 +364,7 @@ fun algo15() {
     __expect_lazy("[p] skip (bits8), load y");
     do {
         p.y;
-    } while (rand());
+    } while (rand() != 0);
 }
 
 fun algo16() {
@@ -372,7 +372,7 @@ fun algo16() {
     __expect_lazy("[p] load x, skip (bits32), load z");
     do {
         p.x;
-    } while (p.z);
+    } while (p.z != 0);
 }
 
 fun algo17() {
@@ -386,8 +386,8 @@ fun algo17() {
 fun algo18() {
     val o = lazy Fields9.fromSlice(S0);
     __expect_lazy("[o] load f1 f2, skip (bits16), load f5 f6");
-    if (o.f1) {
-        if (o.f2) {
+    if (o.f1 != 0) {
+        if (o.f2 != 0) {
             throw o.f6
         }
     }
@@ -555,7 +555,7 @@ fun algo33() {
 fun algo34() {
     val p = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[p] skip (bits8), load p f3");
-    if (p.p.x) { }
+    if (p.p.x != 0) { }
     else { p.f3 }
 }
 
@@ -563,7 +563,7 @@ fun algo35() {
     var p = lazy ComplexWithPoint.fromSlice(S0);
     try {
         __expect_lazy("[p] load f1 p");
-        if (p.p.x) { }
+        if (p.p.x != 0) { }
         else { p.p = {x:1, y:2} }
         if (true) {
             try {} catch (excno) { match (excno + p.f1) { } }
@@ -579,7 +579,7 @@ fun algo36() {
         __expect_lazy("[p2] load f1 p f3");
         match (true) {
             true => { p2.f3 }
-            else => p2.p.x ? p2.f1 : p1.p.x
+            else => p2.p.x != 0 ? p2.f1 : p1.p.x
         }
     } catch { p1.p.y -= 1 }
 }
@@ -734,6 +734,18 @@ fun algo55() {
     })
 }
 
+fun algo56() {
+    val p1 = lazy Point3d.fromSlice(S0);
+    __expect_lazy("[p1] load x y z");
+    return fun() {
+        val p2 = lazy Point3d.fromSlice(S0);
+        __expect_lazy("[p2] load x y z");
+        return fun() {
+            p1.x + p2.z
+        }
+    }
+}
+
 
 fun algo100() {
     var o = lazy AOrB.fromSlice(S0);
@@ -806,7 +818,7 @@ fun algo105() {
 fun algo106() {
     val o = lazy WithEitherABEnd.fromSlice(S0);
     __expect_lazy("[o] skip (bits96), load f4, skip (bits32), lazy match ab");
-    if (rand()) {
+    if (rand() != 0) {
         o.f4;
     } else {
         match (o.ab) { A => {} B => {
@@ -964,7 +976,7 @@ fun algo119() {
             return o.ab.a2 + o.f2;
         }
         B => {
-            assert(o.ab.b1) throw o.f1;
+            assert(o.ab.b1 != 0) throw o.f1;
         }
     }
     o.f1;
@@ -1181,7 +1193,7 @@ fun algo135() {
         }
         B => {
             __expect_lazy("[o] load b1 b2");
-            if (o.b1) {
+            if (o.b1 != 0) {
                 o.b2;
             }
         }
@@ -1264,10 +1276,10 @@ fun algo224(): void {
     }
     match (o.ab) {
         A => {}
-        B => { if (rand()) { o.f4; } return; }
+        B => { if (rand() != 0) { o.f4; } return; }
     }
     if (o.ab is A) {
-        if (rand()) {
+        if (rand() != 0) {
             o.f5;
         }
     }
@@ -1372,7 +1384,6 @@ fun algo255() {
             __expect_lazy("[p] load x");
             return p.x;
         }
-        else => throw 123
     }
 }
 
@@ -1440,7 +1451,7 @@ fun algo302() {
 @method_id(303)
 fun algo303() {
     var c = Point{x:1,y:2}.toCell();
-    var o = lazy c.load();
+    var o = lazy Cell<Point>.load(c);
     __expect_lazy("[o] load x y");
     return o;
 }
@@ -1512,7 +1523,7 @@ fun algo311() {
 fun algo312() {
     var st = lazy NotFixedWidthStorage.fromSlice(S0);
     __expect_lazy("[st] load (bits8) (int8?) (bits9) (cell) (int8 | bool) (address?) f8, save immutable (tail)");
-    if (rand()) {
+    if (rand() != 0) {
         st.f8 += 1;
     }
     st.toCell();
@@ -1520,7 +1531,7 @@ fun algo312() {
 
 fun algo313() {
     var st = lazy NotFixedWidthStorage.fromSlice(S0);
-    if (rand()) {
+    if (rand() != 0) {
         __expect_lazy("[st] load (bits8) (int8?) (bits9) f5, save immutable (tail), skip (int8 | bool) (address?) (bits8), load f9");
         st.f5 = createEmptyCell();
         st.f9;

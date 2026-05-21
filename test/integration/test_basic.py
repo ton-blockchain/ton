@@ -26,6 +26,8 @@ async def main():
     async with Network(install, working_dir) as network:
         dht = network.create_dht_node()
 
+        network.config.shard_validators = 2
+
         nodes: list[FullNode] = []
         for _ in range(2):
             node = network.create_full_node()
@@ -57,7 +59,7 @@ async def main():
                     break
                 await asyncio.sleep(0.5)
 
-        await asyncio.wait_for(balance_changed(), timeout=10)
+        await asyncio.wait_for(balance_changed(), timeout=30)
 
         wallet_state = await main_wallet.current
         assert wallet_state.seqno == 1

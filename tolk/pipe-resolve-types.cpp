@@ -19,6 +19,7 @@
 #include "compilation-errors.h"
 #include "compiler-state.h"
 #include "generics-helpers.h"
+#include "contract-directive.h"
 #include "type-system.h"
 #include <charconv>
 
@@ -61,7 +62,7 @@ static Error err_unknown_type_name(std::string_view text) {
   return err("unknown type name `{}`", text);
 }
 
-static Error err_void_type_not_allowed_inside_union(TypePtr disallowed_variant) {
+static Error err_never_type_not_allowed_inside_union(TypePtr disallowed_variant) {
   return err("type `{}` is not allowed inside a union", disallowed_variant);
 }
 
@@ -83,7 +84,7 @@ static TypePtr parse_bytesN_bitsN(std::string_view strN, bool is_bits) {
   int n;
   auto result = std::from_chars(strN.data(), strN.data() + strN.size(), n);
   bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
-  if (!parsed || n <= 0 || n > 1024) {
+  if (!parsed || n <= 0 || n > 1023) {
     return nullptr;   // `bytes9999`, maybe it's user-defined alias, let it be unresolved
   }
   return TypeDataBitsN::create(n, is_bits);
@@ -258,6 +259,16 @@ class TypeNodesVisitorResolver {
     }
   }
 
+  // given `Wrapper<T>`, ensure that resolving was happened, and struct has genericTs now
+  static void ensure_struct_genericTs_resolved(StructPtr struct_ref) {
+    if (auto v_genericsT_list = struct_ref->ast_root->as<ast_struct_declaration>()->genericsT_list) {
+      if (!struct_ref->genericTs) {
+        const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
+        struct_ref->mutate()->assign_resolved_genericTs(genericTs);
+      }
+    }
+  }
+
   // given `dict` / `User` / `Wrapper` / `WrapperAlias`, find it in a symtable
   // for generic types, like `Wrapper`, fire that it's used without type arguments (unless allowed)
   // example: `var w: Wrapper = ...`, here will be an error of generic usage without T
@@ -268,7 +279,13 @@ class TypeNodesVisitorResolver {
       if (!visited_aliases.contains(alias_ref)) {
         visit_symbol(alias_ref);
       }
-      if (alias_ref->is_generic_alias() && !allow_without_type_arguments) {
+      // check AST for genericsT_list, not is_generic_alias()
+      // because during mutual recursion in default type arguments, genericTs may not be assigned yet
+      bool has_generic_params = alias_ref->ast_root->as<ast_type_alias_declaration>()->genericsT_list != nullptr;
+      if (has_generic_params && !allow_without_type_arguments) {
+        if (!alias_ref->is_generic_alias()) {
+          err("type `{}` circularly references itself", alias_ref).fire(range, cur_f);
+        }
         if (alias_ref->genericTs->size_no_defaults() == 0) {    // `type U<T = int>`: use all defaults
           return instantiate_generic_type_or_fire(cur_f, range, TypeDataAlias::create(alias_ref), {});
         }
@@ -278,9 +295,14 @@ class TypeNodesVisitorResolver {
     }
     if (StructPtr struct_ref = sym->try_as<StructPtr>()) {
       if (!visited_structs.contains(struct_ref)) {
-        visit_symbol(struct_ref);
+        ensure_struct_genericTs_resolved(struct_ref);
       }
-      if (struct_ref->is_generic_struct() && !allow_without_type_arguments) {
+      // check AST for genericsT_list, not is_generic_struct(), see above
+      bool has_generic_params = struct_ref->ast_root->as<ast_struct_declaration>()->genericsT_list != nullptr;
+      if (has_generic_params && !allow_without_type_arguments) {
+        if (!struct_ref->is_generic_struct()) {
+          err("type `{}` circularly references itself", struct_ref).fire(range, cur_f);
+        }
         if (struct_ref->genericTs->size_no_defaults() == 0) {   // `struct Resp<T = cell>`: use all defaults
           return instantiate_generic_type_or_fire(cur_f, range, TypeDataStruct::create(struct_ref), {});
         }
@@ -349,8 +371,8 @@ class TypeNodesVisitorResolver {
 
   static void validate_resulting_union_type(const TypeDataUnion* t_union, FunctionPtr cur_f, SrcRange range) {
     for (TypePtr variant : t_union->variants) {
-      if (variant == TypeDataVoid::create() || variant == TypeDataNever::create() || variant == TypeDataUnknown::create()) {
-        err_void_type_not_allowed_inside_union(variant).fire(range, cur_f);
+      if (variant == TypeDataNever::create() || variant == TypeDataUnknown::create()) {
+        err_never_type_not_allowed_inside_union(variant).fire(range, cur_f);
       }
     }
   }
@@ -405,13 +427,13 @@ public:
     if (contains) {
       err("type `{}` circularly references itself", alias_ref).fire(alias_ref->ident_anchor);
     }
+    called_stack.push_back(alias_ref);
 
     if (auto v_genericsT_list = alias_ref->ast_root->as<ast_type_alias_declaration>()->genericsT_list) {
       const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
       alias_ref->mutate()->assign_resolved_genericTs(genericTs);
     }
 
-    called_stack.push_back(alias_ref);
     TypeNodesVisitorResolver visitor(nullptr, alias_ref->genericTs, alias_ref->substitutedTs, false);
     TypePtr underlying_type = visitor.finalize_type_node(alias_ref->underlying_type_node);
     alias_ref->mutate()->assign_resolved_type(underlying_type);
@@ -422,16 +444,20 @@ public:
   static void visit_symbol(StructPtr struct_ref) {
     visited_structs.insert({struct_ref, 1});
 
-    if (auto v_genericsT_list = struct_ref->ast_root->as<ast_struct_declaration>()->genericsT_list) {
-      const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
-      struct_ref->mutate()->assign_resolved_genericTs(genericTs);
-    }
+    ensure_struct_genericTs_resolved(struct_ref);
 
     TypeNodesVisitorResolver visitor(nullptr, struct_ref->genericTs, struct_ref->substitutedTs, false);
     for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
       StructFieldPtr field_ref = struct_ref->get_field(i);
       TypePtr declared_type = visitor.finalize_type_node(field_ref->type_node);
       field_ref->mutate()->assign_resolved_type(declared_type);
+      if (field_ref->abi_type_node) {
+        TypePtr abi_client_type = visitor.finalize_type_node(field_ref->abi_type_node);
+        if (declared_type->has_genericT_inside() || abi_client_type->has_genericT_inside()) {
+          err("`@abi.clientType` is not allowed for fields with generics").fire(field_ref->abi_type_node);
+        }
+        field_ref->mutate()->assign_resolved_abi_type(abi_client_type);
+      }
     }
   }
 
@@ -608,7 +634,12 @@ public:
       cur_f->mutate()->assign_resolved_genericTs(genericTs);
     }
 
-    type_nodes_visitor = TypeNodesVisitorResolver(cur_f, cur_f->genericTs, cur_f->substitutedTs, false);
+    // allow `T` inside lambdas from a container function
+    FunctionPtr generic_ctx_f = cur_f;
+    while (generic_ctx_f->is_lambda() && generic_ctx_f->base_fun_ref) {
+      generic_ctx_f = generic_ctx_f->base_fun_ref;
+    }
+    type_nodes_visitor = TypeNodesVisitorResolver(cur_f, generic_ctx_f->genericTs, generic_ctx_f->substitutedTs, false);
 
     for (int i = 0; i < cur_f->get_num_params(); ++i) {
       LocalVarPtr param_ref = &cur_f->parameters[i];
@@ -665,6 +696,21 @@ public:
       enum_ref->mutate()->assign_resolved_colon_type(colon_type); // later it will be checked to be intN
     }
   }
+
+  void start_visiting_contract_directive(SrcFilePtr file) {
+    type_nodes_visitor = TypeNodesVisitorResolver(nullptr, nullptr, nullptr, false);
+
+    const ContractDirective* d = file->contract_directive;
+
+    if (d->incomingMessages)      finalize_type_node(d->incomingMessages);
+    if (d->incomingExternal)      finalize_type_node(d->incomingExternal);
+    if (d->outgoingMessages)      finalize_type_node(d->outgoingMessages);
+    if (d->emittedEvents)         finalize_type_node(d->emittedEvents);
+    if (d->thrownErrors)          finalize_type_node(d->thrownErrors);
+    if (d->storage)               finalize_type_node(d->storage);
+    if (d->storageAtDeployment)   finalize_type_node(d->storageAtDeployment);
+    if (d->forceAbiExport)        finalize_type_node(d->forceAbiExport);
+  }
 };
 
 // prevent recursion like `struct A { field: A }`;
@@ -709,6 +755,11 @@ class InfiniteStructSizeDetector {
       err("struct `{}` size is infinity due to recursive fields", struct_ref).fire(struct_ref->ident_anchor);
     }
 
+    // Some nominal references intentionally defer struct fields until a later top-level pass.
+    if (!visited_structs.contains(struct_ref)) {
+      TypeNodesVisitorResolver::visit_symbol(struct_ref);
+    }
+
     called_stack.push_back(struct_ref);
     for (StructFieldPtr field_ref : struct_ref->fields) {
       visit_type_deeply(field_ref->declared_type);
@@ -717,6 +768,10 @@ class InfiniteStructSizeDetector {
   }
 
 public:
+  static void detect_and_fire_if_struct_is_infinite(StructPtr struct_ref) {
+    check_struct_for_infinite_size(struct_ref);
+  }
+
   static void detect_and_fire_if_any_struct_is_infinite() {
     for (auto [struct_ref, _] : visited_structs) {
       check_struct_for_infinite_size(struct_ref);
@@ -730,12 +785,12 @@ void pipeline_resolve_types_and_aliases() {
 
   ResolveTypesInsideFunctionVisitor visitor;
 
-  for (const SrcFile* file : G.all_src_files) {
+  for (SrcFilePtr file : G.all_src_files) {
     for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-      if (auto v_func = v->try_as<ast_function_declaration>(); v_func && !v_func->is_builtin_function()) {
-        tolk_assert(v_func->fun_ref);
-        if (visitor.should_visit_function(v_func->fun_ref)) {
-          visitor.start_visiting_function(v_func->fun_ref, v_func);
+      if (auto v_fun = v->try_as<ast_function_declaration>()) {
+        // v_fun->fun_ref may be nullptr if it's `get fun` implicitly imported and ignored because of `contract`
+        if (v_fun->fun_ref && visitor.should_visit_function(v_fun->fun_ref)) {
+          visitor.start_visiting_function(v_fun->fun_ref, v_fun);
         }
 
       } else if (auto v_global = v->try_as<ast_global_var_declaration>()) {
@@ -760,6 +815,10 @@ void pipeline_resolve_types_and_aliases() {
 
       } else if (auto v_enum = v->try_as<ast_enum_declaration>()) {
         visitor.start_visiting_enum_members(v_enum->enum_ref);
+
+      } else if (v->try_as<ast_contract_directive>()) {
+        tolk_assert(file->has_contract_directive());
+        visitor.start_visiting_contract_directive(file);
       }
     }
   }
@@ -779,6 +838,7 @@ void pipeline_resolve_types_and_aliases(FunctionPtr fun_ref) {
 void pipeline_resolve_types_and_aliases(StructPtr struct_ref) {
   ResolveTypesInsideFunctionVisitor().start_visiting_struct_fields(struct_ref);
   TypeNodesVisitorResolver::visit_symbol(struct_ref);
+  InfiniteStructSizeDetector::detect_and_fire_if_struct_is_infinite(struct_ref);
 }
 
 void pipeline_resolve_types_and_aliases(AliasDefPtr alias_ref) {

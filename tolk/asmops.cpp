@@ -195,7 +195,7 @@ AsmOp AsmOp::BoolConst(AnyV origin, bool f) {
   return AsmOp::Const(origin, f ? "TRUE" : "FALSE");
 }
 
-AsmOp AsmOp::Parse(AnyV origin, const std::string& custom_op) {
+AsmOp AsmOp::Parse(AnyV origin, std::string custom_op, int args, int retv) {
   if (custom_op == "NOP") {
     return AsmOp::Nop(origin);
   } else if (custom_op == "SWAP") {
@@ -209,17 +209,8 @@ AsmOp AsmOp::Parse(AnyV origin, const std::string& custom_op) {
   } else if (custom_op == "OVER") {
     return AsmOp::Push(origin, 1);
   } else {
-    return AsmOp::Custom(origin, custom_op);
+    return AsmOp::Custom(origin, std::move(custom_op), args, retv);
   }
-}
-
-AsmOp AsmOp::Parse(AnyV origin, std::string custom_op, int args, int retv) {
-  auto res = Parse(origin, custom_op);
-  if (res.is_custom()) {
-    res.a = args;
-    res.b = retv;
-  }
-  return res;
 }
 
 int AsmOp::out(std::ostream& os) const {
@@ -229,7 +220,6 @@ int AsmOp::out(std::ostream& os) const {
   }
   switch (t) {
     case a_nop:
-    case a_comment:
       return 0;
     case a_xchg:
       if (!a && !(b & -2)) {
@@ -252,6 +242,41 @@ int AsmOp::out(std::ostream& os) const {
       }
       os << SReg(a) << " POP";
       return SReg(a).calc_out_strlen() + 4;
+    case a_debug_mark: {
+      os << a << ' ';   // `a` is mark_id
+      int len = (a < 10 ? 1 : a < 100 ? 2 : a < 1000 ? 3 : 4) + 1;
+      if (std::holds_alternative<DebugMarkLocation>(debug_mark)) {
+        os << "MARK_LOC";
+        len += 8;
+      } else if (std::holds_alternative<DebugMarkCurrentStack>(debug_mark)) {
+        os << "MARK_STACK";
+        len += 10;
+      } else if (std::holds_alternative<DebugMarkEnterFunction>(debug_mark)) {
+        os << "MARK_ENTER_FUN";
+        len += 14;
+      } else if (std::holds_alternative<DebugMarkLeaveFunction>(debug_mark)) {
+        os << "MARK_LEAVE_FUN";
+        len += 14;
+      } else if (std::holds_alternative<DebugMarkLocalVar>(debug_mark)) {
+        os << "MARK_VAR";
+        len += 8;
+      } else if (std::holds_alternative<DebugMarkScopeStart>(debug_mark)) {
+        os << "MARK_SCOPE_START";
+        len += 16;
+      } else if (std::holds_alternative<DebugMarkScopeEnd>(debug_mark)) {
+        os << "MARK_SCOPE_END";
+        len += 14;
+      } else if (std::holds_alternative<DebugMarkSmartCast>(debug_mark)) {
+        os << "MARK_SMART_CAST";
+        len += 15;
+      } else if (std::holds_alternative<DebugMarkSetGlob>(debug_mark)) {
+        os << "MARK_SET_GLOB";
+        len += 13;
+      } else {
+        tolk_assert(false);
+      }
+      return len;
+    }
     default:
       throw Fatal("unknown assembler operation");
   }

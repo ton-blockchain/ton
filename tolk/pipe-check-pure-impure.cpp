@@ -57,6 +57,10 @@ class CheckImpureOperationsInPureFunctionVisitor final : public ASTVisitorFuncti
     err_impure_operation_inside_pure_function().collect(v, cur_f);
   }
 
+  void visit(V<ast_try_catch_statement> v) override {
+    err_impure_operation_inside_pure_function().collect(v, cur_f);
+  }
+
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
     return fun_ref->is_code_function() && !fun_ref->is_generic_function() && fun_ref->is_marked_as_pure();

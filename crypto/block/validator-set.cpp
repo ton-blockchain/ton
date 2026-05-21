@@ -18,6 +18,7 @@
 
 #include "auto/tl/ton_api.h"
 #include "block/block.h"
+#include "ton/ton-io.hpp"
 
 #include "mc-config.h"
 #include "validator-set.h"
@@ -42,6 +43,7 @@ ValidatorSet::ValidatorSet(ton::CatchainSeqno cc_seqno, ton::ShardIdFull from, s
   ids_map_.reserve(ids_.size());
 
   for (std::size_t i = 0; i < ids_.size(); i++) {
+    // Validator sets loaded from config are capped at 2^61, so this sum fits in uint64.
     total_weight_ += ids_[i].weight;
     ids_map_.emplace_back(ton::PublicKey{ton::pubkeys::Ed25519{ids_[i].key}}.compute_short_id().bits256_value(), i);
   }
@@ -88,11 +90,10 @@ Ref<ValidatorSet> ValidatorSetCompute::compute_validator_set(ton::ShardIdFull sh
   if (!config_) {
     return {};
   }
-  LOG(DEBUG) << "in compute_validator_set() for " << shard.to_str();
+  LOG(DEBUG) << "in compute_validator_set() for " << shard;
   auto nodes = config_->compute_validator_set(shard, vset, time, cc_seqno);
   if (nodes.empty()) {
-    LOG(ERROR) << "compute_validator_set() for " << shard.to_str() << "," << time << "," << cc_seqno
-               << " returned empty list";
+    LOG(ERROR) << "compute_validator_set() for " << shard << "," << time << "," << cc_seqno << " returned empty list";
     return {};
   }
   return Ref<ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};

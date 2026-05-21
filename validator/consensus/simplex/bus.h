@@ -127,10 +127,6 @@ struct StateResolver {
   static void register_in(td::actor::Runtime&);
 };
 
-struct MetricCollector {
-  static void register_in(td::actor::Runtime&);
-};
-
 struct Db {
   static void register_in(td::actor::Runtime&);
 };

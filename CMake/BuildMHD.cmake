@@ -46,6 +46,11 @@ elseif (MSVC)
     /p:OutDir=${MHD_MSVC_OUT_DIR}
     /p:IntDir=${MHD_MSVC_INT_DIR}
   )
+  # lld-link can't link MSVC LTCG (/GL) object files emitted by libmicrohttpd.
+  # Force-disable whole program optimization in that case.
+  if (CMAKE_LINKER MATCHES "lld-link(\\.exe)?$")
+    list(APPEND MHD_MSBUILD_ARGS /p:WholeProgramOptimization=false)
+  endif()
   if (MHD_MSVC_TOOLSET)
     list(APPEND MHD_MSBUILD_ARGS /p:PlatformToolset=${MHD_MSVC_TOOLSET})
   endif()

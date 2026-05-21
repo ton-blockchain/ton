@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "adnl/adnl.h"
-#include "catchain/catchain-types.h"
 #include "dht/dht.h"
 #include "interfaces/block-handle.h"
 #include "interfaces/block.h"
@@ -314,6 +313,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   //virtual void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   virtual void sync_complete(td::Promise<td::Unit> promise) = 0;
+  virtual void wait_initial_sync(td::Promise<td::Unit> promise) = 0;
 
   virtual void get_top_masterchain_state(td::Promise<td::Ref<MasterchainState>> promise) = 0;
   virtual void get_top_masterchain_block(td::Promise<BlockIdExt> promise) = 0;
@@ -321,6 +321,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
       td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
   virtual void get_last_liteserver_state_block(
       td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
+  virtual void get_shard_client_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
 
   virtual void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
@@ -358,6 +359,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void add_ext_server_id(adnl::AdnlNodeIdShort id) = 0;
   virtual void add_ext_server_port(td::uint16 port) = 0;
+  virtual void notify_added_initial_liteservers() {
+  }
+  virtual void wait_liteserver_ready(td::Promise<td::Unit> promise) = 0;
 
   virtual void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
                                   td::Promise<std::unique_ptr<ActionToken>> promise) = 0;

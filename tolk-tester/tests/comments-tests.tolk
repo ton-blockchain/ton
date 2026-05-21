@@ -64,7 +64,7 @@ fun main() {
   demo_fields_def() PROC:<{   	//  x
     // 13: f1: x + C_20
     20 ADDCONST             	//  '2
-    // 4: f2: int = 10
+    // 12: var w: WithDef =
     10 PUSHINT              	//  '2 '3=10
     // 14: f3: 100
     100 PUSHINT              	//  w.f1 w.f2=10 w.f3=100
@@ -77,12 +77,11 @@ fun main() {
 @fif_codegen
 """
   demo_call_def() PROC:<{       //  x
-    // 26: var x2 = x * x
     DUP                         //  x x
+    // 26: var x2 = x * x
     MUL                         //  x2
-    // 21: fun add(x: int, y: int = 0)
-    0 PUSHINT                   //  x2 '3=0
     // 27: return add(x2)
+    0 PUSHINT                   //  x2 '3=0
     add() CALLDICT              //  '4
   }>
 """
@@ -92,11 +91,8 @@ fun main() {
   call_some_calc() PROC:<{      // 
     // 48: return some_calc(-10)
     -10 PUSHINT                 //  '0=-10
-    // 31: calcAbs: bool = true
     TRUE                        //  '0=-10 '1
-    // 38: options: MyOptions = { coeff: 2 }
     2 PUSHINT                   //  '0=-10 '1 '2=2
-    // 48: return some_calc(-10)
     some_calc() CALLDICT        //  '3
   }>
 """

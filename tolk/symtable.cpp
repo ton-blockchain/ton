@@ -26,7 +26,7 @@ void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) c
 #ifdef TOLK_DEBUG
   tolk_assert(ident_anchor != nullptr);
 #endif
-  const SrcFile* declared_in = ident_anchor->range.get_src_file();
+  SrcFilePtr declared_in = ident_anchor->range.get_src_file();
   bool has_import = false;
   for (const SrcFile::ImportDirective& import : usage->range.get_src_file()->imports) {
     has_import |= import.imported_file == declared_in;
@@ -101,7 +101,6 @@ bool FunctionData::does_need_codegen() const {
 void FunctionData::assign_resolved_receiver_type(TypePtr receiver_type, std::string&& name_prefix) {
   this->receiver_type = receiver_type;
   if (!this->substitutedTs) {   // after receiver has been resolve, update name to "receiver.method"
-    name_prefix.erase(std::remove(name_prefix.begin(), name_prefix.end(), ' '), name_prefix.end());
     this->name = name_prefix + "." + this->method_name;
   }
 }
@@ -207,6 +206,10 @@ void StructFieldData::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
 }
 
+void StructFieldData::assign_resolved_abi_type(TypePtr abi_client_type) {
+  this->abi_client_type = abi_client_type;
+}
+
 void StructFieldData::assign_default_value(AnyExprV default_value) {
   this->default_value = default_value;
 }
@@ -230,16 +233,21 @@ StructFieldPtr StructData::find_field(std::string_view field_name) const {
   return nullptr;
 }
 
-// formats opcode as "x{...}" or "b{...}"
-std::string StructData::PackOpcode::format_as_slice() const {
+// formats opcode as hex-bin "0x..." / "0b..." or as a Fift slice "x{...}" / "b{...}"
+std::string StructData::PackOpcode::format_as_string(bool as_fift_slice) const {
   const int base = prefix_len % 4 == 0 ? 16 : 2;
   const int s_len = base == 16 ? prefix_len / 4 : prefix_len;
   const char* digits = "0123456789abcdef";
 
-  std::string result(s_len + 3, '0');
-  result[0] = base == 16 ? 'x' : 'b';
-  result[1] = '{';
-  result[s_len + 3 - 1] = '}';
+  std::string result(s_len + 2 + as_fift_slice, '0');
+  if (as_fift_slice) {
+    result[0] = base == 16 ? 'x' : 'b';
+    result[1] = '{';
+    result[s_len + 3 - 1] = '}';
+  } else {
+    result[0] = '0';
+    result[1] = base == 16 ? 'x' : 'b';
+  }
   int64_t opcode = pack_prefix;
   for (int i = s_len - 1; i >= 0 && opcode != 0; --i) {
     result[2 + i] = digits[opcode % base];

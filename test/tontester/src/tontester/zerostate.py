@@ -22,6 +22,8 @@ class SimplexConsensusConfig:
     slots_per_leader_window: int = 4
     first_block_timeout_ms: int = 1000
     max_leader_window_desync: int = 2
+    use_quic: bool = False
+    use_block_sync: bool = False
 
 
 @dataclass
@@ -323,18 +325,17 @@ def create_zerostate(
     new_consensus_config = ""
     for consensus_config in (config.mc_consensus, config.shard_consensus):
         if isinstance(consensus_config, SimplexConsensusConfig):
-            params = " ".join(
-                map(
-                    str,
-                    [
-                        consensus_config.target_block_rate_ms,
-                        consensus_config.slots_per_leader_window,
-                        consensus_config.first_block_timeout_ms,
-                        consensus_config.max_leader_window_desync,
-                    ],
-                )
+            new_consensus_config += (
+                "dictnew\n"
+                f"<b {consensus_config.target_block_rate_ms} 32 u, b> <s 0 rot 8 udict! drop\n"
+                f"<b {consensus_config.first_block_timeout_ms} 32 u, b> <s 1 rot 8 udict! drop\n"
+                f"<b {consensus_config.max_leader_window_desync} 32 u, b> <s 10 rot 8 udict! drop\n"
+                "<b x{22} s, 0 6 u, "
+                f"{int(consensus_config.use_block_sync)} 1 u, "
+                f"{int(consensus_config.use_quic)} 1 u, "
+                f"{consensus_config.slots_per_leader_window} 32 u, "
+                "swap dict, b>\n"
             )
-            new_consensus_config += f"{params} make-simplex-params\n"
         else:
             new_consensus_config += "null\n"
 

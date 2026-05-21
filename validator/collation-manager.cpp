@@ -21,6 +21,7 @@
 #include "collator-node/collator-node.hpp"
 #include "collator-node/utils.hpp"
 #include "td/utils/Random.h"
+#include "ton/ton-io.hpp"
 
 #include "collation-manager.hpp"
 #include "fabric.h"
@@ -62,8 +63,7 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
   TRY_STATUS_PROMISE(promise, cancellation_token.check());
   ShardInfo* s = select_shard_info(shard);
   if (s == nullptr) {
-    promise.set_error(
-        td::Status::Error(PSTRING() << "shard " << shard.to_str() << " is not configured in collators list"));
+    promise.set_error(td::Status::Error(PSTRING() << "shard " << shard << " is not configured in collators list"));
     return;
   }
 
@@ -158,8 +158,8 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
     if (!selected_collator.is_zero()) {
       td::actor::send_closure(SelfId, &CollationManager::on_collate_query_error, selected_collator);
     }
-    LOG(INFO) << "ERROR: collate query for " << next_block_id.to_str() << " to #" << selected_idx << " ("
-              << selected_collator << "): " << R.error();
+    LOG(INFO) << "ERROR: collate query for " << next_block_id << " to #" << selected_idx << " (" << selected_collator
+              << "): " << R.error();
     if (timeout < retry_at) {
       promise.set_error(R.move_as_error());
       return;
@@ -174,14 +174,14 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
   };
 
   if (selected_collator.is_zero()) {
-    P.set_error(td::Status::Error(PSTRING() << "shard " << shard.to_str() << " has no suitable collator node"));
+    P.set_error(td::Status::Error(PSTRING() << "shard " << shard << " has no suitable collator node"));
     return;
   }
 
   td::BufferSlice query = create_serialize_tl_object<ton_api::collatorNode_generateBlock>(
       create_tl_shard_id(shard), validator_set->get_catchain_seqno(), std::move(prev_blocks), creator.as_bits256(),
       priority.round, priority.first_block_round, priority.priority);
-  LOG(INFO) << "sending collate query for " << next_block_id.to_str() << ": send to #" << selected_idx << "("
+  LOG(INFO) << "sending collate query for " << next_block_id << ": send to #" << selected_idx << "("
             << selected_collator << ")";
 
   td::Promise<td::BufferSlice> P2 = [=, SelfId = actor_id(this), P = std::move(P),
@@ -203,8 +203,8 @@ void CollationManager::collate_shard_block(ShardIdFull shard, BlockIdExt min_mas
       P.set_error(td::Status::Error("collate query: block id mismatch"));
       return;
     }
-    LOG(INFO) << "got collated block " << next_block_id.to_str() << " from #" << selected_idx << " ("
-              << selected_collator << ") in " << timer.elapsed() << "s";
+    LOG(INFO) << "got collated block " << next_block_id << " from #" << selected_idx << " (" << selected_collator
+              << ") in " << timer.elapsed() << "s";
     P.set_result(std::move(candidate));
   };
   td::actor::send_closure(rldp_, &rldp2::Rldp::send_query_ex, local_id_, selected_collator, "collatequery",

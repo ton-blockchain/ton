@@ -272,6 +272,8 @@ class TolkTestFile {
         this.input_output = []
         /** @type {TolkTestCaseFifCodegen[]} */
         this.fif_codegen = []
+        /** @type {TolkTestCaseFifCodegen[]} */
+        this.abi_json = []
         /** @type {TolkTestCaseExpectedHash | null} */
         this.expected_hash = null
         /** @type {Object} */
@@ -311,6 +313,10 @@ class TolkTestFile {
                 this.enable_tolk_lines_comments = true
             } else if (line.startsWith("@fif_codegen")) {
                 this.fif_codegen.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), false))
+            } else if (line.startsWith("@abi_json_avoid")) {
+                this.abi_json.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), true))
+            } else if (line.startsWith("@abi_json")) {
+                this.abi_json.push(new TolkTestCaseFifCodegen(this.parse_string_value(lines), false))
             } else if (line.startsWith("@code_hash")) {
                 this.expected_hash = new TolkTestCaseExpectedHash(this.parse_string_value(lines, false)[0])
             } else if (line.startsWith("@path_mapping")) {
@@ -363,10 +369,13 @@ class TolkTestFile {
 
     async run_and_check() {
         const wasmModule = await compileWasm(TOLKFIFTLIB_MODULE, TOLKFIFTLIB_WASM)
-        let res = compileFile(wasmModule, this.tolk_filename, this.enable_tolk_lines_comments, this.path_mappings)
+        let outputStr = compileFile(wasmModule, this.tolk_filename, this.enable_tolk_lines_comments, this.path_mappings)
+        /** @var {{status: string, message: string, fiftCode: string, codeBoc: string, codeHashHex: string, abiJson: Object}} */
+        let res = JSON.parse(outputStr);
         let exit_code = res.status === 'ok' ? 0 : 1
         let stderr = res.message || res.stderr
         let stdout = ''
+        let abiJson = res.abiJson
 
         if (exit_code === 0 && this.compilation_should_fail)
             throw new TolkCompilationSucceededError("compilation succeeded, but it should have failed")
@@ -414,6 +423,12 @@ class TolkTestFile {
             const fif_output = fs.readFileSync(this.get_compiled_fif_filename(), 'utf-8').split(/\r?\n/)
             for (let fif_codegen of this.fif_codegen)
                 fif_codegen.check(fif_output)
+        }
+
+        if (this.abi_json.length) {
+            const abi_output = outputStr.substring(outputStr.indexOf("\"abiJson\":"), outputStr.indexOf("\"compiler_version\"")).split('\n')
+            for (let abi_json of this.abi_json)
+                abi_json.check(abi_output)
         }
 
         if (this.expected_hash !== null)
@@ -505,7 +520,7 @@ function copyFromCString(mod, ptr) {
     return mod.UTF8ToString(ptr);
 }
 
-/** @return {{status: string, message: string, fiftCode: string, codeBoc: string, codeHashHex: string}} */
+/** @return string */
 function compileFile(mod, filename, withSrcLineComments, pathMappings) {
     // see tolk-wasm.cpp: typedef void (*WasmFsReadCallback)(int, char const*, char**, char**)
     const callbackPtr = mod.addFunction((kind, dataPtr, destContents, destError) => {
@@ -566,6 +581,7 @@ function compileFile(mod, filename, withSrcLineComments, pathMappings) {
         optimizationLevel: 2,
         withStackComments: true,
         withSrcLineComments: withSrcLineComments,
+        withSymbolTypes: false,
         entrypointFileName: filename
     };
 
@@ -573,7 +589,7 @@ function compileFile(mod, filename, withSrcLineComments, pathMappings) {
 
     const responsePtr = mod._tolk_compile(configPtr, callbackPtr);
 
-    return JSON.parse(copyFromCString(mod, responsePtr));
+    return copyFromCString(mod, responsePtr);
 }
 
 async function compileWasm(tolkFiftLibJsFileName, tolkFiftLibWasmFileName) {

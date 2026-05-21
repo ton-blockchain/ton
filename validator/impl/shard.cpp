@@ -20,6 +20,7 @@
 #include "block/block-parse.h"
 #include "td/db/utils/BlobView.h"
 #include "td/utils/filesystem.h"
+#include "ton/ton-io.hpp"
 #include "vm/boc.h"
 #include "vm/cells/MerkleUpdate.h"
 #include "vm/cellslice.h"
@@ -243,8 +244,8 @@ td::Result<td::Ref<ShardState>> ShardStateQ::merge_with(const ShardState& with) 
   }
   auto shard1 = blkid.shard_full(), shard2 = other.blkid.shard_full();
   if (shard1 == shard2 || !ton::shard_is_sibling(shard1, shard2)) {
-    return td::Status::Error(-666, PSTRING() << "cannot merge states of shards " << shard1.to_str() << " and "
-                                             << shard2.to_str() << " that are not siblings");
+    return td::Status::Error(
+        -666, PSTRING() << "cannot merge states of shards " << shard1 << " and " << shard2 << " that are not siblings");
   }
   Ref<vm::Cell> root, root1 = root_cell(), root2 = other.root_cell();
   if (shard1.shard > shard2.shard) {
@@ -406,8 +407,8 @@ td::Status MasterchainStateQ::apply_block(BlockIdExt id, td::Ref<BlockData> bloc
   config_.reset();
   err = mc_reinit();
   if (err.is_error()) {
-    LOG(ERROR) << "cannot extract masterchain-specific state data from newly-computed state for block "
-               << id.id.to_str() << " : " << err.to_string();
+    LOG(ERROR) << "cannot extract masterchain-specific state data from newly-computed state for block " << id.id
+               << " : " << err.to_string();
   }
   return err;
 }
@@ -425,7 +426,7 @@ Ref<block::ValidatorSet> MasterchainStateQ::compute_validator_set(ShardIdFull sh
   if (!config_) {
     return {};
   }
-  LOG(DEBUG) << "in compute_validator_set() for " << shard.to_str();
+  LOG(DEBUG) << "in compute_validator_set() for " << shard;
   auto nodes = config_->compute_validator_set_cc(shard, vset, time, &ccseqno);
   if (nodes.empty()) {
     return {};

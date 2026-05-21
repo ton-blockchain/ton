@@ -17,6 +17,8 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
+#include "compiler-state.h"
+#include "contract-directive.h"
 #include "pack-unpack-api.h"
 #include "maps-kv-api.h"
 #include "generics-helpers.h"
@@ -62,7 +64,9 @@ static void check_map_TKey_TValue(SrcRange range, TypePtr TKey, TypePtr TValue) 
 GNU_ATTRIBUTE_NOINLINE
 static void check_mapKV_inside_type(SrcRange range, TypePtr any_type) {
   any_type->replace_children_custom([range](TypePtr child) {
-    if (const TypeDataMapKV* t_map = child->try_as<TypeDataMapKV>()) {
+    if (const TypeDataAlias* t_alias = child->try_as<TypeDataAlias>()) {
+      check_mapKV_inside_type(range, t_alias->underlying_type);
+    } else if (const TypeDataMapKV* t_map = child->try_as<TypeDataMapKV>(); t_map && !t_map->has_genericT_inside()) {
       check_map_TKey_TValue(range, t_map->TKey, t_map->TValue);
     }
     return child;
@@ -70,22 +74,84 @@ static void check_mapKV_inside_type(SrcRange range, TypePtr any_type) {
 }
 
 static void check_mapKV_inside_type(AnyTypeV type_node) {
-  if (type_node && type_node->resolved_type->has_mapKV_inside()) {
-    check_mapKV_inside_type(type_node->range, type_node->resolved_type);
+  if (type_node) {
+    TypePtr checked_type = type_node->resolved_type->unwrap_alias();
+    if (checked_type->has_mapKV_inside()) {
+      check_mapKV_inside_type(type_node->range, checked_type);
+    }
   }
 }
 
+// check `@abi.clientType` annotation over a struct field: it must be serializable
+static void check_abi_client_type_can_be_serialized(StructFieldPtr field_ref) {
+  std::string because_msg;
+  if (!check_struct_can_be_packed_or_unpacked(field_ref->abi_client_type, true, &because_msg)) {
+    err("invalid `@abi.clientType`: type `{}` can not be serialized\n{}", field_ref->abi_client_type, because_msg).collect(field_ref->abi_type_node);
+  }
+}
+
+// validate a contract directive item (e.g., `incomingMessages: T`) to be serializable
+static void check_contract_directive_item(AnyTypeV type_node, std::string_view prop_name) {
+  if (type_node == nullptr) {
+    return;
+  }
+  TypePtr root_type = type_node->resolved_type;
+  if (root_type == nullptr || root_type == TypeDataNullLiteral::create()) {
+    return;
+  }
+
+  std::string because_msg;
+  if (!check_struct_can_be_packed_or_unpacked(root_type, true, &because_msg) ||
+      !check_struct_can_be_packed_or_unpacked(root_type, false, &because_msg)) {
+    err("`{}` can not be serialized: type `{}`\n{}", prop_name, root_type, because_msg).collect(type_node);
+  }
+}
+
+// validate every type referenced by the `contract {...}` directive of the entrypoint file;
+// prevent `storage: int` and other non-serializable types to leak into `out.abi.json`
+static void check_contract_directive_serializability() {
+  SrcFilePtr entrypoint_file = G.all_src_files.get_entrypoint_file();
+  if (!entrypoint_file->has_contract_directive()) {
+    return;
+  }
+  const ContractDirective* d = entrypoint_file->contract_directive;
+
+  check_contract_directive_item(d->incomingMessages,    "incomingMessages");
+  check_contract_directive_item(d->incomingExternal,    "incomingExternal");
+  check_contract_directive_item(d->outgoingMessages,    "outgoingMessages");
+  check_contract_directive_item(d->emittedEvents,       "emittedEvents");
+  check_contract_directive_item(d->storage,             "storage");
+  check_contract_directive_item(d->storageAtDeployment, "storageAtDeployment");
+  // forceAbiExport is not required to be serialized (maybe, it's used only to refer to from TS)
+  // thrownErrors is validated separately (must be an enum) in pipe-collect-abi.cpp
+}
+
 // given `enum Role: int8` check colon type (not struct/slice etc.)
-static void check_enum_colon_type_to_be_intN(AnyTypeV colon_type_node) {
+static bool check_enum_colon_type_to_be_intN(EnumDefPtr enum_ref, AnyTypeV colon_type_node) {
+  bool colon_valid = true;
   if (!colon_type_node->resolved_type->try_as<TypeDataIntN>() && !colon_type_node->resolved_type->try_as<TypeDataCoins>()) {
     err("serialization type of `enum` must be intN: `int8` / `uint32` / etc.").collect(colon_type_node);
+    colon_valid = false;
   }
+  // having `enum Some: int8` validate that all members fit int8
+  if (const TypeDataIntN* t_intN = colon_type_node->resolved_type->try_as<TypeDataIntN>(); t_intN && !t_intN->is_variadic) {
+    for (EnumMemberPtr member_ref : enum_ref->members) {
+      if (!member_ref->computed_value->fits_bits(t_intN->n_bits, !t_intN->is_unsigned)) {
+        err("member `{}` = {} does not fit into `{}`", member_ref->name, member_ref->computed_value->to_dec_string(), t_intN).collect(enum_ref->ident_anchor);
+        colon_valid = false;
+      }
+    }
+  }
+  return colon_valid;
 }
 
 
 class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody {
 
   static void check_type_fits_cell_or_has_policy(TypePtr serialized_type) {
+    if (serialized_type->try_as<TypeDataAlias>() && get_custom_pack_unpack_function(serialized_type)) {
+      return;   // we can't analyze custom serializers, don't go deep
+    }
     if (const TypeDataStruct* s_struct = serialized_type->unwrap_alias()->try_as<TypeDataStruct>()) {
       check_struct_fits_cell_or_has_policy(s_struct);
     } else if (const TypeDataUnion* s_union = serialized_type->unwrap_alias()->try_as<TypeDataUnion>()) {
@@ -117,6 +183,9 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     parent::visit(v);
 
     FunctionPtr fun_ref = v->fun_maybe;
+    if (fun_ref && fun_ref->receiver_type) {
+      check_mapKV_inside_type(v->range, fun_ref->receiver_type);
+    }
     if (!fun_ref || !fun_ref->is_builtin() || !fun_ref->is_instantiation_of_generic_function()) {
       return;
     }
@@ -141,6 +210,12 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
 
     if (!fun_ref->name.starts_with("reflect.")) {
       check_type_fits_cell_or_has_policy(serialized_type);
+    }
+  }
+
+  void visit(V<ast_reference> v) override {
+    if (v->sym->try_as<FunctionPtr>()) {
+      check_mapKV_inside_type(v->range, v->inferred_type);
     }
   }
 
@@ -172,26 +247,41 @@ public:
     for (int i = 0; i < cur_f->get_num_params(); ++i) {
       check_mapKV_inside_type(cur_f->get_param(i).type_node);
     }
+    check_mapKV_inside_type(cur_f->return_type_node);
   }
 };
 
 void pipeline_check_serialized_fields() {
+  bool all_enums_valid = true;
+  for (EnumDefPtr enum_ref : get_all_declared_enums()) {
+    if (enum_ref->colon_type_node) {
+      all_enums_valid &= check_enum_colon_type_to_be_intN(enum_ref, enum_ref->colon_type_node);
+    }
+  }
+  if (!all_enums_valid) {
+    return;   // otherwise, we can't estimate size of serialized types that contain invalid enums
+  }
+
   CheckSerializedFieldsAndTypesVisitor visitor;
   visit_ast_of_all_functions(visitor);
 
   for (StructPtr struct_ref : get_all_declared_structs()) {
     for (StructFieldPtr field_ref : struct_ref->fields) {
       check_mapKV_inside_type(field_ref->type_node);
+      check_mapKV_inside_type(field_ref->abi_type_node);
+      if (field_ref->abi_client_type) {
+        check_abi_client_type_can_be_serialized(field_ref);
+      }
     }
   }
   for (GlobalVarPtr glob_ref : get_all_declared_global_vars()) {
     check_mapKV_inside_type(glob_ref->type_node);
   }
-  for (EnumDefPtr enum_ref : get_all_declared_enums()) {
-    if (enum_ref->colon_type_node) {
-      check_enum_colon_type_to_be_intN(enum_ref->colon_type_node);
-    }
+  for (GlobalConstPtr const_ref : get_all_declared_constants()) {
+    check_mapKV_inside_type(const_ref->type_node);
   }
+
+  check_contract_directive_serializability();
 }
 
 } // namespace tolk
