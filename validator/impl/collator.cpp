@@ -5424,22 +5424,29 @@ bool Collator::check_block_overload() {
             << " collated_size_estimate=" << block_limit_status_->collated_data_size_estimate;
   block_limit_class_ = std::max(block_limit_class_, block_limit_status_->classify());
 
-  bool too_long_collation = false;
+  bool long_collation_overload = false;
+  bool long_collation_underload = false;
   if (params_.wait_externals_until) {
     double do_collate_time = td::Timestamp::now() - do_collate_started_at_;
     double total_time = td::Timestamp::now() - collator_started_at_;
+    stats_.check_load_do_collate_time = do_collate_time;
+    stats_.check_load_total_time = total_time;
     LOG(INFO) << "Check block overload timers: wait_externals=" << wait_externals_total_time_
               << " do_collate=" << do_collate_time << " total=" << total_time;
     if (total_time > 0.1 && wait_externals_total_time_ < total_time * 0.2 && do_collate_time > total_time * 0.6) {
-      too_long_collation = true;
+      long_collation_overload = true;
+    }
+    if (total_time > 0.1 && wait_externals_total_time_ < total_time * 0.7 && do_collate_time > total_time * 0.6) {
+      long_collation_underload = true;
     }
   }
 
-  if (block_limit_class_ >= block::ParamLimits::cl_soft || dispatch_queue_total_limit_reached_ || too_long_collation) {
+  if (block_limit_class_ >= block::ParamLimits::cl_soft || dispatch_queue_total_limit_reached_ ||
+      long_collation_overload) {
     std::string message = "block is overloaded ";
     if (block_limit_class_ >= block::ParamLimits::cl_soft) {
       message += PSTRING() << "(category " << block_limit_class_ << ")";
-    } else if (too_long_collation) {
+    } else if (long_collation_overload) {
       message += PSTRING() << "(collation takes too long)";
     } else {
       message += "(long dispatch queue processing)";
@@ -5452,7 +5459,9 @@ bool Collator::check_block_overload() {
       LOG(INFO) << message;
     }
   } else if (block_limit_class_ <= block::ParamLimits::cl_underload) {
-    if (out_msg_queue_size_ > MERGE_MAX_QUEUE_SIZE) {
+    if (long_collation_underload) {
+      LOG(INFO) << "block is not underloaded because collation takes too long";
+    } else if (out_msg_queue_size_ > MERGE_MAX_QUEUE_SIZE) {
       LOG(INFO)
           << "block is underloaded, but don't set underload history because out_msg_queue size is too big to merge ("
           << out_msg_queue_size_ << " > " << MERGE_MAX_QUEUE_SIZE << ")";

@@ -992,7 +992,7 @@ validatorStats.collatedBlock
     total_time:double work_time:double cpu_work_time:double time_stats:string
     work_time_real_stats:string
     work_time_cpu_stats:string
-    wait_externals_time:double
+    wait_externals_time:double check_load_do_collate_time:double check_load_total_time:double
     block_limits:validatorStats.blockLimitsStatus
     block_stats:validatorStats.blockStats
     storage_stat_cache:validatorStats.storageStatCacheStats = validatorSession.stats.CollatedBlock;

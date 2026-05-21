@@ -168,6 +168,8 @@ struct CollationStats {
   };
   WorkTimeStats work_time;
   double wait_externals_time = 0.0;
+  double check_load_do_collate_time = -1.0;
+  double check_load_total_time = -1.0;
   StorageStatCacheStats storage_stat_cache;
 
   tl_object_ptr<ton_api::validatorStats_collatedBlock> tl() const {
@@ -188,6 +190,7 @@ struct CollationStats {
         create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
         actual_collated_data_bytes, attempt, self.bits256_value(), is_validator, total_time, work_time.total.real,
         work_time.total.cpu, time_stats, work_time.to_str(false), work_time.to_str(true), wait_externals_time,
+        check_load_do_collate_time, check_load_total_time,
         create_tl_object<ton_api::validatorStats_blockLimitsStatus>(
             estimated_bytes, gas, lt_delta, estimated_collated_data_bytes, cat_bytes, cat_gas, cat_lt_delta,
             cat_collated_data_bytes, load_fraction_queue_cleanup, load_fraction_dispatch, load_fraction_internals,
