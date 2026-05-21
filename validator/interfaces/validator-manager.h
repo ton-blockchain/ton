@@ -167,6 +167,7 @@ struct CollationStats {
     }
   };
   WorkTimeStats work_time;
+  double wait_externals_time = 0.0;
   StorageStatCacheStats storage_stat_cache;
 
   tl_object_ptr<ton_api::validatorStats_collatedBlock> tl() const {
@@ -186,7 +187,7 @@ struct CollationStats {
     return create_tl_object<ton_api::validatorStats_collatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
         actual_collated_data_bytes, attempt, self.bits256_value(), is_validator, total_time, work_time.total.real,
-        work_time.total.cpu, time_stats, work_time.to_str(false), work_time.to_str(true),
+        work_time.total.cpu, time_stats, work_time.to_str(false), work_time.to_str(true), wait_externals_time,
         create_tl_object<ton_api::validatorStats_blockLimitsStatus>(
             estimated_bytes, gas, lt_delta, estimated_collated_data_bytes, cat_bytes, cat_gas, cat_lt_delta,
             cat_collated_data_bytes, load_fraction_queue_cleanup, load_fraction_dispatch, load_fraction_internals,
@@ -215,6 +216,7 @@ struct ValidationStats {
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
+    td::RealCpuTimer::Time check_transactions_other;
     td::RealCpuTimer::Time unpack_state;
     td::RealCpuTimer::Time validate_block_tlb;
     td::RealCpuTimer::Time unpack_block_data;
@@ -227,7 +229,6 @@ struct ValidationStats {
     td::RealCpuTimer::Time check_dispatch_queue;
     td::RealCpuTimer::Time check_processed_upto;
     td::RealCpuTimer::Time check_in_queue;
-    td::RealCpuTimer::Time check_transactions;
     td::RealCpuTimer::Time check_new_state;
 
     std::string to_str(bool is_cpu) const {
@@ -235,6 +236,7 @@ struct ValidationStats {
                        << " unpack_block_candidate=" << unpack_block_candidate.get(is_cpu)
                        << " process_mc_state=" << process_mc_state.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
                        << " trx_storage_stat=" << trx_storage_stat.get(is_cpu) << " trx_other=" << trx_other.get(is_cpu)
+                       << " check_transactions_other=" << check_transactions_other.get(is_cpu)
                        << " unpack_state=" << unpack_state.get(is_cpu)
                        << " validate_block_tlb=" << validate_block_tlb.get(is_cpu)
                        << " unpack_block_data=" << unpack_block_data.get(is_cpu)
@@ -247,7 +249,6 @@ struct ValidationStats {
                        << " check_dispatch_queue=" << check_dispatch_queue.get(is_cpu)
                        << " check_processed_upto=" << check_processed_upto.get(is_cpu)
                        << " check_in_queue=" << check_in_queue.get(is_cpu)
-                       << " check_transactions=" << check_transactions.get(is_cpu)
                        << " check_new_state=" << check_new_state.get(is_cpu);
     }
   };

@@ -6627,6 +6627,7 @@ void Collator::finalize_stats() {
         block_limit_status_->limits.classify_collated_data_size(stats_.estimated_collated_data_bytes);
   }
   stats_.total_time = perf_timer_.elapsed();
+  stats_.wait_externals_time = wait_externals_total_time_;
   stats_.time_stats = (PSTRING() << perf_log_);
   if (is_masterchain() && shard_conf_) {
     shard_conf_->process_shard_hashes([&](const block::McShardHash& shard) {

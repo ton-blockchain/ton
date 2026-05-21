@@ -106,6 +106,14 @@ class RealCpuTimer {
       cpu += other.cpu;
       return *this;
     }
+    Time &operator-=(const Time &other) {
+      real -= other.real;
+      cpu -= other.cpu;
+      return *this;
+    }
+    Time operator+(const Time &other) const {
+      return {.real = real + other.real, .cpu = cpu + other.cpu};
+    }
     Time operator-(const Time &other) const {
       return {.real = real - other.real, .cpu = cpu - other.cpu};
     }
