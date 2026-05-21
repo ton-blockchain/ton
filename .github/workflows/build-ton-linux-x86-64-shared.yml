@@ -5,6 +5,7 @@ on:
     branches: [master, testnet]
     types: [opened, reopened, synchronize]
   push:
+    branches: [master, testnet]
   workflow_dispatch:
   workflow_call:
 
