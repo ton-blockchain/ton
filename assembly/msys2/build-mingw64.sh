@@ -82,7 +82,7 @@ ninja -C "$BUILD_DIR" \
   storage-daemon storage-daemon-cli fift func tolk tonlib tonlibjson tonlib-cli \
   validator-engine lite-client validator-engine-console blockchain-explorer \
   generate-random-id json2tlo dht-server http-proxy rldp-http-proxy \
-  adnl-proxy create-state emulator proxy-liteserver dht-ping-servers dht-resolve
+  create-state emulator proxy-liteserver dht-ping-servers dht-resolve
 
 if [ "$with_artifacts" = true ]; then
   rm -rf artifacts
@@ -106,7 +106,6 @@ if [ "$with_artifacts" = true ]; then
      $BUILD_DIR/validator-engine/validator-engine \
      $BUILD_DIR/utils/generate-random-id \
      $BUILD_DIR/utils/json2tlo \
-     $BUILD_DIR/adnl/adnl-proxy \
      $BUILD_DIR/emulator/libemulator.dll \
      $BUILD_DIR/dht/dht-ping-servers \
      $BUILD_DIR/dht/dht-resolve \

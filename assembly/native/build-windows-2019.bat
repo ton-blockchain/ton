@@ -57,7 +57,7 @@ IF %errorlevel% NEQ 0 (
 IF "%1"=="-t" (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
-json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator ^
+json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator ^
 proxy-liteserver dht-ping-servers dht-resolve all-tests
 IF %errorlevel% NEQ 0 (
   echo Can't compile TON
@@ -66,7 +66,7 @@ IF %errorlevel% NEQ 0 (
 ) else (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id dht-ping-servers dht-resolve ^
-json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator proxy-liteserver
+json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator proxy-liteserver
 IF %errorlevel% NEQ 0 (
   echo Can't compile TON
   exit /b %errorlevel%
@@ -108,7 +108,6 @@ for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
   build\utils\generate-random-id.exe ^
   build\utils\json2tlo.exe ^
   build\utils\proxy-liteserver.exe ^
-  build\adnl\adnl-proxy.exe ^
   build\emulator\emulator.dll) do (
     echo strip -s %%I & copy %%I artifacts\
     strip -s %%I & copy %%I artifacts\

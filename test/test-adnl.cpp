@@ -95,28 +95,6 @@ int main() {
   });
 
   {
-    td::Bits256 proxy_id;
-    td::Random::secure_bytes(proxy_id.as_slice());
-    auto obj = ton::create_tl_object<ton::ton_api::adnl_proxy_fast>(proxy_id, td::BufferSlice{"1234"});
-    auto R = ton::adnl::AdnlProxy::create(*obj.get());
-    R.ensure();
-    auto P = R.move_as_ok();
-    td::BufferSlice z{64};
-    td::Random::secure_bytes(z.as_slice());
-    auto packet = P->encrypt(ton::adnl::AdnlProxy::Packet{15, 2, 3, 4, 5, 6, z.clone()});
-    auto packet2R = P->decrypt(std::move(packet));
-    packet2R.ensure();
-    auto packet2 = packet2R.move_as_ok();
-    CHECK(packet2.flags == 15);
-    CHECK(packet2.ip == 2);
-    CHECK(packet2.port == 3);
-    CHECK(packet2.adnl_start_time == 4);
-    CHECK(packet2.seqno == 5);
-    CHECK(packet2.date == 6);
-    CHECK(packet2.data.as_slice() == z.as_slice());
-  }
-
-  {
     auto f = td::Clocks::system();
     for (int i = 0; i < 10000; i++) {
       auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
