@@ -2,13 +2,17 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <map>
+#include <memory>
 #include <openssl/ssl.h>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "adnl/adnl-node-id.hpp"
 #include "crypto/Ed25519.h"
+#include "crypto/common/refcnt.hpp"
 #include "ngtcp2/ngtcp2.h"
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
@@ -19,6 +23,24 @@
 #include "quic-common.h"
 
 namespace ton::quic {
+
+struct ServerIdentities : td::CntObject {
+  struct Entry {
+    Entry clone() const {
+      return {
+          .local_id = local_id,
+          .key{key.as_octet_string()},
+      };
+    }
+
+    adnl::AdnlNodeIdShort local_id;
+    td::Ed25519::PrivateKey key;
+  };
+  std::map<std::string, Entry> by_sni;
+  std::optional<std::string> default_sni;
+};
+
+[[nodiscard]] std::string compute_sni_name(const adnl::AdnlNodeIdShort& local_id);
 
 struct QuicConnectionOptions {
   static constexpr size_t DEFAULT_INITIAL_MAX_DATA = 4 << 20;
@@ -124,7 +146,11 @@ struct QuicConnectionPImpl {
   class Callback {
    public:
     struct HandshakeCompletedEvent {
-      td::SecureString peer_public_key;  // Ed25519 public key (32 bytes), empty if not available
+      td::SecureString peer_public_key;   // Ed25519 public key (32 bytes), empty if not available
+      td::SecureString local_public_key;  // Ed25519 public key (32 bytes) of the local identity the
+                                          // handshake actually used. For outbound connections it's
+                                          // the client key passed to create_client. For inbound it's
+                                          // the identity selected by SNI (or the default).
     };
     struct StreamDataEvent {
       QuicStreamID sid = 0;
@@ -158,9 +184,9 @@ struct QuicConnectionPImpl {
       QuicConnectionOptions options = {});
 
   [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_server(
-      const td::IPAddress& local_address, const td::IPAddress& remote_address,
-      const td::Ed25519::PrivateKey& server_key, td::Slice alpn, const ServerInitialInfo& initial,
-      std::unique_ptr<Callback> callback, QuicConnectionOptions options = {});
+      const td::IPAddress& local_address, const td::IPAddress& remote_address, td::Ref<ServerIdentities> identities,
+      td::Slice alpn, const ServerInitialInfo& initial, std::unique_ptr<Callback> callback,
+      QuicConnectionOptions options = {});
 
   [[nodiscard]] td::Status produce_egress(UdpMessageBuffer& msg_out, bool use_gso, size_t max_packets);
   [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in);
@@ -233,13 +259,14 @@ struct QuicConnectionPImpl {
   }
 
   [[nodiscard]] td::Status init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn);
-  [[nodiscard]] td::Status init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn);
+  [[nodiscard]] td::Status init_tls_server_rpk(td::Ref<ServerIdentities> identities, td::Slice alpn);
 
   [[nodiscard]] td::Status init_quic_client();
   [[nodiscard]] td::Status init_quic_server(const ServerInitialInfo& initial);
   void finish_quic_init(const QuicConnectionId& scid);
 
   [[nodiscard]] td::SecureString extract_peer_ed25519_key() const;
+  [[nodiscard]] td::SecureString extract_local_ed25519_key() const;
 
   static void setup_settings_and_params(ngtcp2_settings& settings, ngtcp2_transport_params& params,
                                         const QuicConnectionOptions& options);
@@ -307,5 +334,8 @@ struct QuicConnectionPImpl {
 
   static int alpn_select_cb(SSL* ssl, const unsigned char** out, unsigned char* outlen, const unsigned char* in,
                             unsigned int inlen, void* arg);
+  static int sni_select_cb(SSL* ssl, int* ad, void* arg);
+
+  td::Ref<ServerIdentities> server_identities_;
 };
 }  // namespace ton::quic

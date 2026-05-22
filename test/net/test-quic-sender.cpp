@@ -20,6 +20,7 @@
 #include <unordered_set>
 
 #include "adnl/adnl-network-manager.h"
+#include "adnl/adnl-node-id.hpp"
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
@@ -481,7 +482,8 @@ class RawQuicCallback final : public ton::quic::QuicServer::Callback {
     server_ = server;
   }
 
-  td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString, bool is_outbound) override {
+  td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString /*local_public_key*/, td::SecureString,
+                          bool is_outbound) override {
     state_->remember_connection(cid, is_outbound);
     return td::Status::OK();
   }
@@ -501,7 +503,8 @@ class RawQuicCallback final : public ton::quic::QuicServer::Callback {
     state_->remember_closed_stream(sid);
   }
 
-  void set_peer_mtu_callback(std::function<td::uint64(ton::adnl::AdnlNodeIdShort)>) override {
+  void set_peer_mtu_callback(
+      std::function<td::uint64(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort)>) override {
   }
 
  private:
@@ -546,10 +549,13 @@ class RawQuicTestRunner final : public td::actor::Actor {
 
     auto callback = std::make_unique<RawQuicCallback>(state);
     auto* callback_ptr = callback.get();
-    auto server_result = ton::quic::QuicServer::create(port, clone_quic_key(key), std::move(callback), 4096, "ton",
-                                                       "127.0.0.1", options);
+    auto local_id = ton::adnl::AdnlNodeIdFull(ton::PublicKey(ton::pubkeys::Ed25519(key.get_public_key().move_as_ok())))
+                        .compute_short_id();
+    auto server_result =
+        ton::quic::QuicServer::create(port, std::move(callback), 4096, "ton", "127.0.0.1", options);
     ASSERT_TRUE(server_result.is_ok());
     auto server = server_result.move_as_ok();
+    td::actor::send_closure(server, &ton::quic::QuicServer::add_identity, local_id, clone_quic_key(key));
     callback_ptr->set_server(server.get());
 
     co_await td::actor::Yield{};

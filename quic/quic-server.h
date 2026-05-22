@@ -25,6 +25,7 @@
 
 namespace ton::quic {
 struct QuicConnectionOptions;
+struct ServerIdentities;
 struct ServerInitialInfo;
 struct VersionCid;
 
@@ -63,7 +64,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   };
   class Callback {
    public:
-    virtual td::Status on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
+    virtual td::Status on_connected(QuicConnectionId cid, td::SecureString local_public_key,
+                                    td::SecureString peer_public_key, bool is_outbound) = 0;
     virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
     virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
@@ -74,7 +76,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     virtual td::Timestamp next_alarm() const {
       return td::Timestamp::never();
     }
-    virtual void set_peer_mtu_callback(std::function<td::uint64(adnl::AdnlNodeIdShort)> f) = 0;
+    virtual void set_peer_mtu_callback(std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> f) = 0;
     virtual ~Callback() = default;
   };
 
@@ -91,22 +93,29 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void on_connection_closed(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
-  void set_default_mtu(td::uint64 mtu);
-  void set_peer_mtu(adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
+  // MTU state is keyed by (local_id, peer_id). Setting peer mtu to 0 erases the entry; setting the
+  // default mtu for a local_id to 0 removes the per-local-id override (the server-wide constructor
+  // default takes over again).
+  void set_default_mtu(adnl::AdnlNodeIdShort local_id, td::uint64 mtu);
+  void set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
+
+  // Register an ADNL identity on this server. The first identity registered becomes the default
+  // — it serves any inbound handshake whose SNI is missing or unrecognized. Subsequent identities
+  // are reachable via SNI (compute_sni_name(local_id)). Re-registering an id that's already
+  // present is a no-op. Until the first identity is registered, inbound handshakes are dropped.
+  void add_identity(adnl::AdnlNodeIdShort local_id, td::Ed25519::PrivateKey key);
 
   constexpr static size_t DEFAULT_FLOOD_CONTROL = 1000;
 
-  QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::uint64 defaukt_mtu, td::BufferSlice alpn,
-             std::unique_ptr<Callback> callback, Options options,
-             std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu = {});
+  QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, td::BufferSlice alpn, std::unique_ptr<Callback> callback,
+             Options options);
 
-  static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
-                                                            std::unique_ptr<Callback> callback, td::uint64 default_mtu,
-                                                            td::Slice alpn = "ton", td::Slice bind_host = "0.0.0.0");
-  static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
-                                                            std::unique_ptr<Callback> callback, td::uint64 default_mtu,
-                                                            td::Slice alpn, td::Slice bind_host, Options options,
-                                                            std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu = {});
+  static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, std::unique_ptr<Callback> callback,
+                                                            td::uint64 default_mtu, td::Slice alpn = "ton",
+                                                            td::Slice bind_host = "0.0.0.0");
+  static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, std::unique_ptr<Callback> callback,
+                                                            td::uint64 default_mtu, td::Slice alpn, td::Slice bind_host,
+                                                            Options options);
 
   struct Stats {
     struct Entry {
@@ -217,7 +226,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   td::UdpSocketFd fd_;
   td::BufferSlice alpn_;
-  td::Ed25519::PrivateKey server_key_;
+  td::Ref<ServerIdentities> identities_;
   std::array<td::uint8, 32> retry_secret_{};
   Options options_;
   QuicConnectionRateLimiters conn_rate_limiters_;
@@ -261,8 +270,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   UdpStats ingress_stats_;
   UdpStats egress_stats_;
 
+  // Server-wide fallback used when no per-(local_id, peer_id) override is registered.
   td::uint64 default_mtu_ = 0;
-  std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu_;
+  std::map<adnl::AdnlNodeIdShort, td::uint64> default_mtu_by_local_id_;
+  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::uint64> peers_mtu_;
 };
 
 }  // namespace ton::quic
