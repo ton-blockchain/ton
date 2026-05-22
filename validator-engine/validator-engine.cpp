@@ -3333,7 +3333,7 @@ void ValidatorEngine::add_custom_overlay_to_config(
     ton::tl_object_ptr<ton::ton_api::engine_validator_customOverlay> overlay, td::Promise<> promise) {
   custom_overlays_config_->overlays_.push_back(std::move(overlay));
   TRY_STATUS_PROMISE(promise, write_custom_overlays_config());
-  promise.set_result({});
+  promise.set_value({});
 }
 
 void ValidatorEngine::del_custom_overlay_from_config(std::string name, td::Promise<> promise) {
@@ -3342,7 +3342,7 @@ void ValidatorEngine::del_custom_overlay_from_config(std::string name, td::Promi
     if (overlays[i]->name_ == name) {
       overlays.erase(overlays.begin() + i);
       TRY_STATUS_PROMISE(promise, write_custom_overlays_config());
-      promise.set_result({});
+      promise.set_value({});
       return;
     }
   }
