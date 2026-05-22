@@ -154,7 +154,8 @@ class ValidateQuery : public td::actor::Actor {
   bool parallel_accounts_validation_{false};
   bool parallel_accounts_validation_pending_{false};
   bool check_account_failed_{false};
-  td::RealCpuTimer parallel_work_timer_{/*is_paused=*/true};
+  td::Timer parallel_work_timer_{/*is_paused=*/true};
+  double parallel_total_real_time_ = 0.0;
   std::optional<td::Status> check_account_fatal_error_ = std::nullopt;
   std::optional<std::string> check_account_reject_error_ = std::nullopt;
   std::optional<td::BufferSlice> check_account_reject_reason_ = std::nullopt;
@@ -485,9 +486,8 @@ class ValidateQuery : public td::actor::Actor {
     return true;
   }
 
-  td::RealCpuTimer work_timer_{true};
   ValidationStats stats_;
-  void record_stats(bool valid, std::string error_message = "");
+  void record_stats_and_stop(bool valid, std::string error_message = "");
 };
 
 }  // namespace validator

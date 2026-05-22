@@ -39,7 +39,7 @@ class MerkleUpdateApply {
   }
 
  private:
-  using Key = std::pair<Cell::Hash, int>;
+  using Key = std::pair<Cell::Hash, unsigned>;
   td::HashMap<Cell::Hash, Ref<Cell>> known_cells_;
   td::HashMap<Key, Ref<Cell>> ready_cells_;
   td::HashSet<Key> visited_from_;
@@ -62,10 +62,10 @@ class MerkleUpdateApply {
     }
   }
 
-  td::Result<Ref<Cell>> dfs(Ref<Cell> cell, int merkle_depth) {
+  td::Result<Ref<Cell>> dfs(Ref<Cell> cell, unsigned merkle_depth) {
     CellSlice cs(NoVm(), cell);
     if (cs.special_type() == Cell::SpecialType::PrunnedBranch) {
-      if ((int)cell->get_level() == merkle_depth + 1) {
+      if (cell->get_level() == merkle_depth + 1) {
         CellHash hash = cell->get_hash(merkle_depth);
         auto it = known_cells_.find(hash);
         if (it != known_cells_.end()) {
@@ -94,7 +94,11 @@ class MerkleUpdateApply {
       TRY_RESULT(ref, dfs(cs.prefetch_ref(i), child_merkle_depth));
       cb.store_ref(std::move(ref));
     }
-    auto res = cb.finalize(cs.is_special());
+    auto hash_hint = [&](unsigned level, const Cell::LevelMask &, CellHash &hash) {
+      hash = cell->get_hash(std::min(level, merkle_depth));
+      return true;
+    };
+    auto res = cb.finalize(cs.is_special(), std::move(hash_hint));
     ready_cells_.emplace(key, res);
     return res;
   }
@@ -195,11 +199,17 @@ td::Result<std::pair<Ref<Cell>, Ref<Cell>>> MerkleUpdate::generate_raw(Ref<Cell>
                                                                        CellUsageTree *usage_tree) {
   // create Merkle update cell->new_cell
   TRY_RESULT(update_to, MerkleProof::generate_raw(to, [tree = usage_tree](const Ref<Cell> &cell) {
-               auto loaded_cell = cell->load_cell().move_as_ok();  // FIXME
-               if (loaded_cell.data_cell->size_refs() == 0) {
-                 return false;
+               CellUsageTree::NodePtr node;
+               if (cell->is_loaded()) {
+                 auto loaded_cell = cell->load_cell().move_as_ok();
+                 if (loaded_cell.data_cell->size_refs() == 0) {
+                   return false;
+                 }
+                 node = loaded_cell.tree_node;
+               } else {
+                 node = cell->get_tree_node();
                }
-               return !loaded_cell.tree_node.empty() && loaded_cell.tree_node.mark_path(tree);
+               return !node.empty() && node.mark_path(tree);
              }));
   usage_tree->set_use_mark_for_is_loaded(true);
   TRY_RESULT(update_from, MerkleProof::generate_raw(from, usage_tree));

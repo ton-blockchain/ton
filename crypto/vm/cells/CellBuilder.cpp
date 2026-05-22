@@ -42,12 +42,13 @@ CellBuilder::CellBuilder() : bits(0), refs_cnt(0) {
   get_thread_safe_counter().add(+1);
 }
 
-Ref<DataCell> CellBuilder::finalize_copy(bool special) const {
+Ref<DataCell> CellBuilder::finalize_copy(bool special, DataCell::HashHint hash_hint) const {
   auto* vm_state_interface = VmStateInterface::get();
   if (vm_state_interface) {
     vm_state_interface->register_cell_create();
   }
-  auto res = DataCell::create(td::Slice{data, Cell::max_bytes}, size(), td::span(refs.data(), size_refs()), special);
+  auto res = DataCell::create(td::Slice{data, Cell::max_bytes}, size(), td::span(refs.data(), size_refs()), special,
+                              std::move(hash_hint));
   if (res.is_error()) {
     LOG(DEBUG) << res.error();
     throw CellWriteError{};
@@ -64,15 +65,15 @@ Ref<DataCell> CellBuilder::finalize_copy(bool special) const {
   return cell;
 }
 
-td::Result<Ref<DataCell>> CellBuilder::finalize_novm_nothrow(bool special) {
-  auto res =
-      DataCell::create(td::Slice{data, Cell::max_bytes}, size(), td::mutable_span(refs.data(), size_refs()), special);
+td::Result<Ref<DataCell>> CellBuilder::finalize_novm_nothrow(bool special, DataCell::HashHint hash_hint) {
+  auto res = DataCell::create(td::Slice{data, Cell::max_bytes}, size(), td::mutable_span(refs.data(), size_refs()),
+                              special, std::move(hash_hint));
   bits = refs_cnt = 0;
   return res;
 }
 
-Ref<DataCell> CellBuilder::finalize_novm(bool special) {
-  auto res = finalize_novm_nothrow(special);
+Ref<DataCell> CellBuilder::finalize_novm(bool special, DataCell::HashHint hash_hint) {
+  auto res = finalize_novm_nothrow(special, std::move(hash_hint));
   if (res.is_error()) {
     LOG(DEBUG) << res.error();
     throw CellWriteError{};
@@ -81,13 +82,13 @@ Ref<DataCell> CellBuilder::finalize_novm(bool special) {
   return res.move_as_ok();
 }
 
-Ref<DataCell> CellBuilder::finalize(bool special) {
+Ref<DataCell> CellBuilder::finalize(bool special, DataCell::HashHint hash_hint) {
   auto* vm_state_interface = VmStateInterface::get();
   if (!vm_state_interface) {
-    return finalize_novm(special);
+    return finalize_novm(special, std::move(hash_hint));
   }
   vm_state_interface->register_cell_create();
-  auto cell = finalize_novm(special);
+  auto cell = finalize_novm(special, std::move(hash_hint));
   vm_state_interface->register_new_cell(cell);
   if (cell.is_null()) {
     LOG(DEBUG) << "cannot register new data cell";

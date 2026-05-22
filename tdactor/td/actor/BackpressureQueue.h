@@ -130,23 +130,29 @@ class BackpressureQueue {
   }
 
   StartedTask<bool> push(T item) {
+    CHECK(actor_);
     return ask(*actor_, &A::push, std::move(item), true);
   }
 
   StartedTask<bool> try_push(T item) {
+    CHECK(actor_);
     return ask(*actor_, &A::push, std::move(item), false);
   }
 
   StartedTask<T> pop() {
+    CHECK(actor_);
     return ask(*actor_, &A::pop, true);
   }
 
   StartedTask<T> try_pop() {
+    CHECK(actor_);
     return ask(*actor_, &A::pop, false);
   }
 
   void close() {
-    send_closure(*actor_, &A::close);
+    if (actor_) {
+      send_closure(*actor_, &A::close);
+    }
   }
 
  private:

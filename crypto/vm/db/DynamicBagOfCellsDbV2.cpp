@@ -1140,6 +1140,32 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
       return cell_info->cell->load_cell().move_as_ok().data_cell;
     }
 
+    Ref<Cell> create_unloaded_cell(const Ref<Cell> &cell, int merkle_depth) override {
+      bool loaded = false;
+      if (auto loaded_cell = load_cell_fast_path(cell->get_hash(merkle_depth).as_slice(), true, &loaded);
+          loaded_cell.not_null()) {
+        if (!loaded) {
+          stats_.load_cell_sync_cache_hits.inc();
+        }
+        return loaded_cell;
+      }
+
+      Cell::LevelMask mask = cell->get_level_mask().apply(merkle_depth);
+      td::uint8 hashes[Cell::hash_bytes * (Cell::max_level + 1)];
+      td::uint8 depths[Cell::depth_bytes * (Cell::max_level + 1)];
+      size_t n = 0;
+      for (unsigned i = 0; i <= mask.get_level(); ++i) {
+        if (mask.is_significant(i)) {
+          td::MutableSlice{hashes + Cell::hash_bytes * n, Cell::hash_bytes}.copy_from(cell->get_hash(i).as_slice());
+          DataCell::store_depth(depths + Cell::depth_bytes * n, cell->get_depth(i));
+          ++n;
+        }
+      }
+      return ext_cell(mask, td::Slice{hashes, Cell::hash_bytes * n}, td::Slice{depths, Cell::depth_bytes * n})
+          .ensure()
+          .move_as_ok();
+    }
+
     CellInfo &cell_info(Ref<Cell> cell) {
       // thread safe function, but called only by DB
       CHECK(internal_storage_)

@@ -10,8 +10,8 @@ set(VALIDATOR_DB_SOURCE
   db/archive-slice.hpp
   db/celldb.cpp
   db/celldb.hpp
-  db/permanent-celldb/permanent-celldb-utils.cpp
-  db/permanent-celldb/permanent-celldb-utils.h
+  db/celldb-utils.cpp
+  db/celldb-utils.h
   db/files-async.hpp
   db/fileref.hpp
   db/fileref.cpp

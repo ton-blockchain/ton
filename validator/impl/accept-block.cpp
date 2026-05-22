@@ -559,17 +559,7 @@ void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
   state_ = std::move(state);
 
   state_keep_old_hash_ = state_->root_hash();
-
-  vm::StoreCellHint hint;
-  auto err = state_.write().apply_block(id_, data_, &hint);
-  if (err.is_error()) {
-    abort_query(std::move(err));
-    return;
-  }
-
-  handle_->set_split(state_->before_split());
-
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_, std::move(hint),
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state_from_data, handle_, data_,
                           [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_state, R.move_as_ok());
