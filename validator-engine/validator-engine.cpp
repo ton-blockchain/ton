@@ -5778,7 +5778,7 @@ int main(int argc, char *argv[]) {
     td::log_interface = td::default_log_interface;
   };
 
-  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 1572864));
+  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 3145728));
 
   std::vector<std::function<void()>> acts;
 
