@@ -129,26 +129,7 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
               for (auto cat : obj.priority_categories_) {
                 priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
               }
-              config_add_network_addr(ip, ip, nullptr, categories, priority_categories).ensure();
-            },
-            [&](const ton::ton_api::engine_addrProxy &obj) {
-              td::IPAddress out_ip;
-              std::shared_ptr<ton::adnl::AdnlProxy> proxy = nullptr;
-              ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.in_ip_), static_cast<td::uint16>(obj.in_port_)).ensure();
-              out_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.out_ip_), static_cast<td::uint16>(obj.out_port_))
-                  .ensure();
-              if (obj.proxy_type_) {
-                auto R = ton::adnl::AdnlProxy::create(*obj.proxy_type_.get());
-                R.ensure();
-                proxy = R.move_as_ok();
-                for (auto cat : obj.categories_) {
-                  categories.push_back(td::narrow_cast<td::uint8>(cat));
-                }
-                for (auto cat : obj.priority_categories_) {
-                  priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
-                }
-              }
-              config_add_network_addr(ip, out_ip, std::move(proxy), categories, priority_categories).ensure();
+              config_add_network_addr(ip, ip, categories, priority_categories).ensure();
             },
             [&](const ton::ton_api::engine_quicAddr &obj) {
               ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.ip_), static_cast<td::uint16>(obj.port_)).ensure();
@@ -247,18 +228,10 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
 ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_Addr>> addrs_vec;
   for (auto &x : addrs) {
-    if (x.second.proxy) {
-      addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addrProxy>(
-          static_cast<td::int32>(x.second.in_addr.get_ipv4()), x.second.in_addr.get_port(),
-          static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(), x.second.proxy->tl(),
-          std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
-          std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
-    } else {
-      addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addr>(
-          static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(),
-          std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
-          std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
-    }
+    addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addr>(
+        static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(),
+        std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
+        std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
   }
   for (auto &x : quic_addrs) {
     addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_quicAddr>(
@@ -373,7 +346,6 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
-                                                 std::shared_ptr<ton::adnl::AdnlProxy> proxy,
                                                  std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats) {
   Addr addr{out_ip};
 
@@ -382,10 +354,6 @@ td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddr
     bool mod = false;
     if (!(it->second.in_addr == in_ip)) {
       it->second.in_addr = in_ip;
-      mod = true;
-    }
-    if (it->second.proxy != proxy) {
-      it->second.proxy = std::move(proxy);
       mod = true;
     }
     for (auto &c : cats) {
@@ -402,7 +370,6 @@ td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddr
   } else {
     it = addrs.emplace(std::move(addr), AddrCats{}).first;
     it->second.in_addr = in_ip;
-    it->second.proxy = std::move(proxy);
     for (auto &c : cats) {
       it->second.cats.insert(c);
     }
@@ -1909,9 +1876,7 @@ void ValidatorEngine::load_empty_local_config(td::Promise<> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_
-        .config_add_network_addr(addr, addr, nullptr, std::vector<AdnlCategory>{0, 1, 2, 3},
-                                 std::vector<AdnlCategory>{})
+    config_.config_add_network_addr(addr, addr, std::vector<AdnlCategory>{0, 1, 2, 3}, std::vector<AdnlCategory>{})
         .ensure();
   }
 
@@ -1981,9 +1946,7 @@ void ValidatorEngine::load_local_config(td::Promise<> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_
-        .config_add_network_addr(addr, addr, nullptr, std::vector<AdnlCategory>{0, 1, 2, 3},
-                                 std::vector<AdnlCategory>{})
+    config_.config_add_network_addr(addr, addr, std::vector<AdnlCategory>{0, 1, 2, 3}, std::vector<AdnlCategory>{})
         .ensure();
   }
 
@@ -2231,14 +2194,8 @@ void ValidatorEngine::add_addr(const Config::Addr &addr, const Config::AddrCats 
   for (auto cat : cats.priority_cats) {
     cat_mask[cat] = true;
   }
-  if (!cats.proxy) {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
-                            std::move(cat_mask), cats.cats.size() ? 0 : 1);
-  } else {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, cats.in_addr,
-                            static_cast<td::uint16>(addr.addr.get_port()), cats.proxy, std::move(cat_mask),
-                            cats.cats.size() ? 0 : 1);
-  }
+  td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
+                          std::move(cat_mask), cats.cats.size() ? 0 : 1);
 
   td::uint32 ts = static_cast<td::uint32>(td::Clocks::system());
 
@@ -2876,7 +2833,7 @@ void ValidatorEngine::try_add_listening_port(td::uint32 ip, td::int32 port, std:
                                              std::vector<AdnlCategory> prio_cats, td::Promise<> promise) {
   td::IPAddress a;
   a.init_ipv4_port(td::IPAddress::ipv4_to_str(ip), static_cast<td::uint16>(port)).ensure();
-  auto R = config_.config_add_network_addr(a, a, nullptr, std::move(cats), std::move(prio_cats));
+  auto R = config_.config_add_network_addr(a, a, std::move(cats), std::move(prio_cats));
   if (R.is_error()) {
     promise.set_error(R.move_as_error());
     return;
@@ -2894,49 +2851,6 @@ void ValidatorEngine::try_add_listening_port(td::uint32 ip, td::int32 port, std:
 
 void ValidatorEngine::try_del_listening_port(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
                                              std::vector<AdnlCategory> prio_cats, td::Promise<> promise) {
-  td::IPAddress a;
-  a.init_ipv4_port(td::IPAddress::ipv4_to_str(ip), static_cast<td::uint16>(port)).ensure();
-  auto R = config_.config_del_network_addr(a, std::move(cats), std::move(prio_cats));
-  if (R.is_error()) {
-    promise.set_error(R.move_as_error());
-    return;
-  }
-
-  if (!R.move_as_ok()) {
-    promise.set_value({});
-    return;
-  }
-
-  reload_adnl_addrs();
-
-  write_config(std::move(promise));
-}
-
-void ValidatorEngine::try_add_proxy(td::uint32 in_ip, td::int32 in_port, td::uint32 out_ip, td::int32 out_port,
-                                    std::shared_ptr<ton::adnl::AdnlProxy> proxy, std::vector<AdnlCategory> cats,
-                                    std::vector<AdnlCategory> prio_cats, td::Promise<> promise) {
-  td::IPAddress in_addr;
-  in_addr.init_ipv4_port(td::IPAddress::ipv4_to_str(in_ip), static_cast<td::uint16>(in_port)).ensure();
-  td::IPAddress out_addr;
-  out_addr.init_ipv4_port(td::IPAddress::ipv4_to_str(out_ip), static_cast<td::uint16>(out_port)).ensure();
-  auto R = config_.config_add_network_addr(in_addr, out_addr, std::move(proxy), std::move(cats), std::move(prio_cats));
-  if (R.is_error()) {
-    promise.set_error(R.move_as_error());
-    return;
-  }
-
-  if (!R.move_as_ok()) {
-    promise.set_value({});
-    return;
-  }
-
-  reload_adnl_addrs();
-
-  write_config(std::move(promise));
-}
-
-void ValidatorEngine::try_del_proxy(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
-                                    std::vector<AdnlCategory> prio_cats, td::Promise<> promise) {
   td::IPAddress a;
   a.init_ipv4_port(td::IPAddress::ipv4_to_str(ip), static_cast<td::uint16>(port)).ensure();
   auto R = config_.config_del_network_addr(a, std::move(cats), std::move(prio_cats));
@@ -4091,80 +4005,6 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delListen
     prio_cats.push_back(c);
   }
   try_del_listening_port(query.ip_, query.port_, std::move(cats), std::move(prio_cats), std::move(P));
-}
-
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addProxy &query, td::BufferSlice data,
-                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
-  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
-    return;
-  }
-  if (!started_) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
-    return;
-  }
-
-  auto R = ton::adnl::AdnlProxy::create(*query.proxy_.get());
-  if (R.is_error()) {
-    promise.set_value(create_control_query_error(R.move_as_error_prefix("bad proxy type: ")));
-    return;
-  }
-
-  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<> R) mutable {
-    if (R.is_error()) {
-      promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to add listening proxy: ")));
-    } else {
-      promise.set_value(
-          ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
-    }
-  });
-
-  std::vector<td::uint8> cats;
-  for (auto cat : query.categories_) {
-    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
-    cats.push_back(c);
-  }
-  std::vector<td::uint8> prio_cats;
-  for (auto cat : query.priority_categories_) {
-    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
-    prio_cats.push_back(c);
-  }
-  try_add_proxy(query.in_ip_, query.in_port_, query.out_ip_, query.out_port_, R.move_as_ok(), std::move(cats),
-                std::move(prio_cats), std::move(P));
-}
-
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delProxy &query, td::BufferSlice data,
-                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
-  if (!(perm & ValidatorEnginePermissions::vep_modify)) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
-    return;
-  }
-  if (!started_) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
-    return;
-  }
-
-  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<> R) mutable {
-    if (R.is_error()) {
-      promise.set_value(create_control_query_error(R.move_as_error_prefix("failed to del listening proxy: ")));
-    } else {
-      promise.set_value(
-          ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
-    }
-  });
-
-  std::vector<td::uint8> cats;
-  for (auto cat : query.categories_) {
-    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
-    cats.push_back(c);
-  }
-  std::vector<td::uint8> prio_cats;
-  for (auto cat : query.priority_categories_) {
-    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
-    prio_cats.push_back(c);
-  }
-
-  try_del_proxy(query.out_ip_, query.out_port_, std::move(cats), std::move(prio_cats), std::move(P));
 }
 
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addQuicAddr &query, td::BufferSlice data,

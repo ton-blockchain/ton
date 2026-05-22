@@ -64,7 +64,6 @@ struct Config {
   };
   struct AddrCats {
     td::IPAddress in_addr;
-    std::shared_ptr<ton::adnl::AdnlProxy> proxy;
     std::set<AdnlCategory> cats;
     std::set<AdnlCategory> priority_cats;
   };
@@ -120,8 +119,7 @@ struct Config {
   }
 
   td::Result<bool> config_add_network_addr(td::IPAddress in_addr, td::IPAddress out_addr,
-                                           std::shared_ptr<ton::adnl::AdnlProxy> proxy, std::vector<AdnlCategory> cats,
-                                           std::vector<AdnlCategory> prio_cats);
+                                           std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats);
   td::Result<bool> config_add_quic_addr(td::IPAddress ip, std::vector<AdnlCategory> cats,
                                         std::vector<AdnlCategory> prio_cats);
   td::Result<bool> config_add_adnl_addr(ton::PublicKeyHash addr, AdnlCategory cat);
@@ -537,11 +535,6 @@ class ValidatorEngine : public td::actor::Actor {
                               std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
   void try_del_listening_port(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
                               std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
-  void try_add_proxy(td::uint32 in_ip, td::int32 in_port, td::uint32 out_ip, td::int32 out_port,
-                     std::shared_ptr<ton::adnl::AdnlProxy> proxy, std::vector<AdnlCategory> cats,
-                     std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
-  void try_del_proxy(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats,
-                     td::Promise<td::Unit> promise);
   void try_add_quic_addr(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
                          std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
   void try_del_quic_addr(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
@@ -632,10 +625,6 @@ class ValidatorEngine : public td::actor::Actor {
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_delListeningPort &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_addProxy &query, td::BufferSlice data, ton::PublicKeyHash src,
-                         td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_delProxy &query, td::BufferSlice data, ton::PublicKeyHash src,
-                         td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_addQuicAddr &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_delQuicAddr &query, td::BufferSlice data,

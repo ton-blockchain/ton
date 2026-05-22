@@ -15,7 +15,6 @@ bool is_engine_console_query(const ton::tl_object_ptr<ton::ton_api::Function>& f
     case ton::ton_api::engine_validator_addFastSyncClient::ID:
     case ton::ton_api::engine_validator_addListeningPort::ID:
     case ton::ton_api::engine_validator_addLiteserver::ID:
-    case ton::ton_api::engine_validator_addProxy::ID:
     case ton::ton_api::engine_validator_addQuicAddr::ID:
     case ton::ton_api::engine_validator_addShard::ID:
     case ton::ton_api::engine_validator_addValidatorAdnlAddress::ID:
@@ -35,7 +34,6 @@ bool is_engine_console_query(const ton::tl_object_ptr<ton::ton_api::Function>& f
     case ton::ton_api::engine_validator_delDhtId::ID:
     case ton::ton_api::engine_validator_delFastSyncClient::ID:
     case ton::ton_api::engine_validator_delListeningPort::ID:
-    case ton::ton_api::engine_validator_delProxy::ID:
     case ton::ton_api::engine_validator_delQuicAddr::ID:
     case ton::ton_api::engine_validator_delShard::ID:
     case ton::ton_api::engine_validator_delValidatorAdnlAddress::ID:
