@@ -578,6 +578,10 @@ class FullNode(Network.Node):
     def validator_key(self):
         return self._validator_key
 
+    @property
+    def fullnode_key(self):
+        return self._fullnode_key
+
     async def _wait_console_ready(self, fd: int):
         loop = asyncio.get_event_loop()
         future: asyncio.Future[None] = loop.create_future()
