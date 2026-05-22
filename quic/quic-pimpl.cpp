@@ -42,11 +42,11 @@ static void apply_platform_pmtu_policy(ngtcp2_settings& settings) {
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
-    td::Slice alpn, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
+    td::Slice alpn, td::Slice sni, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
   auto p_impl =
       std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
 
-  TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
+  TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn, sni));
   TRY_STATUS(p_impl->init_quic_client());
 
   p_impl->callback_->set_connection_id(p_impl->primary_scid_);
@@ -130,7 +130,8 @@ int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigne
   return SSL_TLSEXT_ERR_NOACK;
 }
 
-td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn) {
+td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn,
+                                                    td::Slice sni) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
   TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), client_key));
   setup_alpn_wire(alpn);
@@ -140,6 +141,13 @@ td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKe
 
   SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
                       static_cast<unsigned int>(alpn_wire_.size()));
+
+  if (!sni.empty()) {
+    std::string sni_str = sni.str();
+    if (SSL_set_tlsext_host_name(ssl_ptr.get(), sni_str.c_str()) != 1) {
+      return td::Status::Error("SSL_set_tlsext_host_name failed");
+    }
+  }
 
   return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), true);
 }

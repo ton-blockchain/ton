@@ -87,7 +87,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
 
-  td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
+  td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn,
+                                       td::Slice sni);
 
   void shutdown_stream(QuicConnectionId cid, QuicStreamID sid);
   void on_connection_closed(QuicConnectionId cid);

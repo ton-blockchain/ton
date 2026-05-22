@@ -85,7 +85,7 @@ class QuicTester : public td::actor::Actor {
     }
 
     send_closure(server_, &ton::quic::QuicServer::connect, host_.as_slice(), port_, client_key_copy_r.move_as_ok(),
-                 alpn_.as_slice());
+                 alpn_.as_slice(), td::Slice{});
   }
 
   void on_connected(ton::quic::QuicConnectionId cid) {

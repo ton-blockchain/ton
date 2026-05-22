@@ -639,7 +639,7 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
 }
 
 td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key,
-                                                 td::Slice alpn) {
+                                                 td::Slice alpn, td::Slice sni) {
   td::IPAddress remote_address;
   TRY_STATUS(remote_address.init_host_port(host.str(), port));
   TRY_RESULT(local_address, fd_.get_local_address());  // TODO: we may avoid system call here
@@ -648,7 +648,7 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
 
   auto conn_options = build_connection_options();
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, true);
-  TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
+  TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn, sni,
                                                         std::move(pimpl_callback), conn_options));
   TRY_RESULT(state, install_connection(std::move(p_impl), remote_address, true, std::nullopt));
 

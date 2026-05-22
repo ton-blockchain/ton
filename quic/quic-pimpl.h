@@ -180,7 +180,7 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_client(
       const td::IPAddress& local_address, const td::IPAddress& remote_address,
-      const td::Ed25519::PrivateKey& client_key, td::Slice alpn, std::unique_ptr<Callback> callback,
+      const td::Ed25519::PrivateKey& client_key, td::Slice alpn, td::Slice sni, std::unique_ptr<Callback> callback,
       QuicConnectionOptions options = {});
 
   [[nodiscard]] static td::Result<std::unique_ptr<QuicConnectionPImpl>> create_server(
@@ -258,7 +258,8 @@ struct QuicConnectionPImpl {
     return conn_.get();
   }
 
-  [[nodiscard]] td::Status init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn);
+  [[nodiscard]] td::Status init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn,
+                                               td::Slice sni);
   [[nodiscard]] td::Status init_tls_server_rpk(td::Ref<ServerIdentities> identities, td::Slice alpn);
 
   [[nodiscard]] td::Status init_quic_client();

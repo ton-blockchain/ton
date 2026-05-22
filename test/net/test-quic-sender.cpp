@@ -27,6 +27,7 @@
 #include "auto/tl/ton_api.hpp"
 #include "keyring/keyring.h"
 #include "keys/keys.hpp"
+#include "quic/quic-pimpl.h"
 #include "quic/quic-sender.h"
 #include "quic/quic-server.h"
 #include "td/actor/coro_task.h"
@@ -415,13 +416,25 @@ ton::quic::QuicServer::Options small_stream_limit_options(size_t max_streams_bid
 }
 
 struct RawQuicEndpointState {
-  void remember_connection(ton::quic::QuicConnectionId cid, bool is_outbound) {
+  void remember_connection(ton::quic::QuicConnectionId cid, bool is_outbound, std::string local_public_key) {
     std::lock_guard guard(mutex);
     if (is_outbound) {
       outbound_cid = cid;
+      outbound_local_public_key = std::move(local_public_key);
     } else {
       inbound_cid = cid;
+      inbound_local_public_key = std::move(local_public_key);
     }
+  }
+
+  std::optional<std::string> get_inbound_local_public_key() const {
+    std::lock_guard guard(mutex);
+    return inbound_local_public_key;
+  }
+
+  std::optional<std::string> get_outbound_local_public_key() const {
+    std::lock_guard guard(mutex);
+    return outbound_local_public_key;
   }
 
   void remember_local_stream(ton::quic::QuicStreamID sid) {
@@ -467,6 +480,8 @@ struct RawQuicEndpointState {
   mutable std::mutex mutex;
   std::optional<ton::quic::QuicConnectionId> outbound_cid;
   std::optional<ton::quic::QuicConnectionId> inbound_cid;
+  std::optional<std::string> outbound_local_public_key;
+  std::optional<std::string> inbound_local_public_key;
   std::unordered_set<ton::quic::QuicStreamID> locally_opened_streams;
   std::unordered_set<ton::quic::QuicStreamID> closed_streams;
   size_t closed_stream_count = 0;
@@ -482,9 +497,9 @@ class RawQuicCallback final : public ton::quic::QuicServer::Callback {
     server_ = server;
   }
 
-  td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString /*local_public_key*/, td::SecureString,
+  td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString local_public_key, td::SecureString,
                           bool is_outbound) override {
-    state_->remember_connection(cid, is_outbound);
+    state_->remember_connection(cid, is_outbound, local_public_key.as_slice().str());
     return td::Status::OK();
   }
 
@@ -562,11 +577,12 @@ class RawQuicTestRunner final : public td::actor::Actor {
     co_return RawQuicEndpoint{port, std::move(key), std::move(server), std::move(state)};
   }
 
-  td::actor::Task<std::pair<ton::quic::QuicConnectionId, ton::quic::QuicConnectionId>> connect(
-      RawQuicEndpoint& client, RawQuicEndpoint& server) {
+  td::actor::Task<std::pair<ton::quic::QuicConnectionId, ton::quic::QuicConnectionId>> connect(RawQuicEndpoint& client,
+                                                                                               RawQuicEndpoint& server,
+                                                                                               td::Slice sni = {}) {
     auto outbound_cid_result =
         co_await td::actor::ask(client.server, &ton::quic::QuicServer::connect, td::Slice("127.0.0.1"), server.port,
-                                clone_quic_key(client.key), td::Slice("ton"))
+                                clone_quic_key(client.key), td::Slice("ton"), sni)
             .wrap();
     LOG_CHECK(outbound_cid_result.is_ok()) << "connect failed: " << outbound_cid_result.error();
     auto outbound_cid = outbound_cid_result.move_as_ok();
@@ -1021,6 +1037,92 @@ TEST(QuicStreamLimits, MoreThan1024SequentialStreamsWorkWithSmallLimit) {
     }
 
     ASSERT_EQ(client.state->get_local_closed_stream_count(), stream_count);
+    co_return td::Unit{};
+  });
+}
+
+namespace {
+
+std::string pubkey_bytes(const td::Ed25519::PrivateKey& key) {
+  return key.get_public_key().move_as_ok().as_octet_string().as_slice().str();
+}
+
+ton::adnl::AdnlNodeIdShort short_id_from_key(const td::Ed25519::PrivateKey& key) {
+  return ton::adnl::AdnlNodeIdFull(ton::PublicKey(ton::pubkeys::Ed25519(key.get_public_key().move_as_ok())))
+      .compute_short_id();
+}
+
+}  // namespace
+
+TEST(QuicSniDispatch, ClientSniSelectsAdditionalIdentity) {
+  run_raw_quic_test([](RawQuicTestRunner& t) -> td::actor::Task<td::Unit> {
+    auto options = quic_test_options();
+    auto client = co_await t.create_endpoint(options);
+    auto server = co_await t.create_endpoint(options);
+
+    // server endpoint starts with one identity (created in create_endpoint); register a second
+    // one. The first remains the default for SNI-less / unknown-SNI handshakes.
+    auto extra_key = make_quic_key(server.port * 31 + 1);
+    auto extra_local_id = short_id_from_key(extra_key);
+    td::actor::send_closure(server.server, &ton::quic::QuicServer::add_identity, extra_local_id,
+                            clone_quic_key(extra_key));
+    co_await td::actor::Yield{};
+
+    auto [client_cid, server_cid] = co_await t.connect(client, server, ton::quic::compute_sni_name(extra_local_id));
+    static_cast<void>(client_cid);
+    static_cast<void>(server_cid);
+
+    auto inbound_local_pub = server.state->get_inbound_local_public_key();
+    ASSERT_TRUE(inbound_local_pub.has_value());
+    ASSERT_EQ(*inbound_local_pub, pubkey_bytes(extra_key));
+
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSniDispatch, NoSniFallsBackToDefaultIdentity) {
+  run_raw_quic_test([](RawQuicTestRunner& t) -> td::actor::Task<td::Unit> {
+    auto options = quic_test_options();
+    auto client = co_await t.create_endpoint(options);
+    auto server = co_await t.create_endpoint(options);
+
+    auto extra_key = make_quic_key(server.port * 31 + 2);
+    auto extra_local_id = short_id_from_key(extra_key);
+    td::actor::send_closure(server.server, &ton::quic::QuicServer::add_identity, extra_local_id, std::move(extra_key));
+    co_await td::actor::Yield{};
+
+    // No SNI — must hit the default identity (the one created with the endpoint).
+    auto [client_cid, server_cid] = co_await t.connect(client, server);
+    static_cast<void>(client_cid);
+    static_cast<void>(server_cid);
+
+    auto inbound_local_pub = server.state->get_inbound_local_public_key();
+    ASSERT_TRUE(inbound_local_pub.has_value());
+    ASSERT_EQ(*inbound_local_pub, pubkey_bytes(server.key));
+
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSniDispatch, UnknownSniFallsBackToDefaultIdentity) {
+  run_raw_quic_test([](RawQuicTestRunner& t) -> td::actor::Task<td::Unit> {
+    auto options = quic_test_options();
+    auto client = co_await t.create_endpoint(options);
+    auto server = co_await t.create_endpoint(options);
+
+    // Single identity on the server. The client sends an SNI for a key that isn't registered;
+    // dispatch should silently fall back to the default rather than fail or pick something else.
+    auto bogus_key = make_quic_key(server.port * 31 + 3);
+    auto bogus_local_id = short_id_from_key(bogus_key);
+
+    auto [client_cid, server_cid] = co_await t.connect(client, server, ton::quic::compute_sni_name(bogus_local_id));
+    static_cast<void>(client_cid);
+    static_cast<void>(server_cid);
+
+    auto inbound_local_pub = server.state->get_inbound_local_public_key();
+    ASSERT_TRUE(inbound_local_pub.has_value());
+    ASSERT_EQ(*inbound_local_pub, pubkey_bytes(server.key));
+
     co_return td::Unit{};
   });
 }

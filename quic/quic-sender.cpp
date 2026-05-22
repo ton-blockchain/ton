@@ -5,6 +5,7 @@
 #include "td/utils/Heap.h"
 #include "td/utils/as.h"
 
+#include "quic-pimpl.h"
 #include "quic-sender.h"
 
 namespace ton::quic {
@@ -521,9 +522,10 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
   }
 
   auto server = server_iter->second;
-  auto connection_id =
-      co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key), td::Slice("ton"))
-          .trace("connect");
+  auto sni = compute_sni_name(path.second);
+  auto connection_id = co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key),
+                                    td::Slice("ton"), td::Slice(sni))
+                           .trace("connect");
   conn->cid = connection_id;
   conn->path = path;
   conn->server = server;
