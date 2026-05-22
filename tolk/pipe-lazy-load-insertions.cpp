@@ -169,7 +169,8 @@ static bool does_function_satisfy_for_lazy_operator(FunctionPtr fun_ref, bool al
     if (f_body->size() == 1) {
       if (auto f_returns = f_body->get_item(0)->try_as<ast_return_statement>(); f_returns && f_returns->has_return_value()) {
         if (auto f_returns_call = f_returns->get_return_value()->try_as<ast_function_call>()) {
-          return does_function_satisfy_for_lazy_operator(f_returns_call->fun_maybe, false);
+          return does_function_satisfy_for_lazy_operator(f_returns_call->fun_maybe, false)
+              && fun_ref->inferred_return_type->equal_to(f_returns_call->inferred_type);
         }
       }
     }
@@ -564,9 +565,14 @@ struct LazyVarInFunction {
 
     // handle if `msg` is used only in `match (msg) { ... }`
     // (it may even be not a union, just a struct with opcode, and `match` with `else`)
+    const TypeDataStruct* t_struct = var_ref->declared_type->unwrap_alias()->try_as<TypeDataStruct>();
+    bool is_union = t_struct == nullptr;
     bool used_only_as_match = var_usages.used_for_matching == 1 && !var_usages.used_for_reading && !var_usages.used_for_toCell && !var_usages.used_for_writing && !var_usages.used_reassigned_type;
     bool variants_not_reassigned = std::all_of(var_usages.variants.begin(), var_usages.variants.end(), [](const ExprUsagesWhileCollecting& variant_usages) { return !variant_usages.used_reassigned_type; });
     if (used_only_as_match && variants_not_reassigned) {
+      if (!is_union && var_usages.total_usages_with_fields - var_usages.used_for_matching > var_usages.variants.front().total_usages_with_fields) {
+        err("`lazy` will not work here, because variable `{}` is used both for lazy matching and in a non-lazy manner", var_ref).fire(created_by_lazy_op->keyword_range(), cur_f);
+      }
       v_lazy_match_var_itself = var_usages.used_as_match_subj.front();
       load_points.reserve(var_usages.variants.size());
       for (ExprUsagesWhileCollecting& variant_usages : var_usages.variants) {
@@ -578,13 +584,14 @@ struct LazyVarInFunction {
 
     // okay, variable is used not only as `match`;
     // prohibit this to a union: lazy union may only be matched, nothing more (`msg is A` etc. don't work)
-    const TypeDataStruct* t_struct = var_ref->declared_type->unwrap_alias()->try_as<TypeDataStruct>();
-    bool is_union = t_struct == nullptr;
     if (is_union && used_only_as_match) {
       err("`lazy` will not work here, because variable `{}` changes its type inside `match`\n""hint: probably, it's reassigned, or called a method with a different receiver", var_ref).fire(created_by_lazy_op->keyword_range(), cur_f);
     }
     if (is_union) {
       err("`lazy` will not work here, because variable `{}` is used in a non-lazy manner\n""hint: lazy union may be used only in `match` statement, exactly once", var_ref).fire(created_by_lazy_op->keyword_range(), cur_f);
+    }
+    if (var_usages.used_for_matching) {
+      err("`lazy` will not work here, because variable `{}` is used both for lazy matching and in a non-lazy manner", var_ref).fire(created_by_lazy_op->keyword_range(), cur_f);
     }
 
     // so, it's just a struct, `lazy Point`; we've already calculated all statements where its fields are used
@@ -674,8 +681,10 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
         }
 
         // if receiver is another type, e.g. `fun (A|B).method(self)`, called from `match (v) { A => v.method() }`
-        if (!fun_ref->parameters[0].declared_type->equal_to(lazy_expr->expr_type)) {
+        bool receiver_type_matches_lazy_expr = fun_ref->parameters[0].declared_type->equal_to(lazy_expr->expr_type);
+        if (!receiver_type_matches_lazy_expr) {
           lazy_expr->on_used_reassigned_type();
+          lazy_expr->on_used_rw(false);
         }
         // for `obj.f.method()`, mark lazy_expr=obj.f "used" anyway
         if (s_expr.index_path) {    
@@ -683,7 +692,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
         }
         // if we have `st.save()` / `p.getX()` / `obj.f.method()`, which will be inlined when transforming to IR,
         // dig into that method's body to fetch used fields `self.x` etc.
-        if (can_method_be_inlined_preserving_lazy(fun_ref)) {
+        if (receiver_type_matches_lazy_expr && can_method_be_inlined_preserving_lazy(fun_ref)) {
           auto v_body_block = fun_ref->ast_root->try_as<ast_function_declaration>()->get_body()->try_as<ast_block_statement>();
           ExprUsagesWhileCollecting inner_usages = collect_expr_usages_in_block(lazy_expr->name_str + "(=self)", SinkExpression(&fun_ref->parameters[0]), lazy_expr->expr_type, v_body_block);
           inner_usages.treat_match_like_read();   // nested lazy match in inlined functions doesn't work, it's not wrapped into aux vertex

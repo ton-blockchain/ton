@@ -381,6 +381,27 @@ fun testIndirectCalleeSnapshotBeforeArgs() {
     return (f(5), f(replaceWithAddTen122(mutate f)), f(5));
 }
 
+fun realFail123() {
+    throw 123;
+}
+
+@inline
+fun failViaCallable123() {
+    var f = realFail123;
+    return f();
+}
+
+@method_id(123)
+fun testIndirectNeverInTryCatch(): int {
+    var x: int;
+    try {
+        failViaCallable123();
+    } catch {
+        x = 2;
+    }
+    return x;
+}
+
 
 fun main() {}
 
@@ -414,4 +435,5 @@ fun main() {}
 @testcase | 120 |            | []
 @testcase | 121 |            | 100 [ 10 30 40 20 ]
 @testcase | 122 |            | 6 6 15
+@testcase | 123 |            | 2
  */

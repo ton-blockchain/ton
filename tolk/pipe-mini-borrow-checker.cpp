@@ -39,7 +39,8 @@
  *
  *   To track which variables/fields are being mutated, we use is_valid_lvalue_path() with sink collection:
  * it traverses the lvalue path and collects SinkExpression for each "leaf" variable being mutated.
- * For tensors like `(a, b)`, both `a` and `b` are collected. For `(a, b).0`, only `a` is collected.
+ * For tensors like `(a, b)`, both `a` and `b` are collected.
+ * Tensor literal projections like `(a, b).0` are not valid lvalue paths.
  */
 
 namespace tolk {

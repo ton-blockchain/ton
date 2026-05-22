@@ -352,6 +352,28 @@ fun test23() {
     return (genericLambdaReuseT(123), genericLambdaReuseT(true));
 }
 
+@method_id(124)
+fun test24(n: int): (int, int) {
+    var x = 5;
+    repeat (n) {
+        x = 7;
+    }
+    return (x, 7);
+}
+
+@method_id(125)
+fun test25(n: int): (int, int) {
+    var x = 5;
+    repeat (n) {
+        x = 7;
+    }
+    val y = 7;
+    val f = fun() {
+        return y;
+    };
+    return (x, f());
+}
+
 
 fun main() {
     __expect_type(fun() {}, "() -> void");
@@ -387,4 +409,8 @@ fun main() {
 @testcase | 121 |        | 50
 @testcase | 122 |        | 1 2 3
 @testcase | 123 |        | 123 -1
+@testcase | 124 | 0      | 5 7
+@testcase | 124 | 1      | 7 7
+@testcase | 125 | 0      | 5 7
+@testcase | 125 | 1      | 7 7
 */

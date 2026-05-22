@@ -4,6 +4,14 @@ struct A { a1: int7; a2: int8; a3: int8; }
 struct B { b1: int7; b2: int8; b3: int8; }
 type AOrB = A | B;
 
+@inline
+fun AOrB.getSecondField(self): int8 {
+    return match (self) {
+        A => self.a2,
+        B => self.b2,
+    };
+}
+
 @noinline
 fun A.getA1(self) {
     return self.a1;
@@ -1559,6 +1567,12 @@ fun algo316() {
     val o2 = lazy HasStrings.fromSlice(S0);
     __expect_lazy("[o2] skip (string), load s2");
     o2.s2.beginParse();
+}
+
+fun algo317(s: slice): int8 {
+    val a = lazy A.fromSlice(s);
+    __expect_lazy("[a] load a1 a2 a3");
+    return a.getSecondField();
 }
 
 

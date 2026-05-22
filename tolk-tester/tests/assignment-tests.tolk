@@ -186,7 +186,7 @@ global ab122: (int, int);
 @method_id(122)
 fun test122() {
     (i122, ab122) = (0, (0,0));
-    (i122, ab122.0).1 = 10;     // modifies ab122.0
+    ab122.0 = 10;
     return (i122, ab122);
 }
 
@@ -195,7 +195,7 @@ fun test123() {
     var a = 0;
     a = a = a = 10;
     a = a.increment();
-    (a, 0).0 = a.increment().increment();
+    a = a.increment().increment();
     return a;
 }
 
@@ -207,19 +207,6 @@ fun test124() {
     g124 = (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18);
     var (a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,a11,a12,a13,a14,a15,a16,a17,a18) = g124;
     return (a1, a18);
-}
-
-const C125: (int, int) = (1, 2);
-
-struct P125 {
-    x: int;
-}
-
-@method_id(125)
-fun test125() {
-    var x = 1;
-    (x, Point { x: C125.0, y: C125.1 }).0 = 5;
-    return x;
 }
 
 
@@ -244,7 +231,6 @@ fun main(value: int, ) {
 @testcase | 122 |        | 0 10 0
 @testcase | 123 |        | 13
 @testcase | 124 |        | 1 18
-@testcase | 125 |        | 5
 
 
 @fif_codegen

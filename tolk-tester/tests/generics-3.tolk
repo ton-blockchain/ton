@@ -80,7 +80,7 @@ fun test4() {
 fun test5() {
     var o1: Ok<int> = { result: 1 };
     var o2: OkAlias<int> = { result: 2 };
-    return (o1 is Ok, o1 is OkAlias, o2 is Ok, o2 is OkAlias, o1 is Ok<slice>, o1 is OkAlias<slice>);
+    return (o1 is Ok, o1 is OkAlias<int>, o2 is Ok, o2 is OkAlias<int>, o1 is Ok<slice>, o1 is OkAlias<slice>);
 }
 
 type OkInt = Ok<int>;

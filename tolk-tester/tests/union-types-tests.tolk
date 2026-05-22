@@ -24,12 +24,12 @@ fun testFlatten() {
     __expect_type(0 as (string | (string | (string | int) | (| cell | string?))), "string | int | cell | null");
 
     __expect_type(0 as (MInt | MNull), "MInt?");
-    __expect_type(0 as (MInt | slice | int), "MInt | slice");
+    __expect_type(0 as (MInt | slice | MInt), "MInt | slice");
     __expect_type(0 as (MIntN), "MIntN");
     __expect_type(0 as (MIntN | null), "int?");
     __expect_type(0 as (MIntN | MNull | MSlice), "int | null | MSlice");
     __expect_type(0 as (MIntN | MNull? | MSlice), "int | null | MSlice");
-    __expect_type(0 as (MInt | IntOrSliceOrBuilder | MSlice), "MInt | slice | builder");
+    __expect_type(0 as (MInt | builder | MSlice), "MInt | builder | MSlice");
     __expect_type((1, 2) as (Pair2 | Pair2Or3 | (slice, int?)), "Pair2 | (int, int, int) | (slice, int?)");
 
     __expect_type(0 as (int | int8), "int | int8");
@@ -112,8 +112,8 @@ fun test4() {
 
 @method_id(105)
 fun test5() {
-    var a: int | int | IntOrSlice = getIntOrSlice();
-    __expect_type(a, "int | slice");
+    var a: MInt | MInt | IntOrSlice = getIntOrSlice();
+    __expect_type(a, "MInt | slice");
     a = 5;
     return (a, a as IntOrSlice, a as IntOrSliceOrBuilder, a as MIntN);
 }
