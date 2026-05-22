@@ -819,6 +819,8 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
           stack.mode |= Stack::_NeedRetAlt;
           block0.generate_code_all(stack);
           stack.enforce_state(layout1);
+          // repeat may execute zero times, so body constants are not valid after the loop
+          stack.forget_const();
         }
         stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
         return true;
@@ -921,6 +923,14 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       }
       if (block0.is_noreturn() || block1.is_noreturn()) {
         stack.o.retalt_ = true;
+      }
+      // For late-init variables alive at TRYCATCH entry but not yet on the stack:
+      // push NULL placeholders so falsely-fallthrough try stacks can still merge with catch.
+      for (const VarDescr& vd : var_info.list) {
+        if (!vd.is_unused() && stack.find(vd.idx) < 0) {
+          stack.o << AsmOp::Const(origin, "PUSHNULL");
+          stack.push_new_var(vd.idx);
+        }
       }
       Stack catch_stack{stack.o, stack.unique_constants, stack.named_vars, 0};
       std::vector<var_idx_t> catch_vars;

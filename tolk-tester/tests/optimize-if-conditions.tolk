@@ -331,6 +331,278 @@ fun test31TernaryZeroOnLeft(x: int, a: int, b: int): int {
     return (0 == x) ? a : b;
 }
 
+// --- 32. Do not fold through reassignment of the compared operand (`if`) ---
+
+@method_id(132)
+fun test32ReassignIf(x: int): int {
+    val c = x != 0;
+    x = 555;
+    if (c) { return 1; }
+    return 0;
+}
+
+// --- 33. Do not fold through reassignment of the compared operand (`?:`) ---
+
+@method_id(133)
+fun test33ReassignTernary(x: int, y: int, a: int, b: int): int {
+    val c = x == 0;
+    x = y;
+    return c ? a : b;
+}
+
+// --- 34. Do not fold through reassignment of the compared operand (`assert`) ---
+
+@method_id(134)
+fun test34ReassignAssert(x: int): int {
+    val c = x != 0;
+    x = 555;
+    try {
+        assert(c, 777);
+        return 1;
+    } catch {
+        return 0;
+    }
+}
+
+// --- 35. Same guard when the reassignment reads a global ---
+
+@method_id(135)
+fun test35ReassignFromGlobal(x: int): int {
+    gG = 777;
+    val c = x != 0;
+    x = gG;
+    if (c) { return 1; }
+    return 0;
+}
+
+// --- 36. Same guard when the reassignment is inside a nested block ---
+
+@method_id(136)
+fun test36ReassignInNestedIf(x: int, rewrite: int): int {
+    val c = x != 0;
+    if (rewrite != 0) {
+        x = 0;
+    }
+    if (c) { return 1; }
+    return 0;
+}
+
+// --- 37. PoC variant: ternary with `!= 0` and constant reassignment ---
+
+@method_id(137)
+fun test37ReassignTernaryNeqConst(x: int): int {
+    val c = x != 0;
+    x = 999;
+    return c ? 100 : 200;
+}
+
+// --- 38. PoC variant: assert with `== 0` and constant reassignment ---
+
+@method_id(138)
+fun test38ReassignAssertEqConst(x: int): int {
+    val c = x == 0;
+    x = 1;
+    assert(c, 42);
+    return 7;
+}
+
+// --- 39. PoC variant: assert with `== 0` and runtime reassignment ---
+
+@method_id(139)
+fun test39ReassignAssertEqRuntime(x: int, y: int): int {
+    val c = x == 0;
+    x = y;
+    assert(c, 999);
+    return 7;
+}
+
+// --- 40. PoC variant: reassignment from a global without a preceding write ---
+
+@method_id(140)
+fun test40ReassignFromGlobalNoWrite(x: int): int {
+    val c = x != 0;
+    x = gG;
+    if (c) { return 1; }
+    return 0;
+}
+
+// --- 41. `match (x) { 0 => ... }` lowers to `x == 0` and must be optimized ---
+
+@method_id(141)
+fun test41MatchZero(x: int): int {
+    return match (x) {
+        0 => 10,
+        else => 20,
+    };
+}
+
+// --- 42. A `match (x) { 0 => ... }` reassignment must not affect an earlier cond-var ---
+
+@method_id(142)
+fun test42MatchZeroReassignBeforeUse(x: int): int {
+    val wasZero = x == 0;
+    x = match (x) {
+        0 => 1,
+        else => 0,
+    };
+    if (wasZero) { return 10 + x; }
+    return 20 + x;
+}
+
+// --- 43. The cond-var (not the compared operand!) is conditionally rewritten inside a nested block ---
+
+@method_id(143)
+fun test43ReassignCondInNestedIf(x: int, flip: bool): int {
+    var cond = x != 0;
+    if (flip) {
+        cond = false;
+    }
+    if (cond) {
+        return 1;
+    }
+    return 2;
+}
+
+// --- 44. Same guard for ternaries (`__condsel` consumer) ---
+
+@method_id(144)
+fun test44ReassignCondInNestedTernary(x: int, flip: bool): int {
+    var cond = x != 0;
+    if (flip) {
+        cond = false;
+    }
+    return cond ? 1 : 2;
+}
+
+// --- 45. Rename-chain version: the consumer reads `b`, not `cond`, but `cond` is rewritten ---
+
+@method_id(145)
+fun test45ReassignCondViaRename(x: int, flip: bool): int {
+    var cond = x != 0;
+    if (flip) {
+        cond = false;
+    }
+    val b = cond;
+    if (b) {
+        return 1;
+    }
+    return 2;
+}
+
+// --- 46. Double-nested `== 0` in assert: `((x == 0) as int) == 0` ≡ `x != 0`.
+//        Each `_==_(...,0)` fold toggles `__throw_ifnot` <-> `__throw_if` ---
+
+@method_id(146)
+fun test46AssertDoubleNestedEq(x: int): int {
+    try {
+        assert(((x == 0) as int) == 0, 146);
+        return 1;
+    } catch (err) {
+        return err;
+    }
+}
+
+// --- 47. Triple-nested `== 0` in assert: three flips cancel to one ⇒ THROWIF.
+//        Semantically `assert(x == 0, N)`. ---
+
+@method_id(147)
+fun test47AssertTripleNestedEq(x: int): int {
+    try {
+        assert(((((x == 0) as int) == 0) as int) == 0, 147);
+        return 1;
+    } catch (err) {
+        return err;
+    }
+}
+
+// --- 48. Mixed `!=`-then-`==` in assert: outer `== 0` flips once,
+//        inner `!= 0` does not flip. Net: one flip ⇒ THROWIF. ---
+
+@method_id(148)
+fun test48AssertMixedNeqEq(x: int): int {
+    try {
+        assert(((x != 0) as int) == 0, 148);
+        return 1;
+    } catch (err) {
+        return err;
+    }
+}
+
+// --- 49. Same double-nested `== 0` pattern in a ternary; sanity / regression guard. ---
+
+@method_id(149)
+fun test49TernaryDoubleNestedEq(x: int, a: int, b: int): int {
+    return ((((x == 0) as int) == 0) ? a : b);
+}
+
+// --- 50. Self-referential `c = (c as int) != 0` ---
+
+@method_id(150)
+fun test50SelfRefIf(x: int): int {
+    var c = x != 0;
+    c = (c as int) != 0;
+    if (c) {
+        return 1;
+    }
+    return 0;
+}
+
+// --- 51. Ternary form of the same self-referential pattern. ---
+
+@method_id(151)
+fun test51SelfRefTernary(x: int): int {
+    var c = x != 0;
+    c = (c as int) != 0;
+    return c ? 11 : 22;
+}
+
+// --- 52. Assert form of the same self-referential pattern. ---
+
+@method_id(152)
+fun test52SelfRefAssert(x: int): int {
+    var c = x != 0;
+    c = (c as int) != 0;
+    try {
+        assert(c, 555);
+        return 1;
+    } catch (err) {
+        return err;
+    }
+}
+
+// --- 53. A long constant-condition chain delays exposing the `cond` rewrite ---
+
+fun test53_inner(x: int): int {
+    var gate = 0;
+    var cond = false;
+    if (true)        { gate = 1; } else { gate = 100; }
+    if (gate == 1)   { gate = 2; } else { gate = 100; }
+    if (gate == 2)   { gate = 3; } else { gate = 100; }
+    if (gate == 3)   { gate = 4; } else { gate = 100; }
+    if (gate == 4)   { gate = 5; } else { gate = 100; }
+    if (gate == 5)   { gate = 6; } else { gate = 100; }
+    if (gate == 6)   { gate = 7; } else { gate = 100; }
+    if (gate == 7)   { cond = x != 0; } else { cond = false; }
+    assert (cond) throw 123;
+    return x;
+}
+
+@method_id(153)
+fun test53LastIterAssertRewrite(x: int): int {
+    try {
+        return test53_inner(x);
+    } catch (err) {
+        return err;
+    }
+}
+
+// --- 54. `assert(!true, N)` is terminal just like `assert(false, N)`, `return` not needed ---
+
+@method_id(154)
+fun test54AssertNegatedConstFalse(): int {
+    assert(!true, 5);
+}
+
 fun main(): int {
     return 0;
 }
@@ -394,6 +666,62 @@ fun main(): int {
 @testcase | 130 |                 | 42
 @testcase | 131 | 0 9 7           | 9
 @testcase | 131 | 5 9 7           | 7
+@testcase | 132 | 0               | 0
+@testcase | 132 | 5               | 1
+@testcase | 133 | 0 777 10 20     | 10
+@testcase | 133 | 5 0 10 20       | 20
+@testcase | 134 | 0               | 0
+@testcase | 134 | 5               | 1
+@testcase | 135 | 0               | 0
+@testcase | 135 | 5               | 1
+@testcase | 136 | 5 1             | 1
+@testcase | 136 | 0 0             | 0
+@testcase | 137 | 0               | 200
+@testcase | 137 | 5               | 100
+@testcase | 138 | 0               | 7
+@testcase | 139 | 0 5             | 7
+@testcase | 140 | 0               | 0
+@testcase | 140 | 5               | 1
+@testcase | 141 | 0               | 10
+@testcase | 141 | 5               | 20
+@testcase | 142 | 0               | 11
+@testcase | 142 | 5               | 20
+@testcase | 143 | 5 -1            | 2
+@testcase | 143 | 5 0             | 1
+@testcase | 143 | 0 -1            | 2
+@testcase | 143 | 0 0             | 2
+@testcase | 144 | 5 -1            | 2
+@testcase | 144 | 5 0             | 1
+@testcase | 144 | 0 -1            | 2
+@testcase | 144 | 0 0             | 2
+@testcase | 145 | 5 -1            | 2
+@testcase | 145 | 5 0             | 1
+@testcase | 145 | 0 -1            | 2
+@testcase | 145 | 0 0             | 2
+@testcase | 146 | 0               | 146
+@testcase | 146 | 5               | 1
+@testcase | 146 | -3              | 1
+@testcase | 147 | 0               | 1
+@testcase | 147 | 5               | 147
+@testcase | 147 | -3              | 147
+@testcase | 148 | 0               | 1
+@testcase | 148 | 5               | 148
+@testcase | 148 | -3              | 148
+@testcase | 149 | 0 11 22         | 22
+@testcase | 149 | 5 11 22         | 11
+@testcase | 149 | -3 11 22        | 11
+@testcase | 150 | 0               | 0
+@testcase | 150 | 5               | 1
+@testcase | 150 | -3              | 1
+@testcase | 151 | 0               | 22
+@testcase | 151 | 5               | 11
+@testcase | 151 | -3              | 11
+@testcase | 152 | 0               | 555
+@testcase | 152 | 5               | 1
+@testcase | 152 | -3              | 1
+@testcase | 153 | 0               | 123
+@testcase | 153 | 5               | 5
+@testcase | 153 | -3              | -3
 
 @fif_codegen
 """
@@ -627,5 +955,88 @@ test30AssertConstTrue() PROC:<{
 test31TernaryZeroOnLeft() PROC:<{
     SWAP
     CONDSEL
+"""
+
+@fif_codegen
+"""
+test41MatchZero() PROC:<{
+    IF:<{
+      20 PUSHINT
+    }>ELSE<{
+      10 PUSHINT
+"""
+
+@fif_codegen
+"""
+test42MatchZeroReassignBeforeUse() PROC:<{
+    DUP
+    0 EQINT
+    SWAP
+    IF:<{
+      0 PUSHINT
+    }>ELSE<{
+      1 PUSHINT
+    }>
+    SWAP
+    IFJMP:<{
+      10 ADDCONST
+"""
+
+@fif_codegen
+"""
+test45ReassignCondViaRename() PROC:<{
+    SWAP
+    0 NEQINT
+    SWAP
+    IF:<{
+      DROP
+      FALSE
+    }>
+    IFJMP:<{
+      1 PUSHINT
+    }>
+    2 PUSHINT
+"""
+
+@fif_codegen
+"""
+    CONT:<{
+      146 THROWIFNOT
+"""
+
+@fif_codegen
+"""
+    CONT:<{
+      147 THROWIF
+"""
+
+@fif_codegen
+"""
+    CONT:<{
+      148 THROWIF
+"""
+
+@fif_codegen
+"""
+test49TernaryDoubleNestedEq() PROC:<{
+    CONDSEL
+"""
+
+@fif_codegen
+"""
+test50SelfRefIf() PROC:<{
+    0 NEQINT
+    0 NEQINT
+    IFJMP:<{
+      1 PUSHINT
+    }>
+    0 PUSHINT
+"""
+
+@fif_codegen
+"""
+test54AssertNegatedConstFalse() PROC:<{
+    5 THROW
+}>
 """
 */

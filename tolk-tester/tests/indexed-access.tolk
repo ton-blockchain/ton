@@ -313,9 +313,11 @@ fun touch127(mutate x: int) {
 @method_id(127)
 fun test127() {
     g127 = (1, 2);
-    touch127(mutate (g127.0, getShape127().0).0);
+    getShape127();
+    touch127(mutate g127.0);
     var a = 3;
-    touch127(mutate (getShape127().0, a).1);
+    getShape127();
+    touch127(mutate a);
     return (g127, a);
 }
 

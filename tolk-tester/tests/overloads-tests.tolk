@@ -255,6 +255,9 @@ fun map<int8, V>.mySize(self): int3 { return 0 }
 fun map<int8, map<K, V>>.mySize(self): int4 { return 0 }
 fun map<int8, map<int16, V>>.mySize(self): int5 { return 0 }
 
+fun map<K, V|slice>.whichSlice(self): int2 { return 0 }
+fun map<K, slice>.whichSlice(self): int3 { return 0 }
+
 type MInt16 = int16
 type MInt16ov = MInt16
 type MMap32 = map<int32, map<bool, varint16>>
@@ -266,6 +269,7 @@ fun test14(
     m6: map<int8, map<int8,int8>?>, 
     m7: map<int8, bool|cell>, m8: map<MInt16, ()|cell|Point>,
     m9: map<address, address>,
+    m10: map<int8, slice>,
 ) {
     __expect_type(m1.mySize(), "int5");
     __expect_type(m2.mySize(), "int5");
@@ -276,6 +280,7 @@ fun test14(
     __expect_type(m7.mySize(), "int2");
     __expect_type(m8.mySize(), "int2");
     __expect_type(m9.mySize(), "int1");
+    __expect_type(m10.whichSlice(), "int3");
 }
 
 type ArrAlias<T> = array<T>

@@ -887,7 +887,7 @@ struct Stack {
   void forget_const();
   void validate(int i) const {
     if (i > 255) {
-      throw Fatal("Too deep stack");
+      throw TooDeepStackFatal();
     }
     tolk_assert(i >= 0 && i < depth() && "invalid stack reference");
   }

@@ -86,6 +86,12 @@ public:
   explicit PackUnpackAvailabilityChecker(std::vector<MethodCallCandidate>* out_un_pack_candidates)
     : out_un_pack_candidates(out_un_pack_candidates) {}
 
+  // During type inference, this class is also used only to collect custom pack/unpack methods
+  // that need generic instantiation. In that mode, skip checks that estimate finalized binary layout.
+  bool is_collecting_out_candidates_only() const {
+    return out_un_pack_candidates != nullptr;
+  }
+
   std::optional<CantSerializeBecause> detect_why_cant_serialize(TypePtr any_type, bool is_pack, int cell_ref_depth) {
     if (any_type->try_as<TypeDataIntN>()) {
       return {};
@@ -122,7 +128,7 @@ public:
       StructPtr struct_ref = t_struct->struct_ref;
 
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_struct, out_un_pack_candidates)) {
-        return out_un_pack_candidates ? std::nullopt : check_custom_pack_unpack(t_struct, f, is_pack);
+        return is_collecting_out_candidates_only() ? std::nullopt : check_custom_pack_unpack(t_struct, f, is_pack);
       }
 
       if (struct_ref->is_instantiation_of_CellT()) {
@@ -156,7 +162,7 @@ public:
 
     if (const auto* t_enum = any_type->try_as<TypeDataEnum>()) {
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_enum, out_un_pack_candidates)) {
-        return out_un_pack_candidates ? std::nullopt : check_custom_pack_unpack(t_enum, f, is_pack);
+        return is_collecting_out_candidates_only() ? std::nullopt : check_custom_pack_unpack(t_enum, f, is_pack);
       }
 
       if (t_enum->enum_ref->members.empty()) {
@@ -180,6 +186,9 @@ public:
         if (auto why = detect_why_cant_serialize(variant, is_pack, cell_ref_depth)) {
           return CantSerializeBecause("because variant #" + std::to_string(i + 1) + " of type `" + variant->as_human_readable() + "` can't be serialized", why.value());
         }
+      }
+      if (is_collecting_out_candidates_only()) {
+        return {};
       }
       if (t_union->or_null == TypeDataVoid::create()) {
         return CantSerializeBecause("because `void | null` has no binary representation");
@@ -223,6 +232,9 @@ public:
       if (auto why = detect_why_cant_serialize(t_array->innerT, is_pack, cell_ref_depth)) {
         return CantSerializeBecause("because array of type `" + t_array->innerT->as_human_readable() + "` can't be serialized", why.value());
       }
+      if (is_collecting_out_candidates_only()) {
+        return {};
+      }
       PackSize sizeT = estimate_serialization_size(t_array->innerT);
       if ((sizeT.max_refs >= 4 || sizeT.min_bits >= 1022) && !sizeT.is_unpredictable_infinity()) {    // one cell and one bit is for snaking
         return CantSerializeBecause("because `" + t_array->innerT->as_human_readable() + "` is too big and won't fit into a nested cell");
@@ -239,7 +251,7 @@ public:
       }
 
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_alias, out_un_pack_candidates)) {
-        return out_un_pack_candidates ? std::nullopt : check_custom_pack_unpack(t_alias, f, is_pack);
+        return is_collecting_out_candidates_only() ? std::nullopt : check_custom_pack_unpack(t_alias, f, is_pack);
       }
 
       if (auto why = detect_why_cant_serialize(t_alias->underlying_type, is_pack, cell_ref_depth)) {

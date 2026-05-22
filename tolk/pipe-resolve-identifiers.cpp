@@ -267,7 +267,7 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_block_statement> v) override {
     // function's body block has the same scope as parameters
-    if (v == cur_f->ast_root->as<ast_function_declaration>()->get_body()) {
+    if (cur_f && v == cur_f->ast_root->as<ast_function_declaration>()->get_body()) {
       parent::visit(v);
       return;
     }
