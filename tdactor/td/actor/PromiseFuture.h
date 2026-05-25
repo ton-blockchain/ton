@@ -219,7 +219,7 @@ class Promise final {
   Promise(Promise &&) = default;
 
   template <detail::IsPromiseInterface<T> Interface>
-    requires(!std::is_lvalue_reference_v<Interface>)
+    requires(!std::is_lvalue_reference_v<Interface> && !std::is_const_v<Interface>)
   Promise(Interface &&iface) : promise_(std::make_unique<Interface>(std::move(iface))) {
   }
 
