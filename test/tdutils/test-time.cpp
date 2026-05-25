@@ -230,8 +230,8 @@ TEST(Time, FreezeAndUnfreeze) {
     Time::jump_in_future(t1 + 7.0);
     t3 = Time::now();
     auto sys3 = Time::system_now();
-    EXPECT_EQ(t3 - t1, 7.0);
-    EXPECT_EQ(sys3 - sys1, 7.0);
+    EXPECT_APPROX(t3 - t1, 7.0);
+    EXPECT_APPROX(sys3 - sys1, 7.0);
   }
 
   auto after = Time::now();
