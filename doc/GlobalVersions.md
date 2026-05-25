@@ -303,3 +303,17 @@ The bounced message has the same 0th and 1st bits in `extra_flags` as the origin
   - Previous block
   - Reference masterchain block
   - Top shard block (in masterchain)
+
+## Version 14
+
+### TVM changes
+- `SENDMSG` no longer uses user-provided `fwd_fee` / `ihr_fee` as a lower bound for the returned fee estimate of an internal message. This aligns the compute-phase estimate with action-phase behavior, which has been ignoring those fields since version 8 (`disable_custom_fess`). Previously a large `fwd_fee` written into the message cell could inflate the value returned by `SENDMSG` (and its estimate-only mode `+1024`) arbitrarily, while the action phase still charged only the recomputed network price.
+- `RIST255_MUL` and `RIST255_QMUL` now accept the identity element (integer `0`) and return `0` in that case. They also validate point `x` and number `n` on all paths. Previously, libsodium's non-zero return code (which it also uses to signal "result is identity") was misinterpreted as "invalid x or n".
+- `ECRECOVER` now accepts Ethereum legacy recovery bytes `v = 27` and `v = 28`, normalizing them to raw recovery ids `0` and `1`.
+- `CHKSIGNS` and `CHKSIGNU` now reject the canonical Ed25519 identity public key (`01 00..00`, that is, `2^248`) before invoking the verifier and return `false`. The check is a fixed 32-byte comparison and does not affect gas.
+- Quiet `RSHIFT`/`MODPOW2` compound opcodes now return `NaN` instead of throwing `range_chk` when their stack-provided shift argument is `NaN` or out of range.
+- `LSHIFT` and similar invoked with `NaN` return `NaN`, not zero.
+- The savelist-writing opcodes `SETCONTCTR`, `SETCONTCTRX`, `SETRETCTR`, `SETALTCTR`, `SAVECTR`, `SAVEALTCTR`, `SETCONTCTRMANY`, and `SETCONTCTRMANYX` now silently do nothing when the targeted savelist slot is already filled (as required by the TVM whitepaper). Earlier they threw `type_chk` in that case.
+
+### Transaction changes
+- When the action phase fails with bounce-on-fail, bounce now returns the whole remaining message balance before action phase.

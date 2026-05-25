@@ -74,13 +74,19 @@ bool ControlRegs::set(unsigned idx, StackEntry value) {
   }
 }
 
-bool ControlRegs::define(unsigned idx, StackEntry value) {
+bool ControlRegs::define(unsigned idx, StackEntry value, bool silent_if_set) {
   if (idx < creg_num) {
     auto v = std::move(value).as_cont();
-    return v.not_null() && define_c(idx, std::move(v));
+    if (v.is_null()) {
+      return false;
+    }
+    return define_c(idx, std::move(v)) || silent_if_set;
   } else if (idx >= dreg_idx && idx < dreg_idx + dreg_num) {
     auto v = std::move(value).as_cell();
-    return v.not_null() && define_d(idx, std::move(v));
+    if (v.is_null()) {
+      return false;
+    }
+    return define_d(idx, std::move(v)) || silent_if_set;
   } else if (idx == 7) {
     auto v = std::move(value).as_tuple();
     return v.not_null() && define_c7(std::move(v));

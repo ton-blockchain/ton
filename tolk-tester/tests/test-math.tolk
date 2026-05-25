@@ -85,6 +85,22 @@ fun rshiftr4mod(x: int): (int, int)
 fun rshift3mod(x: int): (int, int)
     asm "3 RSHIFT#MOD";
 
+@pure
+fun qrshiftr(x: int, y: int): int
+    asm "QRSHIFTR";
+
+@pure
+fun qmodpow2(x: int, y: int): int
+    asm "QMODPOW2";
+
+@pure
+fun qrshiftmod(x: int, y: int): (int, int)
+    asm "QRSHIFTMOD";
+
+@pure
+fun qaddrshiftmod(x: int, w: int, y: int): (int, int)
+    asm "QADDRSHIFTMOD";
+
 /// computes y - x (Tolk compiler does not try to use this by itself)
 @pure
 fun sub_rev(x: int, y: int): int
@@ -1145,6 +1161,16 @@ fun fixed248_acot_test(x:int): int {
     return  fixed248_acot(x);
 }
 
+@method_id(10029)
+fun quiet_shrmod_nan_shift_test(): (int, int, int, int, int, int) {
+    var shift: int = nan();
+    var rshifted = qrshiftr(12345, shift);
+    var modded = qmodpow2(12345, shift);
+    var (q1, r1) = qrshiftmod(12345, shift);
+    var (q2, r2) = qaddrshiftmod(1000, 2345, shift);
+    return (is_nan(rshifted), is_nan(modded), is_nan(q1), is_nan(r1), is_nan(q2), is_nan(r2));
+}
+
 fun main() {
   var One: int = 1;
   // repeat(76 / 4) { One *= 10000; }
@@ -1286,4 +1312,5 @@ fun main() {
 
 @testcase | 10027 |   (1<<248)//5 | 89284547973388213553327350968415123522888028497458323165947767504203347189
 @testcase | 10028 |   (1<<248)//239 | 708598849781543798951441405045469962900811296151941404481049216461523216127
+@testcase | 10029 |   | -1 -1 -1 -1 -1 -1
 */
