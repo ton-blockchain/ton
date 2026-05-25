@@ -2089,6 +2089,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
   ap.reserved_balance.set_zero();
   ap.action_fine = td::zero_refint();
 
+  CurrencyCollection msg_balance_remaining_before_actions = msg_balance_remaining;
   td::Ref<vm::Cell> old_code = new_code, old_data = new_data, old_library = new_library;
   // 1 - ok, 0 - limits exceeded, -1 - fatal error
   auto enforce_state_limits = [&]() -> int {
@@ -2228,6 +2229,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
       if (enforce_state_limits() == -1) {
         return false;
       }
+      if (cfg.global_version >= 14) {
+        msg_balance_remaining = msg_balance_remaining_before_actions;
+      }
       if (cfg.action_fine_enabled) {
         ap.action_fine = std::min(ap.action_fine, balance.grams);
         ap.total_action_fees = ap.action_fine;
@@ -2254,6 +2258,9 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     return false;
   }
   if (res == 0) {
+    if (cfg.global_version >= 14) {
+      msg_balance_remaining = msg_balance_remaining_before_actions;
+    }
     if (cfg.extra_currency_v2) {
       end_lt = ap.end_lt = start_lt + 1;
       if (cfg.action_fine_enabled) {

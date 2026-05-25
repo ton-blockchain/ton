@@ -139,6 +139,10 @@ TEST(Fift, test_adddiv) {
   run_fift("adddiv.fif");
 }
 
+TEST(Fift, test_setcontctr) {
+  run_fift("setcontctr.fif");
+}
+
 TEST(Fift, test_tvm_runvm) {
   run_fift("tvm_runvm.fif");
 }
