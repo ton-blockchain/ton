@@ -19,6 +19,7 @@
 #pragma once
 
 #include <map>
+#include <vector>
 
 #include "adnl/adnl-node-id.hpp"
 #include "adnl/adnl-sender-ex.h"
@@ -30,6 +31,7 @@
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
 #include "td/utils/common.h"
+#include "ton/ton-types.h"
 
 namespace ton {
 
@@ -115,7 +117,7 @@ class OverlayPrivacyRules {
       : max_unath_size_(max_size), flags_(flags), authorized_keys_(std::move(authorized_keys)) {
   }
 
-  BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec) {
+  BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec) const {
     auto it = authorized_keys_.find(hash);
     if (it == authorized_keys_.end()) {
       if (size > max_unath_size_) {
@@ -299,11 +301,27 @@ struct OverlayOptions {
   bool send_twostep_broadcast_ = false;
   bool allow_old_broadcasts_ = true;  // non-twostep broadcasts
 
+  struct PlumtreeFecOptions {
+    td::uint32 k_ = 30;
+    td::uint32 parts_ = 60;
+    td::uint32 tree_slots_ = 200;
+    td::uint32 eager_limit_ = 6;
+    td::uint32 active_neighbours_ = 20;
+    td::uint32 repair_timeout_ms_ = 100;
+    td::uint32 max_repair_targets_ = 5;
+  };
+
+  bool enable_plumtree_broadcast_ = false;
+  td::actor::ActorId<adnl::AdnlSenderEx> plumtree_broadcast_sender_ = {};
+  PlumtreeFecOptions plumtree_fec_options_;
+
   td::RateLimiterWindow::Params auth_broadcast_rate_limit_ = {};
   td::RateLimiterWindow::Params auth_broadcast_size_rate_limit_ = {};
   td::RateLimiterWindow::Params unauth_broadcast_rate_limit_ = {};
   td::RateLimiterWindow::Params unauth_broadcast_size_rate_limit_ = {};
 };
+
+using PlumtreeFecOptions = OverlayOptions::PlumtreeFecOptions;
 
 struct OverlayManagerBufferLimits {
   td::uint32 max_packets = 0;
@@ -413,6 +431,8 @@ class Overlays : public td::actor::Actor {
   virtual void send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                                              PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
                                              td::BufferSlice extra) = 0;
+  virtual void send_broadcast_plumtree_fec_ex(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
+                                              PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object) = 0;
 
   virtual void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                  OverlayPrivacyRules rules) = 0;

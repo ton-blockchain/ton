@@ -64,6 +64,7 @@ struct FullNodeOptions {
   double initial_sync_delay_ = 60.0;
   double ratelimit_window_size_ = 1.0;
   size_t ratelimit_global_ = 96, ratelimit_heavy_ = 64, ratelimit_medium_ = 72;
+  bool public_plumtree_broadcast_ = false;
 };
 
 struct CustomOverlayParams {
@@ -123,7 +124,12 @@ class FullNode : public td::actor::Actor {
   static constexpr td::uint64 max_zerostate_size() {
     return 16 << 20;
   }
-  enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4 };
+  enum {
+    broadcast_mode_public = 1,
+    broadcast_mode_fast_sync = 2,
+    broadcast_mode_custom = 4,
+    broadcast_mode_public_plumtree = 8
+  };
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
 

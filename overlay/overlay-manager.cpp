@@ -470,6 +470,19 @@ void OverlayManager::send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort local_i
   }
 }
 
+void OverlayManager::send_broadcast_plumtree_fec_ex(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+                                                    PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object) {
+  CHECK(object.size() <= Overlays::max_fec_broadcast_size());
+  auto it = overlays_.find(local_id);
+  if (it != overlays_.end()) {
+    auto it2 = it->second.find(overlay_id);
+    if (it2 != it->second.end()) {
+      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree_fec, send_as, flags,
+                              std::move(object));
+    }
+  }
+}
+
 void OverlayManager::set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                        OverlayPrivacyRules rules) {
   auto it = overlays_.find(local_id);

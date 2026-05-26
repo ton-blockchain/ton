@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -118,12 +119,23 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     opts_.twostep_broadcast_sender_ = {};
     opts_.send_twostep_broadcast_ = false;
   }
+  if (!opts_.enable_plumtree_broadcast_) {
+    opts_.plumtree_broadcast_sender_ = {};
+  }
+  if (opts_.enable_plumtree_broadcast_ && opts_.plumtree_broadcast_sender_.empty()) {
+    VLOG(OVERLAY_WARNING) << "Plumtree broadcast sender is not set";
+    opts_.enable_plumtree_broadcast_ = false;
+  }
   if (opts_.send_twostep_broadcast_ && opts_.twostep_broadcast_sender_.empty()) {
     VLOG(OVERLAY_WARNING) << "Twostep broadcast sender is not set";
     opts_.send_twostep_broadcast_ = false;
   }
   if (!opts_.twostep_broadcast_sender_.empty()) {
     broadcasts_twostep_.init_sender(opts_.twostep_broadcast_sender_);
+  }
+  if (!opts_.plumtree_broadcast_sender_.empty()) {
+    broadcasts_plumtree_.init_sender(opts_.plumtree_broadcast_sender_);
+    broadcasts_plumtree_.set_options(opts_.plumtree_fec_options_);
   }
 
   receive_peers_rate_limiter_ = td::RateLimiterWindow{10.0, 10 * opts_.nodes_to_send_ * 2 * 10};
@@ -279,6 +291,66 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
   co_return {};
 }
 
+td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                                 tl_object_ptr<ton_api::overlay_broadcastPlumtreePayload> bcast) {
+  if (!opts_.enable_plumtree_broadcast_) {
+    co_return td::Status::Error("Plumtree broadcasts are not enabled");
+  }
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+    co_return td::Unit{};
+  }
+  co_await broadcasts_plumtree_.process_payload(this, message_from, std::move(bcast));
+  co_return td::Unit{};
+}
+
+td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                                 tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg) {
+  if (!opts_.enable_plumtree_broadcast_) {
+    co_return td::Status::Error("Plumtree broadcasts are not enabled");
+  }
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+    co_return td::Unit{};
+  }
+  co_await broadcasts_plumtree_.process_ihave(this, message_from, std::move(msg));
+  co_return td::Unit{};
+}
+
+td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                                 tl_object_ptr<ton_api::overlay_broadcastPlumtreeRepair> msg) {
+  if (!opts_.enable_plumtree_broadcast_) {
+    co_return td::Status::Error("Plumtree broadcasts are not enabled");
+  }
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+    co_return td::Unit{};
+  }
+  co_await broadcasts_plumtree_.process_repair(this, message_from, std::move(msg));
+  co_return td::Unit{};
+}
+
+td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                                 tl_object_ptr<ton_api::overlay_broadcastPlumtreePrune> msg) {
+  if (!opts_.enable_plumtree_broadcast_) {
+    co_return td::Status::Error("Plumtree broadcasts are not enabled");
+  }
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+    co_return td::Unit{};
+  }
+  co_await broadcasts_plumtree_.process_prune(this, message_from, std::move(msg));
+  co_return td::Unit{};
+}
+
+td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                                 tl_object_ptr<ton_api::overlay_broadcastPlumtreeUseful> msg) {
+  if (!opts_.enable_plumtree_broadcast_) {
+    co_return td::Status::Error("Plumtree broadcasts are not enabled");
+  }
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+    co_return td::Unit{};
+  }
+  co_await broadcasts_plumtree_.process_useful(this, message_from, std::move(msg));
+  co_return td::Unit{};
+}
+
 void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::overlay_messageExtra> extra,
                                   td::BufferSlice data) {
   if (!check_src_peer(src, extra ? extra->certificate_.get() : nullptr)) {
@@ -308,6 +380,7 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_a
 
 void OverlayImpl::alarm() {
   bcast_gc();
+  broadcasts_plumtree_.alarm(this);
 
   if (update_throughput_at_.is_in_past()) {
     double t_elapsed = td::Time::now() - last_throughput_update_.at();
@@ -402,6 +475,7 @@ void OverlayImpl::alarm() {
     alarm_timestamp().relax(update_neighbours_at_);
     alarm_timestamp().relax(update_throughput_at_);
   }
+  alarm_timestamp().relax(broadcasts_plumtree_.next_alarm_at());
 }
 
 void OverlayImpl::start_up() {
@@ -417,18 +491,25 @@ void OverlayImpl::start_up() {
     td::actor::send_closure(opts_.twostep_broadcast_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
     update_peers_mtu();
   }
+  if (opts_.enable_plumtree_broadcast_ && !opts_.plumtree_broadcast_sender_.empty()) {
+    td::actor::send_closure(opts_.plumtree_broadcast_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
+    update_peers_mtu();
+  }
 }
 
 void OverlayImpl::update_peers_mtu() {
-  if (!opts_.twostep_broadcast_sender_.empty()) {
+  auto sender = opts_.enable_plumtree_broadcast_ && !opts_.plumtree_broadcast_sender_.empty()
+                    ? opts_.plumtree_broadcast_sender_
+                    : opts_.twostep_broadcast_sender_;
+  if (!sender.empty()) {
     td::uint64 mtu = rules_.max_broadcast_size() + 1024;
     std::vector<adnl::AdnlNodeIdShort> peers;
     iterate_all_peers([&](const adnl::AdnlNodeIdShort &peer_id, const OverlayPeer &peer) {
-      if (peer.is_permanent_member() && peer_id != local_id_) {
+      if ((peer.is_permanent_member() || opts_.enable_plumtree_broadcast_) && peer_id != local_id_) {
         peers.push_back(peer_id);
       }
     });
-    peers_mtu_guard_ = adnl::PeersMtuGuard{opts_.twostep_broadcast_sender_, local_id_, std::move(peers), mtu};
+    peers_mtu_guard_ = adnl::PeersMtuGuard{sender, local_id_, std::move(peers), mtu};
   }
 }
 
@@ -509,6 +590,7 @@ void OverlayImpl::bcast_gc() {
   broadcasts_simple_.gc(this);
   broadcasts_fec_.gc(this);
   broadcasts_twostep_.gc(this);
+  broadcasts_plumtree_.gc(this);
   while (bcast_lru_.size() > max_bcasts()) {
     auto Id = bcast_lru_.front();
     bcast_lru_.pop();
@@ -552,6 +634,32 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
     }
     broadcasts_fec_.send(this, send_as, std::move(data), flags, opts_.broadcast_speed_multiplier_);
   }
+}
+
+void OverlayImpl::send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
+  if (!has_valid_membership_certificate()) {
+    VLOG(OVERLAY_WARNING) << "member certificate is invalid, valid_until="
+                          << peer_list_.local_cert_is_valid_until_.at_unix();
+    return;
+  }
+  if (!opts_.enable_plumtree_broadcast_) {
+    return;
+  }
+  if (opts_.plumtree_broadcast_sender_.empty()) {
+    VLOG(OVERLAY_WARNING) << "Plumtree broadcast sender is not set";
+    return;
+  }
+  if (data.size() > Overlays::max_fec_broadcast_size()) {
+    VLOG(OVERLAY_WARNING) << "Plumtree broadcast payload is too large";
+    return;
+  }
+  if (!rules_.is_authorized_key(send_as) ||
+      rules_.check_rules(send_as, static_cast<td::uint32>(data.size()), true) != BroadcastCheckResult::Allowed) {
+    VLOG(OVERLAY_WARNING) << "Plumtree broadcast source is not directly authorized";
+    return;
+  }
+  flags &= ~Overlays::BroadcastFlagNoTwostep();
+  broadcasts_plumtree_.send(this, send_as, flags, std::move(data));
 }
 
 void OverlayImpl::print(td::StringBuilder &sb) {
@@ -657,6 +765,11 @@ void OverlayImpl::broadcast_twostep_signed_simple(BroadcastTwostepDataSimple &&d
 void OverlayImpl::broadcast_twostep_signed_fec(BroadcastTwostepDataFec &&data,
                                                td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
   broadcasts_twostep_.signed_fec(this, std::move(data), std::move(R));
+}
+
+void OverlayImpl::broadcast_plumtree_signed_payload(PlumtreeOutboundPayload &&payload,
+                                                    td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
+  broadcasts_plumtree_.signed_payload(this, std::move(payload), std::move(R));
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra) {

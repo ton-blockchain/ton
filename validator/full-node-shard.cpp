@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
+
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
@@ -132,6 +134,12 @@ void FullNodeShardImpl::create_overlay() {
   opts.name_ = "shard" + shard_.to_str();
   opts.announce_self_ = active_;
   opts.broadcast_speed_multiplier_ = opts_.public_broadcast_speed_multiplier_;
+  opts.enable_plumtree_broadcast_ = opts_.public_plumtree_broadcast_;
+  opts.plumtree_broadcast_sender_ = opts.enable_plumtree_broadcast_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_}
+                                                                    : td::actor::ActorId<adnl::AdnlSenderEx>{};
+  if (opts.enable_plumtree_broadcast_) {
+    opts.max_neighbours_ = std::max(opts.max_neighbours_, opts.plumtree_fec_options_.active_neighbours_);
+  }
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
                           std::make_unique<Callback>(actor_id(this)), rules_,
                           PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()
@@ -856,6 +864,23 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
   process_block_broadcast(src, query);
 }
 
+void FullNodeShardImpl::process_broadcast(PublicKeyHash src,
+                                          ton_api::tonNode_blockBroadcastCompressedV2NoSig &query) {
+  auto R_requires_state = need_state_for_decompression(query);
+  if (R_requires_state.is_error()) {
+    LOG(DEBUG) << "Failed to check if state is required for signatureless broadcast: "
+               << R_requires_state.move_as_error();
+    return;
+  }
+
+  if (R_requires_state.move_as_ok()) {
+    obtain_state_for_decompression_no_sig(src, std::move(query));
+    return;
+  }
+
+  process_block_broadcast(src, query);
+}
+
 void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_public);
   if (B.is_error()) {
@@ -867,9 +892,13 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
   //                         << " block=" << block_id.to_str();
   //  return;
   //}
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
-                        << "from " << src << ": " << B.ok().block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
+  auto broadcast = B.move_as_ok();
+  const char *signature_label = broadcast.sig_set.is_null() ? "(no signatures) "
+                                : broadcast.sig_set->is_final() ? ""
+                                                                 : "(approve signatures) ";
+  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << signature_label << "from " << src << ": "
+                        << broadcast.block_id;
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, std::move(broadcast), false);
 }
 
 void FullNodeShardImpl::obtain_state_for_decompression(PublicKeyHash src,
@@ -894,6 +923,28 @@ void FullNodeShardImpl::obtain_state_for_decompression(PublicKeyHash src,
                           std::move(prev_blocks), std::move(P_state));
 }
 
+void FullNodeShardImpl::obtain_state_for_decompression_no_sig(PublicKeyHash src,
+                                                              ton_api::tonNode_blockBroadcastCompressedV2NoSig query) {
+  auto id = create_block_id(query.id_);
+  auto R_prev = extract_prev_blocks_from_proof(query.proof_.as_slice(), id);
+  if (R_prev.is_error()) {
+    LOG(DEBUG) << "Failed to extract prev blocks for signatureless V2 broadcast: " << R_prev.move_as_error();
+    return;
+  }
+  auto prev_blocks = R_prev.move_as_ok();
+  auto P_state = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Ref<ShardState>> R_state) mutable {
+        if (R_state.is_error()) {
+          LOG(DEBUG) << "Failed to get state for signatureless V2 broadcast: " << R_state.move_as_error();
+          return;
+        }
+        td::actor::send_closure(SelfId, &FullNodeShardImpl::process_block_broadcast_with_state_no_sig, src,
+                                std::move(query), R_state.move_as_ok());
+      });
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
+                          std::move(prev_blocks), std::move(P_state));
+}
+
 void FullNodeShardImpl::process_block_broadcast_with_state(PublicKeyHash src,
                                                            ton_api::tonNode_blockBroadcastCompressedV2 query,
                                                            td::Ref<ShardState> state) {
@@ -906,6 +957,20 @@ void FullNodeShardImpl::process_block_broadcast_with_state(PublicKeyHash src,
   }
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true);
+}
+
+void FullNodeShardImpl::process_block_broadcast_with_state_no_sig(PublicKeyHash src,
+                                                                  ton_api::tonNode_blockBroadcastCompressedV2NoSig query,
+                                                                  td::Ref<ShardState> state) {
+  td::Ref<vm::Cell> state_root = state->root_cell();
+  auto B =
+      deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_public, state_root);
+  if (B.is_error()) {
+    LOG(DEBUG) << "Failed to deserialize signatureless block broadcast: " << B.move_as_error();
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Received signatureless block broadcast from " << src << ": " << B.ok().block_id;
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
 }
 
 void FullNodeShardImpl::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
@@ -1015,7 +1080,7 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
     UNREACHABLE();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id;
+  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in public overlay: " << broadcast.block_id;
   auto B = serialize_block_broadcast(broadcast, k_called_from_public);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
@@ -1024,6 +1089,29 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
   auto payload = B.move_as_ok();
   auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
+                          overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
+}
+
+void FullNodeShardImpl::send_broadcast_plumtree(BlockBroadcast broadcast) {
+  if (!client_.empty()) {
+    UNREACHABLE();
+    return;
+  }
+  if (!opts_.public_plumtree_broadcast_) {
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Sending Plumtree block broadcast in public overlay: " << broadcast.block_id;
+  auto B = serialize_block_broadcast(broadcast, k_called_from_public, true);
+  if (B.is_error()) {
+    VLOG(FULL_NODE_WARNING) << "failed to serialize Plumtree block broadcast: " << B.move_as_error();
+    return;
+  }
+  auto payload = B.move_as_ok();
+  auto source = get_plumtree_source(static_cast<td::uint32>(payload.size()), true);
+  if (source.is_zero()) {
+    return;
+  }
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec_ex, adnl_id_, overlay_id_, source,
                           overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
 }
 
@@ -1256,6 +1344,14 @@ PublicKeyHash FullNodeShardImpl::choose_outbound_source(td::uint32 payload_size,
     return adnl_source;
   }
   return local_id_;
+}
+
+PublicKeyHash FullNodeShardImpl::get_plumtree_source(td::uint32 payload_size, bool is_fec) const {
+  if (sign_cert_by_.is_zero() || !rules_.is_authorized_key(sign_cert_by_) ||
+      rules_.check_rules(sign_cert_by_, payload_size, is_fec) != overlay::BroadcastCheckResult::Allowed) {
+    return PublicKeyHash::zero();
+  }
+  return sign_cert_by_;
 }
 
 void FullNodeShardImpl::sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expire_at, td::uint32 max_size,
@@ -1532,12 +1628,15 @@ void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
 }
 
-FullNodeShardImpl::FullNodeShardImpl(
-    ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-    FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
-    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active)
+FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
+                                     FileHash zero_state_file_hash, FullNodeOptions opts,
+                                     std::shared_ptr<RateLimiter<>> limiter,
+                                     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+                                     td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
+                                     td::actor::ActorId<overlay::Overlays> overlays,
+                                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                                     td::actor::ActorId<adnl::AdnlExtClient> client,
+                                     td::actor::ActorId<FullNode> full_node, bool active)
     : shard_(shard)
     , local_id_(local_id)
     , adnl_id_(adnl_id)
@@ -1545,6 +1644,7 @@ FullNodeShardImpl::FullNodeShardImpl(
     , keyring_(keyring)
     , adnl_(adnl)
     , rldp2_(rldp2)
+    , quic_(quic)
     , overlays_(overlays)
     , validator_manager_(validator_manager)
     , client_(client)
@@ -1558,11 +1658,12 @@ td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
     FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter, td::actor::ActorId<keyring::Keyring> keyring,
     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
-    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active) {
-  return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "tonnode" << shard, shard, local_id, adnl_id,
-                                                    zero_state_file_hash, opts, std::move(limiter), keyring, adnl,
-                                                    rldp2, overlays, validator_manager, client, full_node, active);
+    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
+    td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client,
+    td::actor::ActorId<FullNode> full_node, bool active) {
+  return td::actor::create_actor<FullNodeShardImpl>(
+      PSTRING() << "tonnode" << shard, shard, local_id, adnl_id, zero_state_file_hash, opts, std::move(limiter),
+      keyring, adnl, rldp2, quic, overlays, validator_manager, client, full_node, active);
 }
 
 }  // namespace fullnode

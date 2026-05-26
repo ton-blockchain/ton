@@ -16,6 +16,7 @@
 */
 #pragma once
 #include "block/signature-set.h"
+#include "td/utils/optional.h"
 #include "ton/ton-types.h"
 
 namespace ton::validator {
@@ -34,9 +35,10 @@ struct BlockBroadcast {
   td::Ref<block::BlockSignatureSet> sig_set;
   td::BufferSlice data;
   td::BufferSlice proof;
+  td::optional<CatchainSeqno> cc_seqno = {};
 
   BlockBroadcast clone() const {
-    return {block_id, sig_set, data.clone(), proof.clone()};
+    return {block_id, sig_set, data.clone(), proof.clone(), cc_seqno.copy()};
   }
 };
 

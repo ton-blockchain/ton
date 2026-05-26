@@ -283,8 +283,9 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
 void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active) {
   ShardInfo &info = shards_[shard];
   if (info.actor.empty()) {
-    info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, limiter_, keyring_,
-                                       adnl_, rldp2_, overlays_, validator_manager_, client_, actor_id(this), active);
+    info.actor =
+        FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, limiter_, keyring_, adnl_,
+                              rldp2_, quic_, overlays_, validator_manager_, client_, actor_id(this), active);
     if (!all_validators_.empty()) {
       td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
     }
@@ -389,13 +390,21 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
       td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_broadcast, broadcast.clone());
     }
   }
-  if (mode & broadcast_mode_public) {
+  if ((mode & broadcast_mode_public_plumtree) && !opts_.public_plumtree_broadcast_) {
+    mode &= ~broadcast_mode_public_plumtree;
+  }
+  if (mode & (broadcast_mode_public | broadcast_mode_public_plumtree)) {
     auto shard = get_shard(broadcast.block_id.shard_full());
     if (shard.empty()) {
       VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
       return;
     }
-    td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
+    if (mode & broadcast_mode_public) {
+      td::actor::send_closure(shard, &FullNodeShard::send_broadcast, broadcast.clone());
+    }
+    if (mode & broadcast_mode_public_plumtree) {
+      td::actor::send_closure(shard, &FullNodeShard::send_broadcast_plumtree, std::move(broadcast));
+    }
   }
 }
 
@@ -606,7 +615,9 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
 }
 
 void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked) {
-  send_block_broadcast_to_custom_overlays(broadcast);
+  if (broadcast.sig_set.not_null()) {
+    send_block_broadcast_to_custom_overlays(broadcast);
+  }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
                           signatures_checked, [](td::Result<td::Unit> R) {
                             if (R.is_error()) {

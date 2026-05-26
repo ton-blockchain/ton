@@ -392,6 +392,9 @@ class ValidatorEngine : public td::actor::Actor {
   void set_broadcast_speed_multiplier_public(double value) {
     full_node_options_.public_broadcast_speed_multiplier_ = value;
   }
+  void set_public_plumtree_broadcast(bool value) {
+    full_node_options_.public_plumtree_broadcast_ = value;
+  }
   void set_broadcast_speed_multiplier_private(double value) {
     full_node_options_.private_broadcast_speed_multiplier_ = value;
   }

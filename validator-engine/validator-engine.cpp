@@ -5925,6 +5925,10 @@ int main(int argc, char *argv[]) {
             [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_public, v); });
         return td::Status::OK();
       });
+  p.add_option(
+      '\0', "public-plumtree-broadcast", "enable public Plumtree FEC broadcasts over QUIC (experimental)", [&]() {
+        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_public_plumtree_broadcast, true); });
+      });
   p.add_checked_option(
       '\0', "broadcast-speed-private",
       "multiplier for broadcast speed in private block overlays (experimental, default is 3.33, which is ~1 MB/s)",

@@ -387,6 +387,13 @@ tonNode.signatureSet.simplex final:Bool cc_seqno:int validator_set_hash:int sign
 
 tonNode.blockId workchain:int shard:long seqno:int = tonNode.BlockId;
 tonNode.blockIdExt workchain:int shard:long seqno:int root_hash:int256 file_hash:int256 = tonNode.BlockIdExt;
+overlay.broadcastPlumtreePayload flags:int timestamp:double src:PublicKey certificate:overlay.Certificate data_hash:int256 data_size:int part_index:int tree_index:int part:bytes signature:bytes = overlay.Broadcast;
+overlay.broadcastPlumtreeIHave broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.broadcastPlumtreeRepair broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.broadcastPlumtreePrune broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.broadcastPlumtreeUseful broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.broadcastPlumtree.id flags:int data_hash:int256 data_size:int part_size:int = overlay.broadcastPlumtree.Id;
+overlay.broadcastPlumtreePayload.toSign id:int256 timestamp:double part_index:int tree_index:int part:bytes = overlay.broadcastPlumtreePayload.ToSign;
 tonNode.zeroStateIdExt workchain:int root_hash:int256 file_hash:int256 = tonNode.ZeroStateIdExt;
 tonNode.shardId workchain:int shard:long = tonNode.ShardId;
 
@@ -420,6 +427,7 @@ tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_ha
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.SignatureSet flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
+tonNode.blockBroadcastCompressedV2NoSig id:tonNode.blockIdExt cc_seqno:int flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
 tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;

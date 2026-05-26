@@ -225,10 +225,18 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool si
     promise.set_error(td::Status::Error("not monitoring shard"));
     return;
   }
-  promise = [SelfId = actor_id(this), promise = std::move(promise), block_id = broadcast.block_id,
-             cc_seqno = broadcast.sig_set->get_catchain_seqno(),
-             is_final = broadcast.sig_set->is_final()](td::Result<td::Unit> R) mutable {
-    if (R.is_ok() && is_final) {
+  CatchainSeqno cc_seqno = 0;
+  bool notify_accepted = false;
+  if (broadcast.sig_set.not_null()) {
+    cc_seqno = broadcast.sig_set->get_catchain_seqno();
+    notify_accepted = broadcast.sig_set->is_final();
+  } else if (broadcast.cc_seqno) {
+    cc_seqno = broadcast.cc_seqno.value();
+    notify_accepted = true;
+  }
+  promise = [SelfId = actor_id(this), promise = std::move(promise), block_id = broadcast.block_id, cc_seqno,
+             notify_accepted](td::Result<td::Unit> R) mutable {
+    if (R.is_ok() && notify_accepted) {
       td::actor::ask(SelfId, &ValidatorManagerImpl::validated_accepted_block_broadcast, block_id, cc_seqno).detach();
     }
     promise.set_result(std::move(R));

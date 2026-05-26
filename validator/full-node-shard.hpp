@@ -150,10 +150,16 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2NoSig &query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
   void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
+  void obtain_state_for_decompression_no_sig(PublicKeyHash src,
+                                             ton_api::tonNode_blockBroadcastCompressedV2NoSig query);
   void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
                                           td::Ref<ShardState> state);
+  void process_block_broadcast_with_state_no_sig(PublicKeyHash src,
+                                                 ton_api::tonNode_blockBroadcastCompressedV2NoSig query,
+                                                 td::Ref<ShardState> state);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_ihrMessageBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
@@ -180,6 +186,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data) override;
   void send_broadcast(BlockBroadcast broadcast) override;
+  void send_broadcast_plumtree(BlockBroadcast broadcast) override;
 
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                       td::Promise<ReceivedBlock> promise) override;
@@ -217,6 +224,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void sign_new_certificate(PublicKeyHash sign_by);
   void signed_new_certificate(overlay::Certificate cert, PublicKeyHash local_id);
   PublicKeyHash choose_outbound_source(td::uint32 payload_size, bool is_fec) const;
+  PublicKeyHash get_plumtree_source(td::uint32 payload_size, bool is_fec) const;
   bool has_valid_certificate_for_source(const PublicKeyHash &source,
                                         const std::shared_ptr<ton::overlay::Certificate> &cert, td::uint32 payload_size,
                                         bool is_fec) const;
@@ -245,7 +253,8 @@ class FullNodeShardImpl : public FullNodeShard {
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
                     FileHash zero_state_file_hash, FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter,
                     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
+                    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
+                    td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                     td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node,
                     bool active);
@@ -266,6 +275,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp2::Rldp> rldp2_;
+  td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;

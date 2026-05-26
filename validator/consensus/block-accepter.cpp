@@ -27,7 +27,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
 
-    int broadcast_mode = fullnode::FullNode::broadcast_mode_custom;
+    int broadcast_mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_public_plumtree;
     if (event->candidate->leader == owning_bus()->local_id.idx) {
       broadcast_mode |= fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
     }
