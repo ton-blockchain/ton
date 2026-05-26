@@ -56,6 +56,7 @@ constexpr td::Slice PLUMTREE_ROOT_PRF_DOMAIN{"ton-overlay-plumtree-root-v1"};
 constexpr td::Slice PLUMTREE_BROADCAST_PRF_DOMAIN{"ton-overlay-plumtree-broadcast-v1"};
 constexpr double PLUMTREE_BROADCAST_TTL = 25.0;
 constexpr double PLUMTREE_PENDING_FEEDBACK_TTL = 5.0;
+constexpr double PLUMTREE_MISSING_PART_TTL_REPAIR_TIMEOUTS = 10.0;
 constexpr std::size_t MAX_SPECULATIVE_REPAIR_PARTS = 4096;
 
 struct PlumtreeSlot {
@@ -101,6 +102,7 @@ struct PlumtreeMissingPart {
   std::vector<adnl::AdnlNodeIdShort> repair_targets;
   td::Timestamp repair_at = td::Timestamp::never();
   td::Timestamp created_at = td::Timestamp::now();
+  bool repair_sent = false;
 };
 
 class PlumtreeSchedule {
@@ -222,13 +224,6 @@ class PlumtreeSchedule {
   std::vector<PublicKeyHash> root_by_tree_;
 };
 
-td::Result<td::uint32> parse_u32_field(std::int32_t value, td::Slice name) {
-  if (value < 0) {
-    return td::Status::Error(ErrorCode::protoviolation, PSTRING() << "negative Plumtree " << name);
-  }
-  return static_cast<td::uint32>(value);
-}
-
 struct PlumtreeControlFields {
   td::Bits256 broadcast_id;
   double timestamp = 0.0;
@@ -237,10 +232,9 @@ struct PlumtreeControlFields {
 };
 
 template <class T>
-td::Result<PlumtreeControlFields> parse_control_fields(const T &msg) {
-  TRY_RESULT(part_index, parse_u32_field(msg.part_index_, td::Slice("part index")));
-  TRY_RESULT(tree_index, parse_u32_field(msg.tree_index_, td::Slice("tree index")));
-  return PlumtreeControlFields{msg.broadcast_id_, msg.timestamp_, part_index, tree_index};
+PlumtreeControlFields get_control_fields(const T &msg) {
+  return PlumtreeControlFields{msg.broadcast_id_, msg.timestamp_, static_cast<td::uint32>(msg.part_index_),
+                               static_cast<td::uint32>(msg.tree_index_)};
 }
 
 td::Bits256 compute_broadcast_id(td::uint32 flags, const td::Bits256 &data_hash, td::uint32 data_size,
@@ -386,9 +380,9 @@ td::uint32 BroadcastsPlumtree::Impl::slot_load(const PlumtreeSlot &slot) const {
 }
 
 void BroadcastsPlumtree::Impl::expire_pending_feedback(PlumtreeSlot &slot) const {
-  auto expired_before = td::Timestamp::in(-PLUMTREE_PENDING_FEEDBACK_TTL);
+  auto expired_before = td::Timestamp::now() - PLUMTREE_PENDING_FEEDBACK_TTL;
   for (auto it = slot.pending_feedback.begin(); it != slot.pending_feedback.end();) {
-    if (it->second.is_in_past(expired_before)) {
+    if (it->second <= expired_before) {
       it = slot.pending_feedback.erase(it);
     } else {
       ++it;
@@ -771,11 +765,11 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree immediate sender");
   }
-  auto flags = CO_TRY(parse_u32_field(msg->flags_, td::Slice("flags")));
+  auto flags = static_cast<td::uint32>(msg->flags_);
   auto timestamp = msg->timestamp_;
-  auto data_size = CO_TRY(parse_u32_field(msg->data_size_, td::Slice("data size")));
-  auto part_index = CO_TRY(parse_u32_field(msg->part_index_, td::Slice("part index")));
-  auto tree_index = CO_TRY(parse_u32_field(msg->tree_index_, td::Slice("tree index")));
+  auto data_size = static_cast<td::uint32>(msg->data_size_);
+  auto part_index = static_cast<td::uint32>(msg->part_index_);
+  auto tree_index = static_cast<td::uint32>(msg->tree_index_);
   CO_TRY(check_timestamp(timestamp));
   if (data_size == 0 || data_size > Overlays::max_fec_broadcast_size() || msg->part_.empty()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree FEC fields");
@@ -910,17 +904,22 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree immediate sender");
   }
-  auto control = CO_TRY(parse_control_fields(*msg));
+  auto control = get_control_fields(*msg);
   CO_TRY(check_timestamp(control.timestamp));
   CO_TRY(validate_control_fields(control.broadcast_id, control.part_index, control.tree_index));
+  auto part_index = control.part_index;
+  auto tree_index = control.tree_index;
 
   if (!get_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
   }
-  if (get_part(control.broadcast_id, control.part_index, control.tree_index)) {
+  if (get_part(control.broadcast_id, part_index, tree_index)) {
     co_return td::Unit{};
   }
-  auto &missing = missing_parts_[MissingPartKey{control.broadcast_id, control.part_index, control.tree_index}];
+  auto &missing = missing_parts_[MissingPartKey{control.broadcast_id, part_index, tree_index}];
+  if (missing.repair_sent) {
+    co_return td::Unit{};
+  }
   if (std::find(missing.repair_targets.begin(), missing.repair_targets.end(), from) == missing.repair_targets.end() &&
       missing.repair_targets.size() < options_.max_repair_targets_) {
     missing.repair_targets.push_back(from);
@@ -938,16 +937,18 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_repair(
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree immediate sender");
   }
-  auto control = CO_TRY(parse_control_fields(*msg));
+  auto control = get_control_fields(*msg);
   CO_TRY(check_timestamp(control.timestamp));
   CO_TRY(validate_control_fields(control.broadcast_id, control.part_index, control.tree_index));
+  auto part_index = control.part_index;
+  auto tree_index = control.tree_index;
 
   auto *state = get_state(control.broadcast_id);
   if (!state && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
   }
-  auto *part = get_part(control.broadcast_id, control.part_index, control.tree_index);
-  auto *s = slot(control.tree_index);
+  auto *part = get_part(control.broadcast_id, part_index, tree_index);
+  auto *s = slot(tree_index);
   if (!state || !part || !s || !part->advertised_to.contains(from) || part->full_sent_to.contains(from)) {
     co_return td::Status::Error(ErrorCode::protoviolation, "unexpected Plumtree REPAIR");
   }
@@ -964,15 +965,17 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_prune(OverlayImpl *overlay, 
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree immediate sender");
   }
-  auto control = CO_TRY(parse_control_fields(*msg));
+  auto control = get_control_fields(*msg);
   CO_TRY(check_timestamp(control.timestamp));
   CO_TRY(validate_control_fields(control.broadcast_id, control.part_index, control.tree_index));
+  auto part_index = control.part_index;
+  auto tree_index = control.tree_index;
 
   if (!get_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
   }
-  auto *part = get_part(control.broadcast_id, control.part_index, control.tree_index);
-  auto *s = slot(control.tree_index);
+  auto *part = get_part(control.broadcast_id, part_index, tree_index);
+  auto *s = slot(tree_index);
   if (!part || !s) {
     co_return td::Status::Error(ErrorCode::protoviolation, "unexpected Plumtree PRUNE");
   }
@@ -989,15 +992,17 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_useful(
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree immediate sender");
   }
-  auto control = CO_TRY(parse_control_fields(*msg));
+  auto control = get_control_fields(*msg);
   CO_TRY(check_timestamp(control.timestamp));
   CO_TRY(validate_control_fields(control.broadcast_id, control.part_index, control.tree_index));
+  auto part_index = control.part_index;
+  auto tree_index = control.tree_index;
 
   if (!get_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
   }
-  auto *part = get_part(control.broadcast_id, control.part_index, control.tree_index);
-  auto *s = slot(control.tree_index);
+  auto *part = get_part(control.broadcast_id, part_index, tree_index);
+  auto *s = slot(tree_index);
   if (!part || !s || (!s->pending_feedback.contains(from) && !s->eager.contains(from))) {
     co_return td::Status::Error(ErrorCode::protoviolation, "unexpected Plumtree USEFUL");
   }
@@ -1011,6 +1016,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_useful(
 void BroadcastsPlumtree::Impl::alarm(OverlayImpl *overlay) {
   expire_pending_feedback();
   auto now = td::Timestamp::now();
+  auto missing_expired_before =
+      now - PLUMTREE_MISSING_PART_TTL_REPAIR_TIMEOUTS * options_.repair_timeout_ms_ / 1000.0;
   std::vector<MissingPartKey> erase;
   for (auto &[key, missing] : missing_parts_) {
     const auto &[broadcast_id, part_index, tree_index] = key;
@@ -1018,11 +1025,11 @@ void BroadcastsPlumtree::Impl::alarm(OverlayImpl *overlay) {
       erase.push_back(key);
       continue;
     }
-    if (missing.created_at.is_in_past(td::Timestamp::in(-2.0 * options_.repair_timeout_ms_ / 1000.0))) {
+    if (missing.created_at <= missing_expired_before) {
       erase.push_back(key);
       continue;
     }
-    if (missing.repair_at && missing.repair_at.is_in_past(now)) {
+    if (!missing.repair_sent && missing.repair_at && missing.repair_at.is_in_past(now)) {
       for (const auto &dst : missing.repair_targets) {
         send_control(overlay, dst,
                      create_tl_object<ton_api::overlay_broadcastPlumtreeRepair>(broadcast_id, td::Clocks::system(),
@@ -1030,7 +1037,7 @@ void BroadcastsPlumtree::Impl::alarm(OverlayImpl *overlay) {
                                                                                 static_cast<std::int32_t>(tree_index)));
       }
       missing.repair_targets.clear();
-      missing.repair_at = td::Timestamp::never();
+      missing.repair_sent = true;
     }
   }
   for (const auto &key : erase) {
@@ -1041,7 +1048,7 @@ void BroadcastsPlumtree::Impl::alarm(OverlayImpl *overlay) {
 td::Timestamp BroadcastsPlumtree::Impl::next_alarm_at() const {
   auto result = td::Timestamp::never();
   for (const auto &[_, missing] : missing_parts_) {
-    if (missing.repair_at) {
+    if (!missing.repair_sent && missing.repair_at) {
       result.relax(missing.repair_at);
     }
   }
@@ -1050,10 +1057,12 @@ td::Timestamp BroadcastsPlumtree::Impl::next_alarm_at() const {
 
 void BroadcastsPlumtree::Impl::gc(OverlayImpl *overlay) {
   expire_pending_feedback();
+  auto now = td::Timestamp::now();
+  auto broadcast_expired_before = now - PLUMTREE_BROADCAST_TTL;
   while (!broadcasts_.empty()) {
     auto *bcast = static_cast<PlumtreeBroadcastState *>(lru_.prev);
     CHECK(bcast);
-    if (!bcast->first_seen_at.is_in_past(td::Timestamp::in(-PLUMTREE_BROADCAST_TTL))) {
+    if (bcast->first_seen_at > broadcast_expired_before) {
       break;
     }
     auto broadcast_id = bcast->broadcast_id;
@@ -1068,8 +1077,10 @@ void BroadcastsPlumtree::Impl::gc(OverlayImpl *overlay) {
   }
 
   std::vector<MissingPartKey> erase;
+  auto missing_expired_before =
+      now - PLUMTREE_MISSING_PART_TTL_REPAIR_TIMEOUTS * options_.repair_timeout_ms_ / 1000.0;
   for (const auto &[key, missing] : missing_parts_) {
-    if (missing.created_at.is_in_past(td::Timestamp::in(-2.0 * options_.repair_timeout_ms_ / 1000.0))) {
+    if (missing.created_at <= missing_expired_before) {
       erase.push_back(key);
     }
   }
