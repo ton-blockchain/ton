@@ -65,11 +65,13 @@ struct PlumtreeSlot {
 };
 
 struct PlumtreePartState {
-  td::BufferSlice wire_payload;
   td::uint32 part_index = 0;
   td::uint32 tree_index = 0;
+  double timestamp = 0.0;
+  PublicKey source_key;
   PublicKeyHash source;
   std::shared_ptr<Certificate> certificate;
+  td::BufferSlice signature;
   td::uint32 full_sends = 0;
   std::set<adnl::AdnlNodeIdShort> advertised_to;
   std::set<adnl::AdnlNodeIdShort> full_sent_to;
@@ -90,8 +92,9 @@ struct PlumtreeBroadcastState : td::ListNode {
 
   std::unique_ptr<td::raptorq::Decoder> decoder;
   std::set<td::uint32> decoder_parts;
-  std::set<PublicKeyHash> locally_registered_sources;
-  std::map<TreePartKey, PlumtreePartState> parts;
+  bool overlay_limiter_registered = false;
+  std::map<td::uint32, td::BufferSlice> parts_by_index;
+  std::map<TreePartKey, PlumtreePartState> tree_parts;
 };
 
 struct PlumtreeMissingPart {
@@ -334,7 +337,8 @@ class BroadcastsPlumtree::Impl {
 
   bool send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
                     tl_object_ptr<ton_api::overlay_Broadcast> control);
-  bool send_payload_to(OverlayImpl *overlay, PlumtreePartState &part, const adnl::AdnlNodeIdShort &dst);
+  bool send_payload_to(OverlayImpl *overlay, PlumtreeBroadcastState &broadcast, PlumtreePartState &part,
+                       const adnl::AdnlNodeIdShort &dst);
   void send_ihave_to(OverlayImpl *overlay, PlumtreePartState &part, const td::Bits256 &broadcast_id,
                      const adnl::AdnlNodeIdShort &dst);
   void send_prune(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst, const PlumtreePartState &part,
@@ -446,13 +450,13 @@ PlumtreeBroadcastState *BroadcastsPlumtree::Impl::get_state(const td::Bits256 &b
 }
 
 PlumtreePartState *BroadcastsPlumtree::Impl::get_part(const td::Bits256 &broadcast_id, td::uint32 part_index,
-                                                      td::uint32 tree_index) {
+                                                          td::uint32 tree_index) {
   auto *state = get_state(broadcast_id);
   if (!state) {
     return nullptr;
   }
-  auto it = state->parts.find(TreePartKey{part_index, tree_index});
-  return it == state->parts.end() ? nullptr : &it->second;
+  auto it = state->tree_parts.find(TreePartKey{part_index, tree_index});
+  return it == state->tree_parts.end() ? nullptr : &it->second;
 }
 
 td::Status BroadcastsPlumtree::Impl::ensure_decoder(PlumtreeBroadcastState &broadcast) {
@@ -480,23 +484,33 @@ bool BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::Ad
   return true;
 }
 
-bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, PlumtreePartState &part,
-                                               const adnl::AdnlNodeIdShort &dst) {
-  if (sender_.empty() || dst.is_zero() || dst == overlay->local_id() || part.wire_payload.empty()) {
+bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, PlumtreeBroadcastState &broadcast,
+                                               PlumtreePartState &part, const adnl::AdnlNodeIdShort &dst) {
+  if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
     return false;
   }
   if (part.full_sends >= options_.eager_limit_ || part.full_sent_to.contains(dst)) {
     return false;
   }
+  auto part_data = broadcast.parts_by_index.find(part.part_index);
+  if (part_data == broadcast.parts_by_index.end()) {
+    return false;
+  }
+  auto wire = create_serialize_tl_object<ton_api::overlay_broadcastPlumtreePayload>(
+      static_cast<std::int32_t>(broadcast.flags), part.timestamp, part.source_key.tl(),
+      part.certificate ? part.certificate->tl() : Certificate::empty_tl(), broadcast.data_hash,
+      static_cast<std::int32_t>(broadcast.data_size), static_cast<std::int32_t>(part.part_index),
+      static_cast<std::int32_t>(part.tree_index), part_data->second.clone(), part.signature.clone());
+  auto wire_size = wire.size();
   td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
-                          overlay->overlay_id(), part.wire_payload.clone(), sender_);
+                          overlay->overlay_id(), std::move(wire), sender_);
   if (auto *s = slot(part.tree_index)) {
     expire_pending_feedback(*s);
     s->pending_feedback[dst] = td::Timestamp::now();
   }
   part.full_sent_to.insert(dst);
   ++part.full_sends;
-  overlay->get_broadcasts_limiter(part.source, part.certificate.get()).register_out_traffic(part.wire_payload.size());
+  overlay->get_broadcasts_limiter(part.source, part.certificate.get()).register_out_traffic(wire_size);
   return true;
 }
 
@@ -548,7 +562,7 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, PlumtreeBro
   if (s->initialized) {
     trim_eager_to_capacity(*s);
     for (const auto &peer : s->eager) {
-      if (peer != from && send_payload_to(overlay, part, peer)) {
+      if (peer != from && send_payload_to(overlay, broadcast, part, peer)) {
         full_sent.insert(peer);
       }
     }
@@ -557,7 +571,7 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, PlumtreeBro
       if (full_sent.size() >= options_.eager_limit_) {
         break;
       }
-      if (send_payload_to(overlay, part, peer)) {
+      if (send_payload_to(overlay, broadcast, part, peer)) {
         full_sent.insert(peer);
       }
     }
@@ -630,7 +644,7 @@ void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as,
   }
   auto encoder = encoder_r.move_as_ok();
   encoder->precalc();
- 
+
   td::uint32 signed_parts = 0;
   for (const auto &[part_index, tree_index] : assigned_parts) {
     td::BufferSlice part(part_size);
@@ -699,11 +713,6 @@ void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutb
     return;
   }
   auto source_key = signed_part.second;
-  auto wire = create_serialize_tl_object<ton_api::overlay_broadcastPlumtreePayload>(
-      static_cast<std::int32_t>(payload.flags), payload.timestamp, source_key.tl(),
-      cert ? cert->tl() : Certificate::empty_tl(), payload.data_hash, static_cast<std::int32_t>(payload.data_size),
-      static_cast<std::int32_t>(payload.part_index), static_cast<std::int32_t>(payload.tree_index),
-      payload.part.clone(), std::move(signed_part.first));
 
   auto it = broadcasts_.find(payload.broadcast_id);
   if (it == broadcasts_.end()) {
@@ -731,18 +740,26 @@ void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutb
     return;
   }
 
+  if (broadcast.parts_by_index.find(payload.part_index) == broadcast.parts_by_index.end()) {
+    broadcast.parts_by_index.emplace(payload.part_index, std::move(payload.part));
+  }
+
   PlumtreePartState part;
-  part.wire_payload = std::move(wire);
   part.part_index = payload.part_index;
   part.tree_index = payload.tree_index;
+  part.timestamp = payload.timestamp;
+  part.source_key = std::move(source_key);
   part.source = payload.source;
   part.certificate = cert;
-  auto [part_it, _] = broadcast.parts.emplace(TreePartKey{payload.part_index, payload.tree_index}, std::move(part));
+  part.signature = std::move(signed_part.first);
+  auto [part_it, _] =
+      broadcast.tree_parts.emplace(TreePartKey{payload.part_index, payload.tree_index}, std::move(part));
 
   forward_payload(overlay, broadcast, part_it->second, adnl::AdnlNodeIdShort::zero());
 
-  if (broadcast.locally_registered_sources.insert(payload.source).second) {
+  if (!broadcast.overlay_limiter_registered) {
     overlay->get_broadcasts_limiter(payload.source, cert.get()).register_broadcast(payload.data_size);
+    broadcast.overlay_limiter_registered = true;
   }
   VLOG(PLUMTREE_INFO) << overlay << ": Plumtree SEND_PAYLOAD sender broadcast_id=" << payload.broadcast_id.to_hex()
                       << " part_index=" << payload.part_index << " tree_index=" << payload.tree_index
@@ -845,14 +862,20 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
   }
 
   CO_TRY(ensure_decoder(broadcast));
-  auto wire = serialize_tl_object(msg, true);
+  auto part_data_it = broadcast.parts_by_index.find(part_index);
+  if (part_data_it == broadcast.parts_by_index.end()) {
+    part_data_it = broadcast.parts_by_index.emplace(part_index, msg->part_.clone()).first;
+  }
   PlumtreePartState part;
-  part.wire_payload = std::move(wire);
   part.part_index = part_index;
   part.tree_index = tree_index;
+  part.timestamp = timestamp;
+  part.source_key = std::move(source_key);
   part.source = source_hash;
   part.certificate = cert;
-  auto [part_it, _] = broadcast.parts.emplace(TreePartKey{part_index, tree_index}, std::move(part));
+  part.signature = std::move(msg->signature_);
+  auto [part_it, _] =
+      broadcast.tree_parts.emplace(TreePartKey{part_index, tree_index}, std::move(part));
   missing_parts_.erase(MissingPartKey{broadcast_id, part_index, tree_index});
 
   auto *s = slot(tree_index);
@@ -864,7 +887,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
   forward_payload(overlay, broadcast, part_it->second, from);
 
   if (!broadcast.delivered && broadcast.decoder && !broadcast.decoder_parts.contains(part_index)) {
-    CO_TRY(broadcast.decoder->add_symbol({part_index, std::move(msg->part_)}));
+    CO_TRY(broadcast.decoder->add_symbol({part_index, part_data_it->second.clone()}));
     broadcast.decoder_parts.insert(part_index);
     if (broadcast.decoder->may_try_decode()) {
       auto decoded = CO_TRY(broadcast.decoder->try_decode(false));
@@ -932,7 +955,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_repair(
   if (slot_load(*s) >= options_.eager_limit_ || part->full_sends >= options_.eager_limit_) {
     co_return td::Status::Error(ErrorCode::notready, "Plumtree REPAIR cannot be served");
   }
-  send_payload_to(overlay, *part, from);
+  send_payload_to(overlay, *state, *part, from);
   co_return td::Unit{};
 }
 
@@ -1036,7 +1059,8 @@ void BroadcastsPlumtree::Impl::gc(OverlayImpl *overlay) {
     auto broadcast_id = bcast->broadcast_id;
     if (!bcast->delivered) {
       VLOG(PLUMTREE_INFO) << overlay << ": Plumtree GC_INCOMPLETE broadcast_id=" << broadcast_id.to_hex()
-                          << " payload_parts=" << bcast->parts.size()
+                          << " tree_parts=" << bcast->tree_parts.size()
+                          << " payload_parts=" << bcast->parts_by_index.size()
                           << " decoder_parts=" << bcast->decoder_parts.size();
     }
     CHECK(broadcasts_.erase(broadcast_id));
