@@ -37,6 +37,7 @@
 #include "td/utils/buffer.h"
 #include "td/utils/common.h"
 #include "td/utils/port/Clocks.h"
+#include "td/utils/tl_helpers.h"
 #include "tl-utils/common-utils.hpp"
 
 #include "broadcast-plumtree.hpp"
@@ -80,7 +81,6 @@ using MissingPartKey = std::tuple<td::Bits256, td::uint32, td::uint32>;
 struct PlumtreeBroadcastState : td::ListNode {
   td::Bits256 broadcast_id;
   PublicKeyHash first_valid_source;
-  BroadcastCheckResult first_valid_source_check = BroadcastCheckResult::Forbidden;
   td::Bits256 data_hash;
   td::Timestamp first_seen_at;
   td::uint32 flags = 0;
@@ -95,63 +95,129 @@ struct PlumtreeBroadcastState : td::ListNode {
 };
 
 struct PlumtreeMissingPart {
-  td::uint32 tree_index = 0;
   std::vector<adnl::AdnlNodeIdShort> repair_targets;
   td::Timestamp repair_at = td::Timestamp::never();
   td::Timestamp created_at = td::Timestamp::now();
 };
 
-void append_u32(std::string &s, td::uint32 value) {
-  for (td::uint32 i = 0; i < 4; ++i) {
-    s.push_back(static_cast<char>((value >> (i * 8)) & 0xff));
+class PlumtreeSchedule {
+ public:
+  PlumtreeSchedule(OverlayIdShort overlay_id, PlumtreeFecOptions options, std::vector<PublicKeyHash> sources)
+      : overlay_id_(overlay_id), options_(options) {
+    if (!sources.empty() && options_.tree_slots_ != 0) {
+      root_by_tree_ = build_root_map(sources);
+    }
   }
-}
 
-void append_bits(std::string &s, const td::Bits256 &value) {
-  auto slice = value.as_slice();
-  s.append(slice.data(), slice.size());
-}
-
-std::string build_root_seed(OverlayIdShort overlay_id) {
-  std::string seed;
-  seed.reserve(64);
-  seed.append(PLUMTREE_ROOT_PRF_DOMAIN.data(), PLUMTREE_ROOT_PRF_DOMAIN.size());
-  append_bits(seed, overlay_id.bits256_value());
-  return seed;
-}
-
-std::string build_broadcast_seed(OverlayIdShort overlay_id, const td::Bits256 &broadcast_id) {
-  std::string seed;
-  seed.reserve(96);
-  seed.append(PLUMTREE_BROADCAST_PRF_DOMAIN.data(), PLUMTREE_BROADCAST_PRF_DOMAIN.size());
-  append_bits(seed, overlay_id.bits256_value());
-  append_bits(seed, broadcast_id);
-  return seed;
-}
-
-td::Bits256 prf_hash(const std::string &seed, td::Slice label, td::uint32 index, td::Slice value = {}) {
-  std::string bytes = seed;
-  bytes.append(label.data(), label.size());
-  append_u32(bytes, index);
-  bytes.append(value.data(), value.size());
-  return td::sha256_bits256(td::Slice(bytes));
-}
-
-std::vector<td::uint32> prf_permutation(const std::string &seed, td::Slice label, td::uint32 count) {
-  std::vector<std::pair<td::Bits256, td::uint32>> scored;
-  scored.reserve(count);
-  for (td::uint32 i = 0; i < count; ++i) {
-    scored.emplace_back(prf_hash(seed, label, i), i);
+  td::Result<std::vector<TreePartKey>> assigned_parts(const td::Bits256 &broadcast_id, PublicKeyHash source) const {
+    if (options_.tree_slots_ == 0 || root_by_tree_.size() != options_.tree_slots_) {
+      return td::Status::Error(ErrorCode::notready, "invalid Plumtree schedule inputs");
+    }
+    auto trees = broadcast_tree_order(broadcast_id);
+    std::vector<TreePartKey> result;
+    result.reserve(options_.parts_);
+    for (td::uint32 part_index = 0; part_index < options_.parts_; ++part_index) {
+      auto tree_index = trees[part_index % options_.tree_slots_];
+      if (root_by_tree_[tree_index] == source) {
+        result.emplace_back(part_index, tree_index);
+      }
+    }
+    return result;
   }
-  std::sort(scored.begin(), scored.end());
 
-  std::vector<td::uint32> result;
-  result.reserve(scored.size());
-  for (const auto &[_, index] : scored) {
-    result.push_back(index);
+ private:
+  struct PrfSeed {
+    td::Slice domain;
+    td::Bits256 overlay_id;
+    td::Bits256 broadcast_id;
+
+    template <class StorerT>
+    void store(StorerT &storer) const {
+      td::store(domain, storer);
+      td::store(overlay_id.as_slice(), storer);
+      td::store(broadcast_id.as_slice(), storer);
+    }
+  };
+
+  struct PrfInput {
+    td::Slice seed;
+    td::Slice label;
+    td::uint32 index = 0;
+    td::Slice value;
+
+    template <class StorerT>
+    void store(StorerT &storer) const {
+      td::store(seed, storer);
+      td::store(label, storer);
+      td::store(index, storer);
+      td::store(value, storer);
+    }
+  };
+
+  std::vector<PublicKeyHash> build_root_map(const std::vector<PublicKeyHash> &sources) const {
+    auto seed = root_prf_seed();
+    auto tree_order = prf_permutation(seed, td::Slice("tree"), options_.tree_slots_);
+    auto source_count = static_cast<td::uint32>(sources.size());
+    auto cap = (options_.tree_slots_ + source_count - 1) / source_count;
+    std::vector<td::uint32> source_load(source_count);
+    std::vector<PublicKeyHash> root_by_tree(options_.tree_slots_);
+
+    for (auto tree_index : tree_order) {
+      td::uint32 best_index = source_count;
+      td::Bits256 best_score;
+      for (td::uint32 i = 0; i < source_count; ++i) {
+        if (source_load[i] >= cap) {
+          continue;
+        }
+        auto score = prf_hash(seed, td::Slice("root"), tree_index, sources[i].as_slice());
+        if (best_index == source_count || score < best_score) {
+          best_index = i;
+          best_score = score;
+        }
+      }
+      CHECK(best_index < source_count);
+      root_by_tree[tree_index] = sources[best_index];
+      ++source_load[best_index];
+    }
+    return root_by_tree;
   }
-  return result;
-}
+
+  std::vector<td::uint32> broadcast_tree_order(const td::Bits256 &broadcast_id) const {
+    return prf_permutation(broadcast_prf_seed(broadcast_id), td::Slice("tree"), options_.tree_slots_);
+  }
+
+  std::string root_prf_seed() const {
+    return td::serialize(PrfSeed{PLUMTREE_ROOT_PRF_DOMAIN, overlay_id_.bits256_value(), td::Bits256::zero()});
+  }
+
+  std::string broadcast_prf_seed(const td::Bits256 &broadcast_id) const {
+    return td::serialize(PrfSeed{PLUMTREE_BROADCAST_PRF_DOMAIN, overlay_id_.bits256_value(), broadcast_id});
+  }
+
+  static td::Bits256 prf_hash(td::Slice seed, td::Slice label, td::uint32 index, td::Slice value = {}) {
+    return td::sha256_bits256(td::serialize(PrfInput{seed, label, index, value}));
+  }
+
+  static std::vector<td::uint32> prf_permutation(const std::string &seed, td::Slice label, td::uint32 count) {
+    std::vector<std::pair<td::Bits256, td::uint32>> scored;
+    scored.reserve(count);
+    for (td::uint32 i = 0; i < count; ++i) {
+      scored.emplace_back(prf_hash(seed, label, i), i);
+    }
+    std::sort(scored.begin(), scored.end());
+
+    std::vector<td::uint32> result;
+    result.reserve(scored.size());
+    for (const auto &[_, index] : scored) {
+      result.push_back(index);
+    }
+    return result;
+  }
+
+  OverlayIdShort overlay_id_;
+  PlumtreeFecOptions options_;
+  std::vector<PublicKeyHash> root_by_tree_;
+};
 
 td::Result<td::uint32> parse_u32_field(std::int32_t value, td::Slice name) {
   if (value < 0) {
@@ -202,21 +268,6 @@ td::Status check_timestamp(double timestamp) {
   return td::Status::OK();
 }
 
-bool valid_control_id(const td::Bits256 &broadcast_id) {
-  return !broadcast_id.is_zero();
-}
-
-td::actor::Task<> check_and_deliver(OverlayImpl *overlay, PublicKeyHash source, BroadcastCheckResult check_result,
-                                    td::BufferSlice data) {
-  if (check_result != BroadcastCheckResult::Allowed) {
-    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-    overlay->check_broadcast(source, data.clone(), std::move(promise));
-    co_await std::move(task);
-  }
-  overlay->deliver_broadcast(source, std::move(data), {});
-  co_return td::Unit{};
-}
-
 }  // namespace
 
 class BroadcastsPlumtree::Impl {
@@ -227,7 +278,12 @@ class BroadcastsPlumtree::Impl {
 
   void set_options(PlumtreeFecOptions options) {
     options_ = options;
-    ensure_slots();
+    schedule_.reset();
+    schedule_sources_.clear();
+    slots_.clear();
+    if (options_.tree_slots_ != 0) {
+      slots_.resize(options_.tree_slots_);
+    }
   }
 
   void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
@@ -257,33 +313,26 @@ class BroadcastsPlumtree::Impl {
   std::map<td::Bits256, std::unique_ptr<PlumtreeBroadcastState>> broadcasts_;
   std::map<MissingPartKey, PlumtreeMissingPart> missing_parts_;
   td::ListNode lru_;
+  std::unique_ptr<PlumtreeSchedule> schedule_;
+  std::vector<PublicKeyHash> schedule_sources_;
 
-  void ensure_slots();
-  bool valid_options() const;
-  td::Result<std::vector<PublicKeyHash>> build_root_map(OverlayImpl *overlay) const;
   td::Status validate_control_fields(const td::Bits256 &broadcast_id, td::uint32 part_index,
                                      td::uint32 tree_index) const;
+  PlumtreeSchedule *schedule(OverlayImpl *overlay);
 
   PlumtreeSlot *slot(td::uint32 tree_index);
-  td::uint32 slot_capacity() const;
   td::uint32 slot_load(const PlumtreeSlot &slot) const;
-  bool has_free_capacity(PlumtreeSlot &slot) const;
   void expire_pending_feedback(PlumtreeSlot &slot) const;
   void expire_pending_feedback();
   void promote_eager(PlumtreeSlot &slot, adnl::AdnlNodeIdShort peer, bool force);
   void trim_eager_to_capacity(PlumtreeSlot &slot);
   void remove_eager(PlumtreeSlot &slot, adnl::AdnlNodeIdShort peer);
 
-  std::vector<adnl::AdnlNodeIdShort> active_neighbours(OverlayImpl *overlay, adnl::AdnlNodeIdShort except) const;
-  bool has_part(const td::Bits256 &broadcast_id, td::uint32 part_index, td::uint32 tree_index) const;
   PlumtreeBroadcastState *get_state(const td::Bits256 &broadcast_id);
-  const PlumtreeBroadcastState *get_state(const td::Bits256 &broadcast_id) const;
   PlumtreePartState *get_part(const td::Bits256 &broadcast_id, td::uint32 part_index, td::uint32 tree_index);
-  const PlumtreePartState *get_part(const td::Bits256 &broadcast_id, td::uint32 part_index,
-                                    td::uint32 tree_index) const;
   td::Status ensure_decoder(PlumtreeBroadcastState &broadcast);
 
-  void send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
+  bool send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
                     tl_object_ptr<ton_api::overlay_Broadcast> control);
   bool send_payload_to(OverlayImpl *overlay, PlumtreePartState &part, const adnl::AdnlNodeIdShort &dst);
   void send_ihave_to(OverlayImpl *overlay, PlumtreePartState &part, const td::Bits256 &broadcast_id,
@@ -298,62 +347,10 @@ class BroadcastsPlumtree::Impl {
   void trim_missing_parts();
 };
 
-void BroadcastsPlumtree::Impl::ensure_slots() {
-  if (options_.tree_slots_ == 0) {
-    slots_.clear();
-    return;
-  }
-  if (slots_.size() != options_.tree_slots_) {
-    slots_.clear();
-    slots_.resize(options_.tree_slots_);
-  }
-}
-
-bool BroadcastsPlumtree::Impl::valid_options() const {
-  return options_.k_ > 0 && options_.parts_ >= options_.k_ && options_.tree_slots_ > 0 &&
-         options_.parts_ <= options_.tree_slots_ && options_.eager_limit_ > 0 && options_.active_neighbours_ > 0 &&
-         options_.repair_timeout_ms_ > 0 && options_.max_repair_targets_ > 0;
-}
-
-td::Result<std::vector<PublicKeyHash>> BroadcastsPlumtree::Impl::build_root_map(OverlayImpl *overlay) const {
-  auto validator_sources = overlay->get_authorized_broadcast_sources();
-  if (!valid_options() || validator_sources.empty()) {
-    return td::Status::Error(ErrorCode::notready, "invalid Plumtree root-map inputs");
-  }
-  auto seed = build_root_seed(overlay->overlay_id());
-  auto tree_order = prf_permutation(seed, td::Slice("tree"), options_.tree_slots_);
-  auto source_count = static_cast<td::uint32>(validator_sources.size());
-  auto cap = (options_.tree_slots_ + source_count - 1) / source_count;
-  std::vector<td::uint32> source_load(source_count);
-  std::vector<PublicKeyHash> root_by_tree(options_.tree_slots_);
-
-  for (auto tree_index : tree_order) {
-    td::uint32 best_index = source_count;
-    td::Bits256 best_score;
-    for (td::uint32 i = 0; i < source_count; ++i) {
-      if (source_load[i] >= cap) {
-        continue;
-      }
-      auto score = prf_hash(seed, td::Slice("root"), tree_index, validator_sources[i].as_slice());
-      if (best_index == source_count || score < best_score) {
-        best_index = i;
-        best_score = score;
-      }
-    }
-    CHECK(best_index < source_count);
-    root_by_tree[tree_index] = validator_sources[best_index];
-    ++source_load[best_index];
-  }
-  return root_by_tree;
-}
-
 td::Status BroadcastsPlumtree::Impl::validate_control_fields(const td::Bits256 &broadcast_id, td::uint32 part_index,
                                                              td::uint32 tree_index) const {
-  if (!valid_control_id(broadcast_id)) {
+  if (broadcast_id.is_zero()) {
     return td::Status::Error(ErrorCode::protoviolation, "empty Plumtree broadcast id");
-  }
-  if (!valid_options()) {
-    return td::Status::Error(ErrorCode::notready, "invalid Plumtree options");
   }
   if (part_index >= options_.parts_ || tree_index >= options_.tree_slots_) {
     return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree part or tree index");
@@ -361,13 +358,17 @@ td::Status BroadcastsPlumtree::Impl::validate_control_fields(const td::Bits256 &
   return td::Status::OK();
 }
 
-PlumtreeSlot *BroadcastsPlumtree::Impl::slot(td::uint32 tree_index) {
-  ensure_slots();
-  return tree_index < slots_.size() ? &slots_[tree_index] : nullptr;
+PlumtreeSchedule *BroadcastsPlumtree::Impl::schedule(OverlayImpl *overlay) {
+  auto sources = overlay->get_authorized_broadcast_sources();
+  if (!schedule_ || sources != schedule_sources_) {
+    schedule_sources_ = sources;
+    schedule_ = std::make_unique<PlumtreeSchedule>(overlay->overlay_id(), options_, std::move(sources));
+  }
+  return schedule_.get();
 }
 
-td::uint32 BroadcastsPlumtree::Impl::slot_capacity() const {
-  return options_.eager_limit_;
+PlumtreeSlot *BroadcastsPlumtree::Impl::slot(td::uint32 tree_index) {
+  return tree_index < slots_.size() ? &slots_[tree_index] : nullptr;
 }
 
 td::uint32 BroadcastsPlumtree::Impl::slot_load(const PlumtreeSlot &slot) const {
@@ -378,11 +379,6 @@ td::uint32 BroadcastsPlumtree::Impl::slot_load(const PlumtreeSlot &slot) const {
     }
   }
   return load;
-}
-
-bool BroadcastsPlumtree::Impl::has_free_capacity(PlumtreeSlot &slot) const {
-  expire_pending_feedback(slot);
-  return slot_load(slot) < slot_capacity();
 }
 
 void BroadcastsPlumtree::Impl::expire_pending_feedback(PlumtreeSlot &slot) const {
@@ -404,18 +400,23 @@ void BroadcastsPlumtree::Impl::expire_pending_feedback() {
 
 void BroadcastsPlumtree::Impl::promote_eager(PlumtreeSlot &slot, adnl::AdnlNodeIdShort peer, bool force) {
   expire_pending_feedback(slot);
-  if (peer.is_zero() || slot.eager.contains(peer)) {
+  if (peer.is_zero()) {
     return;
   }
-  auto capacity = slot_capacity();
-  if (!force && slot_load(slot) >= capacity) {
+  slot.pending_feedback.erase(peer);
+  if (slot.eager.contains(peer)) {
     return;
   }
-  if (force && slot_load(slot) >= capacity && !slot.eager.empty()) {
+  auto capacity = options_.eager_limit_;
+  auto load = slot_load(slot);
+  if (!force && load >= capacity) {
+    return;
+  }
+  if (force && load >= capacity && !slot.eager.empty()) {
     auto it = slot.eager.begin();
     std::advance(it, td::Random::fast(0, static_cast<td::int32>(slot.eager.size()) - 1));
     slot.eager.erase(it);
-  } else if (force && slot_load(slot) >= capacity && !slot.pending_feedback.empty()) {
+  } else if (force && load >= capacity && !slot.pending_feedback.empty()) {
     auto it = slot.pending_feedback.begin();
     std::advance(it, td::Random::fast(0, static_cast<td::int32>(slot.pending_feedback.size()) - 1));
     slot.pending_feedback.erase(it);
@@ -425,7 +426,7 @@ void BroadcastsPlumtree::Impl::promote_eager(PlumtreeSlot &slot, adnl::AdnlNodeI
 
 void BroadcastsPlumtree::Impl::trim_eager_to_capacity(PlumtreeSlot &slot) {
   expire_pending_feedback(slot);
-  auto capacity = slot_capacity();
+  auto capacity = options_.eager_limit_;
   while (slot.eager.size() > capacity) {
     auto it = slot.eager.begin();
     std::advance(it, td::Random::fast(0, static_cast<td::int32>(slot.eager.size()) - 1));
@@ -439,27 +440,7 @@ void BroadcastsPlumtree::Impl::remove_eager(PlumtreeSlot &slot, adnl::AdnlNodeId
   slot.pending_feedback.erase(peer);
 }
 
-std::vector<adnl::AdnlNodeIdShort> BroadcastsPlumtree::Impl::active_neighbours(OverlayImpl *overlay,
-                                                                               adnl::AdnlNodeIdShort except) const {
-  auto peers = overlay->get_neighbours(options_.active_neighbours_);
-  peers.erase(std::remove_if(peers.begin(), peers.end(),
-                             [&](const auto &peer) { return peer == overlay->local_id() || peer == except; }),
-              peers.end());
-  return peers;
-}
-
-bool BroadcastsPlumtree::Impl::has_part(const td::Bits256 &broadcast_id, td::uint32 part_index,
-                                        td::uint32 tree_index) const {
-  auto it = broadcasts_.find(broadcast_id);
-  return it != broadcasts_.end() && it->second->parts.contains(TreePartKey{part_index, tree_index});
-}
-
 PlumtreeBroadcastState *BroadcastsPlumtree::Impl::get_state(const td::Bits256 &broadcast_id) {
-  auto it = broadcasts_.find(broadcast_id);
-  return it == broadcasts_.end() ? nullptr : it->second.get();
-}
-
-const PlumtreeBroadcastState *BroadcastsPlumtree::Impl::get_state(const td::Bits256 &broadcast_id) const {
   auto it = broadcasts_.find(broadcast_id);
   return it == broadcasts_.end() ? nullptr : it->second.get();
 }
@@ -472,16 +453,6 @@ PlumtreePartState *BroadcastsPlumtree::Impl::get_part(const td::Bits256 &broadca
   }
   auto it = state->parts.find(TreePartKey{part_index, tree_index});
   return it == state->parts.end() ? nullptr : &it->second;
-}
-
-const PlumtreePartState *BroadcastsPlumtree::Impl::get_part(const td::Bits256 &broadcast_id, td::uint32 part_index,
-                                                            td::uint32 tree_index) const {
-  auto it = broadcasts_.find(broadcast_id);
-  if (it == broadcasts_.end()) {
-    return nullptr;
-  }
-  auto part_it = it->second->parts.find(TreePartKey{part_index, tree_index});
-  return part_it == it->second->parts.end() ? nullptr : &part_it->second;
 }
 
 td::Status BroadcastsPlumtree::Impl::ensure_decoder(PlumtreeBroadcastState &broadcast) {
@@ -498,14 +469,15 @@ td::Status BroadcastsPlumtree::Impl::ensure_decoder(PlumtreeBroadcastState &broa
   return td::Status::OK();
 }
 
-void BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
+bool BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
                                             tl_object_ptr<ton_api::overlay_Broadcast> control) {
   if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
-    return;
+    return false;
   }
   auto wire = serialize_tl_object(control, true);
   td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
                           overlay->overlay_id(), std::move(wire), sender_);
+  return true;
 }
 
 bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, PlumtreePartState &part,
@@ -537,11 +509,12 @@ void BroadcastsPlumtree::Impl::send_ihave_to(OverlayImpl *overlay, PlumtreePartS
   if (part.full_sends >= options_.eager_limit_) {
     return;
   }
-  part.advertised_to.insert(dst);
-  send_control(overlay, dst,
-               create_tl_object<ton_api::overlay_broadcastPlumtreeIHave>(broadcast_id, td::Clocks::system(),
-                                                                         static_cast<std::int32_t>(part.part_index),
-                                                                         static_cast<std::int32_t>(part.tree_index)));
+  if (send_control(overlay, dst,
+                   create_tl_object<ton_api::overlay_broadcastPlumtreeIHave>(
+                       broadcast_id, td::Clocks::system(), static_cast<std::int32_t>(part.part_index),
+                       static_cast<std::int32_t>(part.tree_index)))) {
+    part.advertised_to.insert(dst);
+  }
 }
 
 void BroadcastsPlumtree::Impl::send_prune(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
@@ -567,7 +540,10 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, PlumtreeBro
     return;
   }
 
-  auto active = active_neighbours(overlay, from);
+  auto active = overlay->get_neighbours(options_.active_neighbours_);
+  active.erase(std::remove_if(active.begin(), active.end(),
+                              [&](const auto &peer) { return peer == overlay->local_id() || peer == from; }),
+               active.end());
   std::set<adnl::AdnlNodeIdShort> full_sent;
   if (s->initialized) {
     trim_eager_to_capacity(*s);
@@ -621,11 +597,6 @@ void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as,
     return;
   }
 
-  if (!valid_options()) {
-    VLOG(PLUMTREE_WARNING) << overlay << ": invalid Plumtree send options";
-    return;
-  }
-
   auto data_size = static_cast<td::uint32>(data.size());
   auto part_size = static_cast<td::uint32>((data.size() + options_.k_ - 1) / options_.k_);
   if (part_size == 0) {
@@ -634,14 +605,23 @@ void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as,
   }
   auto data_hash = td::sha256_bits256(data.as_slice());
   auto broadcast_id = compute_broadcast_id(flags, data_hash, data_size, part_size);
-  auto root_map_r = build_root_map(overlay);
-  if (root_map_r.is_error()) {
-    VLOG(PLUMTREE_WARNING) << overlay << ": cannot build Plumtree root map: " << root_map_r.move_as_error();
+  auto cert = overlay->get_certificate(send_as);
+  if (overlay->check_source_eligible(send_as, cert.get(), data_size, true) == BroadcastCheckResult::Forbidden) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree source is no longer eligible";
     return;
   }
-  auto root_by_tree = root_map_r.move_as_ok();
-  auto trees = prf_permutation(build_broadcast_seed(overlay->overlay_id(), broadcast_id), td::Slice("tree"),
-                               options_.tree_slots_);
+
+  auto assigned_parts_r = schedule(overlay)->assigned_parts(broadcast_id, send_as);
+  if (assigned_parts_r.is_error()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": cannot build Plumtree schedule: " << assigned_parts_r.move_as_error();
+    return;
+  }
+  auto assigned_parts = assigned_parts_r.move_as_ok();
+  if (assigned_parts.empty()) {
+    VLOG(PLUMTREE_INFO) << overlay << ": no Plumtree parts assigned to local source for broadcast_id="
+                        << broadcast_id.to_hex();
+    return;
+  }
 
   auto encoder_r = td::raptorq::Encoder::create(part_size, data.clone());
   if (encoder_r.is_error()) {
@@ -650,20 +630,9 @@ void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as,
   }
   auto encoder = encoder_r.move_as_ok();
   encoder->precalc();
-
-  auto timestamp = td::Clocks::system();
+ 
   td::uint32 signed_parts = 0;
-  for (td::uint32 part_index = 0; part_index < options_.parts_; ++part_index) {
-    auto tree_index = trees[part_index];
-    const auto &source = root_by_tree[tree_index];
-    if (source != send_as) {
-      continue;
-    }
-    auto cert = overlay->get_certificate(send_as);
-    if (overlay->check_source_eligible(send_as, cert.get(), data_size, true) == BroadcastCheckResult::Forbidden) {
-      continue;
-    }
-
+  for (const auto &[part_index, tree_index] : assigned_parts) {
     td::BufferSlice part(part_size);
     auto status = encoder->gen_symbol(part_index, part.as_slice());
     if (status.is_error()) {
@@ -674,7 +643,7 @@ void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as,
     PlumtreeOutboundPayload payload;
     payload.broadcast_id = broadcast_id;
     payload.flags = flags;
-    payload.timestamp = timestamp;
+    payload.timestamp = td::Clocks::system();
     payload.source = send_as;
     payload.data_hash = data_hash;
     payload.data_size = data_size;
@@ -711,25 +680,36 @@ void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutb
     VLOG(PLUMTREE_WARNING) << overlay << ": keyring signed Plumtree payload with unexpected source";
     return;
   }
+  if (payload.part_index >= options_.parts_ || payload.tree_index >= options_.tree_slots_) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree signed payload is outside current option bounds";
+    return;
+  }
+  auto expected_part_size =
+      static_cast<td::uint32>((static_cast<td::uint64>(payload.data_size) + options_.k_ - 1) / options_.k_);
+  if (payload.data_size == 0 || payload.data_size > Overlays::max_fec_broadcast_size() || payload.part.empty() ||
+      payload.part.size() != expected_part_size) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree signed payload has invalid FEC fields";
+    return;
+  }
 
   auto cert = overlay->get_certificate(payload.source);
+  if (overlay->check_source_eligible(payload.source, cert.get(), payload.data_size, true) ==
+      BroadcastCheckResult::Forbidden) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree source became ineligible before signed payload send";
+    return;
+  }
   auto source_key = signed_part.second;
   auto wire = create_serialize_tl_object<ton_api::overlay_broadcastPlumtreePayload>(
       static_cast<std::int32_t>(payload.flags), payload.timestamp, source_key.tl(),
       cert ? cert->tl() : Certificate::empty_tl(), payload.data_hash, static_cast<std::int32_t>(payload.data_size),
       static_cast<std::int32_t>(payload.part_index), static_cast<std::int32_t>(payload.tree_index),
       payload.part.clone(), std::move(signed_part.first));
-  if (!valid_options() || payload.part_index >= options_.parts_ || payload.tree_index >= options_.tree_slots_) {
-    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree signed payload is outside current option bounds";
-    return;
-  }
 
   auto it = broadcasts_.find(payload.broadcast_id);
   if (it == broadcasts_.end()) {
     auto state = std::make_unique<PlumtreeBroadcastState>();
     state->broadcast_id = payload.broadcast_id;
     state->first_valid_source = payload.source;
-    state->first_valid_source_check = BroadcastCheckResult::Allowed;
     state->data_hash = payload.data_hash;
     state->first_seen_at = td::Timestamp::now();
     state->flags = payload.flags;
@@ -747,47 +727,19 @@ void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutb
   }
 
   auto &broadcast = *it->second;
-  if (has_part(payload.broadcast_id, payload.part_index, payload.tree_index)) {
+  if (get_part(payload.broadcast_id, payload.part_index, payload.tree_index)) {
     return;
   }
 
   PlumtreePartState part;
-  part.wire_payload = wire.clone();
+  part.wire_payload = std::move(wire);
   part.part_index = payload.part_index;
   part.tree_index = payload.tree_index;
   part.source = payload.source;
   part.certificate = cert;
   auto [part_it, _] = broadcast.parts.emplace(TreePartKey{payload.part_index, payload.tree_index}, std::move(part));
 
-  auto *s = slot(payload.tree_index);
-  if (!s) {
-    return;
-  }
-  auto active = active_neighbours(overlay, adnl::AdnlNodeIdShort::zero());
-  std::set<adnl::AdnlNodeIdShort> full_sent;
-  if (s->initialized) {
-    trim_eager_to_capacity(*s);
-    for (const auto &peer : s->eager) {
-      if (send_payload_to(overlay, part_it->second, peer)) {
-        full_sent.insert(peer);
-      }
-    }
-  } else {
-    for (const auto &peer : active) {
-      if (full_sent.size() >= options_.eager_limit_) {
-        break;
-      }
-      if (send_payload_to(overlay, part_it->second, peer)) {
-        full_sent.insert(peer);
-      }
-    }
-    s->initialized = true;
-  }
-  for (const auto &peer : active) {
-    if (!full_sent.contains(peer) && !s->eager.contains(peer)) {
-      send_ihave_to(overlay, part_it->second, payload.broadcast_id, peer);
-    }
-  }
+  forward_payload(overlay, broadcast, part_it->second, adnl::AdnlNodeIdShort::zero());
 
   if (broadcast.locally_registered_sources.insert(payload.source).second) {
     overlay->get_broadcasts_limiter(payload.source, cert.get()).register_broadcast(payload.data_size);
@@ -802,10 +754,6 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree immediate sender");
   }
-  if (!valid_options()) {
-    co_return td::Status::Error(ErrorCode::notready, "invalid Plumtree options");
-  }
-
   auto flags = CO_TRY(parse_u32_field(msg->flags_, td::Slice("flags")));
   auto timestamp = msg->timestamp_;
   auto data_size = CO_TRY(parse_u32_field(msg->data_size_, td::Slice("data size")));
@@ -843,8 +791,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
 
   auto cert = CO_TRY(Certificate::create(msg->certificate_));
   auto check = overlay->check_source_eligible(source_hash, cert.get(), data_size, true, from);
-  if (check == BroadcastCheckResult::Forbidden) {
-    co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree source is forbidden");
+  if (check != BroadcastCheckResult::Allowed) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree source is not allowed");
   }
 
   if (new_broadcast) {
@@ -867,7 +815,6 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
       auto state = std::make_unique<PlumtreeBroadcastState>();
       state->broadcast_id = broadcast_id;
       state->first_valid_source = source_hash;
-      state->first_valid_source_check = check;
       state->data_hash = msg->data_hash_;
       state->first_seen_at = td::Timestamp::now();
       state->flags = flags;
@@ -929,8 +876,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
       overlay->register_delivered_broadcast(broadcast_id);
       VLOG(PLUMTREE_INFO) << overlay << ": Plumtree FINISH receiver broadcast_id=" << broadcast_id.to_hex()
                           << " data_size=" << data_size << " decoded=true";
-      co_await check_and_deliver(overlay, broadcast.first_valid_source, broadcast.first_valid_source_check,
-                                 std::move(decoded.data));
+      overlay->deliver_broadcast(broadcast.first_valid_source, std::move(decoded.data), {});
     }
   }
   co_return td::Unit{};
@@ -948,11 +894,10 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   if (!get_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
   }
-  if (has_part(control.broadcast_id, control.part_index, control.tree_index)) {
+  if (get_part(control.broadcast_id, control.part_index, control.tree_index)) {
     co_return td::Unit{};
   }
   auto &missing = missing_parts_[MissingPartKey{control.broadcast_id, control.part_index, control.tree_index}];
-  missing.tree_index = control.tree_index;
   if (std::find(missing.repair_targets.begin(), missing.repair_targets.end(), from) == missing.repair_targets.end() &&
       missing.repair_targets.size() < options_.max_repair_targets_) {
     missing.repair_targets.push_back(from);
@@ -983,7 +928,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_repair(
   if (!state || !part || !s || !part->advertised_to.contains(from) || part->full_sent_to.contains(from)) {
     co_return td::Status::Error(ErrorCode::protoviolation, "unexpected Plumtree REPAIR");
   }
-  if (!has_free_capacity(*s) || part->full_sends >= options_.eager_limit_) {
+  expire_pending_feedback(*s);
+  if (slot_load(*s) >= options_.eager_limit_ || part->full_sends >= options_.eager_limit_) {
     co_return td::Status::Error(ErrorCode::notready, "Plumtree REPAIR cannot be served");
   }
   send_payload_to(overlay, *part, from);
@@ -1045,7 +991,7 @@ void BroadcastsPlumtree::Impl::alarm(OverlayImpl *overlay) {
   std::vector<MissingPartKey> erase;
   for (auto &[key, missing] : missing_parts_) {
     const auto &[broadcast_id, part_index, tree_index] = key;
-    if (has_part(broadcast_id, part_index, tree_index)) {
+    if (get_part(broadcast_id, part_index, tree_index)) {
       erase.push_back(key);
       continue;
     }
