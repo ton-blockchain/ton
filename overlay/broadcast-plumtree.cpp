@@ -969,7 +969,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_repair(
   auto *part = get_part(control.broadcast_id, part_index, tree_index);
   auto *s = slot(tree_index);
   if (!state || !part || !s || !part->advertised_to.contains(from) || part->full_sent_to.contains(from)) {
-    co_return td::Status::Error(ErrorCode::protoviolation, "unexpected Plumtree REPAIR");
+    co_return td::Unit{};
   }
   expire_pending_feedback(*s);
   if (slot_load(*s) >= options_.eager_limit_ || part->full_sends >= options_.eager_limit_) {
@@ -996,11 +996,11 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_prune(OverlayImpl *overlay, 
   auto *part = get_part(control.broadcast_id, part_index, tree_index);
   auto *s = slot(tree_index);
   if (!part || !s) {
-    co_return td::Status::Error(ErrorCode::protoviolation, "unexpected Plumtree PRUNE");
+    co_return td::Unit{};
   }
   bool had_record = s->pending_feedback.contains(from) || s->eager.contains(from) || part->full_sent_to.contains(from);
   if (!had_record) {
-    co_return td::Status::Error(ErrorCode::protoviolation, "unexpected Plumtree PRUNE");
+    co_return td::Unit{};
   }
   remove_eager(*s, from);
   co_return td::Unit{};
@@ -1023,7 +1023,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_useful(
   auto *part = get_part(control.broadcast_id, part_index, tree_index);
   auto *s = slot(tree_index);
   if (!part || !s || (!s->pending_feedback.contains(from) && !s->eager.contains(from))) {
-    co_return td::Status::Error(ErrorCode::protoviolation, "unexpected Plumtree USEFUL");
+    co_return td::Unit{};
   }
   bool was_pending = s->pending_feedback.erase(from) > 0;
   if (was_pending) {
