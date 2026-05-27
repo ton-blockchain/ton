@@ -332,6 +332,7 @@ class BroadcastsPlumtree::Impl {
   td::uint32 slot_load(const PlumtreeSlot &slot) const;
   void expire_pending_feedback(PlumtreeSlot &slot) const;
   void expire_pending_feedback();
+  bool can_reserve_eager_feedback(PlumtreeSlot &slot, const adnl::AdnlNodeIdShort &peer) const;
   void promote_eager(PlumtreeSlot &slot, adnl::AdnlNodeIdShort peer, bool force);
   void trim_eager_to_capacity(PlumtreeSlot &slot);
   void remove_eager(PlumtreeSlot &slot, adnl::AdnlNodeIdShort peer);
@@ -406,6 +407,18 @@ void BroadcastsPlumtree::Impl::expire_pending_feedback() {
   for (auto &slot : slots_) {
     expire_pending_feedback(slot);
   }
+}
+
+bool BroadcastsPlumtree::Impl::can_reserve_eager_feedback(PlumtreeSlot &slot,
+                                                          const adnl::AdnlNodeIdShort &peer) const {
+  expire_pending_feedback(slot);
+  if (peer.is_zero()) {
+    return false;
+  }
+  if (slot.eager.contains(peer) || slot.pending_feedback.contains(peer)) {
+    return true;
+  }
+  return slot_load(slot) < options_.eager_limit_;
 }
 
 void BroadcastsPlumtree::Impl::promote_eager(PlumtreeSlot &slot, adnl::AdnlNodeIdShort peer, bool force) {
@@ -495,6 +508,10 @@ bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, PlumtreeBro
   if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
     return false;
   }
+  auto *s = slot(part.tree_index);
+  if (!s || !can_reserve_eager_feedback(*s, dst)) {
+    return false;
+  }
   if (part.full_sends >= options_.eager_limit_ || part.full_sent_to.contains(dst)) {
     return false;
   }
@@ -510,10 +527,7 @@ bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, PlumtreeBro
   auto wire_size = wire.size();
   td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
                           overlay->overlay_id(), std::move(wire), sender_);
-  if (auto *s = slot(part.tree_index)) {
-    expire_pending_feedback(*s);
-    s->pending_feedback[dst] = td::Timestamp::now();
-  }
+  s->pending_feedback[dst] = td::Timestamp::now();
   part.full_sent_to.insert(dst);
   ++part.full_sends;
   overlay->get_broadcasts_limiter(part.source, part.certificate.get()).register_out_traffic(wire_size);
@@ -524,6 +538,10 @@ void BroadcastsPlumtree::Impl::send_ihave_to(OverlayImpl *overlay, PlumtreePartS
                                              const td::Bits256 &broadcast_id, const adnl::AdnlNodeIdShort &dst) {
   if (dst.is_zero() || dst == overlay->local_id() || part.full_sent_to.contains(dst) ||
       part.advertised_to.contains(dst)) {
+    return;
+  }
+  auto *s = slot(part.tree_index);
+  if (!s || !can_reserve_eager_feedback(*s, dst)) {
     return;
   }
   if (part.full_sends >= options_.eager_limit_) {
@@ -574,7 +592,8 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, PlumtreeBro
     }
   } else {
     for (const auto &peer : active) {
-      if (full_sent.size() >= options_.eager_limit_) {
+      expire_pending_feedback(*s);
+      if (slot_load(*s) >= options_.eager_limit_) {
         break;
       }
       if (send_payload_to(overlay, broadcast, part, peer)) {
@@ -971,8 +990,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_repair(
   if (!state || !part || !s || !part->advertised_to.contains(from) || part->full_sent_to.contains(from)) {
     co_return td::Unit{};
   }
-  expire_pending_feedback(*s);
-  if (slot_load(*s) >= options_.eager_limit_ || part->full_sends >= options_.eager_limit_) {
+  if (!can_reserve_eager_feedback(*s, from) || part->full_sends >= options_.eager_limit_) {
     co_return td::Status::Error(ErrorCode::notready, "Plumtree REPAIR cannot be served");
   }
   send_payload_to(overlay, *state, *part, from);
