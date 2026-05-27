@@ -60,7 +60,8 @@ class BroadcastsPlumtree {
   void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender);
   void set_options(PlumtreeFecOptions options);
 
-  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
+  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+            td::uint32 local_validator_index, td::uint32 validator_count);
   void signed_payload(OverlayImpl *overlay, PlumtreeOutboundPayload &&payload,
                       td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
 

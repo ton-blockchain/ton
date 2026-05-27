@@ -380,7 +380,7 @@ void FullNodeImpl::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBr
   }
 }
 
-void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
+void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode, ValidatorGroupLocalIndex validator_group_index) {
   if (mode & broadcast_mode_custom) {
     send_block_broadcast_to_custom_overlays(broadcast);
   }
@@ -403,7 +403,8 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
       td::actor::send_closure(shard, &FullNodeShard::send_broadcast, broadcast.clone());
     }
     if (mode & broadcast_mode_public_plumtree) {
-      td::actor::send_closure(shard, &FullNodeShard::send_broadcast_plumtree, std::move(broadcast));
+      td::actor::send_closure(shard, &FullNodeShard::send_broadcast_plumtree, std::move(broadcast),
+                              validator_group_index);
     }
   }
 }
@@ -709,8 +710,8 @@ void FullNodeImpl::start_up() {
     void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_out_msg_queue_proof_broadcast, std::move(broadcast));
     }
-    void send_broadcast(BlockBroadcast broadcast, int mode) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), mode);
+    void send_broadcast(BlockBroadcast broadcast, int mode, ValidatorGroupLocalIndex validator_group_index) override {
+      td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), mode, validator_group_index);
     }
     void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                         td::Promise<ReceivedBlock> promise) override {

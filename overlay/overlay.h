@@ -63,7 +63,8 @@ class Overlay : public td::actor::Actor {
   virtual void send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) = 0;
   virtual void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                                   td::BufferSlice extra) = 0;
-  virtual void send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) = 0;
+  virtual void send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+                                           td::uint32 local_validator_index, td::uint32 validator_count) = 0;
   virtual void print(td::StringBuilder &sb) = 0;
   virtual void get_overlay_random_peers(td::uint32 max_peers,
                                         td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) = 0;

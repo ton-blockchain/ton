@@ -636,7 +636,8 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
   }
 }
 
-void OverlayImpl::send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
+void OverlayImpl::send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+                                              td::uint32 local_validator_index, td::uint32 validator_count) {
   if (!has_valid_membership_certificate()) {
     VLOG(OVERLAY_WARNING) << "member certificate is invalid, valid_until="
                           << peer_list_.local_cert_is_valid_until_.at_unix();
@@ -659,7 +660,7 @@ void OverlayImpl::send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 
     return;
   }
   flags &= ~Overlays::BroadcastFlagNoTwostep();
-  broadcasts_plumtree_.send(this, send_as, flags, std::move(data));
+  broadcasts_plumtree_.send(this, send_as, flags, std::move(data), local_validator_index, validator_count);
 }
 
 void OverlayImpl::print(td::StringBuilder &sb) {

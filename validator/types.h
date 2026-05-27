@@ -42,4 +42,13 @@ struct BlockBroadcast {
   }
 };
 
+struct ValidatorGroupLocalIndex {
+  td::uint32 local_validator_index = 0;
+  td::uint32 validator_count = 0;
+
+  bool valid() const {
+    return validator_count != 0 && local_validator_index < validator_count;
+  }
+};
+
 }  // namespace ton::validator

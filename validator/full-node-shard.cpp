@@ -1092,12 +1092,16 @@ void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
                           overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
 }
 
-void FullNodeShardImpl::send_broadcast_plumtree(BlockBroadcast broadcast) {
+void FullNodeShardImpl::send_broadcast_plumtree(BlockBroadcast broadcast, ValidatorGroupLocalIndex validator_group_index) {
   if (!client_.empty()) {
     UNREACHABLE();
     return;
   }
   if (!opts_.public_plumtree_broadcast_) {
+    return;
+  }
+  if (!validator_group_index.valid()) {
+    VLOG(FULL_NODE_WARNING) << "dropping Plumtree block broadcast without validator group index";
     return;
   }
   VLOG(FULL_NODE_DEBUG) << "Sending Plumtree block broadcast in public overlay: " << broadcast.block_id;
@@ -1112,7 +1116,8 @@ void FullNodeShardImpl::send_broadcast_plumtree(BlockBroadcast broadcast) {
     return;
   }
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec_ex, adnl_id_, overlay_id_, source,
-                          overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
+                          overlay::Overlays::BroadcastFlagAnySender(), std::move(payload),
+                          validator_group_index.local_validator_index, validator_group_index.validator_count);
 }
 
 void FullNodeShardImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,

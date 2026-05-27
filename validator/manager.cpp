@@ -1865,8 +1865,9 @@ void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBloc
   }
 }
 
-void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast, int mode) {
-  callback_->send_broadcast(std::move(broadcast), mode);
+void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast, int mode,
+                                                ValidatorGroupLocalIndex validator_group_index) {
+  callback_->send_broadcast(std::move(broadcast), mode, validator_group_index);
 }
 
 void ValidatorManagerImpl::send_get_out_msg_queue_proof_request(

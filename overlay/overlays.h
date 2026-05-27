@@ -304,7 +304,7 @@ struct OverlayOptions {
   struct PlumtreeFecOptions {
     td::uint32 k_ = 30;
     td::uint32 parts_ = 60;
-    td::uint32 tree_slots_ = 200;
+    td::uint32 tree_slots_ = 500;
     td::uint32 eager_limit_ = 6;
     td::uint32 active_neighbours_ = 20;
     td::uint32 repair_timeout_ms_ = 100;
@@ -432,7 +432,8 @@ class Overlays : public td::actor::Actor {
                                              PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
                                              td::BufferSlice extra) = 0;
   virtual void send_broadcast_plumtree_fec_ex(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                                              PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object) = 0;
+                                              PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
+                                              td::uint32 local_validator_index, td::uint32 validator_count) = 0;
 
   virtual void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                  OverlayPrivacyRules rules) = 0;

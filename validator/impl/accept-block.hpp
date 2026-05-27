@@ -51,8 +51,8 @@ class AcceptBlockQuery : public td::actor::Actor {
   struct ForceFork {};
   AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                    td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
-                   int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
-                   td::Promise<td::Unit> promise);
+                   ValidatorGroupLocalIndex validator_group_index, int send_broadcast_mode, bool apply,
+                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
   AcceptBlockQuery(IsFake fake, BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                    td::Ref<block::ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
                    td::Promise<td::Unit> promise);
@@ -98,6 +98,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   std::vector<BlockIdExt> prev_;
   Ref<block::ValidatorSet> validator_set_;
   Ref<block::BlockSignatureSet> signatures_;
+  ValidatorGroupLocalIndex validator_group_index_;
   bool is_fake_;
   bool is_fork_;
   int send_broadcast_mode_{0};
