@@ -283,18 +283,14 @@ td::Status check_timestamp(double timestamp) {
 
 class BroadcastsPlumtree::Impl {
  public:
-  void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
-    sender_ = sender;
-  }
-
-  void set_options(PlumtreeFecOptions options) {
-    options_ = options;
-    schedule_.reset();
-    schedule_sources_.clear();
-    slots_.clear();
+  explicit Impl(PlumtreeFecOptions options) : options_(options) {
     if (options_.tree_slots_ != 0) {
       slots_.resize(options_.tree_slots_);
     }
+  }
+
+  void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
+    sender_ = sender;
   }
 
   void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
@@ -1112,17 +1108,13 @@ void BroadcastsPlumtree::Impl::gc(OverlayImpl *overlay) {
   }
 }
 
-BroadcastsPlumtree::BroadcastsPlumtree() : impl_(std::make_unique<Impl>()) {
+BroadcastsPlumtree::BroadcastsPlumtree(PlumtreeFecOptions options) : impl_(std::make_unique<Impl>(options)) {
 }
 
 BroadcastsPlumtree::~BroadcastsPlumtree() = default;
 
 void BroadcastsPlumtree::init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
   impl_->init_sender(sender);
-}
-
-void BroadcastsPlumtree::set_options(PlumtreeFecOptions options) {
-  impl_->set_options(options);
 }
 
 void BroadcastsPlumtree::send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,

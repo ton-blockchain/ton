@@ -97,6 +97,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     , local_id_(local_id)
     , id_full_(std::move(overlay_id))
     , callback_(std::move(callback))
+    , broadcasts_plumtree_(opts.plumtree_fec_options_)
     , overlay_type_(overlay_type)
     , rules_(std::move(rules))
     , scope_(scope)
@@ -135,7 +136,6 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
   }
   if (!opts_.plumtree_broadcast_sender_.empty()) {
     broadcasts_plumtree_.init_sender(opts_.plumtree_broadcast_sender_);
-    broadcasts_plumtree_.set_options(opts_.plumtree_fec_options_);
   }
 
   receive_peers_rate_limiter_ = td::RateLimiterWindow{10.0, 10 * opts_.nodes_to_send_ * 2 * 10};
