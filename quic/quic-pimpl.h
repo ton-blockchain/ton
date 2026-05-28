@@ -29,6 +29,11 @@ struct ServerIdentities : td::CntObject {
 
   bool add_identity(ServerIdentity identity);
   ServerIdentities* make_copy() const override;
+
+  // Holds once at least one identity has been added: the default points at a real entry.
+  bool has_default() const {
+    return default_sni.has_value() && by_sni.contains(*default_sni);
+  }
 };
 
 struct QuicConnectionOptions {
@@ -178,7 +183,7 @@ struct QuicConnectionPImpl {
       QuicConnectionOptions options = {});
 
   [[nodiscard]] td::Status produce_egress(UdpMessageBuffer& msg_out, bool use_gso, size_t max_packets);
-  [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in);
+  [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in, UdpMessageBuffer& close_msg_out);
 
   [[nodiscard]] td::Timestamp get_expiry_timestamp() const;
   [[nodiscard]] bool is_expired() const;
@@ -277,6 +282,7 @@ struct QuicConnectionPImpl {
   };
 
   void commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size, const ngtcp2_path& path);
+  void write_connection_close(UdpMessageBuffer& close_out, int liberr);
   void prepare_stream_write(QuicStreamID sid, bool padding, StreamWriteContext& ctx, std::vector<ngtcp2_vec>& datav);
   void finish_stream_write(QuicStreamID sid, const StreamWriteContext& ctx, ngtcp2_ssize pdatalen);
   void start_batch();

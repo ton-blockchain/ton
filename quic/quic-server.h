@@ -213,6 +213,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void flush_egress();
   bool flush_pending();
   bool produce_next_egress(size_t batch_index);
+  void send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg);
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);

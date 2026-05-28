@@ -427,6 +427,11 @@ struct RawQuicEndpointState {
     }
   }
 
+  void remember_closed_connection(ton::quic::QuicConnectionId cid) {
+    std::lock_guard guard(mutex);
+    closed_connections.insert(cid);
+  }
+
   std::optional<std::string> get_inbound_local_public_key() const {
     std::lock_guard guard(mutex);
     return inbound_local_public_key;
@@ -467,6 +472,11 @@ struct RawQuicEndpointState {
     return local_closed_stream_count;
   }
 
+  bool has_closed_connection(ton::quic::QuicConnectionId cid) const {
+    std::lock_guard guard(mutex);
+    return closed_connections.contains(cid);
+  }
+
   std::optional<ton::quic::QuicConnectionId> get_outbound_cid() const {
     std::lock_guard guard(mutex);
     return outbound_cid;
@@ -482,6 +492,7 @@ struct RawQuicEndpointState {
   std::optional<ton::quic::QuicConnectionId> inbound_cid;
   std::optional<std::string> outbound_local_public_key;
   std::optional<std::string> inbound_local_public_key;
+  std::unordered_set<ton::quic::QuicConnectionId> closed_connections;
   std::unordered_set<ton::quic::QuicStreamID> locally_opened_streams;
   std::unordered_set<ton::quic::QuicStreamID> closed_streams;
   size_t closed_stream_count = 0;
@@ -511,7 +522,8 @@ class RawQuicCallback final : public ton::quic::QuicServer::Callback {
     return td::Status::OK();
   }
 
-  void on_closed(ton::quic::QuicConnectionId) override {
+  void on_closed(ton::quic::QuicConnectionId cid) override {
+    state_->remember_closed_connection(cid);
   }
 
   void on_stream_closed(ton::quic::QuicConnectionId, ton::quic::QuicStreamID sid) override {
@@ -660,6 +672,12 @@ class RawQuicTestRunner final : public td::actor::Actor {
   td::actor::Task<td::Unit> wait_for_stream_close(const RawQuicEndpoint& endpoint, ton::quic::QuicStreamID sid,
                                                   double timeout = 5.0) {
     co_await wait_until([&] { return endpoint.state->has_closed_stream(sid); }, timeout);
+    co_return td::Unit{};
+  }
+
+  td::actor::Task<td::Unit> wait_for_connection_close(const RawQuicEndpoint& endpoint, ton::quic::QuicConnectionId cid,
+                                                      double timeout = 5.0) {
+    co_await wait_until([&] { return endpoint.state->has_closed_connection(cid); }, timeout);
     co_return td::Unit{};
   }
 
@@ -1105,25 +1123,30 @@ TEST(QuicSniDispatch, NoSniFallsBackToDefaultIdentity) {
   });
 }
 
-TEST(QuicSniDispatch, UnknownSniFallsBackToDefaultIdentity) {
+TEST(QuicSniDispatch, UnknownSniFailsHandshake) {
   run_raw_quic_test([](RawQuicTestRunner& t) -> td::actor::Task<td::Unit> {
     auto options = quic_test_options();
     auto client = co_await t.create_endpoint(options);
     auto server = co_await t.create_endpoint(options);
 
-    // Single identity on the server. The client sends an SNI for a key that isn't registered;
-    // dispatch should silently fall back to the default rather than fail or pick something else.
+    // Single identity on the server. If the client sends an SNI for a key that isn't registered,
+    // dispatch must reject the handshake rather than silently choosing the default key.
     auto bogus_key = make_quic_key(server.port * 31 + 3);
     auto bogus_local_id = short_id_from_key(bogus_key);
 
     auto bogus_sni = ton::quic::ServerIdentity::sni(bogus_local_id);
-    auto [client_cid, server_cid] = co_await t.connect(client, server, td::Slice(bogus_sni));
-    static_cast<void>(client_cid);
-    static_cast<void>(server_cid);
+    auto outbound_cid_result =
+        co_await td::actor::ask(client.server, &ton::quic::QuicServer::connect, td::Slice("127.0.0.1"), server.port,
+                                clone_quic_key(client.key), td::Slice("ton"), td::Slice(bogus_sni))
+            .wrap();
+    LOG_CHECK(outbound_cid_result.is_ok()) << "connect failed before handshake: " << outbound_cid_result.error();
+    auto outbound_cid = outbound_cid_result.move_as_ok();
 
-    auto inbound_local_pub = server.state->get_inbound_local_public_key();
-    ASSERT_TRUE(inbound_local_pub.has_value());
-    ASSERT_EQ(*inbound_local_pub, pubkey_bytes(server.key));
+    co_await t.wait_for_connection_close(client, outbound_cid);
+    ASSERT_TRUE(!client.state->get_outbound_local_public_key().has_value());
+    ASSERT_TRUE(!client.state->get_outbound_cid().has_value());
+    ASSERT_TRUE(!server.state->get_inbound_local_public_key().has_value());
+    ASSERT_TRUE(!server.state->get_inbound_cid().has_value());
 
     co_return td::Unit{};
   });

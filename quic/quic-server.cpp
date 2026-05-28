@@ -53,13 +53,9 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, ServerIdentit
                                 options.global_new_connection_rate_limit_period)
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
     , callback_(std::move(callback)) {
-  CHECK(identities_.not_null());
   auto local_id = identity.local_id;
   CHECK(identities_.write().add_identity(std::move(identity)));
   set_default_mtu(local_id, default_mtu);
-  CHECK(!identities_->by_sni.empty());
-  CHECK(identities_->default_sni.has_value());
-  CHECK(identities_->by_sni.contains(*identities_->default_sni));
   td::Random::secure_bytes(td::MutableSlice(retry_secret_.data(), retry_secret_.size()));
   callback_->set_peer_mtu_callback([this](adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) {
     if (auto it = peers_mtu_.find({local_id, peer_id}); it != peers_mtu_.end()) {
@@ -378,6 +374,18 @@ td::Status QuicServer::send_invalid_token_connection_close(const VersionCid &pac
   return send_stateless_datagram(
       "invalid-token connection close", remote_address,
       td::Slice(reinterpret_cast<const char *>(datagram.data()), static_cast<size_t>(datagram_size)));
+}
+
+void QuicServer::send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg) {
+  if (msg.storage.empty()) {
+    return;
+  }
+
+  LOG(DEBUG) << "sending connection close to " << state.remote_address;
+  auto send_status = send_stateless_datagram("connection close", msg.address, msg.storage);
+  if (send_status.is_error()) {
+    LOG(WARNING) << "failed to send connection close for " << state << ": " << send_status;
+  }
 }
 
 std::shared_ptr<QuicServer::ConnectionState> QuicServer::find_connection(const QuicConnectionId &cid) {
@@ -732,12 +740,23 @@ void QuicServer::drain_ingress() {
         if (!state) {
           return;
         }
-        if (auto handle_status = state->impl().handle_ingress(packet); handle_status.is_error()) {
-          LOG(WARNING) << "failed to handle ingress from " << *state << ":  " << handle_status;
-          on_connection_closed(state->cid);
+        std::array<char, NGTCP2_MAX_UDP_PAYLOAD_SIZE> close_buffer;
+        UdpMessageBuffer close_msg;
+        close_msg.storage = td::MutableSlice(close_buffer.data(), close_buffer.size());
+        auto handle_status = state->impl().handle_ingress(packet, close_msg);
+        if (handle_status.is_ok()) {
+          on_connection_updated(*state);
           return;
         }
-        on_connection_updated(*state);
+        // Fatal errors are local/system faults (OOM, internal callback failure) worth a warning; everything
+        // else is peer-induced (rejected/bad handshake, unknown SNI, protocol violation) and routine.
+        if (ngtcp2_err_is_fatal(handle_status.code())) {
+          LOG(WARNING) << "failed to handle ingress from " << *state << ": " << handle_status;
+        } else {
+          LOG(DEBUG) << "closing connection after ingress from " << *state << ": " << handle_status;
+        }
+        send_connection_close(*state, close_msg);  // no-op when empty
+        on_connection_closed(state->cid);
       };
 
       if (segment_size > 0 && ingress_msg_[i].storage.size() > segment_size) {
