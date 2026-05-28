@@ -81,6 +81,7 @@ class Overlay : public td::actor::Actor {
   virtual void update_member_certificate(OverlayMemberCertificate cert) = 0;
   virtual void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids,
                                        std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert) = 0;
+  virtual void set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort> neighbours) = 0;
   //virtual void receive_broadcast(td::BufferSlice data) = 0;
   //virtual void subscribe(std::unique_ptr<Overlays::Callback> callback) = 0;
   virtual void forget_peer(adnl::AdnlNodeIdShort peer_id) = 0;

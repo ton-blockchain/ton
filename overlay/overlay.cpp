@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
 
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
@@ -511,6 +512,34 @@ void OverlayImpl::update_peers_mtu() {
     });
     peers_mtu_guard_ = adnl::PeersMtuGuard{sender, local_id_, std::move(peers), mtu};
   }
+}
+
+void OverlayImpl::set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort> neighbours) {
+  for (const auto &peer_id : peer_list_.plumtree_neighbours_) {
+    if (auto *peer = peer_list_.peers_.get(peer_id)) {
+      peer->set_plumtree_neighbour(false);
+    }
+  }
+  peer_list_.plumtree_neighbours_.clear();
+
+  std::set<adnl::AdnlNodeIdShort> used;
+  for (const auto &peer_id : neighbours) {
+    if (peer_id == local_id_ || !used.insert(peer_id).second) {
+      continue;
+    }
+    auto *peer = peer_list_.peers_.get(peer_id);
+    if (!peer) {
+      VLOG(OVERLAY_WARNING) << this << ": test Plumtree neighbour " << peer_id << " is not in peer list";
+      continue;
+    }
+    peer_list_.plumtree_neighbours_.push_back(peer_id);
+    peer->set_plumtree_neighbour(true);
+  }
+
+  // Keep the simulator's pinned topology stable. The Plumtree broadcast object
+  // already has its own copied options, so reads still request the configured
+  // neighbour count while overlay maintenance no longer rotates this list.
+  opts_.plumtree_fec_options_.active_neighbours_ = 0;
 }
 
 void OverlayImpl::receive_dht_nodes(dht::DhtValue v) {

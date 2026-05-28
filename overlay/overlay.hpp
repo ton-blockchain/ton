@@ -332,6 +332,7 @@ class OverlayImpl : public Overlay {
 
   void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids, std::vector<PublicKeyHash> root_public_keys,
                                OverlayMemberCertificate cert) override;
+  void set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort> neighbours) override;
 
   bool check_src_peer(const adnl::AdnlNodeIdShort &id, const ton_api::overlay_MemberCertificate *certificate);
   bool is_persistent_node(const adnl::AdnlNodeIdShort &id);

@@ -533,6 +533,17 @@ void OverlayManager::update_root_member_list(adnl::AdnlNodeIdShort local_id, Ove
   }
 }
 
+void OverlayManager::set_test_plumtree_neighbours(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+                                                  std::vector<adnl::AdnlNodeIdShort> neighbours) {
+  auto it = overlays_.find(local_id);
+  if (it != overlays_.end()) {
+    auto it2 = it->second.find(overlay_id);
+    if (it2 != it->second.end()) {
+      td::actor::send_closure(it2->second.overlay, &Overlay::set_test_plumtree_neighbours, std::move(neighbours));
+    }
+  }
+}
+
 void OverlayManager::get_overlay_random_peers(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                               td::uint32 max_peers,
                                               td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) {
