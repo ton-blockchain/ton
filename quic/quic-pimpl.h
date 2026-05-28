@@ -10,7 +10,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "adnl/adnl-node-id.hpp"
 #include "crypto/Ed25519.h"
 #include "crypto/common/refcnt.hpp"
 #include "ngtcp2/ngtcp2.h"
@@ -25,22 +24,12 @@
 namespace ton::quic {
 
 struct ServerIdentities : td::CntObject {
-  struct Entry {
-    Entry clone() const {
-      return {
-          .local_id = local_id,
-          .key{key.as_octet_string()},
-      };
-    }
-
-    adnl::AdnlNodeIdShort local_id;
-    td::Ed25519::PrivateKey key;
-  };
-  std::map<std::string, Entry> by_sni;
+  std::map<std::string, ServerIdentity> by_sni;
   std::optional<std::string> default_sni;
-};
 
-[[nodiscard]] std::string compute_sni_name(const adnl::AdnlNodeIdShort& local_id);
+  bool add_identity(ServerIdentity identity);
+  ServerIdentities* make_copy() const override;
+};
 
 struct QuicConnectionOptions {
   static constexpr size_t DEFAULT_INITIAL_MAX_DATA = 4 << 20;

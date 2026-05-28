@@ -58,6 +58,11 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_ser
     const td::IPAddress& local_address, const td::IPAddress& remote_address, td::Ref<ServerIdentities> identities,
     td::Slice alpn, const ServerInitialInfo& initial, std::unique_ptr<Callback> callback,
     QuicConnectionOptions options) {
+  CHECK(identities.not_null());
+  CHECK(!identities->by_sni.empty());
+  CHECK(identities->default_sni.has_value());
+  CHECK(identities->by_sni.contains(*identities->default_sni));
+
   auto p_impl =
       std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
 
@@ -100,6 +105,15 @@ td::Status QuicConnectionPImpl::finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl
   return td::Status::OK();
 }
 
+using Ed25519EvpKeyPtr = openssl_ptr<EVP_PKEY, &EVP_PKEY_free>;
+
+static td::Result<Ed25519EvpKeyPtr> make_ed25519_evp_key(const td::Ed25519::PrivateKey& key) {
+  auto key_bytes = key.as_octet_string();
+  OPENSSL_MAKE_PTR(evp_key, EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
+                   EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
+  return std::move(evp_key);
+}
+
 static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::PrivateKey& key) {
   SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
   SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
@@ -111,11 +125,22 @@ static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::Private
   OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx, cert_types, sizeof(cert_types)),
                    "Failed to enable client RPK");
 
-  auto key_bytes = key.as_octet_string();
-  OPENSSL_MAKE_PTR(evp_key, EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
-                   EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
+  TRY_RESULT(evp_key, make_ed25519_evp_key(key));
   OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx, evp_key.get()), "Failed to set private key");
   return td::Status::OK();
+}
+
+static td::Status use_rpk_private_key(SSL* ssl, const td::Ed25519::PrivateKey& key) {
+  TRY_RESULT(evp_key, make_ed25519_evp_key(key));
+  OPENSSL_CHECK_OK(SSL_use_PrivateKey(ssl, evp_key.get()), "Failed to set private key");
+  return td::Status::OK();
+}
+
+static int sni_alert(int* ad, int alert, td::Slice reason) {
+  LOG(WARNING) << "SNI dispatch: " << reason;
+  CHECK(ad != nullptr);
+  *ad = alert;
+  return SSL_TLSEXT_ERR_ALERT_FATAL;
 }
 
 int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigned char* outlen, const unsigned char* in,
@@ -152,53 +177,60 @@ td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKe
   return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), true);
 }
 
-std::string compute_sni_name(const adnl::AdnlNodeIdShort& local_id) {
-  auto sni = local_id.bits256_value().to_hex() + ".adnl";
-  std::transform(sni.begin(), sni.end(), sni.begin(), [](unsigned char c) { return std::tolower(c); });
-  return sni;
+bool ServerIdentities::add_identity(ServerIdentity identity) {
+  auto sni = identity.sni();
+  if (by_sni.contains(sni)) {
+    return false;
+  }
+  auto [it, inserted] = by_sni.emplace(std::move(sni), std::move(identity));
+  CHECK(inserted);
+  if (!default_sni.has_value()) {
+    default_sni = it->first;
+  }
+  return true;
 }
 
-int QuicConnectionPImpl::sni_select_cb(SSL* ssl, int* /*ad*/, void* arg) {
-  // arg is a non-owning pointer to the snapshot the QuicConnectionPImpl pinned for the duration
-  // of the handshake.
-  auto* identities = static_cast<const ServerIdentities*>(arg);
-  if (identities == nullptr) {
-    return SSL_TLSEXT_ERR_OK;
+ServerIdentities* ServerIdentities::make_copy() const {
+  auto* copy = new ServerIdentities;
+  for (const auto& [sni, identity] : by_sni) {
+    copy->by_sni.emplace(sni, ServerIdentity{.local_id = identity.local_id, .key{identity.key.as_octet_string()}});
   }
+  copy->default_sni = default_sni;
+  return copy;
+}
+
+int QuicConnectionPImpl::sni_select_cb(SSL* ssl, int* ad, void* arg) {
   const char* name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
   if (name == nullptr) {
     // No SNI from the client — handshake proceeds with the default key that was installed on the
     // SSL by init_tls_server_rpk.
     return SSL_TLSEXT_ERR_OK;
   }
-  std::string normalized_name(name);
-  std::transform(normalized_name.begin(), normalized_name.end(), normalized_name.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
+
+  // arg is a non-owning pointer to the identity snapshot pinned for the duration of the handshake.
+  auto* identities = static_cast<const ServerIdentities*>(arg);
+  CHECK(identities != nullptr);
+
+  std::string normalized_name = td::to_lower(td::CSlice(name));
   auto it = identities->by_sni.find(normalized_name);
-  if (it == identities->by_sni.end() || it->first == *identities->default_sni) {
-    // Either unknown SNI (fall back to default) or SNI that resolves to the default identity
-    // anyway (no key swap needed).
+  if (it == identities->by_sni.end()) {
     return SSL_TLSEXT_ERR_OK;
   }
-  auto key_bytes = it->second.key.as_octet_string();
-  openssl_ptr<EVP_PKEY, &EVP_PKEY_free> evp_key{
-      EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32)};
-  if (!evp_key) {
-    LOG(WARNING) << "SNI dispatch: EVP_PKEY_new_raw_private_key failed for " << name;
+
+  if (it->first == *identities->default_sni) {
+    // SNI resolves to the default identity anyway, so no key swap is needed.
     return SSL_TLSEXT_ERR_OK;
   }
-  if (SSL_use_PrivateKey(ssl, evp_key.get()) != 1) {
-    LOG(WARNING) << "SNI dispatch: SSL_use_PrivateKey failed for " << name;
-    return SSL_TLSEXT_ERR_OK;
+
+  auto status = use_rpk_private_key(ssl, it->second.key);
+  if (status.is_error()) {
+    return sni_alert(ad, SSL_AD_INTERNAL_ERROR, PSLICE() << "failed to install key for " << name << ": " << status);
   }
   return SSL_TLSEXT_ERR_OK;
 }
 
 td::Status QuicConnectionPImpl::init_tls_server_rpk(td::Ref<ServerIdentities> identities, td::Slice alpn) {
   CHECK(identities.not_null());
-  if (!identities->default_sni.has_value()) {
-    return td::Status::Error("no identities registered on this QuicServer");
-  }
   server_identities_ = std::move(identities);
 
   const auto& default_entry = server_identities_->by_sni.at(*server_identities_->default_sni);
@@ -208,10 +240,8 @@ td::Status QuicConnectionPImpl::init_tls_server_rpk(td::Ref<ServerIdentities> id
 
   SSL_CTX_set_alpn_select_cb(ssl_ctx_ptr.get(), alpn_select_cb, &alpn_wire_);
 
-  if (server_identities_->by_sni.size() > 1) {
-    SSL_CTX_set_tlsext_servername_callback(ssl_ctx_ptr.get(), sni_select_cb);
-    SSL_CTX_set_tlsext_servername_arg(ssl_ctx_ptr.get(), const_cast<ServerIdentities*>(server_identities_.get()));
-  }
+  SSL_CTX_set_tlsext_servername_callback(ssl_ctx_ptr.get(), sni_select_cb);
+  SSL_CTX_set_tlsext_servername_arg(ssl_ctx_ptr.get(), const_cast<ServerIdentities*>(server_identities_.get()));
 
   OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
   SSL_set_accept_state(ssl_ptr.get());

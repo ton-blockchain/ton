@@ -12,6 +12,7 @@
 
 #include "adnl/adnl-node-id.hpp"
 #include "adnl/utils.hpp"
+#include "crypto/common/refcnt.hpp"
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
 #include "td/utils/Heap.h"
@@ -94,29 +95,26 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void on_connection_closed(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
-  // MTU state is keyed by (local_id, peer_id). Setting peer mtu to 0 erases the entry; setting the
-  // default mtu for a local_id to 0 removes the per-local-id override (the server-wide constructor
-  // default takes over again).
+  // MTU state is keyed by local_id and (local_id, peer_id). Peer-specific MTU overrides the
+  // per-local default. Setting an MTU to 0 erases the corresponding entry.
   void set_default_mtu(adnl::AdnlNodeIdShort local_id, td::uint64 mtu);
   void set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
 
-  // Register an ADNL identity on this server. The first identity registered becomes the default
-  // — it serves any inbound handshake whose SNI is missing or unrecognized. Subsequent identities
-  // are reachable via SNI (compute_sni_name(local_id)). Re-registering an id that's already
-  // present is a no-op. Until the first identity is registered, inbound handshakes are dropped.
+  // Register an additional ADNL identity on this server. Subsequent identities are reachable via
+  // SNI (ServerIdentity::sni(local_id)). Re-registering an id that's already present is a no-op.
   void add_identity(adnl::AdnlNodeIdShort local_id, td::Ed25519::PrivateKey key);
 
   constexpr static size_t DEFAULT_FLOOD_CONTROL = 1000;
 
-  QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, td::BufferSlice alpn, std::unique_ptr<Callback> callback,
-             Options options);
+  QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, ServerIdentity identity, td::BufferSlice alpn,
+             std::unique_ptr<Callback> callback, Options options);
 
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, std::unique_ptr<Callback> callback,
-                                                            td::uint64 default_mtu, td::Slice alpn = "ton",
-                                                            td::Slice bind_host = "0.0.0.0");
+                                                            td::uint64 default_mtu, ServerIdentity identity,
+                                                            td::Slice alpn = "ton", td::Slice bind_host = "0.0.0.0");
   static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, std::unique_ptr<Callback> callback,
-                                                            td::uint64 default_mtu, td::Slice alpn, td::Slice bind_host,
-                                                            Options options);
+                                                            td::uint64 default_mtu, ServerIdentity identity,
+                                                            td::Slice alpn, td::Slice bind_host, Options options);
 
   struct Stats {
     struct Entry {
@@ -271,8 +269,6 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   UdpStats ingress_stats_;
   UdpStats egress_stats_;
 
-  // Server-wide fallback used when no per-(local_id, peer_id) override is registered.
-  td::uint64 default_mtu_ = 0;
   std::map<adnl::AdnlNodeIdShort, td::uint64> default_mtu_by_local_id_;
   std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::uint64> peers_mtu_;
 };

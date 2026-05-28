@@ -65,16 +65,18 @@ class QuicHttpServer : public td::actor::Actor {
     auto cb = std::make_unique<ServerCallback>(actor_id(this));
     auto local_id =
         ton::adnl::AdnlNodeIdFull(ton::PublicKey(ton::pubkeys::Ed25519(public_key_r.ok()))).compute_short_id();
-    auto R = ton::quic::QuicServer::create(port_, std::move(cb), 1 << 20, alpn_.as_slice(), bind_host_.as_slice());
+    auto identity = ton::quic::ServerIdentity{.local_id = local_id, .key = std::move(server_key_)};
+    auto R = ton::quic::QuicServer::create(port_, std::move(cb), 1 << 20, std::move(identity), alpn_.as_slice(),
+                                           bind_host_.as_slice());
     if (R.is_error()) {
       LOG(ERROR) << "failed to start QUIC server: " << R.error();
       std::exit(1);
     }
     server_ = R.move_as_ok();
-    td::actor::send_closure(server_, &ton::quic::QuicServer::add_identity, local_id, std::move(server_key_));
 
     LOG(INFO) << "listening on " << bind_host_.as_slice() << ':' << port_ << " (ALPN: " << alpn_.as_slice() << ")";
     LOG(INFO) << "server public key: " << public_key_b64;
+    LOG(INFO) << "server sni: " << ton::quic::ServerIdentity::sni(local_id);
   }
 
  private:

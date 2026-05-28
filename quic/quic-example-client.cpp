@@ -68,13 +68,14 @@ class QuicTester : public td::actor::Actor {
     auto local_id =
         ton::adnl::AdnlNodeIdFull(ton::PublicKey(ton::pubkeys::Ed25519(client_key_.get_public_key().move_as_ok())))
             .compute_short_id();
-    auto R = ton::quic::QuicServer::create(local_port_, std::move(cb), 1 << 20, alpn_.as_slice(), "0.0.0.0");
+    auto identity = ton::quic::ServerIdentity{.local_id = local_id, .key = std::move(client_key_)};
+    auto R = ton::quic::QuicServer::create(local_port_, std::move(cb), 1 << 20, std::move(identity), alpn_.as_slice(),
+                                           "0.0.0.0");
     if (R.is_error()) {
       LOG(ERROR) << "failed to start local QUIC client: " << R.error();
       std::exit(1);
     }
     server_ = R.move_as_ok();
-    td::actor::send_closure(server_, &ton::quic::QuicServer::add_identity, local_id, std::move(client_key_));
 
     LOG(INFO) << "connecting to " << host_.as_slice() << ':' << port_;
 

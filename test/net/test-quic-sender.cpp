@@ -566,11 +566,11 @@ class RawQuicTestRunner final : public td::actor::Actor {
     auto* callback_ptr = callback.get();
     auto local_id = ton::adnl::AdnlNodeIdFull(ton::PublicKey(ton::pubkeys::Ed25519(key.get_public_key().move_as_ok())))
                         .compute_short_id();
-    auto server_result =
-        ton::quic::QuicServer::create(port, std::move(callback), 4096, "ton", "127.0.0.1", options);
+    auto identity = ton::quic::ServerIdentity{.local_id = local_id, .key = clone_quic_key(key)};
+    auto server_result = ton::quic::QuicServer::create(port, std::move(callback), 4096, std::move(identity), "ton",
+                                                       "127.0.0.1", options);
     ASSERT_TRUE(server_result.is_ok());
     auto server = server_result.move_as_ok();
-    td::actor::send_closure(server, &ton::quic::QuicServer::add_identity, local_id, clone_quic_key(key));
     callback_ptr->set_server(server.get());
 
     co_await td::actor::Yield{};
@@ -1061,14 +1061,15 @@ TEST(QuicSniDispatch, ClientSniSelectsAdditionalIdentity) {
     auto server = co_await t.create_endpoint(options);
 
     // server endpoint starts with one identity (created in create_endpoint); register a second
-    // one. The first remains the default for SNI-less / unknown-SNI handshakes.
+    // one. The first remains the default for SNI-less handshakes.
     auto extra_key = make_quic_key(server.port * 31 + 1);
     auto extra_local_id = short_id_from_key(extra_key);
     td::actor::send_closure(server.server, &ton::quic::QuicServer::add_identity, extra_local_id,
                             clone_quic_key(extra_key));
     co_await td::actor::Yield{};
 
-    auto [client_cid, server_cid] = co_await t.connect(client, server, ton::quic::compute_sni_name(extra_local_id));
+    auto extra_sni = ton::quic::ServerIdentity::sni(extra_local_id);
+    auto [client_cid, server_cid] = co_await t.connect(client, server, td::Slice(extra_sni));
     static_cast<void>(client_cid);
     static_cast<void>(server_cid);
 
@@ -1115,7 +1116,8 @@ TEST(QuicSniDispatch, UnknownSniFallsBackToDefaultIdentity) {
     auto bogus_key = make_quic_key(server.port * 31 + 3);
     auto bogus_local_id = short_id_from_key(bogus_key);
 
-    auto [client_cid, server_cid] = co_await t.connect(client, server, ton::quic::compute_sni_name(bogus_local_id));
+    auto bogus_sni = ton::quic::ServerIdentity::sni(bogus_local_id);
+    auto [client_cid, server_cid] = co_await t.connect(client, server, td::Slice(bogus_sni));
     static_cast<void>(client_cid);
     static_cast<void>(server_cid);
 

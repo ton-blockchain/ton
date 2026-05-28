@@ -443,20 +443,26 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
   }
 
   td::actor::ActorId<QuicServer> server;
+  auto default_mtu = get_local_id_mtu(local_id);
+  auto peers_mtu = get_local_id_peers_mtu(local_id);
   if (auto it = servers_by_port_.find(port); it != servers_by_port_.end()) {
     server = it->second.get();
+    td::actor::send_closure(server, &QuicServer::set_default_mtu, local_id, default_mtu);
+    for (const auto &[peer_id, mtu] : peers_mtu) {
+      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, mtu);
+    }
+    td::actor::send_closure(server, &QuicServer::add_identity, local_id,
+                            td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()));
   } else {
-    auto owned = co_await QuicServer::create(port, std::make_unique<ServerCallback>(actor_id(this)),
-                                             get_local_id_mtu(local_id), "ton", "0.0.0.0", server_options_);
+    auto identity = ServerIdentity{.local_id = local_id,
+                                   .key = td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string())};
+    auto owned = co_await QuicServer::create(port, std::make_unique<ServerCallback>(actor_id(this)), default_mtu,
+                                             std::move(identity), "ton", "0.0.0.0", server_options_);
     server = owned.get();
     servers_by_port_[port] = std::move(owned);
-  }
-
-  td::actor::send_closure(server, &QuicServer::add_identity, local_id,
-                          td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()));
-  td::actor::send_closure(server, &QuicServer::set_default_mtu, local_id, get_local_id_mtu(local_id));
-  for (const auto &[peer_id, mtu] : get_local_id_peers_mtu(local_id)) {
-    td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, mtu);
+    for (const auto &[peer_id, mtu] : peers_mtu) {
+      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, mtu);
+    }
   }
   servers_by_id_[local_id] = server;
 
@@ -522,7 +528,7 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
   }
 
   auto server = server_iter->second;
-  auto sni = compute_sni_name(path.second);
+  auto sni = ServerIdentity::sni(path.second);
   auto connection_id = co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key),
                                     td::Slice("ton"), td::Slice(sni))
                            .trace("connect");
