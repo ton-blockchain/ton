@@ -340,6 +340,8 @@ class BroadcastsPlumtree::Impl {
   PlumtreeBroadcastState *get_state(const td::Bits256 &broadcast_id);
   PlumtreePartState *get_part(const td::Bits256 &broadcast_id, td::uint32 part_index, td::uint32 tree_index);
   td::Status ensure_decoder(PlumtreeBroadcastState &broadcast);
+  td::Status add_decoder_part_and_deliver(OverlayImpl *overlay, PlumtreeBroadcastState &broadcast,
+                                          td::uint32 part_index, const td::BufferSlice &part);
 
   bool send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
                     tl_object_ptr<ton_api::overlay_Broadcast> control);
@@ -431,18 +433,16 @@ void BroadcastsPlumtree::Impl::promote_eager(PlumtreeSlot &slot, adnl::AdnlNodeI
     return;
   }
   auto capacity = options_.eager_limit_;
-  auto load = slot_load(slot);
-  if (!force && load >= capacity) {
+  if (capacity == 0) {
     return;
   }
-  if (force && load >= capacity && !slot.eager.empty()) {
+  if (!force && slot.eager.size() >= capacity) {
+    return;
+  }
+  if (force && slot.eager.size() >= capacity) {
     auto it = slot.eager.begin();
     std::advance(it, td::Random::fast(0, static_cast<td::int32>(slot.eager.size()) - 1));
     slot.eager.erase(it);
-  } else if (force && load >= capacity && !slot.pending_feedback.empty()) {
-    auto it = slot.pending_feedback.begin();
-    std::advance(it, td::Random::fast(0, static_cast<td::int32>(slot.pending_feedback.size()) - 1));
-    slot.pending_feedback.erase(it);
   }
   slot.eager.insert(peer);
 }
@@ -489,6 +489,35 @@ td::Status BroadcastsPlumtree::Impl::ensure_decoder(PlumtreeBroadcastState &broa
              td::raptorq::Decoder::create({(broadcast.data_size + broadcast.part_size - 1) / broadcast.part_size,
                                            broadcast.part_size, broadcast.data_size}));
   broadcast.decoder = std::move(decoder);
+  return td::Status::OK();
+}
+
+td::Status BroadcastsPlumtree::Impl::add_decoder_part_and_deliver(OverlayImpl *overlay,
+                                                                  PlumtreeBroadcastState &broadcast,
+                                                                  td::uint32 part_index,
+                                                                  const td::BufferSlice &part) {
+  if (broadcast.delivered || broadcast.decoder_parts.contains(part_index)) {
+    return td::Status::OK();
+  }
+  TRY_STATUS(ensure_decoder(broadcast));
+  if (!broadcast.decoder) {
+    return td::Status::OK();
+  }
+  TRY_STATUS(broadcast.decoder->add_symbol({part_index, part.clone()}));
+  broadcast.decoder_parts.insert(part_index);
+  if (!broadcast.decoder->may_try_decode()) {
+    return td::Status::OK();
+  }
+  TRY_RESULT(decoded, broadcast.decoder->try_decode(false));
+  if (broadcast.data_hash != td::sha256_bits256(decoded.data.as_slice())) {
+    return td::Status::Error(ErrorCode::protoviolation, "Plumtree decoded data hash mismatch");
+  }
+  broadcast.delivered = true;
+  broadcast.decoder = {};
+  overlay->register_delivered_broadcast(broadcast.broadcast_id);
+  VLOG(PLUMTREE_INFO) << overlay << ": Plumtree FINISH receiver broadcast_id=" << broadcast.broadcast_id.to_hex()
+                      << " data_size=" << broadcast.data_size << " decoded=true";
+  overlay->deliver_broadcast(broadcast.first_valid_source, std::move(decoded.data), {});
   return td::Status::OK();
 }
 
@@ -772,8 +801,9 @@ void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutb
     return;
   }
 
-  if (broadcast.parts_by_index.find(payload.part_index) == broadcast.parts_by_index.end()) {
-    broadcast.parts_by_index.emplace(payload.part_index, std::move(payload.part));
+  auto part_data_it = broadcast.parts_by_index.find(payload.part_index);
+  if (part_data_it == broadcast.parts_by_index.end()) {
+    part_data_it = broadcast.parts_by_index.emplace(payload.part_index, std::move(payload.part)).first;
   }
 
   PlumtreePartState part;
@@ -788,6 +818,11 @@ void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutb
       broadcast.tree_parts.emplace(TreePartKey{payload.part_index, payload.tree_index}, std::move(part));
 
   forward_payload(overlay, broadcast, part_it->second, adnl::AdnlNodeIdShort::zero());
+  auto status = add_decoder_part_and_deliver(overlay, broadcast, payload.part_index, part_data_it->second);
+  if (status.is_error()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": failed to process local Plumtree part: " << status;
+    return;
+  }
 
   if (!broadcast.overlay_limiter_registered) {
     overlay->get_broadcasts_limiter(payload.source, cert.get()).register_broadcast(payload.data_size);
@@ -918,22 +953,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
   send_useful(overlay, from, part_it->second, broadcast_id);
   forward_payload(overlay, broadcast, part_it->second, from);
 
-  if (!broadcast.delivered && broadcast.decoder && !broadcast.decoder_parts.contains(part_index)) {
-    CO_TRY(broadcast.decoder->add_symbol({part_index, part_data_it->second.clone()}));
-    broadcast.decoder_parts.insert(part_index);
-    if (broadcast.decoder->may_try_decode()) {
-      auto decoded = CO_TRY(broadcast.decoder->try_decode(false));
-      if (msg->data_hash_ != td::sha256_bits256(decoded.data.as_slice())) {
-        co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree decoded data hash mismatch");
-      }
-      broadcast.delivered = true;
-      broadcast.decoder = {};
-      overlay->register_delivered_broadcast(broadcast_id);
-      VLOG(PLUMTREE_INFO) << overlay << ": Plumtree FINISH receiver broadcast_id=" << broadcast_id.to_hex()
-                          << " data_size=" << data_size << " decoded=true";
-      overlay->deliver_broadcast(broadcast.first_valid_source, std::move(decoded.data), {});
-    }
-  }
+  CO_TRY(add_decoder_part_and_deliver(overlay, broadcast, part_index, part_data_it->second));
   co_return td::Unit{};
 }
 

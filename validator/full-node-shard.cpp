@@ -134,7 +134,7 @@ void FullNodeShardImpl::create_overlay() {
   opts.name_ = "shard" + shard_.to_str();
   opts.announce_self_ = active_;
   opts.broadcast_speed_multiplier_ = opts_.public_broadcast_speed_multiplier_;
-  opts.enable_plumtree_broadcast_ = opts_.public_plumtree_broadcast_;
+  opts.enable_plumtree_broadcast_ = opts_.public_plumtree_broadcast_ && !shard_.is_masterchain();
   opts.plumtree_broadcast_sender_ = opts.enable_plumtree_broadcast_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_}
                                                                     : td::actor::ActorId<adnl::AdnlSenderEx>{};
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
@@ -1095,6 +1095,9 @@ void FullNodeShardImpl::send_broadcast_plumtree(BlockBroadcast broadcast, Valida
     return;
   }
   if (!opts_.public_plumtree_broadcast_) {
+    return;
+  }
+  if (shard_.is_masterchain()) {
     return;
   }
   if (!validator_group_index.valid()) {
