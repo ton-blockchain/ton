@@ -137,9 +137,6 @@ void FullNodeShardImpl::create_overlay() {
   opts.enable_plumtree_broadcast_ = opts_.public_plumtree_broadcast_;
   opts.plumtree_broadcast_sender_ = opts.enable_plumtree_broadcast_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_}
                                                                     : td::actor::ActorId<adnl::AdnlSenderEx>{};
-  if (opts.enable_plumtree_broadcast_) {
-    opts.max_neighbours_ = std::max(opts.max_neighbours_, opts.plumtree_fec_options_.active_neighbours_);
-  }
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
                           std::make_unique<Callback>(actor_id(this)), rules_,
                           PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()

@@ -578,7 +578,7 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, PlumtreeBro
     return;
   }
 
-  auto active = overlay->get_neighbours(options_.active_neighbours_);
+  auto active = overlay->get_plumtree_neighbours(options_.active_neighbours_);
   active.erase(std::remove_if(active.begin(), active.end(),
                               [&](const auto &peer) { return peer == overlay->local_id() || peer == from; }),
                active.end());

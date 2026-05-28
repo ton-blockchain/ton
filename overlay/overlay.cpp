@@ -887,6 +887,8 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
   res->total_traffic_responses_ = total_traffic_responses.tl();
   res->stats_.push_back(
       create_tl_object<ton_api::engine_validator_oneStat>("neighbours_cnt", PSTRING() << neighbours_cnt()));
+  res->stats_.push_back(create_tl_object<ton_api::engine_validator_oneStat>(
+      "plumtree_neighbours_cnt", PSTRING() << plumtree_neighbours_cnt()));
 
   double now = td::Clocks::system();
   for (const PublicKeyHash &key : rules_.get_authorized_keys()) {

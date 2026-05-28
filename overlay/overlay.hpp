@@ -101,6 +101,12 @@ class OverlayPeer {
   void set_neighbour(bool value) {
     is_neighbour_ = value;
   }
+  bool is_plumtree_neighbour() const {
+    return is_plumtree_neighbour_;
+  }
+  void set_plumtree_neighbour(bool value) {
+    is_plumtree_neighbour_ = value;
+  }
   td::int32 get_version() const {
     return node_.version();
   }
@@ -159,6 +165,7 @@ class OverlayPeer {
   adnl::AdnlNodeIdShort id_;
 
   bool is_neighbour_ = false;
+  bool is_plumtree_neighbour_ = false;
   size_t missed_pings_ = 0;
   bool is_alive_ = true;
   bool is_permanent_member_ = false;
@@ -294,6 +301,7 @@ class OverlayImpl : public Overlay {
 
   void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
   std::vector<adnl::AdnlNodeIdShort> get_neighbours(td::uint32 max_size = 0) const;
+  std::vector<adnl::AdnlNodeIdShort> get_plumtree_neighbours(td::uint32 max_size = 0) const;
   td::actor::ActorId<OverlayManager> overlay_manager() const {
     return manager_;
   }
@@ -345,6 +353,10 @@ class OverlayImpl : public Overlay {
 
   td::uint32 max_neighbours() const {
     return opts_.max_neighbours_;
+  }
+
+  td::uint32 max_plumtree_neighbours() const {
+    return opts_.enable_plumtree_broadcast_ ? opts_.plumtree_fec_options_.active_neighbours_ : 0;
   }
 
   td::uint32 max_peers() const {
@@ -437,10 +449,13 @@ class OverlayImpl : public Overlay {
   void del_peer(const adnl::AdnlNodeIdShort &id);
   void del_from_neighbour_list(OverlayPeer *P);
   void del_from_neighbour_list(const adnl::AdnlNodeIdShort &id);
+  void del_from_plumtree_neighbour_list(OverlayPeer *P);
+  void del_from_all_neighbour_lists(OverlayPeer *P);
   OverlayPeer *get_random_peer(bool only_alive = false);
   bool is_root_public_key(const PublicKeyHash &key) const;
   bool has_good_peers() const;
   size_t neighbours_cnt() const;
+  size_t plumtree_neighbours_cnt() const;
   void update_peers_mtu();
 
   void finish_dht_query() {
@@ -534,6 +549,7 @@ class OverlayImpl : public Overlay {
     td::DecTree<adnl::AdnlNodeIdShort, OverlayPeer> peers_;
     size_t persistent_node_count_ = 0;
     std::vector<adnl::AdnlNodeIdShort> neighbours_;
+    std::vector<adnl::AdnlNodeIdShort> plumtree_neighbours_;
     td::DecTree<adnl::AdnlNodeIdShort, OverlayNode> pending_peers_;
 
     td::Timestamp local_cert_is_valid_until_;
