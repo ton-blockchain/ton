@@ -9,6 +9,8 @@
 
 namespace ton::quic {
 
+static constexpr td::uint64 DEFAULT_QUIC_STREAM_MTU = 40u << 10;
+
 static td::uint32 get_magic(const td::BufferSlice &data) {
   return data.size() >= 4 ? td::as<td::uint32>(data.data()) : 0;
 }
@@ -251,7 +253,10 @@ td::Result<td::IPAddress> QuicSender::get_ip_address(const adnl::AdnlNode &node)
 
 QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
                        QuicServer::Options options)
-    : adnl_(std::move(adnl)), keyring_(std::move(keyring)), server_options_(options) {
+    : adnl::AdnlSenderEx(DEFAULT_QUIC_STREAM_MTU)
+    , adnl_(std::move(adnl))
+    , keyring_(std::move(keyring))
+    , server_options_(options) {
 }
 
 void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
