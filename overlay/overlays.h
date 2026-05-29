@@ -117,9 +117,13 @@ class OverlayPrivacyRules {
       : max_unath_size_(max_size), flags_(flags), authorized_keys_(std::move(authorized_keys)) {
   }
 
-  BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec) const {
+  BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec, bool is_any_sender) {
     auto it = authorized_keys_.find(hash);
     if (it == authorized_keys_.end()) {
+      if (is_any_sender) {
+        // Unauthorized broadcasts with AnySender flag are not allowed
+        return BroadcastCheckResult::Forbidden;
+      }
       if (size > max_unath_size_) {
         return BroadcastCheckResult::Forbidden;
       }

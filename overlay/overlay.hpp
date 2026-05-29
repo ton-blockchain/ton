@@ -269,9 +269,10 @@ class OverlayImpl : public Overlay {
 
   td::Status check_date(td::uint32 date);
   BroadcastCheckResult check_source_eligible(PublicKey source, const Certificate *cert, td::uint32 size, bool is_fec,
+                                             bool is_any_sender,
                                              adnl::AdnlNodeIdShort message_from = adnl::AdnlNodeIdShort::zero());
   BroadcastCheckResult check_source_eligible(const PublicKeyHash &source, const Certificate *cert, td::uint32 size,
-                                             bool is_fec,
+                                             bool is_fec, bool is_any_sender,
                                              adnl::AdnlNodeIdShort message_from = adnl::AdnlNodeIdShort::zero());
 
   void deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra);
@@ -374,7 +375,7 @@ class OverlayImpl : public Overlay {
   }
 
   bool has_valid_membership_certificate();
-  bool has_valid_broadcast_certificate(const PublicKeyHash &source, size_t size, bool is_fec);
+  bool has_valid_broadcast_certificate(const PublicKeyHash &source, size_t size, bool is_fec, bool is_any_sender);
 
   void forget_peer(adnl::AdnlNodeIdShort peer_id) override {
     del_peer(peer_id);

@@ -339,8 +339,9 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                            td::Promise<td::Ref<block::BlockSignatureSet>> promise) = 0;
 
-  virtual void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                   td::uint32 validator_set_hash, bool cache_only, td::Promise<td::Unit> promise) = 0;
+  virtual void cache_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
+    promise.set_value(td::Unit{});
+  }
   virtual void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                               td::BufferSlice data, int mode) = 0;
 
@@ -427,11 +428,6 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                     td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_by_seqno_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
                                                 td::Promise<ConstBlockHandle> promise) = 0;
-  virtual void get_block_candidate_for_litequery(PublicKey source, BlockIdExt block_id, FileHash collated_data_hash,
-                                                 td::Promise<BlockCandidate> promise) = 0;
-  virtual void get_validator_groups_info_for_litequery(
-      td::optional<ShardIdFull> shard,
-      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
   virtual void get_pending_shard_blocks_for_litequery(
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> promise) {

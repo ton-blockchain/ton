@@ -844,7 +844,7 @@ int TestNode::parse_hex_digit(int c) {
     return c - '0';
   }
   c |= 0x20;
-  if (c >= 'a' && c <= 'z') {
+  if (c >= 'a' && c <= 'f') {
     return c - 'a' + 10;
   }
   return -1;

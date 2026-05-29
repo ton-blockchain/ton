@@ -149,7 +149,6 @@ class Collator final : public td::actor::Actor {
   std::vector<block::McShardDescr> neighbors_;
   std::unique_ptr<block::OutputQueueMerger> nb_out_msgs_;
   std::vector<ton::StdSmcAddress> special_smcs;
-  std::vector<std::pair<ton::StdSmcAddress, int>> ticktock_smcs;
   Ref<vm::Cell> prev_block_root;
   Ref<vm::Cell> prev_state_root_, prev_state_root_pure_;
   Ref<vm::Cell> state_root;                              // (new) shardchain state
@@ -226,7 +225,7 @@ class Collator final : public td::actor::Actor {
   Ref<vm::Cell> shard_account_blocks_;  // ShardAccountBlocks
 
   std::map<td::Bits256, Ref<vm::Cell>> block_state_proofs_;
-  std::vector<vm::MerkleProofBuilder> neighbor_proof_builders_;
+  std::vector<std::pair<BlockIdExt, vm::MerkleProofBuilder>> neighbor_proof_builders_;
   std::vector<Ref<vm::Cell>> collated_roots_;
 
   struct AccountStorageDict {
@@ -413,7 +412,7 @@ class Collator final : public td::actor::Actor {
   bool create_collated_data();
 
   bool create_block_candidate();
-  void return_block_candidate(td::Result<td::Unit> saved, td::PerfLogAction token);
+  void return_block_candidate();
   bool update_last_proc_int_msg(const std::pair<ton::LogicalTime, ton::Bits256>& new_lt_hash);
 
   td::CancellationToken cancellation_token_;

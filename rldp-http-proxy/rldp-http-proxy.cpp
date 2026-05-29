@@ -884,32 +884,6 @@ class RldpHttpProxy : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  void store_dht() {
-    for (auto &serv : hosts_) {
-      if (serv.first != "*") {
-        for (auto &serv_id : server_ids_) {
-          ton::PublicKey key = ton::pubkeys::Unenc{"http." + serv.first};
-          ton::dht::DhtKey dht_key{key.compute_short_id(), "http." + serv.first, 0};
-          auto dht_update_rule = ton::dht::DhtUpdateRuleAnybody::create().move_as_ok();
-          ton::dht::DhtKeyDescription dht_key_description{std::move(dht_key), key, std::move(dht_update_rule),
-                                                          td::BufferSlice()};
-          dht_key_description.check().ensure();
-
-          auto ttl = static_cast<td::uint32>(td::Clocks::system() + 3600);
-          ton::dht::DhtValue dht_value{std::move(dht_key_description), td::BufferSlice{serv_id.as_slice()}, ttl,
-                                       td::BufferSlice("")};
-
-          td::actor::send_closure(dht_, &ton::dht::Dht::set_value, std::move(dht_value), [](td::Result<>) {});
-        }
-      }
-    }
-    alarm_timestamp() = td::Timestamp::in(60.0);
-  }
-
-  void alarm() override {
-    store_dht();
-  }
-
   void got_full_id(ton::adnl::AdnlNodeIdShort short_id, ton::adnl::AdnlNodeIdFull full_id) {
     server_ids_full_[short_id] = full_id;
   }
@@ -1137,8 +1111,6 @@ class RldpHttpProxy : public td::actor::Actor {
     }
 
     rldp_dispatcher_ = td::actor::create_actor<RldpDispatcher>("RldpDispatcher", rldp_.get(), rldp2_.get());
-
-    store_dht();
   }
 
   void receive_http_request(

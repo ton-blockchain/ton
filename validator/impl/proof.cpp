@@ -183,6 +183,9 @@ td::Result<RootHash> unpack_block_state_proof(BlockIdExt block_id, td::Ref<vm::C
     return td::Status::Error("invalid block");
   }
   vm::CellSlice upd_cs{vm::NoVm(), block.state_update};
+  if (!upd_cs.is_valid()) {
+    return td::Status::Error("cannot unpack Merkle update");
+  }
   if (!(upd_cs.is_special() && upd_cs.prefetch_long(8) == 4 && upd_cs.size_ext() == 0x20228)) {
     return td::Status::Error("invalid Merkle update");
   }

@@ -417,7 +417,6 @@ class TestManagerFacade : public ManagerFacade {
         params.creator,
         BlockIdExt(BlockId(params.shard, prev_seqno + 1), block_root->get_hash().bits(), td::sha256_bits256(data)),
         td::sha256_bits256(collated_data), data.clone(), collated_data.clone());
-    CHECK(params.skip_store_candidate);
     co_return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
   }
 
@@ -474,7 +473,7 @@ class TestDbImpl : public consensus::Db {
   std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const override {
     std::vector<std::pair<td::BufferSlice, td::BufferSlice>> result;
     td::BufferSlice begin{(const char *)&prefix, 4};
-    td::uint32 prefix2 = prefix + 1;
+    td::uint32 prefix2 = td::bswap32(td::bswap32(prefix) + 1);
     td::BufferSlice end{(const char *)&prefix2, 4};
     for (auto it = snapshot_.lower_bound(begin); it != snapshot_.end() && it->first < end; ++it) {
       result.emplace_back(it->first.clone(), it->second.clone());

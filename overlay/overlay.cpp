@@ -634,7 +634,8 @@ void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::Bu
                           << peer_list_.local_cert_is_valid_until_.at_unix();
     return;
   }
-  if (!has_valid_broadcast_certificate(send_as, data.size(), false)) {
+  if (!has_valid_broadcast_certificate(send_as, data.size(), /* is_fec = */ false,
+                                       /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender())) {
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
@@ -649,13 +650,15 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
                           << peer_list_.local_cert_is_valid_until_.at_unix();
     return;
   }
-  if (!has_valid_broadcast_certificate(send_as, data.size(), true)) {
+  bool twostep = opts_.send_twostep_broadcast_ && !(flags & Overlays::BroadcastFlagNoTwostep());
+  flags &= ~Overlays::BroadcastFlagNoTwostep();
+  if (!has_valid_broadcast_certificate(
+          send_as, data.size(), /* is_fec = */ true,
+          /* is_any_sender = */ (flags & Overlays::BroadcastFlagAnySender()) && !twostep)) {
     VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
     return;
   }
-  bool no_twostep = flags & Overlays::BroadcastFlagNoTwostep();
-  flags &= ~Overlays::BroadcastFlagNoTwostep();
-  if (opts_.send_twostep_broadcast_ && !no_twostep) {
+  if (twostep) {
     broadcasts_twostep_.send(this, send_as, std::move(data), std::move(extra), flags);
   } else {
     if (!extra.empty()) {
@@ -723,12 +726,12 @@ td::Status OverlayImpl::check_date(td::uint32 date) {
 }
 
 BroadcastCheckResult OverlayImpl::check_source_eligible(const PublicKeyHash &source, const Certificate *cert,
-                                                        td::uint32 size, bool is_fec,
+                                                        td::uint32 size, bool is_fec, bool is_any_sender,
                                                         adnl::AdnlNodeIdShort message_from) {
   if (size == 0) {
     return BroadcastCheckResult::Forbidden;
   }
-  auto r = rules_.check_rules(source, size, is_fec);
+  auto r = rules_.check_rules(source, size, is_fec, is_any_sender);
   if (!cert || r == BroadcastCheckResult::Allowed || overlay_type_ == OverlayType::FixedMemberList) {
     return r;
   }
@@ -764,13 +767,14 @@ BroadcastCheckResult OverlayImpl::check_source_eligible(const PublicKeyHash &sou
     }
   }
 
-  r2 = broadcast_check_result_min(r2, rules_.check_rules(cert->issuer_hash(), size, is_fec));
+  r2 = broadcast_check_result_min(r2, rules_.check_rules(cert->issuer_hash(), size, is_fec, is_any_sender));
   return broadcast_check_result_max(r, r2);
 }
 
 BroadcastCheckResult OverlayImpl::check_source_eligible(PublicKey source, const Certificate *cert, td::uint32 size,
-                                                        bool is_fec, adnl::AdnlNodeIdShort message_from) {
-  return check_source_eligible(source.compute_short_id(), cert, size, is_fec, message_from);
+                                                        bool is_fec, bool is_any_sender,
+                                                        adnl::AdnlNodeIdShort message_from) {
+  return check_source_eligible(source.compute_short_id(), cert, size, is_fec, is_any_sender, message_from);
 }
 
 void OverlayImpl::get_self_node(td::Promise<OverlayNode> promise) {
@@ -948,13 +952,14 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
   });
 }
 
-bool OverlayImpl::has_valid_broadcast_certificate(const PublicKeyHash &source, size_t size, bool is_fec) {
+bool OverlayImpl::has_valid_broadcast_certificate(const PublicKeyHash &source, size_t size, bool is_fec,
+                                                  bool is_any_sender) {
   if (size > std::numeric_limits<td::uint32>::max()) {
     return false;
   }
   auto it = certs_.find(source);
-  return check_source_eligible(source, it == certs_.end() ? nullptr : it->second.get(), (td::uint32)size, is_fec) !=
-         BroadcastCheckResult::Forbidden;
+  return check_source_eligible(source, it == certs_.end() ? nullptr : it->second.get(), (td::uint32)size, is_fec,
+                               is_any_sender) != BroadcastCheckResult::Forbidden;
 }
 
 td::Status OverlayImpl::check_signature_from_peer(PublicKey key, td::Slice message, td::Slice signature,

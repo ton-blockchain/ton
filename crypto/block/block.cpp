@@ -197,23 +197,19 @@ bool StdAddress::parse_addr(td::Slice acc_string) {
   testnet = false;
   bounceable = true;
   auto pos = acc_string.find(':');
-  if (pos != std::string::npos) {
-    if (pos > 10) {
-      return invalidate();
-    }
-    auto tmp = acc_string.substr(0, pos);
-    auto r_wc = td::to_integer_safe<ton::WorkchainId>(tmp);
-    if (r_wc.is_error()) {
-      return invalidate();
-    }
-    workchain = r_wc.move_as_ok();
-    if (workchain == ton::workchainInvalid) {
-      return invalidate();
-    }
-    ++pos;
-  } else {
-    pos = 0;
+  if (pos == std::string::npos || pos > 10) {
+    return invalidate();
   }
+  auto tmp = acc_string.substr(0, pos);
+  auto r_wc = td::to_integer_safe<ton::WorkchainId>(tmp);
+  if (r_wc.is_error()) {
+    return invalidate();
+  }
+  workchain = r_wc.move_as_ok();
+  if (workchain == ton::workchainInvalid) {
+    return invalidate();
+  }
+  ++pos;
   // LOG(DEBUG) << "parsing " << acc_string << " address";
   if (acc_string.size() != pos + 64) {
     return invalidate();

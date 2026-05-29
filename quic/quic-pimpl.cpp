@@ -42,11 +42,11 @@ static void apply_platform_pmtu_policy(ngtcp2_settings& settings) {
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
-    td::Slice alpn, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
+    td::Slice alpn, td::Slice sni, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
   auto p_impl =
       std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
 
-  TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
+  TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn, sni));
   TRY_STATUS(p_impl->init_quic_client());
 
   p_impl->callback_->set_connection_id(p_impl->primary_scid_);
@@ -55,13 +55,16 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_cli
 }
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_server(
-    const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& server_key,
+    const td::IPAddress& local_address, const td::IPAddress& remote_address, td::Ref<ServerIdentities> identities,
     td::Slice alpn, const ServerInitialInfo& initial, std::unique_ptr<Callback> callback,
     QuicConnectionOptions options) {
+  CHECK(identities.not_null());
+  CHECK(identities->has_default());
+
   auto p_impl =
       std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
 
-  TRY_STATUS(p_impl->init_tls_server_rpk(server_key, alpn));
+  TRY_STATUS(p_impl->init_tls_server_rpk(std::move(identities), alpn));
   TRY_STATUS(p_impl->init_quic_server(initial));
 
   p_impl->callback_->set_connection_id(p_impl->primary_scid_);
@@ -100,6 +103,15 @@ td::Status QuicConnectionPImpl::finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl
   return td::Status::OK();
 }
 
+using Ed25519EvpKeyPtr = openssl_ptr<EVP_PKEY, &EVP_PKEY_free>;
+
+static td::Result<Ed25519EvpKeyPtr> make_ed25519_evp_key(const td::Ed25519::PrivateKey& key) {
+  auto key_bytes = key.as_octet_string();
+  OPENSSL_MAKE_PTR(evp_key, EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
+                   EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
+  return std::move(evp_key);
+}
+
 static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::PrivateKey& key) {
   SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
   SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
@@ -111,11 +123,27 @@ static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::Private
   OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx, cert_types, sizeof(cert_types)),
                    "Failed to enable client RPK");
 
-  auto key_bytes = key.as_octet_string();
-  OPENSSL_MAKE_PTR(evp_key, EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
-                   EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
+  TRY_RESULT(evp_key, make_ed25519_evp_key(key));
   OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx, evp_key.get()), "Failed to set private key");
   return td::Status::OK();
+}
+
+static td::Status use_rpk_private_key(SSL* ssl, const td::Ed25519::PrivateKey& key) {
+  TRY_RESULT(evp_key, make_ed25519_evp_key(key));
+  OPENSSL_CHECK_OK(SSL_use_PrivateKey(ssl, evp_key.get()), "Failed to set private key");
+  return td::Status::OK();
+}
+
+static int sni_alert(int* ad, int alert, td::Slice reason) {
+  // UNRECOGNIZED_NAME is fully attacker-controlled, so keep it out of the warning log to avoid flooding.
+  if (alert == SSL_AD_UNRECOGNIZED_NAME) {
+    LOG(DEBUG) << "SNI dispatch: " << reason;
+  } else {
+    LOG(WARNING) << "SNI dispatch: " << reason;
+  }
+  CHECK(ad != nullptr);
+  *ad = alert;
+  return SSL_TLSEXT_ERR_ALERT_FATAL;
 }
 
 int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigned char* outlen, const unsigned char* in,
@@ -130,7 +158,8 @@ int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigne
   return SSL_TLSEXT_ERR_NOACK;
 }
 
-td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn) {
+td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn,
+                                                    td::Slice sni) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
   TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), client_key));
   setup_alpn_wire(alpn);
@@ -141,15 +170,81 @@ td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKe
   SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
                       static_cast<unsigned int>(alpn_wire_.size()));
 
+  if (!sni.empty()) {
+    std::string sni_str = sni.str();
+    if (SSL_set_tlsext_host_name(ssl_ptr.get(), sni_str.c_str()) != 1) {
+      return td::Status::Error("SSL_set_tlsext_host_name failed");
+    }
+  }
+
   return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), true);
 }
 
-td::Status QuicConnectionPImpl::init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn) {
+bool ServerIdentities::add_identity(ServerIdentity identity) {
+  auto sni = identity.sni();
+  if (by_sni.contains(sni)) {
+    return false;
+  }
+  auto [it, inserted] = by_sni.emplace(std::move(sni), std::move(identity));
+  CHECK(inserted);
+  if (default_sni.empty()) {
+    default_sni = it->first;
+  }
+  return true;
+}
+
+ServerIdentities* ServerIdentities::make_copy() const {
+  auto* copy = new ServerIdentities;
+  for (const auto& [sni, identity] : by_sni) {
+    copy->by_sni.emplace(sni, ServerIdentity{.local_id = identity.local_id, .key{identity.key.as_octet_string()}});
+  }
+  copy->default_sni = default_sni;
+  return copy;
+}
+
+int QuicConnectionPImpl::sni_select_cb(SSL* ssl, int* ad, void* arg) {
+  const char* name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+  if (name == nullptr) {
+    // No SNI from the client — handshake proceeds with the default key that was installed on the
+    // SSL by init_tls_server_rpk.
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  // arg is a non-owning pointer to the identity snapshot pinned for the duration of the handshake.
+  auto* identities = static_cast<const ServerIdentities*>(arg);
+  CHECK(identities != nullptr);
+
+  std::string normalized_name = td::to_lower(td::CSlice(name));
+  auto it = identities->by_sni.find(normalized_name);
+  if (it == identities->by_sni.end()) {
+    return sni_alert(ad, SSL_AD_UNRECOGNIZED_NAME, PSLICE() << "unknown identity " << name);
+  }
+
+  if (it->first == identities->default_sni) {
+    // SNI resolves to the default identity anyway, so no key swap is needed.
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  auto status = use_rpk_private_key(ssl, it->second.key);
+  if (status.is_error()) {
+    return sni_alert(ad, SSL_AD_INTERNAL_ERROR, PSLICE() << "failed to install key for " << name << ": " << status);
+  }
+  return SSL_TLSEXT_ERR_OK;
+}
+
+td::Status QuicConnectionPImpl::init_tls_server_rpk(td::Ref<ServerIdentities> identities, td::Slice alpn) {
+  CHECK(identities.not_null());
+  server_identities_ = std::move(identities);
+
+  const auto& default_entry = server_identities_->by_sni.at(server_identities_->default_sni);
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
-  TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), server_key));
+  TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), default_entry.key));
   setup_alpn_wire(alpn);
 
   SSL_CTX_set_alpn_select_cb(ssl_ctx_ptr.get(), alpn_select_cb, &alpn_wire_);
+
+  SSL_CTX_set_tlsext_servername_callback(ssl_ctx_ptr.get(), sni_select_cb);
+  SSL_CTX_set_tlsext_servername_arg(ssl_ctx_ptr.get(), const_cast<ServerIdentities*>(server_identities_.get()));
 
   OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
   SSL_set_accept_state(ssl_ptr.get());
@@ -489,19 +584,47 @@ td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool u
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
+// Writes a terminal CONNECTION_CLOSE for `liberr` into `close_out`, or leaves it empty if ngtcp2 has
+// nothing to send (e.g. buffer/amplification limits). Only call for errors that warrant a close.
+void QuicConnectionPImpl::write_connection_close(UdpMessageBuffer& close_out, int liberr) {
+  ngtcp2_ccerr err{};
+  if (liberr == NGTCP2_ERR_CRYPTO) {
+    ngtcp2_ccerr_set_tls_alert(&err, ngtcp2_conn_get_tls_alert(conn()), nullptr, 0);
+  } else {
+    ngtcp2_ccerr_set_liberr(&err, liberr, nullptr, 0);
+  }
+  auto path = make_path();
+  ngtcp2_pkt_info pi{};
+  auto n = ngtcp2_conn_write_connection_close(conn(), &path, &pi, reinterpret_cast<uint8_t*>(close_out.storage.data()),
+                                              close_out.storage.size(), &err, now_ts());
+  if (n > 0) {
+    commit_write(close_out, static_cast<size_t>(n), 0, path);
+  } else {
+    close_out.storage.truncate(0);
+  }
+}
+
+// On entry `close_out.storage` is a full-capacity buffer; on return it holds a CONNECTION_CLOSE
+// datagram to send to msg_in.address, or is empty if there is nothing to send.
+td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in, UdpMessageBuffer& close_out) {
   ngtcp2_path path = make_path(msg_in.address);
   ngtcp2_pkt_info pi{};
   int rv = ngtcp2_conn_read_pkt(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
   if (rv == 0) {
+    close_out.storage.truncate(0);
     return td::Status::OK();
   }
-  if (rv == NGTCP2_ERR_DROP_CONN || ngtcp2_err_is_fatal(rv)) {
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv
-                                       << " tls_alert=" << (int)ngtcp2_conn_get_tls_alert(conn()));
+  // ngtcp2 read_pkt contract: DROP_CONN/RETRY are discarded silently and DRAINING/CLOSING forbid any
+  // further packet; every other error (including CRYPTO from a rejected SNI) gets a terminal close.
+  if (rv == NGTCP2_ERR_DROP_CONN || rv == NGTCP2_ERR_RETRY || rv == NGTCP2_ERR_DRAINING || rv == NGTCP2_ERR_CLOSING) {
+    close_out.storage.truncate(0);
+  } else {
+    write_connection_close(close_out, rv);
   }
-  return td::Status::OK();
+  // Carry rv as the status code so the caller can classify it (ngtcp2_err_is_fatal) for logging.
+  return td::Status::Error(rv, PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv
+                                         << " tls_alert=" << (int)ngtcp2_conn_get_tls_alert(conn()));
 }
 
 ngtcp2_conn_info QuicConnectionPImpl::get_conn_info() const {
@@ -642,8 +765,32 @@ td::SecureString QuicConnectionPImpl::extract_peer_ed25519_key() const {
   return key;
 }
 
+td::SecureString QuicConnectionPImpl::extract_local_ed25519_key() const {
+  // For the server side this reflects the post-SNI-dispatch key actually used in the handshake.
+  // For the client side this is just the client's RPK.
+  EVP_PKEY* local_pkey = SSL_get_privatekey(ssl_.get());
+  if (!local_pkey || EVP_PKEY_id(local_pkey) != EVP_PKEY_ED25519) {
+    return {};
+  }
+  size_t len = td::Ed25519::PublicKey::LENGTH;
+  td::SecureString key(len);
+  if (EVP_PKEY_get_raw_public_key(local_pkey, key.as_mutable_slice().ubegin(), &len) != 1 ||
+      len != td::Ed25519::PublicKey::LENGTH) {
+    return {};
+  }
+  return key;
+}
+
 int QuicConnectionPImpl::on_handshake_completed() {
-  callback_->on_handshake_completed({.peer_public_key = extract_peer_ed25519_key()});
+  callback_->on_handshake_completed({
+      .peer_public_key = extract_peer_ed25519_key(),
+      .local_public_key = extract_local_ed25519_key(),
+  });
+  if (ssl_ctx_) {
+    // Paranoia: clear OpenSSL's server_identities pointer to not potentially access freed memory.
+    SSL_CTX_set_tlsext_servername_arg(ssl_ctx_.get(), nullptr);
+  }
+  server_identities_.clear();
   return 0;
 }
 

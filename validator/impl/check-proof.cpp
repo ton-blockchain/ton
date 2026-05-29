@@ -222,7 +222,7 @@ bool CheckProof::init_parse(bool is_aux) {
   if (is_key_block_ && !is_aux) {
     // visit validator-set related fields in key blocks
     block::gen::McBlockExtra::Record mc_extra;
-    if (!(tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
+    if (!(extra.custom->have_refs() && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
           mc_extra.config.not_null())) {
       return fatal_error("cannot unpack extra header of key masterchain block "s + blk_id.to_str());
     }

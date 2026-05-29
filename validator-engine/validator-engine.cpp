@@ -3963,12 +3963,12 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addListen
 
   std::vector<td::uint8> cats;
   for (auto cat : query.categories_) {
-    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    TRY_RESULT_PROMISE(P, c, td::narrow_cast_safe<td::uint8>(cat));
     cats.push_back(c);
   }
   std::vector<td::uint8> prio_cats;
   for (auto cat : query.priority_categories_) {
-    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    TRY_RESULT_PROMISE(P, c, td::narrow_cast_safe<td::uint8>(cat));
     prio_cats.push_back(c);
   }
   try_add_listening_port(query.ip_, query.port_, std::move(cats), std::move(prio_cats), std::move(P));
@@ -3996,12 +3996,12 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delListen
 
   std::vector<td::uint8> cats;
   for (auto cat : query.categories_) {
-    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    TRY_RESULT_PROMISE(P, c, td::narrow_cast_safe<td::uint8>(cat));
     cats.push_back(c);
   }
   std::vector<td::uint8> prio_cats;
   for (auto cat : query.priority_categories_) {
-    TRY_RESULT_PROMISE(promise, c, td::narrow_cast_safe<td::uint8>(cat));
+    TRY_RESULT_PROMISE(P, c, td::narrow_cast_safe<td::uint8>(cat));
     prio_cats.push_back(c);
   }
   try_del_listening_port(query.ip_, query.port_, std::move(cats), std::move(prio_cats), std::move(P));
@@ -5475,6 +5475,7 @@ void ValidatorEngine::process_control_query(td::uint16 port, ton::adnl::AdnlNode
   auto E = ton::fetch_tl_object<ton::lite_api::liteServer_query>(data.clone(), true);
   if (E.is_ok()) {
     if (!started_) {
+      promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
       return;
     }
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::run_ext_query,
