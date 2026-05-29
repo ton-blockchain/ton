@@ -665,31 +665,46 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
   }
 }
 
-void OverlayImpl::send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
-                                              td::uint32 local_validator_index, td::uint32 validator_count) {
+bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size) {
   if (!has_valid_membership_certificate()) {
     VLOG(OVERLAY_WARNING) << "member certificate is invalid, valid_until="
                           << peer_list_.local_cert_is_valid_until_.at_unix();
-    return;
+    return false;
   }
   if (!opts_.enable_plumtree_broadcast_) {
-    return;
+    return false;
   }
   if (opts_.plumtree_broadcast_sender_.empty()) {
     VLOG(OVERLAY_WARNING) << "Plumtree broadcast sender is not set";
-    return;
+    return false;
   }
-  if (data.size() > Overlays::max_fec_broadcast_size()) {
+  if (data_size > Overlays::max_fec_broadcast_size()) {
     VLOG(OVERLAY_WARNING) << "Plumtree broadcast payload is too large";
-    return;
+    return false;
   }
   if (!rules_.is_authorized_key(send_as) ||
-      rules_.check_rules(send_as, static_cast<td::uint32>(data.size()), true) != BroadcastCheckResult::Allowed) {
+      rules_.check_rules(send_as, static_cast<td::uint32>(data_size), true) != BroadcastCheckResult::Allowed) {
     VLOG(OVERLAY_WARNING) << "Plumtree broadcast source is not directly authorized";
+    return false;
+  }
+  return true;
+}
+
+void OverlayImpl::send_broadcast_plumtree_multi(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+                                                td::uint32 local_validator_index, td::uint32 validator_count) {
+  if (!can_send_broadcast_plumtree(send_as, data.size())) {
     return;
   }
   flags &= ~Overlays::BroadcastFlagNoTwostep();
-  broadcasts_plumtree_.send(this, send_as, flags, std::move(data), local_validator_index, validator_count);
+  broadcasts_plumtree_.send_multi(this, send_as, flags, std::move(data), local_validator_index, validator_count);
+}
+
+void OverlayImpl::send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
+  if (!can_send_broadcast_plumtree(send_as, data.size())) {
+    return;
+  }
+  flags &= ~Overlays::BroadcastFlagNoTwostep();
+  broadcasts_plumtree_.send(this, send_as, flags, std::move(data));
 }
 
 void OverlayImpl::print(td::StringBuilder &sb) {
@@ -916,8 +931,8 @@ void OverlayImpl::get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_
   res->total_traffic_responses_ = total_traffic_responses.tl();
   res->stats_.push_back(
       create_tl_object<ton_api::engine_validator_oneStat>("neighbours_cnt", PSTRING() << neighbours_cnt()));
-  res->stats_.push_back(create_tl_object<ton_api::engine_validator_oneStat>(
-      "plumtree_neighbours_cnt", PSTRING() << plumtree_neighbours_cnt()));
+  res->stats_.push_back(create_tl_object<ton_api::engine_validator_oneStat>("plumtree_neighbours_cnt",
+                                                                            PSTRING() << plumtree_neighbours_cnt()));
 
   double now = td::Clocks::system();
   for (const PublicKeyHash &key : rules_.get_authorized_keys()) {

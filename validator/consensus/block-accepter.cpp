@@ -27,9 +27,13 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
 
-    int broadcast_mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_public_plumtree;
-    if (event->candidate->leader == owning_bus()->local_id.idx) {
-      broadcast_mode |= fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
+    const bool is_leader = event->candidate->leader == owning_bus()->local_id.idx;
+    int broadcast_mode = fullnode::FullNode::broadcast_mode_custom;
+    if (is_leader) {
+      broadcast_mode |= fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync |
+                        fullnode::FullNode::broadcast_mode_public_plumtree;
+    } else if (!block.id.is_masterchain()) {
+      broadcast_mode |= fullnode::FullNode::broadcast_mode_public_plumtree;
     }
     if (last_mc_finalized_seqno_ >= 2 && block.id.seqno() < last_mc_finalized_seqno_ - 2) {
       broadcast_mode = 0;

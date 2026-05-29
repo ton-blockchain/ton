@@ -500,7 +500,7 @@ int main(int argc, char **argv) {
       for (td::uint32 local_index = 0; local_index < shard_count; ++local_index) {
         auto node_index = validators[local_index];
         td::actor::send_closure(
-            overlay_manager, &ton::overlay::Overlays::send_broadcast_plumtree_fec_ex, nodes[node_index].adnl_id,
+            overlay_manager, &ton::overlay::Overlays::send_broadcast_plumtree_multi, nodes[node_index].adnl_id,
             overlay_id_short, nodes[node_index].validator_id, ton::overlay::Overlays::BroadcastFlagAnySender(),
             local_index + 1 == shard_count ? std::move(payload) : payload.clone(), local_index, shard_count);
       }

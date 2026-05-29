@@ -223,8 +223,9 @@ class OverlayImpl : public Overlay {
   void send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
   void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                           td::BufferSlice extra) override;
-  void send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
-                                   td::uint32 local_validator_index, td::uint32 validator_count) override;
+  void send_broadcast_plumtree_multi(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+                                     td::uint32 local_validator_index, td::uint32 validator_count) override;
+  void send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
   void receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> nodes) override;
   void receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> nodes) override;
 
@@ -383,6 +384,7 @@ class OverlayImpl : public Overlay {
   td::Status check_signature_from_peer(PublicKey key, td::Slice message, td::Slice signature,
                                        adnl::AdnlNodeIdShort message_from = adnl::AdnlNodeIdShort::zero());
 
+  bool can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size);
   BroadcastsLimiter &get_broadcasts_limiter(PublicKeyHash source, const Certificate *certificate);
   std::vector<PublicKeyHash> get_authorized_broadcast_sources() const {
     return rules_.get_authorized_keys();

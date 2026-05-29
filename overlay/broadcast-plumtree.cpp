@@ -120,9 +120,9 @@ class PlumtreeSchedule {
     }
   }
 
-  td::Result<std::vector<TreePartKey>> assigned_parts(const td::Bits256 &broadcast_id, PublicKeyHash source,
-                                                      td::uint32 local_validator_index,
-                                                      td::uint32 validator_count) const {
+  td::Result<std::vector<TreePartKey>> assigned_parts_multi(const td::Bits256 &broadcast_id, PublicKeyHash source,
+                                                            td::uint32 local_validator_index,
+                                                            td::uint32 validator_count) const {
     if (!valid_) {
       return td::Status::Error(ErrorCode::notready, "invalid Plumtree schedule inputs");
     }
@@ -141,6 +141,19 @@ class PlumtreeSchedule {
       if (pos % validator_count == local_validator_index) {
         result.emplace_back(parts[pos], tree_index);
       }
+    }
+    return result;
+  }
+
+  td::Result<std::vector<TreePartKey>> assigned_parts_single(const td::Bits256 &broadcast_id) const {
+    if (options_.parts_ == 0 || options_.tree_slots_ == 0) {
+      return td::Status::Error(ErrorCode::notready, "invalid Plumtree single-source schedule inputs");
+    }
+    auto trees = broadcast_single_tree_order(broadcast_id);
+    std::vector<TreePartKey> result;
+    result.reserve(options_.parts_);
+    for (td::uint32 part_index = 0; part_index < options_.parts_; ++part_index) {
+      result.emplace_back(part_index, trees[part_index % trees.size()]);
     }
     return result;
   }
@@ -210,6 +223,10 @@ class PlumtreeSchedule {
 
   std::vector<td::uint32> broadcast_part_order(const td::Bits256 &broadcast_id) const {
     return prf_permutation(broadcast_prf_seed(broadcast_id), td::Slice("part"), options_.parts_);
+  }
+
+  std::vector<td::uint32> broadcast_single_tree_order(const td::Bits256 &broadcast_id) const {
+    return prf_permutation(broadcast_prf_seed(broadcast_id), td::Slice("single-source-tree"), options_.tree_slots_);
   }
 
   static td::Bits256 prf_hash(td::Slice seed, td::Slice label, td::uint32 index, td::Slice value = {}) {
@@ -293,8 +310,9 @@ class BroadcastsPlumtree::Impl {
     sender_ = sender;
   }
 
-  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
-            td::uint32 local_validator_index, td::uint32 validator_count);
+  void send_multi(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+                  td::uint32 local_validator_index, td::uint32 validator_count);
+  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
   void signed_payload(OverlayImpl *overlay, PlumtreeOutboundPayload &&payload,
                       td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
 
@@ -355,6 +373,10 @@ class BroadcastsPlumtree::Impl {
                    const td::Bits256 &broadcast_id);
   void forward_payload(OverlayImpl *overlay, PlumtreeBroadcastState &broadcast, PlumtreePartState &part,
                        adnl::AdnlNodeIdShort from);
+
+  void send_assigned_parts(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+                           td::uint32 data_size, td::uint32 part_size, td::Bits256 data_hash, td::Bits256 broadcast_id,
+                           std::vector<TreePartKey> assigned_parts, const char *mode);
 
   void trim_missing_parts();
 };
@@ -654,9 +676,9 @@ void BroadcastsPlumtree::Impl::trim_missing_parts() {
   }
 }
 
-void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags,
-                                    td::BufferSlice data, td::uint32 local_validator_index,
-                                    td::uint32 validator_count) {
+void BroadcastsPlumtree::Impl::send_multi(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags,
+                                          td::BufferSlice data, td::uint32 local_validator_index,
+                                          td::uint32 validator_count) {
   if (data.empty() || data.size() > Overlays::max_fec_broadcast_size()) {
     VLOG(PLUMTREE_WARNING) << overlay << ": invalid Plumtree payload size " << data.size();
     return;
@@ -686,12 +708,56 @@ void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as,
   }
 
   auto assigned_parts_r =
-      schedule(overlay)->assigned_parts(broadcast_id, send_as, local_validator_index, validator_count);
+      schedule(overlay)->assigned_parts_multi(broadcast_id, send_as, local_validator_index, validator_count);
   if (assigned_parts_r.is_error()) {
     VLOG(PLUMTREE_WARNING) << overlay << ": cannot build Plumtree schedule: " << assigned_parts_r.move_as_error();
     return;
   }
-  auto assigned_parts = assigned_parts_r.move_as_ok();
+
+  send_assigned_parts(overlay, send_as, flags, std::move(data), data_size, part_size, data_hash, broadcast_id,
+                      assigned_parts_r.move_as_ok(), "multi-source");
+}
+
+void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags,
+                                    td::BufferSlice data) {
+  if (data.empty() || data.size() > Overlays::max_fec_broadcast_size()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": invalid Plumtree payload size " << data.size();
+    return;
+  }
+  if (send_as.is_zero()) {
+    VLOG(PLUMTREE_INFO) << overlay << ": no local Plumtree source";
+    return;
+  }
+
+  auto data_size = static_cast<td::uint32>(data.size());
+  auto part_size = static_cast<td::uint32>((data.size() + options_.k_ - 1) / options_.k_);
+  if (part_size == 0) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": invalid Plumtree part size";
+    return;
+  }
+  auto data_hash = td::sha256_bits256(data.as_slice());
+  auto broadcast_id = compute_broadcast_id(flags, data_hash, data_size, part_size);
+  auto cert = overlay->get_certificate(send_as);
+  if (overlay->check_source_eligible(send_as, cert.get(), data_size, true) == BroadcastCheckResult::Forbidden) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree source is no longer eligible";
+    return;
+  }
+
+  auto assigned_parts_r = schedule(overlay)->assigned_parts_single(broadcast_id);
+  if (assigned_parts_r.is_error()) {
+    VLOG(PLUMTREE_WARNING) << overlay
+                           << ": cannot build Plumtree single-source schedule: " << assigned_parts_r.move_as_error();
+    return;
+  }
+
+  send_assigned_parts(overlay, send_as, flags, std::move(data), data_size, part_size, data_hash, broadcast_id,
+                      assigned_parts_r.move_as_ok(), "single-source");
+}
+
+void BroadcastsPlumtree::Impl::send_assigned_parts(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags,
+                                                   td::BufferSlice data, td::uint32 data_size, td::uint32 part_size,
+                                                   td::Bits256 data_hash, td::Bits256 broadcast_id,
+                                                   std::vector<TreePartKey> assigned_parts, const char *mode) {
   if (assigned_parts.empty()) {
     VLOG(PLUMTREE_INFO) << overlay << ": no Plumtree parts assigned to local source for broadcast_id="
                         << broadcast_id.to_hex();
@@ -740,7 +806,7 @@ void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as,
 
   VLOG(PLUMTREE_INFO) << overlay << ": Plumtree START sender broadcast_id=" << broadcast_id.to_hex()
                       << " data_hash=" << data_hash.to_hex() << " data_size=" << data_size
-                      << " scheduled_parts=" << options_.parts_ << " signed_parts=" << signed_parts;
+                      << " scheduled_parts=" << options_.parts_ << " signed_parts=" << signed_parts << " mode=" << mode;
 }
 
 void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutboundPayload &&payload,
@@ -1155,9 +1221,13 @@ void BroadcastsPlumtree::init_sender(td::actor::ActorId<adnl::AdnlSenderInterfac
   impl_->init_sender(sender);
 }
 
-void BroadcastsPlumtree::send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
-                              td::uint32 local_validator_index, td::uint32 validator_count) {
-  impl_->send(overlay, send_as, flags, std::move(data), local_validator_index, validator_count);
+void BroadcastsPlumtree::send_multi(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
+                                    td::uint32 local_validator_index, td::uint32 validator_count) {
+  impl_->send_multi(overlay, send_as, flags, std::move(data), local_validator_index, validator_count);
+}
+
+void BroadcastsPlumtree::send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
+  impl_->send(overlay, send_as, flags, std::move(data));
 }
 
 void BroadcastsPlumtree::signed_payload(OverlayImpl *overlay, PlumtreeOutboundPayload &&payload,
