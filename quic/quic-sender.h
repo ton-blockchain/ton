@@ -84,7 +84,8 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;
   std::map<QuicConnectionId, std::shared_ptr<Connection>> by_cid_;
 
-  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<QuicServer>> servers_;
+  std::map<int, td::actor::ActorOwn<QuicServer>> servers_by_port_;
+  std::map<adnl::AdnlNodeIdShort, td::actor::ActorId<QuicServer>> servers_by_id_;
   std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
 
   void start_up() override;

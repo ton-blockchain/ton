@@ -102,13 +102,23 @@ SERVER_PUBKEY=$(sed 's/\x1b\[[0-9;]*m//g' "$CPP_SERVER_LOG" \
   | grep -o 'server public key: [^ ]*' \
   | head -1 \
   | awk '{print $NF}')
+SERVER_SNI=$(sed 's/\x1b\[[0-9;]*m//g' "$CPP_SERVER_LOG" \
+  | grep -o 'server sni: [^ ]*' \
+  | head -1 \
+  | awk '{print $NF}')
 
 if [ -z "$SERVER_PUBKEY" ]; then
   echo -e "${RED}Error: could not extract server public key${NC}"
   cat "$CPP_SERVER_LOG"
   exit 1
 fi
+if [ -z "$SERVER_SNI" ]; then
+  echo -e "${RED}Error: could not extract server SNI${NC}"
+  cat "$CPP_SERVER_LOG"
+  exit 1
+fi
 echo "Server pubkey: $SERVER_PUBKEY"
+echo "Server SNI: $SERVER_SNI"
 echo ""
 
 # --- Test 1: C++ client ---
@@ -132,7 +142,7 @@ fi
 # --- Test 2: Rust interop client ---
 echo ""
 echo "=== Test 2: Rust RPK interop client ==="
-$RUST_CLIENT "127.0.0.1:$PORT" "$SERVER_PUBKEY" > "$RUST_CLIENT_LOG" 2>&1 &
+$RUST_CLIENT "127.0.0.1:$PORT" "$SERVER_PUBKEY" "$SERVER_SNI" > "$RUST_CLIENT_LOG" 2>&1 &
 RUST_PID=$!
 
 if ! wait_for_pid "$RUST_PID" 100; then
