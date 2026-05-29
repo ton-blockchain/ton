@@ -62,7 +62,7 @@ if [[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
             else .
             end
           ))
-          else $addrs + [{"@type":"engine.quicAddr","ip":$quic_ip,"port":$quic_port,"categories":[0],"priority_categories":[]}]
+          else $addrs + [{"@type":"engine.quicAddr","ip":$quic_ip,"port":$quic_port,"categories":[0, 1, 2, 3],"priority_categories":[]}]
           end
       )
     ' /var/ton-work/db/config.json > config.json.quic
