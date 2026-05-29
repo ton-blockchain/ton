@@ -321,8 +321,9 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
     return;
   }
   size_t part_size = r_fec_type.ok().size();
-  size_t expected_part_size =
-      part_idx + 1 == n_parts ? total_size % OutboundTransfer::part_size() : OutboundTransfer::part_size();
+  size_t expected_part_size = part_idx + 1 == n_parts && total_size % OutboundTransfer::part_size() != 0
+                                  ? total_size % OutboundTransfer::part_size()
+                                  : OutboundTransfer::part_size();
   if (part_size != expected_part_size) {
     VLOG(RLDP_INFO) << "Drop rldp message: part_size=" << part_size << " != " << expected_part_size
                     << " (total_size=" << total_size << ", part_idx=" << part_idx << ")";
