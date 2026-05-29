@@ -56,7 +56,12 @@ if [[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
       .addrs = (
         (.addrs // []) as $addrs
         | if ($addrs | any(.["@type"] == "engine.quicAddr" and .ip == $quic_ip))
-          then $addrs
+          then ($addrs | map(
+            if .["@type"] == "engine.quicAddr" and .ip == $quic_ip
+            then . + {"port": $quic_port}
+            else .
+            end
+          ))
           else $addrs + [{"@type":"engine.quicAddr","ip":$quic_ip,"port":$quic_port,"categories":[0],"priority_categories":[]}]
           end
       )
@@ -141,25 +146,44 @@ fi
 if [ -z "$LITESERVER" ]; then
     echo -e "\e[1;33m[=]\e[0m Liteserver disabled"
 else
+    if [ -z "$LITE_PORT" ]; then
+        LITE_PORT=30003
+        echo -e "\e[1;33m[=]\e[0m Using default LITE_PORT $LITE_PORT tcp"
+    else
+        echo -e "\e[1;33m[=]\e[0m Using LITE_PORT $LITE_PORT tcp"
+    fi
+
     if [ -f "./liteserver" ]; then
         echo -e "\e[1;33m[=]\e[0m Found existing liteserver certificate, skipping"
+        LITESERVER_ID2=$(generate-random-id -m id -k ./liteserver | sed -n '3p' | jq -r '.id')
+        test $? -eq 0 || { echo "Cannot derive liteserver public id from existing certificate"; exit 2; }
+        if [ -z "$LITESERVER_ID2" ] || [ "$LITESERVER_ID2" = "null" ]; then
+            echo "Cannot derive liteserver public id from existing certificate"
+            exit 2
+        fi
     else
         echo -e "\e[1;32m[+]\e[0m Generating and installing liteserver certificate for remote control"
         read -r LITESERVER_ID1 LITESERVER_ID2 <<< $(generate-random-id -m keys -n liteserver)
         echo "Liteserver IDs: $LITESERVER_ID1 $LITESERVER_ID2"
         cp liteserver /var/ton-work/db/keyring/$LITESERVER_ID1
-
-        if [ -z "$LITE_PORT" ]; then
-            LITE_PORT=30003
-            echo -e "\e[1;33m[=]\e[0m Using default LITE_PORT $LITE_PORT tcp"
-        else
-            echo -e "\e[1;33m[=]\e[0m Using LITE_PORT $LITE_PORT tcp"
-        fi
-
-        LITESERVERS=$(printf "%q" "\"liteservers\":[{\"id\":\"$LITESERVER_ID2\",\"port\":\"$LITE_PORT\"}")
-        sed -e "s~\"liteservers\"\ \:\ \[~$LITESERVERS~g" /var/ton-work/db/config.json > config.json.liteservers
-        mv config.json.liteservers /var/ton-work/db/config.json
     fi
+
+    jq --arg liteserver_id "$LITESERVER_ID2" --argjson lite_port "$LITE_PORT" '
+      .liteservers = (
+        (.liteservers // []) as $liteservers
+        | if ($liteservers | any(.id == $liteserver_id))
+          then ($liteservers | map(
+            if .id == $liteserver_id
+            then . + {"port": $lite_port}
+            else .
+            end
+          ))
+          else $liteservers + [{"@type":"engine.liteServer","id":$liteserver_id,"port":$lite_port}]
+          end
+      )
+    ' /var/ton-work/db/config.json > config.json.liteservers
+    test $? -eq 0 || { echo "Cannot apply liteserver config"; exit 2; }
+    mv config.json.liteservers /var/ton-work/db/config.json
 fi
 
 echo -e "\e[1;32m[+]\e[0m Starting validator-engine:"
