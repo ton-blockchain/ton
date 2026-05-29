@@ -116,13 +116,17 @@ td::Result<DnsInterface::EntryData> DnsInterface::EntryData::from_cellslice(vm::
   switch (block::gen::t_DNSRecord.get_tag(cs)) {
     case block::gen::DNSRecord::dns_text: {
       block::gen::DNSRecord::Record_dns_text dns;
-      tlb::unpack(cs, dns);
+      if (!tlb::unpack(cs, dns)) {
+        return td::Status::Error("Failed to unpack dns_text");
+      }
       TRY_RESULT(text, vm::CellText::load(dns.x.write()));
       return EntryData::text(std::move(text));
     }
     case block::gen::DNSRecord::dns_next_resolver: {
       block::gen::DNSRecord::Record_dns_next_resolver dns;
-      tlb::unpack(cs, dns);
+      if (!tlb::unpack(cs, dns)) {
+        return td::Status::Error("Failed to unpack dns_next_resolver");
+      }
       ton::WorkchainId wc;
       ton::StdSmcAddress addr;
       if (!block::tlb::t_MsgAddressInt.extract_std_address(dns.resolver, wc, addr)) {
@@ -132,12 +136,16 @@ td::Result<DnsInterface::EntryData> DnsInterface::EntryData::from_cellslice(vm::
     }
     case block::gen::DNSRecord::dns_adnl_address: {
       block::gen::DNSRecord::Record_dns_adnl_address dns;
-      tlb::unpack(cs, dns);
+      if (!tlb::unpack(cs, dns)) {
+        return td::Status::Error("Failed to unpack dns_adnl_address");
+      }
       return EntryData::adnl_address(dns.adnl_addr);
     }
     case block::gen::DNSRecord::dns_smc_address: {
       block::gen::DNSRecord::Record_dns_smc_address dns;
-      tlb::unpack(cs, dns);
+      if (!tlb::unpack(cs, dns)) {
+        return td::Status::Error("Failed to unpack dns_smc_address");
+      }
       ton::WorkchainId wc;
       ton::StdSmcAddress addr;
       if (!block::tlb::t_MsgAddressInt.extract_std_address(dns.smc_addr, wc, addr)) {
@@ -147,7 +155,9 @@ td::Result<DnsInterface::EntryData> DnsInterface::EntryData::from_cellslice(vm::
     }
     case block::gen::DNSRecord::dns_storage_address: {
       block::gen::DNSRecord::Record_dns_storage_address dns;
-      tlb::unpack(cs, dns);
+      if (!tlb::unpack(cs, dns)) {
+        return td::Status::Error("Failed to unpack dns_storage_address");
+      }
       return EntryData::storage_address(dns.bag_id);
     }
   }

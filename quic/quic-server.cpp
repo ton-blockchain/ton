@@ -666,39 +666,39 @@ void QuicServer::drain_ingress() {
     // Debug: log recvmmsg batch details periodically
     static std::atomic<size_t> ingress_log_counter = 0;
     if ((ingress_log_counter.fetch_add(1, std::memory_order_relaxed) & 0x3FFF) == 0) {
-      std::map<QuicConnectionId, size_t> conn_to_idx;
-      std::vector<size_t> packet_conn_idx(cnt);
-      for (size_t i = 0; i < cnt; i++) {
-        if (ingress_errors_[i].is_ok()) {
-          auto vc = VersionCid::from_datagram(ingress_messages_[i].data);
-          if (vc.is_ok()) {
-            auto [it, inserted] = conn_to_idx.try_emplace(vc.ok().dcid, conn_to_idx.size());
-            packet_conn_idx[i] = it->second;
+      FLOG(DEBUG) {
+        std::map<QuicConnectionId, size_t> conn_to_idx;
+        std::vector<size_t> packet_conn_idx(cnt);
+        for (size_t i = 0; i < cnt; i++) {
+          if (ingress_errors_[i].is_ok()) {
+            auto vc = VersionCid::from_datagram(ingress_messages_[i].data);
+            if (vc.is_ok()) {
+              auto [it, inserted] = conn_to_idx.try_emplace(vc.ok().dcid, conn_to_idx.size());
+              packet_conn_idx[i] = it->second;
+            }
           }
         }
-      }
-      td::StringBuilder sb;
-      sb << "recvmmsg batch=" << cnt << " conns=" << conn_to_idx.size() << " [";
-      for (size_t i = 0; i < cnt; i++) {
-        if (i > 0) {
-          sb << ", ";
+        sb << "recvmmsg batch=" << cnt << " conns=" << conn_to_idx.size() << " [";
+        for (size_t i = 0; i < cnt; i++) {
+          if (i > 0) {
+            sb << ", ";
+          }
+          sb << ingress_messages_[i].data.size();
+          if (ingress_messages_[i].gso_size > 0) {
+            sb << "(gro=" << ingress_messages_[i].gso_size << ")";
+          }
+          sb << "/c" << packet_conn_idx[i];
         }
-        sb << ingress_messages_[i].data.size();
-        if (ingress_messages_[i].gso_size > 0) {
-          sb << "(gro=" << ingress_messages_[i].gso_size << ")";
-        }
-        sb << "/c" << packet_conn_idx[i];
-      }
-      sb << "]";
-      LOG(DEBUG) << sb.as_cslice();
+        sb << "]";
+      };
     }
 
     for (size_t i = 0; i < cnt; i++) {
+      bytes_budget -= std::max<size_t>(ingress_messages_[i].data.size(), 256);
       if (ingress_errors_[i].is_error()) {
         LOG(DEBUG) << "dropping inbound packet from " << ingress_msg_[i].address << ": " << ingress_errors_[i];
         continue;
       }
-      bytes_budget -= ingress_messages_[i].data.size();
       ingress_msg_[i].storage = ingress_messages_[i].data;
       ingress_stats_.bytes += ingress_msg_[i].storage.size();
       const size_t segment_size = ingress_messages_[i].gso_size;
@@ -828,7 +828,8 @@ void QuicServer::flush_egress() {
   auto active_count = active_connections_.size();
   auto total_count = connections_.size();
 
-  while (!active_connections_.empty()) {
+  td::int64 bytes_budget = 10 << 20;
+  while (!active_connections_.empty() && bytes_budget > 0) {
     size_t batch_count = 0;
     while (batch_count < kEgressBatch && produce_next_egress(batch_count)) {
       batch_count++;
@@ -842,31 +843,32 @@ void QuicServer::flush_egress() {
       egress_messages_[i].to = &egress_batches_[i].address;
       egress_messages_[i].data = egress_batches_[i].storage;
       egress_messages_[i].gso_size = gso_enabled_ ? egress_batches_[i].gso_size : 0;
+      bytes_budget -= std::max<size_t>(egress_messages_[i].data.size(), 256);
     }
 
     // Debug: log sendmmsg batch details (every 64 batches)
     static std::atomic<size_t> batch_log_counter = 0;
     if ((batch_log_counter.fetch_add(1, std::memory_order_relaxed) & 0x3FFF) == 0) {
-      std::map<QuicConnectionId, size_t> conn_to_idx;
-      std::vector<size_t> packet_conn_idx(batch_count);
-      for (size_t i = 0; i < batch_count; i++) {
-        auto [it, inserted] = conn_to_idx.try_emplace(egress_batch_owners_[i]->cid, conn_to_idx.size());
-        packet_conn_idx[i] = it->second;
-      }
-      td::StringBuilder sb;
-      sb << "sendmmsg batch=" << batch_count << " conns=" << conn_to_idx.size() << " [";
-      for (size_t i = 0; i < batch_count; i++) {
-        if (i > 0) {
-          sb << ", ";
+      FLOG(DEBUG) {
+        std::map<QuicConnectionId, size_t> conn_to_idx;
+        std::vector<size_t> packet_conn_idx(batch_count);
+        for (size_t i = 0; i < batch_count; i++) {
+          auto [it, inserted] = conn_to_idx.try_emplace(egress_batch_owners_[i]->cid, conn_to_idx.size());
+          packet_conn_idx[i] = it->second;
         }
-        sb << egress_batches_[i].storage.size();
-        if (egress_batches_[i].gso_size > 0) {
-          sb << "(gso=" << egress_batches_[i].gso_size << ")";
+        sb << "sendmmsg batch=" << batch_count << " conns=" << conn_to_idx.size() << " [";
+        for (size_t i = 0; i < batch_count; i++) {
+          if (i > 0) {
+            sb << ", ";
+          }
+          sb << egress_batches_[i].storage.size();
+          if (egress_batches_[i].gso_size > 0) {
+            sb << "(gso=" << egress_batches_[i].gso_size << ")";
+          }
+          sb << "/c" << packet_conn_idx[i] << "/s" << egress_batch_owners_[i]->impl().get_last_packet_streams();
         }
-        sb << "/c" << packet_conn_idx[i] << "/s" << egress_batch_owners_[i]->impl().get_last_packet_streams();
-      }
-      sb << "] active/total=" << active_count << "/" << total_count;
-      LOG(DEBUG) << sb.as_cslice();
+        sb << "] active/total=" << active_count << "/" << total_count;
+      };
     }
 
     // Set pending and try to flush
@@ -875,6 +877,9 @@ void QuicServer::flush_egress() {
     if (!flush_pending()) {
       return;  // blocked, will continue on next wakeup
     }
+  }
+  if (bytes_budget <= 0) {
+    yield();
   }
 }
 

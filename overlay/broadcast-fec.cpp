@@ -290,7 +290,9 @@ td::Status BroadcastFecPart::run_checks(OverlayImpl *overlay, BroadcastFec *bcas
   if (bcast && bcast->received_part(seqno_)) {
     return td::Status::Error(ErrorCode::notready, "duplicate part");
   }
-  auto r = overlay->check_source_eligible(source_, cert_.get(), broadcast_size_, true, src_peer_id_);
+  auto r =
+      overlay->check_source_eligible(source_, cert_.get(), broadcast_size_, /* is_fec = */ true,
+                                     /* is_any_sender = */ flags_ & Overlays::BroadcastFlagAnySender(), src_peer_id_);
   if (r == BroadcastCheckResult::Forbidden) {
     return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
   }

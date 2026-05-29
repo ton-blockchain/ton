@@ -36,7 +36,6 @@ class ShardStateQ : virtual public ShardState {
  private:
   RootHash rhash;
   td::BufferSlice data;
-  std::vector<std::shared_ptr<vm::StaticBagOfCellsDb>> bocs_;
   Ref<vm::Cell> root;
   LogicalTime lt{0};
   UnixTime utime{0};

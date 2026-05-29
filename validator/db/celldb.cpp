@@ -515,26 +515,19 @@ void CellDbIn::store_block_state_from_data(td::Ref<BlockData> block, td::Promise
   TRY_STATUS_PROMISE(
       promise, block::unpack_block_prev_blk_try(block->root_cell(), block->block_id(), prev, mc_blkid, after_split));
 
-  if (opts_->get_celldb_in_memory()) {
-    std::vector<Ref<vm::Cell>> prev_roots;
-    for (const BlockIdExt& prev_id : prev) {
-      TRY_RESULT_PROMISE_PREFIX(promise, b, get_block(get_key_hash(prev_id)),
-                                PSTRING() << "prev block " << prev_id << ": ");
-      prev_roots.push_back(boc_->load_cell(b.root_hash.as_slice()).ensure().move_as_ok());
-    }
-
-    vm::StoreCellHint hint;
-    TRY_RESULT_PROMISE(promise, new_root, apply_block_to_prev_states(block, std::move(prev_roots), &hint));
-    store_cell(block->block_id(), std::move(new_root), std::move(hint), std::move(promise));
-    return;
-  }
-
+  std::vector<Ref<vm::Cell>> prev_roots;
   for (const BlockIdExt& prev_id : prev) {
-    TRY_STATUS_PROMISE_PREFIX(promise, get_block(get_key_hash(prev_id)).move_as_status(),
+    TRY_RESULT_PROMISE_PREFIX(promise, b, get_block(get_key_hash(prev_id)),
                               PSTRING() << "prev block " << prev_id << ": ");
+    prev_roots.push_back(boc_->load_cell(b.root_hash.as_slice()).ensure().move_as_ok());
   }
   vm::StoreCellHint hint;
-  auto new_root = build_next_state(block, *boc_->get_cell_db_reader(), &hint);
+  Ref<vm::Cell> new_root;
+  if (opts_->get_celldb_in_memory()) {
+    TRY_RESULT_PROMISE_ASSIGN(promise, new_root, apply_block_to_prev_states(block, std::move(prev_roots), &hint));
+  } else {
+    new_root = build_next_state(block, *boc_->get_cell_db_reader(), std::move(prev_roots), &hint);
+  }
   store_cell(block->block_id(), std::move(new_root), std::move(hint), std::move(promise));
 }
 

@@ -271,13 +271,6 @@ void LiteQuery::perform() {
             this->perform_getLibrariesWithProof(ton::create_block_id(q.id_), q.mode_, q.library_list_);
           },
           [&](lite_api::liteServer_getShardBlockProof& q) { this->perform_getShardBlockProof(create_block_id(q.id_)); },
-          [&](lite_api::liteServer_nonfinal_getCandidate& q) {
-            this->perform_nonfinal_getCandidate(q.id_->creator_, create_block_id(q.id_->block_id_),
-                                                q.id_->collated_data_hash_);
-          },
-          [&](lite_api::liteServer_nonfinal_getValidatorGroups& q) {
-            this->perform_nonfinal_getValidatorGroups(q.mode_, ShardIdFull{q.wc_, (ShardId)q.shard_});
-          },
           [&](lite_api::liteServer_nonfinal_getPendingShardBlocks& q) {
             this->perform_nonfinal_getPendingShardBlocks(q.mode_, ShardIdFull{q.wc_, (ShardId)q.shard_});
           },
@@ -1862,6 +1855,10 @@ void LiteQuery::perform_getConfigParams(BlockIdExt blkid, int mode, std::vector<
     fatal_error("configuration parameters can be loaded with respect to a masterchain block only");
     return;
   }
+  if (param_list.size() > 256) {
+    fatal_error("too long param list");
+    return;
+  }
   if (!(mode & 0x8000)) {
     // ordinary case: get configuration from masterchain state
     set_continuation([this, mode, param_list = std::move(param_list)]() mutable {
@@ -3377,13 +3374,16 @@ void LiteQuery::continue_getOutMsgQueueSizes(td::optional<ShardIdFull> shard, Re
   td::MultiPromise mp;
   auto ig = mp.init_guard();
   for (size_t i = 0; i < blocks.size(); ++i) {
-    td::actor::send_closure(manager_, &ValidatorManager::get_out_msg_queue_size, blocks[i],
-                            [promise = ig.get_promise(), res, i, id = blocks[i]](td::Result<td::uint64> R) mutable {
-                              TRY_RESULT_PROMISE(promise, value, std::move(R));
-                              res->at(i) = create_tl_object<lite_api::liteServer_outMsgQueueSize>(
-                                  create_tl_lite_block_id(id), static_cast<td::uint32>(value));
-                              promise.set_value(td::Unit());
-                            });
+    td::actor::send_closure(
+        manager_, &ValidatorManager::get_out_msg_queue_size, blocks[i],
+        [promise = ig.get_promise(), res, i, id = blocks[i], Self = actor_id(this)](td::Result<td::uint64> R) mutable {
+          td::actor::send_lambda(Self, [=, promise = std::move(promise), R = std::move(R)]() mutable {
+            TRY_RESULT_PROMISE(promise, value, std::move(R));
+            res->at(i) = create_tl_object<lite_api::liteServer_outMsgQueueSize>(create_tl_lite_block_id(id),
+                                                                                static_cast<td::uint32>(value));
+            promise.set_value(td::Unit());
+          });
+        });
   }
   ig.add_promise([Self = actor_id(this), res](td::Result<td::Unit> R) {
     if (R.is_error()) {
@@ -3706,46 +3706,6 @@ void LiteQuery::finish_getDispatchQueueMessages(StdSmcAddress addr, LogicalTime 
   finish_query(std::move(b));
 }
 
-void LiteQuery::perform_nonfinal_getCandidate(td::Bits256 source, BlockIdExt blkid, td::Bits256 collated_data_hash) {
-  LOG(INFO) << "started a nonfinal.getCandidate liteserver query";
-  td::actor::send_closure_later(
-      manager_, &ValidatorManager::get_block_candidate_for_litequery, PublicKey{pubkeys::Ed25519{source}}, blkid,
-      collated_data_hash, [Self = actor_id(this)](td::Result<BlockCandidate> R) {
-        if (R.is_error()) {
-          td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
-        } else {
-          BlockCandidate cand = R.move_as_ok();
-          td::actor::send_closure_later(
-              Self, &LiteQuery::finish_query,
-              create_serialize_tl_object<lite_api::liteServer_nonfinal_candidate>(
-                  create_tl_object<lite_api::liteServer_nonfinal_candidateId>(
-                      create_tl_lite_block_id(cand.id), cand.pubkey.as_bits256(), cand.collated_file_hash),
-                  std::move(cand.data), std::move(cand.collated_data)),
-              false);
-        }
-      });
-}
-
-void LiteQuery::perform_nonfinal_getValidatorGroups(int mode, ShardIdFull shard) {
-  bool with_shard = mode & 1;
-  LOG(INFO) << "started a nonfinal.getValidatorGroups" << (with_shard ? shard.to_str() : "(all)")
-            << " liteserver query";
-  td::optional<ShardIdFull> maybe_shard;
-  if (with_shard) {
-    maybe_shard = shard;
-  }
-  td::actor::send_closure(
-      manager_, &ValidatorManager::get_validator_groups_info_for_litequery, maybe_shard,
-      [Self = actor_id(this)](td::Result<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> R) {
-        if (R.is_error()) {
-          td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
-        } else {
-          td::actor::send_closure_later(Self, &LiteQuery::finish_query, serialize_tl_object(R.move_as_ok(), true),
-                                        false);
-        }
-      });
-}
-
 void LiteQuery::perform_nonfinal_getPendingShardBlocks(int mode, ShardIdFull shard) {
   bool with_shard = mode & 1;
   LOG(INFO) << "started a nonfinal.getPendingShardBlocks" << (with_shard ? shard.to_str() : "(all)")
@@ -3756,12 +3716,12 @@ void LiteQuery::perform_nonfinal_getPendingShardBlocks(int mode, ShardIdFull sha
   }
   td::actor::send_closure(
       manager_, &ValidatorManager::get_pending_shard_blocks_for_litequery, maybe_shard,
-      [Self = actor_id(this)](td::Result<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> R) {
+      [this, Self = actor_id(this)](td::Result<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> R) {
         if (R.is_error()) {
           td::actor::send_closure(Self, &LiteQuery::abort_query, R.move_as_error());
         } else {
-          td::actor::send_closure_later(Self, &LiteQuery::finish_query, serialize_tl_object(R.move_as_ok(), true),
-                                        false);
+          td::actor::send_lambda(
+              Self, [this, R = std::move(R)]() mutable { finish_query(serialize_tl_object(R.move_as_ok(), true)); });
         }
       });
 }

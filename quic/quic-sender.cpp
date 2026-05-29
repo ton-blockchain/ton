@@ -112,6 +112,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     void append(td::BufferSlice data) {
       CHECK(!failed_);
       if (!data.empty()) {
+        total_size_ += data.size();
         builder_.append(std::move(data));
       }
     }
@@ -122,15 +123,16 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
 
     void mark_failed() {
       failed_ = true;
+      builder_ = {};
     }
 
     td::Status check_limits() const {
       if (failed_) {
         return td::Status::Error("stream already failed");
       }
-      if (options_.max_size.has_value() && builder_.size() > options_.max_size) {
+      if (options_.max_size.has_value() && total_size_ > options_.max_size) {
         return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size
-                                          << " received=" << builder_.size() << " query_size=" << options_.query_size
+                                          << " received=" << total_size_ << " query_size=" << options_.query_size
                                           << " query_magic=" << td::format::as_hex(options_.query_magic));
       }
       return td::Status::OK();
@@ -139,10 +141,11 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     td::Status timeout_error() const {
       return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
                                         << "s query_size=" << options_.query_size << " query_magic="
-                                        << td::format::as_hex(options_.query_magic) << " received=" << builder_.size());
+                                        << td::format::as_hex(options_.query_magic) << " received=" << total_size_);
     }
 
     td::BufferSlice extract() {
+      CHECK(!failed_);
       return builder_.extract();
     }
 
@@ -152,6 +155,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
 
    private:
     td::BufferBuilder builder_;
+    td::uint64 total_size_{0};
     StreamOptions options_;
     bool failed_{false};
   };
@@ -251,7 +255,10 @@ td::Result<td::IPAddress> QuicSender::get_ip_address(const adnl::AdnlNode &node)
 
 QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
                        QuicServer::Options options)
-    : adnl_(std::move(adnl)), keyring_(std::move(keyring)), server_options_(options) {
+    : AdnlSenderEx(/* default_mtu = */ 0)
+    , adnl_(std::move(adnl))
+    , keyring_(std::move(keyring))
+    , server_options_(options) {
 }
 
 void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {

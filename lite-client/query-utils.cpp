@@ -208,8 +208,6 @@ QueryInfo get_query_info(const lite_api::Function& f) {
                      [&](const lite_api::liteServer_getLibraries& q) { /* t_simple */ },
                      [&](const lite_api::liteServer_getLibrariesWithProof& q) { from_block_id(q.id_); },
                      [&](const lite_api::liteServer_getShardBlockProof& q) { from_block_id(q.id_); },
-                     [&](const lite_api::liteServer_nonfinal_getCandidate& q) { /* t_simple */ },
-                     [&](const lite_api::liteServer_nonfinal_getValidatorGroups& q) { /* t_simple */ },
                      [&](const lite_api::liteServer_nonfinal_getPendingShardBlocks& q) { /* t_simple */ },
                      [&](const lite_api::liteServer_getOutMsgQueueSizes& q) {
                        // This query is expected to be removed, as it is not fully compatible with separated liteservers
@@ -328,6 +326,9 @@ td::Result<std::vector<LiteServerConfig>> LiteServerConfig::parse_global_config(
     return PSTRING() << f->hostname_ << ":" << f->port_;
   };
   for (const auto& f : config.liteservers_) {
+    if (!f->id_) {
+      return td::Status::Error("no 'id' in liteserver desc");
+    }
     LiteServerConfig server;
     server.hostname = get_hostname(f);
     server.adnl_id = adnl::AdnlNodeIdFull{PublicKey{f->id_}};
@@ -335,6 +336,9 @@ td::Result<std::vector<LiteServerConfig>> LiteServerConfig::parse_global_config(
     servers.push_back(std::move(server));
   }
   for (const auto& f : config.liteservers_v2_) {
+    if (!f->id_) {
+      return td::Status::Error("no 'id' in liteserver desc v2");
+    }
     LiteServerConfig server;
     server.hostname = get_hostname(f);
     server.adnl_id = adnl::AdnlNodeIdFull{PublicKey{f->id_}};
@@ -368,6 +372,9 @@ td::Result<std::vector<LiteServerConfig>> LiteServerConfig::parse_global_config(
                             size_t i = 0;
                             int mc_idx = -1;
                             for (const auto& shard_obj : shard_objs) {
+                              if (!shard_obj->shard_id_) {
+                                return td::Status::Error("no 'shard_id' in liteserver shard info");
+                              }
                               ShardIdFull shard_id = create_shard_id(shard_obj->shard_id_);
                               if (!shard_id.is_valid_ext()) {
                                 return td::Status::Error(PSTRING() << "invalid shard id " << shard_id);

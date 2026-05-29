@@ -172,8 +172,7 @@ td::actor::ActorId<RldpConnectionActor> RldpIn::get_or_create_connection(adnl::A
 void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
                              td::Result<td::BufferSlice> r_data) {
   if (r_data.is_error()) {
-    auto it = queries_.find(transfer_id);
-    if (it != queries_.end()) {
+    if (auto it = queries_.find(transfer_id); it != queries_.end()) {
       it->second.set_error(r_data.move_as_error());
       queries_.erase(it);
     } else {
@@ -183,15 +182,23 @@ void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   }
 
   auto data = r_data.move_as_ok();
-  //LOG(ERROR) << "RECEIVE MESSAGE " << data.size();
   auto F = fetch_tl_object<ton_api::rldp_Message>(std::move(data), true);
   if (F.is_error()) {
-    VLOG(RLDP_INFO) << "failed to parse rldp packet [" << source << "->" << local_id << "]: " << F.move_as_error();
+    VLOG(RLDP_INFO) << "failed to parse rldp packet [" << source << "->" << local_id << "]: " << F.error();
+    if (auto it = queries_.find(transfer_id); it != queries_.end()) {
+      it->second.set_error(F.move_as_error_prefix("received invalid rldp query answer: "));
+      queries_.erase(it);
+    }
     return;
   }
 
   ton_api::downcast_call(*F.move_as_ok().get(),
                          [&](auto &obj) { this->process_message(source, local_id, transfer_id, obj); });
+
+  if (auto it = queries_.find(transfer_id); it != queries_.end()) {
+    it->second.set_error(td::Status::Error("received invalid rldp query answer"));
+    queries_.erase(it);
+  }
 }
 
 void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,

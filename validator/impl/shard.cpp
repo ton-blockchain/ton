@@ -29,8 +29,6 @@
 #include "message-queue.hpp"
 #include "shard.hpp"
 
-#define LAZY_STATE_DESERIALIZE 1
-
 namespace ton {
 
 namespace validator {
@@ -41,7 +39,6 @@ ShardStateQ::ShardStateQ(const ShardStateQ& other)
     : blkid(other.blkid)
     , rhash(other.rhash)
     , data(other.data.is_null() ? td::BufferSlice{} : other.data.clone())
-    , bocs_(other.bocs_)
     , root(other.root)
     , lt(other.lt)
     , utime(other.utime)
@@ -86,31 +83,7 @@ td::Status ShardStateQ::init() {
       return td::Status::Error(
           -668, "cannot initialize shardchain state without either a root cell or a BufferSlice with serialized data");
     }
-#if LAZY_STATE_DESERIALIZE
-    vm::StaticBagOfCellsDbLazy::Options options;
-    options.check_crc32c = true;
-    auto res = vm::StaticBagOfCellsDbLazy::create(td::BufferSliceBlobView::create(data.clone()), options);
-    if (res.is_error()) {
-      return res.move_as_error();
-    }
-    auto boc = res.move_as_ok();
-    auto rc = boc->get_root_count();
-    if (rc.is_error()) {
-      return rc.move_as_error();
-    }
-    if (rc.move_as_ok() != 1) {
-      return td::Status::Error(-668, "shardchain state BoC is invalid");
-    }
-    auto res3 = boc->get_root_cell(0);
-    bocs_.clear();
-    bocs_.push_back(std::move(boc));
-#else
-    auto res3 = vm::std_boc_deserialize(data.as_slice());
-#endif
-    if (res3.is_error()) {
-      return res3.move_as_error();
-    }
-    root = res3.move_as_ok();
+    TRY_RESULT_ASSIGN(root, vm::std_boc_deserialize(data.as_slice()));
     if (root.is_null()) {
       return td::Status::Error(-668, "cannot extract root cell out of a shardchain state BoC");
     }
@@ -264,8 +237,6 @@ td::Result<td::Ref<ShardState>> ShardStateQ::merge_with(const ShardState& with) 
   ms.rhash = root->get_hash().bits();
   ms.lt = std::max(lt, other.lt);
   ms.utime = std::max(utime, other.utime);
-  ms.bocs_ = bocs_;
-  ms.bocs_.insert(ms.bocs_.end(), other.bocs_.begin(), other.bocs_.end());
   return std::move(m);
 }
 

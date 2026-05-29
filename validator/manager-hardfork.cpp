@@ -434,17 +434,6 @@ void ValidatorManagerImpl::get_shard_state_from_db_short(BlockIdExt block_id,
   get_block_handle(block_id, false, std::move(P));
 }
 
-void ValidatorManagerImpl::get_block_candidate_from_db(PublicKey source, BlockIdExt id,
-                                                       FileHash collated_data_file_hash,
-                                                       td::Promise<BlockCandidate> promise) {
-  td::actor::send_closure(db_, &Db::get_block_candidate, source, id, collated_data_file_hash, std::move(promise));
-}
-
-void ValidatorManagerImpl::get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) {
-  td::actor::send_closure(db_, &Db::get_block_candidate_by_block_id, id,
-                          promise.wrap([](BlockCandidate &&b) { return std::move(b.data); }));
-}
-
 void ValidatorManagerImpl::get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
   td::actor::send_closure(db_, &Db::get_block_proof, std::move(handle), std::move(promise));
 }

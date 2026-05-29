@@ -50,9 +50,6 @@ class IValidatorGroup : public td::actor::Actor {
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) = 0;
 
-  virtual void get_validator_group_info_for_litequery(
-      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise) = 0;
-
   virtual void notify_mc_finalized(BlockIdExt block) = 0;
 
   virtual void destroy() = 0;

@@ -41,12 +41,9 @@ void calculate_permanent_celldb_update(const std::map<BlockIdExt, td::Ref<BlockD
         promise->set_error(td::Status::Error("cannot unpack Block record"));
         return;
       }
+      TRY_STATUS_PROMISE(*promise, vm::MerkleUpdate::validate(rec.state_update));
       bool spec;
       vm::CellSlice update_cs = vm::load_cell_slice_special(rec.state_update, spec);
-      if (update_cs.special_type() != vm::CellTraits::SpecialType::MerkleUpdate) {
-        promise->set_error(td::Status::Error("invalid Merkle update in block"));
-        return;
-      }
       td::Ref<vm::Cell> new_state_root = update_cs.prefetch_ref(1);
       td::HashMap<vm::CellHash, int> visited;
       PermanentCellDbUpdate update{
@@ -120,13 +117,25 @@ td::Result<Ref<vm::Cell>> apply_block_to_prev_states(Ref<BlockData> block, std::
   return vm::MerkleUpdate::apply(prev_root, rec.state_update, hint);
 }
 
-Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_reader, vm::StoreCellHint* hint) {
+Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_reader,
+                               std::vector<Ref<vm::Cell>> prev_roots, vm::StoreCellHint* hint) {
   TD_PERF_COUNTER(apply_block_to_state_fast);
   td::PerfWarningTimer t{"applyblocktostatefast", 0.1};
   block::gen::Block::Record rec;
   CHECK(block::gen::unpack_cell(block->root_cell(), rec));
+  vm::MerkleUpdate::validate(rec.state_update).ensure();
   vm::CellSlice merkle_update{vm::NoVm{}, rec.state_update};
-  CHECK(merkle_update.special_type() == vm::CellTraits::SpecialType::MerkleUpdate);
+
+  Ref<vm::Cell> prev_root;
+  if (prev_roots.size() == 1) {
+    prev_root = prev_roots[0];
+  } else {
+    CHECK(prev_roots.size() == 2);
+    CHECK(block::gen::t_ShardState.cell_pack_split_state(prev_root, prev_roots[0], prev_roots[1]));
+  }
+  CHECK(prev_root->get_hash() == merkle_update.prefetch_ref(0)->get_hash(0));
+  CHECK(prev_root->get_depth() == merkle_update.prefetch_ref(0)->get_depth(0));
+
   Ref<vm::Cell> proof_root = merkle_update.prefetch_ref(1);
 
   class BuildNextState {

@@ -40,6 +40,6 @@ td::Result<td::Ref<vm::Cell>> apply_block_to_prev_states(td::Ref<BlockData> bloc
                                                          std::vector<td::Ref<vm::Cell>> prev_roots,
                                                          vm::StoreCellHint* hint = nullptr);
 td::Ref<vm::Cell> build_next_state(td::Ref<BlockData> block, vm::CellDbReader& cell_db_reader,
-                                   vm::StoreCellHint* hint = nullptr);
+                                   std::vector<td::Ref<vm::Cell>> prev_roots, vm::StoreCellHint* hint = nullptr);
 
 }  // namespace ton::validator

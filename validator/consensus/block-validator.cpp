@@ -94,7 +94,6 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
           .min_masterchain_block_id = event->state->min_mc_block_id(),
           .prev = event->state->block_ids(),
           .local_validator_id = bus.local_id.short_id,
-          .skip_store_candidate = true,
           .prev_block_state_roots = event->state->state(),
       };
       auto result = co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),

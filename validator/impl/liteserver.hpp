@@ -187,8 +187,6 @@ class LiteQuery : public td::actor::Actor {
                                         int max_messages);
   void finish_getDispatchQueueMessages(StdSmcAddress addr, LogicalTime lt, int max_messages);
 
-  void perform_nonfinal_getCandidate(td::Bits256 source, BlockIdExt blkid, td::Bits256 collated_data_hash);
-  void perform_nonfinal_getValidatorGroups(int mode, ShardIdFull shard);
   void perform_nonfinal_getPendingShardBlocks(int mode, ShardIdFull shard);
 
   void load_prevKeyBlock(ton::BlockIdExt blkid, td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>>);
