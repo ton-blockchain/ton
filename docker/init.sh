@@ -23,6 +23,13 @@ else
     echo -e "\e[1;33m[=]\e[0m Using VALIDATOR_PORT $VALIDATOR_PORT udp"
 fi
 
+if [ -z "$QUIC_PORT" ]; then
+    QUIC_PORT=31001
+    echo -e "\e[1;33m[=]\e[0m Using default QUIC_PORT $QUIC_PORT udp"
+else
+    echo -e "\e[1;33m[=]\e[0m Using QUIC_PORT $QUIC_PORT udp"
+fi
+
 # Init local config with IP:PORT
 if [ ! -z "$PUBLIC_IP" ]; then
     echo -e "\e[1;32m[+]\e[0m Using provided IP: $PUBLIC_IP:$VALIDATOR_PORT"
@@ -36,6 +43,29 @@ if [ ! -f "/var/ton-work/db/config.json" ]; then
   echo validator-engine -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --ip "$PUBLIC_IP:$VALIDATOR_PORT"
   validator-engine -C /var/ton-work/db/ton-global.config --db /var/ton-work/db --ip "$PUBLIC_IP:$VALIDATOR_PORT"
   test $? -eq 0 || { echo "Cannot initialize validator-engine"; exit 2; }
+fi
+
+if [[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    IFS='.' read -r IP1 IP2 IP3 IP4 <<< "$PUBLIC_IP"
+    QUIC_IP_INT=$(( (IP1 << 24) + (IP2 << 16) + (IP3 << 8) + IP4 ))
+    if [ "$QUIC_IP_INT" -gt 2147483647 ]; then
+        QUIC_IP_INT=$((QUIC_IP_INT - 4294967296))
+    fi
+
+    jq --argjson quic_ip "$QUIC_IP_INT" --argjson quic_port "$QUIC_PORT" '
+      .addrs = (
+        (.addrs // []) as $addrs
+        | if ($addrs | any(.["@type"] == "engine.quicAddr" and .ip == $quic_ip))
+          then $addrs
+          else $addrs + [{"@type":"engine.quicAddr","ip":$quic_ip,"port":$quic_port,"categories":[0],"priority_categories":[]}]
+          end
+      )
+    ' /var/ton-work/db/config.json > config.json.quic
+    test $? -eq 0 || { echo "Cannot apply QUIC address config"; exit 2; }
+    mv config.json.quic /var/ton-work/db/config.json
+    echo -e "\e[1;32m[+]\e[0m QUIC address configured: $PUBLIC_IP:$QUIC_PORT"
+else
+    echo -e "\e[1;31m[!]\e[0m PUBLIC_IP is not IPv4, skipping QUIC address configuration"
 fi
 
 if [ ! -z "$DUMP_URL" ]; then
