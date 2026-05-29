@@ -699,6 +699,8 @@ add_executable(plumtree-graph-sim
 )
 target_link_libraries(plumtree-graph-sim overlay tdutils tdactor adnl adnltest tl_api dht )
 add_test(NAME plumtree-graph-sim-smoke COMMAND plumtree-graph-sim --smoke --max-time-ms 5000)
+add_test(NAME plumtree-graph-sim-single-source-smoke
+         COMMAND plumtree-graph-sim --smoke --single-source --max-time-ms 5000)
 add_dependencies(all-tests plumtree-graph-sim)
 add_executable(test-ton-collator test/test-ton-collator.cpp)
 target_link_libraries(test-ton-collator overlay tdutils tdactor adnl tl_api dht
