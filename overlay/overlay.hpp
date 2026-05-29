@@ -385,7 +385,7 @@ class OverlayImpl : public Overlay {
   td::Status check_signature_from_peer(PublicKey key, td::Slice message, td::Slice signature,
                                        adnl::AdnlNodeIdShort message_from = adnl::AdnlNodeIdShort::zero());
 
-  bool can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size);
+  bool can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size, td::uint32 flags);
   BroadcastsLimiter &get_broadcasts_limiter(PublicKeyHash source, const Certificate *certificate);
   std::vector<PublicKeyHash> get_authorized_broadcast_sources() const {
     return rules_.get_authorized_keys();

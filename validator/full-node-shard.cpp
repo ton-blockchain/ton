@@ -1367,9 +1367,10 @@ PublicKeyHash FullNodeShardImpl::choose_outbound_source(td::uint32 payload_size,
   return local_id_;
 }
 
-PublicKeyHash FullNodeShardImpl::get_plumtree_source(td::uint32 payload_size, bool is_fec) const {
+PublicKeyHash FullNodeShardImpl::get_plumtree_source(td::uint32 payload_size, bool is_fec) {
   if (sign_cert_by_.is_zero() || !rules_.is_authorized_key(sign_cert_by_) ||
-      rules_.check_rules(sign_cert_by_, payload_size, is_fec) != overlay::BroadcastCheckResult::Allowed) {
+      rules_.check_rules(sign_cert_by_, payload_size, is_fec, /* is_any_sender = */ true) !=
+          overlay::BroadcastCheckResult::Allowed) {
     return PublicKeyHash::zero();
   }
   return sign_cert_by_;

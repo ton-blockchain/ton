@@ -668,7 +668,7 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
   }
 }
 
-bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size) {
+bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size, td::uint32 flags) {
   if (!has_valid_membership_certificate()) {
     VLOG(OVERLAY_WARNING) << "member certificate is invalid, valid_until="
                           << peer_list_.local_cert_is_valid_until_.at_unix();
@@ -686,7 +686,9 @@ bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data
     return false;
   }
   if (!rules_.is_authorized_key(send_as) ||
-      rules_.check_rules(send_as, static_cast<td::uint32>(data_size), true) != BroadcastCheckResult::Allowed) {
+      rules_.check_rules(send_as, static_cast<td::uint32>(data_size), /* is_fec = */ true,
+                         /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender()) !=
+          BroadcastCheckResult::Allowed) {
     VLOG(OVERLAY_WARNING) << "Plumtree broadcast source is not directly authorized";
     return false;
   }
@@ -695,7 +697,7 @@ bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data
 
 void OverlayImpl::send_broadcast_plumtree_multi(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                                                 td::uint32 local_validator_index, td::uint32 validator_count) {
-  if (!can_send_broadcast_plumtree(send_as, data.size())) {
+  if (!can_send_broadcast_plumtree(send_as, data.size(), flags)) {
     return;
   }
   flags &= ~Overlays::BroadcastFlagNoTwostep();
@@ -703,7 +705,7 @@ void OverlayImpl::send_broadcast_plumtree_multi(PublicKeyHash send_as, td::uint3
 }
 
 void OverlayImpl::send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
-  if (!can_send_broadcast_plumtree(send_as, data.size())) {
+  if (!can_send_broadcast_plumtree(send_as, data.size(), flags)) {
     return;
   }
   flags &= ~Overlays::BroadcastFlagNoTwostep();

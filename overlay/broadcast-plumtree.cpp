@@ -702,7 +702,9 @@ void BroadcastsPlumtree::Impl::send_multi(OverlayImpl *overlay, PublicKeyHash se
   auto data_hash = td::sha256_bits256(data.as_slice());
   auto broadcast_id = compute_broadcast_id(flags, data_hash, data_size, part_size);
   auto cert = overlay->get_certificate(send_as);
-  if (overlay->check_source_eligible(send_as, cert.get(), data_size, true) == BroadcastCheckResult::Forbidden) {
+  if (overlay->check_source_eligible(send_as, cert.get(), data_size, /* is_fec = */ true,
+                                     /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender()) ==
+      BroadcastCheckResult::Forbidden) {
     VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree source is no longer eligible";
     return;
   }
@@ -738,7 +740,9 @@ void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as,
   auto data_hash = td::sha256_bits256(data.as_slice());
   auto broadcast_id = compute_broadcast_id(flags, data_hash, data_size, part_size);
   auto cert = overlay->get_certificate(send_as);
-  if (overlay->check_source_eligible(send_as, cert.get(), data_size, true) == BroadcastCheckResult::Forbidden) {
+  if (overlay->check_source_eligible(send_as, cert.get(), data_size, /* is_fec = */ true,
+                                     /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender()) ==
+      BroadcastCheckResult::Forbidden) {
     VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree source is no longer eligible";
     return;
   }
@@ -834,7 +838,8 @@ void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutb
   }
 
   auto cert = overlay->get_certificate(payload.source);
-  if (overlay->check_source_eligible(payload.source, cert.get(), payload.data_size, true) ==
+  if (overlay->check_source_eligible(payload.source, cert.get(), payload.data_size, /* is_fec = */ true,
+                                     /* is_any_sender = */ payload.flags & Overlays::BroadcastFlagAnySender()) ==
       BroadcastCheckResult::Forbidden) {
     VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree source became ineligible before signed payload send";
     return;
@@ -940,7 +945,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
   }
 
   auto cert = CO_TRY(Certificate::create(msg->certificate_));
-  auto check = overlay->check_source_eligible(source_hash, cert.get(), data_size, true, from);
+  auto check = overlay->check_source_eligible(source_hash, cert.get(), data_size, /* is_fec = */ true,
+                                             /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender(), from);
   if (check != BroadcastCheckResult::Allowed) {
     co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree source is not allowed");
   }

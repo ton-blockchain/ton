@@ -224,7 +224,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void sign_new_certificate(PublicKeyHash sign_by);
   void signed_new_certificate(overlay::Certificate cert, PublicKeyHash local_id);
   PublicKeyHash choose_outbound_source(td::uint32 payload_size, bool is_fec) const;
-  PublicKeyHash get_plumtree_source(td::uint32 payload_size, bool is_fec) const;
+  PublicKeyHash get_plumtree_source(td::uint32 payload_size, bool is_fec);
   bool has_valid_certificate_for_source(const PublicKeyHash &source,
                                         const std::shared_ptr<ton::overlay::Certificate> &cert, td::uint32 payload_size,
                                         bool is_fec) const;
