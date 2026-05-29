@@ -25,14 +25,14 @@ namespace ton::quic {
 
 struct ServerIdentities : td::CntObject {
   std::map<std::string, ServerIdentity> by_sni;
-  std::optional<std::string> default_sni;
+  std::string default_sni;  // empty until the first identity is added; never empty afterwards
 
   bool add_identity(ServerIdentity identity);
   ServerIdentities* make_copy() const override;
 
   // Holds once at least one identity has been added: the default points at a real entry.
   bool has_default() const {
-    return default_sni.has_value() && by_sni.contains(*default_sni);
+    return !default_sni.empty() && by_sni.contains(default_sni);
   }
 };
 

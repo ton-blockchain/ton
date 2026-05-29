@@ -187,7 +187,7 @@ bool ServerIdentities::add_identity(ServerIdentity identity) {
   }
   auto [it, inserted] = by_sni.emplace(std::move(sni), std::move(identity));
   CHECK(inserted);
-  if (!default_sni.has_value()) {
+  if (default_sni.empty()) {
     default_sni = it->first;
   }
   return true;
@@ -220,7 +220,7 @@ int QuicConnectionPImpl::sni_select_cb(SSL* ssl, int* ad, void* arg) {
     return sni_alert(ad, SSL_AD_UNRECOGNIZED_NAME, PSLICE() << "unknown identity " << name);
   }
 
-  if (it->first == *identities->default_sni) {
+  if (it->first == identities->default_sni) {
     // SNI resolves to the default identity anyway, so no key swap is needed.
     return SSL_TLSEXT_ERR_OK;
   }
@@ -236,7 +236,7 @@ td::Status QuicConnectionPImpl::init_tls_server_rpk(td::Ref<ServerIdentities> id
   CHECK(identities.not_null());
   server_identities_ = std::move(identities);
 
-  const auto& default_entry = server_identities_->by_sni.at(*server_identities_->default_sni);
+  const auto& default_entry = server_identities_->by_sni.at(server_identities_->default_sni);
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
   TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), default_entry.key));
   setup_alpn_wire(alpn);
