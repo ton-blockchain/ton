@@ -57,6 +57,8 @@ struct FullNodeConfig {
 };
 
 struct FullNodeOptions {
+  enum class PublicBroadcastMode { Fec, PlumtreeOnly, Dual };
+
   FullNodeConfig config_;
   double public_broadcast_speed_multiplier_ = 1.0;
   double private_broadcast_speed_multiplier_ = 1.0;
@@ -64,7 +66,7 @@ struct FullNodeOptions {
   double initial_sync_delay_ = 60.0;
   double ratelimit_window_size_ = 1.0;
   size_t ratelimit_global_ = 96, ratelimit_heavy_ = 64, ratelimit_medium_ = 72;
-  bool public_plumtree_broadcast_ = false;
+  PublicBroadcastMode public_broadcast_mode_ = PublicBroadcastMode::Fec;
 };
 
 struct CustomOverlayParams {

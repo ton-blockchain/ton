@@ -390,8 +390,15 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode, ValidatorG
       td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_broadcast, broadcast.clone());
     }
   }
-  if ((mode & broadcast_mode_public_plumtree) && !opts_.public_plumtree_broadcast_) {
-    mode &= ~broadcast_mode_public_plumtree;
+  switch (opts_.public_broadcast_mode_) {
+    case FullNodeOptions::PublicBroadcastMode::Fec:
+      mode &= ~broadcast_mode_public_plumtree;
+      break;
+    case FullNodeOptions::PublicBroadcastMode::PlumtreeOnly:
+      mode &= ~broadcast_mode_public;
+      break;
+    case FullNodeOptions::PublicBroadcastMode::Dual:
+      break;
   }
   if (mode & (broadcast_mode_public | broadcast_mode_public_plumtree)) {
     auto shard = get_shard(broadcast.block_id.shard_full());

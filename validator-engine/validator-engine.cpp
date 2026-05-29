@@ -5622,6 +5622,9 @@ int main(int argc, char *argv[]) {
   LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 3145728));
 
   std::vector<std::function<void()>> acts;
+  using PublicBroadcastMode = ton::validator::fullnode::FullNodeOptions::PublicBroadcastMode;
+  bool public_broadcast_plumtree_only = false;
+  bool public_broadcast_dual = false;
 
   td::OptionParser p;
   p.set_description("validator or full node for TON network");
@@ -5926,10 +5929,22 @@ int main(int argc, char *argv[]) {
             [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_public, v); });
         return td::Status::OK();
       });
-  p.add_option(
-      '\0', "public-plumtree-broadcast", "enable public Plumtree FEC broadcasts over QUIC (experimental)", [&]() {
-        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_public_plumtree_broadcast, true); });
-      });
+  p.add_option('\0', "public-broadcast-plumtree-only",
+               "send public block broadcasts only over Plumtree FEC (experimental)", [&]() {
+                 public_broadcast_plumtree_only = true;
+                 acts.push_back([&x]() {
+                   td::actor::send_closure(x, &ValidatorEngine::set_public_broadcast_mode,
+                                           PublicBroadcastMode::PlumtreeOnly);
+                 });
+               });
+  p.add_option('\0', "public-broadcast-dual",
+               "send public block broadcasts over both FEC gossip and Plumtree FEC (experimental)", [&]() {
+                 public_broadcast_dual = true;
+                 acts.push_back([&x]() {
+                   td::actor::send_closure(x, &ValidatorEngine::set_public_broadcast_mode,
+                                           PublicBroadcastMode::Dual);
+                 });
+               });
   p.add_checked_option(
       '\0', "broadcast-speed-private",
       "multiplier for broadcast speed in private block overlays (experimental, default is 3.33, which is ~1 MB/s)",
@@ -6083,6 +6098,13 @@ int main(int argc, char *argv[]) {
         return td::Status::OK();
       });
 #endif
+  p.add_check([&] {
+    if (public_broadcast_plumtree_only && public_broadcast_dual) {
+      return td::Status::Error("Options --public-broadcast-plumtree-only and --public-broadcast-dual are mutually "
+                               "exclusive");
+    }
+    return td::Status::OK();
+  });
   auto S = p.run(argc, argv);
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
