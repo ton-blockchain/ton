@@ -6302,7 +6302,7 @@ bool Collator::create_collated_data() {
     }
   }
   // 4. Proofs for message queues
-  for (auto &[block_id, mpb] : neighbor_proof_builders_) {
+  for (auto& [block_id, mpb] : neighbor_proof_builders_) {
     if (prev_block_idx(block_id) != -1) {
       // This was already generated in "3. Previous state proof"
       continue;
