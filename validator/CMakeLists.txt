@@ -162,7 +162,7 @@ set(FULL_NODE_SOURCE
 
 add_library(validator-db OBJECT ${VALIDATOR_DB_SOURCE})
 target_include_directories(validator-db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(validator-db PUBLIC tdactor adnl rldp tl_api dht tdfec overlay validatorsession ton_db)
+target_link_libraries(validator-db PUBLIC tdactor adnl tl_api dht tdfec overlay validatorsession ton_db)
 
 add_library(validator-common OBJECT
   downloaders/download-state.cpp
@@ -232,4 +232,4 @@ target_link_libraries(validator-disk PRIVATE validator-common validator-db)
 
 target_link_libraries(validator-hardfork PRIVATE validator-common validator-db)
 
-target_link_libraries(full-node PRIVATE tdactor adnl rldp rldp2 tl_api dht tdfec overlay validatorsession ton_db)
+target_link_libraries(full-node PRIVATE tdactor adnl rldp2 tl_api dht tdfec overlay validatorsession ton_db)
