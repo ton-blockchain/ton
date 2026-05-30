@@ -27,6 +27,8 @@ spec:
           value: "30002"
         - name: LITE_PORT
           value: "30003"
+        - name: QUIC_PORT
+          value: "31001"
         - name: STATE_TTL
           value: "86400"
         - name: ARCHIVE_TTL
@@ -59,6 +61,11 @@ spec:
       nodePort: 30001
       port: 30001
       targetPort: 30001
+      protocol: UDP
+    - name: validator-engine-quic-udp-port
+      nodePort: 31001
+      port: 31001
+      targetPort: 31001
       protocol: UDP
     - name: validator-console-tcp-port
       nodePort: 30002
