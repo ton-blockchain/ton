@@ -52,6 +52,8 @@ if [[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
         QUIC_IP_INT=$((QUIC_IP_INT - 4294967296))
     fi
 
+    QUIC_CONFIG_TMP=$(mktemp /var/ton-work/db/config.json.quic.XXXXXX)
+    test $? -eq 0 || { echo "Cannot create temporary QUIC config file"; exit 2; }
     jq --argjson quic_ip "$QUIC_IP_INT" --argjson quic_port "$QUIC_PORT" '
       .addrs = (
         (.addrs // []) as $addrs
@@ -65,9 +67,10 @@ if [[ "$PUBLIC_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
           else $addrs + [{"@type":"engine.quicAddr","ip":$quic_ip,"port":$quic_port,"categories":[0, 1, 2, 3],"priority_categories":[]}]
           end
       )
-    ' /var/ton-work/db/config.json > config.json.quic
-    test $? -eq 0 || { echo "Cannot apply QUIC address config"; exit 2; }
-    mv config.json.quic /var/ton-work/db/config.json
+    ' /var/ton-work/db/config.json > "$QUIC_CONFIG_TMP"
+    test $? -eq 0 || { rm -f "$QUIC_CONFIG_TMP"; echo "Cannot apply QUIC address config"; exit 2; }
+    mv "$QUIC_CONFIG_TMP" /var/ton-work/db/config.json
+    test $? -eq 0 || { rm -f "$QUIC_CONFIG_TMP"; echo "Cannot replace config after QUIC update"; exit 2; }
     echo -e "\e[1;32m[+]\e[0m QUIC address configured: $PUBLIC_IP:$QUIC_PORT"
 else
     echo -e "\e[1;31m[!]\e[0m PUBLIC_IP is not IPv4, skipping QUIC address configuration"
@@ -133,6 +136,7 @@ else
     read -r SERVER_ID1 SERVER_ID2 <<< $(generate-random-id -m keys -n server)
     echo "Server IDs: $SERVER_ID1 $SERVER_ID2"
     cp server /var/ton-work/db/keyring/$SERVER_ID1
+    test $? -eq 0 || { echo "Cannot install server private key into keyring"; exit 2; }
 fi
 
 # Generating client certificate
@@ -151,6 +155,8 @@ else
 fi
 
 # Configure control interface and client permissions
+CONTROL_CONFIG_TMP=$(mktemp /var/ton-work/db/config.json.control.XXXXXX)
+test $? -eq 0 || { echo "Cannot create temporary control config file"; exit 2; }
 jq --arg server_id "$SERVER_ID2" --arg client_id "$CLIENT_ID2" --argjson console_port "$CONSOLE_PORT" '
   .control = (
     (.control // []) as $control
@@ -180,9 +186,10 @@ jq --arg server_id "$SERVER_ID2" --arg client_id "$CLIENT_ID2" --argjson console
       }) as $updated_server_control
     | $other_controls + [$updated_server_control]
   )
-' /var/ton-work/db/config.json > config.json.control
-test $? -eq 0 || { echo "Cannot apply control interface config"; exit 2; }
-mv config.json.control /var/ton-work/db/config.json
+' /var/ton-work/db/config.json > "$CONTROL_CONFIG_TMP"
+test $? -eq 0 || { rm -f "$CONTROL_CONFIG_TMP"; echo "Cannot apply control interface config"; exit 2; }
+mv "$CONTROL_CONFIG_TMP" /var/ton-work/db/config.json
+test $? -eq 0 || { rm -f "$CONTROL_CONFIG_TMP"; echo "Cannot replace config after control update"; exit 2; }
 
 # Liteserver
 if [ -z "$LITESERVER" ]; then
@@ -208,8 +215,11 @@ else
         read -r LITESERVER_ID1 LITESERVER_ID2 <<< $(generate-random-id -m keys -n liteserver)
         echo "Liteserver IDs: $LITESERVER_ID1 $LITESERVER_ID2"
         cp liteserver /var/ton-work/db/keyring/$LITESERVER_ID1
+        test $? -eq 0 || { echo "Cannot install liteserver private key into keyring"; exit 2; }
     fi
 
+    LITESERVER_CONFIG_TMP=$(mktemp /var/ton-work/db/config.json.liteservers.XXXXXX)
+    test $? -eq 0 || { echo "Cannot create temporary liteserver config file"; exit 2; }
     jq --arg liteserver_id "$LITESERVER_ID2" --argjson lite_port "$LITE_PORT" '
       .liteservers = (
         (.liteservers // []) as $liteservers
@@ -223,9 +233,10 @@ else
           else $liteservers + [{"@type":"engine.liteServer","id":$liteserver_id,"port":$lite_port}]
           end
       )
-    ' /var/ton-work/db/config.json > config.json.liteservers
-    test $? -eq 0 || { echo "Cannot apply liteserver config"; exit 2; }
-    mv config.json.liteservers /var/ton-work/db/config.json
+    ' /var/ton-work/db/config.json > "$LITESERVER_CONFIG_TMP"
+    test $? -eq 0 || { rm -f "$LITESERVER_CONFIG_TMP"; echo "Cannot apply liteserver config"; exit 2; }
+    mv "$LITESERVER_CONFIG_TMP" /var/ton-work/db/config.json
+    test $? -eq 0 || { rm -f "$LITESERVER_CONFIG_TMP"; echo "Cannot replace config after liteserver update"; exit 2; }
 fi
 
 echo -e "\e[1;32m[+]\e[0m Starting validator-engine:"
