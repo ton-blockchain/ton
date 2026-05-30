@@ -5644,6 +5644,27 @@ int main(int argc, char *argv[]) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
   });
+  p.add_checked_option(
+      '\0', "vcategory", "per-category verbosity, e.g. adnl=5,overlay=2 ('--vcategory list' prints categories)",
+      [&](td::Slice arg) -> td::Status {
+        if (arg == "list") {
+          for (auto *c = td::first_log_category(); c != nullptr; c = c->next()) {
+            std::cout << c->name().str() << "=" << c->get_level() << "\n";
+          }
+          std::exit(0);
+        }
+        for (auto token : td::full_split(arg, ',')) {
+          auto kv = td::full_split(token, '=');
+          if (kv.size() != 2) {
+            return td::Status::Error(PSTRING() << "bad --vcategory token (want name=level): " << token);
+          }
+          TRY_RESULT(level, td::to_integer_safe<int>(kv[1]));
+          if (!td::set_log_category_level(kv[0], VERBOSITY_NAME(FATAL) + level)) {
+            return td::Status::Error(PSTRING() << "unknown log category: " << kv[0]);
+          }
+        }
+        return td::Status::OK();
+      });
   p.add_option('V', "version", "shows validator-engine build information", [&]() {
     std::cout << "validator-engine build information: [ Commit: " << GitMetadata::CommitSHA1()
               << ", Date: " << GitMetadata::CommitDate() << "]\n";
