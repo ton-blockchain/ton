@@ -285,7 +285,7 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
     return;
   }
   if (r_fec_type.ok().symbol_size() != OutboundTransfer::symbol_size()) {
-    VLOG(RLDP_INFO) << "Drop bad rldp message: bad symbol size " << r_fec_type.ok().symbol_size();
+    VLOG(rldp2, INFO) << "Drop bad rldp message: bad symbol size " << r_fec_type.ok().symbol_size();
     return;
   }
   auto r_seqno = td::narrow_cast_safe<td::uint32>(part.seqno_);
@@ -316,8 +316,8 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
   size_t n_parts = (total_size + OutboundTransfer::part_size() - 1) / OutboundTransfer::part_size();
   td::uint32 part_idx = part.part_;
   if (part_idx >= n_parts) {
-    VLOG(RLDP_INFO) << "Drop rldp message: part_idx=" << part_idx << " >= n_parts=" << n_parts
-                    << " (total_size=" << total_size << ")";
+    VLOG(rldp2, INFO) << "Drop rldp message: part_idx=" << part_idx << " >= n_parts=" << n_parts
+                      << " (total_size=" << total_size << ")";
     return;
   }
   size_t part_size = r_fec_type.ok().size();
@@ -325,8 +325,8 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
                                   ? total_size % OutboundTransfer::part_size()
                                   : OutboundTransfer::part_size();
   if (part_size != expected_part_size) {
-    VLOG(RLDP_INFO) << "Drop rldp message: part_size=" << part_size << " != " << expected_part_size
-                    << " (total_size=" << total_size << ", part_idx=" << part_idx << ")";
+    VLOG(rldp2, INFO) << "Drop rldp message: part_size=" << part_size << " != " << expected_part_size
+                      << " (total_size=" << total_size << ", part_idx=" << part_idx << ")";
     return;
   }
 
