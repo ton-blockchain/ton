@@ -22,6 +22,7 @@
 
 #include "td/utils/Slice.h"
 #include "td/utils/Time.h"
+#include "td/utils/TimestampFormat.h"
 #include "td/utils/date.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/Clocks.h"
@@ -94,9 +95,9 @@ Logger::Logger(LogInterface &log, const LogOptions &options, int log_level, Slic
   }
   sb_ << thread_id << ']';
 
-  // timestamp
-  //sb_ << '[' << StringBuilder::FixedDouble(Clocks::system(), 9) << ']';
-  sb_ << '[' << date::format("%F %T", std::chrono::system_clock::now()) << ']';
+  // timestamp (no-alloc, locale-free; byte-identical to date::format("%F %T", ...) but cheap and scalable)
+  char ts_buf[TIMESTAMP_BUF_SIZE];
+  sb_ << '[' << format_system_clock(MutableSlice(ts_buf, sizeof(ts_buf)), std::chrono::system_clock::now()) << ']';
 
   // file : line
   if (!file_name.empty()) {

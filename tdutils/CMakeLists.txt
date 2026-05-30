@@ -98,6 +98,7 @@ set(TDUTILS_SOURCE
   td/utils/BigNum.cpp
   td/utils/buffer.cpp
   td/utils/BufferedUdp.cpp
+  td/utils/AsyncFileLog.cpp
   td/utils/check.cpp
   td/utils/crypto.cpp
   td/utils/FileLog.cpp
@@ -178,6 +179,7 @@ set(TDUTILS_SOURCE
   td/utils/port/detail/WineventPoll.h
 
   td/utils/AesCtrByteFlow.h
+  td/utils/AsyncFileLog.h
   td/utils/as.h
   td/utils/base64.h
   td/utils/benchmark.h
@@ -258,6 +260,7 @@ set(TDUTILS_SOURCE
   td/utils/ThreadLocalStorage.h
   td/utils/ThreadSafeCounter.h
   td/utils/Time.h
+  td/utils/TimestampFormat.h
   td/utils/date.h
   td/utils/TimedStat.h
   td/utils/Timer.h
@@ -321,6 +324,7 @@ set(TDUTILS_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/pq.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SharedObjectPool.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/SharedSlice.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/test/SpscRing.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/StealingQueue.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/test/variant.cpp
   PARENT_SCOPE
