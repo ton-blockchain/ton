@@ -4834,10 +4834,13 @@ bool is_list(vm::StackEntry entry) {
     entry = entry.as_tuple()->at(1);
   }
 };
-auto to_tonlib_api(const vm::StackEntry& entry, int& limit)
+auto to_tonlib_api(const vm::StackEntry& entry, int& limit, int depth)
     -> td::Result<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> {
   if (limit <= 0) {
     return td::Status::Error(PSLICE() << "TVM stack size exceeds limit");
+  }
+  if (depth > 1024) {
+    return td::Status::Error("TVM stack depth exceeds limit");
   }
   switch (entry.type()) {
     case vm::StackEntry::Type::t_int:
@@ -4858,7 +4861,7 @@ auto to_tonlib_api(const vm::StackEntry& entry, int& limit)
       if (is_list(entry)) {
         auto node = entry;
         while (node.type() == vm::StackEntry::Type::t_tuple) {
-          TRY_RESULT(tl_entry, to_tonlib_api(node.as_tuple()->at(0), --limit));
+          TRY_RESULT(tl_entry, to_tonlib_api(node.as_tuple()->at(0), --limit, depth + 1));
           elements.push_back(std::move(tl_entry));
           node = node.as_tuple()->at(1);
         }
@@ -4867,7 +4870,7 @@ auto to_tonlib_api(const vm::StackEntry& entry, int& limit)
 
       } else {
         for (auto& element : *entry.as_tuple()) {
-          TRY_RESULT(tl_entry, to_tonlib_api(element, --limit));
+          TRY_RESULT(tl_entry, to_tonlib_api(element, --limit, depth + 1));
           elements.push_back(std::move(tl_entry));
         }
         return tonlib_api::make_object<tonlib_api::tvm_stackEntryTuple>(
@@ -4885,7 +4888,7 @@ auto to_tonlib_api(const td::Ref<vm::Stack>& stack)
   int stack_limit = 8000;
   std::vector<tonlib_api::object_ptr<tonlib_api::tvm_StackEntry>> tl_stack;
   for (auto& entry : stack->as_span()) {
-    TRY_RESULT(tl_entry, to_tonlib_api(entry, --stack_limit));
+    TRY_RESULT(tl_entry, to_tonlib_api(entry, --stack_limit, 0));
     tl_stack.push_back(std::move(tl_entry));
   }
   return tl_stack;
