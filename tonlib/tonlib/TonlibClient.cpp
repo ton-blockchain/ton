@@ -5216,7 +5216,7 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_runGetMethod& request,
     if (code.not_null()) {
       std::set<td::Bits256> librarySet;
       std::set<vm::Cell::Hash> visited;
-      deep_library_search(librarySet, visited, self->libraries, code, 24);
+      deep_library_search(librarySet, visited, self->libraries, code, 24, max_smc_preloaded_libraries);
       std::vector<td::Bits256> libraryList{librarySet.begin(), librarySet.end()};
       if (libraryList.size() > 0) {
         LOG(DEBUG) << "Requesting found libraries in code (" << libraryList.size() << ")";
@@ -5269,10 +5269,16 @@ void TonlibClient::process_new_libraries(
 }
 
 void TonlibClient::perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::SmartContract::Args args,
-                                         td::Promise<object_ptr<tonlib_api::smc_runResult>>&& promise) {
+                                         td::Promise<object_ptr<tonlib_api::smc_runResult>>&& promise,
+                                         td::uint32 missing_library_fetches) {
   args.set_libraries(libraries);
 
   auto res = smc->run_get_method(args);
+
+  if (res.missing_library && missing_library_fetches >= max_smc_missing_library_fetches) {
+    promise.set_error(td::Status::Error(400, "Too many missing libraries"));
+    return;
+  }
 
   // smc.runResult gas_used:int53 stack:vector<tvm.StackEntry> exit_code:int32 = smc.RunResult;
   auto R = to_tonlib_api(res.stack);
@@ -5288,8 +5294,8 @@ void TonlibClient::perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::S
     std::vector<td::Bits256> req = {hash};
     client_.send_query(
         ton::lite_api::liteServer_getLibraries(std::move(req)),
-        [self = this, res = std::move(res), res_stack = std::move(res_stack), hash, smc = std::move(smc),
-         args = std::move(args), promise = std::move(promise)](
+        [self = this, res = std::move(res), res_stack = std::move(res_stack), hash,
+         missing_library_fetches, smc = std::move(smc), args = std::move(args), promise = std::move(promise)](
             td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResult>> r_libraries) mutable {
           if (r_libraries.is_error()) {
             LOG(WARNING) << "cannot obtain missing library: " << r_libraries.move_as_error().to_string();
@@ -5326,7 +5332,8 @@ void TonlibClient::perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::S
             promise.set_value(
                 tonlib_api::make_object<tonlib_api::smc_runResult>(res.gas_used, std::move(res_stack), res.code));
           } else {
-            self->perform_smc_execution(std::move(smc), std::move(args), std::move(promise));
+            self->perform_smc_execution(std::move(smc), std::move(args), std::move(promise),
+                                        missing_library_fetches + 1);
           }
         });
   } else {
