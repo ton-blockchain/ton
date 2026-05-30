@@ -122,6 +122,12 @@ fi
 # Generating server certificate
 if [ -f "./server" ]; then
     echo -e "\e[1;33m[=]\e[0m Found existing server certificate, skipping"
+    SERVER_ID2=$(generate-random-id -m id -k ./server | sed -n '3p' | jq -r '.id')
+    test $? -eq 0 || { echo "Cannot derive server public id from existing certificate"; exit 2; }
+    if [ -z "$SERVER_ID2" ] || [ "$SERVER_ID2" = "null" ]; then
+        echo "Cannot derive server public id from existing certificate"
+        exit 2
+    fi
 else
     echo -e "\e[1;32m[+]\e[0m Generating and installing server certificate for remote control"
     read -r SERVER_ID1 SERVER_ID2 <<< $(generate-random-id -m keys -n server)
@@ -132,15 +138,51 @@ fi
 # Generating client certificate
 if [ -f "./client" ]; then
     echo -e "\e[1;33m[=]\e[0m Found existing client certificate, skipping"
+    CLIENT_ID2=$(generate-random-id -m id -k ./client | sed -n '3p' | jq -r '.id')
+    test $? -eq 0 || { echo "Cannot derive client public id from existing certificate"; exit 2; }
+    if [ -z "$CLIENT_ID2" ] || [ "$CLIENT_ID2" = "null" ]; then
+        echo "Cannot derive client public id from existing certificate"
+        exit 2
+    fi
 else
     read -r CLIENT_ID1 CLIENT_ID2 <<< $(generate-random-id -m keys -n client)
     echo -e "\e[1;32m[+]\e[0m Generated client private certificate $CLIENT_ID1 $CLIENT_ID2"
     echo -e "\e[1;32m[+]\e[0m Generated client public certificate"
-    # Adding client permissions
-    sed -e "s/CONSOLE-PORT/\"$(printf "%q" $CONSOLE_PORT)\"/g" -e "s~SERVER-ID~\"$(printf "%q" $SERVER_ID2)\"~g" -e "s~CLIENT-ID~\"$(printf "%q" $CLIENT_ID2)\"~g" /var/ton-work/scripts/control.template > control.new
-    sed -e "s~\"control\"\ \:\ \[~$(printf "%q" $(cat control.new))~g" /var/ton-work/db/config.json > config.json.new
-    mv config.json.new /var/ton-work/db/config.json
 fi
+
+# Configure control interface and client permissions
+jq --arg server_id "$SERVER_ID2" --arg client_id "$CLIENT_ID2" --argjson console_port "$CONSOLE_PORT" '
+  .control = (
+    (.control // []) as $control
+    | ($control | map(select(.id != $server_id))) as $other_controls
+    | ($control | map(select(.id == $server_id))[0] // {
+        "@type":"engine.controlInterface",
+        "id":$server_id,
+        "port":$console_port,
+        "allowed":[]
+      }) as $server_control
+    | ($server_control + {
+        "@type":"engine.controlInterface",
+        "id":$server_id,
+        "port":$console_port,
+        "allowed": (
+          ($server_control.allowed // []) as $allowed
+          | if ($allowed | any(.id == $client_id))
+            then ($allowed | map(
+              if .id == $client_id
+              then . + {"@type":"engine.controlProcess","permissions":15}
+              else .
+              end
+            ))
+            else $allowed + [{"@type":"engine.controlProcess","id":$client_id,"permissions":15}]
+            end
+        )
+      }) as $updated_server_control
+    | $other_controls + [$updated_server_control]
+  )
+' /var/ton-work/db/config.json > config.json.control
+test $? -eq 0 || { echo "Cannot apply control interface config"; exit 2; }
+mv config.json.control /var/ton-work/db/config.json
 
 # Liteserver
 if [ -z "$LITESERVER" ]; then
