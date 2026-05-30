@@ -27,6 +27,8 @@
 #include "fabric.h"
 #include "utils.hpp"
 
+DEFINE_LOG_CATEGORY(collator_node, VERBOSITY_NAME(WARNING))
+
 namespace ton::validator {
 
 CollatorNode::CollatorNode(adnl::AdnlNodeIdShort local_id, td::Ref<ValidatorManagerOptions> opts,

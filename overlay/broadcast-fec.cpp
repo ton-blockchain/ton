@@ -200,7 +200,7 @@ void BroadcastFec::broadcast_checked(OverlayImpl *overlay, td::Result<td::Unit> 
 td::Status BroadcastFec::distribute_part(OverlayImpl *overlay, td::uint32 seqno) {
   auto i = parts_.find(seqno);
   if (i == parts_.end()) {
-    VLOG(OVERLAY_WARNING) << "not distibuting empty part " << seqno;
+    VLOG(overlay, WARNING) << "not distibuting empty part " << seqno;
     // should not get here
     return td::Status::OK();
   }
@@ -223,7 +223,7 @@ td::Status BroadcastFec::distribute_part(OverlayImpl *overlay, td::uint32 seqno)
       limiter.register_out_traffic(data_short.size());
     } else {
       if (hash_.count_leading_zeroes() >= 12) {
-        VLOG(OVERLAY_INFO) << "broadcast " << hash_ << ": sending part " << seqno << " to " << n;
+        VLOG(overlay, INFO) << "broadcast " << hash_ << ": sending part " << seqno << " to " << n;
       }
       td::actor::send_closure(manager, &OverlayManager::send_message, n, overlay->local_id(), overlay->overlay_id(),
                               data.clone());

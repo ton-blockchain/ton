@@ -59,12 +59,12 @@ class AdnlNetworkConnectionTunnel : public AdnlNetworkConnection {
  public:
   void send(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::uint32 priority, td::BufferSlice message) override {
     if (!encryptor_) {
-      VLOG(ADNL_INFO) << "tunnel: message [" << src << "->" << dst << "to bad tunnel. dropping";
+      VLOG(adnl, INFO) << "tunnel: message [" << src << "->" << dst << "to bad tunnel. dropping";
       return;
     }
     auto dataR = encryptor_->encrypt(message.as_slice());
     if (dataR.is_error()) {
-      VLOG(ADNL_INFO) << "tunnel: message [" << src << "->" << dst << ": failed to encrypt: " << dataR.move_as_error();
+      VLOG(adnl, INFO) << "tunnel: message [" << src << "->" << dst << ": failed to encrypt: " << dataR.move_as_error();
       return;
     }
     auto data = dataR.move_as_ok();
@@ -85,7 +85,7 @@ class AdnlNetworkConnectionTunnel : public AdnlNetworkConnection {
   void start_up() override {
     auto R = pub_key_.create_encryptor();
     if (R.is_error()) {
-      VLOG(ADNL_INFO) << "tunnel: bad public key: " << R.move_as_error();
+      VLOG(adnl, INFO) << "tunnel: bad public key: " << R.move_as_error();
       return;
     }
     encryptor_ = R.move_as_ok();

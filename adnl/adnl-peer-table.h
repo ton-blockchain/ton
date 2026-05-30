@@ -24,21 +24,17 @@
 #include "common/io.hpp"
 #include "td/actor/actor.h"
 #include "td/utils/BufferedUdp.h"
+#include "td/utils/logging.h"
 
 #include "adnl-packet.h"
 #include "adnl.h"
 #include "utils.hpp"
 
+DECLARE_LOG_CATEGORY(adnl)
+
 namespace ton {
 
 namespace adnl {
-
-constexpr int VERBOSITY_NAME(ADNL_ERROR) = verbosity_WARNING;
-constexpr int VERBOSITY_NAME(ADNL_WARNING) = verbosity_INFO;
-constexpr int VERBOSITY_NAME(ADNL_NOTICE) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(ADNL_INFO) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(ADNL_DEBUG) = verbosity_DEBUG + 1;
-constexpr int VERBOSITY_NAME(ADNL_EXTRA_DEBUG) = verbosity_DEBUG + 10;
 
 class AdnlChannelIdShortImpl {
  public:

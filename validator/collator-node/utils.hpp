@@ -16,12 +16,13 @@
 */
 #pragma once
 
+#include "td/utils/logging.h"
 #include "tl/generate/auto/tl/ton_api.h"
 #include "ton/ton-types.h"
 
-namespace ton::validator {
+DECLARE_LOG_CATEGORY(collator_node)
 
-constexpr int VERBOSITY_NAME(COLLATOR_NODE_BENCHMARK) = verbosity_WARNING;
+namespace ton::validator {
 
 tl_object_ptr<ton_api::collatorNode_Candidate> serialize_candidate(const BlockCandidate& block, bool compress);
 td::Result<BlockCandidate> deserialize_candidate(tl_object_ptr<ton_api::collatorNode_Candidate> f,

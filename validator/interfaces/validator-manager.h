@@ -25,6 +25,7 @@
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "impl/out-msg-queue-proof.hpp"
 #include "td/actor/BackpressureQueue.h"
+#include "td/utils/logging.h"
 #include "validator-session/validator-session-types.h"
 #include "validator/validator.h"
 
@@ -37,15 +38,11 @@
 #include "shard-block.h"
 #include "shard.h"
 
+DECLARE_LOG_CATEGORY(validator)
+
 namespace ton {
 
 namespace validator {
-
-constexpr int VERBOSITY_NAME(VALIDATOR_WARNING) = verbosity_WARNING;
-constexpr int VERBOSITY_NAME(VALIDATOR_NOTICE) = verbosity_INFO;
-constexpr int VERBOSITY_NAME(VALIDATOR_INFO) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(VALIDATOR_DEBUG) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(VALIDATOR_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 
 struct CandidateAccept {
   double ok_from_utime = 0.0;

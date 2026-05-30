@@ -28,23 +28,19 @@
 #include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
 #include "td/actor/actor.h"
+#include "td/utils/logging.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
 
 #include "types.h"
+
+DECLARE_LOG_CATEGORY(full_node)
 
 namespace ton {
 
 namespace validator {
 
 namespace fullnode {
-
-constexpr int VERBOSITY_NAME(FULL_NODE_WARNING) = verbosity_WARNING;
-constexpr int VERBOSITY_NAME(FULL_NODE_BENCHMARK) = verbosity_WARNING;
-constexpr int VERBOSITY_NAME(FULL_NODE_NOTICE) = verbosity_INFO;
-constexpr int VERBOSITY_NAME(FULL_NODE_INFO) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(FULL_NODE_DEBUG) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(FULL_NODE_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 
 struct FullNodeConfig {
   FullNodeConfig() = default;
