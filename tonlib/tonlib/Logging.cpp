@@ -73,8 +73,7 @@ td::Status Logging::set_current_stream(tonlib_api::object_ptr<tonlib_api::LogStr
       td::log_interface = &log_data().null_log;
       return td::Status::OK();
     default:
-      UNREACHABLE();
-      return td::Status::OK();
+      return td::Status::Error("Unknown log stream type");
   }
 }
 

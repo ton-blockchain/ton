@@ -125,12 +125,19 @@ td::SecureString SignedPromise::signature(const td::Ed25519::PrivateKey* key, co
   return sign(promise, key);
 }
 td::Ref<vm::Cell> SignedPromise::create_and_serialize(td::Slice signature, const td::Ref<vm::Cell>& promise) {
+  if (promise.is_null()) {
+    return {};
+  }
   block::gen::ChanSignedPromise::Record rec;
   rec.promise = vm::load_cell_slice_ref(promise);
-  LOG(ERROR) << "signature.size() = " << signature.size();
+  if (signature.size() != 64) {
+    return {};
+  }
   rec.sig = maybe_ref(vm::CellBuilder().store_bytes(signature).finalize());
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 td::Ref<vm::Cell> SignedPromise::create_and_serialize(const td::Ed25519::PrivateKey* key,
@@ -148,6 +155,9 @@ bool SignedPromise::unpack(td::Ref<vm::Cell> cell) {
   if (!tlb::unpack_cell(cell, rec)) {
     return false;
   }
+  if (rec.promise.is_null() || rec.sig.is_null()) {
+    return false;
+  }
   block::gen::ChanPromise::Record rec_promise;
   if (!tlb::csr_unpack(rec.promise, rec_promise)) {
     return false;
@@ -163,9 +173,12 @@ bool SignedPromise::unpack(td::Ref<vm::Cell> cell) {
   if (!rec.sig->prefetch_maybe_ref(sig_cell)) {
     return false;
   }
+  if (sig_cell.is_null()) {
+    return false;
+  }
   td::SecureString signature(64);
   vm::CellSlice cs = vm::load_cell_slice(sig_cell);
-  if (!cs.prefetch_bytes(signature.as_mutable_slice())) {
+  if (!cs.prefetch_bytes(signature.as_mutable_slice()) || !cs.empty_ext()) {
     return false;
   }
   o_signature = std::move(signature);

@@ -83,10 +83,15 @@ td::Result<DecryptedKey> KeyStorage::export_decrypted_key(InputKey input_key) {
       auto decrypted_key = r_decrypted_key.move_as_ok();
       auto key = Key{encrypted_key.public_key.as_octet_string(), encrypted_key.secret.copy()};
       auto new_encrypted_key = decrypted_key.encrypt(input_key.local_password.copy(), encrypted_key.secret);
-      CHECK(new_encrypted_key.public_key.as_octet_string() == encrypted_key.public_key.as_octet_string());
-      CHECK(new_encrypted_key.secret == encrypted_key.secret);
-      CHECK(new_encrypted_key.decrypt(input_key.local_password.copy()).ok().private_key.as_octet_string() ==
-            decrypted_key.private_key.as_octet_string());
+      if (new_encrypted_key.public_key.as_octet_string() != encrypted_key.public_key.as_octet_string() ||
+          new_encrypted_key.secret != encrypted_key.secret) {
+        return TonlibError::Internal("Failed to restore deprecated encrypted key");
+      }
+      TRY_RESULT_PREFIX(new_decrypted_key, new_encrypted_key.decrypt(input_key.local_password.copy()),
+                        TonlibError::KeyDecrypt());
+      if (new_decrypted_key.private_key.as_octet_string() != decrypted_key.private_key.as_octet_string()) {
+        return TonlibError::Internal("Failed to validate restored deprecated encrypted key");
+      }
       kv_->set(to_file_name(key), new_encrypted_key.encrypted_data);
       return std::move(decrypted_key);
     }

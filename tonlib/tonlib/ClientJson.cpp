@@ -50,7 +50,9 @@ static td::Result<std::pair<tonlib_api::object_ptr<tonlib_api::Function>, std::s
 
 static std::string from_response(const tonlib_api::Object &object, const td::string &extra) {
   auto str = td::json_encode<td::string>(td::ToJson(object));
-  CHECK(!str.empty() && str.back() == '}');
+  if (str.empty() || str.back() != '}') {
+    return str;
+  }
   if (!extra.empty()) {
     str.pop_back();
     str.reserve(str.size() + 11 + extra.size());

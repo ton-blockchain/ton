@@ -260,6 +260,9 @@ td::Result<td::uint32> ManualDns::get_wallet_id_or_throw() const {
 
 td::Result<td::Ref<vm::Cell>> ManualDns::create_set_value_unsigned(td::Bits256 category, td::Slice name,
                                                                    td::Ref<vm::Cell> data) const {
+  if (name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   //11 VSet: set specified value to specified subdomain->category (x=2)
   //[Int<256b>:category] [Name<?>:subdomain] [Cell<1r>:value]
   vm::CellBuilder cb;
@@ -278,6 +281,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_value_unsigned(td::Bits256 c
   return cb.finalize();
 }
 td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_value_unsigned(td::Bits256 category, td::Slice name) const {
+  if (name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   //12 VDel: delete specified subdomain->category (x=2)
   //[Int<256b>:category] [Name<?>:subdomain]
   vm::CellBuilder cb;
@@ -306,6 +312,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_all_unsigned(td::Span<Action
   vm::PrefixDictionary pdict(1023);
   for (auto& action : entries) {
     auto name_key = encode_name(action.name);
+    if (name_key.size() > 127) {
+      return td::Status::Error("DNS encoded name is too long");
+    }
     int zero_cnt = 0;
     for (auto c : name_key) {
       if (c == 0) {
@@ -340,6 +349,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_all_unsigned(td::Span<Action
 //22 DDel: delete entire category dictionary of specified domain (x=0)
 //[Name<?>:subdomain]
 td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_name_unsigned(td::Slice name) const {
+  if (name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   vm::CellBuilder cb;
   cb.store_long(22, 6);
   if (name.size() <= 58) {
@@ -353,6 +365,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_name_unsigned(td::Slice n
   return cb.finalize();
 }
 td::Result<td::Ref<vm::Cell>> ManualDns::create_set_name_unsigned(td::Slice name, td::Span<Action> entries) const {
+  if (name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   vm::CellBuilder cb;
   cb.store_long(21, 6);
   if (name.size() <= 58) {
@@ -450,15 +465,23 @@ td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td:
   } else {
     if (category.is_zero()) {
       vm::Dictionary dict(std::move(data), 256);
-      dict.check_for_each([&](td::Ref<vm::CellSlice> cs, td::ConstBitPtr key, int n) {
-        CHECK(n == 256);
+      if (!dict.check_for_each([&](td::Ref<vm::CellSlice> cs, td::ConstBitPtr key, int n) {
+        if (n != 256) {
+          return false;
+        }
         if (cs.is_null() || cs->size_ext() != 0x10000) {
           return true;
         }
-        cs = vm::load_cell_slice_ref(cs->prefetch_ref());
+        auto value = cs->prefetch_ref();
+        if (value.is_null()) {
+          return false;
+        }
+        cs = vm::load_cell_slice_ref(std::move(value));
         vec.push_back({name.str(), td::Bits256(key), cs});
         return true;
-      });
+      })) {
+        return td::Status::Error("Invalid DNS category dictionary");
+      }
     } else {
       vec.push_back({name.str(), category, vm::load_cell_slice_ref(data)});
     }
@@ -480,7 +503,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_update_query(CombinedActions<Act
     }
     return create_set_name_unsigned(encode_name(combined.name), combined.actions.value());
   }
-  CHECK(combined.actions.value().size() == 1);
+  if (!combined.actions || combined.actions.value().size() != 1) {
+    return td::Status::Error("DNS update query has invalid action count");
+  }
   auto& action = combined.actions.value()[0];
   if (action.data) {
     return create_set_value_unsigned(action.category, encode_name(action.name), action.data.value());

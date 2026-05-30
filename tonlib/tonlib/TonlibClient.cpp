@@ -58,6 +58,8 @@
 
 #include "TonlibClient.h"
 
+#include <exception>
+
 template <class Type>
 using lite_api_ptr = ton::lite_api::object_ptr<Type>;
 template <class Type>
@@ -243,9 +245,15 @@ td::Result<tonlib_api::object_ptr<tonlib_api::tvm_cell>> to_tonlib_tvm_cell(td::
 td::Result<std::vector<tonlib_api::object_ptr<tonlib_api::extraCurrency>>> parse_extra_currencies_or_throw(
     const td::Ref<vm::Cell> dict_root) {
   std::vector<tonlib_api::object_ptr<tonlib_api::extraCurrency>> result;
+  constexpr size_t max_extra_currencies = 1024;
   vm::Dictionary dict{dict_root, 32};
   if (!dict.check_for_each([&](td::Ref<vm::CellSlice> value, td::ConstBitPtr key, int n) {
-        CHECK(n == 32);
+        if (n != 32 || value.is_null()) {
+          return false;
+        }
+        if (result.size() >= max_extra_currencies) {
+          return false;
+        }
         int id = (int)key.get_int(n);
         auto amount_ref = block::tlb::t_VarUIntegerPos_32.as_integer_skip(value.write());
         if (amount_ref.is_null() || !value->empty_ext()) {
@@ -272,6 +280,9 @@ td::Result<td::Ref<vm::Cell>> to_extra_currenctes_dict(
     const std::vector<tonlib_api::object_ptr<tonlib_api::extraCurrency>>& extra_currencies) {
   vm::Dictionary dict{32};
   for (const auto& f : extra_currencies) {
+    if (!f) {
+      return td::Status::Error("Extra currency entry is null");
+    }
     if (f->amount_ == 0) {
       continue;
     }
@@ -545,7 +556,7 @@ class AccountState {
       case WalletV4:
         return f(to_wallet_v4_accountState());
     }
-    UNREACHABLE();
+    return td::Status::Error("Unknown account state type");
   }
 
   td::Result<tonlib_api::object_ptr<tonlib_api::fullAccountState>> to_fullAccountState() const {
@@ -614,7 +625,6 @@ class AccountState {
       case AccountState::WalletV4:
         return true;
     }
-    UNREACHABLE();
     return false;
   }
   td::unique_ptr<ton::WalletInterface> get_wallet() const {
@@ -635,7 +645,6 @@ class AccountState {
       case AccountState::WalletV4:
         return td::make_unique<ton::WalletV4>(get_smc_state());
     }
-    UNREACHABLE();
     return {};
   }
   bool is_frozen() const {
@@ -1016,7 +1025,9 @@ class Query {
     }
     for (int i = n - 1; i >= 0; --i) {
       vm::CellSlice cs = load_cell_slice(actions[i]);
-      CHECK(cs.fetch_ref().not_null());
+      if (cs.fetch_ref().is_null()) {
+        return td::Status::Error("action list invalid: entry has no next reference");
+      }
       int tag = block::gen::t_OutAction.get_tag(cs);
       if (tag < 0) {
         return td::Status::Error("action list invalid: invalid tag");
@@ -1693,7 +1704,10 @@ class GetShardBlockProof : public td::actor::Actor {
 
   void got_from_block(ton::BlockIdExt from) {
     from_ = from;
-    CHECK(from_.is_masterchain_ext());
+    if (!from_.is_masterchain_ext()) {
+      abort(td::Status::Error("trusted reference block is not from masterchain"));
+      return;
+    }
     client_.send_query(
         ton::lite_api::liteServer_getShardBlockProof(ton::create_tl_lite_block_id(id_)),
         [SelfId = actor_id(this)](td::Result<lite_api_ptr<ton::lite_api::liteServer_shardBlockProof>> R) {
@@ -1744,8 +1758,9 @@ class GetShardBlockProof : public td::actor::Actor {
           block::gen::Block::Record blk;
           block::gen::BlockExtra::Record extra;
           block::gen::McBlockExtra::Record mc_extra;
-          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) || !extra.custom->have_refs() ||
-              !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra)) {
+          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) ||
+              extra.custom.is_null() || !extra.custom->have_refs() ||
+              !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) || mc_extra.shard_hashes.is_null()) {
             abort(td::Status::Error("cannot unpack block header"));
             return;
           }
@@ -1764,7 +1779,10 @@ class GetShardBlockProof : public td::actor::Actor {
             abort(std::move(S));
             return;
           }
-          CHECK(prev.size() == 1 || prev.size() == 2);
+          if (prev.size() != 1 && prev.size() != 2) {
+            abort(td::Status::Error("invalid proof chain: block has invalid number of prev blocks"));
+            return;
+          }
           bool found = prev_id == prev[0] || (prev.size() == 2 && prev_id == prev[1]);
           if (!found) {
             abort(td::Status::Error("invalid proof chain: prev block is not in prev blocks list"));
@@ -1774,8 +1792,17 @@ class GetShardBlockProof : public td::actor::Actor {
         links_.emplace_back(prev_id, std::move(proof));
         cur_id = prev_id;
       }
+    } catch (vm::VmError& err) {
+      abort(err.as_status());
+      return;
     } catch (vm::VmVirtError& err) {
       abort(err.as_status());
+      return;
+    } catch (std::exception& err) {
+      abort(td::Status::Error(PSLICE() << "exception while checking shard block proof: " << err.what()));
+      return;
+    } catch (...) {
+      abort(td::Status::Error("unknown exception while checking shard block proof"));
       return;
     }
     if (cur_id != id_) {
@@ -2317,8 +2344,17 @@ class RunEmulator : public TonlibQueryActor {
 
         promise_.set_value(td::make_unique<AccountState>(address, std::move(raw), 0));
       }
+    } catch (vm::VmError& err) {
+      check(td::Status::Error(PSLICE() << "VM error while emulating transaction: " << err.get_msg()));
+      return;
     } catch (vm::VmVirtError& err) {
       check(td::Status::Error(PSLICE() << "virtualization error while emulating transaction: " << err.get_msg()));
+      return;
+    } catch (std::exception& err) {
+      check(td::Status::Error(PSLICE() << "exception while emulating transaction: " << err.what()));
+      return;
+    } catch (...) {
+      check(td::Status::Error("unknown exception while emulating transaction"));
       return;
     }
     stopped_ = true;
@@ -3178,7 +3214,9 @@ void TonlibClient::set_config(FullConfig full_config) {
 
 td::Status TonlibClient::do_request(const tonlib_api::close& request,
                                     td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
-  CHECK(state_ != State::Closed);
+  if (state_ == State::Closed) {
+    return td::Status::Error("TonlibClient is already closed");
+  }
   state_ = State::Closed;
   source_.cancel();
   promise.set_value(tonlib_api::make_object<tonlib_api::ok>());
@@ -3241,11 +3279,22 @@ struct ToRawTransactions {
     }
 
     td::Ref<vm::CellSlice> body;
-    if (message.body->prefetch_long(1) == 0) {
+    if (message.body.is_null()) {
+      return td::Status::Error("Message body is null");
+    }
+    auto body_ref_tag = message.body->prefetch_long(1);
+    if (body_ref_tag == message.body->fetch_long_eof) {
+      return td::Status::Error("Failed to parse message body tag");
+    }
+    if (body_ref_tag == 0) {
       body = std::move(message.body);
       body.write().advance(1);
     } else {
-      body = vm::load_cell_slice_ref(message.body->prefetch_ref());
+      auto body_ref = message.body->prefetch_ref();
+      if (body_ref.is_null()) {
+        return td::Status::Error("Message body ref is null");
+      }
+      body = vm::load_cell_slice_ref(std::move(body_ref));
     }
     auto body_cell = vm::CellBuilder().append_cellslice(*body).finalize();
     auto body_hash = body_cell->get_hash().as_slice().str();
@@ -3253,11 +3302,22 @@ struct ToRawTransactions {
 
     td::Ref<vm::Cell> init_state_cell;
     auto& init_state_cs = message.init.write();
-    if (init_state_cs.fetch_ulong(1) == 1) {
-      if (init_state_cs.fetch_long(1) == 0) {
+    auto init_state_tag = init_state_cs.fetch_ulong(1);
+    if (init_state_tag == init_state_cs.fetch_ulong_eof) {
+      return td::Status::Error("Failed to parse message init_state tag");
+    }
+    if (init_state_tag == 1) {
+      auto init_state_ref_tag = init_state_cs.fetch_long(1);
+      if (init_state_ref_tag == init_state_cs.fetch_long_eof) {
+        return td::Status::Error("Failed to parse message init_state ref tag");
+      }
+      if (init_state_ref_tag == 0) {
         init_state_cell = vm::CellBuilder().append_cellslice(init_state_cs).finalize();
       } else {
         init_state_cell = init_state_cs.fetch_ref();
+        if (init_state_cell.is_null()) {
+          return td::Status::Error("Message init_state ref is null");
+        }
       }
     }
 
@@ -3387,14 +3447,21 @@ struct ToRawTransactions {
       }
       if (is_just == -1) {
         auto msg = trans.r1.in_msg->prefetch_ref();
-        TRY_RESULT(in_msg_copy, to_raw_message(trans.r1.in_msg->prefetch_ref()));
+        if (msg.is_null()) {
+          return td::Status::Error("Transaction input message is null");
+        }
+        TRY_RESULT(in_msg_copy, to_raw_message(std::move(msg)));
         in_msg = std::move(in_msg_copy);
       }
 
       if (trans.outmsg_cnt != 0) {
         vm::Dictionary dict{trans.r1.out_msgs, 15};
         for (int x = 0; x < trans.outmsg_cnt; x++) {
-          TRY_RESULT(out_msg, to_raw_message(dict.lookup_ref(td::BitArray<15>{x})));
+          auto msg = dict.lookup_ref(td::BitArray<15>{x});
+          if (msg.is_null()) {
+            return td::Status::Error(PSLICE() << "Transaction output message #" << x << " is missing");
+          }
+          TRY_RESULT(out_msg, to_raw_message(std::move(msg)));
           fees += out_msg->fwd_fee_;
           fees += out_msg->ihr_fee_;
           out_msgs.push_back(std::move(out_msg));
@@ -3460,14 +3527,21 @@ struct ToRawTransactions {
       }
       if (is_just == -1) {
         auto msg = trans.r1.in_msg->prefetch_ref();
-        TRY_RESULT(in_msg_copy, to_raw_message(trans.r1.in_msg->prefetch_ref()));
+        if (msg.is_null()) {
+          return td::Status::Error("Transaction input message is null");
+        }
+        TRY_RESULT(in_msg_copy, to_raw_message(std::move(msg)));
         in_msg = std::move(in_msg_copy);
       }
 
       if (trans.outmsg_cnt != 0) {
         vm::Dictionary dict{trans.r1.out_msgs, 15};
         for (int x = 0; x < trans.outmsg_cnt; x++) {
-          TRY_RESULT(out_msg, to_raw_message(dict.lookup_ref(td::BitArray<15>{x})));
+          auto msg = dict.lookup_ref(td::BitArray<15>{x});
+          if (msg.is_null()) {
+            return td::Status::Error(PSLICE() << "Transaction output message #" << x << " is missing");
+          }
+          TRY_RESULT(out_msg, to_raw_message(std::move(msg)));
           fees += out_msg->fwd_fee_;
           fees += out_msg->ihr_fee_;
           out_msgs.push_back(std::move(out_msg));
@@ -3904,6 +3978,9 @@ class GenericCreateSendGrams : public TonlibQueryActor {
       res.o_public_key = std::move(key);
     }
     res.send_mode = message.send_mode_;
+    if (!message.data_) {
+      return TonlibError::EmptyField("message.data");
+    }
     auto status = downcast_call2<td::Status>(
         *message.data_, td::overloaded(
                             [&](tonlib_api::msg_dataRaw& text) {
@@ -4073,7 +4150,9 @@ class GenericCreateSendGrams : public TonlibQueryActor {
 
   td::Status do_on_destination_state(size_t i, td::Result<td::unique_ptr<AccountState>> r_state) {
     TRY_RESULT(state, std::move(r_state));
-    CHECK(destinations_left_ > 0);
+    if (destinations_left_ == 0) {
+      return td::Status::Error("Unexpected destination state response");
+    }
     destinations_left_--;
     destinations_[i] = std::move(state);
     auto& destination = *destinations_[i];
@@ -4174,6 +4253,9 @@ class GenericCreateSendGrams : public TonlibQueryActor {
               if (!close.promise_) {
                 return TonlibError::EmptyField("promise");
               }
+              if (close.promise_->signature_.size() != 64) {
+                return TonlibError::InvalidField("promise.signature", "signature must contain 64 bytes");
+              }
 
               ton::pchan::SignedPromiseBuilder sbuilder;
               sbuilder.promise_A(close.promise_->promise_A_)
@@ -4189,10 +4271,14 @@ class GenericCreateSendGrams : public TonlibQueryActor {
                 return TonlibError::InvalidSignature();
               }
 
+              auto signed_promise = sbuilder.finalize();
+              if (signed_promise.is_null()) {
+                return td::Status::Error("Failed to serialize signed promise");
+              }
               auto builder = ton::pchan::MsgCloseBuilder()
                                  .extra_A(close.extra_A_)
                                  .extra_B(close.extra_B_)
-                                 .signed_promise(sbuilder.finalize());
+                                 .signed_promise(std::move(signed_promise));
               if (is_alice) {
                 std::move(builder).with_a_key(&private_key_.value());
               }
@@ -4783,9 +4869,15 @@ auto to_tonlib_api(const td::Ref<vm::Stack>& stack)
   return tl_stack;
 }
 
-td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
+td::Result<vm::StackEntry> from_tonlib_api_impl(tonlib_api::tvm_StackEntry& entry, int& limit, int depth) {
   // TODO: error codes
   // downcast_call
+  if (limit-- <= 0) {
+    return td::Status::Error("TVM stack input exceeds size limit");
+  }
+  if (depth > 1024) {
+    return td::Status::Error("TVM stack input exceeds depth limit");
+  }
   return downcast_call2<td::Result<vm::StackEntry>>(
       entry,
       td::overloaded(
@@ -4816,7 +4908,7 @@ td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
               if (!element) {
                 return TonlibError::EmptyField("tuple.elements");
               }
-              TRY_RESULT(new_element, from_tonlib_api(*element));
+              TRY_RESULT(new_element, from_tonlib_api_impl(*element, limit, depth + 1));
               elements.push_back(std::move(new_element));
             }
             return td::Ref<vm::Tuple>(true, std::move(elements));
@@ -4830,7 +4922,7 @@ td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
               if (!element) {
                 return TonlibError::EmptyField("list.elements");
               }
-              TRY_RESULT(new_element, from_tonlib_api(*element));
+              TRY_RESULT(new_element, from_tonlib_api_impl(*element, limit, depth + 1));
               tail = vm::make_tuple_ref(std::move(new_element), std::move(tail));
             }
             return tail;
@@ -4846,6 +4938,11 @@ td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
             }
             return num;
           }));
+}
+
+td::Result<vm::StackEntry> from_tonlib_api(tonlib_api::tvm_StackEntry& entry) {
+  int limit = 8000;
+  return from_tonlib_api_impl(entry, limit, 0);
 }
 
 void deep_library_search(std::set<td::Bits256>& set, std::set<vm::Cell::Hash>& visited, vm::Dictionary& libs,
@@ -5382,6 +5479,9 @@ td::Status TonlibClient::do_request(tonlib_api::pchan_validatePromise& request,
   if (!request.promise_) {
     return TonlibError::EmptyField("promise");
   }
+  if (request.promise_->signature_.size() != 64) {
+    return TonlibError::InvalidField("promise.signature", "signature must contain 64 bytes");
+  }
   TRY_RESULT(key_bytes, get_public_key(request.public_key_));
   auto key = td::Ed25519::PublicKey(td::SecureString(key_bytes.key));
   bool is_ok = ton::pchan::SignedPromiseBuilder()
@@ -5400,13 +5500,20 @@ td::Status TonlibClient::do_request(tonlib_api::pchan_packPromise& request,
   if (!request.promise_) {
     return TonlibError::EmptyField("promise");
   }
+  if (request.promise_->signature_.size() != 64) {
+    return TonlibError::InvalidField("promise.signature", "signature must contain 64 bytes");
+  }
   promise.set_result([&]() -> td::Result<object_ptr<tonlib_api::data>> {
-    TRY_RESULT(bytes, to_bytes(ton::pchan::SignedPromiseBuilder()
-                                   .promise_A(request.promise_->promise_A_)
-                                   .promise_B(request.promise_->promise_B_)
-                                   .channel_id(request.promise_->channel_id_)
-                                   .signature(td::SecureString(request.promise_->signature_))
-                                   .finalize()));
+    auto signed_promise = ton::pchan::SignedPromiseBuilder()
+                              .promise_A(request.promise_->promise_A_)
+                              .promise_B(request.promise_->promise_B_)
+                              .channel_id(request.promise_->channel_id_)
+                              .signature(td::SecureString(request.promise_->signature_))
+                              .finalize();
+    if (signed_promise.is_null()) {
+      return td::Status::Error("Failed to serialize signed promise");
+    }
+    TRY_RESULT(bytes, to_bytes(std::move(signed_promise)));
     return tonlib_api::make_object<tonlib_api::data>(td::SecureString(std::move(bytes)));
   }());
   return td::Status::OK();
@@ -5418,6 +5525,9 @@ td::Status TonlibClient::do_request(tonlib_api::pchan_unpackPromise& request,
   ton::pchan::SignedPromise spromise;
   if (!spromise.unpack(body)) {
     return TonlibError::InvalidField("data", "Can't unpack as a promise");
+  }
+  if (!spromise.o_signature) {
+    return TonlibError::InvalidField("data", "Promise signature is missing");
   }
   promise.set_value(tonlib_api::make_object<tonlib_api::pchan_promise>(
       spromise.o_signature.value().as_slice().str(), spromise.promise.promise_A, spromise.promise.promise_B,
@@ -5844,8 +5954,14 @@ void TonlibClient::get_config_param(int32_t param, int32_t mode, ton::BlockIdExt
           TRY_RESULT_PREFIX_ASSIGN(config_result.config_, to_tonlib_tvm_cell(config_ptr->get_config_param(param)),
                                    TonlibError::ValidateConfig());
           return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
+        } catch (vm::VmError& err) {
+          return td::Status::Error(500, PSLICE() << "VALIDATE_CONFIG: " << err.get_msg());
         } catch (vm::VmVirtError& err) {
-          return err.as_status();
+          return td::Status::Error(500, PSLICE() << "VALIDATE_CONFIG: " << err.get_msg());
+        } catch (std::exception& err) {
+          return td::Status::Error(500, PSLICE() << "VALIDATE_CONFIG: " << err.what());
+        } catch (...) {
+          return td::Status::Error(500, "VALIDATE_CONFIG: unknown exception");
         }
       }));
 }
@@ -5886,8 +6002,14 @@ void TonlibClient::get_config_all(int32_t mode, ton::BlockIdExt block,
                                                   to_tonlib_tvm_cell(config.move_as_ok()->get_root_cell()),
                                                   TonlibError::ValidateConfig());
                          return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
+                       } catch (vm::VmError& err) {
+                         return td::Status::Error(500, PSLICE() << "VALIDATE_CONFIG: " << err.get_msg());
                        } catch (vm::VmVirtError& err) {
-                         return err.as_status();
+                         return td::Status::Error(500, PSLICE() << "VALIDATE_CONFIG: " << err.get_msg());
+                       } catch (std::exception& err) {
+                         return td::Status::Error(500, PSLICE() << "VALIDATE_CONFIG: " << err.what());
+                       } catch (...) {
+                         return td::Status::Error(500, "VALIDATE_CONFIG: unknown exception");
                        }
                      }));
 }
@@ -6080,8 +6202,9 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
           block::gen::Block::Record blk;
           block::gen::BlockExtra::Record extra;
           block::gen::McBlockExtra::Record mc_extra;
-          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) || !extra.custom->have_refs() ||
-              !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra)) {
+          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) ||
+              extra.custom.is_null() || !extra.custom->have_refs() ||
+              !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) || mc_extra.shard_hashes.is_null()) {
             return td::Status::Error("cannot unpack block header");
           }
           block::ShardConfig shards(mc_extra.shard_hashes->prefetch_ref());
@@ -6097,7 +6220,9 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
           if (S.is_error()) {
             return S;
           }
-          CHECK(prev.size() == 1 || prev.size() == 2);
+          if (prev.size() != 1 && prev.size() != 2) {
+            return td::Status::Error("invalid proof chain: block has invalid number of prev blocks");
+          }
           bool found = prev_id == prev[0] || (prev.size() == 2 && prev_id == prev[1]);
           if (!found) {
             return td::Status::Error("invalid proof chain: prev block is not in prev blocks list");
@@ -6105,8 +6230,14 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
         }
         cur_id = prev_id;
       }
+    } catch (vm::VmError& err) {
+      return err.as_status();
     } catch (vm::VmVirtError& err) {
       return err.as_status();
+    } catch (std::exception& err) {
+      return td::Status::Error(PSLICE() << "exception while checking lookupBlock proof: " << err.what());
+    } catch (...) {
+      return td::Status::Error("unknown exception while checking lookupBlock proof");
     }
     if (cur_id.id.workchain != blkid.workchain || !ton::shard_contains(cur_id.id.shard, blkid.shard)) {
       return td::Status::Error("response block has incorrect workchain/shard");
@@ -6536,27 +6667,41 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getOutMsgQueueSizes
 
 void TonlibClient::load_libs_from_disk() {
   LOG(DEBUG) << "loading libraries from disk cache";
-  auto r_data = kv_->get("tonlib.libcache");
-  if (r_data.is_error()) {
-    return;
-  }
-  auto r_dict = vm::std_boc_deserialize(r_data.move_as_ok(), true);
-  if (r_dict.is_error()) {
-    return;
-  }
-  libraries = vm::Dictionary(
-      vm::load_cell_slice(vm::CellBuilder().append_cellslice(vm::load_cell_slice(r_dict.move_as_ok())).finalize()),
-      256);
+  try {
+    auto r_data = kv_->get("tonlib.libcache");
+    if (r_data.is_error()) {
+      return;
+    }
+    auto r_dict = vm::std_boc_deserialize(r_data.move_as_ok(), true);
+    if (r_dict.is_error()) {
+      return;
+    }
+    libraries = vm::Dictionary(
+        vm::load_cell_slice(vm::CellBuilder().append_cellslice(vm::load_cell_slice(r_dict.move_as_ok())).finalize()),
+        256);
 
-  LOG(DEBUG) << "loaded libraries from disk cache";
+    LOG(DEBUG) << "loaded libraries from disk cache";
+  } catch (std::exception& e) {
+    LOG(WARNING) << "Failed to load libraries from disk cache: " << e.what();
+  } catch (...) {
+    LOG(WARNING) << "Failed to load libraries from disk cache: unknown exception";
+  }
 }
 
 void TonlibClient::store_libs_to_disk() {  // NB: Dictionary.get_root_cell does not compute_root, and it is protected
-  kv_->set("tonlib.libcache", vm::std_boc_serialize(vm::CellBuilder().append_cellslice(libraries.get_root()).finalize())
-                                  .move_as_ok()
-                                  .as_slice());
-
-  LOG(DEBUG) << "stored libraries to disk cache";
+  try {
+    auto boc = vm::std_boc_serialize(vm::CellBuilder().append_cellslice(libraries.get_root()).finalize());
+    if (boc.is_error()) {
+      LOG(WARNING) << "Failed to serialize libraries disk cache: " << boc.error();
+      return;
+    }
+    kv_->set("tonlib.libcache", boc.move_as_ok().as_slice());
+    LOG(DEBUG) << "stored libraries to disk cache";
+  } catch (std::exception& e) {
+    LOG(WARNING) << "Failed to store libraries to disk cache: " << e.what();
+  } catch (...) {
+    LOG(WARNING) << "Failed to store libraries to disk cache: unknown exception";
+  }
 }
 
 td::Status TonlibClient::do_request(const int_api::ScanAndLoadGlobalLibs& request,
@@ -6586,87 +6731,70 @@ td::Status TonlibClient::do_request(const int_api::ScanAndLoadGlobalLibs& reques
 
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::runTests& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::getAccountAddress& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::packAccountAddress& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::unpackAccountAddress& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(tonlib_api::getBip39Hints& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(tonlib_api::setLogStream& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::getLogStream& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::setLogVerbosityLevel& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::setLogTagVerbosityLevel& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::getLogVerbosityLevel& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::getLogTagVerbosityLevel& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::getLogTags& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::addLogMessage& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::encrypt& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::decrypt& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::kdf& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 template <class P>
 td::Status TonlibClient::do_request(const tonlib_api::msg_decryptWithProof& request, P&&) {
-  UNREACHABLE();
-  return TonlibError::Internal();
+  return TonlibError::Internal("Unsupported request");
 }
 }  // namespace tonlib

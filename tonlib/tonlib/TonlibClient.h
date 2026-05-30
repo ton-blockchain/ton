@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <exception>
 #include <map>
 
 #include "lite-client/ext-client.h"
@@ -83,7 +84,14 @@ class TonlibClient : public td::actor::Actor {
   void make_request(T&& request, P&& promise) {
     td::Promise<typename std::decay_t<T>::ReturnType> new_promise = std::move(promise);
 
-    auto status = do_request(std::forward<T>(request), std::move(new_promise));
+    td::Status status;
+    try {
+      status = do_request(std::forward<T>(request), std::move(new_promise));
+    } catch (std::exception& e) {
+      status = td::Status::Error(500, td::Slice(e.what()));
+    } catch (...) {
+      status = td::Status::Error(500, "Unhandled exception in request");
+    }
     if (status.is_error()) {
       new_promise.set_error(status.move_as_error());
     }
