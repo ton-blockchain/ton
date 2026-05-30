@@ -40,6 +40,7 @@
 #include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
+#include "td/utils/AsyncFileLog.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
 #include "td/utils/Status.h"
@@ -5669,13 +5670,20 @@ int main(int argc, char *argv[]) {
     td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
   });
   std::string session_logs_file;
-  p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
+  auto init_log_file = [&](td::Slice fname) {
     if (session_logs_file.empty()) {
       session_logs_file = fname.str() + ".session-stats";
     }
-    logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
     td::log_interface = logger_.get();
     td::set_log_fatal_error_callback([](td::CSlice s) { std::cerr << "FATAL_ERROR: " << s.c_str() << std::endl; });
+  };
+  p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
+    logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
+    init_log_file(fname);
+  });
+  p.add_option('\0', "async-logname", "log to file asynchronously", [&](td::Slice fname) {
+    logger_ = td::AsyncFileLog::create(fname.str()).move_as_ok();
+    init_log_file(fname);
   });
   p.add_checked_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=86400",
                        [&](td::Slice fname) {
