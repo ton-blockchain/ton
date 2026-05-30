@@ -104,8 +104,9 @@ class RestrictedWallet : public WalletBase<RestrictedWallet, RestrictedWalletTra
     vm::CellBuilder cb;
     cb.store_long(0, 32);
     cb.store_long(init_data.wallet_id, 32);
-    CHECK(init_data.init_key.size() == 32);
-    CHECK(init_data.main_key.size() == 32);
+    if (init_data.init_key.size() != 32 || init_data.main_key.size() != 32) {
+      return {};
+    }
     cb.store_bytes(init_data.init_key.as_slice());
     cb.store_bytes(init_data.main_key.as_slice());
     return cb.finalize();
@@ -140,13 +141,15 @@ class RestrictedWallet : public WalletBase<RestrictedWallet, RestrictedWalletTra
     cb.store_maybe_ref(dict.get_root_cell());
 
     auto message_outer = cb.finalize();
-    auto signature = init_private_key.sign(message_outer->get_hash().as_slice()).move_as_ok();
+    TRY_RESULT(signature, init_private_key.sign(message_outer->get_hash().as_slice()));
     return vm::CellBuilder().store_bytes(signature).append_cellslice(vm::load_cell_slice(message_outer)).finalize();
   }
 
   td::Result<td::Ref<vm::Cell>> make_a_gift_message(const td::Ed25519::PrivateKey& private_key, td::uint32 valid_until,
                                                     td::Span<Gift> gifts) const override {
-    CHECK(gifts.size() <= Traits::max_gifts_size);
+    if (gifts.size() > Traits::max_gifts_size) {
+      return td::Status::Error("Too many messages");
+    }
 
     vm::CellBuilder cb;
     TRY_RESULT(seqno, get_seqno());
@@ -163,11 +166,12 @@ class RestrictedWallet : public WalletBase<RestrictedWallet, RestrictedWalletTra
       if (gift.gramms == -1) {
         send_mode += 128;
       }
-      cb.store_long(send_mode, 8).store_ref(create_int_message(gift));
+      TRY_RESULT(message, try_create_int_message(gift));
+      cb.store_long(send_mode, 8).store_ref(std::move(message));
     }
 
     auto message_outer = cb.finalize();
-    auto signature = private_key.sign(message_outer->get_hash().as_slice()).move_as_ok();
+    TRY_RESULT(signature, private_key.sign(message_outer->get_hash().as_slice()));
     return vm::CellBuilder().store_bytes(signature).append_cellslice(vm::load_cell_slice(message_outer)).finalize();
   }
 };

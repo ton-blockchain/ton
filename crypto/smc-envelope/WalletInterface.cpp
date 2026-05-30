@@ -18,6 +18,8 @@
 */
 #include "WalletInterface.h"
 
+#include "td/utils/logging.h"
+
 namespace ton {
 td::Result<td::uint64> WalletInterface::get_balance(td::uint64 account_balance, td::uint32 now) const {
   return TRY_VM([&]() -> td::Result<td::uint64> {
@@ -46,35 +48,58 @@ td::Result<td::Ref<vm::Cell>> WalletInterface::get_init_message(const td::Ed2551
   return make_a_gift_message(private_key, valid_until, {});
 }
 
-td::Ref<vm::Cell> WalletInterface::create_int_message(const Gift &gift) {
+td::Result<td::Ref<vm::Cell>> WalletInterface::try_create_int_message(const Gift &gift) {
   vm::CellBuilder cbi;
-  GenericAccount::store_int_message(cbi, gift.destination, gift.gramms < 0 ? 0 : gift.gramms, gift.extra_currencies);
-  if (gift.init_state.not_null()) {
-    cbi.store_ones(2);
-    cbi.store_ref(gift.init_state);
-  } else {
-    cbi.store_zeroes(1);
+  if (!GenericAccount::store_int_message(cbi, gift.destination, gift.gramms < 0 ? 0 : gift.gramms,
+                                         gift.extra_currencies)) {
+    return td::Status::Error("Failed to store internal message header");
   }
-  store_gift_message(cbi, gift);
-  return cbi.finalize();
+  if (gift.init_state.not_null()) {
+    if (!(cbi.store_ones_bool(2) && cbi.store_ref_bool(gift.init_state))) {
+      return td::Status::Error("Failed to store internal message init state");
+    }
+  } else if (!cbi.store_zeroes_bool(1)) {
+    return td::Status::Error("Failed to store empty internal message init state");
+  }
+  TRY_STATUS(store_gift_message(cbi, gift));
+  td::Ref<vm::Cell> res;
+  if (!cbi.finalize_to(res)) {
+    return td::Status::Error("Failed to finalize internal message");
+  }
+  return res;
 }
-void WalletInterface::store_gift_message(vm::CellBuilder &cb, const Gift &gift) {
+
+td::Ref<vm::Cell> WalletInterface::create_int_message(const Gift &gift) {
+  auto r_message = try_create_int_message(gift);
+  if (r_message.is_error()) {
+    LOG(ERROR) << "Failed to create internal message: " << r_message.error();
+    return {};
+  }
+  return r_message.move_as_ok();
+}
+
+td::Status WalletInterface::store_gift_message(vm::CellBuilder &cb, const Gift &gift) {
   if (gift.body.not_null()) {
     auto body = vm::load_cell_slice(gift.body);
     if (cb.can_extend_by(1 + body.size(), body.size_refs())) {
-      CHECK(cb.store_zeroes_bool(1) && cb.append_cellslice_bool(body));
-    } else {
-      CHECK(cb.store_ones_bool(1) && cb.store_ref_bool(gift.body));
+      if (cb.store_zeroes_bool(1) && cb.append_cellslice_bool(body)) {
+        return td::Status::OK();
+      }
+      return td::Status::Error("Failed to store inline message body");
     }
-    return;
+    if (cb.store_ones_bool(1) && cb.store_ref_bool(gift.body)) {
+      return td::Status::OK();
+    }
+    return td::Status::Error("Failed to store referenced message body");
   }
 
-  cb.store_zeroes(1);
-  if (gift.is_encrypted) {
-    cb.store_long(EncryptedCommentOp, 32);
-  } else {
-    cb.store_long(0, 32);
+  if (!cb.store_zeroes_bool(1)) {
+    return td::Status::Error("Failed to store empty message body marker");
   }
-  vm::CellString::store(cb, gift.message, 35 * 8).ensure();
+  if (!cb.store_long_bool(gift.is_encrypted ? EncryptedCommentOp : 0, 32)) {
+    return td::Status::Error("Failed to store message body type");
+  }
+  TRY_STATUS(vm::CellString::store(cb, gift.message, 35 * 8));
+  return td::Status::OK();
 }
 }  // namespace ton

@@ -157,11 +157,14 @@ td::Span<int> SmartContractCode::get_revisions(Type type) {
       return res;
     }
   }
-  UNREACHABLE();
+  return {};
 }
 
 td::Result<int> SmartContractCode::validate_revision(Type type, int revision) {
   auto revisions = get_revisions(type);
+  if (revisions.empty()) {
+    return td::Status::Error("Unknown smart contract code type");
+  }
   if (revision == -1) {
     if (revisions[0] == -1) {
       return -1;
@@ -180,7 +183,11 @@ td::Result<int> SmartContractCode::validate_revision(Type type, int revision) {
 }
 
 td::Ref<vm::Cell> SmartContractCode::get_code(Type type, int ext_revision) {
-  auto revision = validate_revision(type, ext_revision).move_as_ok();
+  auto r_revision = validate_revision(type, ext_revision);
+  if (r_revision.is_error()) {
+    return {};
+  }
+  auto revision = r_revision.move_as_ok();
   auto basename = [](Type type) -> td::Slice {
     switch (type) {
       case Type::WalletV3:
@@ -200,12 +207,23 @@ td::Ref<vm::Cell> SmartContractCode::get_code(Type type, int ext_revision) {
       case Type::WalletV4:
         return "wallet-v4";
     }
-    UNREACHABLE();
+    return {};
   }(type);
-  if (revision == -1) {
-    return load(basename).move_as_ok();
+  if (basename.empty()) {
+    return {};
   }
-  return load(PSLICE() << basename << "-r" << revision).move_as_ok();
+  if (revision == -1) {
+    auto r_code = load(basename);
+    if (r_code.is_error()) {
+      return {};
+    }
+    return r_code.move_as_ok();
+  }
+  auto r_code = load(PSLICE() << basename << "-r" << revision);
+  if (r_code.is_error()) {
+    return {};
+  }
+  return r_code.move_as_ok();
 }
 
 }  // namespace ton
