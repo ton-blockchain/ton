@@ -221,6 +221,9 @@ class LogCategory {
   int default_level() const {
     return default_level_;
   }
+  int override_level() const {
+    return override_level_.load(std::memory_order_relaxed);
+  }
   void set_level(int level) {
     override_level_.store(level, std::memory_order_relaxed);
   }

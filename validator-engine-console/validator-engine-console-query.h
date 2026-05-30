@@ -764,6 +764,48 @@ class SetVerbosityQuery : public Query {
   td::uint32 verbosity_;
 };
 
+class SetLogCategoryVerbosityQuery : public Query {
+ public:
+  SetLogCategoryVerbosityQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-vcategory";
+  }
+  static std::string get_help() {
+    return "set-vcategory <name> <value|default>\tchanges category verbosity level";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string category_;
+  td::int32 verbosity_;
+};
+
+class GetLogCategoriesQuery : public Query {
+ public:
+  GetLogCategoriesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-vcategories";
+  }
+  static std::string get_help() {
+    return "get-vcategories\tprints log categories and levels";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
 class GetStatsQuery : public Query {
  public:
   GetStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
