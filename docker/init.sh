@@ -125,20 +125,12 @@ fi
 # Generating server certificate
 if [ -f "./server" ]; then
     echo -e "\e[1;33m[=]\e[0m Found existing server certificate, skipping"
-    SERVER_ID1=$(generate-random-id -m adnlid -k ./server | awk '{print $1}')
-    test $? -eq 0 || { echo "Cannot derive server keyring id from existing certificate"; exit 2; }
-    if [ -z "$SERVER_ID1" ]; then
-        echo "Cannot derive server keyring id from existing certificate"
-        exit 2
-    fi
     SERVER_ID2=$(generate-random-id -m id -k ./server | sed -n '3p' | jq -r '.id')
     test $? -eq 0 || { echo "Cannot derive server public id from existing certificate"; exit 2; }
     if [ -z "$SERVER_ID2" ] || [ "$SERVER_ID2" = "null" ]; then
         echo "Cannot derive server public id from existing certificate"
         exit 2
     fi
-    cp ./server /var/ton-work/db/keyring/$SERVER_ID1
-    test $? -eq 0 || { echo "Cannot install server private key into keyring"; exit 2; }
 else
     echo -e "\e[1;32m[+]\e[0m Generating and installing server certificate for remote control"
     read -r SERVER_ID1 SERVER_ID2 <<< $(generate-random-id -m keys -n server)
@@ -212,20 +204,12 @@ else
 
     if [ -f "./liteserver" ]; then
         echo -e "\e[1;33m[=]\e[0m Found existing liteserver certificate, skipping"
-        LITESERVER_ID1=$(generate-random-id -m adnlid -k ./liteserver | awk '{print $1}')
-        test $? -eq 0 || { echo "Cannot derive liteserver keyring id from existing certificate"; exit 2; }
-        if [ -z "$LITESERVER_ID1" ]; then
-            echo "Cannot derive liteserver keyring id from existing certificate"
-            exit 2
-        fi
         LITESERVER_ID2=$(generate-random-id -m id -k ./liteserver | sed -n '3p' | jq -r '.id')
         test $? -eq 0 || { echo "Cannot derive liteserver public id from existing certificate"; exit 2; }
         if [ -z "$LITESERVER_ID2" ] || [ "$LITESERVER_ID2" = "null" ]; then
             echo "Cannot derive liteserver public id from existing certificate"
             exit 2
         fi
-        cp ./liteserver /var/ton-work/db/keyring/$LITESERVER_ID1
-        test $? -eq 0 || { echo "Cannot install liteserver private key into keyring"; exit 2; }
     else
         echo -e "\e[1;32m[+]\e[0m Generating and installing liteserver certificate for remote control"
         read -r LITESERVER_ID1 LITESERVER_ID2 <<< $(generate-random-id -m keys -n liteserver)
