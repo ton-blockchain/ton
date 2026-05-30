@@ -130,6 +130,7 @@ td::Ref<vm::Cell> GenericAccount::create_ext_message(const block::StdAddress& ad
       message.init = cb.as_cellslice_ref();
     }
   }
+  bool body_stored_by_ref = false;
   /* body */ {
     vm::CellBuilder cb;
     auto body_slice = vm::load_cell_slice_ref(body);
@@ -139,13 +140,25 @@ td::Ref<vm::Cell> GenericAccount::create_ext_message(const block::StdAddress& ad
       }
     } else if (!(cb.store_ones_bool(1) && cb.store_ref_bool(body))) {
       return {};
+    } else {
+      body_stored_by_ref = true;
     }
     message.body = cb.as_cellslice_ref();
   }
 
   td::Ref<vm::Cell> res;
   if (!tlb::type_pack_cell(res, block::gen::t_Message_Any, message) || res.is_null()) {
-    return {};
+    if (body_stored_by_ref) {
+      return {};
+    }
+    vm::CellBuilder ref_body;
+    if (!(ref_body.store_ones_bool(1) && ref_body.store_ref_bool(body))) {
+      return {};
+    }
+    message.body = ref_body.as_cellslice_ref();
+    if (!tlb::type_pack_cell(res, block::gen::t_Message_Any, message) || res.is_null()) {
+      return {};
+    }
   }
 
   return res;
