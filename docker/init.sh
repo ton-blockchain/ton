@@ -125,12 +125,20 @@ fi
 # Generating server certificate
 if [ -f "./server" ]; then
     echo -e "\e[1;33m[=]\e[0m Found existing server certificate, skipping"
+    SERVER_ID1=$(generate-random-id -m adnlid -k ./server | awk '{print $1}')
+    test $? -eq 0 || { echo "Cannot derive server keyring id from existing certificate"; exit 2; }
+    if [ -z "$SERVER_ID1" ]; then
+        echo "Cannot derive server keyring id from existing certificate"
+        exit 2
+    fi
     SERVER_ID2=$(generate-random-id -m id -k ./server | sed -n '3p' | jq -r '.id')
     test $? -eq 0 || { echo "Cannot derive server public id from existing certificate"; exit 2; }
     if [ -z "$SERVER_ID2" ] || [ "$SERVER_ID2" = "null" ]; then
         echo "Cannot derive server public id from existing certificate"
         exit 2
     fi
+    cp ./server /var/ton-work/db/keyring/$SERVER_ID1
+    test $? -eq 0 || { echo "Cannot install server private key into keyring"; exit 2; }
 else
     echo -e "\e[1;32m[+]\e[0m Generating and installing server certificate for remote control"
     read -r SERVER_ID1 SERVER_ID2 <<< $(generate-random-id -m keys -n server)
@@ -160,8 +168,8 @@ test $? -eq 0 || { echo "Cannot create temporary control config file"; exit 2; }
 jq --arg server_id "$SERVER_ID2" --arg client_id "$CLIENT_ID2" --argjson console_port "$CONSOLE_PORT" '
   .control = (
     (.control // []) as $control
-    | ($control | map(select(.id != $server_id))) as $other_controls
-    | ($control | map(select(.id == $server_id))[0] // {
+    | ($control | map(select(.port != $console_port and .id != $server_id))) as $other_controls
+    | ($control | map(select(.port == $console_port or .id == $server_id))[0] // {
         "@type":"engine.controlInterface",
         "id":$server_id,
         "port":$console_port,
@@ -204,12 +212,20 @@ else
 
     if [ -f "./liteserver" ]; then
         echo -e "\e[1;33m[=]\e[0m Found existing liteserver certificate, skipping"
+        LITESERVER_ID1=$(generate-random-id -m adnlid -k ./liteserver | awk '{print $1}')
+        test $? -eq 0 || { echo "Cannot derive liteserver keyring id from existing certificate"; exit 2; }
+        if [ -z "$LITESERVER_ID1" ]; then
+            echo "Cannot derive liteserver keyring id from existing certificate"
+            exit 2
+        fi
         LITESERVER_ID2=$(generate-random-id -m id -k ./liteserver | sed -n '3p' | jq -r '.id')
         test $? -eq 0 || { echo "Cannot derive liteserver public id from existing certificate"; exit 2; }
         if [ -z "$LITESERVER_ID2" ] || [ "$LITESERVER_ID2" = "null" ]; then
             echo "Cannot derive liteserver public id from existing certificate"
             exit 2
         fi
+        cp ./liteserver /var/ton-work/db/keyring/$LITESERVER_ID1
+        test $? -eq 0 || { echo "Cannot install liteserver private key into keyring"; exit 2; }
     else
         echo -e "\e[1;32m[+]\e[0m Generating and installing liteserver certificate for remote control"
         read -r LITESERVER_ID1 LITESERVER_ID2 <<< $(generate-random-id -m keys -n liteserver)
@@ -223,15 +239,17 @@ else
     jq --arg liteserver_id "$LITESERVER_ID2" --argjson lite_port "$LITE_PORT" '
       .liteservers = (
         (.liteservers // []) as $liteservers
-        | if ($liteservers | any(.id == $liteserver_id))
-          then ($liteservers | map(
-            if .id == $liteserver_id
-            then . + {"port": $lite_port}
-            else .
-            end
-          ))
-          else $liteservers + [{"@type":"engine.liteServer","id":$liteserver_id,"port":$lite_port}]
-          end
+        | ($liteservers | map(select(.port != $lite_port and .id != $liteserver_id))) as $other_liteservers
+        | ($liteservers | map(select(.port == $lite_port or .id == $liteserver_id))[0] // {
+            "@type":"engine.liteServer",
+            "id":$liteserver_id,
+            "port":$lite_port
+          }) as $managed_liteserver
+        | $other_liteservers + [($managed_liteserver + {
+            "@type":"engine.liteServer",
+            "id":$liteserver_id,
+            "port":$lite_port
+          })]
       )
     ' /var/ton-work/db/config.json > "$LITESERVER_CONFIG_TMP"
     test $? -eq 0 || { rm -f "$LITESERVER_CONFIG_TMP"; echo "Cannot apply liteserver config"; exit 2; }
