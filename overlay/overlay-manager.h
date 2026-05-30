@@ -34,6 +34,7 @@ namespace ton {
 namespace overlay {
 
 constexpr int VERBOSITY_NAME(OVERLAY_WARNING) = verbosity_WARNING;
+constexpr int VERBOSITY_NAME(OVERLAY_BENCHMARK) = verbosity_WARNING;
 constexpr int VERBOSITY_NAME(OVERLAY_NOTICE) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(OVERLAY_INFO) = verbosity_DEBUG;
 constexpr int VERBOSITY_NAME(OVERLAY_DEBUG) = verbosity_DEBUG + 1;

@@ -385,6 +385,16 @@ void OverlayImpl::alarm() {
 
   if (update_throughput_at_.is_in_past()) {
     double t_elapsed = td::Time::now() - last_throughput_update_.at();
+    const auto &overlay_name = opts_.name_.empty() ? "unknown" : opts_.name_;
+
+    VLOG(OVERLAY_BENCHMARK) << "Overlay_traffic"
+                            << " overlay_name=" << overlay_name
+                            << " overlay_id=" << overlay_id_.bits256_value().to_hex()
+                            << " duration_sec=" << t_elapsed
+                            << " out_bytes=" << total_traffic_ctr.out_bytes
+                            << " in_bytes=" << total_traffic_ctr.in_bytes
+                            << " out_pckts=" << total_traffic_ctr.out_packets
+                            << " in_pckts=" << total_traffic_ctr.in_packets;
 
     auto SelfId = actor_id(this);
     iterate_all_peers([&](const adnl::AdnlNodeIdShort &key, OverlayPeer &peer) {
