@@ -5764,6 +5764,10 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const
   return tonlib_api::make_object<tonlib_api::logTags>(Logging::get_tags());
 }
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const tonlib_api::addLogMessage& request) {
+  if (request.verbosity_level_ < VERBOSITY_NAME(ERROR) || request.verbosity_level_ > VERBOSITY_NAME(NEVER)) {
+    return status_to_tonlib_api(
+        TonlibError::InvalidField("verbosity_level", "must be between 1 and 1024"));
+  }
   Logging::add_message(request.verbosity_level_, request.text_);
   return tonlib_api::make_object<tonlib_api::ok>();
 }
