@@ -2522,64 +2522,86 @@ void TonlibClient::on_update(object_ptr<tonlib_api::Object> response) {
 
 void TonlibClient::make_any_request(tonlib_api::Function& function, QueryContext query_context,
                                     td::Promise<tonlib_api::object_ptr<tonlib_api::Object>>&& promise) {
-  auto old_context = std::move(query_context_);
-  SCOPE_EXIT {
-    query_context_ = std::move(old_context);
-  };
-  query_context_ = std::move(query_context);
-  downcast_call(function, [&](auto& request) { this->make_request(request, promise.wrap([](auto x) { return x; })); });
+  try {
+    auto old_context = std::move(query_context_);
+    SCOPE_EXIT {
+      query_context_ = std::move(old_context);
+    };
+    query_context_ = std::move(query_context);
+    downcast_call(function, [&](auto& request) { this->make_request(request, promise.wrap([](auto x) { return x; })); });
+  } catch (const std::exception& error) {
+    promise.set_error(TonlibError::Internal(PSLICE() << "Unhandled exception: " << error.what()));
+  } catch (...) {
+    promise.set_error(TonlibError::Internal("Unhandled unknown exception"));
+  }
 }
 
 void TonlibClient::request(td::uint64 id, tonlib_api::object_ptr<tonlib_api::Function> function) {
-  VLOG(tonlib_query) << "Tonlib got query " << td::tag("id", id) << " " << to_string(function);
-  if (function == nullptr) {
-    LOG(ERROR) << "Receive empty static request";
-    return on_result(id, tonlib_api::make_object<tonlib_api::error>(400, "Request is empty"));
-  }
-
-  if (is_static_request(function->get_id())) {
-    return on_result(id, static_request(std::move(function)));
-  }
-
-  if (state_ == State::Closed) {
-    return on_result(id, tonlib_api::make_object<tonlib_api::error>(400, "tonlib is closed"));
-  }
-  if (state_ == State::Uninited) {
-    if (!is_uninited_request(function->get_id())) {
-      return on_result(id, tonlib_api::make_object<tonlib_api::error>(400, "library is not inited"));
-    }
-  }
-
-  ref_cnt_++;
-  using Object = tonlib_api::object_ptr<tonlib_api::Object>;
-  td::Promise<Object> promise = [actor_id = actor_id(this), id, tmp = actor_shared(this)](td::Result<Object> r_result) {
-    tonlib_api::object_ptr<tonlib_api::Object> result;
-    if (r_result.is_error()) {
-      result = status_to_tonlib_api(r_result.error());
-    } else {
-      result = r_result.move_as_ok();
+  try {
+    VLOG(tonlib_query) << "Tonlib got query " << td::tag("id", id) << " " << to_string(function);
+    if (function == nullptr) {
+      LOG(ERROR) << "Receive empty static request";
+      return on_result(id, tonlib_api::make_object<tonlib_api::error>(400, "Request is empty"));
     }
 
-    send_closure(actor_id, &TonlibClient::on_result, id, std::move(result));
-  };
+    if (is_static_request(function->get_id())) {
+      return on_result(id, static_request(std::move(function)));
+    }
 
-  make_any_request(*function, {}, std::move(promise));
+    if (state_ == State::Closed) {
+      return on_result(id, tonlib_api::make_object<tonlib_api::error>(400, "tonlib is closed"));
+    }
+    if (state_ == State::Uninited) {
+      if (!is_uninited_request(function->get_id())) {
+        return on_result(id, tonlib_api::make_object<tonlib_api::error>(400, "library is not inited"));
+      }
+    }
+
+    ref_cnt_++;
+    using Object = tonlib_api::object_ptr<tonlib_api::Object>;
+    td::Promise<Object> promise = [actor_id = actor_id(this), id, tmp = actor_shared(this)](
+                                      td::Result<Object> r_result) {
+      tonlib_api::object_ptr<tonlib_api::Object> result;
+      if (r_result.is_error()) {
+        result = status_to_tonlib_api(r_result.error());
+      } else {
+        result = r_result.move_as_ok();
+      }
+
+      send_closure(actor_id, &TonlibClient::on_result, id, std::move(result));
+    };
+
+    make_any_request(*function, {}, std::move(promise));
+  } catch (const std::exception& error) {
+    on_result(id, status_to_tonlib_api(TonlibError::Internal(PSLICE() << "Unhandled exception: " << error.what())));
+  } catch (...) {
+    on_result(id, status_to_tonlib_api(TonlibError::Internal("Unhandled unknown exception")));
+  }
 }
 void TonlibClient::close() {
   stop();
 }
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::static_request(
     tonlib_api::object_ptr<tonlib_api::Function> function) {
-  VLOG(tonlib_query) << "Tonlib got static query " << to_string(function);
-  if (function == nullptr) {
-    LOG(ERROR) << "Receive empty static request";
-    return tonlib_api::make_object<tonlib_api::error>(400, "Request is empty");
-  }
+  try {
+    VLOG(tonlib_query) << "Tonlib got static query " << to_string(function);
+    if (function == nullptr) {
+      LOG(ERROR) << "Receive empty static request";
+      return tonlib_api::make_object<tonlib_api::error>(400, "Request is empty");
+    }
 
-  auto response = downcast_call2<tonlib_api::object_ptr<tonlib_api::Object>>(
-      *function, [](auto& request) { return TonlibClient::do_static_request(request); });
-  VLOG(tonlib_query) << "  answer static query " << to_string(response);
-  return response;
+    auto response = downcast_call2<tonlib_api::object_ptr<tonlib_api::Object>>(
+        *function, [](auto& request) { return TonlibClient::do_static_request(request); });
+    if (!response) {
+      response = status_to_tonlib_api(TonlibError::Internal("Static request returned empty response"));
+    }
+    VLOG(tonlib_query) << "  answer static query " << to_string(response);
+    return response;
+  } catch (const std::exception& error) {
+    return status_to_tonlib_api(TonlibError::Internal(PSLICE() << "Unhandled exception: " << error.what()));
+  } catch (...) {
+    return status_to_tonlib_api(TonlibError::Internal("Unhandled unknown exception"));
+  }
 }
 
 bool TonlibClient::is_static_request(td::int32 id) {
