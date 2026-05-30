@@ -2100,6 +2100,9 @@ class RunEmulator : public TonlibQueryActor {
                       return status.move_as_error();
                     }
 
+                    if (prev_blocks.size() != 1 && prev_blocks.size() != 2) {
+                      return td::Status::Error("block header has invalid number of previous blocks");
+                    }
                     ton::BlockIdExt prev_block;
                     if (prev_blocks.size() == 1 || ton::shard_is_ancestor(prev_blocks[0].id.shard, shard_id)) {
                       prev_block = std::move(prev_blocks[0]);
@@ -2164,8 +2167,12 @@ class RunEmulator : public TonlibQueryActor {
 
           auto bTxes = maybe_bTxes.move_as_ok();
 
-          self->check(
-              check_block_transactions_proof(bTxes, mode, lt, self->request_.address.addr, root_hash, req_count));
+          auto proof_status =
+              check_block_transactions_proof(bTxes, mode, lt, self->request_.address.addr, root_hash, req_count);
+          if (proof_status.is_error()) {
+            self->check(std::move(proof_status));
+            return;
+          }
 
           std::int64_t last_lt = 0;
           for (auto& id : bTxes->ids_) {
@@ -2201,8 +2208,12 @@ class RunEmulator : public TonlibQueryActor {
     auto actor_id = actor_id_++;
     actors_[actor_id] = td::actor::create_actor<GetTransactionHistory>(
         "GetTransactionHistory", client_.get_client(), request_.address, lt, hash, 1, actor_shared(this, actor_id),
-        promise.wrap(
-            [](auto&& transactions) mutable { return std::move(transactions.transactions.front().transaction); }));
+        promise.wrap([](auto&& transactions) mutable -> td::Result<td::Ref<vm::Cell>> {
+          if (transactions.transactions.empty()) {
+            return td::Status::Error("Transaction list is empty");
+          }
+          return std::move(transactions.transactions.front().transaction);
+        }));
   }
 
   void start_up() override {
@@ -5417,7 +5428,7 @@ void TonlibClient::finish_dns_resolve(std::string name, td::Bits256 category, td
       TRY_STATUS_PROMISE(promise, TonlibError::Internal("domain is not a suffix of the query"));
     }
     auto prefix = name.substr(0, suffix_start);
-    if (!prefix.empty() && prefix.back() != '.' && suffix[0] != '.') {
+    if (!prefix.empty() && prefix.back() != '.' && (suffix.empty() || suffix[0] != '.')) {
       TRY_STATUS_PROMISE(promise, td::Status::Error("next resolver error: domain split not at a component boundary "));
     }
     if (!entries[0].data.data.has<ton::ManualDns::EntryDataNextResolver>()) {
