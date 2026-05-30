@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <exception>
+
 #include "auto/tl/ton_api.hpp"
 #include "auto/tl/tonlib_api.hpp"
 #include "block/block-auto.h"
@@ -57,8 +59,6 @@
 #include "vm/vm.h"
 
 #include "TonlibClient.h"
-
-#include <exception>
 
 template <class Type>
 using lite_api_ptr = ton::lite_api::object_ptr<Type>;
@@ -1758,9 +1758,9 @@ class GetShardBlockProof : public td::actor::Actor {
           block::gen::Block::Record blk;
           block::gen::BlockExtra::Record extra;
           block::gen::McBlockExtra::Record mc_extra;
-          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) ||
-              extra.custom.is_null() || !extra.custom->have_refs() ||
-              !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) || mc_extra.shard_hashes.is_null()) {
+          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) || extra.custom.is_null() ||
+              !extra.custom->have_refs() || !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) ||
+              mc_extra.shard_hashes.is_null()) {
             abort(td::Status::Error("cannot unpack block header"));
             return;
           }
@@ -2528,7 +2528,8 @@ void TonlibClient::make_any_request(tonlib_api::Function& function, QueryContext
       query_context_ = std::move(old_context);
     };
     query_context_ = std::move(query_context);
-    downcast_call(function, [&](auto& request) { this->make_request(request, promise.wrap([](auto x) { return x; })); });
+    downcast_call(function,
+                  [&](auto& request) { this->make_request(request, promise.wrap([](auto x) { return x; })); });
   } catch (const std::exception& error) {
     promise.set_error(TonlibError::Internal(PSLICE() << "Unhandled exception: " << error.what()));
   } catch (...) {
@@ -2559,8 +2560,8 @@ void TonlibClient::request(td::uint64 id, tonlib_api::object_ptr<tonlib_api::Fun
 
     ref_cnt_++;
     using Object = tonlib_api::object_ptr<tonlib_api::Object>;
-    td::Promise<Object> promise = [actor_id = actor_id(this), id, tmp = actor_shared(this)](
-                                      td::Result<Object> r_result) {
+    td::Promise<Object> promise = [actor_id = actor_id(this), id,
+                                   tmp = actor_shared(this)](td::Result<Object> r_result) {
       tonlib_api::object_ptr<tonlib_api::Object> result;
       if (r_result.is_error()) {
         result = status_to_tonlib_api(r_result.error());
@@ -5319,8 +5320,8 @@ void TonlibClient::perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::S
     std::vector<td::Bits256> req = {hash};
     client_.send_query(
         ton::lite_api::liteServer_getLibraries(std::move(req)),
-        [self = this, res = std::move(res), res_stack = std::move(res_stack), hash,
-         missing_library_fetches, smc = std::move(smc), args = std::move(args), promise = std::move(promise)](
+        [self = this, res = std::move(res), res_stack = std::move(res_stack), hash, missing_library_fetches,
+         smc = std::move(smc), args = std::move(args), promise = std::move(promise)](
             td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResult>> r_libraries) mutable {
           if (r_libraries.is_error()) {
             LOG(WARNING) << "cannot obtain missing library: " << r_libraries.move_as_error().to_string();
@@ -5797,8 +5798,7 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const
 }
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const tonlib_api::addLogMessage& request) {
   if (request.verbosity_level_ < VERBOSITY_NAME(ERROR) || request.verbosity_level_ > VERBOSITY_NAME(NEVER)) {
-    return status_to_tonlib_api(
-        TonlibError::InvalidField("verbosity_level", "must be between 1 and 1024"));
+    return status_to_tonlib_api(TonlibError::InvalidField("verbosity_level", "must be between 1 and 1024"));
   }
   Logging::add_message(request.verbosity_level_, request.text_);
   return tonlib_api::make_object<tonlib_api::ok>();
@@ -6238,9 +6238,9 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
           block::gen::Block::Record blk;
           block::gen::BlockExtra::Record extra;
           block::gen::McBlockExtra::Record mc_extra;
-          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) ||
-              extra.custom.is_null() || !extra.custom->have_refs() ||
-              !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) || mc_extra.shard_hashes.is_null()) {
+          if (!tlb::unpack_cell(block_root, blk) || !tlb::unpack_cell(blk.extra, extra) || extra.custom.is_null() ||
+              !extra.custom->have_refs() || !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) ||
+              mc_extra.shard_hashes.is_null()) {
             return td::Status::Error("cannot unpack block header");
           }
           block::ShardConfig shards(mc_extra.shard_hashes->prefetch_ref());

@@ -510,20 +510,20 @@ td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td:
     if (category.is_zero()) {
       vm::Dictionary dict(std::move(data), 256);
       if (!dict.check_for_each([&](td::Ref<vm::CellSlice> cs, td::ConstBitPtr key, int n) {
-        if (n != 256) {
-          return false;
-        }
-        if (cs.is_null() || cs->size_ext() != 0x10000) {
-          return true;
-        }
-        auto value = cs->prefetch_ref();
-        if (value.is_null()) {
-          return false;
-        }
-        cs = vm::load_cell_slice_ref(std::move(value));
-        vec.push_back({name.str(), td::Bits256(key), cs});
-        return true;
-      })) {
+            if (n != 256) {
+              return false;
+            }
+            if (cs.is_null() || cs->size_ext() != 0x10000) {
+              return true;
+            }
+            auto value = cs->prefetch_ref();
+            if (value.is_null()) {
+              return false;
+            }
+            cs = vm::load_cell_slice_ref(std::move(value));
+            vec.push_back({name.str(), td::Bits256(key), cs});
+            return true;
+          })) {
         return td::Status::Error("Invalid DNS category dictionary");
       }
     } else {

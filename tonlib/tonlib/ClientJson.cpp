@@ -92,7 +92,7 @@ void ClientJson::send(td::Slice request) {
       extra_[extra_id] = std::move(parsed_request.second);
     }
     client_.send(Client::Request{extra_id, std::move(parsed_request.first)});
-  } catch (const std::exception& error) {
+  } catch (const std::exception &error) {
     LOG(ERROR) << "Unhandled exception while sending JSON request: " << error.what();
   } catch (...) {
     LOG(ERROR) << "Unhandled unknown exception while sending JSON request";
@@ -131,7 +131,7 @@ td::CSlice ClientJson::execute(td::Slice request) {
       return store_error_response(500, "Request returned empty response");
     }
     return store_string(from_response(*response.object, parsed_request.second));
-  } catch (const std::exception& error) {
+  } catch (const std::exception &error) {
     LOG(ERROR) << "Unhandled exception while executing JSON request: " << error.what();
     return store_error_response(500, PSLICE() << "Unhandled exception: " << error.what());
   } catch (...) {

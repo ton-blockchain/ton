@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <exception>
+
 #include "block/block-auto.h"
 #include "block/block.h"
 #include "td/utils/crypto.h"
@@ -27,8 +29,6 @@
 #include "GenericAccount.h"
 #include "SmartContract.h"
 #include "transaction.h"
-
-#include <exception>
 
 namespace ton {
 unsigned SmartContract::Answer::output_actions_count(td::Ref<vm::Cell> list) {

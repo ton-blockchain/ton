@@ -36,8 +36,8 @@ td::Ref<vm::Cell> Wallet::get_init_state(const td::Ed25519::PublicKey& public_ke
 td::Ref<vm::Cell> Wallet::get_init_message_new(const td::Ed25519::PrivateKey& private_key) noexcept {
   td::uint32 seqno = 0;
   td::uint32 valid_until = std::numeric_limits<td::uint32>::max();
-  auto r_signature =
-      private_key.sign(vm::CellBuilder().store_long(seqno, 32).store_long(valid_until, 32).finalize()->get_hash().as_slice());
+  auto r_signature = private_key.sign(
+      vm::CellBuilder().store_long(seqno, 32).store_long(valid_until, 32).finalize()->get_hash().as_slice());
   if (r_signature.is_error()) {
     return {};
   }

@@ -16,9 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "WalletInterface.h"
-
 #include "td/utils/logging.h"
+
+#include "WalletInterface.h"
 
 namespace ton {
 td::Result<td::uint64> WalletInterface::get_balance(td::uint64 account_balance, td::uint32 now) const {
