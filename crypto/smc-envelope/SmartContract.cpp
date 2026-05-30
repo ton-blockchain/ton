@@ -28,6 +28,8 @@
 #include "SmartContract.h"
 #include "transaction.h"
 
+#include <exception>
+
 namespace ton {
 unsigned SmartContract::Answer::output_actions_count(td::Ref<vm::Cell> list) {
   int i = -1;
@@ -275,17 +277,35 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
       vm.set_max_data_depth(r_limits.ok().max_vm_data_depth);
     }
   }
+  bool unhandled_exception = false;
+  auto set_unhandled_exception = [&](int exit_code, const char* message) {
+    unhandled_exception = true;
+    res.code = ~exit_code;
+    logger.res.append("Unhandled VM exception: ");
+    logger.res.append(message ? message : "unknown exception");
+    logger.res.push_back('\n');
+  };
   try {
     res.code = ~vm.run();
+  } catch (const vm::VmError& err) {
+    set_unhandled_exception(err.get_errno(), err.get_msg());
+  } catch (const vm::VmVirtError& err) {
+    set_unhandled_exception(err.get_errno(), err.get_msg());
+  } catch (const vm::VmNoGas& err) {
+    set_unhandled_exception(err.get_errno(), err.get_msg());
+  } catch (const vm::VmFatal&) {
+    set_unhandled_exception(static_cast<int>(vm::Excno::fatal), "fatal error");
+  } catch (const std::exception& err) {
+    set_unhandled_exception(static_cast<int>(vm::Excno::fatal), err.what());
   } catch (...) {
-    LOG(FATAL) << "catch unhandled exception";
+    set_unhandled_exception(static_cast<int>(vm::Excno::fatal), "unknown exception");
   }
   res.new_state = std::move(state);
   res.stack = vm.get_stack_ref();
   gas = vm.get_gas_limits();
   res.gas_used = gas.gas_consumed();
   res.accepted = gas.gas_credit == 0;
-  res.success = (res.accepted && vm.committed());
+  res.success = (!unhandled_exception && res.accepted && vm.committed());
   res.vm_log = logger.res;
   if (GET_VERBOSITY_LEVEL() >= VERBOSITY_NAME(DEBUG)) {
     LOG(DEBUG) << "VM log\n" << logger.res;
