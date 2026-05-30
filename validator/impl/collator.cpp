@@ -1045,10 +1045,11 @@ void Collator::got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res) {
   if (block_id.is_masterchain()) {
     state_root = res->state_root_;
   } else {
-    neighbor_proof_builders_.push_back(vm::MerkleProofBuilder{res->state_root_});
-    state_root = neighbor_proof_builders_.back().root();
+    neighbor_proof_builders_.emplace_back(block_id, vm::MerkleProofBuilder{res->state_root_});
+    state_root = neighbor_proof_builders_.back().second.root();
     if (full_collated_data_ && !block_id.is_masterchain()) {
-      neighbor_proof_builders_.back().set_cell_load_callback([&](const vm::LoadedCell& cell) { on_cell_loaded(cell); });
+      neighbor_proof_builders_.back().second.set_cell_load_callback(
+          [&](const vm::LoadedCell& cell) { on_cell_loaded(cell); });
     }
   }
   auto state = ShardStateQ::fetch(block_id, {}, state_root);
@@ -2040,18 +2041,6 @@ bool Collator::try_collate() {
     LOG(DEBUG) << "have " << special_smcs.size() << " special smart contracts";
     for (auto addr : special_smcs) {
       LOG(DEBUG) << "special smart contract " << addr.to_hex();
-    }
-  }
-  if (is_masterchain()) {
-    LOG(DEBUG) << "getting the list of special tick-tock smart contracts";
-    auto res = config_->get_special_ticktock_smartcontracts(3);
-    if (res.is_error()) {
-      return fatal_error(res.move_as_error());
-    }
-    ticktock_smcs = res.move_as_ok();
-    LOG(DEBUG) << "have " << ticktock_smcs.size() << " tick-tock smart contracts";
-    for (auto addr : ticktock_smcs) {
-      LOG(DEBUG) << "special smart contract " << addr.first.to_hex() << " with ticktock=" << addr.second;
     }
   }
   if (is_masterchain() && prev_mc_block_seqno != last_block_seqno) {
@@ -6313,7 +6302,11 @@ bool Collator::create_collated_data() {
     }
   }
   // 4. Proofs for message queues
-  for (vm::MerkleProofBuilder& mpb : neighbor_proof_builders_) {
+  for (auto& [block_id, mpb] : neighbor_proof_builders_) {
+    if (prev_block_idx(block_id) != -1) {
+      // This was already generated in "3. Previous state proof"
+      continue;
+    }
     auto r_proof = vm::MerkleProof::generate(
         mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
     if (r_proof.is_error()) {
@@ -6462,21 +6455,8 @@ bool Collator::create_block_candidate() {
                                  << ") exceeds the limit in consensus config ("
                                  << consensus_config.max_collated_data_size << ")");
   }
-  // 4. save block candidate
-  if (params_.skip_store_candidate) {
-    td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate, td::Unit(), td::PerfLogAction{});
-  } else {
-    LOG(INFO) << "saving new BlockCandidate";
-    auto token = perf_log_.start_action("set_block_candidate");
-    td::actor::send_closure_later(manager, &ValidatorManager::set_block_candidate, block_candidate->id,
-                                  block_candidate->clone(), params_.validator_set->get_catchain_seqno(),
-                                  params_.validator_set->get_validator_set_hash(), false,
-                                  [self = get_self(), token = std::move(token)](td::Result<td::Unit> saved) mutable {
-                                    LOG(DEBUG) << "got answer to set_block_candidate";
-                                    td::actor::send_closure_later(std::move(self), &Collator::return_block_candidate,
-                                                                  std::move(saved), std::move(token));
-                                  });
-  }
+  // 4. finish collation
+  td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate);
   // 5. communicate about bad and delayed external messages
   if (!bad_ext_msgs_.empty() || !delay_ext_msgs_.empty()) {
     LOG(INFO) << "sending complete_external_messages() to Manager";
@@ -6492,28 +6472,19 @@ bool Collator::create_block_candidate() {
 
 /**
  * Returns a block candidate to the Promise.
- *
- * @param saved The result of saving the block candidate to the disk.
  */
-void Collator::return_block_candidate(td::Result<td::Unit> saved, td::PerfLogAction token) {
+void Collator::return_block_candidate() {
   // 6. return data to the original "caller"
-  token.finish(saved);
-  if (saved.is_error()) {
-    auto err = saved.move_as_error();
-    LOG(ERROR) << "cannot save block candidate: " << err.to_string();
-    fatal_error(std::move(err));
-  } else {
-    CHECK(block_candidate);
-    LOG(WARNING) << "sending new BlockCandidate to Promise";
-    LOG(WARNING) << "collation took " << perf_timer_.elapsed() << " s";
-    LOG(WARNING) << perf_log_;
-    finalize_stats();
-    stats_.status = td::Status::OK();
-    td::actor::send_closure(manager, &ValidatorManager::log_collate_query_stats, std::move(stats_));
-    main_promise.set_value(block_candidate->clone());
-    busy_ = false;
-    stop();
-  }
+  CHECK(block_candidate);
+  LOG(WARNING) << "sending new BlockCandidate to Promise";
+  LOG(WARNING) << "collation took " << perf_timer_.elapsed() << " s";
+  LOG(WARNING) << perf_log_;
+  finalize_stats();
+  stats_.status = td::Status::OK();
+  td::actor::send_closure(manager, &ValidatorManager::log_collate_query_stats, std::move(stats_));
+  main_promise.set_value(block_candidate->clone());
+  busy_ = false;
+  stop();
 }
 
 /*

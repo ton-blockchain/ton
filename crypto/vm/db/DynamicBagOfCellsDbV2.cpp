@@ -1142,7 +1142,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
 
     Ref<Cell> create_unloaded_cell(const Ref<Cell> &cell, int merkle_depth) override {
       bool loaded = false;
-      if (auto loaded_cell = load_cell_fast_path(cell->get_hash(merkle_depth).as_slice(), true, &loaded);
+      if (auto loaded_cell = load_cell_fast_path(cell->get_hash(merkle_depth).as_slice(), false, &loaded);
           loaded_cell.not_null()) {
         if (!loaded) {
           stats_.load_cell_sync_cache_hits.inc();

@@ -781,13 +781,13 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
   }
   st->register_chksgn_call();
   // Starting with TVM 14, reject the canonical Ed25519 identity public key
-  // encoding `01 00..00` before handing it to the verifier.
+  // encoding `01 00..00` and zero public key before handing it to the verifier.
   if (st->get_global_version() >= 14) {
-    bool is_identity_pubkey = (key[0] == 0x01);
-    for (unsigned int i = 1; is_identity_pubkey && i < 32; ++i) {
-      is_identity_pubkey = (key[i] == 0x00);
+    bool reject = (key[0] == 0x00 || key[0] == 0x01);
+    for (unsigned int i = 1; reject && i < 32; ++i) {
+      reject = (key[i] == 0x00);
     }
-    if (is_identity_pubkey) {
+    if (reject) {
       stack.push_bool(st->get_chksig_always_succeed());
       return 0;
     }

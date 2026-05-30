@@ -1221,19 +1221,12 @@ void ValidatorManagerImpl::get_shard_state_from_db_short(BlockIdExt block_id,
   get_block_handle(block_id, false, std::move(P));
 }
 
-void ValidatorManagerImpl::get_block_candidate_from_db(PublicKey source, BlockIdExt id,
-                                                       FileHash collated_data_file_hash,
-                                                       td::Promise<BlockCandidate> promise) {
-  td::actor::send_closure(db_, &Db::get_block_candidate, source, id, collated_data_file_hash, std::move(promise));
-}
-
-void ValidatorManagerImpl::get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) {
+void ValidatorManagerImpl::get_cached_candidate_data(BlockIdExt id, td::Promise<td::BufferSlice> promise) {
   if (auto cached = cached_block_data_.get_if_exists(id, false)) {
     promise.set_result(cached->clone());
     return;
   }
-  td::actor::send_closure(db_, &Db::get_block_candidate_by_block_id, id,
-                          promise.wrap([](BlockCandidate &&b) { return std::move(b.data); }));
+  promise.set_error(td::Status::Error("not found"));
 }
 
 void ValidatorManagerImpl::get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
@@ -1359,7 +1352,7 @@ void ValidatorManagerImpl::finished_wait_data(BlockHandle handle, td::Result<td:
         for (auto &X : it->second.waiting_) {
           X.promise.set_error(S.clone());
         }
-      } else {
+      } else if (!it->second.waiting_.empty()) {
         auto X = it->second.get_timeout();
         auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<BlockData>> R) {
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_data, handle, std::move(R));
@@ -1501,22 +1494,11 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                               td::uint32 validator_set_hash, bool cache_only,
-                                               td::Promise<td::Unit> promise) {
-  if (!id.is_masterchain()) {
-    add_cached_block_data(id, candidate.data.clone());
+void ValidatorManagerImpl::cache_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
+  if (!candidate.id.is_masterchain()) {
+    add_cached_block_data(candidate.id, std::move(candidate.data));
   }
-  if (cache_only) {
-    promise.set_value(td::Unit{});
-    return;
-  }
-  LOG(INFO) << "Got candidate " << id << " with " << candidate.out_msg_queue_proof_broadcasts.size()
-            << " out msg queue proof broadcasts";
-  for (auto broadcast : candidate.out_msg_queue_proof_broadcasts) {
-    callback_->send_out_msg_queue_proof_broadcast(broadcast);
-  }
-  td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
+  promise.set_value(td::Unit{});
 }
 
 void ValidatorManagerImpl::send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno,
@@ -3475,77 +3457,6 @@ void ValidatorManagerImpl::process_lookup_block_for_litequery_error(AccountIdPre
   err = err.move_as_error_prefix(PSTRING()
                                  << "cannot find block " << account << " " << names[type] << "=" << value << ": ");
   promise.set_error(std::move(err));
-}
-
-void ValidatorManagerImpl::get_block_candidate_for_litequery(PublicKey source, BlockIdExt block_id,
-                                                             FileHash collated_data_hash,
-                                                             td::Promise<BlockCandidate> promise) {
-  if (!opts_->nonfinal_ls_queries_enabled()) {
-    promise.set_error(td::Status::Error("query is not allowed"));
-    return;
-  }
-  get_block_candidate_from_db(source, block_id, collated_data_hash, std::move(promise));
-}
-
-void ValidatorManagerImpl::get_validator_groups_info_for_litequery(
-    td::optional<ShardIdFull> shard,
-    td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) {
-  if (!opts_->nonfinal_ls_queries_enabled()) {
-    promise.set_error(td::Status::Error("query is not allowed"));
-    return;
-  }
-  class Actor : public td::actor::Actor {
-   public:
-    explicit Actor(std::vector<td::actor::ActorId<IValidatorGroup>> groups,
-                   td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise)
-        : groups_(std::move(groups)), promise_(std::move(promise)) {
-    }
-
-    void start_up() override {
-      pending_ = groups_.size();
-      if (pending_ == 0) {
-        promise_.set_result(std::move(result_));
-        stop();
-        return;
-      }
-      for (auto &x : groups_) {
-        td::actor::send_closure(
-            x, &IValidatorGroup::get_validator_group_info_for_litequery,
-            [SelfId = actor_id(this)](td::Result<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> R) {
-              td::actor::send_closure(SelfId, &Actor::on_result, R.is_ok() ? R.move_as_ok() : nullptr);
-            });
-      }
-    }
-
-    void on_result(tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo> r) {
-      if (r) {
-        result_->groups_.push_back(std::move(r));
-      }
-      --pending_;
-      if (pending_ == 0) {
-        promise_.set_result(std::move(result_));
-        stop();
-      }
-    }
-
-   private:
-    std::vector<td::actor::ActorId<IValidatorGroup>> groups_;
-    size_t pending_;
-    td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise_;
-    tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups> result_ =
-        create_tl_object<lite_api::liteServer_nonfinal_validatorGroups>();
-  };
-  std::vector<td::actor::ActorId<IValidatorGroup>> groups;
-  for (auto &x : validator_groups_) {
-    if (x.second.actor.empty()) {
-      continue;
-    }
-    if (shard && shard.value() != x.second.shard) {
-      continue;
-    }
-    groups.push_back(x.second.actor.get());
-  }
-  td::actor::create_actor<Actor>("get-validator-groups-info", std::move(groups), std::move(promise)).release();
 }
 
 void ValidatorManagerImpl::get_pending_shard_blocks_for_litequery(

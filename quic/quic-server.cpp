@@ -21,18 +21,15 @@ ngtcp2_tstamp retry_token_now() {
 
 }  // namespace
 
-td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
-                                                               std::unique_ptr<Callback> callback,
-                                                               td::uint64 default_mtu, td::Slice alpn,
-                                                               td::Slice bind_host) {
-  return create(port, std::move(server_key), std::move(callback), default_mtu, alpn, bind_host, Options{}, {});
+td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, std::unique_ptr<Callback> callback,
+                                                               td::uint64 default_mtu, ServerIdentity identity,
+                                                               td::Slice alpn, td::Slice bind_host) {
+  return create(port, std::move(callback), default_mtu, std::move(identity), alpn, bind_host, Options{});
 }
 
-td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed25519::PrivateKey server_key,
-                                                               std::unique_ptr<Callback> callback,
-                                                               td::uint64 default_mtu, td::Slice alpn,
-                                                               td::Slice bind_host, Options options,
-                                                               std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu) {
+td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, std::unique_ptr<Callback> callback,
+                                                               td::uint64 default_mtu, ServerIdentity identity,
+                                                               td::Slice alpn, td::Slice bind_host, Options options) {
   CHECK(callback);
   td::IPAddress local_addr;
   TRY_STATUS(local_addr.init_host_port(bind_host.str(), port));
@@ -41,32 +38,33 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, td::Ed2
 
   auto name = PSTRING() << "QUIC:" << local_addr;
   return td::actor::create_actor<QuicServer>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
-                                             std::move(server_key), default_mtu, td::BufferSlice(alpn),
-                                             std::move(callback), options, std::move(peers_mtu));
+                                             default_mtu, std::move(identity), td::BufferSlice(alpn),
+                                             std::move(callback), options);
 }
 
-QuicServer::QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::uint64 default_mtu,
-                       td::BufferSlice alpn, std::unique_ptr<Callback> callback, Options options,
-                       std::map<adnl::AdnlNodeIdShort, td::uint64> peers_mtu)
+QuicServer::QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, ServerIdentity identity, td::BufferSlice alpn,
+                       std::unique_ptr<Callback> callback, Options options)
     : fd_(std::move(fd))
     , alpn_(std::move(alpn))
-    , server_key_(std::move(server_key))
+    , identities_(td::make_ref<ServerIdentities>())
     , options_(options)
     , conn_rate_limiters_(options.new_connection_rate_limit_capacity, options.new_connection_rate_limit_period)
     , global_conn_rate_limiter_(options.global_new_connection_rate_limit_capacity,
                                 options.global_new_connection_rate_limit_period)
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
-    , callback_(std::move(callback))
-    , default_mtu_(default_mtu)
-    , peers_mtu_(std::move(peers_mtu)) {
+    , callback_(std::move(callback)) {
+  auto local_id = identity.local_id;
+  CHECK(identities_.write().add_identity(std::move(identity)));
+  set_default_mtu(local_id, default_mtu);
   td::Random::secure_bytes(td::MutableSlice(retry_secret_.data(), retry_secret_.size()));
-  callback_->set_peer_mtu_callback([this](adnl::AdnlNodeIdShort peer_id) {
-    td::uint64 mtu = default_mtu_;
-    auto it = peers_mtu_.find(peer_id);
-    if (it != peers_mtu_.end()) {
-      mtu = std::max(mtu, it->second);
+  callback_->set_peer_mtu_callback([this](adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) {
+    if (auto it = peers_mtu_.find({local_id, peer_id}); it != peers_mtu_.end()) {
+      return it->second;
     }
-    return mtu;
+    if (auto it = default_mtu_by_local_id_.find(local_id); it != default_mtu_by_local_id_.end()) {
+      return it->second;
+    }
+    return static_cast<td::uint64>(0);
   });
   if (options.enable_gro) {
     auto gro_status = fd_.enable_gro();
@@ -378,6 +376,18 @@ td::Status QuicServer::send_invalid_token_connection_close(const VersionCid &pac
       td::Slice(reinterpret_cast<const char *>(datagram.data()), static_cast<size_t>(datagram_size)));
 }
 
+void QuicServer::send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg) {
+  if (msg.storage.empty()) {
+    return;
+  }
+
+  LOG(DEBUG) << "sending connection close to " << state.remote_address;
+  auto send_status = send_stateless_datagram("connection close", msg.address, msg.storage);
+  if (send_status.is_error()) {
+    LOG(WARNING) << "failed to send connection close for " << state << ": " << send_status;
+  }
+}
+
 std::shared_ptr<QuicServer::ConnectionState> QuicServer::find_connection(const QuicConnectionId &cid) {
   if (auto it = connections_.find(cid); it != connections_.end()) {
     return it->second;
@@ -498,16 +508,29 @@ void QuicServer::log_stats(std::string reason) {
   }
 }
 
-void QuicServer::set_default_mtu(td::uint64 mtu) {
-  default_mtu_ = mtu;
+void QuicServer::set_default_mtu(adnl::AdnlNodeIdShort local_id, td::uint64 mtu) {
+  if (mtu == 0) {
+    default_mtu_by_local_id_.erase(local_id);
+  } else {
+    default_mtu_by_local_id_[local_id] = mtu;
+  }
 }
 
-void QuicServer::set_peer_mtu(adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
+void QuicServer::set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
   if (mtu == 0) {
-    peers_mtu_.erase(peer_id);
+    peers_mtu_.erase({local_id, peer_id});
   } else {
-    peers_mtu_[peer_id] = mtu;
+    peers_mtu_[{local_id, peer_id}] = mtu;
   }
+}
+
+void QuicServer::add_identity(adnl::AdnlNodeIdShort local_id, td::Ed25519::PrivateKey key) {
+  CHECK(identities_.not_null());
+  if (!identities_.write().add_identity(ServerIdentity{.local_id = local_id, .key = std::move(key)})) {
+    return;
+  }
+  LOG(INFO) << "QuicServer: registered identity " << local_id << " (now hosting " << identities_->by_sni.size()
+            << " identities)";
 }
 
 void QuicServer::log_conn_stats(ConnectionState &state, const char *reason) {
@@ -555,7 +578,8 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   }
 
   void on_handshake_completed(HandshakeCompletedEvent event) override {
-    auto status = callback_.on_connected(cid_, std::move(event.peer_public_key), is_outbound_);
+    auto status =
+        callback_.on_connected(cid_, std::move(event.local_public_key), std::move(event.peer_public_key), is_outbound_);
     if (status.is_error()) {
       LOG(WARNING) << "on_connected failed for " << cid_ << ": " << status;
       server_.to_erase_connections_.push_back(cid_);
@@ -609,8 +633,10 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
 
   auto conn_options = build_connection_options();
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
-  TRY_RESULT(p_impl, QuicConnectionPImpl::create_server(local_address, msg_in.address, server_key_, alpn_.as_slice(),
-                                                        *initial_info, std::move(pimpl_callback), conn_options));
+  auto identities = identities_;
+  TRY_RESULT(p_impl,
+             QuicConnectionPImpl::create_server(local_address, msg_in.address, std::move(identities), alpn_.as_slice(),
+                                                *initial_info, std::move(pimpl_callback), conn_options));
   TRY_RESULT(state, install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid));
 
   flood_on_inbound_connection_created(flood_addr);
@@ -619,7 +645,7 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
 }
 
 td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key,
-                                                 td::Slice alpn) {
+                                                 td::Slice alpn, td::Slice sni) {
   td::IPAddress remote_address;
   TRY_STATUS(remote_address.init_host_port(host.str(), port));
   TRY_RESULT(local_address, fd_.get_local_address());  // TODO: we may avoid system call here
@@ -628,7 +654,7 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
 
   auto conn_options = build_connection_options();
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, true);
-  TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn,
+  TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn, sni,
                                                         std::move(pimpl_callback), conn_options));
   TRY_RESULT(state, install_connection(std::move(p_impl), remote_address, true, std::nullopt));
 
@@ -666,39 +692,39 @@ void QuicServer::drain_ingress() {
     // Debug: log recvmmsg batch details periodically
     static std::atomic<size_t> ingress_log_counter = 0;
     if ((ingress_log_counter.fetch_add(1, std::memory_order_relaxed) & 0x3FFF) == 0) {
-      std::map<QuicConnectionId, size_t> conn_to_idx;
-      std::vector<size_t> packet_conn_idx(cnt);
-      for (size_t i = 0; i < cnt; i++) {
-        if (ingress_errors_[i].is_ok()) {
-          auto vc = VersionCid::from_datagram(ingress_messages_[i].data);
-          if (vc.is_ok()) {
-            auto [it, inserted] = conn_to_idx.try_emplace(vc.ok().dcid, conn_to_idx.size());
-            packet_conn_idx[i] = it->second;
+      FLOG(DEBUG) {
+        std::map<QuicConnectionId, size_t> conn_to_idx;
+        std::vector<size_t> packet_conn_idx(cnt);
+        for (size_t i = 0; i < cnt; i++) {
+          if (ingress_errors_[i].is_ok()) {
+            auto vc = VersionCid::from_datagram(ingress_messages_[i].data);
+            if (vc.is_ok()) {
+              auto [it, inserted] = conn_to_idx.try_emplace(vc.ok().dcid, conn_to_idx.size());
+              packet_conn_idx[i] = it->second;
+            }
           }
         }
-      }
-      td::StringBuilder sb;
-      sb << "recvmmsg batch=" << cnt << " conns=" << conn_to_idx.size() << " [";
-      for (size_t i = 0; i < cnt; i++) {
-        if (i > 0) {
-          sb << ", ";
+        sb << "recvmmsg batch=" << cnt << " conns=" << conn_to_idx.size() << " [";
+        for (size_t i = 0; i < cnt; i++) {
+          if (i > 0) {
+            sb << ", ";
+          }
+          sb << ingress_messages_[i].data.size();
+          if (ingress_messages_[i].gso_size > 0) {
+            sb << "(gro=" << ingress_messages_[i].gso_size << ")";
+          }
+          sb << "/c" << packet_conn_idx[i];
         }
-        sb << ingress_messages_[i].data.size();
-        if (ingress_messages_[i].gso_size > 0) {
-          sb << "(gro=" << ingress_messages_[i].gso_size << ")";
-        }
-        sb << "/c" << packet_conn_idx[i];
-      }
-      sb << "]";
-      LOG(DEBUG) << sb.as_cslice();
+        sb << "]";
+      };
     }
 
     for (size_t i = 0; i < cnt; i++) {
+      bytes_budget -= std::max<size_t>(ingress_messages_[i].data.size(), 256);
       if (ingress_errors_[i].is_error()) {
         LOG(DEBUG) << "dropping inbound packet from " << ingress_msg_[i].address << ": " << ingress_errors_[i];
         continue;
       }
-      bytes_budget -= ingress_messages_[i].data.size();
       ingress_msg_[i].storage = ingress_messages_[i].data;
       ingress_stats_.bytes += ingress_msg_[i].storage.size();
       const size_t segment_size = ingress_messages_[i].gso_size;
@@ -714,12 +740,23 @@ void QuicServer::drain_ingress() {
         if (!state) {
           return;
         }
-        if (auto handle_status = state->impl().handle_ingress(packet); handle_status.is_error()) {
-          LOG(WARNING) << "failed to handle ingress from " << *state << ":  " << handle_status;
-          on_connection_closed(state->cid);  // TODO: probably we have to tell here to quic that connection is closed
+        std::array<char, NGTCP2_MAX_UDP_PAYLOAD_SIZE> close_buffer;
+        UdpMessageBuffer close_msg;
+        close_msg.storage = td::MutableSlice(close_buffer.data(), close_buffer.size());
+        auto handle_status = state->impl().handle_ingress(packet, close_msg);
+        if (handle_status.is_ok()) {
+          on_connection_updated(*state);
           return;
         }
-        on_connection_updated(*state);
+        // Fatal errors are local/system faults (OOM, internal callback failure) worth a warning; everything
+        // else is peer-induced (rejected/bad handshake, unknown SNI, protocol violation) and routine.
+        if (ngtcp2_err_is_fatal(handle_status.code())) {
+          LOG(WARNING) << "failed to handle ingress from " << *state << ": " << handle_status;
+        } else {
+          LOG(DEBUG) << "closing connection after ingress from " << *state << ": " << handle_status;
+        }
+        send_connection_close(*state, close_msg);  // no-op when empty
+        on_connection_closed(state->cid);
       };
 
       if (segment_size > 0 && ingress_msg_[i].storage.size() > segment_size) {
@@ -828,7 +865,8 @@ void QuicServer::flush_egress() {
   auto active_count = active_connections_.size();
   auto total_count = connections_.size();
 
-  while (!active_connections_.empty()) {
+  td::int64 bytes_budget = 10 << 20;
+  while (!active_connections_.empty() && bytes_budget > 0) {
     size_t batch_count = 0;
     while (batch_count < kEgressBatch && produce_next_egress(batch_count)) {
       batch_count++;
@@ -842,31 +880,32 @@ void QuicServer::flush_egress() {
       egress_messages_[i].to = &egress_batches_[i].address;
       egress_messages_[i].data = egress_batches_[i].storage;
       egress_messages_[i].gso_size = gso_enabled_ ? egress_batches_[i].gso_size : 0;
+      bytes_budget -= std::max<size_t>(egress_messages_[i].data.size(), 256);
     }
 
     // Debug: log sendmmsg batch details (every 64 batches)
     static std::atomic<size_t> batch_log_counter = 0;
     if ((batch_log_counter.fetch_add(1, std::memory_order_relaxed) & 0x3FFF) == 0) {
-      std::map<QuicConnectionId, size_t> conn_to_idx;
-      std::vector<size_t> packet_conn_idx(batch_count);
-      for (size_t i = 0; i < batch_count; i++) {
-        auto [it, inserted] = conn_to_idx.try_emplace(egress_batch_owners_[i]->cid, conn_to_idx.size());
-        packet_conn_idx[i] = it->second;
-      }
-      td::StringBuilder sb;
-      sb << "sendmmsg batch=" << batch_count << " conns=" << conn_to_idx.size() << " [";
-      for (size_t i = 0; i < batch_count; i++) {
-        if (i > 0) {
-          sb << ", ";
+      FLOG(DEBUG) {
+        std::map<QuicConnectionId, size_t> conn_to_idx;
+        std::vector<size_t> packet_conn_idx(batch_count);
+        for (size_t i = 0; i < batch_count; i++) {
+          auto [it, inserted] = conn_to_idx.try_emplace(egress_batch_owners_[i]->cid, conn_to_idx.size());
+          packet_conn_idx[i] = it->second;
         }
-        sb << egress_batches_[i].storage.size();
-        if (egress_batches_[i].gso_size > 0) {
-          sb << "(gso=" << egress_batches_[i].gso_size << ")";
+        sb << "sendmmsg batch=" << batch_count << " conns=" << conn_to_idx.size() << " [";
+        for (size_t i = 0; i < batch_count; i++) {
+          if (i > 0) {
+            sb << ", ";
+          }
+          sb << egress_batches_[i].storage.size();
+          if (egress_batches_[i].gso_size > 0) {
+            sb << "(gso=" << egress_batches_[i].gso_size << ")";
+          }
+          sb << "/c" << packet_conn_idx[i] << "/s" << egress_batch_owners_[i]->impl().get_last_packet_streams();
         }
-        sb << "/c" << packet_conn_idx[i] << "/s" << egress_batch_owners_[i]->impl().get_last_packet_streams();
-      }
-      sb << "] active/total=" << active_count << "/" << total_count;
-      LOG(DEBUG) << sb.as_cslice();
+        sb << "] active/total=" << active_count << "/" << total_count;
+      };
     }
 
     // Set pending and try to flush
@@ -875,6 +914,9 @@ void QuicServer::flush_egress() {
     if (!flush_pending()) {
       return;  // blocked, will continue on next wakeup
     }
+  }
+  if (bytes_budget <= 0) {
+    yield();
   }
 }
 

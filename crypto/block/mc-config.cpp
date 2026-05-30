@@ -81,7 +81,8 @@ td::Result<std::unique_ptr<Config>> Config::extract_from_key_block(Ref<vm::Cell>
   block::gen::BlockExtra::Record extra;
   block::gen::McBlockExtra::Record mc_extra;
   if (!(tlb::unpack_cell(key_block_root, blk) && tlb::unpack_cell(std::move(blk.extra), extra) &&
-        tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block && mc_extra.config.not_null())) {
+        extra.custom->have_refs() && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
+        mc_extra.config.not_null())) {
     return td::Status::Error(-400, "cannot unpack extra header of key block to extract configuration");
   }
   return block::Config::unpack_config(std::move(mc_extra.config), mode);
@@ -1865,32 +1866,21 @@ td::Result<std::vector<ton::StdSmcAddress>> Config::get_special_smartcontracts(b
 
 td::Result<std::vector<std::pair<ton::StdSmcAddress, int>>> ConfigInfo::get_special_ticktock_smartcontracts(
     int tick_tock) const {
-  if (!special_smc_dict) {
-    return td::Status::Error(-666, "configuration loaded without fundamental smart contract list");
-  }
   if (!accounts_dict) {
     return td::Status::Error(-666, "state loaded without accounts information");
   }
+  TRY_RESULT(special_smcs, get_special_smartcontracts());
   std::vector<std::pair<ton::StdSmcAddress, int>> res;
-  if (!special_smc_dict->check_for_each(
-          [this, &res, tick_tock](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n) -> bool {
-            if (cs_ref->size_ext() || n != 256) {
-              return false;
-            }
-            int tt = get_smc_tick_tock(key);
-            if (tt < -1) {
-              return false;
-            }
-            if (tt >= 0 && (tt & tick_tock) != 0) {
-              res.emplace_back(key, tt);
-            }
-            return true;
-          })) {
-    return td::Status::Error(-666,
-                             "invalid fundamental smart contract set in configuration parameter 31, or unable to "
-                             "recover tick-tock value from one of them");
+  for (ton::StdSmcAddress addr : special_smcs) {
+    int tt = get_smc_tick_tock(addr.bits());
+    if (tt < -1) {
+      return td::Status::Error(-666, PSTRING() << "unable to recover tick-tock value from -1:" << addr.to_hex());
+    }
+    if (tt >= 0 && (tt & tick_tock) != 0) {
+      res.emplace_back(addr, tt);
+    }
   }
-  return std::move(res);
+  return res;
 }
 
 int ConfigInfo::get_smc_tick_tock(td::ConstBitPtr smc_addr) const {
@@ -2126,7 +2116,7 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     limits.ext_msg_limits.max_depth = static_cast<td::uint16>(rec.max_ext_msg_depth);
   };
 
-  auto unpack_v2 = [&](auto& rec) {
+  auto unpack_v2 = [&](gen::SizeLimitsConfig::Record_size_limits_config_v2& rec) {
     unpack_v1(rec);
     limits.max_acc_state_cells = rec.max_acc_state_cells;
     limits.max_mc_acc_state_cells = rec.max_mc_acc_state_cells;
@@ -2135,6 +2125,9 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     limits.max_msg_extra_currencies = rec.max_msg_extra_currencies;
     limits.max_acc_fixed_prefix_length = rec.max_acc_fixed_prefix_length;
     limits.acc_state_cells_for_storage_dict = rec.acc_state_cells_for_storage_dict;
+    if (rec.max_transaction_library_loads.write().fetch_long(1)) {
+      limits.max_transaction_library_loads = (td::uint32)rec.max_transaction_library_loads->prefetch_long(32);
+    }
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;

@@ -80,9 +80,8 @@ class ManagerFacadeImpl : public ManagerFacade {
   }
 
   void cache_block_candidate(BlockCandidate candidate) override {
-    td::actor::send_closure(manager_, &ValidatorManager::set_block_candidate, candidate.id, std::move(candidate),
-                            validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-                            /*cache_only=*/true, [](td::Result<>) {});
+    td::actor::send_closure(manager_, &ValidatorManager::cache_block_candidate, std::move(candidate),
+                            [](td::Result<>) {});
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
@@ -120,7 +119,7 @@ class DbImpl : public Db {
     return std::nullopt;
   }
   std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const override {
-    td::uint32 prefix2 = prefix + 1;
+    td::uint32 prefix2 = td::bswap32(td::bswap32(prefix) + 1);
     td::Slice begin{(const char*)&prefix, 4};
     td::Slice end{(const char*)&prefix2, 4};
     std::vector<std::pair<td::BufferSlice, td::BufferSlice>> result;
@@ -228,12 +227,6 @@ class BridgeImpl final : public IValidatorGroup {
       bus_.publish<NoncriticalParamsUpdated>(new_noncritical_params);
       current_noncritical_params_ = new_noncritical_params;
     }
-  }
-
-  virtual void get_validator_group_info_for_litequery(
-      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise) override {
-    // TODO
-    promise.set_error(td::Status::Error("Not implemented"));
   }
 
   virtual void notify_mc_finalized(BlockIdExt block) override {

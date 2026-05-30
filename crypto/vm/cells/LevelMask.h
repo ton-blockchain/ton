@@ -45,7 +45,9 @@ class LevelMask {
     return get_hash_i() + 1;
   }
   LevelMask apply(td::uint32 level) const {
-    DCHECK(level < 32);
+    if (level >= 32) {
+      return *this;
+    }
     return LevelMask{mask_ & ((1u << level) - 1)};
   }
   LevelMask apply_or(LevelMask other) const {
@@ -55,7 +57,9 @@ class LevelMask {
     return LevelMask{mask_ >> 1};
   }
   bool is_significant(td::uint32 level) const {
-    DCHECK(level < 32);
+    if (level >= 32) {
+      return false;
+    }
     bool res = level == 0 || ((mask_ >> (level - 1)) % 2 != 0);
     CHECK(res == (apply(level).get_level() == level));
     return res;

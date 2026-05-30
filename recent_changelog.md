@@ -1,8 +1,8 @@
-## 2026.04-1 Update
+## 2026.05 Update
 
-1. Networking improvements: better traffic handling in overlays, ADNL, RLDP, and QUIC, including broadcast limiting and updated twostep broadcast parameters.
-2. Improved security and robustness across core node components.
-3. Improved handling of peers in public overlays and better QUIC support for custom overlays.
-4. Metrics and operational visibility improvements, including Prometheus exporter and QUIC-related telemetry updates.
+1. Networking improvements: sending block candidates over a dedicated block-sync overlay
+2. Multiple collation, validation, and block-application optimizations: improved performance for both validators and liteservers
+3. TVM v14
+4. Various changes and updates, including `get_shard_client_state` in liteserver, removal of legacy code (catchain, adnl-proxy, rldp1), adding comments and refactoring to make the code easier for agents to understand and audit
 
-Besides the work of the core team, this update also includes contributions from multiple bug-bounty hunters. The full list will be added to changelog later.
+Besides the work of the core team, this update also includes contributions from multiple bug-bounty hunters.

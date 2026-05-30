@@ -110,6 +110,7 @@ class TonlibClient : public td::actor::Actor {
   };
   QueryContext query_context_;
   vm::Dictionary libraries{256};
+  static constexpr td::uint16 max_library_depth = 512;  // This is limited in blockchain by max_vm_data_depth
 
   // network
   td::actor::ActorOwn<liteclient::ExtClient> raw_client_;

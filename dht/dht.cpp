@@ -312,6 +312,7 @@ void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_regist
                                   td::Promise<td::BufferSlice> promise) {
   td::uint32 ttl = query.ttl_, now = (td::uint32)td::Clocks::system();
   if (ttl <= now) {
+    promise.set_error(td::Status::Error("too old ttl"));
     return;
   }
   PublicKey pub{query.node_};
@@ -353,6 +354,7 @@ void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_reques
 void DhtMemberImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice data,
                                   td::Promise<td::BufferSlice> promise) {
   if (client_only_) {
+    promise.set_error(td::Status::Error("client mode"));
     return;
   }
   {

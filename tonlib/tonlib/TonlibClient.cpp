@@ -484,7 +484,7 @@ class AccountState {
       return TonlibError::AccountTypeUnexpected("PaymentChannel");
     }
     auto pchan = ton::PaymentChannel::create(get_smc_state());
-    TRY_RESULT(info, pchan->get_info());
+    TRY_RESULT(info, TRY_VM(pchan->get_info()));
     TRY_RESULT(a_key, public_key_from_bytes(info.config.a_key));
     TRY_RESULT(b_key, public_key_from_bytes(info.config.b_key));
 
@@ -1018,7 +1018,9 @@ class Query {
       vm::CellSlice cs = load_cell_slice(actions[i]);
       CHECK(cs.fetch_ref().not_null());
       int tag = block::gen::t_OutAction.get_tag(cs);
-      CHECK(tag >= 0);
+      if (tag < 0) {
+        return td::Status::Error("action list invalid: invalid tag");
+      }
       switch (tag) {
         case block::gen::OutAction::action_set_code:
           return td::Status::Error("estimate_fee: action_set_code unsupported");
@@ -1707,6 +1709,11 @@ class GetShardBlockProof : public td::actor::Actor {
     mc_id_ = create_block_id(std::move(result->masterchain_id_));
     if (!mc_id_.is_masterchain_ext()) {
       abort(td::Status::Error("got invalid masterchain block id"));
+      return;
+    }
+    if (mc_id_.seqno() == 0) {
+      // liteserver getShardBlockProof cannot normally return this
+      abort(td::Status::Error("got masterchain block id with seqno=0"));
       return;
     }
     if (result->links_.size() > 8) {
@@ -3053,7 +3060,7 @@ td::Result<TonlibClient::FullConfig> TonlibClient::validate_config(tonlib_api::o
     return TonlibError::InvalidConfig("config is empty");
   }
   TRY_RESULT_PREFIX(new_config, Config::parse(std::move(config->config_)),
-                    TonlibError::InvalidConfig("can't parse config"));
+                    TonlibError::InvalidConfig("can't parse config: "));
 
   if (new_config.lite_servers.empty() && !config->use_callbacks_for_network_) {
     return TonlibError::InvalidConfig("no lite clients");
@@ -3225,6 +3232,9 @@ struct ToRawTransactions {
   bool try_decode_messages_;
 
   td::Result<tonlib_api::object_ptr<tonlib_api::raw_message>> to_raw_message_or_throw(td::Ref<vm::Cell> cell) {
+    if (cell.is_null()) {
+      return td::Status::Error("Cell is null");
+    }
     block::gen::Message::Record message;
     if (!tlb::type_unpack_cell(cell, block::gen::t_Message_Any, message)) {
       return td::Status::Error("Failed to unpack Message");
@@ -4117,7 +4127,7 @@ class GenericCreateSendGrams : public TonlibQueryActor {
     valid_until += query_.timeout_ == 0 ? 60 : query_.timeout_;
     raw.valid_until = valid_until;
 
-    TRY_RESULT(info, pchan->get_info());
+    TRY_RESULT(info, TRY_VM(pchan->get_info()));
     bool is_alice = false;
     bool is_bob = false;
     if (info.config.a_key == private_key_.value().get_public_key().move_as_ok().as_octet_string()) {
@@ -4979,6 +4989,9 @@ void TonlibClient::get_libraries(ton::BlockIdExt blkid, std::vector<td::Bits256>
               return TonlibError::Internal(PSLICE() << "library hash mismatch data " << lib->hash_.to_hex()
                                                     << " != proof " << libdescr.lib->get_hash().to_hex());
             }
+            if (contents.ok()->get_depth() > max_library_depth) {
+              return TonlibError::Internal(PSLICE() << "library depth is too big");
+            }
 
             result_entries.push_back(
                 tonlib_api::make_object<tonlib_api::smc_libraryEntry>(lib->hash_, lib->data_.as_slice().str()));
@@ -5141,6 +5154,10 @@ void TonlibClient::process_new_libraries(
           LOG(WARNING) << "hash mismatch for library " << lr->hash_.to_hex();
           continue;
         }
+        if (contents.ok()->get_depth() > max_library_depth) {
+          LOG(WARNING) << "library depth is too big";
+          return;
+        }
         libraries.set_ref(lr->hash_, contents.move_as_ok());
         updated = true;
         LOG(DEBUG) << "registered library " << lr->hash_.to_hex();
@@ -5190,6 +5207,10 @@ void TonlibClient::perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::S
             if (contents.is_ok() && contents.ok().not_null()) {
               if (contents.ok()->get_hash().bits().compare(lr->hash_.cbits(), 256)) {
                 LOG(WARNING) << "hash mismatch for library " << lr->hash_.to_hex();
+                continue;
+              }
+              if (contents.ok()->get_depth() > max_library_depth) {
+                LOG(WARNING) << "library depth is too big";
                 continue;
               }
               found |= (lr->hash_ == hash);
@@ -5269,7 +5290,9 @@ void TonlibClient::finish_dns_resolve(std::string name, td::Bits256 category, td
     if (!prefix.empty() && prefix.back() != '.' && suffix[0] != '.') {
       TRY_STATUS_PROMISE(promise, td::Status::Error("next resolver error: domain split not at a component boundary "));
     }
-
+    if (!entries[0].data.data.has<ton::ManualDns::EntryDataNextResolver>()) {
+      TRY_STATUS_PROMISE(promise, TonlibError::Internal("dns entry is not 'next resolver'"));
+    }
     auto address = entries[0].data.data.get<ton::ManualDns::EntryDataNextResolver>().resolver;
     return do_dns_request(prefix, category, ttl - 1, std::move(block_id), address, std::move(promise));
   }
@@ -5651,7 +5674,7 @@ tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const
 
 tonlib_api::object_ptr<tonlib_api::Object> TonlibClient::do_static_request(const tonlib_api::kdf& request) {
   auto max_iterations = 10000000;
-  if (request.iterations_ < 0 || request.iterations_ > max_iterations) {
+  if (request.iterations_ <= 0 || request.iterations_ > max_iterations) {
     return status_to_tonlib_api(
         TonlibError::InvalidField("iterations", PSLICE() << "must be between 0 and " << max_iterations));
   }
@@ -5806,20 +5829,24 @@ void TonlibClient::get_config_param(int32_t param, int32_t mode, ton::BlockIdExt
   client_.send_query(
       ton::lite_api::liteServer_getConfigParams(mode, ton::create_tl_lite_block_id(block), std::move(params)),
       promise.wrap([param, block](auto r_config) -> td::Result<object_ptr<tonlib_api::configInfo>> {
-        auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
-                                                      r_config->config_proof_.as_slice());
-        if (state.is_error()) {
-          return state.move_as_error_prefix(TonlibError::ValidateConfig());
+        try {
+          auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
+                                                        r_config->config_proof_.as_slice());
+          if (state.is_error()) {
+            return state.move_as_error_prefix(TonlibError::ValidateConfig());
+          }
+          auto config = block::Config::extract_from_state(std::move(state.move_as_ok()), 0);
+          if (config.is_error()) {
+            return config.move_as_error_prefix(TonlibError::ValidateConfig());
+          }
+          auto config_ptr = config.move_as_ok();
+          tonlib_api::configInfo config_result;
+          TRY_RESULT_PREFIX_ASSIGN(config_result.config_, to_tonlib_tvm_cell(config_ptr->get_config_param(param)),
+                                   TonlibError::ValidateConfig());
+          return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
+        } catch (vm::VmVirtError& err) {
+          return err.as_status();
         }
-        auto config = block::Config::extract_from_state(std::move(state.move_as_ok()), 0);
-        if (config.is_error()) {
-          return config.move_as_error_prefix(TonlibError::ValidateConfig());
-        }
-        auto config_ptr = config.move_as_ok();
-        tonlib_api::configInfo config_result;
-        TRY_RESULT_PREFIX_ASSIGN(config_result.config_, to_tonlib_tvm_cell(config_ptr->get_config_param(param)),
-                                 TonlibError::ValidateConfig());
-        return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
       }));
 }
 
@@ -5844,20 +5871,24 @@ void TonlibClient::get_config_all(int32_t mode, ton::BlockIdExt block,
                                   td::Promise<object_ptr<tonlib_api::configInfo>>&& promise) {
   client_.send_query(ton::lite_api::liteServer_getConfigAll(mode, ton::create_tl_lite_block_id(block)),
                      promise.wrap([block](auto r_config) -> td::Result<object_ptr<tonlib_api::configInfo>> {
-                       auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
-                                                                     r_config->config_proof_.as_slice());
-                       if (state.is_error()) {
-                         return state.move_as_error_prefix(TonlibError::ValidateConfig());
+                       try {
+                         auto state = block::check_extract_state_proof(block, r_config->state_proof_.as_slice(),
+                                                                       r_config->config_proof_.as_slice());
+                         if (state.is_error()) {
+                           return state.move_as_error_prefix(TonlibError::ValidateConfig());
+                         }
+                         auto config = block::Config::extract_from_state(std::move(state.move_as_ok()), 0);
+                         if (config.is_error()) {
+                           return config.move_as_error_prefix(TonlibError::ValidateConfig());
+                         }
+                         tonlib_api::configInfo config_result;
+                         TRY_RESULT_PREFIX_ASSIGN(config_result.config_,
+                                                  to_tonlib_tvm_cell(config.move_as_ok()->get_root_cell()),
+                                                  TonlibError::ValidateConfig());
+                         return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
+                       } catch (vm::VmVirtError& err) {
+                         return err.as_status();
                        }
-                       auto config = block::Config::extract_from_state(std::move(state.move_as_ok()), 0);
-                       if (config.is_error()) {
-                         return config.move_as_error_prefix(TonlibError::ValidateConfig());
-                       }
-                       tonlib_api::configInfo config_result;
-                       TRY_RESULT_PREFIX_ASSIGN(config_result.config_,
-                                                to_tonlib_tvm_cell(config.move_as_ok()->get_root_cell()),
-                                                TonlibError::ValidateConfig());
-                       return tonlib_api::make_object<tonlib_api::configInfo>(std::move(config_result));
                      }));
 }
 
