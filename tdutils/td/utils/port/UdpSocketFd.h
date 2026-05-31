@@ -60,6 +60,8 @@ class UdpSocketFd {
   Result<uint32> maximize_snd_buffer(uint32 max_buffer_size = 0);
   Result<uint32> maximize_rcv_buffer(uint32 max_buffer_size = 0);
 
+  uint64 get_rx_queue_drops() const;
+
   static Result<UdpSocketFd> open(const IPAddress &address) TD_WARN_UNUSED_RESULT;
   static bool is_gso_supported();
   static bool has_pmtudisc_probe();
@@ -88,6 +90,7 @@ class UdpSocketFd {
     MutableSlice data;
     Status *error;
     size_t gso_size{0};
+    size_t queue_overflow{0};
   };
 
   Status send_message(const OutboundMessage &message, bool &is_sent) TD_WARN_UNUSED_RESULT;
