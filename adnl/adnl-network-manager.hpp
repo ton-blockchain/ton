@@ -28,6 +28,7 @@
 
 #include "adnl-network-manager.h"
 #include "adnl-received-mask.h"
+#include "metrics/well-known.h"
 
 namespace td {
 class UdpServer;
@@ -102,7 +103,10 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
   size_t add_listening_udp_port(td::uint16 port);
   void receive_udp_message(td::UdpMessage message, size_t idx);
 
+  td::actor::Task<> collect(metrics::Context ctx) override;
+
  private:
+  metrics::UdpWireStats metrics_;
   std::unique_ptr<Callback> callback_;
 
   std::map<td::uint32, std::vector<OutDesc>> out_desc_;
