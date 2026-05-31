@@ -15,6 +15,8 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include "ton/ton-io.hpp"
+
 #include "collator-node-session.hpp"
 #include "collator-node.hpp"
 #include "fabric.h"
@@ -52,7 +54,7 @@ CollatorNodeSession::CollatorNodeSession(ShardIdFull shard, std::vector<BlockIdE
 }
 
 void CollatorNodeSession::start_up() {
-  LOG(INFO) << "Starting collator node session, shard " << shard_.to_str() << ", cc_seqno "
+  LOG(INFO) << "Starting collator node session, shard " << shard_ << ", cc_seqno "
             << validator_set_->get_catchain_seqno() << ", next block seqno " << next_block_seqno_;
 
   if (can_generate_) {
@@ -61,7 +63,7 @@ void CollatorNodeSession::start_up() {
 }
 
 void CollatorNodeSession::tear_down() {
-  LOG(INFO) << "Finishing collator node session, shard " << shard_.to_str() << ", cc_seqno "
+  LOG(INFO) << "Finishing collator node session, shard " << shard_ << ", cc_seqno "
             << validator_set_->get_catchain_seqno();
   for (auto& [_, entry] : cache_) {
     entry->cancel(td::Status::Error("validator session finished"));
@@ -74,7 +76,7 @@ void CollatorNodeSession::new_shard_block_accepted(BlockIdExt block_id, bool can
   if (next_block_seqno_ > block_id.seqno()) {
     return;
   }
-  LOG(DEBUG) << "New shard block " << block_id.to_str();
+  LOG(DEBUG) << "New shard block " << block_id;
   next_block_seqno_ = block_id.seqno() + 1;
   prev_ = {block_id};
 
@@ -90,13 +92,13 @@ void CollatorNodeSession::new_shard_block_accepted(BlockIdExt block_id, bool can
     }
     if (!entry->has_external_query_at && entry->has_internal_query_at) {
       LOG(INFO) << "generate block query"
-                << ": shard=" << shard_.to_str() << ", cc_seqno=" << validator_set_->get_catchain_seqno()
+                << ": shard=" << shard_ << ", cc_seqno=" << validator_set_->get_catchain_seqno()
                 << ", next_block_seqno=" << entry->block_seqno
                 << ": nobody asked for block, but we tried to generate it";
     }
     if (entry->has_external_query_at && !entry->has_internal_query_at) {
       LOG(INFO) << "generate block query"
-                << ": shard=" << shard_.to_str() << ", cc_seqno=" << validator_set_->get_catchain_seqno()
+                << ": shard=" << shard_ << ", cc_seqno=" << validator_set_->get_catchain_seqno()
                 << ", next_block_seqno=" << entry->block_seqno
                 << ": somebody asked for block we didn't even try to generate";
     }
@@ -209,7 +211,6 @@ void CollatorNodeSession::generate_block(std::vector<BlockIdExt> prev_blocks,
           .validator_set = validator_set_,
           .collator_opts = opts_->get_collator_options(),
           .collator_node_id = local_id_,
-          .skip_store_candidate = true,
           .hard_timeout = timeout,
       },
       manager_, cache_entry->cancellation_token_source.get_cancellation_token(),

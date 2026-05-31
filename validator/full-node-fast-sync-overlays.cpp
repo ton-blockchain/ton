@@ -20,6 +20,7 @@
 #include "interfaces/validator-full-id.h"
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
+#include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 
 #include "checksum.h"
@@ -75,7 +76,7 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
     return;
   }
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
-                        << "in fast sync overlay from " << src << ": " << B.ok().block_id.to_str();
+                        << "in fast sync overlay from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
 }
 
@@ -111,8 +112,7 @@ void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash s
     return;
   }
 
-  VLOG(FULL_NODE_DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": "
-                        << B.ok().block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true);
 }
 
@@ -150,8 +150,7 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
   BlockIdExt block_id = create_block_id(query.block_->block_);
-  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in fast sync overlay from " << src << ": "
-                        << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in fast sync overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
                           std::move(query.block_->data_));
 }
@@ -189,7 +188,7 @@ void FullNodeFastSyncOverlay::process_block_candidate_broadcast(PublicKeyHash sr
     VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate in fast sync overlay from " << src << ": " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate in fast sync overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
                           validator_set_hash, std::move(data));
 }
@@ -240,7 +239,7 @@ void FullNodeFastSyncOverlay::send_shard_block_info(BlockIdExt block_id, Catchai
   if (!inited_) {
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast in fast sync overlay: " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast in fast sync overlay: " << block_id;
   auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
@@ -257,8 +256,7 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
   if (!inited_) {
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): "
-                        << broadcast.block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): " << broadcast.block_id;
   auto B = serialize_block_broadcast(broadcast, k_called_from_fast_sync);
   if (B.is_error()) {
     VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
@@ -279,7 +277,7 @@ void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, Catchain
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate in fast sync overlay (with compression): " << block_id.to_str();
+  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate in fast sync overlay (with compression): " << block_id;
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
@@ -352,7 +350,7 @@ void FullNodeFastSyncOverlay::try_init() {
 }
 
 void FullNodeFastSyncOverlay::init() {
-  LOG(INFO) << "Creating fast sync overlay for shard " << shard_.to_str() << ", adnl_id=" << local_id_;
+  LOG(INFO) << "Creating fast sync overlay for shard " << shard_ << ", adnl_id=" << local_id_;
   class Callback : public overlay::Overlays::Callback {
    public:
     void receive_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
@@ -641,7 +639,7 @@ void FullNodeFastSyncOverlays::update_overlays(
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
-            PSTRING() << "FastSyncOv" << shard.to_str(), local_id, shard, zero_state_file_hash, root_public_keys_,
+            PSTRING() << "FastSyncOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
             current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, send_twostep_broadcasts,
             broadcast_speed_multiplier, keyring, adnl, adnl_sender, quic, overlays, validator_manager, full_node);
       } else {
@@ -661,7 +659,18 @@ void FullNodeFastSyncOverlays::add_member_certificate(adnl::AdnlNodeIdShort loca
   if (member_certificate.empty() || member_certificate.is_expired()) {
     return;
   }
-  member_certificates_[local_id].push_back(std::move(member_certificate));
+  auto &certificates = member_certificates_[local_id];
+  auto issued_by = member_certificate.issued_by().compute_short_id();
+  for (auto &certificate : certificates) {
+    if (certificate.issued_by().compute_short_id() == issued_by) {
+      if (member_certificate.is_newer(certificate)) {
+        certificate = std::move(member_certificate);
+      }
+      return;
+    }
+  }
+
+  certificates.push_back(std::move(member_certificate));
   // Overlays will be updated in the next update_overlays
 }
 

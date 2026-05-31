@@ -205,7 +205,7 @@ struct CellSerializationInfo {
   td::Status init(td::uint8 d1, td::uint8 d2, int ref_byte_size);
   td::Result<int> get_bits(td::Slice cell) const;
 
-  td::Result<Ref<DataCell>> create_data_cell(td::Slice data, td::Span<Ref<Cell>> refs) const;
+  td::Result<Ref<DataCell>> create_data_cell(td::Slice data, td::Span<Ref<Cell>> refs, bool trust_hashes = false) const;
 };
 
 class BagOfCellsLogger {

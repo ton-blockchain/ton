@@ -62,7 +62,6 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
   for (auto &addr : config.addrs_) {
     td::IPAddress in_ip;
     td::IPAddress out_ip;
-    std::shared_ptr<ton::adnl::AdnlProxy> proxy = nullptr;
     std::vector<AdnlCategory> categories;
     std::vector<AdnlCategory> priority_categories;
     ton::ton_api::downcast_call(
@@ -78,26 +77,9 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
                 priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
               }
             },
-            [&](const ton::ton_api::engine_addrProxy &obj) {
-              in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.in_ip_), static_cast<td::uint16>(obj.in_port_))
-                  .ensure();
-              out_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.out_ip_), static_cast<td::uint16>(obj.out_port_))
-                  .ensure();
-              if (obj.proxy_type_) {
-                auto R = ton::adnl::AdnlProxy::create(*obj.proxy_type_.get());
-                R.ensure();
-                proxy = R.move_as_ok();
-                for (auto &cat : obj.categories_) {
-                  categories.push_back(td::narrow_cast<td::uint8>(cat));
-                }
-                for (auto &cat : obj.priority_categories_) {
-                  priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
-                }
-              }
-            },
             [&](const auto &) { UNREACHABLE(); }));
 
-    config_add_network_addr(in_ip, out_ip, std::move(proxy), categories, priority_categories).ensure();
+    config_add_network_addr(in_ip, out_ip, categories, priority_categories).ensure();
   }
   for (auto &adnl : config.adnl_) {
     config_add_adnl_addr(ton::PublicKeyHash{adnl->id_}, td::narrow_cast<td::uint8>(adnl->category_)).ensure();
@@ -125,18 +107,10 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
 ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_Addr>> addrs_vec;
   for (auto &x : addrs) {
-    if (x.second.proxy) {
-      addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addrProxy>(
-          static_cast<td::int32>(x.second.in_addr.get_ipv4()), x.second.in_addr.get_port(),
-          static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(), x.second.proxy->tl(),
-          std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
-          std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
-    } else {
-      addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addr>(
-          static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(),
-          std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
-          std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
-    }
+    addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addr>(
+        static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(),
+        std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
+        std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
   }
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_adnl>> adnl_vec;
   for (auto &x : adnl_ids) {
@@ -177,7 +151,6 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
-                                                 std::shared_ptr<ton::adnl::AdnlProxy> proxy,
                                                  std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats) {
   Addr addr{out_ip};
 
@@ -186,10 +159,6 @@ td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddr
     bool mod = false;
     if (!(it->second.in_addr == in_ip)) {
       it->second.in_addr = in_ip;
-      mod = true;
-    }
-    if (it->second.proxy != proxy) {
-      it->second.proxy = std::move(proxy);
       mod = true;
     }
     for (auto &c : cats) {
@@ -206,7 +175,6 @@ td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddr
   } else {
     it = addrs.emplace(std::move(addr), AddrCats{}).first;
     it->second.in_addr = in_ip;
-    it->second.proxy = std::move(proxy);
     for (auto &c : cats) {
       it->second.cats.insert(c);
     }
@@ -452,8 +420,7 @@ void DhtServer::load_empty_local_config(td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{})
-        .ensure();
+    config_.config_add_network_addr(addr, addr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{}).ensure();
   }
 
   {
@@ -505,8 +472,7 @@ void DhtServer::load_local_config(td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{})
-        .ensure();
+    config_.config_add_network_addr(addr, addr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{}).ensure();
   }
 
   for (auto &local_id : conf.local_ids_) {
@@ -676,14 +642,8 @@ void DhtServer::add_addr(const Config::Addr &addr, const Config::AddrCats &cats)
   for (auto cat : cats.priority_cats) {
     cat_mask[cat] = true;
   }
-  if (!cats.proxy) {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
-                            std::move(cat_mask), cats.cats.size() ? 0 : 1);
-  } else {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, cats.in_addr,
-                            static_cast<td::uint16>(addr.addr.get_port()), cats.proxy, std::move(cat_mask),
-                            cats.cats.size() ? 0 : 1);
-  }
+  td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
+                          std::move(cat_mask), cats.cats.size() ? 0 : 1);
 
   td::uint32 ts = static_cast<td::uint32>(td::Clocks::system());
 
@@ -848,7 +808,8 @@ void DhtServer::add_control_interface(ton::PublicKeyHash id, td::int32 port, td:
   }
 
   td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_local_id, ton::adnl::AdnlNodeIdShort{id});
-  td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_tcp_port, static_cast<td::uint16>(port));
+  td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_tcp_port, static_cast<td::uint16>(port),
+                          td::Promise<td::Unit>{});
 
   write_config(std::move(promise));
 }

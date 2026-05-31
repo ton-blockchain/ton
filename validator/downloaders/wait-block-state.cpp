@@ -18,6 +18,7 @@
 */
 #include "common/checksum.h"
 #include "common/delay.h"
+#include "db/celldb-utils.h"
 #include "ton/ton-io.hpp"
 #include "validator/downloaders/download-state.hpp"
 #include "validator/fabric.h"
@@ -54,10 +55,10 @@ void WaitBlockState::abort_query(td::Status reason) {
 void WaitBlockState::finish_query() {
   CHECK(handle_->received_state());
   if (promise_no_store_) {
-    promise_no_store_.set_result(prev_state_);
+    promise_no_store_.set_result(state_);
   }
   if (promise_final_) {
-    promise_final_.set_result(prev_state_);
+    promise_final_.set_result(state_);
   }
   stop();
 }
@@ -137,8 +138,7 @@ void WaitBlockState::start() {
       }
     }
     if (!block_found) {
-      LOG(ERROR) << "invalid persistent state description passed to WaitBlockState for block "
-                 << handle_->id().to_str();
+      LOG(ERROR) << "invalid persistent state description passed to WaitBlockState for block " << handle_->id();
       P.set_error(td::Status::Error("invalid persistent state description"));
     } else {
       td::actor::create_actor<DownloadShardState>("downloadstate", handle_->id(), masterchain_id, split_depth,
@@ -162,7 +162,7 @@ void WaitBlockState::start() {
     waiting_proof_link_ = true;
     td::actor::send_closure(manager_, &ValidatorManager::send_get_block_proof_link_request, handle_->id(), priority_,
                             std::move(P));
-  } else if (prev_state_.is_null()) {
+  } else if (state_.is_null()) {
     CHECK(handle_->inited_proof() || handle_->inited_proof_link());
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       if (R.is_error()) {
@@ -221,7 +221,7 @@ void WaitBlockState::failed_to_get_prev_state(td::Status reason) {
 }
 
 void WaitBlockState::got_prev_state(td::Ref<ShardState> state) {
-  prev_state_ = std::move(state);
+  state_ = std::move(state);
 
   start();
 }
@@ -289,29 +289,11 @@ void WaitBlockState::apply() {
     }
   });
 
-  if (opts_->get_permanent_celldb()) {
-    td::actor::send_closure(manager_, &ValidatorManager::set_block_state_from_data, handle_, block_, std::move(P));
-    return;
-  }
-  TD_PERF_COUNTER(apply_block_to_state);
-  td::PerfWarningTimer t{"applyblocktostate", 0.1};
-  vm::StoreCellHint hint;
-  auto S = prev_state_.write().apply_block(handle_->id(), block_, &hint);
-  if (S.is_error()) {
-    abort_query(S.move_as_error_prefix("apply error: "));
-    return;
-  }
-
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, std::move(hint),
-                          std::move(P));
-  if (promise_no_store_) {
-    promise_no_store_.set_result(prev_state_);
-    promise_no_store_ = {};
-  }
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state_from_data, handle_, block_, std::move(P));
 }
 
 void WaitBlockState::written_state(td::Ref<ShardState> upd_state) {
-  prev_state_ = std::move(upd_state);
+  state_ = std::move(upd_state);
   finish_query();
 }
 
@@ -319,7 +301,7 @@ void WaitBlockState::got_state_from_db(td::Ref<ShardState> state, bool force_rea
   if (force_reading_from_db_ && !force_reading) {
     return;
   }
-  prev_state_ = state;
+  state_ = state;
   if (!handle_->received_state()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       if (R.is_error()) {
@@ -329,10 +311,10 @@ void WaitBlockState::got_state_from_db(td::Ref<ShardState> state, bool force_rea
       }
     });
 
-    td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, vm::StoreCellHint{},
+    td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_, vm::StoreCellHint{},
                             std::move(P));
     if (promise_no_store_) {
-      promise_no_store_.set_result(prev_state_);
+      promise_no_store_.set_result(state_);
       promise_no_store_ = {};
     }
   } else {
@@ -412,7 +394,7 @@ void WaitBlockState::got_state_from_net(td::BufferSlice data) {
   handle_->set_is_key_block(handle_->id().is_masterchain() && handle_->id().id.seqno == 0);
   handle_->set_split(state->before_split());
 
-  prev_state_ = std::move(state);
+  state_ = std::move(state);
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &WaitBlockState::abort_query, R.move_as_error_prefix("db set error: "));
@@ -434,7 +416,7 @@ void WaitBlockState::written_state_file() {
     }
   });
 
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, prev_state_, vm::StoreCellHint{},
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_, vm::StoreCellHint{},
                           std::move(P));
 }
 

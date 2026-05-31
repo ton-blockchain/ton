@@ -42,7 +42,7 @@ void CheckProof::alarm() {
 
 void CheckProof::abort_query(td::Status reason) {
   if (promise_) {
-    VLOG(VALIDATOR_WARNING) << "aborting check proof for " << id_.to_str() << " query: " << reason;
+    VLOG(VALIDATOR_WARNING) << "aborting check proof for " << id_ << " query: " << reason;
     promise_.set_error(std::move(reason));
   }
   stop();
@@ -67,7 +67,7 @@ void CheckProof::finish_query() {
     ValidatorInvariants::check_post_check_proof_link(handle_);
   }
   if (promise_) {
-    VLOG(VALIDATOR_DEBUG) << "checked proof for " << handle_->id().to_str();
+    VLOG(VALIDATOR_DEBUG) << "checked proof for " << handle_->id();
     promise_.set_result(handle_);
   }
   stop();
@@ -112,9 +112,9 @@ bool CheckProof::init_parse(bool is_aux) {
       return fatal_error("auxiliary key block "s + key_id_.to_str() + " does not belong to the masterchain");
     }
     if (key_id_.seqno() != prev_key_seqno_) {
-      return fatal_error(
-          PSTRING() << "cannot verify newer block " << id_.to_str() << " using key block " << key_id_.to_str()
-                    << " because the newer block declares different previous key block seqno " << prev_key_seqno_);
+      return fatal_error(PSTRING() << "cannot verify newer block " << id_ << " using key block " << key_id_
+                                   << " because the newer block declares different previous key block seqno "
+                                   << prev_key_seqno_);
     }
     if (key_id_.seqno() >= id_.seqno()) {
       return fatal_error("cannot verify block "s + id_.to_str() + " using key block " + key_id_.to_str() +
@@ -222,7 +222,7 @@ bool CheckProof::init_parse(bool is_aux) {
   if (is_key_block_ && !is_aux) {
     // visit validator-set related fields in key blocks
     block::gen::McBlockExtra::Record mc_extra;
-    if (!(tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
+    if (!(extra.custom->have_refs() && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
           mc_extra.config.not_null())) {
       return fatal_error("cannot unpack extra header of key masterchain block "s + blk_id.to_str());
     }
@@ -265,7 +265,7 @@ bool CheckProof::init_parse(bool is_aux) {
 }
 
 void CheckProof::start_up() {
-  VLOG(VALIDATOR_DEBUG) << "started check proof for " << id_.to_str() << ", mode=" << mode_;
+  VLOG(VALIDATOR_DEBUG) << "started check proof for " << id_ << ", mode=" << mode_;
   alarm_timestamp() = timeout_;
 
   auto res = vm::std_boc_deserialize(proof_->data());
@@ -377,8 +377,8 @@ void CheckProof::process_masterchain_state() {
     return;
   }
   if (id.seqno() < prev_key_seqno_) {
-    fatal_error(PSTRING() << "cannot check masterchain block proof for " << id_.to_str()
-                          << " starting from masterchain state for " << id.to_str()
+    fatal_error(PSTRING() << "cannot check masterchain block proof for " << id_
+                          << " starting from masterchain state for " << id
                           << " older than the previous key block with seqno " << prev_key_seqno_);
     return;
   }
@@ -435,7 +435,7 @@ void CheckProof::check_signatures() {
 }
 
 void CheckProof::got_block_handle_2(BlockHandle handle) {
-  VLOG(VALIDATOR_DEBUG) << "got_block_handle_2 " << handle->id().id.to_str();
+  VLOG(VALIDATOR_DEBUG) << "got_block_handle_2 " << handle->id().id;
   handle_ = std::move(handle);
 
   handle_->set_split(before_split_);

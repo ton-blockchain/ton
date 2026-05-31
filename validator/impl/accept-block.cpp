@@ -102,7 +102,6 @@ AcceptBlockQuery::AcceptBlockQuery(ForceFork ffork, BlockIdExt id, td::Ref<Block
 bool AcceptBlockQuery::precheck_header() {
   VLOG(VALIDATOR_DEBUG) << "precheck_header()";
   // 0. sanity check
-  CHECK(data_.not_null());
   block_root_ = data_->root_cell();
   if (data_->block_id() != id_) {
     return fatal_error("incorrect block id in block data: "s + data_->block_id().to_str() + " instead of " +
@@ -189,7 +188,7 @@ bool AcceptBlockQuery::create_new_proof() {
                        blk_id.to_str());
   }
   if (info.after_merge + 1U != prev_.size()) {
-    return fatal_error(PSTRING() << "block header of " << id_.to_str() << " announces " << info.after_merge + 1
+    return fatal_error(PSTRING() << "block header of " << id_ << " announces " << info.after_merge + 1
                                  << " previous blocks, but " << prev_.size() << " are actually present");
   }
   if (is_masterchain() && (info.after_merge | info.after_split | info.before_split)) {
@@ -207,7 +206,7 @@ bool AcceptBlockQuery::create_new_proof() {
   // 4. visit validator-set related fields in key blocks
   if (is_key_block_) {
     block::gen::McBlockExtra::Record mc_extra;
-    if (!(tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
+    if (!(extra.custom->have_refs() && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
           mc_extra.config.not_null())) {
       return fatal_error("cannot unpack extra header of key masterchain block "s + blk_id.to_str());
     }
@@ -240,7 +239,8 @@ bool AcceptBlockQuery::create_new_proof() {
     mc_blkid_.file_hash = mcref.file_hash;
   } else if (!is_key_block_) {
     block::gen::McBlockExtra::Record mc_extra;
-    if (!(tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && !mc_extra.key_block)) {
+    if (!(extra.custom->have_refs() && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) &&
+          !mc_extra.key_block)) {
       return fatal_error("extra header of non-key masterchain block "s + blk_id.to_str() +
                          " is invalid or contains extra information reserved for key blocks only");
     }
@@ -390,15 +390,11 @@ void AcceptBlockQuery::start_up() {
     fatal_error("cannot accept a non-masterchain fork block");
     return;
   }
-  if (is_fork_ && data_.is_null()) {
-    fatal_error("cannot accept a fork block without explicit data");
+  if (data_.is_null()) {
+    fatal_error("cannot accept block without explicit data");
     return;
   }
-  if (data_.is_null() && prev_.empty()) {
-    fatal_error("no explicit data and prev blocks provided");
-    return;
-  }
-  if (data_.not_null() && !precheck_header()) {
+  if (!precheck_header()) {
     fatal_error("invalid block header in AcceptBlock");
     return;
   }
@@ -423,39 +419,12 @@ void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
     finish_query();
     return;
   }
-  if (data_.is_null()) {
-    td::actor::send_closure(manager_, &ValidatorManager::get_candidate_data_by_block_id_from_db, id_,
-                            [SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
-                              if (R.is_ok()) {
-                                td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_candidate_data,
-                                                        R.move_as_ok());
-                              } else {
-                                td::actor::send_closure(SelfId, &AcceptBlockQuery::got_block_handle_cont);
-                              }
-                            });
-  } else {
-    got_block_handle_cont();
-  }
-}
-
-void AcceptBlockQuery::got_block_candidate_data(td::BufferSlice data) {
-  auto r_block = create_block(id_, std::move(data));
-  if (r_block.is_error()) {
-    fatal_error("invalid block candidate data in db: " + r_block.error().to_string());
-    return;
-  }
-  data_ = r_block.move_as_ok();
-  VLOG(VALIDATOR_DEBUG) << "got block candidate data from db";
-  if (data_.not_null() && !precheck_header()) {
-    fatal_error("invalid block header in AcceptBlock");
-    return;
-  }
   got_block_handle_cont();
 }
 
 void AcceptBlockQuery::got_block_handle_cont() {
   VLOG(VALIDATOR_DEBUG) << "got_block_handle_cont()";
-  if (data_.not_null() && !handle_->received()) {
+  if (!handle_->received()) {
     td::actor::send_closure(
         manager_, &ValidatorManager::set_block_data, handle_, data_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
           check_send_error(SelfId, R) || td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_block_data);
@@ -497,61 +466,29 @@ void AcceptBlockQuery::written_block_signatures() {
 
 void AcceptBlockQuery::written_block_info() {
   VLOG(VALIDATOR_DEBUG) << "written block info";
-  if (data_.not_null()) {
-    block_root_ = data_->root_cell();
-    if (block_root_.is_null()) {
-      fatal_error("block data does not contain a root cell");
-      return;
-    }
-    // generate proof
-    if (!create_new_proof()) {
-      fatal_error("cannot generate proof for block "s + id_.to_str());
-      return;
-    }
-    send_broadcasts();
-    if (!apply_) {
-      written_state({});
-      return;
-    }
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
-      check_send_error(SelfId, R) ||
-          td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_prev_state, R.move_as_ok());
-    });
-
-    VLOG(VALIDATOR_DEBUG) << "wait_prev_block_state";
-    td::actor::send_closure(manager_, &ValidatorManager::wait_prev_block_state, handle_, priority(), timeout_,
-                            std::move(P));
-  } else {
-    VLOG(VALIDATOR_DEBUG) << "wait_block_data";
-    td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, priority(), timeout_,
-                            [SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
-                              check_send_error(SelfId, R) ||
-                                  td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_block_data,
-                                                               R.move_as_ok());
-                            });
-  }
-}
-
-void AcceptBlockQuery::got_block_data(td::Ref<BlockData> data) {
-  VLOG(VALIDATOR_DEBUG) << "got_block_data()";
-  data_ = std::move(data);
-  CHECK(data_.not_null());
-  if (data_->root_cell().is_null()) {
+  block_root_ = data_->root_cell();
+  if (block_root_.is_null()) {
     fatal_error("block data does not contain a root cell");
     return;
   }
-  if (!precheck_header()) {
-    fatal_error("invalid block header in AcceptBlock");
+  // generate proof
+  if (!create_new_proof()) {
+    fatal_error("cannot generate proof for block "s + id_.to_str());
     return;
   }
-  if (handle_->received()) {
-    written_block_data();
-  } else {
-    td::actor::send_closure(
-        manager_, &ValidatorManager::set_block_data, handle_, data_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
-          check_send_error(SelfId, R) || td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_block_data);
-        });
+  send_broadcasts();
+  if (!apply_) {
+    written_state({});
+    return;
   }
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+    check_send_error(SelfId, R) ||
+        td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::got_prev_state, R.move_as_ok());
+  });
+
+  VLOG(VALIDATOR_DEBUG) << "wait_prev_block_state";
+  td::actor::send_closure(manager_, &ValidatorManager::wait_prev_block_state, handle_, priority(), timeout_,
+                          std::move(P));
 }
 
 void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
@@ -559,17 +496,7 @@ void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
   state_ = std::move(state);
 
   state_keep_old_hash_ = state_->root_hash();
-
-  vm::StoreCellHint hint;
-  auto err = state_.write().apply_block(id_, data_, &hint);
-  if (err.is_error()) {
-    abort_query(std::move(err));
-    return;
-  }
-
-  handle_->set_split(state_->before_split());
-
-  td::actor::send_closure(manager_, &ValidatorManager::set_block_state, handle_, state_, std::move(hint),
+  td::actor::send_closure(manager_, &ValidatorManager::set_block_state_from_data, handle_, data_,
                           [SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
                             check_send_error(SelfId, R) ||
                                 td::actor::send_closure_bool(SelfId, &AcceptBlockQuery::written_state, R.move_as_ok());
@@ -578,7 +505,6 @@ void AcceptBlockQuery::got_prev_state(td::Ref<ShardState> state) {
 
 void AcceptBlockQuery::written_state(td::Ref<ShardState> upd_state) {
   VLOG(VALIDATOR_DEBUG) << "written state";
-  CHECK(data_.not_null());
   state_ = std::move(upd_state);
 
   if (apply_ && state_keep_old_hash_ != state_old_hash_) {
@@ -629,12 +555,12 @@ void AcceptBlockQuery::written_block_proof() {
 }
 
 void AcceptBlockQuery::got_last_mc_block(std::pair<td::Ref<MasterchainState>, BlockIdExt> last) {
-  VLOG(VALIDATOR_DEBUG) << "got_last_mc_block(): " << last.second.to_str();
+  VLOG(VALIDATOR_DEBUG) << "got_last_mc_block(): " << last.second;
   last_mc_state_ = Ref<MasterchainStateQ>(std::move(last.first));
   last_mc_id_ = std::move(last.second);
   CHECK(last_mc_state_.not_null());
   if (last_mc_id_.id.seqno < mc_blkid_.id.seqno) {
-    VLOG(VALIDATOR_DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_.to_str()
+    VLOG(VALIDATOR_DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_
                           << ", trying to obtain it";
     td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout_,
                                   false, [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
@@ -693,16 +619,16 @@ void AcceptBlockQuery::find_known_ancestors() {
       written_block_next();
       return;
     }
-    VLOG(VALIDATOR_DEBUG) << "found two ancestors: " << ancestor->blk_.to_str() << " and " << ancestor2->blk_.to_str();
+    VLOG(VALIDATOR_DEBUG) << "found two ancestors: " << ancestor->blk_ << " and " << ancestor2->blk_;
     ancestors_seqno_ = std::max(ancestor->blk_.id.seqno, ancestor2->blk_.id.seqno);
     ancestors_.emplace_back(std::move(ancestor));
     ancestors_.emplace_back(std::move(ancestor2));
   } else if (ancestor->shard() == shard) {
-    VLOG(VALIDATOR_DEBUG) << "found one regular ancestor " << ancestor->blk_.to_str();
+    VLOG(VALIDATOR_DEBUG) << "found one regular ancestor " << ancestor->blk_;
     ancestors_seqno_ = ancestor->seqno();
     ancestors_.emplace_back(std::move(ancestor));
   } else if (ton::shard_is_parent(ancestor->shard(), shard)) {
-    VLOG(VALIDATOR_DEBUG) << "found one parent ancestor " << ancestor->blk_.to_str();
+    VLOG(VALIDATOR_DEBUG) << "found one parent ancestor " << ancestor->blk_;
     ancestors_seqno_ = ancestor->seqno();
     ancestors_.emplace_back(std::move(ancestor));
     ancestors_split_ = true;
@@ -719,9 +645,8 @@ void AcceptBlockQuery::find_known_ancestors() {
     return;
   }
   if (ancestors_seqno_ >= id_.id.seqno) {
-    VLOG(VALIDATOR_WARNING) << "skipping ShardTopBlockDescr creation for " << id_.to_str() << " because a newer block "
-                            << ancestors_.at(0)->blk_.to_str() << " is already present in masterchain block "
-                            << last_mc_id_.to_str();
+    VLOG(VALIDATOR_WARNING) << "skipping ShardTopBlockDescr creation for " << id_ << " because a newer block "
+                            << ancestors_.at(0)->blk_ << " is already present in masterchain block " << last_mc_id_;
     written_block_next();
     return;
   }
@@ -739,7 +664,7 @@ void AcceptBlockQuery::find_known_ancestors() {
 }
 
 void AcceptBlockQuery::require_proof_link(BlockIdExt id) {
-  VLOG(VALIDATOR_DEBUG) << "require_proof_link(" << id.to_str() << ")";
+  VLOG(VALIDATOR_DEBUG) << "require_proof_link(" << id << ")";
   CHECK(ton::ShardIdFull(id) == ton::ShardIdFull(id_));
   CHECK(id.id.seqno == id_.id.seqno - 1 - proof_links_.size());
   td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_proof_link_short, id, timeout_,
@@ -822,7 +747,7 @@ bool AcceptBlockQuery::unpack_proof_link(BlockIdExt id, Ref<ProofLink> proof_lin
 }
 
 void AcceptBlockQuery::got_proof_link(BlockIdExt id, Ref<ProofLink> proof) {
-  VLOG(VALIDATOR_DEBUG) << "got_proof_link(" << id.to_str() << ")";
+  VLOG(VALIDATOR_DEBUG) << "got_proof_link(" << id << ")";
   CHECK(proof.not_null());
   proof_links_.push_back(proof);
   if (!unpack_proof_link(id, std::move(proof))) {
@@ -913,7 +838,7 @@ void AcceptBlockQuery::create_topshard_blk_descr() {
 void AcceptBlockQuery::top_block_descr_validated(td::Result<Ref<ShardTopBlockDescription>> R) {
   VLOG(VALIDATOR_DEBUG) << "top_block_descr_validated()";
   if (R.is_error()) {
-    VLOG(VALIDATOR_WARNING) << "error validating newly-created ShardTopBlockDescr for " << id_.to_str() << ": "
+    VLOG(VALIDATOR_WARNING) << "error validating newly-created ShardTopBlockDescr for " << id_ << ": "
                             << R.move_as_error().to_string();
   } else {
     top_block_descr_ = R.move_as_ok();

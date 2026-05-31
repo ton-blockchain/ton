@@ -4,8 +4,10 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "td/db/KeyValueAsync.h"
 #include "td/db/RocksDb.h"
 #include "td/utils/port/path.h"
+#include "ton/ton-io.hpp"
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
 #include "validator/validator-group.hpp"
@@ -13,6 +15,7 @@
 namespace ton::validator {
 
 namespace consensus {
+
 namespace {
 
 class ManagerFacadeImpl : public ManagerFacade {
@@ -58,8 +61,8 @@ class ManagerFacadeImpl : public ManagerFacade {
         break;
       }
       LOG_CHECK(result.error().code() == ErrorCode::timeout || result.error().code() == ErrorCode::notready)
-          << "Failed to accept finalized block " << id.to_str() << " : " << result.error();
-      LOG(WARNING) << "Failed to accept finalized block " << id.to_str() << ", retrying : " << result.error();
+          << "Failed to accept finalized block " << id << " : " << result.error();
+      LOG(WARNING) << "Failed to accept finalized block " << id << ", retrying : " << result.error();
       send_broadcast_mode = 0;
       co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
     }
@@ -77,9 +80,8 @@ class ManagerFacadeImpl : public ManagerFacade {
   }
 
   void cache_block_candidate(BlockCandidate candidate) override {
-    td::actor::send_closure(manager_, &ValidatorManager::set_block_candidate, candidate.id, std::move(candidate),
-                            validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-                            /*cache_only=*/true, [](td::Result<>) {});
+    td::actor::send_closure(manager_, &ValidatorManager::cache_block_candidate, std::move(candidate),
+                            [](td::Result<>) {});
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
@@ -117,7 +119,7 @@ class DbImpl : public Db {
     return std::nullopt;
   }
   std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const override {
-    td::uint32 prefix2 = prefix + 1;
+    td::uint32 prefix2 = td::bswap32(td::bswap32(prefix) + 1);
     td::Slice begin{(const char*)&prefix, 4};
     td::Slice end{(const char*)&prefix2, 4};
     std::vector<std::pair<td::BufferSlice, td::BufferSlice>> result;
@@ -146,6 +148,30 @@ class DbImpl : public Db {
   std::unique_ptr<td::KeyValueReader> reader_;
 };
 
+class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
+    stop();
+  }
+
+  template <>
+  td::actor::Task<> process(BusHandle, std::shared_ptr<PrecheckCandidateBroadcast>) {
+    co_return {};
+  }
+
+  template <>
+  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
+    if (event->candidate->is_empty()) {
+      return;
+    }
+    const BlockCandidate& candidate = std::get<BlockCandidate>(event->candidate->block);
+    td::actor::send_closure(bus->manager, &ManagerFacade::cache_block_candidate, candidate.clone());
+  }
+};
+
 struct BridgeCreationParams {
   std::string name;
   bool is_create_session_called;
@@ -165,6 +191,10 @@ struct BridgeCreationParams {
   td::actor::ActorId<overlay::Overlays> overlays;
   td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender;
   std::string db_root;
+
+  bool is_validator;
+  adnl::AdnlNodeIdShort local_adnl_id;
+  std::vector<adnl::AdnlNodeIdShort> overlay_members;
 };
 
 class BridgeImpl final : public IValidatorGroup {
@@ -199,12 +229,6 @@ class BridgeImpl final : public IValidatorGroup {
     }
   }
 
-  virtual void get_validator_group_info_for_litequery(
-      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroupInfo>> promise) override {
-    // TODO
-    promise.set_error(td::Status::Error("Not implemented"));
-  }
-
   virtual void notify_mc_finalized(BlockIdExt block) override {
     if (bus_) {
       bus_.publish<BlockFinalizedInMasterchain>(block);
@@ -226,6 +250,8 @@ class BridgeImpl final : public IValidatorGroup {
     bus->manager = manager_facade_.get();
     bus->keyring = params_.keyring;
     bus->validator_opts = params_.validator_opts;
+    bus->is_validator = params_.is_validator;
+    bus->overlay_members = params_.overlay_members;
 
     bool found = false;
     size_t idx = 0;
@@ -242,7 +268,7 @@ class BridgeImpl final : public IValidatorGroup {
           .weight = el.weight,
       });
 
-      if (short_id == params_.local_id) {
+      if (params_.is_validator && short_id == params_.local_id) {
         found = true;
         bus->local_id = bus->validator_set.back();
       }
@@ -253,7 +279,17 @@ class BridgeImpl final : public IValidatorGroup {
     bus->total_weight = total_weight;
     bus->cc_seqno = params_.validator_set->get_catchain_seqno();
     bus->validator_set_hash = params_.validator_set->get_validator_set_hash();
-    CHECK(found);
+    if (params_.is_validator) {
+      CHECK(found);
+    } else {
+      bus->local_id = PeerValidator{
+          .idx = PeerValidatorId{std::numeric_limits<size_t>::max()},
+          .key = {},
+          .short_id = PublicKeyHash::zero(),
+          .adnl_id = params_.local_adnl_id,
+          .weight = 0,
+      };
+    }
 
     bus->config = params_.config;
     bus->config.noncritical_params =
@@ -266,25 +302,32 @@ class BridgeImpl final : public IValidatorGroup {
 
     bus->populate_collator_schedule();
 
-    bus->db = std::make_unique<DbImpl>(db_path() + "/db/");
-
     auto [stop_waiter, stop_promise] = td::actor::StartedTask<>::make_bridge();
     stop_waiter_ = std::move(stop_waiter);
     bus->stop_promise = std::move(stop_promise);
 
     td::actor::Runtime runtime;
-    BlockAccepter::register_in(runtime);
-    BlockProducer::register_in(runtime);
-    BlockValidator::register_in(runtime);
-    PrivateOverlay::register_in(runtime);
-    TraceCollector::register_in(runtime);
+    if (params_.is_validator) {
+      bus->db = std::make_unique<DbImpl>(db_path() + "/db/");
 
-    simplex::CandidateResolver::register_in(runtime);
-    simplex::Consensus::register_in(runtime);
-    simplex::Db::register_in(runtime);
-    simplex::Pool::register_in(runtime);
-    simplex::StateResolver::register_in(runtime);
-    simplex::MetricCollector::register_in(runtime);
+      BlockAccepter::register_in(runtime);
+      BlockProducer::register_in(runtime);
+      BlockValidator::register_in(runtime);
+      PrivateOverlay::register_in(runtime);
+      TraceCollector::register_in(runtime);
+      simplex::CandidateResolver::register_in(runtime);
+      simplex::Consensus::register_in(runtime);
+      simplex::Db::register_in(runtime);
+      simplex::Pool::register_in(runtime);
+      simplex::StateResolver::register_in(runtime);
+    } else {
+      CHECK(params_.config.enable_observers);
+      runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
+    }
+
+    if (params_.config.enable_observers) {
+      BlockSyncOverlay::register_in(runtime);
+    }
 
     bus_ = runtime.start(bus, params_.name);
   }
@@ -294,16 +337,20 @@ class BridgeImpl final : public IValidatorGroup {
     if (bus_) {
       LOG(INFO) << "Destroying validator group";
       bus_.publish<StopRequested>();
-      co_await bus_->db->close();
+      if (bus_->db) {
+        co_await bus_->db->close();
+      }
       bus_ = {};
       co_await std::move(stop_waiter_.value());
       LOG(INFO) << "Consensus bus stopped";
-      auto S = td::RocksDb::destroy(db_path() + "/db/");
-      td::rmrf(db_path()).ignore();
-      if (S.is_ok()) {
-        LOG(INFO) << "Deleting consensus DB : done";
-      } else {
-        LOG(ERROR) << "Deleting consensus DB " << db_path() << " : " << S;
+      if (params_.is_validator) {
+        auto S = td::RocksDb::destroy(db_path() + "/db/");
+        td::rmrf(db_path()).ignore();
+        if (S.is_ok()) {
+          LOG(INFO) << "Deleting consensus DB : done";
+        } else {
+          LOG(ERROR) << "Deleting consensus DB " << db_path() << " : " << S;
+        }
       }
     }
     stop();
@@ -318,11 +365,16 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   void maybe_start_group() {
-    if (!bus_ || !is_create_session_called_ || !is_start_called_ || !start_event_ || is_started_) {
+    if (!bus_ || !is_create_session_called_ || !is_start_called_ || is_started_) {
+      return;
+    }
+    if (params_.is_validator && !start_event_) {
       return;
     }
     is_started_ = true;
-    bus_.publish(start_event_);
+    if (start_event_) {
+      bus_.publish(start_event_);
+    }
   }
 
   bool is_start_called_ = false;
@@ -356,7 +408,8 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
     td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
     std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager,
     td::actor::ActorId<CollationManager> collation_manager, bool create_session, bool allow_unsafe_self_blocks_resync,
-    td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard) {
+    td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard, bool is_validator,
+    adnl::AdnlNodeIdShort local_adnl_id, std::vector<adnl::AdnlNodeIdShort> overlay_members) {
   auto name_with_seqno =
       std::string(name.begin(), name.end()) + "." + std::to_string(validator_set->get_catchain_seqno());
   consensus::BridgeCreationParams params{
@@ -374,6 +427,9 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
       .overlays = overlays,
       .adnl_sender = adnl_sender,
       .db_root = db_root,
+      .is_validator = is_validator,
+      .local_adnl_id = local_adnl_id,
+      .overlay_members = std::move(overlay_members),
   };
   return td::actor::create_actor<consensus::BridgeImpl>(name_with_seqno, std::move(params));
 }

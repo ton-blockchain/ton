@@ -35,8 +35,8 @@ class TestScheduler {
       return false;
     }
     void await_suspend(std::coroutine_handle<> h) noexcept {
+      CHECK(!sched->control_continuation_);
       sched->control_continuation_ = h;
-      sched->control_waiting_ = true;
     }
     void await_resume() const noexcept {
     }
@@ -46,64 +46,54 @@ class TestScheduler {
     return WaitSyncWork{this};
   }
 
-  double next_timeout_in() const {
+  std::optional<Timestamp> next_timeout() const {
     if (heap_.empty()) {
-      return std::numeric_limits<double>::infinity();
+      return std::nullopt;
     }
-    double result = heap_.top_key() - Time::now();
-    return result > 0 ? result : 0;
+    return heap_.top_key();
   }
 
-  void advance_time(double delta) {
-    Time::jump_in_future(Time::now() + delta);
-  }
-
-  void advance_time(std::chrono::duration<double> delta) {
-    Time::jump_in_future(Time::now() + delta.count());
+  void advance_time(auto delta)
+    requires requires {
+      { Timestamp::now() + delta } -> std::same_as<Timestamp>;
+    }
+  {
+    Time::jump_in_future((Timestamp::now() + delta).get());
   }
 
   void advance_time_to(td::Timestamp timestamp) {
-    Time::jump_in_future(timestamp.at());
+    Time::jump_in_future(timestamp.get());
   }
 
   template <class F>
   void run(F &&coro_factory) {
-    Time::freeze();
+    Time::FreezeGuard time_freeze;
+
     ContextImpl context(this);
     core::SchedulerContext::Guard guard(&context);
 
-    auto task = coro_factory();
-    auto started = std::move(task).start_immediate();
-
-    while (!started.await_ready() && !stop_requested_) {
-      drain_all();
-      if (control_waiting_) {
-        control_waiting_ = false;
-        control_continuation_.resume();
-      } else {
-        LOG_CHECK(started.await_ready() || stop_requested_)
-            << "Deadlock detected: control coroutine is suspended but there is no synchronous work to do";
+    auto task = coro_factory().start_immediate();
+    while (true) {
+      drain_all(false);
+      if (!control_continuation_) {
         break;
       }
+      std::exchange(control_continuation_, nullptr).resume();
     }
-
-    started.detach_silent();
-    cleanup();
-    Time::unfreeze();
+    LOG_CHECK(task.await_ready())
+        << "Deadlock detected: control coroutine is suspended but there is no synchronous work to do";
+    drain_all(true);
   }
 
  private:
   std::deque<core::ActorInfoPtr> io_queue_;
   std::deque<core::SchedulerToken> cpu_queue_;
 
-  KHeap<double> heap_;
+  KHeap<Timestamp> heap_;
   Poll poll_;
   core::Debug debug_;
   core::ActorInfoCreator creator_{true};
-  bool stop_requested_{false};
-
   std::coroutine_handle<> control_continuation_;
-  bool control_waiting_{false};
 
   class ContextImpl : public core::SchedulerContext {
    public:
@@ -144,15 +134,14 @@ class TestScheduler {
     bool has_heap() override {
       return true;
     }
-    KHeap<double> &get_heap() override {
+    KHeap<Timestamp> &get_heap() override {
       return sched_->heap_;
     }
 
     bool is_stop_requested() override {
-      return sched_->stop_requested_;
+      return false;
     }
     void stop() override {
-      sched_->stop_requested_ = true;
     }
 
     core::Debug &get_debug() override {
@@ -169,10 +158,10 @@ class TestScheduler {
       auto timestamp = actor_info_ptr->get_alarm_timestamp();
       if (timestamp) {
         if (heap_node->in_heap()) {
-          heap.fix(timestamp.at(), heap_node);
+          heap.fix(timestamp, heap_node);
         } else {
           actor_info_ptr->pin(actor_info_ptr);
-          heap.insert(timestamp.at(), heap_node);
+          heap.insert(timestamp, heap_node);
         }
       } else {
         if (heap_node->in_heap()) {
@@ -186,49 +175,7 @@ class TestScheduler {
     TestScheduler *sched_;
   };
 
-  bool process_alarms() {
-    bool did_work = false;
-    auto &dispatcher = core::SchedulerContext::get();
-    auto now = Time::now();
-    while (!heap_.empty() && heap_.top_key() <= now) {
-      auto *heap_node = heap_.pop();
-      auto *actor_info = core::ActorInfo::from_heap_node(heap_node);
-      actor_info->unpin();
-      auto lock = debug_.start(actor_info->get_name());
-      core::ActorExecutor executor(*actor_info, dispatcher, core::ActorExecutor::Options().with_has_poll(true));
-      if (executor.can_send_immediate()) {
-        executor.send_immediate(core::ActorSignals::one(core::ActorSignals::Alarm));
-      } else {
-        executor.send(core::ActorSignals::one(core::ActorSignals::Alarm));
-      }
-      did_work = true;
-    }
-    return did_work;
-  }
-
-  bool process_io_queue() {
-    bool did_work = false;
-    auto &dispatcher = core::SchedulerContext::get();
-    while (!io_queue_.empty()) {
-      auto actor_info_ptr = std::move(io_queue_.front());
-      io_queue_.pop_front();
-      if (!actor_info_ptr) {
-        continue;
-      }
-      if (actor_info_ptr->state().get_flags_unsafe().is_shared()) {
-        dispatcher.set_alarm_timestamp(actor_info_ptr);
-      } else {
-        auto lock = debug_.start(actor_info_ptr->get_name());
-        core::ActorExecutor executor(*actor_info_ptr, dispatcher,
-                                     core::ActorExecutor::Options().with_from_queue().with_has_poll(true));
-      }
-      did_work = true;
-    }
-    return did_work;
-  }
-
-  bool process_cpu_queue() {
-    bool did_work = false;
+  void process_cpu_queue() {
     auto &dispatcher = core::SchedulerContext::get();
     while (!cpu_queue_.empty()) {
       auto token = cpu_queue_.front();
@@ -247,45 +194,58 @@ class TestScheduler {
         auto lock = debug_.start("coro");
         h.resume();
       }
-      did_work = true;
-    }
-    return did_work;
-  }
-
-  void drain_all() {
-    while (true) {
-      bool did_work = false;
-      did_work |= process_alarms();
-      did_work |= process_io_queue();
-      did_work |= process_cpu_queue();
-      if (!did_work) {
-        break;
-      }
     }
   }
 
-  void cleanup() {
-    while (!heap_.empty()) {
-      Time::jump_in_future(heap_.top_key());
-      drain_all();
-    }
-
-    for (auto &token : cpu_queue_) {
-      if (!token) {
+  void process_io_queue() {
+    auto &dispatcher = core::SchedulerContext::get();
+    while (!io_queue_.empty()) {
+      auto actor_info_ptr = std::move(io_queue_.front());
+      io_queue_.pop_front();
+      if (!actor_info_ptr) {
         continue;
       }
-      auto encoded = reinterpret_cast<uintptr_t>(token);
-      if ((encoded & 1u) == 0u) {
-        auto *raw = reinterpret_cast<core::SchedulerMessage::Raw *>(token);
-        core::SchedulerMessage(core::SchedulerMessage::acquire_t{}, raw);
+      if (actor_info_ptr->state().get_flags_unsafe().is_shared()) {
+        dispatcher.set_alarm_timestamp(actor_info_ptr);
       } else {
-        auto h = std::coroutine_handle<>::from_address(reinterpret_cast<void *>(encoded & ~uintptr_t(1)));
-        h.destroy();
+        auto lock = debug_.start(actor_info_ptr->get_name());
+        core::ActorExecutor executor(*actor_info_ptr, dispatcher,
+                                     core::ActorExecutor::Options().with_from_queue().with_has_poll(true));
       }
     }
-    cpu_queue_.clear();
-    io_queue_.clear();
-    creator_.clear();
+  }
+
+  void process_single_alarm() {
+    auto &dispatcher = core::SchedulerContext::get();
+    auto *heap_node = heap_.pop();
+    auto *actor_info = core::ActorInfo::from_heap_node(heap_node);
+    actor_info->unpin();
+    auto lock = debug_.start(actor_info->get_name());
+    core::ActorExecutor executor(*actor_info, dispatcher, core::ActorExecutor::Options().with_has_poll(true));
+    if (executor.can_send_immediate()) {
+      executor.send_immediate(core::ActorSignals::one(core::ActorSignals::Alarm));
+    } else {
+      executor.send(core::ActorSignals::one(core::ActorSignals::Alarm));
+    }
+  }
+
+  void drain_all(bool advance_time) {
+    while (true) {
+      while (!cpu_queue_.empty() || !io_queue_.empty()) {
+        process_cpu_queue();
+        process_io_queue();
+      }
+      if (heap_.empty()) {
+        break;
+      }
+      if (heap_.top_key() > Timestamp::now()) {
+        if (!advance_time) {
+          break;
+        }
+        Time::jump_in_future(heap_.top_key().get());
+      }
+      process_single_alarm();
+    }
   }
 };
 

@@ -115,9 +115,13 @@ class OverlayPrivacyRules {
       : max_unath_size_(max_size), flags_(flags), authorized_keys_(std::move(authorized_keys)) {
   }
 
-  BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec) {
+  BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec, bool is_any_sender) {
     auto it = authorized_keys_.find(hash);
     if (it == authorized_keys_.end()) {
+      if (is_any_sender) {
+        // Unauthorized broadcasts with AnySender flag are not allowed
+        return BroadcastCheckResult::Forbidden;
+      }
       if (size > max_unath_size_) {
         return BroadcastCheckResult::Forbidden;
       }
@@ -287,7 +291,7 @@ struct OverlayOptions {
   td::uint32 local_overlay_member_flags_ = 0;
   td::int32 max_slaves_in_semiprivate_overlay_ = 5;
   td::uint32 max_peers_ = 20;
-  td::uint32 max_neighbours_ = 5;
+  td::uint32 max_neighbours_ = 10;
   td::uint32 nodes_to_send_ = 4;
   td::uint32 propagate_broadcast_to_ = 5;
   td::uint32 default_permanent_members_flags_ = 0;

@@ -335,13 +335,17 @@ std::string dump_divmod(CellSlice&, unsigned args, bool quiet) {
 }
 
 int exec_shrmod(VmState* st, unsigned args, int mode) {
+  bool quiet = mode & 1, y_in_args = mode & 2;
   int y = -1;
-  if (mode & 2) {
+  long long y_stack = -1;
+  bool valid_shift = true;
+  if (y_in_args) {
     y = (args & 0xff) + 1;
+    y_stack = y;
     args >>= 8;
   }
   int round_mode = (int)(args & 3) - 1;
-  unsigned d = (args >> 2) & 3;
+  unsigned d = (args >> 2) & 3;  // result mode: 1 = shift, 2 = mod, 3 = both
   bool add = false;
   if (d == 0 && st->get_global_version() >= 4) {
     d = 3;
@@ -352,37 +356,55 @@ int exec_shrmod(VmState* st, unsigned args, int mode) {
   }
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute SHR/MOD " << (args & 15) << ',' << y;
-  if (!(mode & 2)) {
+  if (!y_in_args) {
     stack.check_underflow(add ? 3 : 2);
-    y = stack.pop_smallint_range(256);
+    y_stack = stack.pop_long();
+    valid_shift = y_stack >= 0 && y_stack <= 256;
+    if ((st->get_global_version() < 14 || !quiet) && !valid_shift) {
+      throw VmError{Excno::range_chk};
+    }
+    if (valid_shift) {
+      y = (int)y_stack;
+    }
   } else {
     stack.check_underflow(add ? 2 : 1);
   }
+  auto w = add ? stack.pop_int() : td::RefInt256{};
+  auto x = stack.pop_int();
+  // Before TVM 14, invalid quiet SHRMOD shifts threw range_chk instead of returning NaN
+  if (st->get_global_version() >= 14) {
+    if (!x->is_valid() || (w.not_null() && !w->is_valid()) || !valid_shift) {
+      stack.push_int_quiet(td::nan_refint(), quiet);
+      if (d == 3) {
+        stack.push_int_quiet(td::nan_refint(), quiet);
+      }
+      return 0;
+    }
+  }
+  CHECK(valid_shift);
   if (!y) {
     round_mode = -1;
   }
-  auto w = add ? stack.pop_int() : td::RefInt256{};
-  auto x = stack.pop_int();
   if (add) {
     CHECK(d == 3);
     td::BigInt256::DoubleInt tmp{*x};
     tmp += *w;
     td::BigInt256::DoubleInt tmp2{tmp};
     tmp2.rshift(y, round_mode).normalize();
-    stack.push_int_quiet(td::make_refint(tmp2), mode & 1);
+    stack.push_int_quiet(td::make_refint(tmp2), quiet);
     tmp.normalize().mod_pow2(y, round_mode).normalize();
-    stack.push_int_quiet(td::make_refint(tmp), mode & 1);
+    stack.push_int_quiet(td::make_refint(tmp), quiet);
   } else {
     switch (d) {
       case 1:
-        stack.push_int_quiet(td::rshift(std::move(x), y, round_mode), mode & 1);
+        stack.push_int_quiet(td::rshift(std::move(x), y, round_mode), quiet);
         break;
       case 3:
-        stack.push_int_quiet(td::rshift(x, y, round_mode), mode & 1);
+        stack.push_int_quiet(td::rshift(x, y, round_mode), quiet);
         // fallthrough
       case 2:
         x.write().mod_pow2(y, round_mode).normalize();
-        stack.push_int_quiet(std::move(x), mode & 1);
+        stack.push_int_quiet(std::move(x), quiet);
         break;
     }
   }
@@ -610,7 +632,7 @@ std::string dump_mulshrmod(CellSlice&, unsigned args, int mode) {
 
 int exec_shldivmod(VmState* st, unsigned args, int mode) {
   bool quiet = mode & 1, y_in_args = mode & 2;
-  long y = -1;
+  long long y = -1;
   if (y_in_args) {
     y = (args & 0xff) + 1;
     args >>= 8;
@@ -755,7 +777,15 @@ int exec_lshift_tinyint8(VmState* st, unsigned args, bool quiet) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute LSHIFT " << x;
   stack.check_underflow(1);
-  stack.push_int_quiet(stack.pop_int() << x, quiet);
+  td::RefInt256 a = stack.pop_int();
+  td::RefInt256 result;
+  // Before TVM 14, immediate LSHIFT could turn NaN into a valid zero
+  if (st->get_global_version() >= 14 && !a->is_valid()) {
+    result = td::nan_refint();
+  } else {
+    result = std::move(a) << x;
+  }
+  stack.push_int_quiet(std::move(result), quiet);
   return 0;
 }
 
@@ -764,7 +794,15 @@ int exec_rshift_tinyint8(VmState* st, unsigned args, bool quiet) {
   Stack& stack = st->get_stack();
   VM_LOG(st) << "execute RSHIFT " << x;
   stack.check_underflow(1);
-  stack.push_int_quiet(stack.pop_int() >> x, quiet);
+  td::RefInt256 a = stack.pop_int();
+  td::RefInt256 result;
+  // Before TVM 14, immediate RSHIFT could turn NaN into a valid zero
+  if (st->get_global_version() >= 14 && !a->is_valid()) {
+    result = td::nan_refint();
+  } else {
+    result = std::move(a) >> x;
+  }
+  stack.push_int_quiet(std::move(result), quiet);
   return 0;
 }
 

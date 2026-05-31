@@ -86,7 +86,8 @@ class BroadcastSimple : public td::ListNode {
 
 td::Status BroadcastSimple::run(OverlayImpl *overlay) {
   auto r =
-      overlay->check_source_eligible(source_, cert_.get(), static_cast<td::uint32>(data_.size()), false, src_peer_id_);
+      overlay->check_source_eligible(source_, cert_.get(), static_cast<td::uint32>(data_.size()), /* is_fec = */ false,
+                                     /* is_any_sender = */ flags_ & Overlays::BroadcastFlagAnySender(), src_peer_id_);
   if (r == BroadcastCheckResult::Forbidden) {
     return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
   }

@@ -37,8 +37,10 @@ class DataCell final : public Cell {
  public:
   // NB: cells created with use_arena=true are never freed
   static thread_local bool use_arena;
+  using HashHint = std::function<bool(unsigned, const LevelMask&, CellHash&)>;
 
-  static td::Result<Ref<DataCell>> create(td::Slice data, int bit_length, td::Span<Ref<Cell>> refs, bool is_special);
+  static td::Result<Ref<DataCell>> create(td::Slice data, int bit_length, td::Span<Ref<Cell>> refs, bool is_special,
+                                          HashHint hash_hint = {});
 
   static void store_depth(td::uint8* dest, td::uint16 depth) {
     td::bitstring::bits_store_long(dest, depth, depth_bits);

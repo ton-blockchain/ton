@@ -27,6 +27,7 @@
 #include "td/utils/crypto.h"
 #include "td/utils/misc.h"
 #include "td/utils/tl_storers.h"
+#include "ton/ton-io.hpp"
 #include "ton/ton-shard.h"
 #include "vm/fmt.hpp"
 
@@ -196,23 +197,19 @@ bool StdAddress::parse_addr(td::Slice acc_string) {
   testnet = false;
   bounceable = true;
   auto pos = acc_string.find(':');
-  if (pos != std::string::npos) {
-    if (pos > 10) {
-      return invalidate();
-    }
-    auto tmp = acc_string.substr(0, pos);
-    auto r_wc = td::to_integer_safe<ton::WorkchainId>(tmp);
-    if (r_wc.is_error()) {
-      return invalidate();
-    }
-    workchain = r_wc.move_as_ok();
-    if (workchain == ton::workchainInvalid) {
-      return invalidate();
-    }
-    ++pos;
-  } else {
-    pos = 0;
+  if (pos == std::string::npos || pos > 10) {
+    return invalidate();
   }
+  auto tmp = acc_string.substr(0, pos);
+  auto r_wc = td::to_integer_safe<ton::WorkchainId>(tmp);
+  if (r_wc.is_error()) {
+    return invalidate();
+  }
+  workchain = r_wc.move_as_ok();
+  if (workchain == ton::workchainInvalid) {
+    return invalidate();
+  }
+  ++pos;
   // LOG(DEBUG) << "parsing " << acc_string << " address";
   if (acc_string.size() != pos + 64) {
     return invalidate();
@@ -793,8 +790,8 @@ td::Status ShardState::unpack_state(ton::BlockIdExt blkid, Ref<vm::Cell> prev_st
     return td::Status::Error(-666, "cannot unpack header of shardchain state "s + blkid.to_str());
   }
   if ((unsigned)state.seq_no != blkid.seqno()) {
-    return td::Status::Error(
-        -666, PSTRING() << "shardchain state for " << blkid.to_str() << " has incorrect seqno " << state.seq_no);
+    return td::Status::Error(-666, PSTRING()
+                                       << "shardchain state for " << blkid << " has incorrect seqno " << state.seq_no);
   }
   auto shard1 = ton::ShardIdFull(block::ShardId{state.shard_id});
   if (shard1 != blkid.shard_full()) {
@@ -936,7 +933,7 @@ bool ShardState::update_prev_utime_lt(ton::UnixTime& prev_utime, ton::LogicalTim
 td::Status ShardState::check_before_split(bool req_before_split) const {
   CHECK(id_.is_valid());
   if (before_split_ != req_before_split) {
-    return td::Status::Error(PSTRING() << "previous state for " << id_.to_str() << " has before_split=" << before_split_
+    return td::Status::Error(PSTRING() << "previous state for " << id_ << " has before_split=" << before_split_
                                        << ", but we have after_split=" << req_before_split);
   }
   return td::Status::OK();
@@ -944,7 +941,7 @@ td::Status ShardState::check_before_split(bool req_before_split) const {
 
 td::Status ShardState::check_global_id(int req_global_id) const {
   if (global_id_ != req_global_id) {
-    return td::Status::Error(-666, PSTRING() << "global blockchain id mismatch in shard state of " << id_.to_str()
+    return td::Status::Error(-666, PSTRING() << "global blockchain id mismatch in shard state of " << id_
                                              << ": expected " << req_global_id << ", found " << global_id_);
   }
   return td::Status::OK();
@@ -1193,7 +1190,7 @@ int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull ol
     }
     if (!ton::shard_contains(old_shard, cur_prefix)) {
       LOG(ERROR) << "OutMsgQueue message with key " << key.to_hex(key_len)
-                 << " does not contain current address belonging to shard " << old_shard.to_str();
+                 << " does not contain current address belonging to shard " << old_shard;
       return -1;
     }
     bool res = ton::shard_contains(subshard, cur_prefix);
@@ -1772,7 +1769,7 @@ void MtCarloComputeShare::gen_vset() {
       }
     }
     CHECK(a >= 0 && a < N);
-    CHECK(total_wt >= W[a]);
+    total_wt = std::max(total_wt, W[a]);
     total_wt -= W[a];
     double x = CW[a];
     c = hc++;

@@ -36,6 +36,7 @@
 #include "tl-utils/lite-utils.hpp"
 #include "tl-utils/tl-utils.hpp"
 #include "ton/lite-tl.hpp"
+#include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 #include "vm/boc.h"
 #include "vm/cellops.h"
@@ -1105,8 +1106,7 @@ void HttpQueryConfig::finish_query() {
       A.set_block_id(block_id_);
       auto R = block::check_extract_state_proof(block_id_, state_proof_.as_slice(), config_proof_.as_slice());
       if (R.is_error()) {
-        A.abort(PSTRING() << "masterchain state proof for " << block_id_.to_str()
-                          << " is invalid : " << R.move_as_error());
+        A.abort(PSTRING() << "masterchain state proof for " << block_id_ << " is invalid : " << R.move_as_error());
         return A.finish();
       }
       try {

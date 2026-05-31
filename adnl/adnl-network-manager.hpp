@@ -43,48 +43,19 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
  public:
   struct OutDesc {
     td::uint16 port;
-    td::IPAddress proxy_addr;
-    std::shared_ptr<AdnlProxy> proxy;
     size_t socket_idx;
-    td::int64 out_seqno{0};
     AdnlCategoryMask cat_mask{0};
 
-    bool is_proxy() const {
-      return proxy != nullptr;
-    }
     bool operator==(const OutDesc &with) const {
-      if (port != with.port) {
-        return false;
-      }
-      if (!is_proxy()) {
-        return !with.is_proxy();
-      }
-      if (!with.is_proxy()) {
-        return false;
-      }
-      return proxy_addr == with.proxy_addr && proxy->id() == with.proxy->id();
+      return port == with.port;
     }
   };
   struct InDesc {
     td::uint16 port;
-    std::shared_ptr<AdnlProxy> proxy;
     AdnlCategoryMask cat_mask;
     AdnlReceivedMaskVersion received{};
-    OutDesc *out_desc = nullptr;
-    bool is_proxy() const {
-      return proxy != nullptr;
-    }
     bool operator==(const InDesc &with) const {
-      if (port != with.port) {
-        return false;
-      }
-      if (!is_proxy()) {
-        return !with.is_proxy();
-      }
-      if (!with.is_proxy()) {
-        return false;
-      }
-      return proxy->id() == with.proxy->id();
+      return port == with.port;
     }
   };
   struct UdpSocketDesc {
@@ -93,7 +64,6 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     td::uint16 port;
     td::actor::ActorOwn<td::UdpServer> server;
     size_t in_desc{std::numeric_limits<size_t>::max()};
-    bool allow_proxy{false};
   };
 
   OutDesc *choose_out_iface(td::uint8 cat, td::uint32 priority);
@@ -105,11 +75,6 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     callback_ = std::move(callback);
   }
 
-  void alarm() override;
-  void start_up() override {
-    alarm_timestamp() = td::Timestamp::in(60.0);
-  }
-
   void add_in_addr(InDesc desc, size_t socket_idx) {
     for (size_t idx = 0; idx < in_desc_.size(); idx++) {
       if (in_desc_[idx] == desc) {
@@ -117,19 +82,12 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
         return;
       }
     }
-    if (desc.is_proxy()) {
-      udp_sockets_[socket_idx].allow_proxy = true;
-      proxy_addrs_[desc.proxy->id()] = in_desc_.size();
-    } else {
-      CHECK(udp_sockets_[socket_idx].in_desc == std::numeric_limits<size_t>::max());
-      udp_sockets_[socket_idx].in_desc = in_desc_.size();
-    }
+    CHECK(udp_sockets_[socket_idx].in_desc == std::numeric_limits<size_t>::max());
+    udp_sockets_[socket_idx].in_desc = in_desc_.size();
     in_desc_.push_back(std::move(desc));
   }
 
   void add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) override;
-  void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
-                      AdnlCategoryMask cat_mask, td::uint32 priority) override;
   void send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdShort dst_id, td::IPAddress dst_addr, td::uint32 priority,
                        td::BufferSlice data) override;
 
@@ -143,14 +101,12 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
 
   size_t add_listening_udp_port(td::uint16 port);
   void receive_udp_message(td::UdpMessage message, size_t idx);
-  void proxy_register(OutDesc &desc);
 
  private:
   std::unique_ptr<Callback> callback_;
 
   std::map<td::uint32, std::vector<OutDesc>> out_desc_;
   std::vector<InDesc> in_desc_;
-  std::map<td::Bits256, size_t> proxy_addrs_;
 
   td::uint64 received_messages_ = 0;
   td::uint64 sent_messages_ = 0;

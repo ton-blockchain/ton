@@ -19,6 +19,7 @@
 #include <chrono>
 #include <ctime>
 
+#include "td/utils/Time.h"
 #include "td/utils/port/Clocks.h"
 
 namespace td {
@@ -34,8 +35,7 @@ double Clocks::monotonic() {
 }
 
 double Clocks::system() {
-  auto duration = std::chrono::system_clock::now().time_since_epoch();
-  return static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(duration).count()) * 1e-9;
+  return td::Time::system_now();
 }
 
 int Clocks::tz_offset() {

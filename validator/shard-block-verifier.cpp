@@ -15,6 +15,7 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "td/actor/MultiPromise.h"
+#include "ton/ton-io.hpp"
 
 #include "shard-block-verifier.hpp"
 
@@ -108,7 +109,7 @@ void ShardBlockVerifier::alarm() {
       for (auto& node_id : shard_config.trusted_nodes) {
         td::Promise<td::BufferSlice> P = [shard = shard_config.shard_id, node_id](td::Result<td::BufferSlice> R) {
           if (R.is_error()) {
-            LOG(WARNING) << "Subscribe to " << node_id << " for " << shard.to_str() << " : " << R.move_as_error();
+            LOG(WARNING) << "Subscribe to " << node_id << " for " << shard << " : " << R.move_as_error();
           }
         };
         td::actor::send_closure(rldp_, &rldp2::Rldp::send_query, local_id_, node_id, "subscribe", std::move(P),
@@ -173,7 +174,7 @@ ShardBlockVerifier::BlockInfo* ShardBlockVerifier::get_block_info(const BlockIdE
 void ShardBlockVerifier::set_block_confirmed(adnl::AdnlNodeIdShort src, BlockIdExt block_id) {
   BlockInfo* info = get_block_info(block_id);
   if (info == nullptr) {
-    LOG(INFO) << "Confirm for " << block_id.to_str() << " from " << src << " : ignored";
+    LOG(INFO) << "Confirm for " << block_id << " from " << src << " : ignored";
     return;
   }
   auto& shard_config = config_->shards[info->config_shard_idx];
@@ -182,16 +183,16 @@ void ShardBlockVerifier::set_block_confirmed(adnl::AdnlNodeIdShort src, BlockIdE
     ++src_idx;
   }
   if (src_idx == shard_config.trusted_nodes.size()) {
-    LOG(INFO) << "Confirm for " << block_id.to_str() << " from " << src << " : unknown src";
+    LOG(INFO) << "Confirm for " << block_id << " from " << src << " : unknown src";
     return;
   }
   if (info->confirmed_by[src_idx]) {
-    LOG(INFO) << "Confirm for " << block_id.to_str() << " from " << src << " #" << src_idx << " : duplicate";
+    LOG(INFO) << "Confirm for " << block_id << " from " << src << " #" << src_idx << " : duplicate";
     return;
   }
   info->confirmed_by[src_idx] = true;
   ++info->confirmed_by_cnt;
-  LOG(INFO) << "Confirm for " << block_id.to_str() << " from " << src << " #" << src_idx << " : accepted ("
+  LOG(INFO) << "Confirm for " << block_id << " from " << src << " #" << src_idx << " : accepted ("
             << info->confirmed_by_cnt << "/" << shard_config.required_confirms << "/"
             << shard_config.trusted_nodes.size() << ")"
             << (info->confirmed_by_cnt == shard_config.required_confirms ? ", CONFIRMED" : "");

@@ -208,7 +208,6 @@ int VmState::call(Ref<Continuation> cont, int pass_args, int ret_args) {
     // create return continuation using the remainder of current stack
     Ref<OrdCont> ret = Ref<OrdCont>{true, std::move(code), cp, std::move(stack), ret_args};
     ret.unique_write().get_cdata()->save.set_c0(std::move(old_c0));
-    Ref<OrdCont> ord_cont = static_cast<Ref<OrdCont>>(cont);
     set_stack(std::move(new_stk));
     cr.set_c0(std::move(ret));  // ??? if codepage of code in ord_cont is unknown, will end up with incorrect c0
     return jump_to(std::move(cont));
@@ -417,6 +416,13 @@ void GasLimits::change_limit(long long _limit) {
   gas_credit = 0;
   gas_limit = _limit;
   change_base(_limit);
+}
+
+VmState::~VmState() {
+  // Remove parent states one-by-one to avoid recursive destructor calls
+  while (parent) {
+    parent = std::move(parent->state.parent);
+  }
 }
 
 bool VmState::set_gas_limits(long long _max, long long _limit, long long _credit) {
@@ -635,17 +641,29 @@ int run_vm_code(Ref<CellSlice> code, Stack& stack, int flags, Ref<Cell>* data_pt
 }
 
 // may throw a dictionary exception; returns nullptr if library is not found in context
-Ref<Cell> VmState::load_library(td::ConstBitPtr hash) {
+Ref<Cell> VmState::load_library(td::ConstBitPtr hash_ptr) {
+  td::Bits256 hash{hash_ptr};
+  if (max_library_loads) {
+    if (max_library_loads.value() == loaded_libraries.size()) {
+      if (!loaded_libraries.contains(CellHash{hash})) {
+        VM_LOG(this) << "Cannot load library " << hash.to_hex() << " : max library loads exceeded ("
+                     << max_library_loads.value() << ")";
+        return {};
+      }
+    } else {
+      loaded_libraries.emplace(hash);
+    }
+  }
   std::unique_ptr<VmStateInterface> tmp_ctx;
   // install temporary dummy vm state interface to prevent charging for cell load operations during library lookup
   VmStateInterface::Guard guard{global_version >= 4 ? tmp_ctx.get() : VmStateInterface::get()};
   for (const auto& lib_collection : libraries) {
-    auto lib = lookup_library_in(hash, lib_collection);
+    auto lib = lookup_library_in(hash_ptr, lib_collection);
     if (lib.not_null()) {
       return lib;
     }
   }
-  missing_library = td::Bits256{hash};
+  missing_library = hash;
   return {};
 }
 
@@ -714,6 +732,8 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
     new_state.log = std::move(log);
     new_state.libraries = std::move(libraries);
   }
+  new_state.loaded_libraries = std::move(loaded_libraries);
+  new_state.max_library_loads = max_library_loads;
   new_state.stack_trace = stack_trace;
   new_state.max_data_depth = max_data_depth;
   if (!isolate_gas) {
@@ -754,6 +774,7 @@ void VmState::restore_parent_vm(int res) {
   *this = std::move(parent->state);
   log = std::move(child_state.log);
   libraries = std::move(child_state.libraries);
+  loaded_libraries = std::move(child_state.loaded_libraries);
   steps += child_state.steps;
   if (!parent->isolate_gas) {
     loaded_cells = std::move(child_state.loaded_cells);

@@ -355,11 +355,18 @@ Status set_default_failure_signal_handler() {
   Stdin();  // init static variables before atexit
 #endif
   std::atexit(block_stdin);
-#ifndef TON_DISABLE_BACKTRACE
+
+  const char *env = getenv("TON_DISABLE_BACKTRACE");
+  if (env == nullptr) {
+    env = "";
+  }
+  if (std::string_view env_sv{env}; env_sv != "" && env_sv != "0") {
+    return Status::OK();
+  }
+
   TRY_STATUS(setup_signals_alt_stack());
   TRY_STATUS(set_signal_handler(SignalType::Abort, default_failure_signal_handler));
   TRY_STATUS(set_signal_handler(SignalType::Error, default_failure_signal_handler));
-#endif
   return Status::OK();
 }
 

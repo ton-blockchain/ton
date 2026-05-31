@@ -320,6 +320,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     slots_per_leader_window_ = bus.config.slots_per_leader_window;
     params_ = bus.config.noncritical_params;
 
+    // bus.total_weight is capped at 2^61, so multiplying by 2 cannot overflow uint64.
     weight_threshold_ = (bus.total_weight * 2) / 3 + 1;
 
     state_.emplace(State(bus));
@@ -677,6 +678,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     return std::move(vote).consume_and_downcast(vote_fn);
   }
 
+  // Applied votes count each validator once, so accumulated weights are bounded by the 2^61-capped total weight.
   void handle_typed_vote(const PeerValidator &validator, Signed<NotarizeVote> vote, State::SlotRef &slot) {
     auto new_weight = (slot.state->notarize_weight[vote.vote.id] += validator.weight);
     if (!slot.state->will_be_notarized() && new_weight >= weight_threshold_) {

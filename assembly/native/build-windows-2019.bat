@@ -1,4 +1,4 @@
-REM execute this script inside elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2022"
+REM execute this script inside elevated (Run as Administrator) console "x64 Native Tools Command Prompt for VS 2019"
 
 echo off
 
@@ -30,12 +30,20 @@ IF %errorlevel% NEQ 0 (
 )
 SET PATH=%PATH%;C:\Program Files\NASM
 
-cd ..
+where clang-cl
+IF %errorlevel% NEQ 0 (
+  echo clang-cl not found. Install LLVM toolset for Visual Studio 2019.
+  exit /b %errorlevel%
+)
+
 echo Current dir %cd%
 
 mkdir build
 cd build
-cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release ^
+-DCMAKE_C_COMPILER=clang-cl ^
+-DCMAKE_CXX_COMPILER=clang-cl ^
+-DCMAKE_LINKER=lld-link ^
 -DCCACHE_FOUND= ^
 -DCMAKE_CXX_COMPILER_LAUNCHER= ^
 -DPORTABLE=1 ^
@@ -49,7 +57,7 @@ IF %errorlevel% NEQ 0 (
 IF "%1"=="-t" (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
-json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator ^
+json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator ^
 proxy-liteserver dht-ping-servers dht-resolve all-tests
 IF %errorlevel% NEQ 0 (
   echo Can't compile TON
@@ -58,7 +66,7 @@ IF %errorlevel% NEQ 0 (
 ) else (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id dht-ping-servers dht-resolve ^
-json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator proxy-liteserver
+json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator proxy-liteserver
 IF %errorlevel% NEQ 0 (
   echo Can't compile TON
   exit /b %errorlevel%
@@ -100,7 +108,6 @@ for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
   build\utils\generate-random-id.exe ^
   build\utils\json2tlo.exe ^
   build\utils\proxy-liteserver.exe ^
-  build\adnl\adnl-proxy.exe ^
   build\emulator\emulator.dll) do (
     echo strip -s %%I & copy %%I artifacts\
     strip -s %%I & copy %%I artifacts\

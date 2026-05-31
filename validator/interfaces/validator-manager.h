@@ -137,28 +137,39 @@ struct CollationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
+    td::RealCpuTimer::Time preinit;
     td::RealCpuTimer::Time queue_cleanup;
     td::RealCpuTimer::Time prelim_storage_stat;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
     td::RealCpuTimer::Time final_storage_stat;
+    td::RealCpuTimer::Time enqueue_new_messages;
+    td::RealCpuTimer::Time combine_account_transactions;
+    td::RealCpuTimer::Time create_shard_state;
     td::RealCpuTimer::Time create_block;
     td::RealCpuTimer::Time create_collated_data;
     td::RealCpuTimer::Time create_block_candidate;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " queue_cleanup=" << queue_cleanup.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu) << " preinit=" << preinit.get(is_cpu)
+                       << " queue_cleanup=" << queue_cleanup.get(is_cpu)
                        << " prelim_storage_stat=" << prelim_storage_stat.get(is_cpu)
                        << " trx_tvm=" << trx_tvm.get(is_cpu) << " trx_storage_stat=" << trx_storage_stat.get(is_cpu)
                        << " trx_other=" << trx_other.get(is_cpu)
                        << " final_storage_stat=" << final_storage_stat.get(is_cpu)
+                       << " enqueue_new_messages=" << enqueue_new_messages.get(is_cpu)
+                       << " combine_account_transactions=" << combine_account_transactions.get(is_cpu)
+                       << " create_shard_state=" << create_shard_state.get(is_cpu)
                        << " create_block=" << create_block.get(is_cpu)
                        << " create_collated_data=" << create_collated_data.get(is_cpu)
                        << " create_block_candidate=" << create_block_candidate.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
+  double wait_externals_time = 0.0;
+  double check_load_do_collate_time = -1.0;
+  double check_load_total_time = -1.0;
   StorageStatCacheStats storage_stat_cache;
 
   tl_object_ptr<ton_api::validatorStats_collatedBlock> tl() const {
@@ -178,7 +189,8 @@ struct CollationStats {
     return create_tl_object<ton_api::validatorStats_collatedBlock>(
         create_tl_block_id(block_id), collated_data_hash, cc_seqno, collated_at, actual_bytes,
         actual_collated_data_bytes, attempt, self.bits256_value(), is_validator, total_time, work_time.total.real,
-        work_time.total.cpu, time_stats, work_time.to_str(false), work_time.to_str(true),
+        work_time.total.cpu, time_stats, work_time.to_str(false), work_time.to_str(true), wait_externals_time,
+        check_load_do_collate_time, check_load_total_time,
         create_tl_object<ton_api::validatorStats_blockLimitsStatus>(
             estimated_bytes, gas, lt_delta, estimated_collated_data_bytes, cat_bytes, cat_gas, cat_lt_delta,
             cat_collated_data_bytes, load_fraction_queue_cleanup, load_fraction_dispatch, load_fraction_internals,
@@ -202,11 +214,15 @@ struct ValidationStats {
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
+    td::RealCpuTimer::Time unpack_block_candidate;
+    td::RealCpuTimer::Time process_mc_state;
     td::RealCpuTimer::Time trx_tvm;
     td::RealCpuTimer::Time trx_storage_stat;
     td::RealCpuTimer::Time trx_other;
+    td::RealCpuTimer::Time check_transactions_other;
     td::RealCpuTimer::Time unpack_state;
     td::RealCpuTimer::Time validate_block_tlb;
+    td::RealCpuTimer::Time unpack_block_data;
     td::RealCpuTimer::Time precheck_account_updates;
     td::RealCpuTimer::Time precheck_account_transactions;
     td::RealCpuTimer::Time precheck_msg_queue;
@@ -216,14 +232,17 @@ struct ValidationStats {
     td::RealCpuTimer::Time check_dispatch_queue;
     td::RealCpuTimer::Time check_processed_upto;
     td::RealCpuTimer::Time check_in_queue;
-    td::RealCpuTimer::Time check_transactions;
     td::RealCpuTimer::Time check_new_state;
 
     std::string to_str(bool is_cpu) const {
-      return PSTRING() << "total=" << total.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
+      return PSTRING() << "total=" << total.get(is_cpu)
+                       << " unpack_block_candidate=" << unpack_block_candidate.get(is_cpu)
+                       << " process_mc_state=" << process_mc_state.get(is_cpu) << " trx_tvm=" << trx_tvm.get(is_cpu)
                        << " trx_storage_stat=" << trx_storage_stat.get(is_cpu) << " trx_other=" << trx_other.get(is_cpu)
+                       << " check_transactions_other=" << check_transactions_other.get(is_cpu)
                        << " unpack_state=" << unpack_state.get(is_cpu)
                        << " validate_block_tlb=" << validate_block_tlb.get(is_cpu)
+                       << " unpack_block_data=" << unpack_block_data.get(is_cpu)
                        << " precheck_account_updates=" << precheck_account_updates.get(is_cpu)
                        << " precheck_account_transactions=" << precheck_account_transactions.get(is_cpu)
                        << " precheck_msg_queue=" << precheck_msg_queue.get(is_cpu)
@@ -233,7 +252,6 @@ struct ValidationStats {
                        << " check_dispatch_queue=" << check_dispatch_queue.get(is_cpu)
                        << " check_processed_upto=" << check_processed_upto.get(is_cpu)
                        << " check_in_queue=" << check_in_queue.get(is_cpu)
-                       << " check_transactions=" << check_transactions.get(is_cpu)
                        << " check_new_state=" << check_new_state.get(is_cpu);
     }
   };
@@ -321,8 +339,9 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                            td::Promise<td::Ref<block::BlockSignatureSet>> promise) = 0;
 
-  virtual void set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                   td::uint32 validator_set_hash, bool cache_only, td::Promise<td::Unit> promise) = 0;
+  virtual void cache_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
+    promise.set_value(td::Unit{});
+  }
   virtual void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                               td::BufferSlice data, int mode) = 0;
 
@@ -399,13 +418,6 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void wait_shard_client_state(BlockSeqno seqno, td::Timestamp timeout, td::Promise<td::Unit> promise) = 0;
 
-  virtual void log_validator_session_stats(validatorsession::ValidatorSessionStats stats) {
-  }
-  virtual void log_new_validator_group_stats(validatorsession::NewValidatorGroupStats stats) {
-  }
-  virtual void log_end_validator_group_stats(validatorsession::EndValidatorGroupStats stats) {
-  }
-
   virtual void get_block_handle_for_litequery(BlockIdExt block_id, td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_data_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_state_for_litequery(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) = 0;
@@ -415,11 +427,6 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                     td::Promise<ConstBlockHandle> promise) = 0;
   virtual void get_block_by_seqno_for_litequery(AccountIdPrefixFull account, BlockSeqno seqno,
                                                 td::Promise<ConstBlockHandle> promise) = 0;
-  virtual void get_block_candidate_for_litequery(PublicKey source, BlockIdExt block_id, FileHash collated_data_hash,
-                                                 td::Promise<BlockCandidate> promise) = 0;
-  virtual void get_validator_groups_info_for_litequery(
-      td::optional<ShardIdFull> shard,
-      td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_validatorGroups>> promise) = 0;
   virtual void get_pending_shard_blocks_for_litequery(
       td::optional<ShardIdFull> shard,
       td::Promise<tl_object_ptr<lite_api::liteServer_nonfinal_pendingShardBlocks>> promise) {

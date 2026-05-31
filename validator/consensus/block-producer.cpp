@@ -11,7 +11,6 @@
 
 #include "bus.h"
 #include "stats.h"
-#include "utils.h"
 
 namespace ton::validator::consensus {
 
@@ -113,12 +112,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
             .min_masterchain_block_id = state->min_mc_block_id(),
             .prev = state->block_ids(),
             .creator = Ed25519_PublicKey{bus.local_id.key.ed25519_value().raw()},
-            .skip_store_candidate = true,
             .utime = slot_start.at_unix(),
             .hard_timeout = slot_start + hard_timeout,
             .prev_block_data = state->block_data(),
             .prev_block_state_roots = state->state(),
-            .is_new_consensus = true,
         };
         if (bus.shard.is_masterchain()) {
           params.soft_timeout = slot_start + target_rate_;

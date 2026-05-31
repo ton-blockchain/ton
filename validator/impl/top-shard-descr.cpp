@@ -21,6 +21,7 @@
 #include "block/signature-set.h"
 #include "block/validator-set.h"
 #include "common/errorcode.h"
+#include "ton/ton-io.hpp"
 #include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cells/MerkleProof.h"
@@ -71,19 +72,18 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
     }
   } catch (vm::VmVirtError& err) {
     // backward compatibility with older Proofs / ProofLinks
-    LOG(WARNING) << "virtualization error while parsing BlockExtra in proof link of " << cur_id.to_str()
+    LOG(WARNING) << "virtualization error while parsing BlockExtra in proof link of " << cur_id
                  << ", setting creator_id to zero: " << err.get_msg();
     extra.created_by.set_zero();
   }
   CHECK(after_split == info.after_split);
   if (info.gen_catchain_seqno != catchain_seqno_) {
     return td::Status::Error(
-        -666, PSTRING() << "link for block " << cur_id.to_str()
-                        << " is invalid because block header has catchain_seqno = " << info.gen_catchain_seqno
-                        << " while ShardTopBlockDescr declares " << catchain_seqno_);
+        -666, PSTRING() << "link for block " << cur_id << " is invalid because block header has catchain_seqno = "
+                        << info.gen_catchain_seqno << " while ShardTopBlockDescr declares " << catchain_seqno_);
   }
   if (info.gen_validator_list_hash_short != validator_set_hash_) {
-    return td::Status::Error(-666, PSTRING() << "link for block " << cur_id.to_str()
+    return td::Status::Error(-666, PSTRING() << "link for block " << cur_id
                                              << " is invalid because block header has validator_set_hash = "
                                              << info.gen_validator_list_hash_short
                                              << " while ShardTopBlockDescr declares " << validator_set_hash_);
@@ -112,14 +112,14 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
     }
     if (info.gen_utime > first_gen_utime_) {
       return td::Status::Error(-666, PSTRING() << "block creation unixtime goes back from " << info.gen_utime << " to "
-                                               << first_gen_utime_ << " in intermediate link for blocks "
-                                               << cur_id.to_str() << " and " << chain_blk_ids_.back().to_str());
+                                               << first_gen_utime_ << " in intermediate link for blocks " << cur_id
+                                               << " and " << chain_blk_ids_.back());
     }
     first_gen_utime_ = info.gen_utime;
     if (vert_seqno_ != BlockSeqno(info.vert_seq_no)) {
-      return td::Status::Error(-666, PSTRING() << "intermediate link for block " << cur_id.to_str()
-                                               << " has vertical seqno " << info.vert_seq_no
-                                               << " distinct from the final value in chain " << vert_seqno_);
+      return td::Status::Error(-666, PSTRING() << "intermediate link for block " << cur_id << " has vertical seqno "
+                                               << info.vert_seq_no << " distinct from the final value in chain "
+                                               << vert_seqno_);
     }
   }
   chain_mc_blk_ids_.push_back(mc_blkid);
@@ -177,7 +177,7 @@ td::Status ShardTopBlockDescrQ::unpack() {
     };
     return td::Status::Error(-666, "Shard top block description is not a valid TopBlockDescr TL-B object");
   }
-  LOG(DEBUG) << "unpacking a ShardTopBlockDescr for " << block_id_.to_str() << " with " << rec.len << " links";
+  LOG(DEBUG) << "unpacking a ShardTopBlockDescr for " << block_id_ << " with " << rec.len << " links";
   CHECK(rec.len > 0 && rec.len <= 8);
   // unpack signatures
   Ref<vm::Cell> sig_root = rec.signatures->prefetch_ref();
@@ -282,12 +282,12 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
   auto config = state->get_config();
   if (config->get_vert_seqno() != vert_seqno_) {
     if (vert_seqno_ < config->get_vert_seqno()) {
-      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
+      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_
                                                << " is too old: it has vertical seqno " << vert_seqno_
                                                << " but we already know about " << config->get_vert_seqno());
     }
     if (mode & Mode::fail_new) {
-      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
+      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_
                                                << " is too new for us: it has vertical seqno " << vert_seqno_
                                                << " but we know only about " << config->get_vert_seqno());
     }
@@ -392,7 +392,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
                     " but the masterchain instead refers to another shardchain block " + oldr->blk_.to_str());
     }
   }
-  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_.to_str() << " appears to have a valid chain of " << clen
+  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_ << " appears to have a valid chain of " << clen
              << " new links out of " << size();
   // check validator_set_{ts,hash}
   int vset_ok = 0;
@@ -412,7 +412,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
   if (!vset_ok) {
     res_flags |= 1;
     return td::Status::Error(-666, PSTRING()
-                                       << "ShardTopBlockDescr for " << block_id_.to_str()
+                                       << "ShardTopBlockDescr for " << block_id_
                                        << " is invalid because it refers to shard validator set with hash "
                                        << validator_set_hash_ << " and catchain_seqno " << catchain_seqno_
                                        << " while the current masterchain configuration expects "
@@ -437,11 +437,11 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
   auto wt = result.move_as_ok();
   if (wt != sig_weight_) {
     res_flags |= 1;
-    return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
-                                             << " has incorrect signature weight " << sig_weight_
-                                             << " (actual weight is " << wt << ")");
+    return td::Status::Error(-666, PSTRING()
+                                       << "ShardTopBlockDescr for " << block_id_ << " has incorrect signature weight "
+                                       << sig_weight_ << " (actual weight is " << wt << ")");
   }
-  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_.to_str() << " has valid validator signatures of total weight "
+  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_ << " has valid validator signatures of total weight "
              << sig_weight_ << " out of " << vset->get_total_weight();
   return (int)clen;
 }

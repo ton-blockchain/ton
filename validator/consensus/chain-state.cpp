@@ -7,6 +7,7 @@
 #include "crypto/block/block-auto.h"
 #include "crypto/vm/cells/MerkleUpdate.h"
 #include "td/utils/format.h"
+#include "ton/ton-io.hpp"
 #include "validator/fabric.h"
 
 #include "chain-state.h"
@@ -118,20 +119,20 @@ td::Ref<ChainState> ChainState::apply(const BlockCandidate& candidate) const {
 
     block::gen::Block::Record rec;
     bool rc = block::gen::unpack_cell(block->root_cell(), rec);
-    LOG_CHECK(rc) << "Failed to unpack block " << candidate.id.to_str();
+    LOG_CHECK(rc) << "Failed to unpack block " << candidate.id;
 
     auto state = vm::MerkleUpdate::apply(root_, rec.state_update).ensure().move_as_ok();
 
     return td::Ref<ChainState>(new ChainState{NormalTip{block, state}, min_mc_block_id_},
                                td::Ref<ChainState>::acquire_t{});
   } catch (vm::CellBuilder::CellCreateError& e) {
-    LOG(FATAL) << "Failed to apply Merkle update of " << candidate.id.to_str() << ": CellCreateError";
+    LOG(FATAL) << "Failed to apply Merkle update of " << candidate.id << ": CellCreateError";
     unreachable();
   } catch (vm::CellBuilder::CellWriteError& e) {
-    LOG(FATAL) << "Failed to apply Merkle update of " << candidate.id.to_str() << ": CellWriteError";
+    LOG(FATAL) << "Failed to apply Merkle update of " << candidate.id << ": CellWriteError";
     unreachable();
   } catch (vm::VmError& e) {
-    LOG(FATAL) << "Failed to apply block " << candidate.id.to_str() << ": VmError: " << e.as_status();
+    LOG(FATAL) << "Failed to apply block " << candidate.id << ": VmError: " << e.as_status();
     unreachable();
   }
 }

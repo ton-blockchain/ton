@@ -287,7 +287,7 @@ Status Ed25519::PublicKey::verify_signature(Slice data, Slice signature) const {
     return Status::Error("Can't init DigestVerify");
   }
 
-  if (EVP_DigestVerify(md_ctx, signature.ubegin(), signature.size(), data.ubegin(), data.size())) {
+  if (EVP_DigestVerify(md_ctx, signature.ubegin(), signature.size(), data.ubegin(), data.size()) == 1) {
     return Status::OK();
   }
   return Status::Error("Wrong signature");

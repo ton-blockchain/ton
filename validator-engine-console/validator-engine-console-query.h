@@ -856,33 +856,6 @@ class DelNetworkAddressQuery : public Query {
   std::vector<td::int32> prio_cats_;
 };
 
-class AddNetworkProxyAddressQuery : public Query {
- public:
-  AddNetworkProxyAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
-      : Query(console, std::move(tokenizer)) {
-  }
-  td::Status run() override;
-  td::Status send() override;
-  td::Status receive(td::BufferSlice data) override;
-  static std::string get_name() {
-    return "add-proxy-addr";
-  }
-  static std::string get_help() {
-    return "add-proxy-addr <inip> <outip> <id> <secret> {cats...} {priocats...}\tadds ip address to address list";
-  }
-  std::string name() const override {
-    return get_name();
-  }
-
- private:
-  td::IPAddress in_addr_;
-  td::IPAddress out_addr_;
-  td::Bits256 id_;
-  td::BufferSlice shared_secret_;
-  std::vector<td::int32> cats_;
-  std::vector<td::int32> prio_cats_;
-};
-
 class AddQuicAddressQuery : public Query {
  public:
   AddQuicAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)

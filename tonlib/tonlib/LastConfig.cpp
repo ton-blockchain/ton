@@ -21,6 +21,7 @@
 #include "block/mc-config.h"
 #include "lite-client/lite-client-common.h"
 #include "ton/lite-tl.hpp"
+#include "ton/ton-io.hpp"
 #include "tonlib/LastConfig.h"
 #include "tonlib/utils.h"
 
@@ -90,13 +91,13 @@ td::Status LastConfig::process_config(
 td::Status LastConfig::process_config_proof(const ton::BlockIdExt& requested_block_id,
                                             ton::ton_api::object_ptr<ton::lite_api::liteServer_configInfo> raw_config) {
   if (!requested_block_id.is_masterchain_ext()) {
-    return td::Status::Error(PSLICE() << "reference block " << requested_block_id.to_str()
+    return td::Status::Error(PSLICE() << "reference block " << requested_block_id
                                       << " for the configuration is not a valid masterchain block");
   }
   auto response_block_id = create_block_id(raw_config->id_);
   if (response_block_id != requested_block_id) {
-    return td::Status::Error(PSLICE() << "unexpected block in configuration response: expected "
-                                      << requested_block_id.to_str() << ", got " << response_block_id.to_str());
+    return td::Status::Error(PSLICE() << "unexpected block in configuration response: expected " << requested_block_id
+                                      << ", got " << response_block_id);
   }
   TRY_RESULT(state, block::check_extract_state_proof(requested_block_id, raw_config->state_proof_.as_slice(),
                                                      raw_config->config_proof_.as_slice()));

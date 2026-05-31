@@ -25,6 +25,7 @@
 #include "td/utils/misc.h"
 #include "td/utils/port/FileFd.h"
 #include "td/utils/port/path.h"
+#include "ton/ton-io.hpp"
 #include "vm/boc.h"
 #include "vm/cellslice.h"
 #include "vm/db/StaticBagOfCellsDb.h"
@@ -617,7 +618,7 @@ void BlockDbImpl::get_block_by_id(ton::BlockId blk_id, bool need_data, td::Promi
   auto it = block_info.find(blk_id);
   if (it != block_info.end()) {
     if (need_data && it->second->data.is_null()) {
-      LOG(DEBUG) << "loading data for block " << blk_id.to_str();
+      LOG(DEBUG) << "loading data for block " << blk_id;
       auto res = load_data(it->second.write());
       if (res.is_error()) {
         promise.set_result(std::move(res));
@@ -636,7 +637,7 @@ void BlockDbImpl::get_state_by_id(ton::BlockId blk_id, bool need_data, td::Promi
   auto it = state_info.find(blk_id);
   if (it != state_info.end()) {
     if (need_data && it->second->data.is_null()) {
-      LOG(DEBUG) << "loading data for state " << blk_id.to_str();
+      LOG(DEBUG) << "loading data for state " << blk_id;
       auto res = load_data(it->second.write());
       if (res.is_error()) {
         promise.set_result(std::move(res));
@@ -672,7 +673,7 @@ void BlockDbImpl::get_out_queue_info_by_id(ton::BlockId blk_id, td::Promise<td::
     return;
   }
   if (it->second->data.is_null()) {
-    LOG(DEBUG) << "loading data for state " << blk_id.to_str();
+    LOG(DEBUG) << "loading data for state " << blk_id;
     auto res = load_data(it->second.write());
     if (res.is_error()) {
       promise.set_result(std::move(res));
@@ -689,7 +690,7 @@ void BlockDbImpl::get_out_queue_info_by_id(ton::BlockId blk_id, td::Promise<td::
   auto res = vm::StaticBagOfCellsDbLazy::create(it->second->data.clone(), options);
   if (res.is_error()) {
     td::Status err = res.move_as_error();
-    LOG(ERROR) << "cannot deserialize state for block " << blk_id.to_str() << " : " << err.to_string();
+    LOG(ERROR) << "cannot deserialize state for block " << blk_id << " : " << err.to_string();
     promise.set_result(std::move(err));
     return;
   }

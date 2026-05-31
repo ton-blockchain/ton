@@ -37,7 +37,7 @@ jobs:
       final_message: ${{ steps.run_codex.outputs['final-message'] }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
@@ -49,7 +49,7 @@ jobs:
 
       - name: Run Codex
         id: run_codex
-        uses: openai/codex-action@v1.6
+        uses: openai/codex-action@c25d10f3f498316d4b2496cc4c6dd58057a7b031 # v1.6
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
           prompt: |
@@ -87,7 +87,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Report Codex feedback
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         env:
           CODEX_FINAL_MESSAGE: ${{ needs.codex.outputs.final_message }}
         with:

@@ -36,6 +36,7 @@
 #include "openssl/digest.hpp"
 #include "td/utils/bits.h"
 #include "td/utils/uint128.h"
+#include "ton/ton-io.hpp"
 #include "ton/ton-shard.h"
 #include "ton/ton-types.h"
 #include "vm/dict.h"
@@ -45,6 +46,8 @@
 namespace block {
 using namespace std::literals::string_literals;
 using td::Ref;
+
+static constexpr td::uint64 max_total_validator_weight = 1ULL << 61;
 
 #define DBG(__n) dbg(__n) &&
 #define DSTART int __dcnt = 0;
@@ -78,7 +81,8 @@ td::Result<std::unique_ptr<Config>> Config::extract_from_key_block(Ref<vm::Cell>
   block::gen::BlockExtra::Record extra;
   block::gen::McBlockExtra::Record mc_extra;
   if (!(tlb::unpack_cell(key_block_root, blk) && tlb::unpack_cell(std::move(blk.extra), extra) &&
-        tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block && mc_extra.config.not_null())) {
+        extra.custom->have_refs() && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
+        mc_extra.config.not_null())) {
     return td::Status::Error(-400, "cannot unpack extra header of key block to extract configuration");
   }
   return block::Config::unpack_config(std::move(mc_extra.config), mode);
@@ -419,6 +423,7 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
         .max_collated_data_size = consensus_config.max_collated_data_size,
 
         .use_quic = v2.use_quic,
+        .enable_observers = v2.enable_observers,
         .slots_per_leader_window = v2.slots_per_leader_window,
     };
 
@@ -713,6 +718,9 @@ td::Result<std::shared_ptr<TotalValidatorSet>> Config::unpack_validator_set(Ref<
   }
   if (rec.total_weight && rec.total_weight != ptr->total_weight) {
     return td::Status::Error("validator set declares incorrect total weight");
+  }
+  if (ptr->total_weight > max_total_validator_weight) {
+    return td::Status::Error("total weight of all validators in validator set exceeds 2^61");
   }
   if (use_cache) {
     cache.set(vset_root->get_hash(), ptr);
@@ -1636,30 +1644,26 @@ td::Result<bool> ShardConfig::may_update_shard_block_info(Ref<McShardHash> new_i
     }
     if (odef->before_split_ != before_split) {
       return td::Status::Error(
-          -666, PSTRING() << "the shard of the start block " << ob.to_str()
-                          << " had before_split=" << odef->before_split_
+          -666, PSTRING() << "the shard of the start block " << ob << " had before_split=" << odef->before_split_
                           << " but the top shard block update is valid only if before_split=" << before_split);
     }
     if (odef->before_merge_ != before_merge) {
       return td::Status::Error(
-          -666, PSTRING() << "the shard of the start block " << ob.to_str()
-                          << " had before_merge=" << odef->before_merge_
+          -666, PSTRING() << "the shard of the start block " << ob << " had before_merge=" << odef->before_merge_
                           << " but the top shard block update is valid only if before_merge=" << before_merge);
     }
     if (new_info->before_split_) {
       if (before_merge || before_split) {
-        return td::Status::Error(
-            -666, PSTRING() << "cannot register a before-split block " << new_info->top_block_id().to_str()
-                            << " at the end of a chain that itself starts with a split/merge event");
+        return td::Status::Error(-666, PSTRING()
+                                           << "cannot register a before-split block " << new_info->top_block_id()
+                                           << " at the end of a chain that itself starts with a split/merge event");
       }
       if (odef->fsm_state() != block::McShardHash::FsmState::fsm_split) {
-        return td::Status::Error(-666, PSTRING() << "cannot register a before-split block "
-                                                 << new_info->top_block_id().to_str()
+        return td::Status::Error(-666, PSTRING() << "cannot register a before-split block " << new_info->top_block_id()
                                                  << " because fsm_split state was not set for this shard beforehand");
       }
       if (new_info->gen_utime_ < odef->fsm_utime_ || new_info->gen_utime_ >= odef->fsm_utime_ + odef->fsm_interval_) {
-        return td::Status::Error(-666, PSTRING() << "cannot register a before-split block "
-                                                 << new_info->top_block_id().to_str()
+        return td::Status::Error(-666, PSTRING() << "cannot register a before-split block " << new_info->top_block_id()
                                                  << " because fsm_split state was enabled for unixtime "
                                                  << odef->fsm_utime_ << " .. " << odef->fsm_utime_ + odef->fsm_interval_
                                                  << " but the block is generated at " << new_info->gen_utime_);
@@ -1667,14 +1671,14 @@ td::Result<bool> ShardConfig::may_update_shard_block_info(Ref<McShardHash> new_i
     }
     if (before_merge) {
       if (odef->fsm_state() != block::McShardHash::FsmState::fsm_merge) {
-        return td::Status::Error(-666, PSTRING() << "cannot register merged block " << new_info->top_block_id().to_str()
+        return td::Status::Error(-666, PSTRING() << "cannot register merged block " << new_info->top_block_id()
                                                  << " because fsm_merge state was not set for shard "
-                                                 << odef->top_block_id().shard_full().to_str() << " beforehand");
+                                                 << odef->top_block_id().shard_full() << " beforehand");
       }
       if (new_info->gen_utime_ < odef->fsm_utime_ || new_info->gen_utime_ >= odef->fsm_utime_ + odef->fsm_interval_) {
-        return td::Status::Error(-666, PSTRING() << "cannot register merged block " << new_info->top_block_id().to_str()
+        return td::Status::Error(-666, PSTRING() << "cannot register merged block " << new_info->top_block_id()
                                                  << " because fsm_merge state was enabled for shard "
-                                                 << odef->top_block_id().shard_full().to_str() << " for unixtime "
+                                                 << odef->top_block_id().shard_full() << " for unixtime "
                                                  << odef->fsm_utime_ << " .. " << odef->fsm_utime_ + odef->fsm_interval_
                                                  << " but the block is generated at " << new_info->gen_utime_);
       }
@@ -1806,8 +1810,7 @@ static bool btree_set(Ref<vm::Cell>& root, ton::ShardId shard, Ref<vm::Cell> val
 
 bool ShardConfig::set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value) {
   if (!gen::t_BinTree_ShardDescr.validate_ref(1024, value)) {
-    LOG(ERROR) << "attempting to store an invalid (BinTree ShardDescr) at shard configuration position "
-               << shard.to_str();
+    LOG(ERROR) << "attempting to store an invalid (BinTree ShardDescr) at shard configuration position " << shard;
     FLOG(WARNING) {
       gen::t_BinTree_ShardDescr.print_ref(sb, value);
       vm::load_cell_slice(value).print_rec(sb);
@@ -1816,11 +1819,11 @@ bool ShardConfig::set_shard_info(ton::ShardIdFull shard, Ref<vm::Cell> value) {
   }
   auto root = shard_hashes_dict_->lookup_ref(td::BitArray<32>{shard.workchain});
   if (root.is_null()) {
-    LOG(ERROR) << "attempting to store a new ShardDescr for shard " << shard.to_str() << " in an undefined workchain";
+    LOG(ERROR) << "attempting to store a new ShardDescr for shard " << shard << " in an undefined workchain";
     return false;
   }
   if (!btree_set(root, shard.shard, value)) {
-    LOG(ERROR) << "error while storing a new ShardDescr for shard " << shard.to_str() << " into shard configuration";
+    LOG(ERROR) << "error while storing a new ShardDescr for shard " << shard << " into shard configuration";
     return false;
   }
   if (!shard_hashes_dict_->set_ref(td::BitArray<32>{shard.workchain}, std::move(root),
@@ -1863,32 +1866,21 @@ td::Result<std::vector<ton::StdSmcAddress>> Config::get_special_smartcontracts(b
 
 td::Result<std::vector<std::pair<ton::StdSmcAddress, int>>> ConfigInfo::get_special_ticktock_smartcontracts(
     int tick_tock) const {
-  if (!special_smc_dict) {
-    return td::Status::Error(-666, "configuration loaded without fundamental smart contract list");
-  }
   if (!accounts_dict) {
     return td::Status::Error(-666, "state loaded without accounts information");
   }
+  TRY_RESULT(special_smcs, get_special_smartcontracts());
   std::vector<std::pair<ton::StdSmcAddress, int>> res;
-  if (!special_smc_dict->check_for_each(
-          [this, &res, tick_tock](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, int n) -> bool {
-            if (cs_ref->size_ext() || n != 256) {
-              return false;
-            }
-            int tt = get_smc_tick_tock(key);
-            if (tt < -1) {
-              return false;
-            }
-            if (tt >= 0 && (tt & tick_tock) != 0) {
-              res.emplace_back(key, tt);
-            }
-            return true;
-          })) {
-    return td::Status::Error(-666,
-                             "invalid fundamental smart contract set in configuration parameter 31, or unable to "
-                             "recover tick-tock value from one of them");
+  for (ton::StdSmcAddress addr : special_smcs) {
+    int tt = get_smc_tick_tock(addr.bits());
+    if (tt < -1) {
+      return td::Status::Error(-666, PSTRING() << "unable to recover tick-tock value from -1:" << addr.to_hex());
+    }
+    if (tt >= 0 && (tt & tick_tock) != 0) {
+      res.emplace_back(addr, tt);
+    }
   }
-  return std::move(res);
+  return res;
 }
 
 int ConfigInfo::get_smc_tick_tock(td::ConstBitPtr smc_addr) const {
@@ -2124,7 +2116,7 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     limits.ext_msg_limits.max_depth = static_cast<td::uint16>(rec.max_ext_msg_depth);
   };
 
-  auto unpack_v2 = [&](auto& rec) {
+  auto unpack_v2 = [&](gen::SizeLimitsConfig::Record_size_limits_config_v2& rec) {
     unpack_v1(rec);
     limits.max_acc_state_cells = rec.max_acc_state_cells;
     limits.max_mc_acc_state_cells = rec.max_mc_acc_state_cells;
@@ -2133,6 +2125,9 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     limits.max_msg_extra_currencies = rec.max_msg_extra_currencies;
     limits.max_acc_fixed_prefix_length = rec.max_acc_fixed_prefix_length;
     limits.acc_state_cells_for_storage_dict = rec.acc_state_cells_for_storage_dict;
+    if (rec.max_transaction_library_loads.write().fetch_long(1)) {
+      limits.max_transaction_library_loads = (td::uint32)rec.max_transaction_library_loads->prefetch_long(32);
+    }
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;

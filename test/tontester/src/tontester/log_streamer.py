@@ -47,13 +47,20 @@ class _LogEntry:
 
 @final
 class LogStreamer:
-    def __init__(self, file: io.BufferedWriter, name: str, stream: asyncio.StreamReader):
+    def __init__(
+        self,
+        file: io.BufferedWriter,
+        name: str,
+        stream: asyncio.StreamReader,
+        verbosity: int,
+    ):
         self._file = file
         self._name = name
         self._stream = stream
         self._task = asyncio.create_task(self._stream_log())
         self._logger = logging.getLogger(self._name)
         self._current_entry: _LogEntry | None = None
+        self._verbosity = verbosity
 
     async def aclose(self):
         await self._task
@@ -162,7 +169,8 @@ class LogStreamer:
 
     def _flush_entry(self):
         if self._current_entry is not None:
-            self._logger.info(self._current_entry.format())
+            if self._current_entry.level <= self._verbosity:
+                self._logger.info(self._current_entry.format())
             self._current_entry = None
 
     def _log_malformed(self, data: bytes):

@@ -110,6 +110,7 @@ class TonlibClient : public td::actor::Actor {
   };
   QueryContext query_context_;
   vm::Dictionary libraries{256};
+  static constexpr td::uint16 max_library_depth = 512;  // This is limited in blockchain by max_vm_data_depth
 
   // network
   td::actor::ActorOwn<liteclient::ExtClient> raw_client_;
@@ -379,6 +380,8 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(const tonlib_api::blocks_getMasterchainInfo& masterchain_info,
                         td::Promise<object_ptr<tonlib_api::blocks_masterchainInfo>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_getMasterchainInfoExt& masterchain_info,
+                        td::Promise<object_ptr<tonlib_api::blocks_masterchainInfoExt>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getShards& request,
                         td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise);
   td::Status do_request(const tonlib_api::blocks_lookupBlock& block_header,

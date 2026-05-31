@@ -94,17 +94,17 @@ class Client::Impl final {
   Impl(Impl&&) = delete;
   Impl& operator=(Impl&&) = delete;
   ~Impl() {
-    LOG(ERROR) << "~Impl";
+    VLOG(tonlib_requests) << "~Impl";
     scheduler_.run_in_context([&] { tonlib_.reset(); });
-    LOG(ERROR) << "Wait till closed";
+    VLOG(tonlib_requests) << "Wait till closed";
     while (!is_closed_) {
       receive(10);
     }
-    LOG(ERROR) << "Stop";
+    VLOG(tonlib_requests) << "Stop";
     scheduler_.run_in_context([] { td::actor::SchedulerContext::get().stop(); });
-    LOG(ERROR) << "join";
+    VLOG(tonlib_requests) << "join";
     scheduler_thread_.join();
-    LOG(ERROR) << "join - done";
+    VLOG(tonlib_requests) << "join - done";
   }
 
  private:

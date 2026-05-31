@@ -34,4 +34,12 @@ void calculate_permanent_celldb_update(const std::map<BlockIdExt, td::Ref<BlockD
                                        std::shared_ptr<vm::DynamicBagOfCellsDb::AsyncExecutor> executor,
                                        td::Promise<std::vector<PermanentCellDbUpdate>> promise);
 
+td::Result<RootHash> unpack_block_state_root_hash(td::Ref<BlockData> block);
+
+td::Result<td::Ref<vm::Cell>> apply_block_to_prev_states(td::Ref<BlockData> block,
+                                                         std::vector<td::Ref<vm::Cell>> prev_roots,
+                                                         vm::StoreCellHint* hint = nullptr);
+td::Ref<vm::Cell> build_next_state(td::Ref<BlockData> block, vm::CellDbReader& cell_db_reader,
+                                   std::vector<td::Ref<vm::Cell>> prev_roots, vm::StoreCellHint* hint = nullptr);
+
 }  // namespace ton::validator

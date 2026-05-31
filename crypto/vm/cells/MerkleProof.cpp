@@ -51,7 +51,7 @@ class MerkleProofImpl {
   }
 
  private:
-  using Key = std::pair<Cell::Hash, int>;
+  using Key = std::pair<Cell::Hash, unsigned>;
   td::HashMap<Key, Ref<Cell>> cells_;
   td::HashSet<Cell::Hash> visited_cells_;
   CellUsageTree *usage_tree_{nullptr};
@@ -68,7 +68,7 @@ class MerkleProofImpl {
     }
   }
 
-  Ref<Cell> dfs(Ref<Cell> cell, int merkle_depth) {
+  Ref<Cell> dfs(Ref<Cell> cell, unsigned merkle_depth) {
     CHECK(cell.not_null());
     Key key{cell->get_hash(), merkle_depth};
     {
@@ -92,7 +92,14 @@ class MerkleProofImpl {
     for (unsigned i = 0; i < cs.size_refs(); i++) {
       cb.store_ref(dfs(cs.prefetch_ref(i), children_merkle_depth));
     }
-    auto res = cb.finalize(cs.is_special());
+    auto hash_hint = [&](unsigned level, const Cell::LevelMask &, CellHash &hash) {
+      if (level <= merkle_depth) {
+        hash = cell->get_hash(level);
+        return true;
+      }
+      return false;
+    };
+    auto res = cb.finalize(cs.is_special(), std::move(hash_hint));
     CHECK(res.not_null());
     cells_.emplace(key, res);
     return res;

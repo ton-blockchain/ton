@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "common/checksum.h"
+
 #include "bus.h"
 
 namespace ton::validator::consensus::simplex {

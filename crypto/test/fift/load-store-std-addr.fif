@@ -401,5 +401,7 @@ x{8016316F1DAA41369BD888538DAA8} @invalid_std_address !
     NEWC
     STOPTSTDADDRQ   // should fail
     100 THROWIFNOT  // check that status is -1 (for some reason STSLICEQ returns 0 for success and -1 for fail)
-    DROP2           // drop builder and slice
+    DROP            // drop builder
+    100 EQINT       // check that the invalid value is left intact
+    100 THROWIFNOT
 }>s "should fail to store int via STOPTSTDADDRQ" run-test

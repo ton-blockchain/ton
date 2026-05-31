@@ -214,14 +214,14 @@ class Scheduler {
   std::vector<td::thread> cpu_threads_;
   bool is_stopped_{false};
   Poll poll_;
-  KHeap<double> heap_;
+  KHeap<Timestamp> heap_;
   std::unique_ptr<IoWorker> io_worker_;
   bool skip_timeouts_{false};
 
   class ContextImpl : public SchedulerContext {
    public:
     ContextImpl(ActorInfoCreator *creator, SchedulerId scheduler_id, CpuWorkerId cpu_worker_id,
-                SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<double> *heap, Debug *debug);
+                SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<Timestamp> *heap, Debug *debug);
 
     SchedulerId get_scheduler_id() const override;
     void add_to_queue(ActorInfoPtr actor_info_ptr, SchedulerId scheduler_id, bool need_poll) override;
@@ -233,7 +233,7 @@ class Scheduler {
     Poll &get_poll() override;
 
     bool has_heap() override;
-    KHeap<double> &get_heap() override;
+    KHeap<Timestamp> &get_heap() override;
 
     Debug &get_debug() override;
 
@@ -253,7 +253,7 @@ class Scheduler {
     SchedulerGroupInfo *scheduler_group_;
     Poll *poll_;
 
-    KHeap<double> *heap_;
+    KHeap<Timestamp> *heap_;
 
     Debug *debug_;
   };

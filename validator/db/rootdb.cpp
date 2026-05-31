@@ -177,56 +177,6 @@ void RootDb::get_block_proof_link(ConstBlockHandle handle, td::Promise<td::Ref<P
   }
 }
 
-void RootDb::store_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
-  auto source = PublicKey{pubkeys::Ed25519{candidate.pubkey.as_bits256()}};
-  auto obj = create_serialize_tl_object<ton_api::db_candidate>(
-      source.tl(), create_tl_block_id(candidate.id), std::move(candidate.data), std::move(candidate.collated_data));
-  auto P = td::PromiseCreator::lambda(
-      [archive_db = archive_db_.get(), promise = std::move(promise), block_id = candidate.id, source,
-       collated_file_hash = candidate.collated_file_hash](td::Result<td::Unit> R) mutable {
-        TRY_RESULT_PROMISE(promise, _, std::move(R));
-        td::actor::send_closure(archive_db, &ArchiveManager::add_temp_file_short, fileref::CandidateRef{block_id},
-                                create_serialize_tl_object<ton_api::db_candidate_id>(
-                                    source.tl(), create_tl_block_id(block_id), collated_file_hash),
-                                std::move(promise));
-      });
-  td::actor::send_closure(archive_db_, &ArchiveManager::add_temp_file_short,
-                          fileref::Candidate{source, candidate.id, candidate.collated_file_hash}, std::move(obj),
-                          std::move(P));
-}
-
-void RootDb::get_block_candidate(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
-                                 td::Promise<BlockCandidate> promise) {
-  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-    if (R.is_error()) {
-      promise.set_error(R.move_as_error());
-    } else {
-      auto f = fetch_tl_object<ton_api::db_candidate>(R.move_as_ok(), true);
-      f.ensure();
-      auto val = f.move_as_ok();
-      auto hash = sha256_bits256(val->collated_data_);
-
-      auto key = ton::PublicKey{val->source_};
-      auto e_key = Ed25519_PublicKey{key.ed25519_value().raw()};
-      promise.set_value(BlockCandidate{e_key, create_block_id(val->id_), hash, std::move(val->data_),
-                                       std::move(val->collated_data_)});
-    }
-  });
-  td::actor::send_closure(archive_db_, &ArchiveManager::get_temp_file_short,
-                          fileref::Candidate{source, id, collated_data_file_hash}, std::move(P));
-}
-
-void RootDb::get_block_candidate_by_block_id(BlockIdExt id, td::Promise<BlockCandidate> promise) {
-  td::actor::send_closure(
-      archive_db_, &ArchiveManager::get_temp_file_short, fileref::CandidateRef{id},
-      [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-        TRY_RESULT_PROMISE(promise, data, std::move(R));
-        TRY_RESULT_PROMISE(promise, f, fetch_tl_object<ton_api::db_candidate_id>(data, true));
-        td::actor::send_closure(SelfId, &RootDb::get_block_candidate, PublicKey{f->source_}, create_block_id(f->id_),
-                                f->collated_data_file_hash_, std::move(promise));
-      });
-}
-
 void RootDb::store_block_state(BlockHandle handle, td::Ref<ShardState> state, vm::StoreCellHint hint,
                                td::Promise<td::Ref<ShardState>> promise) {
   if (handle->moved_to_archive()) {
@@ -288,7 +238,7 @@ void RootDb::store_block_state_from_data(BlockHandle handle, td::Ref<BlockData> 
 
         td::actor::send_closure(b, &ArchiveManager::update_handle, std::move(handle), std::move(P));
       });
-  td::actor::send_closure(cell_db_, &CellDb::store_block_state_permanent, std::move(block), std::move(P));
+  td::actor::send_closure(cell_db_, &CellDb::store_block_state_from_data, std::move(block), std::move(P));
 }
 
 void RootDb::store_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) {
@@ -481,11 +431,11 @@ void RootDb::archive(BlockHandle handle, td::Promise<td::Unit> promise) {
   auto [it, inserted] = archive_block_waiters_.emplace(handle->id(), std::vector<td::Promise<td::Unit>>{});
   it->second.push_back(std::move(promise));
   if (!inserted) {
-    VLOG(VALIDATOR_DEBUG) << "archive block " << handle->id().id.to_str() << " : already in progress";
+    VLOG(VALIDATOR_DEBUG) << "archive block " << handle->id().id << " : already in progress";
     return;
   }
   td::actor::create_actor<BlockArchiver>(
-      PSTRING() << "archiver" << handle->id().id.to_str(), handle, archive_db_.get(), actor_id(this),
+      PSTRING() << "archiver" << handle->id().id, handle, archive_db_.get(), actor_id(this),
       [this, SelfId = actor_id(this), block_id = handle->id()](td::Result<td::Unit> R) {
         td::actor::send_lambda(SelfId, [this, R = std::move(R), block_id]() {
           auto it2 = archive_block_waiters_.find(block_id);

@@ -102,7 +102,7 @@ class WaitBlockState : public td::actor::Actor {
   td::Promise<td::Ref<ShardState>> promise_final_;
   td::Ref<PersistentStateDescription> persistent_state_desc_;
 
-  td::Ref<ShardState> prev_state_;
+  td::Ref<ShardState> state_;
   td::Ref<BlockData> block_;
 
   bool reading_from_db_ = false;

@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "adnl/adnl.h"
-#include "catchain/catchain-types.h"
 #include "dht/dht.h"
 #include "interfaces/block-handle.h"
 #include "interfaces/block.h"
@@ -312,6 +311,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   //virtual void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   virtual void sync_complete(td::Promise<td::Unit> promise) = 0;
+  virtual void wait_initial_sync(td::Promise<td::Unit> promise) = 0;
 
   virtual void get_top_masterchain_state(td::Promise<td::Ref<MasterchainState>> promise) = 0;
   virtual void get_top_masterchain_block(td::Promise<BlockIdExt> promise) = 0;
@@ -319,6 +319,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
       td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
   virtual void get_last_liteserver_state_block(
       td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
+  virtual void get_shard_client_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) = 0;
 
   virtual void get_block_data(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void check_zero_state_exists(BlockIdExt block_id, td::Promise<bool> promise) = 0;
@@ -332,6 +333,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                           td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_previous_persistent_state_files(
       BlockSeqno cur_mc_seqno, td::Promise<std::vector<std::pair<std::string, ShardIdFull>>> promise) = 0;
+  virtual void get_cached_candidate_data(BlockIdExt id, td::Promise<td::BufferSlice> promise) {
+    promise.set_error(td::Status::Error("not implemented"));
+  }
   virtual void get_block_proof(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_proof_link(BlockHandle handle, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_block_handle(BlockIdExt block_id, bool force, td::Promise<BlockHandle> promise) = 0;
@@ -356,15 +360,15 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual void add_ext_server_id(adnl::AdnlNodeIdShort id) = 0;
   virtual void add_ext_server_port(td::uint16 port) = 0;
+  virtual void notify_added_initial_liteservers() {
+  }
+  virtual void wait_liteserver_ready(td::Promise<td::Unit> promise) = 0;
 
   virtual void get_download_token(size_t download_size, td::uint32 priority, td::Timestamp timeout,
                                   td::Promise<std::unique_ptr<ActionToken>> promise) = 0;
 
   virtual void get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) = 0;
   virtual void get_block_data_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<BlockData>> promise) = 0;
-  virtual void get_block_candidate_from_db(PublicKey source, BlockIdExt id, FileHash collated_data_file_hash,
-                                           td::Promise<BlockCandidate> promise) = 0;
-  virtual void get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) = 0;
   virtual void get_shard_state_from_db(ConstBlockHandle handle, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_shard_state_from_db_short(BlockIdExt block_id, td::Promise<td::Ref<ShardState>> promise) = 0;
   virtual void get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) = 0;

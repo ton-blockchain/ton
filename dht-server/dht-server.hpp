@@ -51,7 +51,6 @@ struct Config {
   };
   struct AddrCats {
     td::IPAddress in_addr;
-    std::shared_ptr<ton::adnl::AdnlProxy> proxy;
     std::set<AdnlCategory> cats;
     std::set<AdnlCategory> priority_cats;
   };
@@ -74,8 +73,7 @@ struct Config {
   }
 
   td::Result<bool> config_add_network_addr(td::IPAddress in_addr, td::IPAddress out_addr,
-                                           std::shared_ptr<ton::adnl::AdnlProxy> proxy, std::vector<AdnlCategory> cats,
-                                           std::vector<AdnlCategory> prio_cats);
+                                           std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats);
   td::Result<bool> config_add_adnl_addr(ton::PublicKeyHash addr, AdnlCategory cat);
   td::Result<bool> config_add_dht_node(ton::PublicKeyHash id);
   td::Result<bool> config_add_control_interface(ton::PublicKeyHash key, td::int32 port);

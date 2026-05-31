@@ -107,7 +107,7 @@ elseif (WIN32)
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/arch.cpp" [=[
             #if defined _M_IX86
             #error ARCH_VALUE x86_32
-            #elif defined _M_X64
+            #elif defined _M_X64 || defined _M_AMD64
             #error ARCH_VALUE x86_64
             #endif
             #error ARCH_VALUE unknown
@@ -116,6 +116,16 @@ elseif (WIN32)
       OUTPUT_VARIABLE _COMPILATION_LOG
       )
     string(REGEX REPLACE ".*ARCH_VALUE ([a-zA-Z0-9_]+).*" "\\1" _TARGET_ARCH "${_COMPILATION_LOG}")
+
+    # Fall back to pointer-size based detection when compiler output format
+    # prevents ARCH_VALUE extraction (e.g. some clang-cl diagnostics modes).
+    if (_TARGET_ARCH STREQUAL "unknown")
+      if (CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(_TARGET_ARCH "x86_64")
+      elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(_TARGET_ARCH "x86_32")
+      endif()
+    endif()
 
     # construct library path
     if (_TARGET_ARCH STREQUAL "x86_32")

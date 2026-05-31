@@ -86,6 +86,7 @@ class BlockSignatureSetBase : public BlockSignatureSet {
 
   virtual td::Result<td::BufferSlice> to_sign(ton::BlockIdExt block_id) const = 0;
   virtual bool check_threshold(ton::ValidatorWeight sig_weight, ton::ValidatorWeight total_weight) const {
+    // Validator sets are capped at 2^61; sig_weight is a subset, so these products fit in uint64.
     return sig_weight * 3 > total_weight * 2;
   }
 
@@ -97,6 +98,7 @@ class BlockSignatureSetBase : public BlockSignatureSet {
     TRY_STATUS(check_vset(this, vset));
     ton::ValidatorWeight weight = 0;
     std::set<ton::NodeIdShort> nodes;
+    // Signers are unique, so accumulated weight is bounded by the 2^61-capped total validator weight.
     for (auto& sig : signatures_) {
       if (nodes.contains(sig.node)) {
         return td::Status::Error(ton::ErrorCode::protoviolation, "duplicate node");
@@ -136,6 +138,7 @@ class BlockSignatureSetBase : public BlockSignatureSet {
     TRY_RESULT(data, to_sign(block_id));
     ton::ValidatorWeight weight = 0;
     std::set<ton::NodeIdShort> nodes;
+    // Signers are unique, so accumulated weight is bounded by the 2^61-capped total validator weight.
     for (auto& sig : signatures_) {
       if (nodes.contains(sig.node)) {
         return td::Status::Error(ton::ErrorCode::protoviolation, "duplicate node");

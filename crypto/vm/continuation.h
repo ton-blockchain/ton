@@ -132,7 +132,7 @@ struct ControlRegs {
     }
     return true;
   }
-  bool define(unsigned idx, StackEntry value);
+  bool define(unsigned idx, StackEntry value, bool silent_if_set = false);
   ControlRegs& operator&=(const ControlRegs& save);  // clears all c[i]'s which are present in save
   ControlRegs& operator^=(const ControlRegs& save);  // sets c[i]=save.c[i] for all save.c[i] != 0
   ControlRegs& operator^=(ControlRegs&& save);
