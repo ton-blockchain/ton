@@ -1516,8 +1516,7 @@ void ValidatorEngine::alarm() {
         }
       }
 
-      if (fast_sync_member_certificates_write_scheduled_ &&
-          fast_sync_member_certificates_write_at_.is_in_past()) {
+      if (fast_sync_member_certificates_write_scheduled_ && fast_sync_member_certificates_write_at_.is_in_past()) {
         need_write = true;
       }
 
@@ -5260,14 +5259,16 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_importFas
   }
 
   try_import_fast_sync_member_certificate(
-      std::move(adnl_id), std::move(certificate), [promise = std::move(promise)](td::Result<> R) mutable {
+      std::move(adnl_id), std::move(certificate),
+      [promise = std::move(promise)](td::Result<> R) mutable {
         if (R.is_error()) {
           promise.set_value(create_control_query_error(R.move_as_error()));
         } else {
           promise.set_value(
               ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
         }
-      }, false);
+      },
+      false);
 }
 
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addFastSyncClient &query, td::BufferSlice data,
