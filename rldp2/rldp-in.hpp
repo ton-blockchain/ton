@@ -23,14 +23,52 @@
 
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl-query.h"
+#include "metrics/collectors.h"
+#include "metrics/well-known.h"
 #include "td/utils/List.h"
 #include "tl-utils/tl-utils.hpp"
 
+#include "RldpConnection.h"
 #include "rldp.hpp"
 
 namespace ton {
 
 namespace rldp2 {
+
+// Terminal state of a transfer.
+#define TON_METRIC_STATE_LIST(F) \
+  F(completed)                   \
+  F(failed)                      \
+  F(timeout)
+TON_METRIC_DEFINE_LABEL(State, "state", TON_METRIC_STATE_LIST)
+#undef TON_METRIC_STATE_LIST
+
+// RldpIn-owned metric tree (single-threaded on the RldpIn actor). The per-connection wire/dropped
+// counters live in RldpConnMetrics and are scraped + accumulated separately; what stays here is the
+// transfer outcomes, the gauges, and the app tier.
+struct RldpMetrics {
+  struct Transport {
+    metrics::Labeled<metrics::Counter, metrics::Direction, State> transfers;
+    metrics::Gauge<td::uint64> connections;
+    metrics::Gauge<td::uint64> queries_pending;
+    metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> dropped;
+
+    void collect(metrics::Context ctx) const {
+      ctx.collect(transfers, "transfers");
+      ctx.collect(connections, "connections");
+      ctx.collect(queries_pending, "queries_pending");
+      ctx.collect(dropped, "dropped");
+    }
+  };
+
+  Transport transport;
+  metrics::App app;
+
+  void collect(metrics::Context ctx) const {
+    ctx.collect(transport, "transport");
+    ctx.collect(app, "app");
+  }
+};
 
 class RldpLru : public td::ListNode {
  public:
@@ -92,6 +130,13 @@ class RldpIn : public RldpImpl {
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                        td::Promise<td::string> promise) override;
 
+  td::actor::Task<> collect(metrics::Context ctx) override;
+  // Absorb a connection's drained metrics delta into the cumulative aggregate (called both from the
+  // collect() drain round-trip and from a connection's tear_down). Each delta is counted once, so
+  // the aggregate stays monotonic across connection churn. `done` is fulfilled after the merge.
+  void absorb(RldpConnMetrics delta, td::Promise<td::Unit> done);
+  void on_outbound_answer_dropped();
+
   explicit RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
   }
 
@@ -117,6 +162,10 @@ class RldpIn : public RldpImpl {
   std::map<TransferId, OutQuery> queries_;
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
+
+  RldpMetrics metrics_;
+  // Cumulative per-connection metrics, drained from connections (live scrapes + on tear_down).
+  RldpConnMetrics aggregate_;
 
   td::actor::ActorId<RldpConnectionActor> get_or_create_connection(adnl::AdnlNodeIdShort local_id,
                                                                    adnl::AdnlNodeIdShort peer_id, bool incoming,

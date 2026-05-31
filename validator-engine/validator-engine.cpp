@@ -2298,6 +2298,8 @@ void ValidatorEngine::start_rldp() {
   td::actor::send_closure(quic_.get(), &ton::quic::QuicSender::set_quic_options, quic_options_);
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_.get(),
                           &ton::quic::QuicSender::collect);
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::rldp2::Rldp>, rldp2_.get(),
+                          &ton::rldp2::Rldp::collect);
   td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::set_default_mtu, 2048);
   started_rldp();
 }
