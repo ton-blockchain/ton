@@ -1,9 +1,17 @@
+/*
+ * Copyright (c) 2026, TON CORE TECHNOLOGIES CO. L.L.C
+ *
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
+
 #pragma once
+
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace ton::metrics {
+
 struct Label {
   std::string key, val;
 
@@ -60,4 +68,5 @@ struct Exposition {
 
   [[nodiscard]] std::string render() &&;
 };
+
 }  // namespace ton::metrics
