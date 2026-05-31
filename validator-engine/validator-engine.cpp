@@ -1516,9 +1516,17 @@ void ValidatorEngine::alarm() {
         }
       }
 
+      if (fast_sync_member_certificates_write_scheduled_ &&
+          fast_sync_member_certificates_write_at_.is_in_past()) {
+        need_write = true;
+      }
+
       if (need_write) {
+        fast_sync_member_certificates_write_scheduled_ = false;
+        fast_sync_member_certificates_write_at_ = td::Timestamp::never();
         write_config([](td::Result<>) {});
       }
+
       if (issue_fast_sync_overlay_certificates_at_.is_in_past()) {
         issue_fast_sync_overlay_certificates_at_ = td::Timestamp::in(60.0);
         issue_fast_sync_overlay_certificates();
@@ -2147,6 +2155,22 @@ void ValidatorEngine::write_config(td::Promise<> promise) {
   }
   TRY_STATUS_PROMISE(promise, td::rename(temp_config_file(), config_file_));
   promise.set_value({});
+}
+
+void ValidatorEngine::schedule_fast_sync_member_certificates_write() {
+  if (!fast_sync_member_certificates_write_scheduled_) {
+    fast_sync_member_certificates_write_scheduled_ = true;
+    fast_sync_member_certificates_write_at_ = td::Timestamp::in(60.0);
+  }
+}
+
+void ValidatorEngine::finish_fast_sync_member_certificate_import(td::Promise<> promise, bool defer_write) {
+  if (defer_write) {
+    schedule_fast_sync_member_certificates_write();
+    promise.set_value({});
+    return;
+  }
+  write_config(std::move(promise));
 }
 
 td::Promise<ton::PublicKey> ValidatorEngine::get_key_promise(td::MultiPromise::InitGuard &ig) {
@@ -2918,7 +2942,8 @@ void ValidatorEngine::register_fast_sync_certificate_callback() {
                                 if (R.is_error()) {
                                   LOG(WARNING) << "failed to import overlay member certificate: " << R.move_as_error();
                                 }
-                              }));
+                              }),
+                              true);
     }
     void receive_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                        td::Promise<td::BufferSlice> promise) override {
@@ -3024,7 +3049,7 @@ void ValidatorEngine::register_shard_overlay_certificate_callback() {
 
 void ValidatorEngine::try_import_fast_sync_member_certificate(ton::adnl::AdnlNodeIdShort id,
                                                               ton::overlay::OverlayMemberCertificate certificate,
-                                                              td::Promise<> promise) {
+                                                              td::Promise<> promise, bool defer_write) {
   if (!started_ || state_.is_null()) {
     return promise.set_error(td::Status::Error("not started"));
   }
@@ -3060,7 +3085,7 @@ void ValidatorEngine::try_import_fast_sync_member_certificate(ton::adnl::AdnlNod
           x.second = std::move(certificate);
           td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::import_fast_sync_member_certificate,
                                   x.first, x.second);
-          write_config(std::move(promise));
+          finish_fast_sync_member_certificate_import(std::move(promise), defer_write);
           return;
         }
         LOG(DEBUG) << "Not importing certificate: certificate from the same issuer exists with bigger ttl";
@@ -3073,7 +3098,7 @@ void ValidatorEngine::try_import_fast_sync_member_certificate(ton::adnl::AdnlNod
         x.second = std::move(certificate);
         td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::import_fast_sync_member_certificate,
                                 x.first, x.second);
-        write_config(std::move(promise));
+        finish_fast_sync_member_certificate_import(std::move(promise), defer_write);
         return;
       }
       LOG(DEBUG) << "Not importing certificate: certificate with better score exists";
@@ -3092,7 +3117,7 @@ void ValidatorEngine::try_import_fast_sync_member_certificate(ton::adnl::AdnlNod
   auto &x = config_.fast_sync_member_certificates.emplace_back(std::move(id), std::move(certificate));
   td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::import_fast_sync_member_certificate, x.first,
                           x.second);
-  write_config(std::move(promise));
+  finish_fast_sync_member_certificate_import(std::move(promise), defer_write);
 }
 
 void ValidatorEngine::try_import_shard_overlay_certificate(ton::adnl::AdnlNodeIdShort src, ton::ShardIdFull shard,
@@ -5242,7 +5267,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_importFas
           promise.set_value(
               ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
         }
-      });
+      }, false);
 }
 
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addFastSyncClient &query, td::BufferSlice data,

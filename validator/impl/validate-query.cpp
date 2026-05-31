@@ -683,7 +683,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
   }
   if (block::gen::t_TopBlockDescrSet.has_valid_tag(cs)) {
     LOG(DEBUG) << "collated datum # " << idx << " is a TopBlockDescrSet";
-    if (!block::gen::t_TopBlockDescrSet.validate_upto(10000, cs)) {
+    if (!block::gen::t_TopBlockDescrSet.validate_ref(10000, croot)) {
       return reject_query("invalid TopBlockDescrSet");
     }
     if (top_shard_descr_dict_) {
@@ -693,7 +693,7 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     return true;
   }
   if (block::gen::t_AccountStorageDictProof.has_valid_tag(cs)) {
-    if (!block::gen::t_AccountStorageDictProof.validate_upto(10000, cs)) {
+    if (!block::gen::t_AccountStorageDictProof.validate_ref(10000, croot)) {
       return reject_query("invalid AccountStorageDictProof");
     }
     // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
@@ -712,14 +712,14 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     return true;
   }
   if (block::gen::t_ConsensusExtraData.has_valid_tag(cs)) {
-    if (!block::gen::t_ConsensusExtraData.validate_upto(10000, cs)) {
+    if (!block::gen::t_ConsensusExtraData.validate_ref(10000, croot)) {
       return reject_query("invalid ConsensusExtraData");
     }
     if (now_ms_) {
       return reject_query("duplicate ConsensusExtraData");
     }
     block::gen::ConsensusExtraData::Record rec;
-    REJECT_UNLESS(block::gen::unpack(cs, rec));
+    REJECT_UNLESS(block::gen::unpack_cell(croot, rec));
     now_ms_ = rec.gen_utime_ms;
     LOG(DEBUG) << "collated datum # " << idx << " is a ConsensusExtraData, gen_utime_ms=" << rec.gen_utime_ms;
     return true;
