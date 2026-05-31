@@ -19,6 +19,7 @@
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api.hpp"
 #include "fec/fec.h"
+#include "td/actor/coro_utils.h"
 #include "td/utils/Random.h"
 
 #include "RldpConnection.h"
@@ -55,6 +56,11 @@ class RldpConnectionActor : public td::actor::Actor, private ConnectionCallback 
   void set_default_mtu(td::uint64 mtu) {
     connection_.set_default_mtu(mtu);
   }
+  // Drain this connection's metrics delta into RldpIn and round-trip `done` back through the absorb,
+  // so collect() only resumes once the delta is in the aggregate.
+  void collect_metrics(td::Promise<td::Unit> done) {
+    send_closure(rldp_, &RldpIn::absorb, connection_.drain(), std::move(done));
+  }
 
  private:
   td::actor::ActorId<RldpIn> rldp_;
@@ -62,6 +68,11 @@ class RldpConnectionActor : public td::actor::Actor, private ConnectionCallback 
   adnl::AdnlNodeIdShort dst_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   RldpConnection connection_;
+
+  void tear_down() override {
+    // Drain whatever hasn't been scraped yet so the final counts aren't lost (fire-and-forget).
+    send_closure(rldp_, &RldpIn::absorb, connection_.drain(), td::PromiseCreator::lambda([](td::Result<td::Unit>) {}));
+  }
 
   void loop() override {
     alarm_timestamp() = connection_.run(*this);
@@ -98,6 +109,7 @@ void RldpIn::send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort ds
   td::Bits256 id;
   td::Random::secure_bytes(id.as_slice());
 
+  metrics_.app.record(metrics::Kind::message, metrics::Direction::out, data.as_slice());
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_message>(id, std::move(data)), true);
 
   auto transfer_id = get_random_transfer_id();
@@ -111,6 +123,7 @@ void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
   auto query_id = adnl::AdnlQuery::random_query_id();
 
   auto date = static_cast<td::uint32>(timeout.at_unix()) + 1;
+  metrics_.app.record(metrics::Kind::query, metrics::Direction::out, data.as_slice());
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_query>(query_id, max_answer_size, date, std::move(data)),
                                true);
 
@@ -125,6 +138,7 @@ void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
 
 void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
                           adnl::AdnlQueryId query_id, TransferId transfer_id, td::BufferSlice data) {
+  metrics_.app.record(metrics::Kind::answer, metrics::Direction::out, data.as_slice());
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_answer>(query_id, std::move(data)), true);
 
   send_closure(get_or_create_connection(src, dst, false, timeout), &RldpConnectionActor::send, transfer_id,
@@ -134,6 +148,10 @@ void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, 
 void RldpIn::receive_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, td::BufferSlice data) {
   auto connection = get_or_create_connection(local_id, source, true);
   if (connection.empty()) {
+    // peer not allowed: the datagram still arrived on the wire, and we dropped it (no connection to
+    // attribute it to, so it goes straight into the historical aggregate).
+    aggregate_.record_wire(metrics::Direction::in, data.size());
+    metrics_.app.record_dropped(metrics::Direction::in, metrics::Reason::limited);
     return;
   }
   send_closure(connection, &RldpConnectionActor::receive_raw, std::move(data));
@@ -156,6 +174,7 @@ td::actor::ActorId<RldpConnectionActor> RldpIn::get_or_create_connection(adnl::A
   }
   td::uint64 mtu = get_peer_mtu(local_id, peer_id);
   if (mtu == 0 && incoming) {
+    // Accounted by receive_message_part.
     VLOG(rldp2, INFO) << "dropping incoming packet " << local_id << " <- " << peer_id << " : peer not allowed";
     return {};
   }
@@ -174,6 +193,7 @@ td::actor::ActorId<RldpConnectionActor> RldpIn::get_or_create_connection(adnl::A
 void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
                              td::Result<td::BufferSlice> r_data) {
   if (r_data.is_error()) {
+    metrics_.transport.transfers.at(metrics::Direction::in, State::failed).inc();
     if (auto it = queries_.find(transfer_id); it != queries_.end()) {
       it->second.promise.set_error(r_data.move_as_error());
       queries_.erase(it);
@@ -182,10 +202,12 @@ void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
     }
     return;
   }
+  metrics_.transport.transfers.at(metrics::Direction::in, State::completed).inc();
 
   auto data = r_data.move_as_ok();
   auto F = fetch_tl_object<ton_api::rldp_Message>(std::move(data), true);
   if (F.is_error()) {
+    aggregate_.record_dropped(metrics::Direction::in, metrics::Reason::invalid);
     VLOG(rldp2, INFO) << "failed to parse rldp packet [" << source << "->" << local_id << "]: " << F.error();
     if (auto it = queries_.find(transfer_id); it != queries_.end()) {
       it->second.promise.set_error(F.move_as_error_prefix("received invalid rldp query answer: "));
@@ -205,11 +227,13 @@ void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
 
 void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
                              ton_api::rldp_message &message) {
+  metrics_.app.record(metrics::Kind::message, metrics::Direction::in, message.data_.as_slice());
   td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::deliver, source, local_id, std::move(message.data_));
 }
 
 void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
                              ton_api::rldp_query &message) {
+  metrics_.app.record(metrics::Kind::query, metrics::Direction::in, message.data_.as_slice());
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), source, local_id,
                                        timeout = td::Timestamp::at_unix(message.timeout_), query_id = message.query_id_,
                                        max_answer_size = static_cast<td::uint64>(message.max_answer_size_),
@@ -217,6 +241,7 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
     if (R.is_ok()) {
       auto data = R.move_as_ok();
       if (data.size() > max_answer_size) {
+        td::actor::send_closure(SelfId, &RldpIn::on_outbound_answer_dropped);
         VLOG(rldp2, INFO) << "rldp query failed: answer too big";
       } else {
         if (!timeout || td::Timestamp::in(60.0) < timeout) {
@@ -239,6 +264,7 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   auto it = queries_.find(transfer_id);
   if (it != queries_.end()) {
     if (message.data_.size() <= it->second.max_answer_size) {
+      metrics_.app.record(metrics::Kind::answer, metrics::Direction::in, message.data_.as_slice());
       it->second.promise.set_value(std::move(message.data_));
     } else {
       it->second.promise.set_error(td::Status::Error("received too big answer"));
@@ -250,7 +276,38 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
 }
 
 void RldpIn::on_sent(TransferId transfer_id, td::Result<td::Unit> state) {
-  //TODO: completed transfer
+  metrics_.transport.transfers.at(metrics::Direction::out, state.is_ok() ? State::completed : State::failed).inc();
+}
+
+void RldpIn::absorb(RldpConnMetrics delta, td::Promise<td::Unit> done) {
+  aggregate_ += delta;
+  done.set_value(td::Unit{});
+}
+
+void RldpIn::on_outbound_answer_dropped() {
+  metrics_.app.record_dropped(metrics::Direction::out, metrics::Reason::limited);
+}
+
+td::actor::Task<> RldpIn::collect(metrics::Context ctx) {
+  // Schedule a drain on every active connection first (synchronous loop — the map is never mutated
+  // across a suspension), then wait for all the round-trips to land in aggregate_. A connection that
+  // dies mid-drain has already drained via its tear_down, so a failed ask is harmless.
+  using DrainTask =
+      decltype(td::actor::ask(td::actor::ActorId<RldpConnectionActor>{}, &RldpConnectionActor::collect_metrics));
+  std::vector<DrainTask> drains;
+  for (auto &[key, conn] : connections_) {
+    drains.push_back(td::actor::ask(conn.actor.get(), &RldpConnectionActor::collect_metrics));
+  }
+  co_await td::actor::all_wrap(std::move(drains));
+
+  metrics_.transport.connections.set(connections_.size());
+  metrics_.transport.queries_pending.set(queries_.size());
+  metrics_.transport.dropped = aggregate_.transport_dropped;
+
+  auto rldp = ctx.with_name("rldp2");
+  rldp.collect(aggregate_.wire, "wire");
+  rldp.collect(metrics_);
+  co_return {};
 }
 
 void RldpIn::add_id(adnl::AdnlNodeIdShort local_id) {
