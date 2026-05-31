@@ -2200,6 +2200,10 @@ void ValidatorEngine::start_adnl() {
   adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create(config_.out_port);
   adnl_ = ton::adnl::Adnl::create(db_root_, keyring_.get());
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::adnl::AdnlNetworkManager>,
+                          adnl_network_manager_.get(), &ton::adnl::AdnlNetworkManager::collect);
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::adnl::Adnl>, adnl_.get(),
+                          &ton::adnl::Adnl::collect);
   reload_adnl_addrs();
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(adnl_static_nodes_));
   started_adnl();

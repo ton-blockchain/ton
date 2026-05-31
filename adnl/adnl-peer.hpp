@@ -20,6 +20,7 @@
 
 #include <map>
 #include <queue>
+#include <utility>
 #include <vector>
 
 #include "crypto/Ed25519.h"
@@ -90,6 +91,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   void get_conn_ip_str(td::Promise<td::string> promise) override;
   void get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats_peerPair>> promise) override;
+  void collect_metrics(td::Promise<td::Unit> done) override;
 
   void got_data_from_db(td::Result<AdnlDbItem> R);
   void got_data_from_static_nodes(td::Result<AdnlNode> R);
@@ -271,6 +273,22 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   bool has_reverse_addr_ = false;
   td::Timestamp request_reverse_ping_after_ = td::Timestamp::now();
   bool request_reverse_ping_active_ = false;
+
+  // App traffic (send + deliver) and transport-tier drops accounted locally here, on the peer-pair
+  // thread, and drained into the peer table's aggregate on scrape and on tear_down — so the hot path
+  // costs no cross-thread message per payload/drop.
+  AdnlPeerPairMetrics pp_metrics_;
+  AdnlPeerPairMetrics drain_metrics() {
+    return std::exchange(pp_metrics_, AdnlPeerPairMetrics{});
+  }
+  // MTU/size-cap drops live on the shared app tier; everything else the peer-pair rejects lives on the
+  // transport tier (invalid = peer sent something we reject, internal = our own machinery failed).
+  void record_transport_dropped(metrics::Direction dir, metrics::Reason reason) {
+    pp_metrics_.transport_dropped.at(dir, reason).inc();
+  }
+  void record_app_dropped(metrics::Direction dir, metrics::Reason reason) {
+    pp_metrics_.app.record_dropped(dir, reason);
+  }
 
   struct PacketStats {
     double ts_start = 0.0, ts_end = 0.0;

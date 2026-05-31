@@ -22,6 +22,7 @@
 #include "adnl/adnl-query.h"
 #include "auto/tl/ton_api.h"
 #include "common/io.hpp"
+#include "metrics/well-known.h"
 #include "td/actor/actor.h"
 #include "td/utils/BufferedUdp.h"
 #include "td/utils/logging.h"
@@ -35,6 +36,22 @@ DECLARE_LOG_CATEGORY(adnl)
 namespace ton {
 
 namespace adnl {
+
+// Metrics a peer-pair accumulates on its own thread and periodically drains into the peer table's
+// aggregate (Counter is non-atomic, hence the drain/absorb instead of a cross-thread bump per event):
+//   - app: the shared app traffic tier (send + deliver of message/query/answer, plus MTU/size drops).
+//   - transport_dropped: transport-tier packet drops detected while (de)processing a peer's packets;
+//     merged into the peer table's adnl_transport_dropped_total{direction,reason}.
+struct AdnlPeerPairMetrics {
+  metrics::App app;
+  metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> transport_dropped;
+
+  AdnlPeerPairMetrics &operator+=(const AdnlPeerPairMetrics &other) {
+    app += other.app;
+    transport_dropped += other.transport_dropped;
+    return *this;
+  }
+};
 
 class AdnlChannelIdShortImpl {
  public:
@@ -104,6 +121,13 @@ class AdnlPeerTable : public Adnl {
   virtual void decrypt_message(AdnlNodeIdShort dst, td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
 
   virtual void set_peer_pair_idle(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, bool value) = 0;
+
+  // Merge a peer-pair's drained metrics delta into the peer table's aggregate (Counter is non-atomic,
+  // so it must be accumulated on the peer-table thread). `done` is fulfilled after the merge. Called
+  // both from the collect() drain round-trip and from a peer-pair's tear_down.
+  virtual void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) {
+    done.set_value(td::Unit());
+  }
 };
 
 }  // namespace adnl
