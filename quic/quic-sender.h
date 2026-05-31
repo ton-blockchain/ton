@@ -6,6 +6,7 @@
 #include "adnl/adnl-sender-ex.h"
 #include "keyring/keyring.h"
 #include "metrics/collectors.h"
+#include "metrics/well-known.h"
 #include "td/actor/coro_task.h"
 
 #include "quic-server.h"
@@ -33,20 +34,6 @@ class QuicSender : public adnl::AdnlSenderEx {
   void add_id(adnl::AdnlNodeIdShort local_id) override;
   void log_stats(std::string reason = "stats");
 
-  struct Stats {
-    struct Entry {
-      QuicServer::Stats::Entry server_stats = {};
-
-      Entry operator+(const Entry& other) const {
-        return {.server_stats = server_stats + other.server_stats};
-      }
-    };
-
-    Entry summary = {.server_stats = {.total_conns = 0}};
-    std::map<AdnlPath, Entry> per_path;
-  };
-
-  td::actor::Task<Stats> collect_stats();
   td::actor::Task<> collect(metrics::Context ctx);
 
  protected:
@@ -75,6 +62,8 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   QuicServer::Options server_options_;
+
+  metrics::App app_;
 
   std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;
