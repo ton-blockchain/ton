@@ -316,15 +316,17 @@ td::Status QuicServer::send_stateless_datagram(td::Slice packet_kind, const td::
   td::UdpSocketFd::OutboundMessage message{.to = &remote_address, .data = data, .gso_size = 0};
   bool is_sent = false;
   auto status = fd_.send_message(message, is_sent);
-  egress_stats_.syscalls++;
+  auto &egress = udp_wire_.dir.at(metrics::Direction::out);
+  egress.syscalls.inc();
   if (is_sent) {
-    egress_stats_.packets++;
-    egress_stats_.bytes += data.size();
+    egress.data.record(data.size());
   }
   if (status.is_error()) {
     return status;
   }
   if (!is_sent) {
+    // Socket send queue full and stateless packets aren't retried: count as a kernel-level TX drop.
+    egress.dropped.inc();
     LOG(DEBUG) << "dropping stateless " << packet_kind << " to " << remote_address << ": send_message blocked";
     return td::Status::OK();
   }
@@ -435,14 +437,27 @@ void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
   on_connection_updated(*state);
 }
 
-void QuicServer::collect_stats(td::Promise<Stats> P) {
-  Stats stats;
-  for (auto &[id, conn] : connections_) {
-    Stats::Entry entry{.total_conns = 1, .impl_stats = conn->impl_->get_stats()};
-    stats.summary = stats.summary + entry;
-    stats.per_conn[id] = entry;
+td::actor::Task<ServerStats> QuicServer::collect() {
+  auto rx_drops = fd_.get_rx_queue_drops();
+  if (rx_drops > rx_queue_drops_reflected_) {
+    udp_wire_.dir.at(metrics::Direction::in).dropped.inc(rx_drops - rx_queue_drops_reflected_);
+    rx_queue_drops_reflected_ = rx_drops;
   }
-  return P.set_value(std::move(stats));
+
+  auto summary = closed_conn_stats_;
+  for (auto &[id, conn] : connections_) {
+    summary.combine(ConnectionStatsAggregate::from_one(conn->impl_->get_stats(transport_stats_)));
+  }
+
+  // get_stats updates transport_stats_, so we snapshot after the loop above.
+  co_return {
+      .wire = udp_wire_,
+      .transport =
+          {
+              .summary = summary,
+              .stats = transport_stats_,
+          },
+  };
 }
 
 void QuicServer::on_connection_closed(QuicConnectionId cid) {
@@ -453,6 +468,7 @@ void QuicServer::on_connection_closed(QuicConnectionId cid) {
   }
   auto state = it->second;
   LOG(INFO) << "Close connection: " << *state;
+  closed_conn_stats_.combine(ConnectionStatsAggregate::from_one(state->impl_->get_stats(transport_stats_)).retire());
   unbind_all_cids(*state);
   if (state->in_heap()) {
     timeout_heap_.erase(state.get());
@@ -496,10 +512,12 @@ void QuicServer::erase_pending_connections() {
 }
 
 void QuicServer::log_stats(std::string reason) {
-  LOG(INFO) << "quic stats (" << reason << "): udp ingress{syscalls=" << ingress_stats_.syscalls
-            << " packets=" << ingress_stats_.packets << " bytes=" << ingress_stats_.bytes
-            << "} egress{syscalls=" << egress_stats_.syscalls << " packets=" << egress_stats_.packets
-            << " bytes=" << egress_stats_.bytes << "}";
+  const auto &ingress = udp_wire_.dir.at(metrics::Direction::in);
+  const auto &egress = udp_wire_.dir.at(metrics::Direction::out);
+  LOG(INFO) << "quic stats (" << reason << "): udp ingress{syscalls=" << ingress.syscalls.value()
+            << " packets=" << ingress.data.packets.value() << " bytes=" << ingress.data.bytes.value()
+            << "} egress{syscalls=" << egress.syscalls.value() << " packets=" << egress.data.packets.value()
+            << " bytes=" << egress.data.bytes.value() << "}";
   if (connections_.empty()) {
     return;
   }
@@ -602,7 +620,19 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
 
 td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_create_connection(
     const UdpMessageBuffer &msg_in) {
-  TRY_RESULT(vc, VersionCid::from_datagram(td::Slice(msg_in.storage)));
+  // Each failure below is a dropped inbound datagram; classify it for quic_transport_dropped_total.
+  // invalid = unroutable / unparseable / rejected handshake (peer fault); limited = a local flood/rate
+  // cap; internal = our own machinery failed.
+  auto drop = [this](metrics::Reason reason, td::Status status) {
+    record_transport_dropped(metrics::Direction::in, reason);
+    return status;
+  };
+
+  auto r_vc = VersionCid::from_datagram(td::Slice(msg_in.storage));
+  if (r_vc.is_error()) {
+    return drop(metrics::Reason::invalid, r_vc.move_as_error());
+  }
+  auto vc = r_vc.move_as_ok();
 
   if (auto it = cid_to_primary_cid_.find(vc.dcid); it != cid_to_primary_cid_.end()) {
     auto connection = find_connection(it->second);
@@ -618,26 +648,48 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
     return connection;
   }
 
-  TRY_RESULT(initial_packet, VersionCid::from_initial_datagram(td::Slice(msg_in.storage)));
+  auto r_initial_packet = VersionCid::from_initial_datagram(td::Slice(msg_in.storage));
+  if (r_initial_packet.is_error()) {
+    return drop(metrics::Reason::invalid, r_initial_packet.move_as_error());
+  }
+  auto initial_packet = r_initial_packet.move_as_ok();
 
   auto flood_addr = msg_in.address.get_ip_host();
-  TRY_STATUS(ensure_flood_allowed(flood_addr));
+  if (auto status = ensure_flood_allowed(flood_addr); status.is_error()) {
+    return drop(metrics::Reason::limited, std::move(status));
+  }
 
-  TRY_RESULT(initial_info, prepare_server_initial_info(initial_packet, msg_in.address));
+  auto r_initial_info = prepare_server_initial_info(initial_packet, msg_in.address);
+  if (r_initial_info.is_error()) {
+    return drop(metrics::Reason::invalid, r_initial_info.move_as_error());
+  }
+  auto initial_info = r_initial_info.move_as_ok();
   if (!initial_info.has_value()) {
     return std::shared_ptr<ConnectionState>{};
   }
 
   // Create new connection to handle unknown inbound message
-  TRY_RESULT(local_address, fd_.get_local_address());
+  auto r_local_address = fd_.get_local_address();
+  if (r_local_address.is_error()) {
+    return drop(metrics::Reason::internal, r_local_address.move_as_error());
+  }
+  auto local_address = r_local_address.move_as_ok();
 
   auto conn_options = build_connection_options();
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
   auto identities = identities_;
-  TRY_RESULT(p_impl,
-             QuicConnectionPImpl::create_server(local_address, msg_in.address, std::move(identities), alpn_.as_slice(),
-                                                *initial_info, std::move(pimpl_callback), conn_options));
-  TRY_RESULT(state, install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid));
+  auto r_p_impl =
+      QuicConnectionPImpl::create_server(local_address, msg_in.address, std::move(identities), alpn_.as_slice(),
+                                         *initial_info, std::move(pimpl_callback), conn_options);
+  if (r_p_impl.is_error()) {
+    return drop(metrics::Reason::internal, r_p_impl.move_as_error());
+  }
+  auto p_impl = r_p_impl.move_as_ok();
+  auto r_state = install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid);
+  if (r_state.is_error()) {
+    return drop(metrics::Reason::internal, r_state.move_as_error());
+  }
+  auto state = r_state.move_as_ok();
 
   flood_on_inbound_connection_created(flood_addr);
 
@@ -687,7 +739,7 @@ void QuicServer::drain_ingress() {
       }
       break;
     }
-    ingress_stats_.syscalls++;
+    udp_wire_.dir.at(metrics::Direction::in).syscalls.inc();
 
     // Debug: log recvmmsg batch details periodically
     static std::atomic<size_t> ingress_log_counter = 0;
@@ -722,15 +774,17 @@ void QuicServer::drain_ingress() {
     for (size_t i = 0; i < cnt; i++) {
       bytes_budget -= std::max<size_t>(ingress_messages_[i].data.size(), 256);
       if (ingress_errors_[i].is_error()) {
+        // Malformed datagram off the socket (e.g. truncated): a wire-level reject.
+        udp_wire_.dir.at(metrics::Direction::in).dropped.inc();
         LOG(DEBUG) << "dropping inbound packet from " << ingress_msg_[i].address << ": " << ingress_errors_[i];
         continue;
       }
       ingress_msg_[i].storage = ingress_messages_[i].data;
-      ingress_stats_.bytes += ingress_msg_[i].storage.size();
+      udp_wire_.dir.at(metrics::Direction::in).data.bytes.inc(ingress_msg_[i].storage.size());
       const size_t segment_size = ingress_messages_[i].gso_size;
 
       auto handle_packet = [&](UdpMessageBuffer &packet) {
-        ingress_stats_.packets++;
+        udp_wire_.dir.at(metrics::Direction::in).data.packets.inc();
         auto R = get_or_create_connection(packet);
         if (R.is_error()) {
           LOG(WARNING) << "dropping inbound packet from " << packet.address << ": " << R.error();
@@ -751,8 +805,10 @@ void QuicServer::drain_ingress() {
         // Fatal errors are local/system faults (OOM, internal callback failure) worth a warning; everything
         // else is peer-induced (rejected/bad handshake, unknown SNI, protocol violation) and routine.
         if (ngtcp2_err_is_fatal(handle_status.code())) {
+          record_transport_dropped(metrics::Direction::in, metrics::Reason::internal);
           LOG(WARNING) << "failed to handle ingress from " << *state << ": " << handle_status;
         } else {
+          record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
           LOG(DEBUG) << "closing connection after ingress from " << *state << ": " << handle_status;
         }
         send_connection_close(*state, close_msg);  // no-op when empty
@@ -794,14 +850,15 @@ bool QuicServer::flush_pending() {
                                                                    pending_batch_count_ - pending_batch_sent_),
                         sent_count);
 
-  egress_stats_.syscalls++;
+  auto &egress = udp_wire_.dir.at(metrics::Direction::out);
+  egress.syscalls.inc();
   for (size_t i = pending_batch_sent_; i < pending_batch_sent_ + sent_count; i++) {
-    egress_stats_.bytes += egress_messages_[i].data.size();
+    egress.data.bytes.inc(egress_messages_[i].data.size());
     size_t gso_size = egress_messages_[i].gso_size;
     if (gso_size > 0 && egress_messages_[i].data.size() > gso_size) {
-      egress_stats_.packets += (egress_messages_[i].data.size() + gso_size - 1) / gso_size;
+      egress.data.packets.inc((egress_messages_[i].data.size() + gso_size - 1) / gso_size);
     } else {
-      egress_stats_.packets++;
+      egress.data.packets.inc();
     }
   }
 
@@ -840,6 +897,7 @@ bool QuicServer::produce_next_egress(size_t batch_index) {
 
     auto status = conn->impl().produce_egress(batch, gso_enabled_, max_packets);
     if (status.is_error()) {
+      record_transport_dropped(metrics::Direction::out, metrics::Reason::internal);
       LOG(WARNING) << "produce_egress failed for " << conn->remote_address << ": " << status;
       continue;
     }
