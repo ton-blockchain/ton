@@ -19,10 +19,15 @@
 #include "td/utils/Time.h"
 #include "td/utils/port/UdpSocketFd.h"
 
+#include "metrics.h"
 #include "openssl-utils.h"
 #include "quic-common.h"
 
 namespace ton::quic {
+
+inline std::chrono::nanoseconds to_chrono(ngtcp2_duration d) {
+  return std::chrono::nanoseconds(d);
+}
 
 struct ServerIdentities : td::CntObject {
   std::map<std::string, ServerIdentity> by_sni;
@@ -207,7 +212,7 @@ struct QuicConnectionPImpl {
     }
   }
 
-  QuicConnectionStats get_stats();
+  ConnectionStats get_stats(TransportStats& transport_stats);
 
  private:
   td::IPAddress local_address_;
@@ -241,6 +246,8 @@ struct QuicConnectionPImpl {
   bool local_cid_callbacks_enabled_{false};
 
   size_t sids_encountered = 0;
+  td::uint64 last_pkt_discarded_ = 0;
+  metrics::Labeled<metrics::Counter, metrics::Direction> stream_bytes_;
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
   std::deque<QuicStreamID> ready_streams_;
   QuicStreamID write_sid_ = -1;
