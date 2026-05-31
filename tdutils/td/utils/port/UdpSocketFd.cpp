@@ -135,6 +135,9 @@ class UdpSocketFdImpl : private Iocp::Callback {
   bool is_mmsg_enabled() const {
     return mmsg_enabled_;
   }
+  uint64 get_rx_queue_drops() const {
+    return 0;  // TODO
+  }
 
   void close() {
     notify_iocp_close();
@@ -409,6 +412,7 @@ class UdpSocketReceiveHelper {
 
   void from_native(struct msghdr &message_header, size_t message_size, UdpSocketFd::InboundMessage &message) {
     message.gso_size = 0;
+    message.queue_overflow = 0;
 #if TD_LINUX
     struct cmsghdr *cmsg;
     struct sock_extended_err *ee = nullptr;
@@ -423,6 +427,14 @@ class UdpSocketReceiveHelper {
           uint16_t gro = 0;
           std::memcpy(&gro, CMSG_DATA(cmsg), sizeof(gro));
           message.gso_size = gro;
+        }
+#endif
+#if defined(SO_RXQ_OVFL)
+      } else if (cmsg->cmsg_type == SO_RXQ_OVFL && cmsg->cmsg_level == SOL_SOCKET) {
+        if (cmsg->cmsg_len >= CMSG_LEN(sizeof(uint32_t))) {
+          uint32_t ovfl = 0;
+          std::memcpy(&ovfl, CMSG_DATA(cmsg), sizeof(ovfl));
+          message.queue_overflow = ovfl;
         }
 #endif
       } else if ((cmsg->cmsg_type == IP_RECVERR && cmsg->cmsg_level == IPPROTO_IP) ||
@@ -793,17 +805,39 @@ class UdpSocketFdImpl {
   }
 
   Status receive_messages(MutableSpan<UdpSocketFd::InboundMessage> messages, size_t &cnt) {
+    Status status;
 #if TD_HAS_MMSG
     if (mmsg_enabled_) {
-      return receive_messages_fast(messages, cnt);
-    }
+      status = receive_messages_fast(messages, cnt);
+    } else
 #endif
-    return receive_messages_slow(messages, cnt);
+    {
+      status = receive_messages_slow(messages, cnt);
+    }
+    account_rx_overflow(messages, cnt);
+    return status;
+  }
+
+  uint64 get_rx_queue_drops() const {
+    return rx_queue_drops_;
   }
 
  private:
   PollableFdInfo info_;
   bool mmsg_enabled_{true};
+
+  uint64 rx_queue_drops_{0};
+  uint32 rx_queue_overflow_last_{0};
+  void account_rx_overflow(MutableSpan<UdpSocketFd::InboundMessage> messages, size_t cnt) {
+    if (cnt == 0) {
+      return;
+    }
+    auto cur = narrow_cast<uint32>(messages[cnt - 1].queue_overflow);
+    if (cur > rx_queue_overflow_last_) {
+      rx_queue_drops_ += cur - rx_queue_overflow_last_;
+      rx_queue_overflow_last_ = cur;
+    }
+  }
 
   Status send_messages_slow(Span<UdpSocketFd::OutboundMessage> messages, size_t &cnt) {
     cnt = 0;
@@ -962,6 +996,12 @@ Result<UdpSocketFd> UdpSocketFd::open(const IPAddress &address) {
 #endif
   setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&flags), sizeof(flags));
   // TODO: SO_REUSEADDR, SO_KEEPALIVE, TCP_NODELAY, SO_SNDBUF, SO_RCVBUF, TCP_QUICKACK, SO_LINGER
+#if defined(SO_RXQ_OVFL)
+  {
+    int on = 1;
+    setsockopt(sock, SOL_SOCKET, SO_RXQ_OVFL, reinterpret_cast<const char *>(&on), sizeof(on));
+  }
+#endif
 
   auto bind_addr = address.get_any_addr();
   bind_addr.set_port(address.get_port());
@@ -1079,6 +1119,10 @@ Result<uint32> UdpSocketFd::maximize_rcv_buffer(uint32 max) {
   return 0;
 }
 #endif
+
+uint64 UdpSocketFd::get_rx_queue_drops() const {
+  return impl_->get_rx_queue_drops();
+}
 
 Status UdpSocketFd::send_message(const OutboundMessage &message, bool &is_sent) {
   size_t count = 0;
