@@ -659,7 +659,18 @@ void FullNodeFastSyncOverlays::add_member_certificate(adnl::AdnlNodeIdShort loca
   if (member_certificate.empty() || member_certificate.is_expired()) {
     return;
   }
-  member_certificates_[local_id].push_back(std::move(member_certificate));
+  auto &certificates = member_certificates_[local_id];
+  auto issued_by = member_certificate.issued_by().compute_short_id();
+  for (auto &certificate : certificates) {
+    if (certificate.issued_by().compute_short_id() == issued_by) {
+      if (member_certificate.is_newer(certificate)) {
+        certificate = std::move(member_certificate);
+      }
+      return;
+    }
+  }
+
+  certificates.push_back(std::move(member_certificate));
   // Overlays will be updated in the next update_overlays
 }
 

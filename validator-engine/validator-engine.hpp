@@ -213,6 +213,8 @@ class ValidatorEngine : public td::actor::Actor {
   td::Ref<block::ValidatorSet> validator_set_, validator_set_prev_, validator_set_next_;
   td::Timestamp issue_fast_sync_overlay_certificates_at_ = td::Timestamp::now();
   td::Timestamp issue_shard_overlay_certificates_at_ = td::Timestamp::now();
+  bool fast_sync_member_certificates_write_scheduled_ = false;
+  td::Timestamp fast_sync_member_certificates_write_at_ = td::Timestamp::never();
   std::set<ton::adnl::AdnlNodeIdShort> auto_sign_adnls_;
   bool accept_shard_overlay_certificates_from_any_validator_ = false;
   std::set<ton::adnl::AdnlNodeIdShort> accept_shard_overlay_certificates_from_;
@@ -223,6 +225,8 @@ class ValidatorEngine : public td::actor::Actor {
   void got_state(td::Ref<ton::validator::MasterchainState> state);
 
   void write_config(td::Promise<td::Unit> promise);
+  void schedule_fast_sync_member_certificates_write();
+  void finish_fast_sync_member_certificate_import(td::Promise<td::Unit> promise, bool defer_write);
 
   std::map<td::uint32, ton::adnl::AdnlAddressList> addr_lists_;
   std::map<td::uint32, ton::adnl::AdnlAddressList> prio_addr_lists_;
@@ -547,7 +551,7 @@ class ValidatorEngine : public td::actor::Actor {
   void register_shard_overlay_certificate_callback();
   void try_import_fast_sync_member_certificate(ton::adnl::AdnlNodeIdShort id,
                                                ton::overlay::OverlayMemberCertificate certificate,
-                                               td::Promise<td::Unit> promise);
+                                               td::Promise<td::Unit> promise, bool defer_write);
   void try_import_shard_overlay_certificate(ton::adnl::AdnlNodeIdShort src, ton::ShardIdFull shard,
                                             ton::PublicKeyHash signed_key, td::int32 expire_at,
                                             std::shared_ptr<ton::overlay::Certificate> certificate,
