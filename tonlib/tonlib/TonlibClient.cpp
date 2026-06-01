@@ -1852,9 +1852,24 @@ class GetShardBlockProof : public td::actor::Actor {
     }
     if (chain->link_count() == 1) {
       auto& link = chain->last_link();
-      td::BufferSlice dest_proof = vm::std_boc_serialize(link.dest_proof).move_as_ok();
-      td::BufferSlice proof = vm::std_boc_serialize(link.proof).move_as_ok();
-      td::BufferSlice state_proof = vm::std_boc_serialize(link.state_proof).move_as_ok();
+      auto r_dest_proof = vm::std_boc_serialize(link.dest_proof);
+      if (r_dest_proof.is_error()) {
+        abort(r_dest_proof.move_as_error_prefix("failed to serialize destination proof: "));
+        return;
+      }
+      auto r_proof = vm::std_boc_serialize(link.proof);
+      if (r_proof.is_error()) {
+        abort(r_proof.move_as_error_prefix("failed to serialize proof: "));
+        return;
+      }
+      auto r_state_proof = vm::std_boc_serialize(link.state_proof);
+      if (r_state_proof.is_error()) {
+        abort(r_state_proof.move_as_error_prefix("failed to serialize state proof: "));
+        return;
+      }
+      td::BufferSlice dest_proof = r_dest_proof.move_as_ok();
+      td::BufferSlice proof = r_proof.move_as_ok();
+      td::BufferSlice state_proof = r_state_proof.move_as_ok();
       mc_proof.push_back(ton::create_tl_object<tonlib_api::blocks_blockLinkBack>(
           link.is_key, to_tonlib_api(link.from), to_tonlib_api(link.to), dest_proof.as_slice().str(),
           proof.as_slice().str(), state_proof.as_slice().str()));
@@ -5073,7 +5088,12 @@ void TonlibClient::get_libraries(ton::BlockIdExt blkid, std::vector<td::Bits256>
 
   for (auto& library_hash : library_list) {
     if (libraries.key_exists(library_hash)) {
-      auto library_content = vm::std_boc_serialize(libraries.lookup_ref(library_hash)).move_as_ok().as_slice().str();
+      auto r_library_content = vm::std_boc_serialize(libraries.lookup_ref(library_hash));
+      if (r_library_content.is_error()) {
+        promise.set_error(r_library_content.move_as_error_prefix("failed to serialize cached library: "));
+        return;
+      }
+      auto library_content = r_library_content.move_as_ok().as_slice().str();
       result_entries.push_back(tonlib_api::make_object<tonlib_api::smc_libraryEntry>(library_hash, library_content));
     } else {
       not_cached_hashes.push_back(library_hash);
@@ -5217,7 +5237,8 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getLibrariesExt& reque
         });
   }
 
-  ig.add_promise(promise.wrap([self = this, libs = std::move(request_libs)](td::Unit&&) {
+  ig.add_promise(promise.wrap([self = this, libs = std::move(request_libs)](td::Unit&&)
+                                  -> td::Result<object_ptr<tonlib_api::smc_libraryResultExt>> {
     vm::Dictionary dict{256};
     std::vector<td::Bits256> libs_ok, libs_not_found;
     for (const auto& h : libs) {
@@ -5231,7 +5252,8 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getLibrariesExt& reque
     }
     td::BufferSlice dict_boc;
     if (!dict.is_empty()) {
-      dict_boc = vm::std_boc_serialize(dict.get_root_cell()).move_as_ok();
+      TRY_RESULT(serialized_dict, vm::std_boc_serialize(dict.get_root_cell()));
+      dict_boc = std::move(serialized_dict);
     }
     return ton::create_tl_object<tonlib_api::smc_libraryResultExt>(dict_boc.as_slice().str(), std::move(libs_ok),
                                                                    std::move(libs_not_found));
