@@ -1976,6 +1976,12 @@ class GetOutMsgQueueSizes : public td::actor::Actor {
     } catch (vm::VmVirtError& err) {
       abort(err.as_status());
       return;
+    } catch (std::exception& err) {
+      abort(td::Status::Error(PSLICE() << "exception while checking out message queue size proof: " << err.what()));
+      return;
+    } catch (...) {
+      abort(td::Status::Error("unknown exception while checking out message queue size proof"));
+      return;
     }
 
     sizes_[i] = f->size_;
@@ -2137,6 +2143,10 @@ class RunEmulator : public TonlibQueryActor {
                     return err.as_status("error processing header");
                   } catch (vm::VmVirtError& err) {
                     return err.as_status("error processing header");
+                  } catch (std::exception& err) {
+                    return td::Status::Error(PSLICE() << "exception while processing header: " << err.what());
+                  } catch (...) {
+                    return td::Status::Error("unknown exception while processing header");
                   }
                 }));
           });
@@ -5187,6 +5197,11 @@ void TonlibClient::get_libraries(ton::BlockIdExt blkid, std::vector<td::Bits256>
         } catch (vm::VmVirtError& err) {
           return TonlibError::Internal(PSLICE() << "virtualization error while checking getLibrariesWithProof proof: "
                                                 << err.get_msg());
+        } catch (std::exception& err) {
+          return TonlibError::Internal(PSLICE()
+                                       << "exception while checking getLibrariesWithProof proof: " << err.what());
+        } catch (...) {
+          return TonlibError::Internal("unknown exception while checking getLibrariesWithProof proof");
         }
       }));
 }
@@ -6418,6 +6433,10 @@ td::Status check_lookup_block_proof(lite_api_ptr<ton::lite_api::liteServer_looku
     return td::Status::Error(PSLICE() << "error while checking lookupBlock proof: " << err.get_msg());
   } catch (vm::VmVirtError& err) {
     return td::Status::Error(PSLICE() << "virtualization error while checking lookupBlock proof: " << err.get_msg());
+  } catch (std::exception& err) {
+    return td::Status::Error(PSLICE() << "exception while checking lookupBlock proof: " << err.what());
+  } catch (...) {
+    return td::Status::Error("unknown exception while checking lookupBlock proof");
   }
 
   return td::Status::OK();
