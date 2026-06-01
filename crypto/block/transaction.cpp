@@ -1918,7 +1918,7 @@ std::optional<Transaction::PrepareComputePhaseResult> Transaction::prepare_compu
     if (cfg.vm_log_verbosity > 4) {
       log_max_size = 32 << 20;
     } else if (cfg.vm_log_verbosity > 0) {
-      log_max_size = 1 << 20;
+      log_max_size = 8 << 20;
     }
     logger = std::make_unique<StringLoggerTail>(log_max_size);
     vm_log = vm::make_vm_log(logger.get(), cfg.vm_log_verbosity, true);
