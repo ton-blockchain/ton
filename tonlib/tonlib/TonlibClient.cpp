@@ -3621,6 +3621,18 @@ auto to_any_promise(td::Promise<td::Unit>&& promise) {
   return promise.wrap([](auto x) { return td::Unit(); });
 }
 
+td::Result<td::Ref<vm::Cell>> create_ext_message_checked(const block::StdAddress& address, td::Ref<vm::Cell> new_state,
+                                                         td::Ref<vm::Cell> body) {
+  if (body.is_null()) {
+    return td::Status::Error("Failed to create external message: body is empty");
+  }
+  auto message = ton::GenericAccount::create_ext_message(address, std::move(new_state), std::move(body));
+  if (message.is_null()) {
+    return td::Status::Error("Failed to create external message");
+  }
+  return message;
+}
+
 td::Status TonlibClient::do_request(const tonlib_api::raw_sendMessage& request,
                                     td::Promise<object_ptr<tonlib_api::ok>>&& promise) {
   TRY_RESULT_PREFIX(body, vm::std_boc_deserialize(request.body_), TonlibError::InvalidBagOfCells("body"));
@@ -3694,7 +3706,7 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_createAndSendMessage& 
   }
   TRY_RESULT_PREFIX(data, vm::std_boc_deserialize(request.data_), TonlibError::InvalidBagOfCells("data"));
   TRY_RESULT(account_address, get_account_address(request.destination_->account_address_));
-  auto message = ton::GenericAccount::create_ext_message(account_address, std::move(init_state), std::move(data));
+  TRY_RESULT(message, create_ext_message_checked(account_address, std::move(init_state), std::move(data)));
 
   make_request(int_api::SendMessage{std::move(message)}, to_any_promise(std::move(promise)));
   return td::Status::OK();
@@ -4222,7 +4234,8 @@ class GenericCreateSendGrams : public TonlibQueryActor {
       raw.message_body = std::move(message_body);
     }
     raw.new_state = source_->get_new_state();
-    raw.message = ton::GenericAccount::create_ext_message(source_->get_address(), raw.new_state, raw.message_body);
+    TRY_RESULT(message, create_ext_message_checked(source_->get_address(), raw.new_state, raw.message_body));
+    raw.message = std::move(message);
     raw.source = std::move(source_);
     raw.destinations = std::move(destinations_);
     promise_.set_value(td::make_unique<Query>(std::move(raw)));
@@ -4325,7 +4338,8 @@ class GenericCreateSendGrams : public TonlibQueryActor {
     TRY_STATUS(std::move(status));
 
     raw.new_state = source_->get_new_state();
-    raw.message = ton::GenericAccount::create_ext_message(source_->get_address(), raw.new_state, raw.message_body);
+    TRY_RESULT(message, create_ext_message_checked(source_->get_address(), raw.new_state, raw.message_body));
+    raw.message = std::move(message);
     raw.source = std::move(source_);
 
     promise_.set_value(td::make_unique<Query>(std::move(raw)));
@@ -4376,7 +4390,8 @@ class GenericCreateSendGrams : public TonlibQueryActor {
                       TonlibError::Internal("Invalid rwalet init query"));
     raw.message_body = std::move(message_body);
     raw.new_state = source_->get_new_state();
-    raw.message = ton::GenericAccount::create_ext_message(source_->get_address(), raw.new_state, raw.message_body);
+    TRY_RESULT(message, create_ext_message_checked(source_->get_address(), raw.new_state, raw.message_body));
+    raw.message = std::move(message);
     raw.source = std::move(source_);
     raw.destinations = std::move(destinations_);
     promise_.set_value(td::make_unique<Query>(std::move(raw)));
@@ -4530,7 +4545,8 @@ class GenericCreateSendGrams : public TonlibQueryActor {
       TRY_RESULT(message_body, wallet.make_a_gift_message(private_key_.unwrap(), valid_until, gifts));
       raw.message_body = std::move(message_body);
       raw.new_state = source_->get_new_state();
-      raw.message = ton::GenericAccount::create_ext_message(source_->get_address(), raw.new_state, raw.message_body);
+      TRY_RESULT(message, create_ext_message_checked(source_->get_address(), raw.new_state, raw.message_body));
+      raw.message = std::move(message);
       raw.source = std::move(source_);
       raw.destinations = std::move(destinations_);
 
@@ -4553,6 +4569,12 @@ td::Result<tonlib_api::object_ptr<tonlib_api::query_info>> TonlibClient::get_que
   auto it = queries_.find(id);
   if (it == queries_.end()) {
     return TonlibError::InvalidQueryId();
+  }
+  if (it->second->get_message().is_null()) {
+    return td::Status::Error("External message is empty");
+  }
+  if (it->second->get_message_body().is_null()) {
+    return td::Status::Error("External message body is empty");
   }
   TRY_RESULT(message_body, to_bytes(it->second->get_message_body()));
   TRY_RESULT(init_state, to_bytes(it->second->get_init_state()));
@@ -4647,15 +4669,17 @@ td::Status TonlibClient::do_request(const tonlib_api::raw_createQuery& request,
       promise.send_closure(actor_id(this), &TonlibClient::finish_create_query);
 
   make_request(int_api::GetAccountState{account_address, query_context_.block_id.copy(), {}},
-               new_promise.wrap([smc_state = std::move(smc_state), body = std::move(body)](auto&& source) mutable {
+               new_promise.wrap([smc_state = std::move(smc_state),
+                                 body = std::move(body)](auto&& source) mutable -> td::Result<td::unique_ptr<Query>> {
                  Query::Raw raw;
                  if (smc_state) {
                    source->set_new_state(smc_state.unwrap());
                  }
                  raw.new_state = source->get_new_state();
                  raw.message_body = std::move(body);
-                 raw.message =
-                     ton::GenericAccount::create_ext_message(source->get_address(), raw.new_state, raw.message_body);
+                 TRY_RESULT(message,
+                            create_ext_message_checked(source->get_address(), raw.new_state, raw.message_body));
+                 raw.message = std::move(message);
                  raw.source = std::move(source);
                  return td::make_unique<Query>(std::move(raw));
                }));
@@ -4704,6 +4728,9 @@ td::Status TonlibClient::do_request(const tonlib_api::query_send& request,
   }
 
   auto message = it->second->get_message();
+  if (message.is_null()) {
+    return td::Status::Error("External message is empty");
+  }
   if (GET_VERBOSITY_LEVEL() >= VERBOSITY_NAME(DEBUG)) {
     std::ostringstream ss;
     block::gen::t_Message_Any.print_ref(ss, message);
@@ -5915,8 +5942,8 @@ td::Status TonlibClient::do_request(int_api::GetDnsResolver request, td::Promise
 }
 
 td::Status TonlibClient::do_request(int_api::SendMessage request, td::Promise<td::Unit>&& promise) {
-  client_.send_query(ton::lite_api::liteServer_sendMessage(vm::std_boc_serialize(request.message).move_as_ok()),
-                     to_any_promise(std::move(promise)));
+  TRY_RESULT(message, vm::std_boc_serialize(request.message));
+  client_.send_query(ton::lite_api::liteServer_sendMessage(std::move(message)), to_any_promise(std::move(promise)));
   return td::Status::OK();
 }
 
