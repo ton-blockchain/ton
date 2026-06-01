@@ -6180,6 +6180,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
                        if (blk_id != req_blk_id) {
                          return td::Status::Error("Liteserver responded with wrong block");
                        }
+                       if (!blk_id.is_masterchain_ext()) {
+                         return td::Status::Error("Shard configuration can be requested only for a masterchain block");
+                       }
                        td::BufferSlice proof = std::move((*all_shards_info).proof_);
                        td::BufferSlice data = std::move((*all_shards_info).data_);
                        if (data.empty() || proof.empty()) {
@@ -6203,7 +6206,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getShards& request,
                          block::gen::BlockExtra::Record extra;
                          block::gen::McBlockExtra::Record mc_extra;
                          if (!tlb::unpack_cell(virt_root, blk) || !tlb::unpack_cell(blk.extra, extra) ||
-                             !extra.custom->have_refs() || !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra)) {
+                             extra.custom.is_null() || !extra.custom->have_refs() ||
+                             !tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) ||
+                             mc_extra.shard_hashes.is_null()) {
                            return td::Status::Error("cannot unpack block extra of block " + blk_id.to_str());
                          }
                          auto data_csr = vm::load_cell_slice_ref(data_cell.move_as_ok());
