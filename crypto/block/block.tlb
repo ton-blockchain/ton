@@ -639,7 +639,9 @@ _ GlobalVersion = ConfigParam 8;  // all zero if absent
 _ mandatory_params:(Hashmap 32 True) = ConfigParam 9;
 _ critical_params:(Hashmap 32 True) = ConfigParam 10;
 
-cfg_vote_cfg#36 min_tot_rounds:uint8 max_tot_rounds:uint8 min_wins:uint8 max_losses:uint8 min_store_sec:uint32 max_store_sec:uint32 bit_price:uint32 cell_price:uint32 = ConfigProposalSetup;
+cfg_vote_cfg#36 min_tot_rounds:(## 8) max_tot_rounds:(## 8) { min_tot_rounds <= max_tot_rounds }
+  min_wins:uint8 max_losses:uint8 min_store_sec:(## 32) max_store_sec:(## 32)
+  { min_store_sec <= max_store_sec } bit_price:uint32 cell_price:uint32 = ConfigProposalSetup;
 cfg_vote_setup#91 normal_params:^ConfigProposalSetup critical_params:^ConfigProposalSetup = ConfigVotingSetup;
 _ ConfigVotingSetup = ConfigParam 11;
 
@@ -666,6 +668,7 @@ wc_split_merge_timings#0
 
 workchain#a6 enabled_since:uint32 monitor_min_split:(## 8)
   min_split:(## 8) max_split:(## 8) { monitor_min_split <= min_split }
+  { min_split <= max_split } { max_split <= 60 }
   basic:(## 1) active:Bool accept_msgs:Bool flags:(## 13) { flags = 0 }
   zerostate_root_hash:bits256 zerostate_file_hash:bits256
   version:uint32 format:(WorkchainFormat basic)
@@ -673,6 +676,7 @@ workchain#a6 enabled_since:uint32 monitor_min_split:(## 8)
 
 workchain_v2#a7 enabled_since:uint32 monitor_min_split:(## 8)
   min_split:(## 8) max_split:(## 8) { monitor_min_split <= min_split }
+  { min_split <= max_split } { max_split <= 60 }
   basic:(## 1) active:Bool accept_msgs:Bool flags:(## 13) { flags = 0 }
   zerostate_root_hash:bits256 zerostate_file_hash:bits256
   version:uint32 format:(WorkchainFormat basic)
@@ -744,12 +748,16 @@ config_mc_fwd_prices#_ MsgForwardPrices = ConfigParam 24;
 // used for all other messages
 config_fwd_prices#_ MsgForwardPrices = ConfigParam 25;
 
-catchain_config#c1 mc_catchain_lifetime:uint32 shard_catchain_lifetime:uint32
-  shard_validators_lifetime:uint32 shard_validators_num:uint32 = CatchainConfig;
+catchain_config#c1 mc_catchain_lifetime:(## 32) { mc_catchain_lifetime >= 1 }
+  shard_catchain_lifetime:(## 32) { shard_catchain_lifetime >= 1 }
+  shard_validators_lifetime:(## 32) { shard_validators_lifetime >= 1 }
+  shard_validators_num:(## 32) { shard_validators_num >= 1 } = CatchainConfig;
 
 catchain_config_new#c2 flags:(## 7) { flags = 0 } shuffle_mc_validators:Bool
-  mc_catchain_lifetime:uint32 shard_catchain_lifetime:uint32
-  shard_validators_lifetime:uint32 shard_validators_num:uint32 = CatchainConfig;
+  mc_catchain_lifetime:(## 32) { mc_catchain_lifetime >= 1 }
+  shard_catchain_lifetime:(## 32) { shard_catchain_lifetime >= 1 }
+  shard_validators_lifetime:(## 32) { shard_validators_lifetime >= 1 }
+  shard_validators_num:(## 32) { shard_validators_num >= 1 } = CatchainConfig;
 
 consensus_config#d6 round_candidates:# { round_candidates >= 1 }
   next_candidate_delay_ms:uint32 consensus_timeout_ms:uint32
@@ -779,10 +787,12 @@ consensus_config_v4#d9 flags:(## 6) { flags = 0 } use_quic:Bool new_catchain_ids
 _ CatchainConfig = ConfigParam 28;
 _ ConsensusConfig = ConfigParam 29;
 
-simplex_config#21 flags:(## 7) use_quic:Bool
-  target_rate_ms:uint32 slots_per_leader_window:uint32
+simplex_config#21 flags:(## 7) { flags = 0 } use_quic:Bool
+  target_rate_ms:uint32 slots_per_leader_window:(## 32) { slots_per_leader_window >= 1 }
   first_block_timeout_ms:uint32 max_leader_window_desync:uint32 = NewConsensusConfig;
-simplex_config_v2#22 flags:(## 6) enable_observers:Bool use_quic:Bool slots_per_leader_window:uint32 noncritical_params:(HashmapE 8 uint32) = NewConsensusConfig;
+simplex_config_v2#22 flags:(## 6) { flags = 0 } enable_observers:Bool use_quic:Bool
+  slots_per_leader_window:(## 32) { slots_per_leader_window >= 1 }
+  noncritical_params:(HashmapE 8 uint32) = NewConsensusConfig;
 new_consensus_config_all#10 mc:(Maybe ^NewConsensusConfig) shard:(Maybe ^NewConsensusConfig) = NewConsensusConfigAll;
 _ NewConsensusConfigAll = ConfigParam 30;
 
