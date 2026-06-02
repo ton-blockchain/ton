@@ -150,6 +150,12 @@ const objWithNullableArrayDef: WithNullableArrayDef = {}
 const emptyMapNullable: map<int8, int32>? = []
 const emptyMapAsNullableConst = [] as map<int8, int32>?
 
+const bigRshiftMid: int = (1000000000000000 + 3000000000000000) >> 1;
+
+@noinline
+fun isPositiveViaBigRshiftMid(a: int): bool {
+    return bigRshiftMid > (bigRshiftMid - a);
+}
 
 fun iget240(): MInt { return int240; }
 
@@ -327,6 +333,11 @@ fun test126() {
     return (emptyMapAsNullableConst == null, emptyMapAsNullableConst!.isEmpty());
 }
 
+@method_id(127)
+fun test127() {
+    return (bigRshiftMid, isPositiveViaBigRshiftMid(-1), isPositiveViaBigRshiftMid(1));
+}
+
 fun main() {
     var i1: int = iget1();
     var i2: int = iget2();
@@ -377,6 +388,7 @@ fun main() {
 @testcase | 124 |   | 0 50000000
 @testcase | 125 |   | 1 1 1 2
 @testcase | 126 |   | 0 -1
+@testcase | 127 |   | 2000000000000000 0 -1
 
-@code_hash 69450727578206805235623888457664461735127156131005024409888318254979905151137
+@code_hash 81510367501635395392010839907601337703375917009254151502636239169360844553617
 */

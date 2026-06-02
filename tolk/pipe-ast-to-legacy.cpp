@@ -978,6 +978,9 @@ static std::vector<var_idx_t> process_assignment(V<ast_assign> v, CodeBlob& code
   // calculate RHS first; earlier lhs was calculated first to support `someF().field = calc()`,
   // but since lvalues are restricted to strict paths (`v.0.nested`, etc.), function calls are not allowed in lhs
   std::vector rvect = pre_compile_expr(rhs, code);
+  if (!lhs_is_declaration && code.get_lazy_variable(lhs) && code.get_lazy_variable(rhs)) {
+    err("assigning one lazy variable to another is not supported").fire(v, code.fun_ref);
+  }
   // prevent rhs slots overlapping: for destructuring `(a, b) = (0, a)` and tensor-assignment `t = (t.1, t.0)`
   if (!lhs_is_declaration && rvect.size() > 1) {
     std::vector ir_assignable = code.create_tmp_var(rhs->inferred_type, rhs, "(assign-rhs)");
@@ -1504,12 +1507,15 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   // e.g. `a.mix(mutate b.inc().v)` — inner `b.inc()` sets mutated_self_obj to `b`,
   // but we want `obj_leftmost` below to be `a` for `a.mix()`
   LValContext self_lval;
-  bool has_mutate_self = delta_self && fun_ref->does_mutate_self();
+  AnyExprV self_obj = v->get_self_obj();
+  if (!self_obj && fun_ref->does_accept_self()) {
+    self_obj = v->get_arg(0)->get_expr();    // static call `Name.method(mutate obj)`, self=obj
+  }
   std::vector<LValContext*> lval_ctx_for_arg(fun_ref->get_num_params(), nullptr);
   for (int i = 0; i < fun_ref->get_num_params(); ++i) {
     if (fun_ref->parameters[i].is_mutate_parameter()) {
       int orig_i = rev_arg_order.empty() ? i : rev_arg_order[i];
-      lval_ctx_for_arg[orig_i] = has_mutate_self && i == 0 ? &self_lval : &local_lval;
+      lval_ctx_for_arg[orig_i] = fun_ref->does_mutate_self() && i == 0 ? &self_lval : &local_lval;
     }
   }
 
@@ -1546,7 +1552,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   if (fun_ref->is_compile_time_special_gen()) {
     rvect = gen_compile_time_code_instead_of_fun_call(code, v, vars_per_arg);
   } else if (fun_ref->is_inlined_in_place() && fun_ref->is_code_function()) {
-    rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, v->get_self_obj(), v == stmt_before_immediate_return, vars_per_arg);
+    rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, self_obj, v == stmt_before_immediate_return, vars_per_arg);
   } else {
     rvect = code.create_tmp_var(op_call_type, v, "(fun-call)");
     code.add_call(call_origin, rvect, std::move(args_vars), fun_ref, arg_order_already_equals_asm);
@@ -1592,8 +1598,8 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
     rvect = return_self_snapshot.empty() ? vars_per_arg[orig_self_i] : std::move(return_self_snapshot);
     if (fun_ref->does_mutate_self()) {
-      if (obj_leftmost == nullptr && v->get_self_obj() && is_valid_mutation_path(v->get_self_obj())) {
-        obj_leftmost = v->get_self_obj();
+      if (obj_leftmost == nullptr && self_obj && is_valid_mutation_path(self_obj)) {
+        obj_leftmost = self_obj;
       }
       if (lval_ctx && obj_leftmost) {
         lval_ctx->set_mutated_self_obj(obj_leftmost);
@@ -2013,7 +2019,11 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
   bool excno_is_const = true;
-  try { eval_expression_if_const_or_fire(v->get_thrown_code()); }
+  try {
+    ConstValExpression val = eval_expression_if_const_or_fire(v->get_thrown_code());
+    td::RefInt256 err_code = unwrap_const_val_to_int(std::move(val));
+    excno_is_const = !err_code.is_null() && err_code->unsigned_fits_bits(16);
+  }
   catch (...) { excno_is_const = false; }
 
   if (excno_is_const) {

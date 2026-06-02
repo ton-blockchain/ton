@@ -259,6 +259,16 @@ fun test128() {
     return (a, b, c, d, e, f, g, h);
 }
 
+@method_id(129)
+fun test129() {
+    var `self` = 123;
+    {
+        var `self` = beginCell();
+        __expect_type(`self`, "builder");
+    }
+    return `self` + 6;
+}
+
 fun main(value: int, ) {
     var (x: int?, y,) = (autoInferIntNull(value), autoInferIntNull(value * 2));
     if (x == null && y == null) { return null; }
@@ -284,6 +294,7 @@ fun main(value: int, ) {
 @testcase | 126 | 1      | 1 9 7 0
 @testcase | 127 |        | 10 20 30 40 50 60 70 80
 @testcase | 128 |        | 11 22 33 44 55 66 77 88
+@testcase | 129 |        | 129
 
 
 @fif_codegen

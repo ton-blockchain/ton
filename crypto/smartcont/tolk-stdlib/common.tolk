@@ -670,21 +670,18 @@ fun slice.bitsHash(self): uint256
 fun cell.hashEqual(self, another: cell): bool
     asm "HASHCU" "SWAP" "HASHCU" "EQUAL"
 
-/// Checks the Ed25519-`signature` of a `hash` (uint256, usually computed as the hash of some data)
-/// using `publicKey` (also represented by a 256-bit unsigned integer).
+/// Checks an Ed25519 signature where the signed message is the 32-byte big-endian encoding of `hash`.
+/// Use this when off-chain code signed a 32-byte hash or digest value.
 /// The signature must contain at least 512 data bits; only the first 512 bits are used.
-/// Note that `CHKSIGNU` creates a 256-bit slice with the hash and calls `CHKSIGNS`.
-/// That is, if parameter `hash` is computed as the hash of some data, these data are hashed twice,
-/// the second hashing occurring inside `CHKSIGNS`.
 @pure
 fun isSignatureValid(hash: uint256, signature: slice, publicKey: uint256): bool
     asm "CHKSIGNU"
 
-/// Checks whether `signature` is a valid Ed25519-signature of the data portion of slice `data` using `publicKey`,
-/// similarly to [isSignatureValid].
+/// Checks an Ed25519 signature where the signed message is the data bytes of slice `data`.
+/// References of `data` are ignored.
 /// If the bit length of `data` is not divisible by eight, throws a cell underflow exception.
-/// The verification of Ed25519 signatures is the standard one,
-/// with sha256 used to reduce `data` to the 256-bit number that is actually signed.
+/// This function does not hash `data`; if off-chain code signed SHA-256(data), use
+/// `isSignatureValid(data.bitsHash(), signature, publicKey)` instead.
 @pure
 fun isSliceSignatureValid(data: slice, signature: slice, publicKey: int): bool
     asm "CHKSIGNS"

@@ -344,6 +344,20 @@ fun test20(v1: int?) {
     return ((getI1(v1, 5) ?? getI1(100, 10)).double(), callOrder)
 }
 
+fun int.eqSelfShadowed(self): self {
+    var expect = self;
+    {
+        var `self` = beginCell();
+        assert (`self`.bitsCount() == expect) throw 123;
+    }
+    return self;
+}
+
+@method_id(121)
+fun test21(zero: int) {
+    return zero.eqSelfShadowed().eqSelfShadowed();
+}
+
 fun main() {}
 
 /**
@@ -367,6 +381,7 @@ fun main() {}
 @testcase | 119 |        | [ 5 ] 3
 @testcase | 120 | 6      | 12 [ 6 ] 
 @testcase | 120 | null   | 10 [ (null) ] 
+@testcase | 121 | 0      | 0
 
 @fif_codegen DECLPROC Pair<int16,`int8>.createFrom<int,`coins>()
 @fif_codegen DECLPROC Pair<int8,`int16>.compareWith<int16,`int8>()

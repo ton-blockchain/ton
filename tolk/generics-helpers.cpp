@@ -21,6 +21,7 @@
 #include "type-system.h"
 #include "compiler-state.h"
 #include "pipeline.h"
+#include "recursion-guard.h"
 
 namespace tolk {
 
@@ -497,15 +498,17 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
   V<ast_function_declaration> new_root = ASTReplicator::clone_function_ast(orig_root);
 
   static thread_local int instantiation_depth = 0;
-  if (++instantiation_depth > 64) {
-    instantiation_depth = 0;
+  instantiation_depth++;
+  RecursionGuard guard([&] {
+    instantiation_depth--;
+  });
+  if (instantiation_depth > 64) {
     err_instantiate_recursive(fun_ref).fire(fun_ref->ident_anchor);
   }
 
   FunctionPtr new_fun_ref = pipeline_register_instantiated_generic_function(fun_ref, new_root, std::move(new_name), allocatedTs);
   run_pipeline_for_cloned_function(new_fun_ref);
 
-  instantiation_depth--;
   return new_fun_ref;
 }
 
@@ -527,8 +530,11 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
   V<ast_struct_declaration> new_root = ASTReplicator::clone_struct_ast(orig_root, new_name_ident);
 
   static thread_local int instantiation_depth = 0;
-  if (++instantiation_depth > 64) {
-    instantiation_depth = 0;
+  instantiation_depth++;
+  RecursionGuard guard([&] {
+    instantiation_depth--;
+  });
+  if (instantiation_depth > 64) {
     err_instantiate_recursive(struct_ref).fire(struct_ref->ident_anchor);
   }
 
@@ -539,7 +545,6 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
   // don't call type inferring here (unlike for generic functions), it's invalid before type resolving finishes;
   // type inferring for generic struct instantiations will automatically be run instead
 
-  instantiation_depth--;
   return new_struct_ref;
 }
 
@@ -550,6 +555,9 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   std::string new_name = generate_instantiated_name(alias_ref->name, substitutedTs);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
     if (AliasDefPtr a = existing_sym->try_as<AliasDefPtr>(); a && a->base_alias_ref == alias_ref) {
+      if (a->underlying_type == nullptr) {
+        err("type `{}` circularly references itself", a).fire(a->ident_anchor);
+      }
       return a;
     }
     err_instantiated_name_conflict(new_name).fire(alias_ref->ident_anchor);
@@ -561,8 +569,11 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   V<ast_type_alias_declaration> new_root = ASTReplicator::clone_type_alias_ast(orig_root, new_name_ident);
 
   static thread_local int instantiation_depth = 0;
-  if (++instantiation_depth > 64) {
-    instantiation_depth = 0;
+  instantiation_depth++;
+  RecursionGuard guard([&] {
+    instantiation_depth--;
+  });
+  if (instantiation_depth > 64) {
     err_instantiate_recursive(alias_ref).fire(alias_ref->ident_anchor);
   }
 
@@ -570,7 +581,6 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   tolk_assert(new_alias_ref);
   pipeline_resolve_types_and_aliases(new_alias_ref);
 
-  instantiation_depth--;
   return new_alias_ref;
 }
 

@@ -720,6 +720,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         stack.mode &= ~Stack::_InlineFunc;
         stack.o << AsmOp::Custom(origin, is0 ? "IF:<{" : "IFNOT:<{");
         Stack stack_copy{stack};
+        stack_copy.mode |= (blk_other.is_noreturn() || next_op.noreturn()) ? 0 : Stack::_NeedRetAlt;
         blk_noreturn.generate_code_all(stack_copy);
         stack.o << AsmOp::Custom(NULL_ORIGIN, "}>ELSE<{");
         stack.save_stack_comment();

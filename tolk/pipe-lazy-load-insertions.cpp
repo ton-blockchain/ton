@@ -654,7 +654,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
     SinkExpression dot_s_expr = extract_sink_expression_from_vertex(v);
     bool check_for_child = lazy_expr->fields.empty();   // treat accessing `obj.tensor.0` is like `obj.tensor`
     if (dot_s_expr == s_expr || (check_for_child && dot_s_expr.is_child_of(s_expr))) {
-      bool is_subj_of_dot = parent_dot && parent_dot->is_target_struct_field() && parent_dot->get_obj() == v;
+      bool is_subj_of_dot = parent_dot && parent_dot->is_target_struct_field() && parent_dot->get_obj() == v && extract_sink_expression_from_vertex(parent_dot);
       if (!is_subj_of_dot) {
         lazy_expr->on_used_rw(v->is_lvalue);
       }
@@ -697,6 +697,9 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
           ExprUsagesWhileCollecting inner_usages = collect_expr_usages_in_block(lazy_expr->name_str + "(=self)", SinkExpression(&fun_ref->parameters[0]), lazy_expr->expr_type, v_body_block);
           inner_usages.treat_match_like_read();   // nested lazy match in inlined functions doesn't work, it's not wrapped into aux vertex
           lazy_expr->merge_with_sub_block(inner_usages);
+          if (dot_obj->kind == ast_assign) {
+            parent::visit(v->get_callee());
+          }
           parent::visit(v->get_arg_list());
           return;
         }
@@ -900,7 +903,7 @@ class CollectAllLazyObjectsAndFieldsVisitor final : public ASTVisitorFunctionBod
         auto lhs_var = lhs_var_decl->get_expr()->try_as<ast_local_var_lhs>();
         // collect usages of a lazy var inside the same block statement where it's declared
         LocalVarPtr var_ref = lhs_var->var_ref;
-        if (!var_ref->declared_type->equal_to(rhs_lazy->inferred_type)) {
+        if (!var_ref->declared_type->equal_to(rhs_lazy->inferred_type) || get_custom_pack_unpack_function(var_ref->declared_type)) {
           err("`lazy` will not work here, because variable `{}` is declared as `{}`, but lazy expression has type `{}`",
               var_ref, var_ref->declared_type, rhs_lazy->inferred_type).fire(rhs_lazy->keyword_range(), cur_f);
         }
@@ -1069,6 +1072,7 @@ public:
 };
 
 void pipeline_lazy_load_insertions() {
+  functions_with_lazy_vars.clear();
   CollectAllLazyObjectsAndFieldsVisitor collector;
   visit_ast_of_all_functions(collector);
   LazyLoadInsertionsReplacer replacer;

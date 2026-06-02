@@ -130,7 +130,6 @@ enum TokenType {
   tok_double_question,
 
   tok_tolk,
-  tok_semver,
   tok_import,
   tok_export,
 
@@ -214,7 +213,6 @@ public:
   SrcRange range_start() const { return SrcRange::unclosed_range(file_id, cur_token_offset); }
 
   void next();
-  void next_special(TokenType parse_next_as, const char* str_expected);
 
   SavedPositionForLookahead save_parsing_position() const;
   void restore_position(SavedPositionForLookahead saved);

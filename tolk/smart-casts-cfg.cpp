@@ -199,14 +199,17 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
   if (tensor1 && tensor2 && tensor1->size() == tensor2->size()) {
     std::vector<TypePtr> types_lca;
     types_lca.reserve(tensor1->size());
+    bool ith_became_union = false;
     for (int i = 0; i < tensor1->size(); ++i) {
-      TypePtr next = calculate_type_lca(tensor1->items[i], tensor2->items[i], became_union);
+      TypePtr next = calculate_type_lca(tensor1->items[i], tensor2->items[i], &ith_became_union);
       if (next == nullptr) {
         return nullptr;
       }
       types_lca.push_back(next);
     }
-    return TypeDataTensor::create(std::move(types_lca));
+    if (!ith_became_union) {
+      return TypeDataTensor::create(std::move(types_lca));
+    }
   }
 
   TypePtr resulting_union = TypeDataUnion::create(std::vector{a, b});

@@ -221,6 +221,27 @@ fun test112() {
     return (1.asmSelfId(), 2.asmSelfId().asmSelfId());
 }
 
+type PairShape = [int, int];
+
+fun PairShape.incFirst(mutate self): self {
+    self.0 += 1;
+    return self;
+}
+
+@method_id(113)
+fun test113() {
+    var viaDot: [PairShape] = [[1, 2]];
+    viaDot.0.incFirst().incFirst();
+
+    var viaQualified: [PairShape] = [[1, 2]];
+    val returned = PairShape.incFirst(mutate viaQualified.0).incFirst();
+
+    var singleQualified: [PairShape] = [[5, 6]];
+    PairShape.incFirst(mutate singleQualified.0);
+
+    return (viaDot.0.0, viaQualified.0.0, returned.0, singleQualified.0.0);
+}
+
 fun main() { }
 
 /**
@@ -244,6 +265,7 @@ fun main() { }
 @testcase | 110 | 0   | 24 [ 2 13 ]
 @testcase | 111 |     | 10 3 [ 1 2 3 ]
 @testcase | 112 |     | 1 2
+@testcase | 113 |     | 3 3 3 6
 
 @fif_codegen
 """

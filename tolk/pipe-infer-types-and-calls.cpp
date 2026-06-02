@@ -21,6 +21,7 @@
 #include "generics-helpers.h"
 #include "overload-resolution.h"
 #include "pack-unpack-api.h"
+#include "recursion-guard.h"
 #include "type-system.h"
 #include "smart-casts-cfg.h"
 #include <charconv>
@@ -1903,9 +1904,11 @@ static void infer_and_save_return_type_of_function(FunctionPtr fun_ref) {
   // dig into g's body; it's safe, since the compiler is single-threaded
   // on finish, fun_ref->inferred_return_type is filled, and won't be called anymore
   called_stack.push_back(fun_ref);
+  RecursionGuard guard([&] {
+    called_stack.pop_back();
+  });
   InferTypesAndCallsAndFieldsVisitor visitor;
   visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
-  called_stack.pop_back();
 }
 
 // infer constant type "on demand"
@@ -1921,9 +1924,11 @@ static void infer_and_save_type_of_constant(GlobalConstPtr const_ref) {
   }
 
   called_stack.push_back(const_ref);
+  RecursionGuard guard([&] {
+    called_stack.pop_back();
+  });
   InferTypesAndCallsAndFieldsVisitor visitor;
   visitor.start_visiting_constant(const_ref);
-  called_stack.pop_back();
 }
 
 void pipeline_infer_types_and_calls_and_fields() {

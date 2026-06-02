@@ -1509,11 +1509,11 @@ template<>
 // example: `tolk 0.6`
 // when compiler version mismatches, it means, that another compiler was earlier for that sources, a warning is emitted
 struct Vertex<ast_tolk_required_version> final : ASTOtherLeaf {
-  std::string_view semver;
+  std::string semver;
 
-  Vertex(SrcRange range, std::string_view semver)
+  Vertex(SrcRange range, std::string semver)
     : ASTOtherLeaf(ast_tolk_required_version, range)
-    , semver(semver) {}
+    , semver(std::move(semver)) {}
 };
 
 template<>
