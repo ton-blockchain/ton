@@ -31,6 +31,7 @@ namespace detail {
 class UdpServerImpl : public UdpServer {
  public:
   void send(td::UdpMessage &&message) override;
+  td::actor::Task<UdpWireStats> collect() override;
   static td::actor::ActorOwn<UdpServerImpl> create(td::Slice name, td::UdpSocketFd fd,
                                                    std::unique_ptr<Callback> callback);
 
@@ -55,6 +56,17 @@ void UdpServerImpl::send(td::UdpMessage &&message) {
   //LOG(WARNING) << "TO: " << message.address;
   fd_.send(std::move(message));
   loop();  // TODO: some yield logic
+}
+
+td::actor::Task<UdpWireStats> UdpServerImpl::collect() {
+  UdpWireStats stats;
+#if TD_PORT_POSIX
+  stats.in.counters = fd_.in_counters();
+  stats.in.dropped = fd_.get_rx_queue_drops();
+  stats.out.counters = fd_.out_counters();
+#endif
+  stats.listening_sockets = is_closing_ ? 0 : 1;
+  co_return stats;
 }
 
 td::actor::ActorOwn<UdpServerImpl> UdpServerImpl::create(td::Slice name, td::UdpSocketFd fd,
@@ -280,6 +292,10 @@ class UdpServerViaTcp : public UdpServer {
     refcnt_++;
     tcp_listener_ = actor::create_actor<TcpInfiniteListener>(PSLICE() << "TcpInfiniteListener" << port_, port_,
                                                              std::make_unique<TcpListenerCallback>(actor_shared(this)));
+  }
+
+  td::actor::Task<UdpWireStats> collect() override {
+    co_return UdpWireStats{};
   }
 
   void send(UdpMessage &&message) override {

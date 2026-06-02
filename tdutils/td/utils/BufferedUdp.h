@@ -33,11 +33,17 @@
 
 namespace td {
 
+struct UdpDirCounters {
+  uint64 bytes{0};
+  uint64 packets{0};
+  uint64 syscalls{0};
+};
+
 #if TD_PORT_POSIX
 namespace detail {
 class UdpWriter {
  public:
-  static Status write_once(UdpSocketFd &fd, VectorQueue<UdpMessage> &queue) TD_WARN_UNUSED_RESULT {
+  static Status write_once(UdpSocketFd &fd, VectorQueue<UdpMessage> &queue, UdpDirCounters &counters) TD_WARN_UNUSED_RESULT {
     std::array<UdpSocketFd::OutboundMessage, 16> messages;
     auto to_send = queue.as_span();
     size_t to_send_n = td::min(messages.size(), to_send.size());
@@ -48,7 +54,12 @@ class UdpWriter {
     }
 
     size_t cnt;
+    counters.syscalls++;
     auto status = fd.send_messages(::td::Span<UdpSocketFd::OutboundMessage>(messages).truncate(to_send_n), cnt);
+    for (size_t i = 0; i < cnt; i++) {
+      counters.bytes += to_send[i].data.size();
+    }
+    counters.packets += cnt;
     queue.pop_n(cnt);
     return status;
   }
@@ -90,16 +101,19 @@ class UdpReader {
       helpers_[i].init_inbound_message(messages_[i]);
     }
   }
-  Status read_once(UdpSocketFd &fd, VectorQueue<UdpMessage> &queue) TD_WARN_UNUSED_RESULT {
+  Status read_once(UdpSocketFd &fd, VectorQueue<UdpMessage> &queue, UdpDirCounters &counters) TD_WARN_UNUSED_RESULT {
     for (size_t i = 0; i < messages_.size(); i++) {
       CHECK(messages_[i].data.size() == 2048);
     }
     size_t cnt = 0;
+    counters.syscalls++;
     auto status = fd.receive_messages(messages_, cnt);
     for (size_t i = 0; i < cnt; i++) {
+      counters.bytes += messages_[i].data.size();
       queue.push(helpers_[i].extract_udp_message(messages_[i]));
       helpers_[i].init_inbound_message(messages_[i]);
     }
+    counters.packets += cnt;
     for (size_t i = cnt; i < messages_.size(); i++) {
       LOG_CHECK(messages_[i].data.size() == 2048)
           << " cnt = " << cnt << " i = " << i << " size = " << messages_[i].data.size() << " status = " << status;
@@ -158,10 +172,21 @@ class BufferedUdp : public UdpSocketFd {
     return *static_cast<UdpSocketFd *>(this);
   }
 
+#if TD_PORT_POSIX
+  const UdpDirCounters &in_counters() const {
+    return in_counters_;
+  }
+  const UdpDirCounters &out_counters() const {
+    return out_counters_;
+  }
+#endif
+
  private:
 #if TD_PORT_POSIX
   VectorQueue<UdpMessage> input_;
   VectorQueue<UdpMessage> output_;
+  UdpDirCounters in_counters_;
+  UdpDirCounters out_counters_;
 
   VectorQueue<UdpMessage> &input() {
     return input_;
@@ -171,12 +196,12 @@ class BufferedUdp : public UdpSocketFd {
   }
 
   Status flush_send_once() TD_WARN_UNUSED_RESULT {
-    return detail::UdpWriter::write_once(as_fd(), output_);
+    return detail::UdpWriter::write_once(as_fd(), output_, out_counters_);
   }
 
   Status flush_read_once() TD_WARN_UNUSED_RESULT {
     init_thread_local<detail::UdpReader>(udp_reader_);
-    return udp_reader_->read_once(as_fd(), input_);
+    return udp_reader_->read_once(as_fd(), input_, in_counters_);
   }
 
   static TD_THREAD_LOCAL detail::UdpReader *udp_reader_;
