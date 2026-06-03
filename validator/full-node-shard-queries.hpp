@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "td/utils/tl_helpers.h"
 #include "ton/ton-tl.hpp"
 #include "validator/validator.h"
 
@@ -125,6 +126,69 @@ class BlockFullSender : public td::actor::Actor {
   td::BufferSlice data_;
   td::actor::ActorId<ValidatorManagerInterface> manager_;
   td::Promise<td::BufferSlice> promise_;
+};
+
+class NextBlocksFullSender : public td::actor::Actor {
+ public:
+  NextBlocksFullSender(BlockIdExt prev_id, td::uint32 max_blocks, td::actor::ActorId<ValidatorManagerInterface> manager,
+                       td::Promise<td::BufferSlice> promise)
+      : prev_id_(prev_id), max_blocks_(max_blocks), manager_(manager), promise_(std::move(promise)) {
+  }
+  void start_up() override {
+    [](NextBlocksFullSender *self) -> td::actor::Task<> {
+      auto R = co_await self->run().start().wrap();
+      if (R.is_error()) {
+        LOG(DEBUG) << "NextBlocksFullSender error (sending " << self->result_.size()
+                   << " blocks): " << R.move_as_error();
+      } else {
+        LOG(DEBUG) << "NextBlocksFullSender OK (sending " << self->result_.size() << " blocks)";
+      }
+      self->promise_.set_value(create_serialize_tl_object<ton_api::tonNode_nextBlocksFull>(std::move(self->result_)));
+      self->stop();
+      co_return {};
+    }(this)
+                                          .start()
+                                          .detach();
+  }
+
+  td::actor::Task<> run() {
+    max_blocks_ = std::min(max_blocks_, MAX_BLOCKS);
+    if (!prev_id_.is_masterchain_ext()) {
+      co_return td::Status::Error("expected masterchain block");
+    }
+    auto handle = co_await td::actor::ask(manager_, &ValidatorManagerInterface::get_block_handle, prev_id_, false);
+    size_t total_size = 0;
+    while (result_.size() < max_blocks_ && handle->inited_next()) {
+      handle =
+          co_await td::actor::ask(manager_, &ValidatorManagerInterface::get_block_handle, handle->one_next(true), true);
+      if (!handle->received() || !handle->inited_proof() || handle->deleted()) {
+        break;
+      }
+      auto block_task = td::actor::ask(manager_, &ValidatorManagerInterface::get_block_data_from_db, handle);
+      auto proof_task = td::actor::ask(manager_, &ValidatorManagerInterface::get_block_proof_from_db, handle);
+      auto block = co_await std::move(block_task);
+      auto proof = co_await std::move(proof_task);
+      auto obj = CO_TRY(serialize_block_full_obj(block->block_id(), proof->data(), block->data(), false,
+                                                 /* compression_enabled = */ true));
+      size_t serialized_size = td::tl_calc_length(*obj);
+      if (total_size + serialized_size > MAX_TOTAL_SIZE) {
+        break;
+      }
+      total_size += serialized_size;
+      result_.push_back(std::move(obj));
+    }
+    co_return {};
+  }
+
+ private:
+  BlockIdExt prev_id_;
+  td::uint32 max_blocks_;
+  td::actor::ActorId<ValidatorManagerInterface> manager_;
+  td::Promise<td::BufferSlice> promise_;
+  std::vector<tl_object_ptr<ton_api::tonNode_DataFull>> result_;
+
+  static constexpr td::uint32 MAX_BLOCKS = 10;
+  static constexpr size_t MAX_TOTAL_SIZE = 8 << 20;
 };
 
 }  // namespace fullnode

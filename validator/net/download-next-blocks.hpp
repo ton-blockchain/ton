@@ -29,53 +29,42 @@ namespace validator {
 
 namespace fullnode {
 
-class DownloadBlockNew : public td::actor::Actor {
+class DownloadNextBlocks : public td::actor::Actor {
  public:
-  DownloadBlockNew(BlockIdExt block_id, adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
-                   adnl::AdnlNodeIdShort download_from, td::uint32 priority, td::Timestamp timeout,
-                   td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                   td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
-                   td::Promise<ReceivedBlock> promise);
-
-  void abort_query(td::Status reason);
-  void alarm() override;
-  void finish_query();
+  DownloadNextBlocks(adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id, BlockHandle handle,
+                     adnl::AdnlNodeIdShort download_from, td::uint32 priority, bool allow_many,
+                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                     td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                     td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<BlockHandle> promise);
 
   void start_up() override;
-  void got_block_handle(BlockHandle handle);
-  void got_download_token(std::unique_ptr<ActionToken> token);
-  void got_node_to_download(adnl::AdnlNodeIdShort node);
-  void got_data(td::BufferSlice data);
-  void got_data_from_db(td::BufferSlice data);
-  void got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_DataFull> data_full,
-                                td::Ref<ShardState> state = td::Ref<ShardState>());
-  void checked_block_proof();
+  td::actor::Task<> run();
+  td::actor::Task<> process_block(tl_object_ptr<ton_api::tonNode_DataFull> obj);
 
  private:
-  BlockIdExt block_id_;
   adnl::AdnlNodeIdShort local_id_;
   overlay::OverlayIdShort overlay_id_;
+  BlockHandle handle_;
+  BlockIdExt start_prev_id_;
 
   adnl::AdnlNodeIdShort download_from_ = adnl::AdnlNodeIdShort::zero();
 
   td::uint32 priority_;
 
-  td::Timestamp timeout_;
+  bool allow_many_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
-  td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
-  td::Promise<ReceivedBlock> promise_;
+  td::Promise<BlockHandle> promise_;
 
-  BlockHandle handle_;
-  ReceivedBlock block_;
-  bool skip_proof_ = false;
-
-  bool allow_partial_proof_ = false;
+  bool success_ = false;
+  bool success_local_ = false;
 
   std::unique_ptr<ActionToken> token_;
+
+  static constexpr td::uint32 MAX_BLOCKS = 10;
+  static constexpr size_t MAX_SIZE_MANY = (8 << 20) + 1024;
 };
 
 }  // namespace fullnode

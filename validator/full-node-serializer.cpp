@@ -219,12 +219,13 @@ td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcas
   return B;
 }
 
-td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice proof, td::Slice data,
-                                                 bool is_proof_link, bool compression_enabled) {
+td::Result<tl_object_ptr<ton_api::tonNode_DataFull>> serialize_block_full_obj(const BlockIdExt& id, td::Slice proof,
+                                                                              td::Slice data, bool is_proof_link,
+                                                                              bool compression_enabled) {
   if (!compression_enabled) {
     auto t_compression_start = td::Time::now();
-    auto res = create_serialize_tl_object<ton_api::tonNode_dataFull>(create_tl_block_id(id), td::BufferSlice(proof),
-                                                                     td::BufferSlice(data), is_proof_link);
+    auto res = create_tl_object<ton_api::tonNode_dataFull>(create_tl_block_id(id), td::BufferSlice(proof),
+                                                           td::BufferSlice(data), is_proof_link);
     VLOG(full_node, WARNING) << "Broadcast_benchmark serialize_block_full block_id=" << id
                              << " time_sec=" << (td::Time::now() - t_compression_start) << " compression=" << "none"
                              << " original_size=" << data.size() + proof.size()
@@ -238,12 +239,18 @@ td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice
   td::BufferSlice compressed = td::lz4_compress(boc);
   size_t compressed_size = compressed.size();
   VLOG(full_node, DEBUG) << "Compressing block full: " << data.size() + proof.size() << " -> " << compressed.size();
-  auto res = create_serialize_tl_object<ton_api::tonNode_dataFullCompressed>(create_tl_block_id(id), 0,
-                                                                             std::move(compressed), is_proof_link);
+  auto res = create_tl_object<ton_api::tonNode_dataFullCompressed>(create_tl_block_id(id), 0, std::move(compressed),
+                                                                   is_proof_link);
   VLOG(full_node, WARNING) << "Broadcast_benchmark serialize_block_full block_id=" << id
                            << " time_sec=" << (td::Time::now() - t_compression_start) << " compression=" << "compressed"
                            << " original_size=" << data.size() + proof.size() << " compressed_size=" << compressed_size;
   return res;
+}
+
+td::Result<td::BufferSlice> serialize_block_full(const BlockIdExt& id, td::Slice proof, td::Slice data,
+                                                 bool is_proof_link, bool compression_enabled) {
+  TRY_RESULT(obj, serialize_block_full_obj(id, proof, data, is_proof_link, compression_enabled));
+  return serialize_tl_object(obj, true);
 }
 
 static td::Status deserialize_block_full(ton_api::tonNode_dataFull& f, BlockIdExt& id, td::BufferSlice& proof,
