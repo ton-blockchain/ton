@@ -27,11 +27,8 @@ namespace ton {
 namespace validator {
 
 void ShardClient::start_up() {
-  initialize_waiter_ = [](ShardClient *self) -> td::actor::Task<> {
-    (co_await self->initialize().wrap()).ensure();
-    co_return {};
-  }(this)
-                                                    .start();
+  initialize_waiter_ = initialize().start();
+  initialize_waiter_.get().start().detach_ensure("shard client initialize");
 }
 
 td::actor::Task<> ShardClient::initialize() {
@@ -78,12 +75,7 @@ td::actor::Task<> ShardClient::initialize_init_mode() {
 
 void ShardClient::start() {
   started_ = true;
-  [](ShardClient *self) -> td::actor::Task<> {
-    (co_await self->run().wrap()).ensure();
-    co_return {};
-  }(this)
-                               .start()
-                               .detach();
+  run().start().detach_ensure("shard client");
 }
 
 td::actor::Task<> ShardClient::run() {
