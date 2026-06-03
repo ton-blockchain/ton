@@ -81,12 +81,12 @@ void ShardClient::start() {
 td::actor::Task<> ShardClient::run() {
   co_await initialize_waiter_.get();
   CHECK(masterchain_block_handle_);
+  run_preprocess().start().detach_ensure("shard client preprocess");
 
   while (true) {
     if (!masterchain_block_handle_->inited_next_left()) {
       auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-      next_mc_block_waiter_ = std::move(promise);
-      co_await std::move(task);
+      co_await wait();
       continue;
     }
     masterchain_block_handle_ = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle,
@@ -104,8 +104,21 @@ td::actor::Task<> ShardClient::run() {
     processed_masterchain_block_ = masterchain_block_handle_->id().seqno();
     td::actor::send_closure(manager_, &ValidatorManager::update_shard_client_block_handle, masterchain_block_handle_,
                             std::move(mc_state), [](td::Result<>) {});
+    notify();
   }
-  co_return {};
+}
+
+td::actor::Task<> ShardClient::run_preprocess() {
+  BlockHandle handle = masterchain_block_handle_;
+  while (true) {
+    if (!handle->inited_next_left() || handle->id().seqno() >= processed_masterchain_block_ + MAX_PREPROCESS_DELTA) {
+      co_await wait();
+      continue;
+    }
+    handle = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, handle->one_next(true), true);
+    auto mc_state = co_await wait_mc_state(handle);
+    wait_shard_states(mc_state).start().detach_silent();
+  }
 }
 
 td::actor::Task<> ShardClient::apply_all_shards(Ref<MasterchainState> mc_state) {
@@ -133,7 +146,7 @@ td::actor::Task<> ShardClient::apply_all_shards(Ref<MasterchainState> mc_state) 
 
 td::actor::Task<> ShardClient::apply_shard(BlockIdExt block_id) {
   auto state = co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state_short, block_id,
-                                       shard_client_priority(), td::Timestamp::in(1500), true);
+                                       SHARD_CLIENT_PRIORITY, td::Timestamp::in(1500), true);
   auto [task, promise] = td::actor::StartedTask<>::make_bridge();
   run_apply_block_query(state->get_block_id(), Ref<BlockData>{}, masterchain_block_handle_->id(), manager_,
                         td::Timestamp::in(600), std::move(promise));
@@ -141,9 +154,31 @@ td::actor::Task<> ShardClient::apply_shard(BlockIdExt block_id) {
   co_return {};
 }
 
+td::actor::Task<> ShardClient::wait_shard_states(Ref<MasterchainState> mc_state) {
+  LOG(DEBUG) << "shardclient preprocess: " << masterchain_block_handle_->id() << " started";
+  std::vector<td::actor::StartedTask<Ref<ShardState>>> tasks;
+
+  auto vec = mc_state->get_shards();
+  std::set<WorkchainId> workchains;
+  for (auto &shard : vec) {
+    workchains.insert(shard->shard().workchain);
+    if (opts_->need_monitor(shard->shard(), mc_state)) {
+      tasks.push_back(td::actor::ask(manager_, &ValidatorManager::wait_block_state_short, shard->top_block_id(),
+                                     SHARD_CLIENT_PRIORITY, td::Timestamp::in(1500), true));
+    }
+  }
+  auto R = co_await td::actor::all(std::move(tasks)).wrap();
+  if (R.is_ok()) {
+    LOG(DEBUG) << "shardclient preprocess: " << masterchain_block_handle_->id() << " finished";
+  } else {
+    LOG(WARNING) << "shardclient preprocess: " << masterchain_block_handle_->id() << " error: " << R.move_as_error();
+  }
+  co_return {};
+}
+
 td::actor::Task<Ref<MasterchainState>> ShardClient::wait_mc_state(BlockHandle handle) {
   while (true) {
-    auto R = co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state, handle, shard_client_priority(),
+    auto R = co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state, handle, SHARD_CLIENT_PRIORITY,
                                      td::Timestamp::in(600), true)
                  .wrap();
     if (R.is_error()) {
@@ -154,10 +189,8 @@ td::actor::Task<Ref<MasterchainState>> ShardClient::wait_mc_state(BlockHandle ha
   }
 }
 
-void ShardClient::new_masterchain_block_notification(BlockHandle handle, Ref<MasterchainState> state) {
-  if (next_mc_block_waiter_) {
-    next_mc_block_waiter_.set_value(td::Unit{});
-  }
+void ShardClient::new_masterchain_block_notification() {
+  notify();
 }
 
 void ShardClient::get_processed_masterchain_block(td::Promise<BlockSeqno> promise) {

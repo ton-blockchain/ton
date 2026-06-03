@@ -45,11 +45,24 @@ class ShardClient : public td::actor::Actor {
   bool started_ = false;
   bool init_mode_ = false;
   td::actor::SharedFuture<td::Unit> initialize_waiter_;
-  td::Promise<> next_mc_block_waiter_;
+  std::vector<td::Promise<>> waiters_;
 
   td::actor::ActorId<ValidatorManager> manager_;
-
   td::Promise<> initialize_promise_;
+
+  td::actor::Task<> wait() {
+    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+    waiters_.push_back(std::move(promise));
+    co_return co_await std::move(task);
+  }
+
+  void notify() {
+    auto waiters = std::move(waiters_);
+    waiters_.clear();
+    for (auto &p : waiters) {
+      p.set_value(td::Unit{});
+    }
+  }
 
  public:
   ShardClient(Ref<ValidatorManagerOptions> opts, BlockHandle masterchain_block_handle,
@@ -66,10 +79,6 @@ class ShardClient : public td::actor::Actor {
       : opts_(std::move(opts)), manager_(manager), initialize_promise_(std::move(promise)) {
   }
 
-  static constexpr td::uint32 shard_client_priority() {
-    return 2;
-  }
-
   void start_up() override;
 
   td::actor::Task<> initialize();
@@ -77,17 +86,22 @@ class ShardClient : public td::actor::Actor {
 
   void start();
   td::actor::Task<> run();
+  td::actor::Task<> run_preprocess();
+
   td::actor::Task<> apply_all_shards(Ref<MasterchainState> mc_state);
   td::actor::Task<> apply_shard(BlockIdExt block_id);
+  td::actor::Task<> wait_shard_states(Ref<MasterchainState> mc_state);
   td::actor::Task<Ref<MasterchainState>> wait_mc_state(BlockHandle handle);
 
-  void new_masterchain_block_notification(BlockHandle handle, Ref<MasterchainState> state);
-
+  void new_masterchain_block_notification();
   void get_processed_masterchain_block(td::Promise<BlockSeqno> promise);
-
   td::actor::Task<> force_update_shard_client_ex(BlockHandle handle, Ref<MasterchainState> state);
 
   void update_options(Ref<ValidatorManagerOptions> opts);
+
+ private:
+  static constexpr td::uint32 SHARD_CLIENT_PRIORITY = 2;
+  static constexpr td::uint32 MAX_PREPROCESS_DELTA = 10;
 };
 
 }  // namespace validator

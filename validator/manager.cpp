@@ -2292,8 +2292,7 @@ void ValidatorManagerImpl::new_masterchain_block() {
   update_shard_blocks();
 
   if (!shard_client_.empty()) {
-    td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification,
-                            last_masterchain_block_handle_, last_masterchain_state_);
+    td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification);
   }
 
   for (const auto &[_, validator_group] : validator_groups_) {
