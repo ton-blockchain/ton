@@ -21,6 +21,7 @@
 #include <set>
 
 #include "interfaces/validator-manager.h"
+#include "td/actor/SharedFuture.h"
 
 namespace ton {
 
@@ -33,35 +34,36 @@ class ShardClient : public td::actor::Actor {
     td::uint32 split_depth;
   };
 
-  td::Ref<ValidatorManagerOptions> opts_;
+  Ref<ValidatorManagerOptions> opts_;
 
   BlockHandle masterchain_block_handle_;
-  td::Ref<MasterchainState> masterchain_state_;
+  Ref<MasterchainState> init_mode_mc_state_;
+  BlockSeqno processed_masterchain_block_{0};
 
   std::vector<td::actor::ActorOwn<ShardClient>> children_;
 
-  bool waiting_ = false;
-  bool init_mode_ = false;
   bool started_ = false;
+  bool init_mode_ = false;
+  td::actor::SharedFuture<td::Unit> initialize_waiter_;
+  td::Promise<> next_mc_block_waiter_;
 
   td::actor::ActorId<ValidatorManager> manager_;
 
-  td::Promise<td::Unit> promise_;
+  td::Promise<> initialize_promise_;
 
  public:
-  ShardClient(td::Ref<ValidatorManagerOptions> opts, BlockHandle masterchain_block_handle,
-              td::Ref<MasterchainState> masterchain_state, td::actor::ActorId<ValidatorManager> manager,
-              td::Promise<td::Unit> promise)
+  ShardClient(Ref<ValidatorManagerOptions> opts, BlockHandle masterchain_block_handle,
+              Ref<MasterchainState> masterchain_state, td::actor::ActorId<ValidatorManager> manager,
+              td::Promise<> promise)
       : opts_(std::move(opts))
       , masterchain_block_handle_(masterchain_block_handle)
-      , masterchain_state_(std::move(masterchain_state))
+      , init_mode_mc_state_(std::move(masterchain_state))
       , manager_(manager)
-      , promise_(std::move(promise)) {
+      , initialize_promise_(std::move(promise)) {
     init_mode_ = true;
   }
-  ShardClient(td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager,
-              td::Promise<td::Unit> promise)
-      : opts_(std::move(opts)), manager_(manager), promise_(std::move(promise)) {
+  ShardClient(Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager, td::Promise<> promise)
+      : opts_(std::move(opts)), manager_(manager), initialize_promise_(std::move(promise)) {
   }
 
   static constexpr td::uint32 shard_client_priority() {
@@ -69,31 +71,23 @@ class ShardClient : public td::actor::Actor {
   }
 
   void start_up() override;
-  void start_up_init_mode();
-  void download_shard_states(BlockIdExt masterchain_block_id, std::vector<DownloadableShard> shards, size_t idx);
+
+  td::actor::Task<> initialize();
+  td::actor::Task<> initialize_init_mode();
+
   void start();
-  void got_state_from_db(BlockIdExt masterchain_block_id);
-  void got_init_handle_from_db(BlockHandle handle);
-  void got_init_state_from_db(td::Ref<MasterchainState> state);
+  td::actor::Task<> run();
+  td::actor::Task<> apply_all_shards(Ref<MasterchainState> mc_state);
+  td::actor::Task<> apply_shard(BlockIdExt block_id);
+  td::actor::Task<Ref<MasterchainState>> wait_mc_state(BlockHandle handle);
 
-  void new_masterchain_block_id(BlockIdExt masterchain_block_id);
-  void got_masterchain_block_handle(BlockHandle handle);
-  void download_masterchain_state();
-  void got_masterchain_block_state(td::Ref<MasterchainState> state);
-  void apply_all_shards();
-  void downloaded_shard_state(td::Ref<ShardState> state, td::Promise<td::Unit> promise);
-  void applied_all_shards();
-  void saved_to_db();
-
-  void new_masterchain_block_notification(BlockHandle handle, td::Ref<MasterchainState> state);
+  void new_masterchain_block_notification(BlockHandle handle, Ref<MasterchainState> state);
 
   void get_processed_masterchain_block(td::Promise<BlockSeqno> promise);
-  void get_processed_masterchain_block_id(td::Promise<BlockIdExt> promise);
 
-  void force_update_shard_client(BlockHandle handle, td::Promise<td::Unit> promise);
-  void force_update_shard_client_ex(BlockHandle handle, td::Ref<MasterchainState> state, td::Promise<td::Unit> promise);
+  td::actor::Task<> force_update_shard_client_ex(BlockHandle handle, Ref<MasterchainState> state);
 
-  void update_options(td::Ref<ValidatorManagerOptions> opts);
+  void update_options(Ref<ValidatorManagerOptions> opts);
 };
 
 }  // namespace validator
