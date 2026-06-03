@@ -4,7 +4,6 @@ target_link_libraries(test-consensus PRIVATE
     adnltest
     dht
     overlay
-    rldp
     tdactor
     tdutils
     tl_api

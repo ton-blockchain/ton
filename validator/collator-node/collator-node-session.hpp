@@ -20,7 +20,6 @@
 #include <optional>
 
 #include "interfaces/validator-manager.h"
-#include "rldp/rldp.h"
 #include "rldp2/rldp.h"
 
 namespace ton::validator {

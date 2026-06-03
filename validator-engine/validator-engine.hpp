@@ -38,7 +38,6 @@
 #include "dht/dht.h"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
-#include "rldp/rldp.h"
 #include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
@@ -168,7 +167,6 @@ class ValidatorEngine : public td::actor::Actor {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring_;
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> adnl_network_manager_;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl_;
-  td::actor::ActorOwn<ton::rldp::Rldp> rldp_;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_;
   std::map<ton::PublicKeyHash, td::actor::ActorOwn<ton::dht::Dht>> dht_nodes_;
