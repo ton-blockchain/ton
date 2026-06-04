@@ -230,8 +230,24 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
       if (is_sub_correct && p_generic.size() == 1 && a_sub_p.size() > 1) {
         consider_next_condition(p_generic[0], TypeDataUnion::create(std::move(a_sub_p)));
       } else if (is_sub_correct && p_generic.size() == a_sub_p.size()) {
-        for (int i = 0; i < static_cast<int>(p_generic.size()); ++i) {
-          consider_next_condition(p_generic[i], a_sub_p[i]);
+        // pair each generic variant with the arg variant it deduces into; a bare `T` matches
+        // ANY arg variant, so it must be matched last — only after concrete shapes have claimed theirs;
+        // example: param `T | Box<T>`, arg `Box<int> | int` (mind reorder), deduce T=int
+        for (int pass = 0; pass < 2; ++pass) {    // pass 0: concrete variants like `Box<T>`; pass 1: a bare `T`
+          for (TypePtr p_variant : p_generic) {
+            if ((p_variant->try_as<TypeDataGenericT>() != nullptr) != (pass == 1)) {
+              continue;
+            }
+            for (auto it = a_sub_p.begin(); it != a_sub_p.end(); ++it) {
+              GenericSubstitutionsDeducing trial = *this;
+              // a pairing fits when deducing makes the variant exactly equal to its arg
+              if (trial.auto_deduce_from_argument(p_variant, *it)->equal_to(*it)) {
+                consider_next_condition(p_variant, *it);
+                a_sub_p.erase(it);
+                break;
+              }
+            }
+          }
         }
       }
     }
@@ -281,6 +297,12 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
       tolk_assert(p_instAl->size() == a_alias->alias_ref->substitutedTs->size());
       for (int i = 0; i < p_instAl->size(); ++i) {
         consider_next_condition(p_instAl->type_arguments[i], a_alias->alias_ref->substitutedTs->typeT_at(i));
+      }
+    } else if (const auto* a_instAl = arg_type->try_as<TypeDataGenericTypeWithTs>(); a_instAl && a_instAl->alias_ref == p_instAl->alias_ref) {
+      // `arg: WrapperAlias<T>` matched against another still-generic `WrapperAlias<X>` while comparing receivers
+      tolk_assert(p_instAl->size() == a_instAl->size());
+      for (int i = 0; i < p_instAl->size(); ++i) {
+        consider_next_condition(p_instAl->type_arguments[i], a_instAl->type_arguments[i]);
       }
     } else {
       // `arg: WrapperAlias<T>` called as `f(someWrapperInt)` => T is int

@@ -9,8 +9,16 @@ struct Container1<T=int?> {
     item: T;
 }
 
+struct StaticDefaultBox<T = int32> {
+    item: T;
+}
+
 fun getItemOf<T=never>(v: Container1<T>) {
     return v.item;
+}
+
+fun StaticDefaultBox<T>.createDefault(): StaticDefaultBox<T> {
+    return { item: 0 };
 }
 
 struct WithDef1<T = null> {
@@ -127,6 +135,9 @@ fun test2() {
 
     __expect_type(getItemOf({item: null as slice?}), "slice?");
     __expect_type(getItemOf({item: null}), "null");
+
+    var static_default = StaticDefaultBox.createDefault();
+    __expect_type(static_default, "StaticDefaultBox<int32>");
 }
 
 @method_id(103)

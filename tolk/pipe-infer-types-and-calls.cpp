@@ -1018,6 +1018,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
         if (const TypeDataAlias* r_aliasT = receiver_type->try_as<TypeDataAlias>(); r_aliasT && r_aliasT->alias_ref->is_generic_alias()) {
           if (TypePtr hinted_receiver = hint ? try_pick_instantiated_generic_from_hint(hint, r_aliasT->alias_ref) : nullptr) {
             receiver_type = hinted_receiver;   // assigned to `var v: Maybe<int> = Maybe.none()` or an alias-equivalent hint
+          } else if (r_aliasT->alias_ref->genericTs->size_no_defaults() == 0) {
+            std::vector<TypePtr> type_arguments;    // `SomeAlias.staticMethod()` where `SomeAlias<T=default>`
+            r_aliasT->alias_ref->genericTs->append_defaults(type_arguments);
+            receiver_type = TypeDataAlias::create(instantiate_generic_alias(r_aliasT->alias_ref, GenericsSubstitutions(r_aliasT->alias_ref->genericTs, type_arguments)));
           } else {
             err_cannot_deduce_genericT(r_aliasT).fire(v->get_obj(), cur_f);
           }
@@ -1026,6 +1030,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
         if (const TypeDataStruct* r_structT = receiver_type->unwrap_alias()->try_as<TypeDataStruct>(); r_structT && r_structT->struct_ref->is_generic_struct()) {
           if (const TypeDataStruct* hint_same = hint ? hint->unwrap_alias()->try_as<TypeDataStruct>() : nullptr; hint_same && hint_same->struct_ref->base_struct_ref == r_structT->struct_ref) {
             receiver_type = hint;   // assigned to `var p: Pair<int, bool> = Pair.create(...)`
+          } else if (r_structT->struct_ref->genericTs->size_no_defaults() == 0) {
+            std::vector<TypePtr> type_arguments;    // `SomeStruct.staticMethod()` where `SomeStruct<T=default>`
+            r_structT->struct_ref->genericTs->append_defaults(type_arguments);
+            receiver_type = TypeDataStruct::create(instantiate_generic_struct(r_structT->struct_ref, GenericsSubstitutions(r_structT->struct_ref->genericTs, type_arguments)));
           } else {
             err_cannot_deduce_genericT(r_structT).fire(v->get_obj(), cur_f);
           }
