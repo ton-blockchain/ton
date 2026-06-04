@@ -197,18 +197,11 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
 
   template <>
   void handle(BusHandle bus, std::shared_ptr<const OutgoingProtocolMessage> message) {
-    if (message->recipient.has_value()) {
-      CHECK(message->recipient.value() != bus->local_id.idx);
-      td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, instance_idx_,
-                     message->recipient->value(), message->message.data.clone())
-          .detach_silent();
-    } else {
-      for (size_t i = 0; i < bus->validator_set.size(); ++i) {
-        if (bus->local_id.idx.value() != i) {
-          td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, instance_idx_, i,
-                         message->message.data.clone())
-              .detach_silent();
-        }
+    for (size_t i = 0; i < bus->validator_set.size(); ++i) {
+      if (bus->local_id.idx.value() != i) {
+        td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, instance_idx_, i,
+                       message->message.data.clone())
+            .detach_silent();
       }
     }
   }

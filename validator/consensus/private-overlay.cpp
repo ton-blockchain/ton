@@ -5,11 +5,13 @@
  */
 
 #include <map>
+#include <random>
 #include <vector>
 
 #include "adnl/adnl-node-id.hpp"
 #include "auto/tl/ton_api.h"
 #include "overlay/overlays.h"
+#include "td/utils/Random.h"
 #include "td/utils/Status.h"
 #include "td/utils/logging.h"
 #include "ton/ton-io.hpp"
@@ -88,14 +90,24 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
                               message->message.data.clone(), adnl_sender_);
     };
 
-    if (message->recipient) {
-      CHECK(local_id_.idx != message->recipient);
-      send_to_peer(message->recipient->get_using(*owning_bus()).adnl_id);
-    } else {
+    auto broadcast_fn = [&](const OutgoingProtocolMessage::BroadcastToAll&) {
       for (const auto& [adnl_id, _] : adnl_id_to_peer_) {
         send_to_peer(adnl_id);
       }
-    }
+    };
+
+    auto gossip_fn = [&](const OutgoingProtocolMessage::BroadcastToRandom& r) {
+      std::vector<PeerValidator> selected_peers;
+      auto& all_peers = owning_bus()->validator_set;
+      std::sample(all_peers.begin(), all_peers.end(), std::back_inserter(selected_peers),
+                  std::min(r.count, all_peers.size()), gossip_rng_);
+
+      for (auto peer : selected_peers) {
+        send_to_peer(peer.adnl_id);
+      }
+    };
+
+    std::visit(td::overloaded(broadcast_fn, gossip_fn), message->recipient);
   }
 
   template <>
@@ -242,6 +254,8 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   PeerValidator local_id_;
   std::map<adnl::AdnlNodeIdShort, PeerValidator> adnl_id_to_peer_;
   std::map<PublicKeyHash, PeerValidator> short_id_to_peer_;
+
+  std::mt19937 gossip_rng_ = td::Random::fast_gen();
 };
 
 }  // namespace

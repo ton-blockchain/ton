@@ -1235,6 +1235,7 @@ consensus.simplex.noncriticalParams
     candidate_resolve_rate_limit:flags.12?int
     min_block_interval_ms:flags.13?int
     no_empty_blocks_on_error_timeout_ms:flags.14?int
+    certificate_gossip_neighbors:flags.15?int
     = consensus.NoncriticalParams;
 
 consensus.noncriticalParamsOverride

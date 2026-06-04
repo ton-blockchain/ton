@@ -593,7 +593,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
       }
       egress_quota -= msg_size;
 
-      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, std::move(message));
+      owning_bus().publish<OutgoingProtocolMessage>(OutgoingProtocolMessage::BroadcastToAll{}, std::move(message));
       co_return {};
     };
 
@@ -715,7 +715,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
     if (handle_vote(bus.local_id, std::move(signed_vote), tolerate_conflicts)) {
       if (!suppress_vote_broadcast) {
-        owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(std::nullopt, std::move(serialized)));
+        owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(OutgoingProtocolMessage::BroadcastToAll{},
+                                                                       std::move(serialized)));
       }
     }
 
@@ -884,7 +885,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     LOG(WARNING) << "Obtained certificate for " << cert->vote << ": " << votes;
 
     if (!suppress_certificate_broadcast_) {
-      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, cert->serialize());
+      owning_bus().publish<OutgoingProtocolMessage>(
+          OutgoingProtocolMessage::BroadcastToRandom{params_.certificate_gossip_neighbors}, cert->serialize());
       owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
     }
 
