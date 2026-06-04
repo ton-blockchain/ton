@@ -209,6 +209,65 @@ fun test124() {
     return (a1, a18);
 }
 
+@method_id(125)
+fun test125() {
+    var (a, [b, c]) = (10, [20, 30]);
+    return (a, b, c);
+}
+
+struct Small126 {
+    x: int
+}
+
+struct Large126 {
+    x: int
+    y: int
+}
+
+fun makeUnion126(useSmall: int): Small126 | Large126 {
+    return useSmall != 0 ? Small126 { x: 1 } : Large126 { x: 2, y: 3 };
+}
+
+@method_id(126)
+fun test126(useSmall: int) {
+    var u = makeUnion126(useSmall);
+    var other = 7;
+    if (u is Small126) {
+        (u, other) = (Small126 { x: 9 }, other);
+    }
+    return match (u) {
+        Small126 => (1, u.x, other, 0),
+        Large126 => (2, u.x, other, u.y),
+    };
+}
+
+@method_id(127)
+fun test127() {
+    val sh: [int, [int, [int, int]]] = [10, [20, [30, 40]]];
+    var [a, [b, [c, d]]] = sh;
+    var [e, (f, [g, h])] = [50, (60, [70, 80])];
+    return (a, b, c, d, e, f, g, h);
+}
+
+@method_id(128)
+fun test128() {
+    var (a, b, c, d) = (0, 0, 0, 0);
+    [a, [b, [c, d]]] = [11, [22, [33, 44]]];
+
+    var (e, f, g, h) = (0, 0, 0, 0);
+    [e, (f, [g, h])] = [55, (66, [77, 88])];
+    return (a, b, c, d, e, f, g, h);
+}
+
+@method_id(129)
+fun test129() {
+    var `self` = 123;
+    {
+        var `self` = beginCell();
+        __expect_type(`self`, "builder");
+    }
+    return `self` + 6;
+}
 
 fun main(value: int, ) {
     var (x: int?, y,) = (autoInferIntNull(value), autoInferIntNull(value * 2));
@@ -231,6 +290,11 @@ fun main(value: int, ) {
 @testcase | 122 |        | 0 10 0
 @testcase | 123 |        | 13
 @testcase | 124 |        | 1 18
+@testcase | 125 |        | 10 20 30
+@testcase | 126 | 1      | 1 9 7 0
+@testcase | 127 |        | 10 20 30 40 50 60 70 80
+@testcase | 128 |        | 11 22 33 44 55 66 77 88
+@testcase | 129 |        | 129
 
 
 @fif_codegen
@@ -247,8 +311,8 @@ fun main(value: int, ) {
     2 PUSHINT	    //  '9=1 '10=2
     3 PUSHINT	    //  '9=1 '10=2 '11=3
     4 PUSHINT	    //  '9=1 '10=2 '11=3 '12=4
-    4 TUPLE	        //  rhs
-    DUP	            //  rhs rhs
+    4 TUPLE	        //  '14
+    DUP	            //  '14 '14
     4 UNTUPLE	    //  rhs2 a b c d
     4 ROLL	        //  a b c d rhs2
   }>

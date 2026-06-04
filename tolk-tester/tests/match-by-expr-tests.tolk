@@ -62,14 +62,14 @@ fun test5(x: int) {
 fun test6(x: coins) {
     var result1 = 0;
     match (x) {
-        ton("0.05") => { result1 = 5; }
-        ton("0.1") => { result1 = 10; }
+        grams("0.05") => { result1 = 5; }
+        grams("0.1") => { result1 = 10; }
         else => { result1 = 20; }
     }
     var result2 = 0;
     match (x) {
-        ton("0.05") => { result2 = 5 }
-        ton("0.1") => { result2 = 10 }
+        grams("0.05") => { result2 = 5 }
+        grams("0.1") => { result2 = 10 }
     }
     return (result1, result2);
 }

@@ -170,8 +170,8 @@ fun test7() {
 fun test8() {
     var arr: ArrayOfLotsCoins = [
         { nums: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0) },
-        { nums: (ton("10"), ton("10"), ton("10"), ton("10"), ton("10"), ton("10"), ton("10"), ton("10"), ton("10"), ton("10")) },
-        { nums: (0, 0, 0, 0, 0, 0, 0, 0, 0, ton("0.05")) },
+        { nums: (grams("10"), grams("10"), grams("10"), grams("10"), grams("10"), grams("10"), grams("10"), grams("10"), grams("10"), grams("10")) },
+        { nums: (0, 0, 0, 0, 0, 0, 0, 0, 0, grams("0.05")) },
     ];
     arr = ArrayOfLotsCoins.fromCell(arr.toCell());
     return (
@@ -190,7 +190,7 @@ fun test9() {
         createEmptySlice(),
         array<int32> [1,2].toCell().beginParse(),
         "hello".literalSlice(),
-        array<(coins, coins, coins, coins, cell)> [(0,ton("0.05"),0,0,createEmptyCell()), (1,1,1,1,createEmptyCell()), (2,2,2,2,createEmptyCell())].toCell().beginParse(),
+        array<(coins, coins, coins, coins, cell)> [(0,grams("0.05"),0,0,createEmptyCell()), (1,1,1,1,createEmptyCell()), (2,2,2,2,createEmptyCell())].toCell().beginParse(),
     ];
     var back = array<RemainingBitsAndRefs>.fromCell(a1.toCell());
     var last = array<(coins, coins, coins, coins, cell)>.fromSlice(back.last());

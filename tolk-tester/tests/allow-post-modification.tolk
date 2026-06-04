@@ -165,6 +165,30 @@ fun test_create_list(): lisp_list<int> {
     return [ x, x += 2, x, eq(mul2(mutate x, 5)), x];
 }
 
+@method_id(31)
+fun test_assign_tensor_expression_result() {
+    var t = (1, 2);
+    var got = (t = (t.1, t.0));
+    return (got, t);
+}
+
+@method_id(32)
+fun test_destructuring_assignment_expression_result() {
+    var a = 1;
+    var b = 2;
+    var got = ((a, b) = (b, a));
+    return (got, a, b);
+}
+
+@method_id(33)
+fun test_assignment_union_widened_rhs_result(x: int, y: int): (int, int) {
+    var u: int | (int, int) = (x, y);
+    __expect_type(u, "(int, int)");
+    var got = (u = u.0);
+    __expect_type(u, "int");
+    return (got, u);
+}
+
 fun main() {
 }
 
@@ -191,6 +215,9 @@ fun main() {
 @testcase | 28 |     | 0 32 32
 @testcase | 29 |     | [ 1 3 3 10 10 ]
 @testcase | 30 |     | [ 1 [ 3 [ 3 [ 10 [ 10 (null) ] ] ] ] ]
+@testcase | 31 |     | 2 1 2 1
+@testcase | 32 |     | 2 1 2 1
+@testcase | 33 | 7 9 | 7 7
 
 @fif_codegen
 """
@@ -204,5 +231,5 @@ fun main() {
   test_assign_tensor_global() PROC:<{   // x.0 x.1
 """
 
-@code_hash 111667756568862912577641874227144621753163521614440586561560498476829147651751
+@code_hash 20080797589952318300606475129096868558134739770176038298694375311393096064727
 */

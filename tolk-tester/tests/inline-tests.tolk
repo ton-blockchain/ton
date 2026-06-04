@@ -466,12 +466,12 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen
 """
   test8() PROC:<{               //
-    NEWC                        //  '5
-    x{00000005} STSLICECONST    //  '3
-    25 PUSHINT                  //  '3 '9
+    NEWC                        //  '6
+    x{00000005} STSLICECONST    //  '4
+    25 PUSHINT                  //  '4 '10
     SWAP                        //  x self
-    x{0000001900000019} STSLICECONST  //  x '3
-    SWAP                        //  '3 x
+    x{0000001900000019} STSLICECONST  //  x '4
+    SWAP                        //  '4 x
   }>
 """
 

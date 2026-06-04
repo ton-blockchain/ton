@@ -50,14 +50,14 @@ fun test3() {
     var r: Response<int, slice> = getResponse(true);
     r = Err { errPayload: createEmptySlice() };
     __expect_type(r, "Err<slice>");
-    r = OkAlias { result: 10 };
+    r = Ok { result: 10 };
     __expect_type(r, "Ok<int>");
     return (r, r is Ok, (r as Response<int,slice>) is Err);
 }
 
 @method_id(104)
 fun test4() {
-    var r1 = OkAlias { result: OkAlias { result: 10 } } as Response< Ok<int>, slice >;
+    var r1 = Ok { result: Ok { result: 10 } } as Response< Ok<int>, slice >;
     match (r1) {
         Ok => { __expect_type(r1, "Ok<Ok<int>>"); r1.result.result; }
         Err => {}
@@ -110,14 +110,14 @@ struct WithDef<T> {
     f1: T? = null;
     f2: int? = null as int?;
     f3: T? = null as T?;
-    price: coins = ton("0.05"),
+    price: coins = grams("0.05"),
     slice: slice = stringHexToSlice("010203"),
 }
 
 @method_id(108)
 fun test8() {
     var w1: WithDef<slice> = {};
-    var w2: WithDef<Ok<int>> = { price: ton("0.1"), f3: { result: 12 } };
+    var w2: WithDef<Ok<int>> = { price: grams("0.1"), f3: { result: 12 } };
     return (w1.price, w1.f1, w1.f3, w2.price, w2.f3!.result, w2.f3, w2.slice.remainingBitsCount());
 }
 
@@ -138,8 +138,8 @@ fun main() {
 """
   test3() PROC:<{
     10 PUSHINT  // r.USlot1=10
-    -1 PUSHINT  // r.USlot1=10 '22=-1
-    FALSE       // r.USlot1=10 '22=-1 '24
+    -1 PUSHINT  // r.USlot1=10 '24=-1
+    FALSE       // r.USlot1=10 '24=-1 '26
   }>
 """
  */

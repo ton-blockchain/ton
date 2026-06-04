@@ -358,32 +358,32 @@ fun main(){
   testCodegenSimple() PROC:<{
     1 PUSHINT                   //  '1=1
     1 TUPLE                     //  t1
-    2 PUSHINT                   //  t1 '7=2
+    2 PUSHINT                   //  t1 '8=2
     0 SETINDEX                  //  t1
     x{} PUSHSLICE
     STRDUMP DROP                //  t1
-    1 PUSHINT                   //  t1 '11=1
-    1 TUPLE                     //  t1 '10
+    1 PUSHINT                   //  t1 '12=1
+    1 TUPLE                     //  t1 '11
     1 TUPLE                     //  t1 t2
-    2 PUSHINT                   //  t1 t2 '17=2
-    OVER                        //  t1 t2 '17=2 t2
-    0 INDEX                     //  t1 t2 '21=2 '19
-    SWAP                        //  t1 t2 '19 '21=2
-    0 SETINDEX                  //  t1 t2 '23
+    2 PUSHINT                   //  t1 t2 '19=2
+    OVER                        //  t1 t2 '19=2 t2
+    0 INDEX                     //  t1 t2 '23=2 '21
+    SWAP                        //  t1 t2 '21 '23=2
+    0 SETINDEX                  //  t1 t2 '25
     0 SETINDEX                  //  t1 t2
     x{} PUSHSLICE
     STRDUMP DROP                //  t1 t2
-    1 PUSHINT                   //  t1 t2 '26=1
+    1 PUSHINT                   //  t1 t2 '28=1
     1 TUPLE                     //  t1 t2 g_gTup
     $gTup SETGLOB               //  t1 t2
-    2 PUSHINT                   //  t1 t2 '31=2
-    $gTup GETGLOB               //  t1 t2 '34=2 g_gTup
-    SWAP                        //  t1 t2 g_gTup '34=2
+    2 PUSHINT                   //  t1 t2 '35=2
+    $gTup GETGLOB               //  t1 t2 '38=2 g_gTup
+    SWAP                        //  t1 t2 g_gTup '38=2
     0 SETINDEX                  //  t1 t2 g_gTup
     $gTup SETGLOB               //  t1 t2
     x{} PUSHSLICE
     STRDUMP DROP                //  t1 t2
-    1 PUSHINT                   //  t1 t2 '36=1
+    1 PUSHINT                   //  t1 t2 '40=1
     2 PUSHINT                   //  t1 t2 g_gTens.0=1 g_gTens.1=2
     2 TUPLE
     $gTens SETGLOB              //  t1 t2

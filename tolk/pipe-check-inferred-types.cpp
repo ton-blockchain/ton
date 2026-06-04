@@ -117,8 +117,9 @@ static void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_
   int n_min_params = n_max_params;
   while (n_min_params) {
     const LocalVarData& param_i = called_f->get_param(n_min_params - 1);
+    bool is_static_self_param = n_min_params == 1 && called_f->does_accept_self() && !self_obj;
     // by analogy with `void` fields (that can be missed out of a literal), `void` parameters may be omitted
-    bool allow_missing = param_i.has_default_value() || param_i.declared_type == TypeDataVoid::create();
+    bool allow_missing = !is_static_self_param && (param_i.has_default_value() || param_i.declared_type == TypeDataVoid::create());
     if (!allow_missing) {
       break;
     }
@@ -580,7 +581,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_return_value());
 
     if (cur_f->does_return_self()) {
-      if (!is_expr_valid_as_return_self(v->get_return_value())) {
+      if (!is_expr_valid_as_return_self(cur_f, v->get_return_value())) {
         err("invalid return from `self` function").collect(v, cur_f);
       }
       return;
@@ -592,18 +593,18 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     }
   }
 
-  static bool is_expr_valid_as_return_self(AnyExprV return_expr) {
+  static bool is_expr_valid_as_return_self(FunctionPtr cur_f, AnyExprV return_expr) {
     // `return self`
-    if (return_expr->kind == ast_reference && return_expr->as<ast_reference>()->get_name() == "self") {
-      return true;
+    if (auto v_ref = return_expr->try_as<ast_reference>()) {
+      return v_ref->sym == &cur_f->parameters[0];
     }
     // `return self.someMethod()`
     if (auto v_call = return_expr->try_as<ast_function_call>(); v_call && v_call->get_self_obj()) {
-      return v_call->fun_maybe && v_call->fun_maybe->does_return_self() && is_expr_valid_as_return_self(v_call->get_self_obj());
+      return v_call->fun_maybe && v_call->fun_maybe->does_return_self() && is_expr_valid_as_return_self(cur_f, v_call->get_self_obj());
     }
     // `return cond ? ... : ...`
     if (auto v_ternary = return_expr->try_as<ast_ternary_operator>()) {
-      return is_expr_valid_as_return_self(v_ternary->get_when_true()) && is_expr_valid_as_return_self(v_ternary->get_when_false());
+      return is_expr_valid_as_return_self(cur_f, v_ternary->get_when_true()) && is_expr_valid_as_return_self(cur_f, v_ternary->get_when_false());
     }
     return false;
   }

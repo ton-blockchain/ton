@@ -39,8 +39,8 @@ fun errCallMethodNotSelf() {
 }
 
 // @stderr can not assign `coins` to `slice`
-// @stderr ton("0.04")
-fun invalidInDefault(x: slice = ton("0.04")) {
+// @stderr grams("0.04")
+fun invalidInDefault(x: slice = grams("0.04")) {
 }
 
 // @stderr can not pass `(Point) -> (int, int)` to `slice`

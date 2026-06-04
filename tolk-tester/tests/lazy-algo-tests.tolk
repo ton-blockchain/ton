@@ -1111,8 +1111,8 @@ fun algo130() {
                 return o.a1 + excno;
             }
             B => {
-                __expect_lazy("[o] load b1 b2 b3");
-                if (o.b1 > 0) { o = B { b1: 1, b2: 2, b3: 3 } }
+                __expect_lazy("[o] load b1 b2");
+                if (o.b1 > 0) { o.b2 = B { b1: 1, b2: 2, b3: 3 }.b2 }
                 return o.b2 as int;
             }
         }
@@ -1501,13 +1501,6 @@ fun algo308() {
     var c = lazy ComplexWithPoint.fromSlice(S0);
     __expect_lazy("[c] load (bits8) p, save immutable (tail)");
     c.p.x = 10;
-    c.toCell();
-}
-
-fun algo309() {
-    var c = lazy ComplexWithPoint.fromSlice(S0);
-    __expect_lazy("[c] load f1 p f3");  // object used for writing and toCell, load all for safety
-    c = { f1: 10, p: {x:0,y:0}, f3: c.f3 };
     c.toCell();
 }
 

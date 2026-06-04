@@ -350,6 +350,33 @@ fun testMultipleCallsInline(f1: bool, f2: bool) {
   );
 }
 
+@method_id(120)
+fun testAssertWithTooBigThrow(x: int) {
+  assert (x != 0) throw 100500;
+  return true;
+}
+
+@inline
+fun chooseInlineReturnInsideTry(flag: int): int {
+  __expect_inline(false);   // inlining deferred to Fift due to returns in the middle
+  try {
+    if (flag == 1) {
+      return 10;
+    }
+    if (flag == 2) {
+      throw 7;
+    }
+  } catch {
+    return 20;
+  }
+  return 30;
+}
+
+@method_id(121)
+fun testInlineReturnInsideTry(flag: int): int {
+  return chooseInlineReturnInsideTry(flag);
+}
+
 
 
 fun main() {
@@ -394,8 +421,12 @@ fun main() {
 @testcase | 118 | 0     | 4
 @testcase | 118 | 5     | 9
 @testcase | 119 | 0 -1  | 10 77
+@testcase | 120 | 3     | -1
+@testcase | 121 | 1     | 10
+@testcase | 121 | 2     | 20
+@testcase | 121 | 3     | 30
 
-@code_hash 34012631818098475279658441364753721171324163142039669737611375109698815455069
+@code_hash 17473387520586690375058520669959417766875699647034456359443028989383748791753
 
 @fif_codegen
 """
@@ -458,9 +489,32 @@ CONT:<{
 
 @fif_codegen
 """
+  chooseInlineReturnInsideTry() PROCINLINE:<{
+    ...
+          10 PUSHINT
+          RETALT
+    ...
+      30 PUSHINT
+    ...
+  }>
+"""
+
+@fif_codegen
+"""
 foo_inline() PROCINLINE:<{
   CONT:<{
     c2 SAVE
     SAMEALTSAVE
+"""
+
+@fif_codegen
+"""
+  testAssertWithTooBigThrow() PROC:<{   //  x
+    IFNOTJMP:<{                 //
+      100500 PUSHINT            //  '3=100500
+      THROWANY
+    }>                          //
+    TRUE                        //  '4
+  }>
 """
 */

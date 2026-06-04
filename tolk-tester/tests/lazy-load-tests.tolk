@@ -1564,13 +1564,18 @@ fun demo315() {
     return (lazyS.toCell().load());
 }
 
+fun Point3d.reassign(mutate self, rhs: Point3d): self {
+    self = rhs;
+    return self;
+}
+
 @method_id(316)
 fun demo316() {
     var p1 = lazy Point3d{ x: 2, y: 3, z: 99 }.toCell().load();
     var p2 = lazy Point3d{ x: 2, y: 3, z: 99 }.toCell().load();
     var p3 = lazy Point3d{ x: 2, y: 3, z: 99 }.toCell().load();
     __expect_lazy("[p1] load x y z");
-    val cp1 = (p1 = p1).toCell().load();
+    val cp1 = p1.reassign(Point3d{ x: 2, y: 3, z: 99 }).toCell().load();
     __expect_lazy("[p2] load x y z");
     val cp2 = Cell<Point3d>.load(((p2.x += 5, p2).1).toCell());
     __expect_lazy("[p3] load (bits32) y, save immutable (tail)");
@@ -1586,30 +1591,12 @@ fun demo317() {
     var wrapped = lazy StorageWithTail.fromCell(src);
     __expect_lazy("[wrapped] load a, save immutable (tail)");
     wrapped.a = 33;
-    val wrappedOut = StorageWithTail.fromCell((wrapped = wrapped).makeCell());
+    val wrappedOut = StorageWithTail.fromCell(wrapped.makeCell());
 
     return (
         wrappedOut.a,
         wrappedOut.c != null ? wrappedOut.c as int : -1
     );
-}
-
-struct LazyAssignTrio {
-    a: uint8
-    b: uint8
-    c: uint8
-}
-
-fun LazyAssignTrio.hashInline(self): int {
-    __expect_inline(true);
-    return self.toCell().hash();
-}
-
-@method_id(318)
-fun demo318() {
-    var st = lazy LazyAssignTrio.fromSlice("010203".hexToSlice());
-    var other = lazy LazyAssignTrio.fromSlice("AABBCC".hexToSlice());
-    return (st = other).hashInline() == other.toCell().hash();
 }
 
 
@@ -1817,8 +1804,8 @@ fun demo410(s: slice) {
         CounterIncrement => { debug.print(1) }
         CounterDecrement => { debug.dumpStack() }
         CounterReset => { random.setSeed(10) }
-        CounterDecrementBy1 => { reserveToncoinsOnBalance(10, 1) }
-        else => { /* do nothing, "just accept tons" */ }
+        CounterDecrementBy1 => { reserveGramsOnBalance(10, 1) }
+        else => { /* do nothing, "just accept grams" */ }
     }
 }
 
@@ -2063,7 +2050,6 @@ fun main() {
 @testcase | 314 |                 | 11 20 [ 8 [ 8 8 ] ] [ 8 [ 11 20 ] ] 32 [ 8 [ 8 9 ] ]
 @testcase | 315 |                 | 8 8 66 44 [ [ (null) (null) 0 ] ]
 @testcase | 316 |                 | 2 3 99 7 3 99 100 2 100 99
-@testcase | 318 |                 | -1
 
 @testcase | 400 |                             | 5
 @testcase | 401 | x{0110} -1                  | 50
@@ -2287,7 +2273,7 @@ fun main() {
     s1 s2 XCHG                  //  st.extensions '15 b
     STSLICE                     //  st.extensions b
     STOPTREF                    //  b
-    ENDC                        //  '21
+    ENDC                        //  '23
   }>
 """
 

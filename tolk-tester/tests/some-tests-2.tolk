@@ -152,11 +152,11 @@ fun test96(p: Point) {
   test95() PROC:<{
     ...
     $next GETGLOB	//  g_next
-    3 PUSHINT	    //  g_next '12=3
-    4 PUSHINT	    //  g_next '12=3 '13=4
-    5 PUSHINT	    //  g_next '12=3 '13=4 '14=5
-    3 TUPLE	        //  g_cur g_next
-    SWAP            //  g_next g_cur
+    3 PUSHINT	    //  g_next '14=3
+    4 PUSHINT	    //  g_next '14=3 '15=4
+    5 PUSHINT	    //  g_next '14=3 '15=4 '16=5
+    3 TUPLE	        //  g_cur '18
+    SWAP            //  '18 g_cur
     $cur SETGLOB    //  g_next
     $next SETGLOB   //
     $cur GETGLOB    //  g_cur

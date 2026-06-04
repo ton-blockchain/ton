@@ -21,6 +21,19 @@ fun int.incAndReturn(mutate self): self {
     return self;
 }
 
+type PairShape = [int, int];
+
+fun PairShape.incFirst(mutate self): self {
+    self.0 += 1;
+    return self;
+}
+
+fun PairShape.addFirstAndOther(mutate self, mutate other: int): self {
+    self.0 += 10;
+    other += 100;
+    return self;
+}
+
 // @stderr can not borrow `x001` for mutation once again, it is already being mutated by `int.add`
 // @stderr hint: split a complex expression into several simple ones
 fun errCantBorrow1() {
@@ -81,6 +94,12 @@ fun errCantBorrowChainedReceiverAndMutate() {
     x004.incAndReturn().incSelfWithOther(mutate x004);
 }
 
+// @stderr can not borrow `box.0.0` for mutation, because `box.0` is already being mutated by `PairShape.addFirstAndOther`
+fun errCantBorrowStaticQualifiedChainedReceiverAndMutate() {
+    var box: [PairShape] = [[1, 2]];
+    PairShape.incFirst(mutate box.0).addFirstAndOther(mutate box.0.0);
+}
+
 global d13: Demo;
 
 // @stderr can not borrow `d13` for mutation once again, it is already being mutated by `Demo.assignB`
@@ -119,7 +138,8 @@ fun mutateOverlapping(mutate x: int, mutate p: (int, int)): void {
     p = (3, 4);
 }
 
-// @stderr can not borrow `a19` for mutation once again, it is already being mutated by `mutateOverlapping`
+// @stderr can not mutate a temporary expression
+// @stderr mutateOverlapping(mutate a19, mutate (((a19, b19))))
 fun errCantBorrowInsideTensor(): (int, int) {
     var a19 = 10;
     var b19 = 20;
