@@ -385,9 +385,6 @@ class OverlayImpl : public Overlay {
 
   bool can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size, td::uint32 flags);
   BroadcastsLimiter &get_broadcasts_limiter(PublicKeyHash source, const Certificate *certificate);
-  std::vector<PublicKeyHash> get_authorized_broadcast_sources() const {
-    return rules_.get_authorized_keys();
-  }
   void relax_plumtree_alarm(td::Timestamp at) {
     alarm_timestamp().relax(at);
   }

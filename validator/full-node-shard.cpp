@@ -132,7 +132,7 @@ void FullNodeShardImpl::create_overlay() {
   opts.name_ = "shard" + shard_.to_str();
   opts.announce_self_ = active_;
   opts.broadcast_speed_multiplier_ = opts_.public_broadcast_speed_multiplier_;
-  opts.enable_plumtree_broadcast_ = opts_.public_broadcast_mode_ != FullNodeOptions::PublicBroadcastMode::Fec;
+  opts.enable_plumtree_broadcast_ = opts_.public_broadcast_mode_ & FullNodeOptions::PublicBroadcastMode::Plumtree;
   opts.plumtree_broadcast_sender_ = opts.enable_plumtree_broadcast_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_}
                                                                     : td::actor::ActorId<adnl::AdnlSenderEx>{};
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
@@ -1000,26 +1000,7 @@ void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno 
     UNREACHABLE();
     return;
   }
-  auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
-                                               k_called_from_public);  // compression enabled
-  if (B.is_error()) {
-    VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
-    return;
-  }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate: " << block_id;
-  auto payload = B.move_as_ok();
-  auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
-                          overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
-}
-
-void FullNodeShardImpl::send_block_candidate_plumtree(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                      td::uint32 validator_set_hash, td::BufferSlice data) {
-  if (!client_.empty()) {
-    UNREACHABLE();
-    return;
-  }
-  if (opts_.public_broadcast_mode_ == FullNodeOptions::PublicBroadcastMode::Fec) {
+  if (!(opts_.public_broadcast_mode_ & FullNodeOptions::PublicBroadcastMode::Plumtree)) {
     return;
   }
   auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
@@ -1041,6 +1022,9 @@ void FullNodeShardImpl::send_block_candidate_plumtree(BlockIdExt block_id, Catch
 void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
   if (!client_.empty()) {
     UNREACHABLE();
+    return;
+  }
+  if (!(opts_.public_broadcast_mode_ & FullNodeOptions::PublicBroadcastMode::Fec)) {
     return;
   }
   VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id;

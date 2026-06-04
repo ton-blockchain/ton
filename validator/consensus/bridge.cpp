@@ -10,6 +10,7 @@
 #include "ton/ton-io.hpp"
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
+#include "validator/full-node.h"
 #include "validator/validator-group.hpp"
 
 namespace ton::validator {
@@ -172,6 +173,28 @@ class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::C
   }
 };
 
+class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
+    stop();
+  }
+
+  template <>
+  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
+    if (event->candidate->is_empty()) {
+      return;
+    }
+
+    int mode = fullnode::FullNode::broadcast_mode_public;
+    const auto& block = std::get<BlockCandidate>(event->candidate->block);
+    td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, block.id, block.data.clone(),
+                            mode);
+  }
+};
+
 struct BridgeCreationParams {
   std::string name;
   bool is_create_session_called;
@@ -325,6 +348,7 @@ class BridgeImpl final : public IValidatorGroup {
       runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
     }
 
+    runtime.register_actor<CandidateBroadcastRelay>("CandidateBroadcastRelay");
     if (params_.config.enable_observers) {
       BlockSyncOverlay::register_in(runtime);
     }

@@ -5960,7 +5960,7 @@ int main(int argc, char *argv[]) {
                  public_broadcast_plumtree_only = true;
                  acts.push_back([&x]() {
                    td::actor::send_closure(x, &ValidatorEngine::set_public_broadcast_mode,
-                                           PublicBroadcastMode::PlumtreeOnly);
+                                           PublicBroadcastMode::Plumtree);
                  });
                });
   p.add_option('\0', "public-broadcast-dual",
@@ -5968,7 +5968,7 @@ int main(int argc, char *argv[]) {
                  public_broadcast_dual = true;
                  acts.push_back([&x]() {
                    td::actor::send_closure(x, &ValidatorEngine::set_public_broadcast_mode,
-                                           PublicBroadcastMode::Dual);
+                                           PublicBroadcastMode::Fec | PublicBroadcastMode::Plumtree);
                  });
                });
   p.add_checked_option(

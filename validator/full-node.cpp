@@ -362,30 +362,14 @@ void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_se
     }
   }
   if (mode & broadcast_mode_public) {
-    bool send_public_fec = true;
-    bool send_public_plumtree = false;
-    switch (opts_.public_broadcast_mode_) {
-      case FullNodeOptions::PublicBroadcastMode::Fec:
-        break;
-      case FullNodeOptions::PublicBroadcastMode::PlumtreeOnly:
-        send_public_fec = false;
-        send_public_plumtree = true;
-        break;
-      case FullNodeOptions::PublicBroadcastMode::Dual:
-        send_public_plumtree = true;
-        break;
-    }
-    if (send_public_fec) {
+    if (opts_.public_broadcast_mode_ & FullNodeOptions::PublicBroadcastMode::Plumtree) {
       auto shard = get_shard(block_id.shard_full());
       if (shard.empty()) {
-        VLOG(FULL_NODE_WARNING) << "dropping OUT block candidate message to unknown shard";
+        VLOG(FULL_NODE_WARNING) << "dropping OUT Plumtree block candidate message to unknown shard";
       } else {
         td::actor::send_closure(shard, &FullNodeShard::send_block_candidate, block_id, cc_seqno, validator_set_hash,
-                                data.clone());
+                                std::move(data));
       }
-    }
-    if (send_public_plumtree) {
-      send_block_candidate_to_public_plumtree(block_id, cc_seqno, validator_set_hash, data);
     }
   }
 }
@@ -409,6 +393,9 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
     }
   }
   if (mode & broadcast_mode_public) {
+    if (!(opts_.public_broadcast_mode_ & FullNodeOptions::PublicBroadcastMode::Fec)) {
+      return;
+    }
     auto shard = get_shard(broadcast.block_id.shard_full());
     if (shard.empty()) {
       VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
@@ -641,7 +628,6 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signat
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::uint32 validator_set_hash, td::BufferSlice data) {
   send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
-  send_block_candidate_to_public_plumtree(block_id, cc_seqno, validator_set_hash, data);
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id, cc_seqno,
                  std::move(data))
       .detach();
@@ -848,25 +834,6 @@ void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(const Block
       }
     }
   }
-}
-
-void FullNodeImpl::send_block_candidate_to_public_plumtree(const BlockIdExt &block_id, CatchainSeqno cc_seqno,
-                                                           td::uint32 validator_set_hash,
-                                                           const td::BufferSlice &data) {
-  if (opts_.public_broadcast_mode_ == FullNodeOptions::PublicBroadcastMode::Fec) {
-    return;
-  }
-  if (public_plumtree_sent_candidates_.contains(block_id)) {
-    return;
-  }
-  auto shard = get_shard(block_id.shard_full());
-  if (shard.empty()) {
-    VLOG(FULL_NODE_WARNING) << "dropping OUT Plumtree block candidate message to unknown shard";
-    return;
-  }
-  public_plumtree_sent_candidates_.put(block_id, {});
-  td::actor::send_closure(shard, &FullNodeShard::send_block_candidate_plumtree, block_id, cc_seqno, validator_set_hash,
-                          data.clone());
 }
 
 void FullNodeImpl::send_shard_block_info_to_custom_overlays(BlockIdExt block_id, CatchainSeqno cc_seqno,
