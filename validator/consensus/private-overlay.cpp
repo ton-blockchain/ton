@@ -117,7 +117,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
-    if (owning_bus()->config.enable_observers) {
+    if (owning_bus()->config.enable_block_observers) {
       return;
     }
 
@@ -175,8 +175,9 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     if (src == local_id_.short_id) {
       return;
     }
-    if (owning_bus()->config.enable_observers) {
-      LOG(WARNING) << "Dropping candidate broadcast from " << src << " in private overlay: enable_observers is set";
+    if (owning_bus()->config.enable_block_observers) {
+      LOG(WARNING) << "Dropping candidate broadcast from " << src
+                   << " in private overlay: enable_block_observers is set";
       return;
     }
 
@@ -198,7 +199,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
-    if (owning_bus()->config.enable_observers) {
+    if (owning_bus()->config.enable_block_observers) {
       co_return td::Status::Error("Precheck failed: candidate broadcasts in private overlay are disabled");
     }
     auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true);
