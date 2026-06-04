@@ -152,7 +152,9 @@ fun test10() {
 fun test11() {
     var (r1, r2) = (-1 as Role, -1 as Role);
     val before = (r1 == Role.Admin, r2 == Role.Admin);
-    (r1, r2).decode(stringHexToSlice("0001"));
+    var roles = (r1, r2);
+    roles.decode(stringHexToSlice("0001"));
+    (r1, r2) = roles;
     return (before, r1, r2, r1 == Role.Admin, r2 == Role.Admin, r1 == Role.User, r2 == Role.User)
 }
 
