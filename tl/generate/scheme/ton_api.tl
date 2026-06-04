@@ -427,7 +427,6 @@ tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_ha
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.SignatureSet flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
-tonNode.blockBroadcastCompressedV2NoSig id:tonNode.blockIdExt cc_seqno:int flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
 tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;

@@ -12,44 +12,20 @@
 #include "validator/fabric.h"
 #include "validator/validator-group.hpp"
 
-#include <limits>
-
 namespace ton::validator {
 
 namespace consensus {
 
 namespace {
 
-ValidatorGroupLocalIndex get_validator_group_local_index(td::Ref<block::ValidatorSet> validator_set,
-                                                         PublicKeyHash local_id) {
-  ValidatorGroupLocalIndex result;
-  if (validator_set.is_null() || local_id.is_zero()) {
-    return result;
-  }
-  auto validators = validator_set->export_vector();
-  if (validators.size() > std::numeric_limits<td::uint32>::max()) {
-    return result;
-  }
-  for (std::size_t i = 0; i < validators.size(); ++i) {
-    PublicKey key{pubkeys::Ed25519{validators[i].key}};
-    if (key.compute_short_id() == local_id) {
-      result.local_validator_index = static_cast<td::uint32>(i);
-      result.validator_count = static_cast<td::uint32>(validators.size());
-      return result;
-    }
-  }
-  return result;
-}
-
 class ManagerFacadeImpl : public ManagerFacade {
  public:
   ManagerFacadeImpl(td::actor::ActorId<ValidatorManager> manager,
                     td::actor::ActorId<CollationManager> collation_manager, td::Ref<block::ValidatorSet> validator_set,
-                    PublicKeyHash local_id, td::Ref<ValidatorManagerOptions> opts)
+                    td::Ref<ValidatorManagerOptions> opts)
       : manager_(manager)
       , collation_manager_(collation_manager)
       , validator_set_(std::move(validator_set))
-      , validator_group_index_(get_validator_group_local_index(validator_set_, local_id))
       , opts_(std::move(opts)) {
   }
 
@@ -78,8 +54,8 @@ class ManagerFacadeImpl : public ManagerFacade {
                                  bool apply) override {
     while (true) {
       auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-      run_accept_block_query(id, data, {}, validator_set_, validator_group_index_, signatures, send_broadcast_mode,
-                             apply, manager_, std::move(promise));
+      run_accept_block_query(id, data, {}, validator_set_, signatures, send_broadcast_mode, apply, manager_,
+                             std::move(promise));
       auto result = co_await std::move(task).wrap();
       if (result.is_ok() || result.error().code() == ErrorCode::cancelled) {
         break;
@@ -122,7 +98,6 @@ class ManagerFacadeImpl : public ManagerFacade {
   td::actor::ActorId<ValidatorManager> manager_;
   td::actor::ActorId<CollationManager> collation_manager_;
   td::Ref<block::ValidatorSet> validator_set_;
-  ValidatorGroupLocalIndex validator_group_index_;
   td::Ref<ValidatorManagerOptions> opts_;
 };
 
@@ -267,7 +242,7 @@ class BridgeImpl final : public IValidatorGroup {
   void start_up() override {
     manager_facade_ = td::actor::create_actor<ManagerFacadeImpl>(params_.name + ".ManagerFacade", params_.manager,
                                                                  params_.collation_manager, params_.validator_set,
-                                                                 params_.local_id, params_.validator_opts);
+                                                                 params_.validator_opts);
 
     auto bus = std::make_shared<simplex::Bus>();
 

@@ -69,19 +69,12 @@ namespace {
 
 using namespace ton::overlay::plumtree_sim;
 
-enum class BroadcastMode { MultiSourceShardchain, SingleSourceMasterchain };
-enum class SingleSourceSelection { Fixed, Random };
-
 struct Settings {
   bool smoke = false;
   bool rebroadcasting_only = false;
-  BroadcastMode mode = BroadcastMode::MultiSourceShardchain;
-  SingleSourceSelection single_source_selection = SingleSourceSelection::Fixed;
   std::string graph_path;
   std::size_t limit = 0;
   std::size_t payload_bytes = 32768;
-  td::uint32 shard_count = 0;
-  std::size_t source_index = 0;
   td::uint32 plumtree_neighbours = 20;
   double geo_fallback_latency_ms = 75.0;
   double max_latency_ms = 1000.0;
@@ -172,67 +165,6 @@ std::size_t count_true(const std::vector<bool> &values) {
   return static_cast<std::size_t>(std::count(values.begin(), values.end(), true));
 }
 
-bool is_single_source_mode(BroadcastMode mode) {
-  return mode == BroadcastMode::SingleSourceMasterchain;
-}
-
-td::Result<BroadcastMode> parse_broadcast_mode(td::Slice value) {
-  if (value == "shardchain" || value == "multi-source") {
-    return BroadcastMode::MultiSourceShardchain;
-  }
-  if (value == "masterchain" || value == "single-source") {
-    return BroadcastMode::SingleSourceMasterchain;
-  }
-  return td::Status::Error(PSTRING() << "unknown mode: " << value);
-}
-
-const char *broadcast_mode_name(BroadcastMode mode) {
-  return is_single_source_mode(mode) ? "single-source-masterchain" : "multi-source-shardchain";
-}
-
-td::Result<SingleSourceSelection> parse_single_source_selection(td::Slice value) {
-  if (value == "fixed") {
-    return SingleSourceSelection::Fixed;
-  }
-  if (value == "random") {
-    return SingleSourceSelection::Random;
-  }
-  return td::Status::Error(PSTRING() << "unknown single-source selection: " << value);
-}
-
-const char *single_source_selection_name(SingleSourceSelection selection) {
-  return selection == SingleSourceSelection::Random ? "random" : "fixed";
-}
-
-td::uint64 splitmix64(td::uint64 &state) {
-  td::uint64 z = (state += 0x9e3779b97f4a7c15ULL);
-  z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ULL;
-  z = (z ^ (z >> 27)) * 0x94d049bb133111ebULL;
-  return z ^ (z >> 31);
-}
-
-std::vector<std::size_t> build_single_source_order(std::size_t validator_count, td::uint64 seed) {
-  std::vector<std::size_t> order(validator_count);
-  for (std::size_t i = 0; i < validator_count; ++i) {
-    order[i] = i;
-  }
-  td::uint64 state = seed ^ 0xa931e4576c2f9a4dULL;
-  for (std::size_t i = order.size(); i > 1; --i) {
-    auto j = static_cast<std::size_t>(splitmix64(state) % i);
-    std::swap(order[i - 1], order[j]);
-  }
-  return order;
-}
-
-std::size_t choose_single_source_index(const Settings &settings, const std::vector<std::size_t> &random_order,
-                                       td::uint32 broadcast_index) {
-  if (settings.single_source_selection == SingleSourceSelection::Fixed) {
-    return settings.source_index;
-  }
-  CHECK(!random_order.empty());
-  return random_order[broadcast_index % random_order.size()];
-}
-
 std::string format_ms(double value) {
   if (value < 0.0) {
     return "-";
@@ -261,7 +193,7 @@ std::string format_bytes(double bytes) {
 
 void print_table_header() {
   std::cout << std::right << std::setw(4) << "#"
-            << " " << std::setw(5) << "src"
+            << " " << std::setw(5) << "srcs"
             << " " << std::setw(11) << "delivered"
             << " " << std::setw(8) << "p90"
             << " " << std::setw(8) << "p95"
@@ -280,14 +212,7 @@ void print_usage() {
   std::cout << "Usage: plumtree-graph-sim [--smoke | --graph PATH] [options]\n"
                "  --limit N                 Use first N graph nodes\n"
                "  --rebroadcasting-only     Use only public graph peers observed as FEC/rebroadcasting nodes\n"
-               "  --mode MODE               shardchain/multi-source or masterchain/single-source (default shardchain)\n"
-               "  --single-source           Alias for --mode masterchain\n"
-               "  --single-source-selection MODE  fixed or random validator source per broadcast (default fixed)\n"
-               "  --single-source-fixed     Alias for --single-source-selection fixed\n"
-               "  --single-source-random    Alias for --single-source-selection random\n"
                "  --payload-bytes N         Broadcast payload size (default 32768)\n"
-               "  --shard-count N           Number of validator senders (default min(23, validators))\n"
-               "  --source-index N          Validator index used by single-source mode (default 0)\n"
                "  --plumtree-neighbours N   Plumtree active neighbour target (default 20)\n"
                "  --geo-fallback-latency-ms N  One-way ms used when a graph node has no geo (default 75)\n"
                "  --max-latency-ms N        Max geo one-way latency before jitter (default 1000)\n"
@@ -314,22 +239,6 @@ td::Result<Settings> parse_args(int argc, char **argv) {
       std::_Exit(0);
     } else if (arg == "--smoke") {
       settings.smoke = true;
-    } else if (arg == "--mode") {
-      TRY_RESULT(value, read_value(arg));
-      TRY_RESULT(mode, parse_broadcast_mode(value));
-      settings.mode = mode;
-    } else if (arg == "--single-source" || arg == "--masterchain") {
-      settings.mode = BroadcastMode::SingleSourceMasterchain;
-    } else if (arg == "--multi-source" || arg == "--shardchain") {
-      settings.mode = BroadcastMode::MultiSourceShardchain;
-    } else if (arg == "--single-source-selection") {
-      TRY_RESULT(value, read_value(arg));
-      TRY_RESULT(selection, parse_single_source_selection(value));
-      settings.single_source_selection = selection;
-    } else if (arg == "--single-source-fixed") {
-      settings.single_source_selection = SingleSourceSelection::Fixed;
-    } else if (arg == "--single-source-random") {
-      settings.single_source_selection = SingleSourceSelection::Random;
     } else if (arg == "--rebroadcasting-only" || arg == "--good-rebroadcasting-only") {
       settings.rebroadcasting_only = true;
     } else if (arg == "--graph") {
@@ -341,12 +250,6 @@ td::Result<Settings> parse_args(int argc, char **argv) {
     } else if (arg == "--payload-bytes") {
       TRY_RESULT(value, read_value(arg));
       settings.payload_bytes = static_cast<std::size_t>(std::stoull(value));
-    } else if (arg == "--shard-count") {
-      TRY_RESULT(value, read_value(arg));
-      settings.shard_count = static_cast<td::uint32>(std::stoul(value));
-    } else if (arg == "--source-index") {
-      TRY_RESULT(value, read_value(arg));
-      settings.source_index = static_cast<std::size_t>(std::stoull(value));
     } else if (arg == "--plumtree-neighbours") {
       TRY_RESULT(value, read_value(arg));
       settings.plumtree_neighbours = static_cast<td::uint32>(std::stoul(value));
@@ -420,18 +323,6 @@ int main(int argc, char **argv) {
       graph.nodes[i].is_validator = true;
     }
   }
-  auto shard_count = settings.shard_count == 0 ? static_cast<td::uint32>(std::min<std::size_t>(23, validators.size()))
-                                               : settings.shard_count;
-  if (!is_single_source_mode(settings.mode) && (shard_count == 0 || shard_count > validators.size())) {
-    std::cerr << "invalid shard-count=" << shard_count << ", validators=" << validators.size() << "\n";
-    return 2;
-  }
-  if (is_single_source_mode(settings.mode) && settings.single_source_selection == SingleSourceSelection::Fixed &&
-      settings.source_index >= validators.size()) {
-    std::cerr << "invalid source-index=" << settings.source_index << ", validators=" << validators.size() << "\n";
-    return 2;
-  }
-
   std::string db_root = PSTRING() << "tmp-dir-plumtree-graph-sim-" << settings.seed << "-" << getpid();
   td::rmrf(db_root).ignore();
   td::mkdir(db_root).ensure();
@@ -497,27 +388,13 @@ int main(int argc, char **argv) {
   auto overlay_id_short = overlay_id.compute_short_id();
   auto out_neighbours = build_out_neighbours(graph, settings.plumtree_neighbours);
   auto known_peers = build_known_peers_by_node(out_neighbours);
-  auto single_source_order = build_single_source_order(validators.size(), settings.seed);
-  std::vector<std::size_t> multi_source_roots;
-  if (!is_single_source_mode(settings.mode)) {
-    multi_source_roots.reserve(shard_count);
-    for (td::uint32 local_index = 0; local_index < shard_count; ++local_index) {
-      multi_source_roots.push_back(validators[local_index]);
-    }
+  std::vector<std::size_t> validator_roots;
+  validator_roots.reserve(validators.size());
+  for (auto node_index : validators) {
+    validator_roots.push_back(node_index);
   }
-  auto multi_source_expected_delivery = reachable_nodes(out_neighbours, multi_source_roots);
-  auto single_source_expected_delivery = [&](std::size_t source_index) {
-    return reachable_nodes(out_neighbours, std::vector<std::size_t>{validators[source_index]});
-  };
-  auto expected_varies =
-      is_single_source_mode(settings.mode) && settings.single_source_selection == SingleSourceSelection::Random;
-  std::size_t static_expected_delivered = 0;
-  if (!expected_varies) {
-    auto static_expected_delivery = is_single_source_mode(settings.mode)
-                                        ? single_source_expected_delivery(settings.source_index)
-                                        : multi_source_expected_delivery;
-    static_expected_delivered = count_true(static_expected_delivery);
-  }
+  auto expected_delivery = reachable_nodes(out_neighbours, validator_roots);
+  auto expected_delivered = count_true(expected_delivery);
 
   ton::overlay::OverlayOptions opts;
   opts.enable_plumtree_broadcast_ = true;
@@ -525,11 +402,6 @@ int main(int argc, char **argv) {
   opts.max_neighbours_ = 5;
   opts.plumtree_fec_options_.k_ = 30;
   opts.plumtree_fec_options_.parts_ = 60;
-  opts.plumtree_fec_options_.shardchain_tree_slots_ = 500;
-  opts.plumtree_fec_options_.masterchain_tree_slots_ = 100;
-  opts.plumtree_fec_options_.tree_slots_ = is_single_source_mode(settings.mode)
-                                               ? opts.plumtree_fec_options_.masterchain_tree_slots_
-                                               : opts.plumtree_fec_options_.shardchain_tree_slots_;
   opts.plumtree_fec_options_.eager_limit_ = 6;
   opts.plumtree_fec_options_.active_neighbours_ = settings.plumtree_neighbours;
   opts.plumtree_fec_options_.repair_timeout_ms_ = 100;
@@ -593,38 +465,15 @@ int main(int argc, char **argv) {
   const double max_time_s = settings.max_time_ms / 1000.0;
   double sim_time_s = 0.0;
   bool all_expected_delivered = true;
-  std::cout << "Plumtree graph simulation: mode=" << broadcast_mode_name(settings.mode)
-            << ", nodes=" << graph.nodes.size() << ", validators=" << validators.size();
-  if (is_single_source_mode(settings.mode)) {
-    std::cout << ", source-selection=" << single_source_selection_name(settings.single_source_selection);
-    if (settings.single_source_selection == SingleSourceSelection::Fixed) {
-      std::cout << ", source=" << settings.source_index;
-    }
-  } else {
-    std::cout << ", shard=" << shard_count;
-  }
-  std::cout << ", tree_slots=" << opts.plumtree_fec_options_.tree_slots_;
-  if (expected_varies) {
-    std::cout << ", expected=per-source";
-  } else {
-    std::cout << ", expected=" << static_expected_delivered
-              << ", unreachable=" << (graph.nodes.size() - static_expected_delivered);
-  }
+  std::cout << "Plumtree graph simulation: all-validator, nodes=" << graph.nodes.size()
+            << ", validators=" << validators.size() << ", senders=" << validators.size()
+            << ", tree_slots=" << opts.plumtree_fec_options_.tree_slots_ << ", expected=" << expected_delivered
+            << ", unreachable=" << (graph.nodes.size() - expected_delivered);
   std::cout << ", broadcasts=" << settings.broadcast_count
             << ", payload=" << format_bytes(static_cast<double>(settings.payload_bytes)) << "\n";
   print_table_header();
   std::cout.flush();
   for (td::uint32 broadcast_index = 0; broadcast_index < settings.broadcast_count; ++broadcast_index) {
-    std::size_t source_index = 0;
-    std::vector<bool> expected_delivery;
-    if (is_single_source_mode(settings.mode)) {
-      source_index = choose_single_source_index(settings, single_source_order, broadcast_index);
-      expected_delivery = single_source_expected_delivery(source_index);
-    } else {
-      expected_delivery = multi_source_expected_delivery;
-    }
-    auto expected_delivered = count_true(expected_delivery);
-
     td::BufferSlice payload(settings.payload_bytes);
     fill_payload(payload.as_slice(), settings.seed + static_cast<td::uint64>(broadcast_index) * 0x9e3779b97f4a7c15ULL);
     auto payload_hash = td::sha256_bits256(payload.as_slice());
@@ -637,19 +486,12 @@ int main(int argc, char **argv) {
     auto sent_by_node_before = network->sent_bytes_by_node_snapshot();
 
     scheduler.run_in_context([&] {
-      if (is_single_source_mode(settings.mode)) {
-        auto node_index = validators[source_index];
+      for (std::size_t local_index = 0; local_index < validators.size(); ++local_index) {
+        auto node_index = validators[local_index];
         td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::send_broadcast_plumtree,
                                 nodes[node_index].adnl_id, overlay_id_short, nodes[node_index].validator_id,
-                                ton::overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
-      } else {
-        for (td::uint32 local_index = 0; local_index < shard_count; ++local_index) {
-          auto node_index = validators[local_index];
-          td::actor::send_closure(
-              overlay_manager, &ton::overlay::Overlays::send_broadcast_plumtree_multi, nodes[node_index].adnl_id,
-              overlay_id_short, nodes[node_index].validator_id, ton::overlay::Overlays::BroadcastFlagAnySender(),
-              local_index + 1 == shard_count ? std::move(payload) : payload.clone(), local_index, shard_count);
-        }
+                                ton::overlay::Overlays::BroadcastFlagAnySender(),
+                                local_index + 1 == validators.size() ? std::move(payload) : payload.clone());
       }
     });
     pump_scheduler(scheduler, 64);
@@ -696,11 +538,7 @@ int main(int argc, char **argv) {
     auto last_decoded_ms = percentile(std::move(delivery_ms), 1.00);
 
     std::cout << std::right << std::setw(4) << broadcast_index << " ";
-    if (is_single_source_mode(settings.mode)) {
-      std::cout << std::setw(5) << source_index;
-    } else {
-      std::cout << std::setw(5) << "-";
-    }
+    std::cout << std::setw(5) << validators.size();
     std::cout << " " << std::setw(5) << delivered << "/" << std::left << std::setw(5) << expected_delivered
               << std::right << " " << std::setw(8) << format_ms(p90_ms) << " " << std::setw(8) << format_ms(p95_ms)
               << " " << std::setw(8) << format_ms(p99_ms) << " " << std::setw(8) << format_ms(last_decoded_ms) << " "

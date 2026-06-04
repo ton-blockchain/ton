@@ -362,13 +362,31 @@ void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_se
     }
   }
   if (mode & broadcast_mode_public) {
-    auto shard = get_shard(ShardIdFull{masterchainId, shardIdAll});
-    if (shard.empty()) {
-      VLOG(FULL_NODE_WARNING) << "dropping OUT shard block info message to unknown shard";
-      return;
+    bool send_public_fec = true;
+    bool send_public_plumtree = false;
+    switch (opts_.public_broadcast_mode_) {
+      case FullNodeOptions::PublicBroadcastMode::Fec:
+        break;
+      case FullNodeOptions::PublicBroadcastMode::PlumtreeOnly:
+        send_public_fec = false;
+        send_public_plumtree = true;
+        break;
+      case FullNodeOptions::PublicBroadcastMode::Dual:
+        send_public_plumtree = true;
+        break;
     }
-    td::actor::send_closure(shard, &FullNodeShard::send_block_candidate, block_id, cc_seqno, validator_set_hash,
-                            std::move(data));
+    if (send_public_fec) {
+      auto shard = get_shard(block_id.shard_full());
+      if (shard.empty()) {
+        VLOG(FULL_NODE_WARNING) << "dropping OUT block candidate message to unknown shard";
+      } else {
+        td::actor::send_closure(shard, &FullNodeShard::send_block_candidate, block_id, cc_seqno, validator_set_hash,
+                                data.clone());
+      }
+    }
+    if (send_public_plumtree) {
+      send_block_candidate_to_public_plumtree(block_id, cc_seqno, validator_set_hash, data);
+    }
   }
 }
 
@@ -380,7 +398,7 @@ void FullNodeImpl::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBr
   }
 }
 
-void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode, ValidatorGroupLocalIndex validator_group_index) {
+void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
   if (mode & broadcast_mode_custom) {
     send_block_broadcast_to_custom_overlays(broadcast);
   }
@@ -390,29 +408,13 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode, ValidatorG
       td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_broadcast, broadcast.clone());
     }
   }
-  switch (opts_.public_broadcast_mode_) {
-    case FullNodeOptions::PublicBroadcastMode::Fec:
-      mode &= ~broadcast_mode_public_plumtree;
-      break;
-    case FullNodeOptions::PublicBroadcastMode::PlumtreeOnly:
-      mode &= ~broadcast_mode_public;
-      break;
-    case FullNodeOptions::PublicBroadcastMode::Dual:
-      break;
-  }
-  if (mode & (broadcast_mode_public | broadcast_mode_public_plumtree)) {
+  if (mode & broadcast_mode_public) {
     auto shard = get_shard(broadcast.block_id.shard_full());
     if (shard.empty()) {
       VLOG(FULL_NODE_WARNING) << "dropping OUT broadcast to unknown shard";
       return;
     }
-    if (mode & broadcast_mode_public) {
-      td::actor::send_closure(shard, &FullNodeShard::send_broadcast, broadcast.clone());
-    }
-    if (mode & broadcast_mode_public_plumtree) {
-      td::actor::send_closure(shard, &FullNodeShard::send_broadcast_plumtree, std::move(broadcast),
-                              validator_group_index);
-    }
+    td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
   }
 }
 
@@ -623,9 +625,7 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
 }
 
 void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked) {
-  if (broadcast.sig_set.not_null()) {
-    send_block_broadcast_to_custom_overlays(broadcast);
-  }
+  send_block_broadcast_to_custom_overlays(broadcast);
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
                           signatures_checked, [](td::Result<td::Unit> R) {
                             if (R.is_error()) {
@@ -641,6 +641,7 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signat
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::uint32 validator_set_hash, td::BufferSlice data) {
   send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
+  send_block_candidate_to_public_plumtree(block_id, cc_seqno, validator_set_hash, data);
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id, cc_seqno,
                  std::move(data))
       .detach();
@@ -717,8 +718,8 @@ void FullNodeImpl::start_up() {
     void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_out_msg_queue_proof_broadcast, std::move(broadcast));
     }
-    void send_broadcast(BlockBroadcast broadcast, int mode, ValidatorGroupLocalIndex validator_group_index) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), mode, validator_group_index);
+    void send_broadcast(BlockBroadcast broadcast, int mode) override {
+      td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), mode);
     }
     void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                         td::Promise<ReceivedBlock> promise) override {
@@ -847,6 +848,25 @@ void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(const Block
       }
     }
   }
+}
+
+void FullNodeImpl::send_block_candidate_to_public_plumtree(const BlockIdExt &block_id, CatchainSeqno cc_seqno,
+                                                           td::uint32 validator_set_hash,
+                                                           const td::BufferSlice &data) {
+  if (opts_.public_broadcast_mode_ == FullNodeOptions::PublicBroadcastMode::Fec) {
+    return;
+  }
+  if (public_plumtree_sent_candidates_.contains(block_id)) {
+    return;
+  }
+  auto shard = get_shard(block_id.shard_full());
+  if (shard.empty()) {
+    VLOG(FULL_NODE_WARNING) << "dropping OUT Plumtree block candidate message to unknown shard";
+    return;
+  }
+  public_plumtree_sent_candidates_.put(block_id, {});
+  td::actor::send_closure(shard, &FullNodeShard::send_block_candidate_plumtree, block_id, cc_seqno, validator_set_hash,
+                          data.clone());
 }
 
 void FullNodeImpl::send_shard_block_info_to_custom_overlays(BlockIdExt block_id, CatchainSeqno cc_seqno,

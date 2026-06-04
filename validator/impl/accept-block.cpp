@@ -39,16 +39,13 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<block::ValidatorSet> validator_set,
-                                   td::Ref<block::BlockSignatureSet> signatures,
-                                   ValidatorGroupLocalIndex validator_group_index,
-                                   int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
-                                   td::Promise<td::Unit> promise)
+                                   td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode, bool apply,
+                                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
     , prev_(std::move(prev))
     , validator_set_(std::move(validator_set))
     , signatures_(std::move(signatures))
-    , validator_group_index_(validator_group_index)
     , is_fake_(false)
     , is_fork_(false)
     , send_broadcast_mode_(send_broadcast_mode)
@@ -894,8 +891,7 @@ void AcceptBlockQuery::send_broadcasts() {
   }
 
   // do not wait for answer
-  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), send_broadcast_mode_,
-                                validator_group_index_);
+  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), send_broadcast_mode_);
 
   // Do this for shard blocks later:
   // td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id_,

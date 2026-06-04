@@ -117,14 +117,12 @@ td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
 }
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                            td::Ref<block::ValidatorSet> validator_set,
-                            ValidatorGroupLocalIndex validator_group_index,
-                            td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode, bool apply,
-                            td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
+                            td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
+                            int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
+                            td::Promise<td::Unit> promise) {
   td::actor::create_actor<AcceptBlockQuery>(PSTRING() << "accept" << (signatures.is_null() ? "-nosign" : "") << id.id,
                                             id, std::move(data), prev, std::move(validator_set), std::move(signatures),
-                                            validator_group_index, send_broadcast_mode, apply, manager,
-                                            std::move(promise))
+                                            send_broadcast_mode, apply, manager, std::move(promise))
       .release();
 }
 

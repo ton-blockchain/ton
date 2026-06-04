@@ -257,7 +257,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
     virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                       td::BufferSlice data, int mode) {
     }
-    virtual void send_broadcast(BlockBroadcast broadcast, int mode, ValidatorGroupLocalIndex validator_group_index) {
+    virtual void send_broadcast(BlockBroadcast broadcast, int mode) {
     }
     virtual void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats) {
     }

@@ -150,16 +150,10 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2NoSig &query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
   void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
-  void obtain_state_for_decompression_no_sig(PublicKeyHash src,
-                                             ton_api::tonNode_blockBroadcastCompressedV2NoSig query);
   void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
                                           td::Ref<ShardState> state);
-  void process_block_broadcast_with_state_no_sig(PublicKeyHash src,
-                                                 ton_api::tonNode_blockBroadcastCompressedV2NoSig query,
-                                                 td::Ref<ShardState> state);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_ihrMessageBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
@@ -185,8 +179,9 @@ class FullNodeShardImpl : public FullNodeShard {
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data) override;
+  void send_block_candidate_plumtree(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
+                                     td::BufferSlice data) override;
   void send_broadcast(BlockBroadcast broadcast) override;
-  void send_broadcast_plumtree(BlockBroadcast broadcast, ValidatorGroupLocalIndex validator_group_index) override;
 
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                       td::Promise<ReceivedBlock> promise) override;

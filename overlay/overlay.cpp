@@ -705,15 +705,6 @@ bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data
   return true;
 }
 
-void OverlayImpl::send_broadcast_plumtree_multi(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
-                                                td::uint32 local_validator_index, td::uint32 validator_count) {
-  if (!can_send_broadcast_plumtree(send_as, data.size(), flags)) {
-    return;
-  }
-  flags &= ~Overlays::BroadcastFlagNoTwostep();
-  broadcasts_plumtree_.send_multi(this, send_as, flags, std::move(data), local_validator_index, validator_count);
-}
-
 void OverlayImpl::send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
   if (!can_send_broadcast_plumtree(send_as, data.size(), flags)) {
     return;

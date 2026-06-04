@@ -477,7 +477,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                         td::Promise<std::vector<BlockIdExt>> promise) override;
   void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
-  void send_block_broadcast(BlockBroadcast broadcast, int mode, ValidatorGroupLocalIndex validator_group_index) override;
+  void send_block_broadcast(BlockBroadcast broadcast, int mode) override;
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;

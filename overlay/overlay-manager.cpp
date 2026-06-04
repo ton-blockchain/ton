@@ -470,20 +470,6 @@ void OverlayManager::send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort local_i
   }
 }
 
-void OverlayManager::send_broadcast_plumtree_multi(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
-                                                   PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
-                                                   td::uint32 local_validator_index, td::uint32 validator_count) {
-  CHECK(object.size() <= Overlays::max_fec_broadcast_size());
-  auto it = overlays_.find(local_id);
-  if (it != overlays_.end()) {
-    auto it2 = it->second.find(overlay_id);
-    if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree_multi, send_as, flags,
-                              std::move(object), local_validator_index, validator_count);
-    }
-  }
-}
-
 void OverlayManager::send_broadcast_plumtree(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                              PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object) {
   CHECK(object.size() <= Overlays::max_fec_broadcast_size());

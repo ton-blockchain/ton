@@ -32,12 +32,9 @@
 
 namespace ton::validator::fullnode {
 
-static td::Result<td::BufferSlice> serialize_block_broadcast_v2(const BlockBroadcast& broadcast, std::string called_from,
-                                                                bool exclude_signatures = false) {
-  if (exclude_signatures && broadcast.block_id.is_masterchain()) {
-    return td::Status::Error("cannot exclude signatures from a masterchain block broadcast");
-  }
-  size_t total_signatures_size = exclude_signatures ? 0 : broadcast.sig_set->get_size() * 96;
+static td::Result<td::BufferSlice> serialize_block_broadcast_v2(const BlockBroadcast& broadcast,
+                                                                std::string called_from) {
+  size_t total_signatures_size = broadcast.sig_set->get_size() * 96;
 
   TRY_RESULT(data_root, vm::std_boc_deserialize(broadcast.data));
 
@@ -51,35 +48,20 @@ static td::Result<td::BufferSlice> serialize_block_broadcast_v2(const BlockBroad
   VLOG(FULL_NODE_DEBUG) << "Compressing block broadcast V2: "
                         << broadcast.data.size() + broadcast.proof.size() + total_signatures_size << " -> "
                         << compressed_data.size() + broadcast.proof.size() + total_signatures_size;
-  td::BufferSlice res;
-  if (exclude_signatures) {
-    res = create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressedV2NoSig>(
-        create_tl_block_id(broadcast.block_id), broadcast.sig_set->get_catchain_seqno(), 0, broadcast.proof.clone(),
-        std::move(compressed_data));
-  } else {
-    res = create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressedV2>(
-        create_tl_block_id(broadcast.block_id), broadcast.sig_set->tl(), 0, broadcast.proof.clone(),
-        std::move(compressed_data));
-  }
+  auto res = create_serialize_tl_object<ton_api::tonNode_blockBroadcastCompressedV2>(
+      create_tl_block_id(broadcast.block_id), broadcast.sig_set->tl(), 0, broadcast.proof.clone(),
+      std::move(compressed_data));
   VLOG(FULL_NODE_BENCHMARK) << "Broadcast_benchmark serialize_block_broadcast block_id=" << broadcast.block_id
                             << " called_from=" << called_from << " time_sec=" << (td::Time::now() - t_compression_start)
-                            << " compression=" << (exclude_signatures ? "compressedV2NoSig" : "compressedV2")
-                            << algorithm_name << " original_size="
+                            << " compression=" << "compressedV2" << algorithm_name << " original_size="
                             << broadcast.data.size() + broadcast.proof.size() + total_signatures_size
                             << " compressed_size=" << compressed_size + broadcast.proof.size() + total_signatures_size;
   return res;
 }
 
-td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, std::string called_from,
-                                                      bool exclude_signatures) {
-  if (broadcast.sig_set.is_null()) {
-    return td::Status::Error("cannot serialize block broadcast without signature set");
-  }
+td::Result<td::BufferSlice> serialize_block_broadcast(const BlockBroadcast& broadcast, std::string called_from) {
   if (!broadcast.sig_set->is_ordinary()) {
-    return serialize_block_broadcast_v2(broadcast, std::move(called_from), exclude_signatures);
-  }
-  if (exclude_signatures) {
-    return td::Status::Error("signature exclusion is supported only for V2 block broadcasts");
+    return serialize_block_broadcast_v2(broadcast, std::move(called_from));
   }
   std::vector<tl_object_ptr<ton_api::tonNode_blockSignature>> sigs = broadcast.sig_set->tl_legacy();
   size_t total_signatures_size = sigs.size() * 96;
@@ -181,9 +163,6 @@ td::Result<bool> need_state_for_decompression(ton_api::tonNode_Broadcast& broadc
                                         [&](ton_api::tonNode_blockBroadcastCompressedV2& f) {
                                           result = vm::boc_need_state_for_decompression(f.data_compressed_);
                                         },
-                                        [&](ton_api::tonNode_blockBroadcastCompressedV2NoSig& f) {
-                                          result = vm::boc_need_state_for_decompression(f.data_compressed_);
-                                        },
                                         [&](auto&) { result = false; }));
   return result;
 }
@@ -201,27 +180,6 @@ td::Result<bool> need_state_for_decompression(ton_api::tonNode_DataFull& data_fu
 BlockBroadcast get_block_broadcast_without_data(const ton_api::tonNode_blockBroadcastCompressedV2& f) {
   td::Ref<block::BlockSignatureSet> sig_set = block::BlockSignatureSet::fetch(f.signature_set_);
   return BlockBroadcast{create_block_id(f.id_), sig_set, td::BufferSlice(), f.proof_.clone()};
-}
-
-static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressedV2NoSig& f,
-                                                              int max_decompressed_size, std::string called_from,
-                                                              td::Ref<vm::Cell> state) {
-  auto block_id = create_block_id(f.id_);
-  auto t_decompression_start = td::Time::now();
-
-  TRY_RESULT(roots, vm::boc_decompress(f.data_compressed_, max_decompressed_size, state));
-  if (roots.size() != 1) {
-    return td::Status::Error("expected 1 root in boc");
-  }
-  TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(f.data_compressed_));
-  VLOG(FULL_NODE_BENCHMARK) << "Broadcast_benchmark deserialize_block_broadcast block_id=" << block_id
-                            << " called_from=" << called_from
-                            << " time_sec=" << (td::Time::now() - t_decompression_start)
-                            << " compression=" << "compressedV2NoSig_" << algorithm_name << " compressed_size="
-                            << f.data_compressed_.size() + f.proof_.size();
-  TRY_RESULT(data, vm::std_boc_serialize(roots[0], 31));
-  return BlockBroadcast{create_block_id(f.id_), {}, std::move(data), std::move(f.proof_),
-                        static_cast<CatchainSeqno>(f.cc_seqno_)};
 }
 
 static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_blockBroadcastCompressedV2& f,
@@ -255,9 +213,6 @@ td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_Broadcas
                             B = deserialize_block_broadcast(f, max_decompressed_data_size, called_from);
                           },
                           [&](ton_api::tonNode_blockBroadcastCompressedV2& f) {
-                            B = deserialize_block_broadcast(f, max_decompressed_data_size, called_from, state);
-                          },
-                          [&](ton_api::tonNode_blockBroadcastCompressedV2NoSig& f) {
                             B = deserialize_block_broadcast(f, max_decompressed_data_size, called_from, state);
                           },
                           [&](auto&) { B = td::Status::Error("unknown broadcast type"); }));

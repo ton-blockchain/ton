@@ -126,12 +126,7 @@ class FullNode : public td::actor::Actor {
   static constexpr td::uint64 max_zerostate_size() {
     return 16 << 20;
   }
-  enum {
-    broadcast_mode_public = 1,
-    broadcast_mode_fast_sync = 2,
-    broadcast_mode_custom = 4,
-    broadcast_mode_public_plumtree = 8
-  };
+  enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4 };
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
 

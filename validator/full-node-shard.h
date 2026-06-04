@@ -46,8 +46,9 @@ class FullNodeShard : public td::actor::Actor {
   virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
   virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                     td::BufferSlice data) = 0;
+  virtual void send_block_candidate_plumtree(BlockIdExt block_id, CatchainSeqno cc_seqno,
+                                             td::uint32 validator_set_hash, td::BufferSlice data) = 0;
   virtual void send_broadcast(BlockBroadcast broadcast) = 0;
-  virtual void send_broadcast_plumtree(BlockBroadcast broadcast, ValidatorGroupLocalIndex validator_group_index) = 0;
 
   virtual void sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expiry_at, td::uint32 max_size,
                                         td::Promise<td::BufferSlice> promise) = 0;

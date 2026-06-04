@@ -16,7 +16,6 @@
 */
 #pragma once
 #include "block/signature-set.h"
-#include "td/utils/optional.h"
 #include "ton/ton-types.h"
 
 namespace ton::validator {
@@ -35,19 +34,9 @@ struct BlockBroadcast {
   td::Ref<block::BlockSignatureSet> sig_set;
   td::BufferSlice data;
   td::BufferSlice proof;
-  td::optional<CatchainSeqno> cc_seqno = {};
 
   BlockBroadcast clone() const {
-    return {block_id, sig_set, data.clone(), proof.clone(), cc_seqno.copy()};
-  }
-};
-
-struct ValidatorGroupLocalIndex {
-  td::uint32 local_validator_index = 0;
-  td::uint32 validator_count = 0;
-
-  bool valid() const {
-    return validator_count != 0 && local_validator_index < validator_count;
+    return {block_id, sig_set, data.clone(), proof.clone()};
   }
 };
 

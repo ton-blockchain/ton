@@ -62,20 +62,6 @@ void ValidateBroadcast::start_up() {
     }
   }
 
-  bool signatureless_shard = broadcast_.sig_set.is_null() && !broadcast_.block_id.is_masterchain();
-  if (broadcast_.sig_set.is_null() && !signatureless_shard) {
-    abort_query(td::Status::Error(ErrorCode::protoviolation, "no signature set"));
-    return;
-  }
-  if (signatureless_shard && signatures_only_) {
-    abort_query(td::Status::Error(ErrorCode::protoviolation, "no signature set"));
-    return;
-  }
-  if (signatureless_shard && !broadcast_.cc_seqno) {
-    abort_query(td::Status::Error(ErrorCode::protoviolation, "no catchain seqno"));
-    return;
-  }
-
   if (broadcast_.block_id.is_masterchain()) {
     if (last_masterchain_block_handle_->id().id.seqno >= broadcast_.block_id.id.seqno) {
       if (signatures_only_) {
@@ -85,6 +71,11 @@ void ValidateBroadcast::start_up() {
       finish_query();
       return;
     }
+  }
+
+  if (broadcast_.sig_set.is_null()) {
+    abort_query(td::Status::Error(ErrorCode::protoviolation, "no signature set"));
+    return;
   }
 
   if (broadcast_.block_id.is_masterchain()) {
@@ -117,14 +108,6 @@ void ValidateBroadcast::start_up() {
       return;
     }
     header_info_ = hR.move_as_ok();
-    if (signatureless_shard) {
-      if (broadcast_.cc_seqno.value() != header_info_.cc_seqno) {
-        abort_query(td::Status::Error(ErrorCode::protoviolation, "catchain seqno mismatch"));
-        return;
-      }
-      checked_signatures();
-      return;
-    }
   }
 
   BlockSeqno key_block_seqno = header_info_.prev_key_mc_seqno;
@@ -287,14 +270,6 @@ void ValidateBroadcast::got_block_handle(BlockHandle handle) {
     return;
   }
   data_ = dataR.move_as_ok();
-  RootHash block_root_hash{data_->root_cell()->get_hash().bits()};
-  if (block_root_hash != broadcast_.block_id.root_hash) {
-    abort_query(td::Status::Error(ErrorCode::protoviolation,
-                                  PSTRING() << "root hash mismatch: expected "
-                                            << broadcast_.block_id.root_hash.to_hex() << ", found "
-                                            << block_root_hash.to_hex()));
-    return;
-  }
 
   if (handle_->received()) {
     written_block_data();

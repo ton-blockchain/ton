@@ -73,7 +73,7 @@ class FullNodeImpl : public FullNode {
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data, int mode);
-  void send_broadcast(BlockBroadcast broadcast, int mode, ValidatorGroupLocalIndex validator_group_index);
+  void send_broadcast(BlockBroadcast broadcast, int mode);
   void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
@@ -169,12 +169,15 @@ class FullNodeImpl : public FullNode {
   std::map<std::string, CustomOverlayInfo> custom_overlays_;
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_broadcasts_{256};
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_shard_block_desc_{256};
+  td::LRUCache<BlockIdExt, td::Unit> public_plumtree_sent_candidates_{256};
 
   void update_private_overlays();
   void update_custom_overlay(CustomOverlayInfo& overlay);
   void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
   void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
                                                          td::uint32 validator_set_hash, const td::BufferSlice& data);
+  void send_block_candidate_to_public_plumtree(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
+                                               td::uint32 validator_set_hash, const td::BufferSlice& data);
   void send_shard_block_info_to_custom_overlays(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                 const td::BufferSlice& data);
 

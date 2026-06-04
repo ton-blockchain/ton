@@ -223,8 +223,6 @@ class OverlayImpl : public Overlay {
   void send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
   void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                           td::BufferSlice extra) override;
-  void send_broadcast_plumtree_multi(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
-                                     td::uint32 local_validator_index, td::uint32 validator_count) override;
   void send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
   void receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> nodes) override;
   void receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> nodes) override;
