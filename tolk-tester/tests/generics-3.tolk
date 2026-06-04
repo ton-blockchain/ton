@@ -50,14 +50,14 @@ fun test3() {
     var r: Response<int, slice> = getResponse(true);
     r = Err { errPayload: createEmptySlice() };
     __expect_type(r, "Err<slice>");
-    r = OkAlias { result: 10 };
+    r = Ok { result: 10 };
     __expect_type(r, "Ok<int>");
     return (r, r is Ok, (r as Response<int,slice>) is Err);
 }
 
 @method_id(104)
 fun test4() {
-    var r1 = OkAlias { result: OkAlias { result: 10 } } as Response< Ok<int>, slice >;
+    var r1 = Ok { result: Ok { result: 10 } } as Response< Ok<int>, slice >;
     match (r1) {
         Ok => { __expect_type(r1, "Ok<Ok<int>>"); r1.result.result; }
         Err => {}

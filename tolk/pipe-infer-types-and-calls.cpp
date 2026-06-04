@@ -1470,13 +1470,13 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // either by lhs hint `var u: User = { ... }, or by explicitly provided ref `User { ... }`
     StructPtr struct_ref = nullptr;
 
-    // `User { ... }` / `UserAlias { ... }` / `Wrapper { ... }` / `Wrapper<int> { ... }`
+    // `User { ... }` / `Wrapper { ... }` / `Wrapper<int> { ... }`
     if (v->type_node) {
-      TypePtr provided_type = v->type_node->resolved_type->unwrap_alias();
+      TypePtr provided_type = v->type_node->resolved_type;
       if (const TypeDataStruct* hint_struct = provided_type->try_as<TypeDataStruct>()) {
         struct_ref = hint_struct->struct_ref;     // `Wrapper` / `Wrapper<int>`
       } else if (const TypeDataGenericTypeWithTs* hint_instTs = provided_type->try_as<TypeDataGenericTypeWithTs>()) {
-        struct_ref = hint_instTs->struct_ref;     // if `type WAlias<T> = Wrapper<T>`, here `Wrapper` (generic struct)
+        struct_ref = hint_instTs->struct_ref;     // `Wrapper<T>` inside a generic function
       }
       if (!struct_ref) {
         err("`{}` does not name a struct", v->type_node->resolved_type).fire(v->type_node, cur_f);
