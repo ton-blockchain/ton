@@ -1430,7 +1430,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     code.add_indirect_invoke(v, rvect, std::move(args_vars));
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
-  // `ton("0.05")` and others, we even don't need to calculate ir_idx for arguments, just replace with constexpr
+  // `grams("0.05")` and others, we even don't need to calculate ir_idx for arguments, just replace with constexpr
   if (fun_ref->is_compile_time_const_val()) {
     ConstValExpression value = eval_expression_if_const_or_fire(v);
     auto [type, rvect] = pre_compile_constant_expression(value, code, v);

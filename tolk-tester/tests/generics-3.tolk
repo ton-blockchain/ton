@@ -110,14 +110,14 @@ struct WithDef<T> {
     f1: T? = null;
     f2: int? = null as int?;
     f3: T? = null as T?;
-    price: coins = ton("0.05"),
+    price: coins = grams("0.05"),
     slice: slice = stringHexToSlice("010203"),
 }
 
 @method_id(108)
 fun test8() {
     var w1: WithDef<slice> = {};
-    var w2: WithDef<Ok<int>> = { price: ton("0.1"), f3: { result: 12 } };
+    var w2: WithDef<Ok<int>> = { price: grams("0.1"), f3: { result: 12 } };
     return (w1.price, w1.f1, w1.f3, w2.price, w2.f3!.result, w2.f3, w2.slice.remainingBitsCount());
 }
 

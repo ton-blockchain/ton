@@ -68,8 +68,8 @@ type intN = builtin
 /// overflow will happen at serialization to a cell/builder, NOT at assignment. 
 type uintN = builtin
 
-/// `coins` is a special primitive representing "nanotoncoins". One TON = 10^9 nanotoncoins.
-/// You can create coins with `ton()` function: `ton("0.05")` (actually, `int` 50000000 at runtime).
+/// `coins` is a special primitive representing "nanograms". One GRAM = 10^9 nanograms.
+/// You can create coins with `grams()` function: `grams("0.05")` (actually, `int` 50000000 at runtime).
 /// Arithmetic operations on `coins` degrade to 257-bit `int` type.
 type coins = builtin
 
@@ -279,9 +279,15 @@ fun T.fromTuple(packedObject: array<unknown>): T
     Mathematical primitives.
  */
 
-/// Converts a constant floating-point string to nanotoncoins.
-/// Example: `ton("0.05")` is equal to 50000000.
-/// Note, that `ton()` requires a constant string; `ton(some_var)` is an error.
+/// Converts a constant floating-point string to nanograms.
+/// Example: `grams("0.05")` is equal to 50000000.
+/// Note, that `grams()` requires a constant string; `grams(some_var)` is an error.
+@pure
+fun grams(floatString: string): coins
+    builtin
+
+/// Deprecated alias for [grams].
+/// From Tolk v1.5, it will become @deprecated("""use `grams("0.05")` instead of `ton("0.05")`""")
 @pure
 fun ton(floatString: string): coins
     builtin
@@ -358,7 +364,7 @@ struct contract
 fun contract.getAddress(): address
     asm "MYADDR"
 
-/// Returns the balance (in nanotoncoins) of the smart contract at the start of Computation Phase.
+/// Returns the balance (in nanograms) of the smart contract at the start of Computation Phase.
 @pure
 fun contract.getOriginalBalance(): coins
     asm "BALANCE" "FIRST"
@@ -1204,7 +1210,7 @@ fun slice.preloadUint(self, len: int): int
 fun slice.preloadBits(self, len: int): slice
     builtin
 
-/// Loads the serialized amount of nanotoncoins (any unsigned integer up to `2^120 - 1`).
+/// Loads the serialized amount of nanograms (any unsigned integer up to `2^120 - 1`).
 @pure
 fun slice.loadCoins(mutate self): coins
     asm( -> 1 0) "LDGRAMS"
@@ -1346,7 +1352,7 @@ fun builder.storeAddressAny(mutate self, addrAny: any_address): self
 fun builder.storeAddressNone(mutate self): self
     asm "b{00} STSLICECONST"
 
-/// Stores the amount of nanotoncoins into a builder.
+/// Stores the amount of nanograms into a builder.
 @pure
 fun builder.storeCoins(mutate self, x: coins): self
     builtin
@@ -1523,10 +1529,10 @@ fun slice.loadAddressAny(mutate self): any_address
 
 
 /**
-    Reserving Toncoins on balance and its flags.
+    Reserving GRAMs on balance and its flags.
  */
 
-/// mode = 0: Reserve exact amount of nanotoncoins
+/// mode = 0: Reserve exact amount of nanograms
 const RESERVE_MODE_EXACT_AMOUNT = 0
 /// +1: Actually reserves all but amount, meaning `currentContractBalance - amount`
 const RESERVE_MODE_ALL_BUT_AMOUNT = 1
@@ -1539,14 +1545,19 @@ const RESERVE_MODE_NEGATE_AMOUNT = 8
 /// +16: If this action fails, the transaction will be bounced.
 const RESERVE_MODE_BOUNCE_ON_ACTION_FAIL = 16
 
-/// Creates an output action which would reserve Toncoins on balance.
+/// Creates an output action which would reserve GRAMs on balance.
 /// For `reserveMode` consider constants above.
-fun reserveToncoinsOnBalance(nanoTonCoins: coins, reserveMode: int): void
+fun reserveGramsOnBalance(nanoGrams: coins, reserveMode: int): void
     asm "RAWRESERVE"
 
-/// Similar to [reserveToncoinsOnBalance], but also accepts a dictionary extraAmount (represented by a cell or null)
-/// with extra currencies. In this way currencies other than Toncoin can be reserved.
-fun reserveExtraCurrenciesOnBalance(nanoTonCoins: coins, extraAmount: dict, reserveMode: int): void
+/// Deprecated alias for [reserveGramsOnBalance].
+@deprecated("use `reserveGramsOnBalance` instead of `reserveToncoinsOnBalance`")
+fun reserveToncoinsOnBalance(nanoGrams: coins, reserveMode: int): void
+    asm "RAWRESERVE"
+
+/// Similar to [reserveGramsOnBalance], but also accepts a dictionary extraAmount (represented by a cell or null)
+/// with extra currencies. In this way currencies other than GRAM can be reserved.
+fun reserveExtraCurrenciesOnBalance(nanoGrams: coins, extraAmount: dict, reserveMode: int): void
     asm "RAWRESERVEX"
 
 
@@ -1579,7 +1590,7 @@ const SEND_MODE_ESTIMATE_FEE_ONLY = 1024
 /// +64 substitutes the entire balance of the incoming message as an outgoing value (slightly inaccurate, gas expenses that cannot be estimated before the computation is completed are not taken into account).
 /// +128 substitutes the value of the entire balance of the contract before the start of the computation phase (slightly inaccurate, since gas expenses that cannot be estimated before the completion of the computation phase are not taken into account).
 
-/// `ExtraCurrenciesMap` represents a dictionary of "extra currencies" other than TON coin.
+/// `ExtraCurrenciesMap` represents a dictionary of "extra currencies" other than GRAM.
 /// They can be attached to a message (incoming and outgoing) and stored on contract's balance.
 /// It's a dictionary `[currencyID => amount]` (amount is like `coins`, but encoded with a high precision). 
 type ExtraCurrenciesMap = map<int32, varuint32>
@@ -1688,7 +1699,7 @@ type OldBounceMode = bool
 struct CreateMessageOptions<TBody = void> {
     /// whether a message will bounce back on error, and what piece of outgoing `body` it will contain
     bounce: BounceMode | OldBounceMode
-    /// message value: attached tons (or tons + extra currencies)
+    /// message value: attached grams (or grams + extra currencies)
     value: coins | (coins, ExtraCurrenciesMap)
     /// destination is either a provided address, or is auto-calculated by stateInit
     dest: address               // either just send a message to some address
@@ -1704,7 +1715,7 @@ struct CreateMessageOptions<TBody = void> {
 /// ```
 /// val reply = createMessage({
 ///     bounce: BounceMode.NoBounce,
-///     value: ton("0.05"),
+///     value: grams("0.05"),
 ///     dest: senderAddress,
 ///     body: RequestedInfo { ... }    // note: no toCell! just pass an object
 /// });
@@ -1910,7 +1921,7 @@ fun sendRawMessage(msg: cell, mode: int): void
 /// ```
 struct InMessage {
     senderAddress: address          // an internal address from which the message arrived
-    valueCoins: coins               // ton amount attached to an incoming message
+    valueCoins: coins               // GRAM amount attached to an incoming message
     valueExtra: ExtraCurrenciesMap  // extra currencies attached to an incoming message
     originalForwardFee: coins       // fee that was paid by the sender
     createdLt: uint64               // logical time when a message was created
@@ -1931,7 +1942,7 @@ struct InMessage {
 /// ```
 struct InMessageBounced {
     senderAddress: address          // an internal address from which the message was bounced
-    valueCoins: coins               // ton amount attached to a message
+    valueCoins: coins               // GRAM amount attached to a message
     valueExtra: ExtraCurrenciesMap  // extra currencies attached to a message
     originalForwardFee: coins       // commission that the sender has paid to send this message
     createdLt: uint64               // logical time when a message was created (and bounced)
@@ -1967,7 +1978,7 @@ struct RichBounceComputePhaseInfo {
 /// ```
 /// createMessage({
 ///     bounce: BounceMode.RichBounce,
-///     value: ton("0.05")   // it will be `valueCoins` if this message is bounced
+///     value: grams("0.05")   // it will be `valueCoins` if this message is bounced
 /// ```
 struct RichBounceOriginalMsgInfo {
     valueCoins: coins

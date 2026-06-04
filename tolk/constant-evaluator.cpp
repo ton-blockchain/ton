@@ -118,8 +118,8 @@ static void parse_any_std_address(std::string_view str, SrcRange range, unsigned
   td::bitstring::bits_memcpy(*data, 3 + 8, addr.bits().ptr, 0, ton::StdSmcAddress::size());
 }
 
-// internal helper: for `ton("0.05")`, parse string literal "0.05" to 50000000
-static td::RefInt256 parse_nanotons_as_floating_string(SrcRange range, std::string_view str) {
+// internal helper: for `grams("0.05")`, parse string literal "0.05" to 50000000
+static td::RefInt256 parse_nanograms_as_floating_string(SrcRange range, std::string_view str) {
   bool is_negative = false;
   size_t i = 0;
 
@@ -154,7 +154,7 @@ static td::RefInt256 parse_nanotons_as_floating_string(SrcRange range, std::stri
     } else if (c >= '0' && c <= '9') {
       fractional_part = fractional_part * 10 + (c - '0');
       if (++fractional_digits > 9) {
-        err("too many digits after a dot, nanotons are 10^9").fire(range);
+        err("too many digits after a dot, nanograms are 10^9").fire(range);
       }
     } else {
       err("argument is not a valid number like \"0.05\"").fire(range);
@@ -261,7 +261,11 @@ static bool extract_string_literal_from_v(AnyExprV v, std::string& out) {
   return false;
 }
 
-// given `ton("0.05")` evaluate it to 50000000
+static bool is_grams_amount_function(std::string_view f_name) {
+  return f_name == "grams" || f_name == "ton";
+}
+
+// given `grams("0.05")` evaluate it to 50000000
 // given `stringCrc32("some_str")` or `"some_str".crc32()` evaluate it
 // etc.
 static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_function_call> v, std::string_view f_name) {
@@ -364,15 +368,15 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
 
   std::string str;
   if (!extract_string_literal_from_v(v_arg, str)) {
-    // ton(SOME_CONST) is not supported
-    // ton(0.05) is not supported (it can't be represented in AST even)
+    // grams(SOME_CONST) is not supported
+    // grams(0.05) is not supported (it can't be represented in AST even)
     // stringCrc32(SOME_CONST) / stringCrc32(some_var) also, it's compile-time literal-only
-    err_const_string_required(f_name, f_name == "ton" ? "0.05" : "some_str").fire(v);
+    err_const_string_required(f_name, is_grams_amount_function(f_name) ? "0.05" : "some_str").fire(v);
   }
 
-  if (f_name == "ton") {
+  if (is_grams_amount_function(f_name)) {
     return create_const_cast(   // insert "50000000 as coins"
-      ConstValInt{parse_nanotons_as_floating_string(v_arg->range, str)},
+      ConstValInt{parse_nanograms_as_floating_string(v_arg->range, str)},
       TypeDataCoins::create()
     );
   }
@@ -527,7 +531,7 @@ class ConstExpressionEvaluator {
     return create_const_cast_for_declared(std::move(val), cast_from, cast_to);
   }
 
-  // `ton("0.05")` and other compile-time functions
+  // `grams("0.05")` and other compile-time functions
   static ConstValExpression handle_function_call(V<ast_function_call> v) {
     FunctionPtr fun_ref = v->fun_maybe;
     if (!fun_ref || !fun_ref->is_compile_time_const_val()) {
@@ -757,7 +761,7 @@ td::RefInt256 unwrap_const_val_to_int(ConstValExpression const_expr) {
   return const_int == nullptr ? td::RefInt256{} : const_int->int_val;
 }
 
-// for any constant expression: `1 + 2` / `ton("0.05")` / `SOME_STR.crc32()`, consteval them;
+// for any constant expression: `1 + 2` / `grams("0.05")` / `SOME_STR.crc32()`, consteval them;
 // a non-constant expression: `a + b` / `foo()`, will fire (and can be wrapped by try/catch)
 ConstValExpression eval_expression_if_const_or_fire(AnyExprV v) {
   return ConstExpressionEvaluator::eval_any_v_or_fire(v);

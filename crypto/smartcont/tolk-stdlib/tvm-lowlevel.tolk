@@ -56,7 +56,7 @@ enum VmExitCode {
     ActionInvalid = 34              // action is invalid or not supported
     InvalidSourceAddress = 35       // invalid source address in outbound message
     InvalidDestAddress = 36         // invalid destination address in outbound message
-    NotEnoughToncoin = 37           // not enough Toncoin to send or pay fees
+    NotEnoughGrams = 37             // not enough GRAMs to send or pay fees
     NotEnoughExtraCurrencies = 38   // not enough extra currencies to send the specified amount
     MessageDoesNotFit = 39          // outbound message does not fit into a cell after rewriting
     CannotProcessMessage = 40       // not enough funds, message too large, or Merkle depth too big

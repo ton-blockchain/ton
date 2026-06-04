@@ -1820,8 +1820,8 @@ fun demo410(s: slice) {
         CounterIncrement => { debug.print(1) }
         CounterDecrement => { debug.dumpStack() }
         CounterReset => { random.setSeed(10) }
-        CounterDecrementBy1 => { reserveToncoinsOnBalance(10, 1) }
-        else => { /* do nothing, "just accept tons" */ }
+        CounterDecrementBy1 => { reserveGramsOnBalance(10, 1) }
+        else => { /* do nothing, "just accept grams" */ }
     }
 }
 

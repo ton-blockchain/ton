@@ -39,7 +39,7 @@ const tens2: (int, int, (int8, int16)) = (tens1.1, tens1.0 << 2, tens1);
 
 const intOrN: int? = null;
 const int32Or64: int32 | int64 = 7 as int64;
-const int32OrCoins: int32 | coins = ton("0.05");
+const int32OrCoins: int32 | coins = grams("0.05");
 const intOrSlice = 5 as int|slice;
 const int32Or128 = (7 as int32) as int32 | int128;
 
@@ -99,14 +99,14 @@ struct SubParams {
 struct MyOptions {
     allowPenalty: bool = false
     closeTo: (int8, int8)? = null
-    sub: SubParams = { sub3: ton("0.05") }
+    sub: SubParams = { sub3: grams("0.05") }
     coeff: int16 = 2
 }
 
 const opts1 = MyOptions { allowPenalty: true }
 const opts2 = MyOptions { coeff: 3, sub: { sub1: false, sub3: 0 } }
 const opts3: MyOptions = { coeff: 0, closeTo: null, allowPenalty: true }
-const opts4: MyOptions = { sub: { sub3: ton("1") }, closeTo: (3, 4), coeff: 55 }
+const opts4: MyOptions = { sub: { sub3: grams("1") }, closeTo: (3, 4), coeff: 55 }
 
 @noinline
 fun MyOptions.equals(self, rhs: MyOptions = {}) {
@@ -117,8 +117,8 @@ struct Wrapper<T> {
     item: T
 }
 
-const wOneTon = Wrapper<coins> { item: ton("0.5") * 2 }
-const wNoTon: Wrapper<int> = { item: 0 }
+const wOneGram = Wrapper<coins> { item: grams("0.5") * 2 }
+const wNoGram: Wrapper<int> = { item: 0 }
 const wNoSubParams: Wrapper<SubParams>? = null
 
 struct Point {
@@ -133,7 +133,7 @@ const shape1_tens = (shape1.0, shape1.1);
 const nul_arr_i: array<int>? = [1]
 const nul_list_i: lisp_list<int>? = [1]
 const nul_list_i_n: lisp_list<int>? = null
-const coins_or_int8: coins | int8 = Wrapper { item: ton("0.05") }.item
+const coins_or_int8: coins | int8 = Wrapper { item: grams("0.05") }.item
 const arr_or_int: array<int> | int = []
 
 struct WithNullableArray {
@@ -256,14 +256,14 @@ fun test15() {
         opts1.equals({ closeTo: null, allowPenalty: true }),
         opts2.equals({ coeff: 3, sub: { sub1: false, sub3: 0 } }),
         opts3.equals({ closeTo: null, coeff: 0, allowPenalty: true }),
-        opts4.equals({ sub: { sub3: ton("1") }, coeff: 55, closeTo: (3, 4) })
+        opts4.equals({ sub: { sub3: grams("1") }, coeff: 55, closeTo: (3, 4) })
     )
 }
 
 @method_id(116)
 fun test16() {
-    __expect_type(wOneTon, "Wrapper<coins>");
-    return (wOneTon, wNoTon, wNoSubParams)
+    __expect_type(wOneGram, "Wrapper<coins>");
+    return (wOneGram, wNoGram, wNoSubParams)
 }
 
 @method_id(117)
