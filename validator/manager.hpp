@@ -293,20 +293,12 @@ class ValidatorManagerImpl : public ValidatorManager {
     promise.set_value(td::Unit());
   }
 
-  void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    permanent_keys_.insert(key);
-    promise.set_value(td::Unit());
-  }
   void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    temp_keys_.insert(key);
-    promise.set_value(td::Unit());
-  }
-  void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    permanent_keys_.erase(key);
+    validator_keys_.insert(key);
     promise.set_value(td::Unit());
   }
   void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    temp_keys_.erase(key);
+    validator_keys_.erase(key);
     promise.set_value(td::Unit());
   }
 
@@ -638,8 +630,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorOwn<TokenManager> token_manager_;
 
  private:
-  std::set<PublicKeyHash> permanent_keys_;
-  std::set<PublicKeyHash> temp_keys_;
+  std::set<PublicKeyHash> validator_keys_;
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;

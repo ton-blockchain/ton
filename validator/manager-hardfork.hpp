@@ -78,13 +78,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
     callback_->initial_read_complete(nullptr);
   }
-  void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
   void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
-  void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
   void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
