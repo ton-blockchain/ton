@@ -251,6 +251,7 @@ class ValidatorEngine : public td::actor::Actor {
   double archive_preload_period_ = 0.0;
   bool disable_rocksdb_stats_ = false;
   bool nonfinal_ls_queries_enabled_ = false;
+  bool enable_deprecated_control_queries_ = false;
   td::optional<td::uint64> celldb_cache_size_ = 1LL << 30;
   bool celldb_direct_io_ = false;
   bool celldb_preload_all_ = false;
@@ -345,6 +346,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_nonfinal_ls_queries_enabled() {
     nonfinal_ls_queries_enabled_ = true;
+  }
+  void set_enable_deprecated_control_queries() {
+    enable_deprecated_control_queries_ = true;
   }
   void set_celldb_cache_size(td::uint64 value) {
     celldb_cache_size_ = value;
