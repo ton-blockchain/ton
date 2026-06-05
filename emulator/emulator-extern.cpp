@@ -1,3 +1,5 @@
+#include "crypto/vm/continuation.h"
+#include "crypto/vm/dispatch.h"
 #include "crypto/vm/memo.h"
 #include "crypto/vm/stack.hpp"
 #include "td/utils/JsonBuilder.h"
@@ -11,6 +13,11 @@
 #include "git.h"
 #include "transaction-emulator.h"
 #include "tvm-emulator.hpp"
+
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 
 td::Result<td::Ref<vm::Cell>> boc_b64_to_cell(const char *boc) {
   TRY_RESULT_PREFIX(boc_decoded, td::base64_decode(td::Slice(boc)), "Can't decode base64 boc: ");
@@ -86,14 +93,40 @@ td::Result<block::Config> decode_config(const char *config_boc) {
   return global_config;
 }
 
+namespace {
+std::mutex cached_configs_mutex;
+std::unordered_map<std::string, std::shared_ptr<block::Config>> cached_configs;
+
+td::Result<std::shared_ptr<block::Config>> decode_config_cached(const char *config_boc) {
+  std::string cache_key(config_boc);
+
+  {
+    std::lock_guard<std::mutex> lock(cached_configs_mutex);
+    auto it = cached_configs.find(cache_key);
+    if (it != cached_configs.end()) {
+      return it->second;
+    }
+  }
+
+  TRY_RESULT(config, decode_config(cache_key.c_str()));
+  auto cached_config = std::make_shared<block::Config>(std::move(config));
+
+  {
+    std::lock_guard<std::mutex> lock(cached_configs_mutex);
+    cached_configs[std::move(cache_key)] = cached_config;
+  }
+
+  return cached_config;
+}
+}  // namespace
+
 void *transaction_emulator_create(const char *config_params_boc, int vm_log_verbosity) {
-  auto global_config_res = decode_config(config_params_boc);
+  auto global_config_res = decode_config_cached(config_params_boc);
   if (global_config_res.is_error()) {
     LOG(ERROR) << global_config_res.move_as_error().message();
     return nullptr;
   }
-  auto global_config = std::make_shared<block::Config>(global_config_res.move_as_ok());
-  return new emulator::TransactionEmulator(std::move(global_config), vm_log_verbosity);
+  return new emulator::TransactionEmulator(global_config_res.move_as_ok(), vm_log_verbosity);
 }
 
 void *emulator_config_create(const char *config_params_boc) {
@@ -105,15 +138,47 @@ void *emulator_config_create(const char *config_params_boc) {
   return new block::Config(config.move_as_ok());
 }
 
-const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc,
-                                                     const char *message_boc) {
+const char *transaction_emulator_register_extmethod(void *transaction_emulator, int id, void *ctx,
+                                                    int stack_items_count, ext_func callback) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+  const auto normalized_stack_items_count =
+      stack_items_count < 0 ? 0 : (stack_items_count > 255 ? 255 : stack_items_count);
+  emulator->ext_methods.emplace(id, vm::ExtMethod{ctx, callback, static_cast<td::uint8>(normalized_stack_items_count)});
+  return "Registered external function";
+}
 
+const char *tvm_emulator_register_extmethod(void *transaction_emulator, int id, void *ctx, int stack_items_count,
+                                            ext_func callback) {
+  auto emulator = static_cast<emulator::TvmEmulator *>(transaction_emulator);
+  const auto normalized_stack_items_count =
+      stack_items_count < 0 ? 0 : (stack_items_count > 255 ? 255 : stack_items_count);
+  emulator->ext_methods.emplace(id, vm::ExtMethod{ctx, callback, static_cast<td::uint8>(normalized_stack_items_count)});
+  return "Registered external function";
+}
+
+const char *transaction_emulator_register_missing_library_callback(void *transaction_emulator, void *ctx,
+                                                                   missing_library_func callback) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+  emulator->missing_library_handler = vm::MissingLibraryHandler{ctx, callback};
+  return "Registered missing library callback";
+}
+
+const char *tvm_emulator_register_missing_library_callback(void *tvm_emulator, void *ctx,
+                                                           missing_library_func callback) {
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  emulator->register_missing_library_handler(ctx, callback);
+  return "Registered missing library callback";
+}
+
+const char *transaction_emulator_emulate_transaction_prepare(const char *shard_account_boc, const char *message_boc,
+                                                             emulator::TransactionEmulator *emulator,
+                                                             td::Ref<vm::Cell> &message_cell, block::Account &account,
+                                                             ton::UnixTime &now) {
   auto message_cell_r = boc_b64_to_cell(message_boc);
   if (message_cell_r.is_error()) {
     ERROR_RESPONSE(PSTRING() << "Can't deserialize message boc: " << message_cell_r.move_as_error());
   }
-  auto message_cell = message_cell_r.move_as_ok();
+  message_cell = message_cell_r.move_as_ok();
   auto message_cs = vm::load_cell_slice(message_cell);
   int msg_tag = block::gen::t_CommonMsgInfo.get_tag(message_cs);
 
@@ -161,8 +226,8 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
     ERROR_RESPONSE(PSTRING() << "Can't extract account address");
   }
 
-  auto account = block::Account(wc, addr.bits());
-  ton::UnixTime now = emulator->get_unixtime();
+  account = block::Account(wc, addr.bits());
+  now = emulator->get_unixtime();
   if (!now) {
     now = (unsigned)std::time(nullptr);
   }
@@ -177,6 +242,19 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
     }
     account.last_trans_lt_ = shard_account.last_trans_lt;
     account.last_trans_hash_ = shard_account.last_trans_hash;
+  }
+  return nullptr;
+}
+
+const char *transaction_emulator_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+
+  td::Ref<vm::Cell> message_cell;
+  block::Account account;
+  ton::UnixTime now;
+  if (const char *error = transaction_emulator_emulate_transaction_prepare(shard_account_boc, message_boc, emulator,
+                                                                           message_cell, account, now)) {
+    return error;
   }
 
   auto result =
@@ -225,8 +303,214 @@ const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
                           emulation_success.elapsed_time);
 }
 
-const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction_emulator,
-                                                               const char *shard_account_boc, bool is_tock) {
+const char *transaction_emulator_sbs_emulate_transaction(void *transaction_emulator, const char *shard_account_boc, const char *message_boc) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+
+  td::Ref<vm::Cell> message_cell;
+  block::Account account;
+  ton::UnixTime now;
+  if (const auto error = transaction_emulator_emulate_transaction_prepare(shard_account_boc, message_boc, emulator,
+                                                                          message_cell, account, now)) {
+    ERROR_RESPONSE(PSTRING() << "Emulate transaction failed: " << error);
+  }
+
+  auto result = emulator->prepare_emulate_transaction_debug(std::move(account), message_cell, now, 0, block::transaction::Transaction::tr_ord);
+  if (result.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Emulate transaction failed: " << result.move_as_error());
+  }
+
+  const bool skipped = !result.move_as_ok();
+
+  td::JsonBuilder jb;
+  auto json_obj = jb.enter_object();
+  json_obj("success", td::JsonTrue());
+  json_obj("skipped", td::JsonBool(skipped));
+  json_obj.leave();
+  return strdup(jb.string_builder().as_cslice().c_str());
+}
+
+bool transaction_emulator_sbs_step(void *transaction_emulator) {
+  const auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+
+  auto res = emulator->debug_step();
+  if (res.is_error()) {
+    LOG(ERROR) << "Debug step failed: " << res.error().to_string();
+    return false;
+  }
+
+  return res.move_as_ok();
+}
+
+const char *transaction_emulator_sbs_result(void *transaction_emulator) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+
+  auto result = emulator->get_emulation_result();
+  if (result.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Emulate transaction failed: " << result.move_as_error());
+  }
+
+  auto emulation_result = result.move_as_ok();
+
+  auto external_not_accepted = dynamic_cast<emulator::TransactionEmulator::EmulationExternalNotAccepted *>(emulation_result.get());
+  if (external_not_accepted) {
+    return external_not_accepted_response(std::move(external_not_accepted->vm_log), external_not_accepted->vm_exit_code,
+                                          external_not_accepted->elapsed_time);
+  }
+
+  auto emulation_success = std::move(dynamic_cast<emulator::TransactionEmulator::EmulationSuccess&>(*emulation_result));
+  auto trans_boc_b64 = cell_to_boc_b64(std::move(emulation_success.transaction));
+  if (trans_boc_b64.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't serialize Transaction to boc " << trans_boc_b64.move_as_error());
+  }
+
+  auto new_shard_account_cell = vm::CellBuilder().store_ref(emulation_success.account.total_state)
+                               .store_bits(emulation_success.account.last_trans_hash_.as_bitslice())
+                               .store_long(emulation_success.account.last_trans_lt_).finalize();
+  auto new_shard_account_boc_b64 = cell_to_boc_b64(std::move(new_shard_account_cell));
+  if (new_shard_account_boc_b64.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Can't serialize ShardAccount to boc " << new_shard_account_boc_b64.move_as_error());
+  }
+
+  td::optional<td::string> actions_boc_b64;
+  if (emulation_success.actions.not_null()) {
+    auto actions_boc_b64_result = cell_to_boc_b64(std::move(emulation_success.actions));
+    if (actions_boc_b64_result.is_error()) {
+      ERROR_RESPONSE(PSTRING() << "Can't serialize actions list cell to boc " << actions_boc_b64_result.move_as_error());
+    }
+    actions_boc_b64 = actions_boc_b64_result.move_as_ok();
+  }
+
+  return success_response(trans_boc_b64.move_as_ok(), new_shard_account_boc_b64.move_as_ok(), std::move(emulation_success.vm_log),
+                          std::move(actions_boc_b64), emulation_success.elapsed_time);
+}
+
+// -------------------------- GETTERS IMPL --------------------------------
+
+const char *emulator_vm_get_stack(const vm::VmState &vm) {
+  vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
+  vm::VmStateInterface::Guard guard(&fstate);
+
+  vm::CellBuilder stack_cb;
+  if (!vm.get_stack_const().serialize(stack_cb)) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't serialize stack");
+  }
+
+  auto stack_boc = cell_to_boc_b64(stack_cb.finalize());
+  if (stack_boc.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't serialize stack cell: " << stack_boc.move_as_error().to_string());
+  }
+
+  return strdup(stack_boc.move_as_ok().c_str());
+}
+
+const char *emulator_vm_get_c7(const vm::VmState &vm) {
+  vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
+  vm::VmStateInterface::Guard guard(&fstate);
+
+  vm::StackEntry c7_entry(vm.get_c7());
+
+  vm::CellBuilder c7_cb;
+  if (!c7_entry.serialize(c7_cb)) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't serialize c7");
+  }
+  auto result_stack_boc = cell_to_boc_b64(c7_cb.finalize());
+  if (result_stack_boc.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't serialize c7 cell: " << result_stack_boc.move_as_error().to_string());
+  }
+
+  return strdup(result_stack_boc.move_as_ok().c_str());
+}
+
+const char *emulator_vm_get_control_register(const vm::VmState &vm, int idx) {
+  vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
+  vm::VmStateInterface::Guard guard(&fstate);
+
+  vm::StackEntry reg_entry = vm.get(idx);
+
+  vm::CellBuilder reg_cb;
+  if (!reg_entry.serialize(reg_cb)) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't serialize c" << idx);
+  }
+  auto result_stack_boc = cell_to_boc_b64(reg_cb.finalize());
+  if (result_stack_boc.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't serialize c" << idx << " cell: " << result_stack_boc.move_as_error().to_string());
+  }
+
+  return strdup(result_stack_boc.move_as_ok().c_str());
+}
+
+const char *emulator_vm_get_code_pos(const vm::VmState &vm) {
+  const auto code = vm.get_code();
+  if (code.is_null()) {
+    return strdup("unknown:0");
+  }
+
+  std::ostringstream rs;
+  rs << code->get_base_cell()->get_hash().to_hex() << ":" << code->cur_pos();
+
+  const auto res = rs.str();
+  return strdup(res.c_str());
+}
+
+const char *emulator_vm_get_current_instr(const vm::VmState &vm) {
+  const auto code = vm.get_code();
+  if (code.is_null()) {
+    return strdup("unknown");
+  }
+
+  if (code->size()) {
+    const auto dispatch = vm::DispatchTable::get_table(vm.get_cp());
+    if (!dispatch) {
+      return strdup("unknown");
+    }
+    auto code_slice = code->clone();
+    const auto instr = dispatch->dump_instr(code_slice);
+    return strdup(instr.c_str());
+  }
+
+  return strdup(code->size_refs() ? "implicit JMPREF" : "implicit RET");
+}
+
+// -------------------- TRANSACTIONS -------------------------
+
+const char *transaction_emulator_sbs_get_stack(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TransactionEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  return emulator_vm_get_stack(vm);
+}
+
+const char *transaction_emulator_sbs_get_c7(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TransactionEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  return emulator_vm_get_c7(vm);
+}
+
+const char *transaction_emulator_sbs_get_control_register(void *tvm_emulator, int idx) {
+  const auto emulator = static_cast<emulator::TransactionEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  return emulator_vm_get_control_register(vm, idx);
+}
+
+const char *transaction_emulator_sbs_get_code_pos(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TransactionEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  return emulator_vm_get_code_pos(vm);
+}
+
+const char *transaction_emulator_sbs_get_current_instr(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TransactionEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  return emulator_vm_get_current_instr(vm);
+}
+
+int transaction_emulator_sbs_get_uncaught_exception_code(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TransactionEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  const auto code = vm.get_uncaught_exception_code();
+  return code ? code.value() : -1;
+}
+
+const char *transaction_emulator_emulate_tick_tock_transaction(void *transaction_emulator, const char *shard_account_boc, bool is_tock) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
 
   auto shard_account_cell = boc_b64_to_cell(shard_account_boc);
@@ -351,13 +635,13 @@ bool transaction_emulator_set_ignore_chksig(void *transaction_emulator, bool ign
 bool transaction_emulator_set_config(void *transaction_emulator, const char *config_boc) {
   auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
 
-  auto global_config_res = decode_config(config_boc);
+  auto global_config_res = decode_config_cached(config_boc);
   if (global_config_res.is_error()) {
     LOG(ERROR) << global_config_res.move_as_error().message();
     return false;
   }
 
-  emulator->set_config(std::make_shared<block::Config>(global_config_res.move_as_ok()));
+  emulator->set_config(global_config_res.move_as_ok());
 
   return true;
 }
@@ -397,6 +681,11 @@ bool transaction_emulator_set_debug_enabled(void *transaction_emulator, bool deb
   emulator->set_debug_enabled(debug_enabled);
 
   return true;
+}
+
+bool transaction_emulator_should_capture_executor_logs(void *transaction_emulator) {
+  auto emulator = static_cast<emulator::TransactionEmulator *>(transaction_emulator);
+  return emulator->should_capture_executor_logs();
 }
 
 bool transaction_emulator_set_prev_blocks_info(void *transaction_emulator, const char *info_boc) {
@@ -450,6 +739,8 @@ void *tvm_emulator_create(const char *code, const char *data, int vm_log_verbosi
     return nullptr;
   }
 
+  vm::init_vm(true).ensure();
+
   auto emulator = new emulator::TvmEmulator(code_cell.move_as_ok(), data_cell.move_as_ok());
   emulator->set_vm_verbosity_level(vm_log_verbosity);
   return emulator;
@@ -470,6 +761,13 @@ bool tvm_emulator_set_libraries(void *tvm_emulator, const char *libs_boc) {
   return true;
 }
 
+struct C7Cache {
+  std::string config_boc;
+  std::shared_ptr<block::Config> global_config;
+};
+
+thread_local C7Cache c7_cache{};
+
 bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixtime, uint64_t balance,
                          const char *rand_seed_hex, const char *config_boc) {
   auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
@@ -481,18 +779,22 @@ bool tvm_emulator_set_c7(void *tvm_emulator, const char *address, uint32_t unixt
 
   std::shared_ptr<block::Config> global_config;
   if (config_boc != nullptr) {
-    auto config_params_cell = boc_b64_to_cell(config_boc);
-    if (config_params_cell.is_error()) {
-      LOG(ERROR) << "Can't deserialize config params boc: " << config_params_cell.move_as_error();
-      return false;
-    }
-    global_config = std::make_shared<block::Config>(
-        config_params_cell.move_as_ok(), td::Bits256::zero(),
-        block::Config::needWorkchainInfo | block::Config::needSpecialSmc | block::Config::needCapabilities);
-    auto unpack_res = global_config->unpack();
-    if (unpack_res.is_error()) {
-      LOG(ERROR) << "Can't unpack config params";
-      return false;
+    std::string current_config_boc(config_boc);
+
+    if (c7_cache.config_boc != current_config_boc || !c7_cache.global_config) {
+      auto global_config_res = decode_config_cached(config_boc);
+      if (global_config_res.is_error()) {
+        LOG(ERROR) << global_config_res.move_as_error().message();
+        return false;
+      }
+      global_config = global_config_res.move_as_ok();
+
+      c7_cache = {
+        .config_boc = std::move(current_config_boc),
+        .global_config = global_config,
+      };
+    } else {
+      global_config = c7_cache.global_config;
     }
   }
 
@@ -614,20 +916,137 @@ bool tvm_emulator_set_debug_enabled(void *tvm_emulator, bool debug_enabled) {
   return true;
 }
 
-const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_boc) {
+const char *tvm_emulator_sbs_get_stack(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  return emulator_vm_get_stack(vm);
+}
+
+const char *tvm_emulator_sbs_get_c7(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  return emulator_vm_get_c7(vm);
+}
+
+const char *tvm_emulator_sbs_get_control_register(void *tvm_emulator, int idx) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto &vm = emulator->get_vm();
+  return emulator_vm_get_control_register(vm, idx);
+}
+
+const char* tvm_emulator_sbs_get_code_pos(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto& vm = emulator->get_vm();
+  return emulator_vm_get_code_pos(vm);
+}
+
+const char* tvm_emulator_sbs_get_current_instr(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto& vm = emulator->get_vm();
+  return emulator_vm_get_current_instr(vm);
+}
+
+int tvm_emulator_sbs_get_uncaught_exception_code(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto& vm = emulator->get_vm();
+  const auto code = vm.get_uncaught_exception_code();
+  return code ? code.value() : -1;
+}
+
+// -------------------------- RUN GET METHODS --------------------------
+
+namespace {
+struct TvmEmulatorGetMethodResultOwner {
+  TvmEmulatorGetMethodResult result{};
+  std::string error;
+  std::string stack;
+  std::string vm_log;
+  std::string missing_library;
+};
+
+void set_result_slice(const std::string &source, const char *&ptr, size_t &len) {
+  ptr = source.data();
+  len = source.size();
+}
+
+TvmEmulatorGetMethodResult *make_get_method_error(std::string error, bool fail = false) {
+  auto owner = std::make_unique<TvmEmulatorGetMethodResultOwner>();
+  owner->result.owner = owner.get();
+  owner->error = std::move(error);
+  set_result_slice(owner->error, owner->result.error, owner->result.error_len);
+  owner->result.success = 0;
+  owner->result.fail = fail ? 1 : 0;
+  return &owner.release()->result;
+}
+
+TvmEmulatorGetMethodResult *make_get_method_result(emulator::TvmEmulator::Answer result) {
+  vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
+  vm::VmStateInterface::Guard guard(&fstate);
+
+  vm::CellBuilder stack_cb;
+  if (!result.stack->serialize(stack_cb)) {
+    return make_get_method_error("Couldn't serialize stack");
+  }
+  auto result_stack_boc = cell_to_boc_b64(stack_cb.finalize());
+  if (result_stack_boc.is_error()) {
+    return make_get_method_error(PSTRING() << "Couldn't serialize stack cell: "
+                                           << result_stack_boc.move_as_error().to_string());
+  }
+
+  auto owner = std::make_unique<TvmEmulatorGetMethodResultOwner>();
+  owner->result.owner = owner.get();
+  owner->result.success = 1;
+  owner->result.fail = 0;
+  owner->result.gas_used = result.gas_used;
+  owner->result.vm_exit_code = result.code;
+  owner->stack = result_stack_boc.move_as_ok();
+  owner->vm_log = std::move(result.vm_log);
+  set_result_slice(owner->stack, owner->result.stack, owner->result.stack_len);
+  set_result_slice(owner->vm_log, owner->result.vm_log, owner->result.vm_log_len);
+  if (result.missing_library) {
+    owner->missing_library = result.missing_library.value().to_hex();
+    set_result_slice(owner->missing_library, owner->result.missing_library, owner->result.missing_library_len);
+  }
+  return &owner.release()->result;
+}
+
+td::Status tvm_emulator_run_get_method_prepare_stack(const char *stack_boc, td::Ref<vm::Stack> &stack) {
   auto stack_cell = boc_b64_to_cell(stack_boc);
   if (stack_cell.is_error()) {
-    ERROR_RESPONSE(PSTRING() << "Couldn't deserialize stack cell: " << stack_cell.move_as_error().to_string());
+    return td::Status::Error(PSTRING() << "Couldn't deserialize stack cell: " << stack_cell.move_as_error().to_string());
   }
   auto stack_cs = vm::load_cell_slice(stack_cell.move_as_ok());
-  td::Ref<vm::Stack> stack;
   if (!vm::Stack::deserialize_to(stack_cs, stack)) {
-    ERROR_RESPONSE(PSTRING() << "Couldn't deserialize stack");
+    return td::Status::Error("Couldn't deserialize stack");
+  }
+  return td::Status::OK();
+}
+}  // namespace
+
+const char *tvm_emulator_run_get_method_prepare(const char *stack_boc, td::Ref<vm::Stack> &stack) {
+  auto status = tvm_emulator_run_get_method_prepare_stack(stack_boc, stack);
+  if (status.is_error()) {
+    ERROR_RESPONSE(status.move_as_error().to_string());
+  }
+  return nullptr;
+}
+
+const char *tvm_emulator_sbs_run_get_method(void *tvm_emulator, int method_id, const char *stack_boc) {
+  td::Ref<vm::Stack> stack;
+  if (const char *error = tvm_emulator_run_get_method_prepare(stack_boc, stack); error != nullptr) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't prepare get method run: " << error);
   }
 
-  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
-  auto result = emulator->run_get_method(method_id, stack);
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto result = emulator->run_get_method_debug(method_id, stack);
+  if (result != 0) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't prepare get method run");
+  }
 
+  return nullptr;
+}
+
+const char *tvm_emulator_get_method_result(const emulator::TvmEmulator::Answer& result) {
   vm::FakeVmStateLimits fstate(3500);  // limit recursive (de)serialization calls
   vm::VmStateInterface::Guard guard(&fstate);
 
@@ -655,6 +1074,69 @@ const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const
   json_obj.leave();
 
   return strdup(jb.string_builder().as_cslice().c_str());
+}
+
+const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_boc) {
+  td::Ref<vm::Stack> stack;
+  if (const char* error = tvm_emulator_run_get_method_prepare(stack_boc, stack)) {
+    return error;
+  }
+
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto result = emulator->run_get_method(method_id, stack);
+  return tvm_emulator_get_method_result(result);
+}
+
+TvmEmulatorGetMethodResult *tvm_emulator_run_get_method_struct(void *tvm_emulator, int method_id, const char *stack_boc) {
+  td::Ref<vm::Stack> stack;
+  auto status = tvm_emulator_run_get_method_prepare_stack(stack_boc, stack);
+  if (status.is_error()) {
+    return make_get_method_error(status.move_as_error().to_string());
+  }
+
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto result = emulator->run_get_method(method_id, stack);
+  return make_get_method_result(std::move(result));
+}
+
+TvmEmulatorGetMethodResult *tvm_emulator_get_method_result_error(const char *error, uint8_t fail) {
+  return make_get_method_error(error == nullptr ? std::string() : std::string(error), fail != 0);
+}
+
+void tvm_emulator_get_method_result_destroy(TvmEmulatorGetMethodResult *result) {
+  if (result != nullptr) {
+    delete static_cast<TvmEmulatorGetMethodResultOwner *>(result->owner);
+  }
+}
+
+const char *tvm_emulator_sbs_get_method_result(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto result = emulator->sbs_result();
+  return tvm_emulator_get_method_result(result);
+}
+
+const char *tvm_emulator_run_continuation(void *tvm_emulator, const char *continuation_boc, const char *stack_boc) {
+  auto cont_cell = boc_b64_to_cell(continuation_boc);
+  if (cont_cell.is_error()) {
+    ERROR_RESPONSE(PSTRING() << "Couldn't deserialize continuation cell: " << cont_cell.move_as_error().to_string());
+  }
+
+  vm::FakeVmStateLimits fstate(1000);
+  vm::VmStateInterface::Guard guard(&fstate);
+
+  td::Ref<vm::Continuation> cont;
+  if (!vm::Continuation::deserialize_to(cont_cell.move_as_ok(), cont, 0)) {
+    ERROR_RESPONSE("Couldn't deserialize continuation");
+  }
+
+  td::Ref<vm::Stack> stack;
+  if (const char *error = tvm_emulator_run_get_method_prepare(stack_boc, stack)) {
+    return error;
+  }
+
+  auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  auto result = emulator->run_continuation(std::move(cont), std::move(stack));
+  return tvm_emulator_get_method_result(result);
 }
 
 struct TvmEulatorEmulateRunMethodResponse {
@@ -737,6 +1219,18 @@ void run_method_detailed_result_destroy(void *detailed_result) {
   free(const_cast<char *>(result->response));
   free(const_cast<char *>(result->log));
   delete result;
+}
+
+const char *tvm_emulator_sbs_transaction_result(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto result = emulator->sbs_result();
+  return tvm_emulator_get_method_result(result);
+}
+
+bool tvm_emulator_sbs_step(void *tvm_emulator) {
+  const auto emulator = static_cast<emulator::TvmEmulator *>(tvm_emulator);
+  const auto result = emulator->debug_step();
+  return static_cast<bool>(result);
 }
 
 const char *tvm_emulator_send_external_message(void *tvm_emulator, const char *message_body_boc) {

@@ -444,11 +444,22 @@ std::string DataCell::serialize() const {
 std::string DataCell::to_hex() const {
   unsigned char buff[max_serialized_bytes];
   int len = serialize(buff, sizeof(buff));
-  char hex_buff[max_serialized_bytes * 2 + 1];
-  for (int i = 0; i < len; i++) {
-    snprintf(hex_buff + 2 * i, sizeof(hex_buff) - 2 * i, "%02x", buff[i]);
+  if (len <= 0) {
+    return {};
   }
-  return hex_buff;
+
+  static constexpr char hex_digits[] = "0123456789abcdef";
+
+  std::string result;
+  result.reserve(static_cast<std::size_t>(len) * 2);
+
+  for (int i = 0; i < len; ++i) {
+    unsigned char b = buff[i];
+    result.push_back(hex_digits[b >> 4]);
+    result.push_back(hex_digits[b & 0x0F]);
+  }
+
+  return result;
 }
 
 DataCell::DataCell(int bit_length, size_t refs_cnt, Cell::SpecialType type, LevelMask level_mask,

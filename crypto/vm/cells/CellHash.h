@@ -18,6 +18,7 @@
 */
 #pragma once
 #include <array>
+#include <string>
 
 #include "common/bitstring.h"
 #include "td/utils/as.h"
@@ -48,8 +49,18 @@ struct CellHash {
   bool operator!=(const CellHash& other) const {
     return hash_ != other.hash_;
   }
+  void to_hex(char* dest) const {
+    static constexpr char hex[] = "0123456789ABCDEF";
+    for (std::size_t i = 0; i < hash_.size(); i++) {
+      auto byte = hash_[i];
+      dest[2 * i] = hex[byte >> 4];
+      dest[2 * i + 1] = hex[byte & 15];
+    }
+  }
   std::string to_hex() const {
-    return td::ConstBitPtr{hash_.data()}.to_hex(hash_.size() * 8);
+    std::string result(hash_.size() * 2, '\0');
+    to_hex(&result[0]);
+    return result;
   }
   friend td::StringBuilder& operator<<(td::StringBuilder& sb, const CellHash& hash);
   td::ConstBitPtr bits() const {

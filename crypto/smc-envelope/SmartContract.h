@@ -18,6 +18,8 @@
 */
 #pragma once
 
+#include <algorithm>
+
 #include "block/block.h"
 #include "block/mc-config.h"
 #include "td/utils/crypto.h"
@@ -31,6 +33,81 @@ class SmartContract : public td::CntObject {
   static td::Ref<vm::CellSlice> empty_slice();
 
  public:
+  class Logger : public td::LogInterface {
+  public:
+    static constexpr size_t max_log_size = 64u << 20;
+
+    void append(td::CSlice slice) override {
+      auto size = slice.size();
+      while (size > 0 && slice.data()[size - 1] == '\n') {
+        --size;
+      }
+      append_raw(slice.data(), size);
+      append_raw("\n", 1);
+    }
+    void clear() {
+      res.clear();
+      pos = 0;
+      truncated = false;
+    }
+    std::string get_log() const {
+      if (!truncated || pos == 0) {
+        return res;
+      }
+      std::string out;
+      out.reserve(res.size());
+      out.append(res.data() + pos, res.size() - pos);
+      out.append(res.data(), pos);
+      return out;
+    }
+    std::string extract_log() && {
+      if (!truncated) {
+        return std::move(res);
+      }
+      return get_log();
+    }
+
+  private:
+    void append_raw(const char* data, size_t size) {
+      if (size == 0) {
+        return;
+      }
+      if (size >= max_log_size) {
+        res.assign(data + size - max_log_size, max_log_size);
+        pos = 0;
+        truncated = true;
+        return;
+      }
+      if (res.size() < max_log_size) {
+        const auto room = max_log_size - res.size();
+        if (size <= room) {
+          res.append(data, size);
+          return;
+        }
+        res.append(data, room);
+        data += room;
+        size -= room;
+        pos = 0;
+        truncated = true;
+      }
+      while (size > 0) {
+        const auto chunk = std::min(max_log_size - pos, size);
+        std::copy(data, data + chunk, res.begin() + pos);
+        data += chunk;
+        size -= chunk;
+        pos += chunk;
+        if (pos == max_log_size) {
+          pos = 0;
+        }
+      }
+      truncated = true;
+    }
+
+    std::string res;
+    size_t pos{0};
+    bool truncated{false};
+  };
+
   struct State {
     td::Ref<vm::Cell> code;
     td::Ref<vm::Cell> data;
@@ -71,6 +148,9 @@ class SmartContract : public td::CntObject {
     td::optional<vm::Dictionary> libraries;
     td::optional<td::Ref<vm::Tuple>> prev_blocks_info;
 
+    vm::ExtMethods ext_methods = {};
+    vm::MissingLibraryHandler missing_library_handler = {};
+
     Args() {
     }
     Args(std::initializer_list<vm::StackEntry> stack)
@@ -86,6 +166,14 @@ class SmartContract : public td::CntObject {
     }
     Args&& set_method_id(td::int32 method_id) {
       this->method_id = method_id;
+      return std::move(*this);
+    }
+    Args&& set_ext_methods(const vm::ExtMethods& ext_methods) {
+      this->ext_methods = ext_methods;
+      return std::move(*this);
+    }
+    Args&& set_missing_library_handler(vm::MissingLibraryHandler missing_library_handler) {
+      this->missing_library_handler = missing_library_handler;
       return std::move(*this);
     }
     Args&& set_limits(vm::GasLimits limits) {
@@ -167,6 +255,10 @@ class SmartContract : public td::CntObject {
   Answer run_get_method(td::Slice method, Args args = {}) const;
   Answer send_external_message(td::Ref<vm::Cell> cell, Args args = {});
   Answer send_internal_message(td::Ref<vm::Cell> cell, Args args = {});
+
+  int run_get_method_debug(Args args, std::unique_ptr<vm::VmState>& vm, std::unique_ptr<Logger>& logger) const;
+  td::optional<bool> debug_step(std::unique_ptr<vm::VmState>& vm, std::unique_ptr<Logger>& logger);
+  Answer get_result(const vm::VmState& vm, const Logger* logger) const;
 
   size_t code_size() const;
   size_t data_size() const;

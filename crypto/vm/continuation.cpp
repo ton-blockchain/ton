@@ -300,6 +300,7 @@ td::Ref<Continuation> ExcQuitCont::jump(VmState* st, int& exitcode) const& {
     n = vme.get_errno();
   }
   VM_LOG(st) << "default exception handler, terminating vm with exit code " << n;
+  st->set_uncaught_exception_code(n);
   exitcode = ~n;
   return {};
 }

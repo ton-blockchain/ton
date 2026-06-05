@@ -42,60 +42,6 @@
 #define FAIL_UNLESS_ERRCODE(condition, err) \
   FAIL_UNLESS_ERRCODE_MSG(condition, err, PSTRING() << "Transaction check falied: " << #condition)
 
-namespace {
-/**
- * Logger that stores the tail of log messages.
- *
- * @param max_size The size of the buffer. Default is 256.
- */
-class StringLoggerTail : public td::LogInterface {
- public:
-  explicit StringLoggerTail(size_t max_size = 256) : buf(max_size, '\0') {
-  }
-
-  /**
-   * Appends a slice of data to the buffer.
-   *
-   * @param slice The slice of data to be appended.
-   */
-  void append(td::CSlice slice) override {
-    if (slice.size() > buf.size()) {
-      slice.remove_prefix(slice.size() - buf.size());
-    }
-    while (!slice.empty()) {
-      size_t s = std::min(buf.size() - pos, slice.size());
-      std::copy(slice.begin(), slice.begin() + s, buf.begin() + pos);
-      pos += s;
-      if (pos == buf.size()) {
-        pos = 0;
-        truncated = true;
-      }
-      slice.remove_prefix(s);
-    }
-  }
-
-  /**
-   * Retrieves the tail of the log.
-   *
-   * @returns The log as std::string.
-   */
-  std::string get_log() const {
-    if (truncated) {
-      std::string res = buf;
-      std::rotate(res.begin(), res.begin() + pos, res.end());
-      return res;
-    } else {
-      return buf.substr(0, pos);
-    }
-  }
-
- private:
-  std::string buf;
-  size_t pos = 0;
-  bool truncated = false;
-};
-}  // namespace
-
 namespace block {
 using td::Ref;
 
@@ -1571,7 +1517,7 @@ Ref<vm::Tuple> Transaction::prepare_vm_c7(const ComputePhaseConfig& cfg) const {
                                                 msg_balance_remaining));
   }
   auto tuple_ref = td::make_cnt_ref<std::vector<vm::StackEntry>>(std::move(tuple));
-  LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
+  // LOG(DEBUG) << "SmartContractInfo initialized with " << vm::StackEntry(tuple_ref).to_string();
   return vm::make_tuple_ref(std::move(tuple_ref));
 }
 
@@ -1822,13 +1768,60 @@ bool Transaction::run_precompiled_contract(const ComputePhaseConfig& cfg, precom
 }
 
 /**
- * Prepares the compute phase of a transaction, which includes running TVM.
+ * Prepares the compute phase of a transaction and run VM.
  *
  * @param cfg The configuration for the compute phase.
  *
  * @returns True if the compute phase was successfully prepared and executed, false otherwise.
  */
-bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
+bool Transaction::execute_compute_phase(const ComputePhaseConfig& cfg) {
+  auto maybe_res = prepare_compute_phase(cfg);
+  if (!maybe_res) {
+    return false;
+  }
+
+  auto res = std::move(*maybe_res);
+  if (res.skipped) {
+    return true;
+  }
+
+  if (res.precompiled_impl) {
+    return run_precompiled_contract(cfg, *res.precompiled_impl);
+  }
+
+  auto& cp = *compute_phase.get();
+  return run_compute_phase(cfg, cp, res.vm, res.logger, res.precompiled);
+}
+
+bool Transaction::prepare_debug_compute_phase(const ComputePhaseConfig& cfg, std::unique_ptr<vm::VmState>& vm,
+                                              std::unique_ptr<StringLoggerTail>& logger) {
+  auto maybe_res = prepare_compute_phase(cfg);
+  if (!maybe_res) {
+    return false;
+  }
+
+  auto res = std::move(*maybe_res);
+  if (res.skipped) {
+    return true;
+  }
+
+  if (res.precompiled_impl) {
+    return run_precompiled_contract(cfg, *res.precompiled_impl);
+  }
+
+  vm = std::make_unique<vm::VmState>(std::move(res.vm));
+  logger = std::move(res.logger);
+  return true;
+}
+
+/**
+ * Prepares the compute phase of a transaction, without actually running it in VM.
+ *
+ * @param cfg The configuration for the compute phase.
+ *
+ * @returns structure with prepared data
+ */
+std::optional<Transaction::PrepareComputePhaseResult> Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   // TODO: add more skip verifications + sometimes use state from in_msg to re-activate
   // ...
   compute_phase = std::make_unique<ComputePhase>();
@@ -1844,17 +1837,17 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   if (td::sgn(balance.grams) <= 0) {
     // no gas
     cp.skip_reason = ComputePhase::sk_no_gas;
-    return true;
+    return PrepareComputePhaseResult::create_skipped();
   }
   // Compute gas limits
   if (!compute_gas_limits(cp, cfg)) {
     compute_phase.reset();
-    return false;
+    return std::nullopt;
   }
   if (!cp.gas_limit && !cp.gas_credit) {
     // no gas
     cp.skip_reason = ComputePhase::sk_no_gas;
-    return true;
+    return PrepareComputePhaseResult::create_skipped();
   }
   if (in_msg_state.not_null()) {
     LOG(DEBUG) << "HASH(in_msg_state) = " << in_msg_state->get_hash().bits().to_hex(256)
@@ -1868,7 +1861,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     if (acc_status == Account::acc_uninit && cfg.is_address_suspended(account.workchain, account.addr)) {
       LOG(DEBUG) << "address is suspended, skipping compute phase";
       cp.skip_reason = ComputePhase::sk_suspended;
-      return true;
+      return PrepareComputePhaseResult::create_skipped();
     }
     use_msg_state = true;
     bool forbid_public_libs =
@@ -1877,31 +1870,31 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
           account.check_addr_rewrite_length(new_fixed_prefix_length))) {
       LOG(DEBUG) << "cannot unpack in_msg_state, or it has bad fixed_prefix_length; cannot init account state";
       cp.skip_reason = ComputePhase::sk_bad_state;
-      return true;
+      return PrepareComputePhaseResult::create_skipped();
     }
     if (acc_status == Account::acc_uninit && !check_in_msg_state_hash(cfg)) {
       LOG(DEBUG) << "in_msg_state hash mismatch, cannot init account state";
       cp.skip_reason = ComputePhase::sk_bad_state;
-      return true;
+      return PrepareComputePhaseResult::create_skipped();
     }
     if (cfg.disable_anycast && acc_status == Account::acc_uninit &&
         new_fixed_prefix_length > static_cast<int>(cfg.size_limits.max_acc_fixed_prefix_length)) {
       LOG(DEBUG) << "cannot init account state: too big fixed prefix length (" << new_fixed_prefix_length << ", max "
                  << cfg.size_limits.max_acc_fixed_prefix_length << ")";
       cp.skip_reason = ComputePhase::sk_bad_state;
-      return true;
+      return PrepareComputePhaseResult::create_skipped();
     }
   } else if (acc_status != Account::acc_active) {
     // no state, cannot perform transactions
     cp.skip_reason = in_msg_state.not_null() ? ComputePhase::sk_bad_state : ComputePhase::sk_no_state;
-    return true;
+    return PrepareComputePhaseResult::create_skipped();
   } else if (in_msg_state.not_null()) {
     if (cfg.allow_external_unfreeze) {
       if (in_msg_extern && account.addr != in_msg_state->get_hash().bits()) {
         // only for external messages with non-zero initstate in active accounts
         LOG(DEBUG) << "in_msg_state hash mismatch in external message";
         cp.skip_reason = ComputePhase::sk_bad_state;
-        return true;
+        return PrepareComputePhaseResult::create_skipped();
       }
     }
     unpack_msg_state(cfg, true);  // use only libraries
@@ -1910,7 +1903,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     if (in_msg_extern && in_msg_state.not_null() && account.addr != in_msg_state->get_hash().bits()) {
       LOG(DEBUG) << "in_msg_state hash mismatch in external message";
       cp.skip_reason = ComputePhase::sk_bad_state;
-      return true;
+      return PrepareComputePhaseResult::create_skipped();
     }
   }
   if (cfg.disable_anycast) {
@@ -1930,11 +1923,11 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     cp.precompiled_gas_usage = gas_usage;
     if (gas_usage > cp.gas_limit) {
       cp.skip_reason = ComputePhase::sk_no_gas;
-      return true;
+      return PrepareComputePhaseResult::create_skipped();
     }
     auto impl = precompiled::get_implementation(new_code->get_hash().bits());
     if (impl != nullptr && !cfg.dont_run_precompiled_ && impl->required_version() <= cfg.global_version) {
-      return run_precompiled_contract(cfg, *impl);
+      return PrepareComputePhaseResult::create_precompiled(std::move(impl));
     }
 
     // Contract is marked as precompiled in global config, but implementation is not available
@@ -1949,39 +1942,27 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   Ref<vm::Stack> stack = prepare_vm_stack(cp);
   if (stack.is_null()) {
     compute_phase.reset();
-    return false;
+    return std::nullopt;
   }
   // OstreamLogger ostream_logger(error_stream);
   // auto log = create_vm_log(error_stream ? &ostream_logger : nullptr);
   LOG(DEBUG) << "creating VM";
 
   std::unique_ptr<StringLoggerTail> logger;
-  auto vm_log = vm::VmLog();
+  auto vm_log = vm::VmLog::Null();
   if (cfg.with_vm_log) {
     size_t log_max_size = 256;
     if (cfg.vm_log_verbosity > 4) {
       log_max_size = 32 << 20;
     } else if (cfg.vm_log_verbosity > 0) {
-      log_max_size = 1 << 20;
+      log_max_size = 8 << 20;
     }
     logger = std::make_unique<StringLoggerTail>(log_max_size);
-    vm_log.log_interface = logger.get();
-    vm_log.log_options = td::LogOptions(VERBOSITY_NAME(DEBUG), true, false);
-    if (cfg.vm_log_verbosity > 1) {
-      vm_log.log_mask |= vm::VmLog::ExecLocation;
-      if (cfg.vm_log_verbosity > 2) {
-        vm_log.log_mask |= vm::VmLog::GasRemaining;
-        if (cfg.vm_log_verbosity > 3) {
-          vm_log.log_mask |= vm::VmLog::DumpStack;
-          if (cfg.vm_log_verbosity > 4) {
-            vm_log.log_mask |= vm::VmLog::DumpStackVerbose;
-            vm_log.log_mask |= vm::VmLog::DumpC5;
-          }
-        }
-      }
-    }
+    vm_log = vm::make_vm_log(logger.get(), cfg.vm_log_verbosity, true);
   }
   vm::VmState vm{new_code, cfg.global_version, std::move(stack), gas, 1, new_data, vm_log, compute_vm_libraries(cfg)};
+  vm.ext_methods = cfg.ext_methods;
+  vm.missing_library_handler = cfg.missing_library_handler;
   vm.set_max_data_depth(cfg.max_vm_data_depth);
   vm.set_c7(prepare_vm_c7(cfg));  // tuple with SmartContractInfo
   vm.set_chksig_always_succeed(cfg.ignore_chksig);
@@ -1993,15 +1974,31 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
 
   LOG(DEBUG) << "starting VM";
   cp.vm_init_state_hash = vm.get_state_hash();
+
+  return PrepareComputePhaseResult{false, std::move(vm), std::move(logger), nullptr, precompiled};
+}
+
+bool Transaction::run_compute_phase(const ComputePhaseConfig& cfg, ComputePhase& cp, vm::VmState& vm,
+                                    std::unique_ptr<StringLoggerTail>& logger,
+                                    td::optional<PrecompiledContractsConfig::Contract> precompiled) {
   td::RealCpuTimer timer;
   cp.exit_code = ~vm.run();
-  time_tvm = timer.elapsed_both();
+  auto elapsed = timer.elapsed_both();
+  const bool compute_phase_result = get_compute_phase_result(cfg, cp, vm, logger, precompiled, elapsed);
+  cp.vm_loaded_cells = vm.extract_loaded_cells();
+  return compute_phase_result;
+}
+
+bool Transaction::get_compute_phase_result(const ComputePhaseConfig& cfg, ComputePhase& cp, const vm::VmState& vm,
+                                           std::unique_ptr<StringLoggerTail>& logger,
+                                           td::optional<PrecompiledContractsConfig::Contract> precompiled,
+                                           td::RealCpuTimer::Time elapsed) {
   LOG(DEBUG) << "VM terminated with exit code " << cp.exit_code;
   cp.out_of_gas = (cp.exit_code == ~(int)vm::Excno::out_of_gas);
   cp.vm_final_state_hash = vm.get_final_state_hash(cp.exit_code);
-  stack = vm.get_stack_ref();
+  const auto stack = vm.get_stack_ref();
   cp.vm_steps = (int)vm.get_steps_count();
-  gas = vm.get_gas_limits();
+  const auto gas = vm.get_gas_limits();
   cp.gas_used = std::min<long long>(gas.gas_consumed(), gas.gas_limit);
   cp.accepted = (gas.gas_credit == 0);
   cp.success = (cp.accepted && vm.committed());
@@ -2009,8 +2006,14 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     was_activated = true;
     acc_status = Account::acc_active;
   }
+  td::optional<td::uint64> precompiled_gas_usage;
   if (precompiled) {
-    cp.gas_used = precompiled.value().gas_usage;
+    precompiled_gas_usage = precompiled.value().gas_usage;
+  } else if (cp.precompiled_gas_usage) {
+    precompiled_gas_usage = cp.precompiled_gas_usage.value();
+  }
+  if (precompiled_gas_usage) {
+    cp.gas_used = precompiled_gas_usage.value();
     cp.vm_steps = 0;
     cp.vm_init_state_hash = cp.vm_final_state_hash = td::Bits256::zero();
     if (cp.out_of_gas) {
@@ -2060,8 +2063,20 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
                << cfg.flat_gas_limit << "]; remaining balance=" << balance.to_str();
     FAIL_UNLESS(td::sgn(balance.grams) >= 0);
   }
-  cp.vm_loaded_cells = vm.extract_loaded_cells();
   return true;
+}
+
+bool Transaction::compute_phase_step_debug(const ComputePhaseConfig& cfg, std::unique_ptr<vm::VmState>& vm,
+                                           std::unique_ptr<StringLoggerTail>& logger) {
+  td::optional<int> res = vm->debug_step();
+  if (!res) {
+    return false;
+  }
+
+  ComputePhase& cp = *(compute_phase.get());
+  cp.exit_code = ~(*res);
+
+  return get_compute_phase_result(cfg, cp, *vm, logger, {}, td::RealCpuTimer::Time{});
 }
 
 static constexpr int ERRCODE_FAIL_ACTION_PHASE = -666;
@@ -2310,6 +2325,7 @@ int Transaction::try_action_set_code(vm::CellSlice& cs, ActionPhase& ap, const A
   if (!tlb::unpack_exact(cs, rec)) {
     return -1;
   }
+  LOG(DEBUG) << "process set code " << rec.new_code->get_hash().to_hex();
   ap.new_code = std::move(rec.new_code);
   ap.code_changed = true;
   ap.spec_actions++;
@@ -2334,6 +2350,7 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
   if (!tlb::unpack_exact(cs, rec)) {
     return -1;
   }
+  int raw_mode = rec.mode;
   // mode: +0 = remove library, +1 = add private library, +2 = add public library, +16 - bounce on fail
   if (rec.mode & 16) {
     if (!cfg.bounce_on_fail_enabled) {
@@ -2347,12 +2364,15 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
   }
   Ref<vm::Cell> lib_ref = rec.libref->prefetch_ref();
   ton::Bits256 hash;
+  bool lib_ref_is_cell = lib_ref.not_null();
   if (lib_ref.not_null()) {
     hash = lib_ref->get_hash().bits();
   } else {
     FAIL_UNLESS_ERRCODE(rec.libref.write().fetch_ulong(1) == 0 && rec.libref.write().fetch_bits_to(hash),
                         ERRCODE_FAIL_ACTION_PHASE);
   }
+  LOG(DEBUG) << "process change library with mode " << raw_mode << ", lib_hash=" << hash.to_hex()
+             << ", lib_ref=" << (lib_ref_is_cell ? "cell" : "hash");
   try {
     vm::Dictionary dict{new_library, 256};
     if (!rec.mode) {
@@ -2681,6 +2701,7 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   if (!tlb::type_unpack_cell(act_rec.out_msg, block::gen::t_MessageRelaxed_Any, msg)) {
     return -1;
   }
+  LOG(DEBUG) << "process send message " << act_rec.out_msg.get()->get_hash().to_hex();
   if (!block::tlb::validate_message_relaxed_libs(act_rec.out_msg)) {
     LOG(DEBUG) << "outbound message has invalid libs in StateInit";
     return cfg.global_version >= 13 ? check_skip_invalid(-1) : -1;
@@ -3109,6 +3130,8 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   ap.tot_msg_bits += sstat.bits + new_msg_bits;
   ap.tot_msg_cells += sstat.cells + 1;
 
+  LOG(INFO) << "remaining balance " << ap.remaining_balance.to_str();
+
   return 0;
 }
 
@@ -3126,6 +3149,7 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
   if (!tlb::unpack_exact(cs, rec)) {
     return -1;
   }
+  LOG(DEBUG) << "process raw reserve with mode " << rec.mode;
   if ((rec.mode & 16) && cfg.bounce_on_fail_enabled) {
     rec.mode &= ~16;
     ap.need_bounce_on_fail = true;

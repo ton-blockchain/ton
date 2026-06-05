@@ -53,7 +53,10 @@ Ref<Cell> Cell::virtualize(td::uint32 effective_level) const {
 }
 
 std::ostream& operator<<(std::ostream& os, const Cell& c) {
-  return os << c.get_hash().to_hex();
+  char hash_hex[CellTraits::hash_bytes * 2];
+  c.get_hash().to_hex(hash_hex);
+  os.write(hash_hex, sizeof(hash_hex));
+  return os;
 }
 
 }  // namespace vm

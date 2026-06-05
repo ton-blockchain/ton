@@ -21,6 +21,8 @@
 #include "td/utils/misc.h"
 #include "td/utils/utf8.h"
 
+#include <array>
+
 namespace td {
 
 StringBuilder &operator<<(StringBuilder &sb, const JsonRawString &val) {
@@ -67,117 +69,195 @@ StringBuilder &operator<<(StringBuilder &sb, const JsonRawString &val) {
   return sb;
 }
 
+namespace detail {
+
+enum class JsonByteKind : uint8_t {
+  Plain = 0,     // safe ASCII [0x20..0x7E] except '"' and '\\'
+  Quote,         // '"'
+  Backslash,     // '\\'
+  Backspace,     // '\b'
+  Formfeed,      // '\f'
+  Newline,       // '\n'
+  CarriageRet,   // '\r'
+  Tab,           // '\t'
+  Control,       // other control chars <= 0x1F
+  Utf8           // >= 0x80
+};
+
+constexpr std::array<JsonByteKind, 256> make_json_byte_kind_table() {
+  std::array<JsonByteKind, 256> t{};
+
+  // Default: control for all, потом переопределим
+  for (size_t i = 0; i < 256; ++i) {
+    t[i] = (i >= 0x80) ? JsonByteKind::Utf8 : JsonByteKind::Control;
+  }
+
+  // Printable ASCII (safe by default)
+  for (size_t i = 0x20; i <= 0x7E; ++i) {
+    t[i] = JsonByteKind::Plain;
+  }
+
+  // Escaped specials
+  t[static_cast<unsigned char>('"')]  = JsonByteKind::Quote;
+  t[static_cast<unsigned char>('\\')] = JsonByteKind::Backslash;
+  t[static_cast<unsigned char>('\b')] = JsonByteKind::Backspace;
+  t[static_cast<unsigned char>('\f')] = JsonByteKind::Formfeed;
+  t[static_cast<unsigned char>('\n')] = JsonByteKind::Newline;
+  t[static_cast<unsigned char>('\r')] = JsonByteKind::CarriageRet;
+  t[static_cast<unsigned char>('\t')] = JsonByteKind::Tab;
+
+  return t;
+}
+
+inline constexpr auto JSON_BYTE_KIND = make_json_byte_kind_table();
+
+}  // namespace detail
+
 StringBuilder &operator<<(StringBuilder &sb, const JsonString &val) {
+  using detail::JsonByteKind;
+  using detail::JSON_BYTE_KIND;
+
+  const char *s = val.str_.begin();
+  const size_t len = val.str_.size();
+
+  (void)sb.reserve(len + 2);
+
   sb << '"';
-  SCOPE_EXIT {
-    sb << '"';
+
+  size_t chunk_start = 0;
+
+  auto flush_chunk = [&](size_t end_pos) {
+    if (end_pos > chunk_start) {
+      sb << Slice(s + chunk_start, end_pos - chunk_start);
+    }
   };
   auto append_error = [&]() {
     sb << JsonChar(0xFFFD);  // U+FFFD - Replacement character
   };
-  auto *s = val.str_.begin();
-  auto len = val.str_.size();
 
-  for (size_t pos = 0; pos < len; pos++) {
-    auto ch = static_cast<unsigned char>(s[pos]);
-    switch (ch) {
-      case '"':
-        sb << '\\' << '"';
-        break;
-      case '\\':
-        sb << '\\' << '\\';
-        break;
-      case '\b':
-        sb << '\\' << 'b';
-        break;
-      case '\f':
-        sb << '\\' << 'f';
-        break;
-      case '\n':
-        sb << '\\' << 'n';
-        break;
-      case '\r':
-        sb << '\\' << 'r';
-        break;
-      case '\t':
-        sb << '\\' << 't';
-        break;
-      default:
-        if (ch <= 31) {
-          sb << JsonOneChar(s[pos]);
-          break;
-        }
-        if (128 <= ch) {
-          uint32 a = ch;
-          if ((a & 0x40) == 0) {
-            append_error();
-            break;
-          }
+  for (size_t pos = 0; pos < len; ++pos) {
+    const unsigned char ch = static_cast<unsigned char>(s[pos]);
+    const JsonByteKind kind = JSON_BYTE_KIND[ch];
 
-          if (pos + 1 >= len) {
-            append_error();
-            break;
-          }
-          uint32 b = static_cast<unsigned char>(s[++pos]);
-          if ((b & 0xc0) != 0x80) {
-            --pos;
-            append_error();
-            break;
-          }
-          if ((a & 0x20) == 0) {
-            if ((a & 0x1e) == 0) {
-              append_error();
-              break;
-            }
-            sb << JsonChar(((a & 0x1f) << 6) | (b & 0x3f));
-            break;
-          }
+    // Hot path: обычный ASCII
+    if (kind == JsonByteKind::Plain) {
+      continue;
+    }
 
-          if (pos + 1 >= len) {
-            append_error();
-            break;
-          }
-          uint32 c = static_cast<unsigned char>(s[++pos]);
-          if ((c & 0xc0) != 0x80) {
-            --pos;
-            append_error();
-            break;
-          }
-          if ((a & 0x10) == 0) {
-            if (((a & 0x0f) | (b & 0x20)) == 0) {
-              append_error();
-              break;
-            }
-            sb << JsonChar(((a & 0x0f) << 12) | ((b & 0x3f) << 6) | (c & 0x3f));
-            break;
-          }
+    // Сбрасываем накопленный plain chunk
+    flush_chunk(pos);
 
-          if (pos + 1 >= len) {
-            append_error();
-            break;
-          }
-          uint32 d = static_cast<unsigned char>(s[++pos]);
-          if ((d & 0xc0) != 0x80) {
-            --pos;
-            append_error();
-            break;
-          }
-          if ((a & 0x08) == 0) {
-            if (((a & 0x07) | (b & 0x30)) == 0) {
-              append_error();
-              break;
-            }
-            sb << JsonChar(((a & 0x07) << 18) | ((b & 0x3f) << 12) | ((c & 0x3f) << 6) | (d & 0x3f));
-            break;
-          }
+    switch (kind) {
+      case JsonByteKind::Quote:
+        sb << Slice("\\\"", 2);
+        break;
+      case JsonByteKind::Backslash:
+        sb << Slice("\\\\", 2);
+        break;
+      case JsonByteKind::Backspace:
+        sb << Slice("\\b", 2);
+        break;
+      case JsonByteKind::Formfeed:
+        sb << Slice("\\f", 2);
+        break;
+      case JsonByteKind::Newline:
+        sb << Slice("\\n", 2);
+        break;
+      case JsonByteKind::CarriageRet:
+        sb << Slice("\\r", 2);
+        break;
+      case JsonByteKind::Tab:
+        sb << Slice("\\t", 2);
+        break;
 
+      case JsonByteKind::Control:
+        sb << JsonOneChar(s[pos]);
+        break;
+
+      case JsonByteKind::Utf8: {
+        // UTF-8 decode branch (с unsigned char)
+        uint32 a = ch;
+        if ((a & 0x40) == 0) {
           append_error();
           break;
         }
-        sb << s[pos];
+
+        if (pos + 1 >= len) {
+          append_error();
+          break;
+        }
+        uint32 b = static_cast<unsigned char>(s[++pos]);
+        if ((b & 0xc0) != 0x80) {
+          --pos;
+          append_error();
+          break;
+        }
+        if ((a & 0x20) == 0) {
+          if ((a & 0x1e) == 0) {
+            append_error();
+            break;
+          }
+          sb << JsonChar(((a & 0x1f) << 6) | (b & 0x3f));
+          break;
+        }
+
+        if (pos + 1 >= len) {
+          append_error();
+          break;
+        }
+        uint32 c = static_cast<unsigned char>(s[++pos]);
+        if ((c & 0xc0) != 0x80) {
+          --pos;
+          append_error();
+          break;
+        }
+        if ((a & 0x10) == 0) {
+          if (((a & 0x0f) | (b & 0x20)) == 0) {
+            append_error();
+            break;
+          }
+          sb << JsonChar(((a & 0x0f) << 12) | ((b & 0x3f) << 6) | (c & 0x3f));
+          break;
+        }
+
+        if (pos + 1 >= len) {
+          append_error();
+          break;
+        }
+        uint32 d = static_cast<unsigned char>(s[++pos]);
+        if ((d & 0xc0) != 0x80) {
+          --pos;
+          append_error();
+          break;
+        }
+        if ((a & 0x08) == 0) {
+          if (((a & 0x07) | (b & 0x30)) == 0) {
+            append_error();
+            break;
+          }
+          sb << JsonChar(((a & 0x07) << 18) | ((b & 0x3f) << 12) | ((c & 0x3f) << 6) | (d & 0x3f));
+          break;
+        }
+
+        append_error();
+        break;
+      }
+
+      case JsonByteKind::Plain:
+        // unreachable due to fast path above
+        UNREACHABLE();
         break;
     }
+
+    chunk_start = pos + 1;
   }
+
+  // flush tail
+  if (chunk_start < len) {
+    sb << Slice(s + chunk_start, len - chunk_start);
+  }
+
+  sb << '"';
   return sb;
 }
 

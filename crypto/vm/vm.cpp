@@ -19,6 +19,7 @@
 #include <sodium.h>
 
 #include "vm/continuation.h"
+#include "vm/boc.h"
 #include "vm/dict.h"
 #include "vm/dispatch.h"
 #include "vm/log.h"
@@ -26,8 +27,31 @@
 
 #include "cp0.h"
 #include "memo.h"
+#include "td/utils/misc.h"
 
 namespace vm {
+
+static Ref<Cell> stack_entry_to_cell(const StackEntry& entry) {
+  switch (entry.type()) {
+    case StackEntry::t_cell:
+      return entry.as_cell();
+    case StackEntry::t_builder: {
+      auto cb = entry.as_builder();
+      return cb.not_null() ? cb.write().finalize_novm() : Ref<Cell>{};
+    }
+    case StackEntry::t_slice: {
+      auto cs = entry.as_slice();
+      if (cs.is_null()) {
+        return {};
+      }
+      CellBuilder cb;
+      cb.append_cellslice(cs);
+      return cb.finalize_novm();
+    }
+    default:
+      return {};
+  }
+}
 
 VmState::VmState() : cp(-1), dispatch(&dummy_dispatch_table), quit0(true, 0), quit1(true, 1) {
   ensure_throw(init_cp(0));
@@ -380,7 +404,10 @@ Ref<OrdCont> VmState::extract_cc(int save_cr, int stack_copy, int cc_args) {
   return cc;
 }
 
-int VmState::throw_exception(int excno) {
+int VmState::throw_exception(int excno, bool add_vm_log) {
+  if (add_vm_log) {   // it's true for THROW / THROWIFNOT / etc. (exceptions from contract's code)
+    VM_LOG(this) << "handling exception code " << excno << ": " << "custom THROW";
+  }
   Stack& stack_ref = get_stack();
   stack_ref.clear();
   stack_ref.push_smallint(0);
@@ -391,6 +418,7 @@ int VmState::throw_exception(int excno) {
 }
 
 int VmState::throw_exception(int excno, StackEntry&& arg) {
+  VM_LOG(this) << "handling exception code " << excno << ": " << "custom THROW";
   Stack& stack_ref = get_stack();
   stack_ref.clear();
   stack_ref.push(std::move(arg));
@@ -435,19 +463,42 @@ void VmState::change_gas_limit(long long new_limit) {
   gas.change_limit(new_limit);
 }
 
+void VmState::register_stack_cell_bocs() {
+  stack->for_each_scalar([this](const StackEntry& entry) { register_stack_cell_boc(entry); });
+}
+
+void VmState::register_stack_cell_boc(const StackEntry& entry) {
+  auto cell = stack_entry_to_cell(entry);
+  if (cell.is_null()) {
+    return;
+  }
+  auto hash = cell->get_hash();
+  if (!logged_cell_bocs.insert(hash).second) {
+    return;
+  }
+  auto hash_hex = hash.to_hex();
+  auto boc = std_boc_serialize(cell);
+  if (boc.is_ok()) {
+    VM_LOG(this) << "register new cell " << hash_hex << ": " << td::buffer_to_hex(boc.move_as_ok().as_slice());
+  } else {
+    VM_LOG(this) << "register new cell " << hash_hex << ": ???";
+  }
+}
+
 int VmState::step() {
   CHECK(code.not_null() && stack.not_null());
   if (log.log_mask & vm::VmLog::DumpStack) {
-    std::stringstream ss;
+    stack_dump_buffer.clear();
     int mode = 3;
-    if (log.log_mask & vm::VmLog::DumpStackVerbose) {
-      mode += 4;
-    }
     std::unique_ptr<VmStateInterface> tmp_ctx;
     // install temporary dummy vm state interface to prevent charging for cell load operations during dump
     VmStateInterface::Guard guard(tmp_ctx.get());
-    stack->dump(ss, mode);
-    VM_LOG(this) << "stack:" << ss.str();
+    if (log.log_mask & vm::VmLog::DumpStackVerbose) {
+      register_stack_cell_bocs();
+      mode |= 4 | 8;
+    }
+    stack->dump(stack_dump_buffer, mode);
+    VM_LOG(this) << "stack:" << stack_dump_buffer;
   }
   if (stack_trace) {
     std::unique_ptr<VmStateInterface> tmp_ctx;
@@ -461,6 +512,8 @@ int VmState::step() {
         << "code cell hash: " << code->get_base_cell()->get_hash().to_hex() << " offset: " << code->cur_pos();
     return dispatch->dispatch(this, code.write());
   } else if (code->size_refs()) {
+    VM_LOG_MASK(this, vm::VmLog::ExecLocation)
+        << "code cell hash: " << code->get_base_cell()->get_hash().to_hex() << " offset: " << code->cur_pos();
     VM_LOG(this) << "execute implicit JMPREF";
     auto ref_cell = code->prefetch_ref();
     VM_LOG_MASK(this, vm::VmLog::ExecLocation) << "code cell hash: " << ref_cell->get_hash().to_hex() << " offset: 0";
@@ -468,45 +521,109 @@ int VmState::step() {
     Ref<Continuation> cont = Ref<OrdCont>{true, load_cell_slice_ref(std::move(ref_cell)), get_cp()};
     return jump(std::move(cont));
   } else {
+    VM_LOG_MASK(this, vm::VmLog::ExecLocation)
+        << "code cell hash: " << code->get_base_cell()->get_hash().to_hex() << " offset: " << code->cur_pos();
     VM_LOG(this) << "execute implicit RET";
     consume_gas_chk(implicit_ret_gas_price);
     return ret();
   }
 }
 
+td::optional<int> VmState::debug_step() {
+  try {
+    if (need_restore_parent) {
+      restore_parent_vm(~exit_code);
+      need_restore_parent = false;
+    }
+    int res_inner = run_step();
+    if (!res_inner) {
+      return {};
+    }
+  } catch (VmNoGas &vmoog) {
+    ++steps;
+    VM_LOG(this) << "unhandled out-of-gas exception: gas consumed=" << gas.gas_consumed()
+                  << ", limit=" << gas.gas_limit;
+    get_stack().clear();
+    get_stack().push_smallint(gas.gas_consumed());
+    exit_code = vmoog.get_errno();  // no ~ for unhandled exceptions (to make their faking impossible)
+  } catch (...) {
+    ++steps;
+    VM_LOG(this) << "unhandled exception during debug step";
+    exit_code = static_cast<int>(Excno::fatal);
+  }
+
+  if (parent) {
+    // if there is a parent VM for current VM, return nullopt to continue execution of the code after RUNVM
+    // at the next step, we will restore parent VM and continue execution.
+    need_restore_parent = true;
+    return {};
+  }
+
+  return exit_code;
+}
+
+/**
+ * Returns exit code of the execution of the whole code or the last instruction.
+ */
+int VmState::get_exit_code() const {
+  return exit_code;
+}
+
+/**
+ * Executes single instruction
+ */
+int VmState::run_step() {
+  int res;
+  Guard guard(this);
+  try {
+    try {
+      res = step();
+      VM_LOG_MASK(this, vm::VmLog::GasRemaining) << "gas remaining: " << gas.gas_remaining;
+      gas.check();
+    } catch (vm::CellBuilder::CellWriteError) {
+      throw VmError{Excno::cell_ov};
+    } catch (vm::CellBuilder::CellCreateError) {
+      throw VmError{Excno::cell_ov};
+    } catch (vm::CellSlice::CellReadError) {
+      throw VmError{Excno::cell_und};
+    }
+  } catch (const VmError& vme) {
+    VM_LOG(this) << "handling exception code " << vme.get_errno() << ": " << vme.get_msg();
+    try {
+      ++steps;
+      res = throw_exception(vme.get_errno(), false);    // no VM_LOG: just done above
+    } catch (const VmError& vme2) {
+      VM_LOG(this) << "exception " << vme2.get_errno() << " while handling exception: " << vme.get_msg();
+      res = ~vme2.get_errno();
+      exit_code = res;
+      return res;
+    }
+  }
+
+  exit_code = res;
+
+  if (res) {
+    // res will be non-zero if there are no more instructions to run
+    if ((res | 1) == -1 && !try_commit()) {
+      VM_LOG(this) << "automatic commit failed (new data or action cells too deep)";
+      get_stack().clear();
+      get_stack().push_smallint(0);
+      return ~(int)Excno::cell_ov;
+    }
+    return res;
+  }
+  return res;
+}
+
+/**
+ * Executes instructions one by one until end
+ */
 int VmState::run_inner() {
   int res;
   Guard guard(this);
   do {
-    try {
-      try {
-        res = step();
-        VM_LOG_MASK(this, vm::VmLog::GasRemaining) << "gas remaining: " << gas.gas_remaining;
-        gas.check();
-      } catch (vm::CellBuilder::CellWriteError) {
-        throw VmError{Excno::cell_ov};
-      } catch (vm::CellBuilder::CellCreateError) {
-        throw VmError{Excno::cell_ov};
-      } catch (vm::CellSlice::CellReadError) {
-        throw VmError{Excno::cell_und};
-      }
-    } catch (const VmError& vme) {
-      VM_LOG(this) << "handling exception code " << vme.get_errno() << ": " << vme.get_msg();
-      try {
-        ++steps;
-        res = throw_exception(vme.get_errno());
-      } catch (const VmError& vme2) {
-        VM_LOG(this) << "exception " << vme2.get_errno() << " while handling exception: " << vme.get_msg();
-        return ~vme2.get_errno();
-      }
-    }
+    res = run_step();
   } while (!res);
-  if ((res | 1) == -1 && !try_commit()) {
-    VM_LOG(this) << "automatic commit failed (new data or action cells too deep)";
-    get_stack().clear();
-    get_stack().push_smallint(0);
-    return ~(int)Excno::cell_ov;
-  }
   return res;
 }
 
@@ -533,12 +650,12 @@ int VmState::run() {
     }
     if (!parent) {
       if ((log.log_mask & VmLog::DumpC5) && cstate.committed) {
-        std::stringstream ss;
-        ss << "final c5: ";
-        StackEntry::maybe<Cell>(cstate.c5).dump(ss, true);
-        ss << "\n";
-        VM_LOG(this) << ss.str();
+        std::string final_c5 = "final c5: ";
+        StackEntry::maybe<Cell>(cstate.c5).dump(final_c5, true);
+        final_c5 += '\n';
+        VM_LOG(this) << final_c5;
       }
+      exit_code = res;
       return res;
     }
     restore_parent = true;
@@ -663,7 +780,12 @@ Ref<Cell> VmState::load_library(td::ConstBitPtr hash_ptr) {
       return lib;
     }
   }
-  missing_library = hash;
+  auto missing = hash;
+  if (missing_library_handler.callback != nullptr) {
+    auto missing_hex = missing.to_hex();
+    missing_library_handler.callback(missing_library_handler.ctx, missing_hex.c_str());
+  }
+  missing_library = missing;
   return {};
 }
 
@@ -755,6 +877,7 @@ void VmState::run_child_vm(VmState&& new_state, bool return_data, bool return_ac
     new_state.gas = GasLimits{std::min(new_state.gas.gas_limit, gas.gas_remaining),
                               std::min(new_state.gas.gas_max, gas.gas_remaining)};
   }
+  new_state.logged_cell_bocs = std::move(logged_cell_bocs);
 
   auto new_parent = std::make_unique<ParentVmState>();
   new_parent->return_data = return_data;
@@ -775,6 +898,7 @@ void VmState::restore_parent_vm(int res) {
   log = std::move(child_state.log);
   libraries = std::move(child_state.libraries);
   loaded_libraries = std::move(child_state.loaded_libraries);
+  logged_cell_bocs = std::move(child_state.logged_cell_bocs);
   steps += child_state.steps;
   if (!parent->isolate_gas) {
     loaded_cells = std::move(child_state.loaded_cells);

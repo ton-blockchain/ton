@@ -8,6 +8,9 @@
 
 #include "StringLog.h"
 #include "emulator-extern.h"
+#include "tvm-emulator.hpp"
+
+#include <sstream>
 
 struct TransactionEmulationParams {
   uint32_t utime;
@@ -171,11 +174,66 @@ class NoopLog : public td::LogInterface {
   }
 };
 
+class ScopedLogCapture {
+ public:
+  explicit ScopedLogCapture(bool capture_logs)
+      : old_log_interface_(td::log_interface),
+        old_verbosity_level_(GET_VERBOSITY_LEVEL()),
+        capture_logs_(capture_logs) {
+    if (capture_logs_) {
+      td::log_interface = &string_logger_;
+      SET_VERBOSITY_LEVEL(verbosity_DEBUG);
+    } else {
+      td::log_interface = &noop_logger_;
+      SET_VERBOSITY_LEVEL(verbosity_NEVER);
+    }
+  }
+
+  ~ScopedLogCapture() {
+    td::log_interface = old_log_interface_;
+    SET_VERBOSITY_LEVEL(old_verbosity_level_);
+  }
+
+  std::string get_string() const {
+    return capture_logs_ ? string_logger_.get_string() : std::string();
+  }
+
+ private:
+  td::LogInterface* old_log_interface_;
+  int old_verbosity_level_;
+  bool capture_logs_;
+  NoopLog noop_logger_;
+  StringLog string_logger_;
+};
+
+class NullStreamBuf : public std::streambuf {
+ protected:
+  int overflow(int c) override {
+    return c;
+  }
+  std::streamsize xsputn(const char*, std::streamsize count) override {
+    return count;
+  }
+};
+
+class ScopedCerrDiscard {
+ public:
+  ScopedCerrDiscard() : old_err_(std::cerr.rdbuf(null_buf_.rdbuf())) {
+  }
+  ~ScopedCerrDiscard() {
+    std::cerr.rdbuf(old_err_);
+  }
+
+ private:
+  NullStreamBuf buf_;
+  std::ostream null_buf_{&buf_};
+  std::streambuf* old_err_;
+};
+
 extern "C" {
 
-void* create_emulator(const char* config, int verbosity) {
-  NoopLog logger;
-
+void* create_emulator(const char *config, int verbosity) {
+  static NoopLog logger;
   td::log_interface = &logger;
 
   SET_VERBOSITY_LEVEL(verbosity_NEVER);
@@ -191,11 +249,11 @@ void destroy_emulator(void* em) {
   transaction_emulator_destroy(em);
 }
 
-const char* emulate_with_emulator(void* em, const char* libs, const char* account, const char* message,
-                                  const char* params) {
-  StringLog logger;
+const char *emulate_sbs(void *em, const char* libs, const char* account, const char* message, const char* params) {
+  // The logger must outlive this call: subsequent step calls continue using the same VM state.
+  auto* logger = new StringLog();
 
-  td::log_interface = &logger;
+  td::log_interface = logger;
   SET_VERBOSITY_LEVEL(verbosity_DEBUG);
 
   auto decoded_params_res = decode_transaction_emulation_params(params);
@@ -203,6 +261,58 @@ const char* emulate_with_emulator(void* em, const char* libs, const char* accoun
     return strdup(R"({"fail":true,"message":"Can't decode other params"})");
   }
   auto decoded_params = decoded_params_res.move_as_ok();
+
+  bool rand_seed_set = true;
+  if (decoded_params.rand_seed_hex) {
+    rand_seed_set = transaction_emulator_set_rand_seed(em, decoded_params.rand_seed_hex.unwrap().c_str());
+  }
+
+  bool prev_blocks_set = true;
+  if (decoded_params.prev_blocks_info) {
+    prev_blocks_set = transaction_emulator_set_prev_blocks_info(em, decoded_params.prev_blocks_info.unwrap().c_str());
+  }
+
+  if (!transaction_emulator_set_libs(em, libs) || !transaction_emulator_set_lt(em, decoded_params.lt) ||
+      !transaction_emulator_set_unixtime(em, decoded_params.utime) ||
+      !transaction_emulator_set_ignore_chksig(em, decoded_params.ignore_chksig) ||
+      !transaction_emulator_set_debug_enabled(em, decoded_params.debug_enabled) || !rand_seed_set || !prev_blocks_set) {
+    return strdup(R"({"fail":true,"message":"Can't set params"})");
+  }
+
+  return transaction_emulator_sbs_emulate_transaction(em, account, message);
+}
+
+bool em_sbs_step(void *em) {
+  return transaction_emulator_sbs_step(em);
+}
+
+const char *em_sbs_stack(void *em) {
+  return transaction_emulator_sbs_get_stack(em);
+}
+
+const char *em_sbs_c7(void *em) {
+  return transaction_emulator_sbs_get_c7(em);
+}
+
+const char *em_sbs_code_pos(void *em) {
+  return transaction_emulator_sbs_get_code_pos(em);
+}
+
+const char *em_sbs_current_instr(void *em) {
+  return transaction_emulator_sbs_get_current_instr(em);
+}
+
+const char* em_sbs_result(void *em) {
+  return transaction_emulator_sbs_result(em);
+}
+
+const char *emulate_with_emulator(void* em, const char* libs, const char* account, const char* message, const char* params) {
+  auto decoded_params_res = decode_transaction_emulation_params(params);
+  if (decoded_params_res.is_error()) {
+    return strdup(R"({"fail":true,"message":"Can't decode other params"})");
+  }
+  auto decoded_params = decoded_params_res.move_as_ok();
+  ScopedLogCapture logger(transaction_emulator_should_capture_executor_logs(em));
 
   bool rand_seed_set = true;
   if (decoded_params.rand_seed_hex) {
@@ -251,11 +361,69 @@ const char* emulate(const char* config, const char* libs, int verbosity, const c
   return result;
 }
 
-const char* run_get_method(const char* params, const char* stack, const char* config) {
-  StringLog logger;
+void *setup_sbs_get_method(const char *params, const char* stack, const char* config) {
+    // The logger must outlive this call: subsequent step calls continue using the same VM state.
+    auto* logger = new StringLog();
 
+    td::log_interface = logger;
+    SET_VERBOSITY_LEVEL(verbosity_DEBUG);
+
+    auto decoded_params_res = decode_get_method_params(params);
+    if (decoded_params_res.is_error()) {
+        return strdup(R"({"fail":true,"message":"Can't decode params"})");
+    }
+    auto decoded_params = decoded_params_res.move_as_ok();
+
+    auto tvm = tvm_emulator_create(decoded_params.code.c_str(), decoded_params.data.c_str(), decoded_params.verbosity);
+
+    if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
+        !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime, decoded_params.balance,
+                             decoded_params.rand_seed_hex.c_str(), config) ||
+        (decoded_params.prev_blocks_info &&
+         !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
+        (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
+        !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
+        tvm_emulator_destroy(tvm);
+        return strdup(R"({"fail":true,"message":"Can't set params"})");
+    }
+
+    return tvm;
+}
+
+void destroy_tvm_emulator(void *tvm) {
+  tvm_emulator_destroy(tvm);
+}
+
+// -------------- GET METHODS -------------------
+
+bool sbs_step(void *tvm) {
+  return tvm_emulator_sbs_step(tvm);
+}
+
+const char *sbs_get_stack(void *tvm) {
+  return tvm_emulator_sbs_get_stack(tvm);
+}
+
+const char *sbs_get_c7(void *tvm) {
+  return tvm_emulator_sbs_get_c7(tvm);
+}
+
+const char* sbs_get_code_pos(void *tvm) {
+  return tvm_emulator_sbs_get_code_pos(tvm);
+}
+
+const char* sbs_get_current_instr(void *tvm) {
+  return tvm_emulator_sbs_get_current_instr(tvm);
+}
+
+const char* sbs_get_method_result(void *tvm) {
+  return tvm_emulator_sbs_get_method_result(tvm);
+}
+
+void *create_tvm_emulator(const char *params) {
+  static NoopLog logger;
   td::log_interface = &logger;
-  SET_VERBOSITY_LEVEL(verbosity_DEBUG);
+  SET_VERBOSITY_LEVEL(verbosity_NEVER);
 
   auto decoded_params_res = decode_get_method_params(params);
   if (decoded_params_res.is_error()) {
@@ -263,7 +431,20 @@ const char* run_get_method(const char* params, const char* stack, const char* co
   }
   auto decoded_params = decoded_params_res.move_as_ok();
 
-  auto tvm = tvm_emulator_create(decoded_params.code.c_str(), decoded_params.data.c_str(), decoded_params.verbosity);
+  return tvm_emulator_create(decoded_params.code.c_str(), decoded_params.data.c_str(), decoded_params.verbosity);
+}
+
+const char *run_get_method(void* tvm, const char *params, const char* stack, const char* config) {
+  // DEBUG instruction outputs values in stderr; return this output to the caller.
+  std::ostringstream errs;
+  std::streambuf* old_err = std::cerr.rdbuf(errs.rdbuf());
+
+  auto decoded_params_res = decode_get_method_params(params);
+  if (decoded_params_res.is_error()) {
+    return strdup(R"({"fail":true,"message":"Can't decode params"})");
+  }
+  auto decoded_params = decoded_params_res.move_as_ok();
+  ScopedLogCapture logger(decoded_params.verbosity >= 0);
 
   if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
       !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime, decoded_params.balance,
@@ -274,13 +455,14 @@ const char* run_get_method(const char* params, const char* stack, const char* co
        !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
       (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
       !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
-    tvm_emulator_destroy(tvm);
+    std::cerr.rdbuf(old_err);
     return strdup(R"({"fail":true,"message":"Can't set params"})");
   }
 
   auto res = tvm_emulator_run_get_method(tvm, decoded_params.method_id, stack);
 
-  tvm_emulator_destroy(tvm);
+  std::string debug_logs = errs.str();
+  std::cerr.rdbuf(old_err);
 
   const char* output = nullptr;
   {
@@ -288,6 +470,7 @@ const char* run_get_method(const char* params, const char* stack, const char* co
     auto json_obj = jb.enter_object();
     json_obj("output", td::JsonRaw(td::Slice(res)));
     json_obj("logs", logger.get_string());
+    json_obj("debug_logs", debug_logs);
     json_obj.leave();
     output = strdup(jb.string_builder().as_cslice().c_str());
   }
@@ -296,7 +479,35 @@ const char* run_get_method(const char* params, const char* stack, const char* co
   return output;
 }
 
-const char* version() {
+TvmEmulatorGetMethodResult *run_get_method_struct(void* tvm, const char *params, const char* stack, const char* config) {
+    ScopedCerrDiscard errs;
+
+    auto decoded_params_res = decode_get_method_params(params);
+    if (decoded_params_res.is_error()) {
+        return tvm_emulator_get_method_result_error("Can't decode params", 1);
+    }
+    auto decoded_params = decoded_params_res.move_as_ok();
+    ScopedLogCapture logger(decoded_params.verbosity >= 0);
+
+    if ((decoded_params.libs && !tvm_emulator_set_libraries(tvm, decoded_params.libs.value().c_str())) ||
+        !tvm_emulator_set_c7(tvm, decoded_params.address.c_str(), decoded_params.unixtime, decoded_params.balance,
+                             decoded_params.rand_seed_hex.c_str(), config) ||
+        (decoded_params.extra_currencies.size() > 0 && !tvm_emulator_set_extra_currencies(tvm, decoded_params.extra_currencies.c_str())) ||
+        (decoded_params.prev_blocks_info && !tvm_emulator_set_prev_blocks_info(tvm, decoded_params.prev_blocks_info.value().c_str())) ||
+        (decoded_params.gas_limit > 0 && !tvm_emulator_set_gas_limit(tvm, decoded_params.gas_limit)) ||
+        !tvm_emulator_set_debug_enabled(tvm, decoded_params.debug_enabled)) {
+        return tvm_emulator_get_method_result_error("Can't set params", 1);
+    }
+
+    return tvm_emulator_run_get_method_struct(tvm, decoded_params.method_id, stack);
+}
+
+const char *run_continuation(void *tvm, const char *continuation_boc, const char *stack_boc) {
+  return tvm_emulator_run_continuation(tvm, continuation_boc, stack_boc);
+}
+
+const char *version() {
   return emulator_version();
 }
+
 }

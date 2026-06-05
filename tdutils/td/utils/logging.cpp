@@ -52,7 +52,7 @@ int VERBOSITY_NAME(fd) = VERBOSITY_NAME(DEBUG) + 9;
 int VERBOSITY_NAME(actor) = VERBOSITY_NAME(DEBUG) + 10;
 int VERBOSITY_NAME(sqlite) = VERBOSITY_NAME(DEBUG) + 10;
 
-LogOptions log_options;
+TD_THREAD_LOCAL LogOptions log_options;
 
 TD_THREAD_LOCAL const char *Logger::tag_ = nullptr;
 TD_THREAD_LOCAL const char *Logger::tag2_ = nullptr;
@@ -63,7 +63,7 @@ Logger::Logger(LogInterface &log, const LogOptions &options, int log_level)
     , sb_(buffer_.as_slice())
     , options_(options)
     , log_level_(log_level)
-    , start_at_(Clocks::rdtsc()) {
+    , start_at_(options.add_info ? Clocks::rdtsc() : 0) {
   sb_.current_color() = log_.color_for(log_level);
 }
 
@@ -139,8 +139,10 @@ Logger::~Logger() {
     }
     log_.append(slice, log_level_);
 
-    // put stats here to avoid conflict with PSTRING and PSLICE
-    TD_PERF_COUNTER_SINCE(logger, start_at_);
+    if (options_.add_info) {
+      // put stats here to avoid conflict with PSTRING and PSLICE
+      TD_PERF_COUNTER_SINCE(logger, start_at_);
+    }
   } else {
     log_.append(as_cslice(), log_level_);
   }
@@ -289,10 +291,10 @@ class DefaultLog final : public LogInterface {
 };
 static DefaultLog default_log;
 
-LogInterface *const default_log_interface = &default_log;
-LogInterface *log_interface = default_log_interface;
+TD_THREAD_LOCAL LogInterface *const default_log_interface = &default_log;
+TD_THREAD_LOCAL LogInterface *log_interface = default_log_interface;
 
-static OnFatalErrorCallback on_fatal_error_callback = nullptr;
+TD_THREAD_LOCAL static OnFatalErrorCallback on_fatal_error_callback = nullptr;
 
 void set_log_fatal_error_callback(OnFatalErrorCallback callback) {
   on_fatal_error_callback = callback;

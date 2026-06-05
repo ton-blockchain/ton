@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "emulator_export.h"
@@ -11,8 +12,9 @@ extern "C" {
 /**
  * @brief Creates TransactionEmulator object
  * @param config_params_boc Base64 encoded BoC serialized Config dictionary (Hashmap 32 ^Cell)
- * @param vm_log_verbosity Verbosity level of VM log. 0 - log truncated to last 256 characters. 1 - unlimited length log.
- * 2 - for each command prints its cell hash and offset. 3 - for each command log prints all stack values.
+ * @param vm_log_verbosity Verbosity level of VM log. Negative values disable VM logging completely without building log
+ * messages. 0 - log truncated to last 256 characters. 1 - unlimited length log. 2 - for each command prints its cell
+ * hash and offset. 3 - for each command log prints all stack values.
  * @return Pointer to TransactionEmulator or nullptr in case of error
  */
 EMULATOR_EXPORT void *transaction_emulator_create(const char *config_params_boc, int vm_log_verbosity);
@@ -89,12 +91,46 @@ EMULATOR_EXPORT bool transaction_emulator_set_libs(void *transaction_emulator, c
 EMULATOR_EXPORT bool transaction_emulator_set_debug_enabled(void *transaction_emulator, bool debug_enabled);
 
 /**
+ * @brief Returns whether this emulator was configured to capture executor logs
+ * @param transaction_emulator Pointer to TransactionEmulator object
+ * @return true when executor logs should be collected for this emulator
+ */
+EMULATOR_EXPORT bool transaction_emulator_should_capture_executor_logs(void *transaction_emulator);
+
+/**
  * @brief Set tuple of previous blocks (13th element of c7)
  * @param transaction_emulator Pointer to TransactionEmulator object
  * @param info_boc Base64 encoded BoC serialized TVM tuple (VmStackValue).
  * @return true in case of success, false in case of error
  */
 EMULATOR_EXPORT bool transaction_emulator_set_prev_blocks_info(void *transaction_emulator, const char *info_boc);
+
+typedef const char* (*ext_func)(void*, const char*);
+typedef void (*missing_library_func)(void*, const char*);
+EMULATOR_EXPORT const char *transaction_emulator_register_extmethod(
+    void *transaction_emulator,
+    int id,
+    void* ctx,
+    int stack_items_count,
+    ext_func callback
+);
+EMULATOR_EXPORT const char *tvm_emulator_register_extmethod(
+    void* transaction_emulator,
+    int id,
+    void* ctx,
+    int stack_items_count,
+    ext_func callback
+);
+EMULATOR_EXPORT const char *transaction_emulator_register_missing_library_callback(
+    void *transaction_emulator,
+    void *ctx,
+    missing_library_func callback
+);
+EMULATOR_EXPORT const char *tvm_emulator_register_missing_library_callback(
+    void *tvm_emulator,
+    void *ctx,
+    missing_library_func callback
+);
 
 /**
  * @brief Emulate transaction
@@ -121,6 +157,111 @@ EMULATOR_EXPORT bool transaction_emulator_set_prev_blocks_info(void *transaction
 EMULATOR_EXPORT const char *transaction_emulator_emulate_transaction(void *transaction_emulator,
                                                                      const char *shard_account_boc,
                                                                      const char *message_boc);
+
+/**
+ * @brief Prepares transaction for step by step emulation
+ * @param transaction_emulator Pointer to <code>TransactionEmulator</code> object
+ * @param shard_account_boc Base64 encoded BoC serialized <code>ShardAccount</code>
+ * @param message_boc Base64 encoded BoC serialized inbound <code>Message</code> (internal or external)
+ *
+ * @return JSON object with one of the following shapes:
+ * Error result:
+ * @code{.json}
+ * {
+ *   "success": false,
+ *   "error": "<string>",                // human-readable description
+ *   "external_not_accepted": false,     // always false
+ * }
+ * @endcode
+ * Success result:
+ * @code{.json}
+ * {
+ *   "success": true,
+ * }
+ * @endcode
+ *
+ * @note See <code>transaction_emulator_sbs_result</code> to get the final result after all steps
+ */
+EMULATOR_EXPORT const char *transaction_emulator_sbs_emulate_transaction(void *transaction_emulator,
+                                                                         const char *shard_account_boc,
+                                                                         const char *message_boc);
+
+/**
+ * @brief Performs execution step of transaction emulation
+ * @param transaction_emulator Pointer to <code>TransactionEmulator</code> object
+ * @return true if execution is finished and false otherwise.
+ *
+ * @note Must be called only after <code>transaction_emulator_sbs_emulate_transaction()</code>
+ */
+EMULATOR_EXPORT bool transaction_emulator_sbs_step(void *transaction_emulator);
+
+/**
+ * @brief Finish transaction emulation and returns a result
+ * @param transaction_emulator Pointer to <code>TransactionEmulator</code> object
+ * @return Result of emulation:
+ * Error result:
+ * @code{.json}
+ * {
+ *   "success": false,
+ *   "error": "<string>",                 // human-readable description
+ *   "external_not_accepted": <bool>,     // true if external msg was rejected by VM
+ *   "vm_exit_code": <int>,               // optional: TVM exit code
+ *   "vm_log": "<string>",                // optional: VM execution trace
+ *   "elapsed_time": 0
+ * }
+ * @endcode
+ * Success result:
+ * @code{.json}
+ * {
+ *   "success": true,
+ *   "transaction": "<boc>",   // Base64 encoded Transaction boc
+ *   "shard_account": "<boc>", // Base64 encoded new ShardAccount boc
+ *   "vm_log": "<logs>",       // VM execution trace
+ *   "actions": "<boc>",       // Base64 encoded compute phase actions boc (OutList n)
+ *   "elapsed_time": 0
+ * }
+ * @endcode
+ *
+ * @note This function returns the same result as <code>transaction_emulator_emulate_transaction</code>
+ *       in normal execution
+ */
+EMULATOR_EXPORT const char *transaction_emulator_sbs_result(void *transaction_emulator);
+
+/**
+ * @brief Get stack at the current step of a <b>transaction emulation</b>
+ * @param tvm_emulator Pointer to <code>TransactionEmulator</code> object
+ * @return Base64 encoded stack at the current step
+ */
+EMULATOR_EXPORT const char *transaction_emulator_sbs_get_stack(void *tvm_emulator);
+
+/**
+ * @brief Get c7 control register value at the current step of a <b>transaction emulation</b>
+ * @param tvm_emulator Pointer to <code>TransactionEmulator</code> object
+ * @return Base64 encoded c7 control register value at the current step
+ */
+EMULATOR_EXPORT const char *transaction_emulator_sbs_get_c7(void *tvm_emulator);
+EMULATOR_EXPORT const char *transaction_emulator_sbs_get_control_register(void *tvm_emulator, int idx);
+
+/**
+ * @brief Get position ad code for the current step of a <b>transaction emulation</b>
+ * @param tvm_emulator Pointer to <code>TransactionEmulator</code> object
+ * @return String in <code>"cell_hash_hex:offset"</code> format
+ */
+EMULATOR_EXPORT const char *transaction_emulator_sbs_get_code_pos(void *tvm_emulator);
+
+/**
+ * @brief Get current instruction for the current step of a <b>transaction emulation</b>
+ * @param tvm_emulator Pointer to <code>TransactionEmulator</code> object
+ * @return Human-readable TVM instruction dump for the current code position
+ */
+EMULATOR_EXPORT const char *transaction_emulator_sbs_get_current_instr(void *tvm_emulator);
+
+/**
+ * @brief Get the uncaught exception code that terminated the SBS transaction execution
+ * @param tvm_emulator Pointer to <code>TransactionEmulator</code> object
+ * @return Exception code, or <code>-1</code> if the VM did not terminate with an uncaught exception
+ */
+EMULATOR_EXPORT int transaction_emulator_sbs_get_uncaught_exception_code(void *tvm_emulator);
 
 /**
  * @brief Emulate tick tock transaction
@@ -163,7 +304,8 @@ EMULATOR_EXPORT bool emulator_set_verbosity_level(int verbosity_level);
  * @brief Create TVM emulator
  * @param code_boc Base64 encoded BoC serialized smart contract code cell
  * @param data_boc Base64 encoded BoC serialized smart contract data cell
- * @param vm_log_verbosity Verbosity level of VM log
+ * @param vm_log_verbosity Verbosity level of VM log. Negative values disable VM logging completely without building log
+ * messages.
  * @return Pointer to TVM emulator object
  */
 EMULATOR_EXPORT void *tvm_emulator_create(const char *code_boc, const char *data_boc, int vm_log_verbosity);
@@ -249,6 +391,141 @@ EMULATOR_EXPORT bool tvm_emulator_set_debug_enabled(void *tvm_emulator, bool deb
  * }
  */
 EMULATOR_EXPORT const char *tvm_emulator_run_get_method(void *tvm_emulator, int method_id, const char *stack_boc);
+
+typedef struct TvmEmulatorGetMethodResult {
+  void *owner;
+  const char *error;
+  size_t error_len;
+  const char *stack;
+  size_t stack_len;
+  const char *vm_log;
+  size_t vm_log_len;
+  const char *missing_library;
+  size_t missing_library_len;
+  uint64_t gas_used;
+  int32_t vm_exit_code;
+  uint8_t success;
+  uint8_t fail;
+} TvmEmulatorGetMethodResult;
+
+/**
+ * @brief Run get method and return result as an owned C struct.
+ *
+ * The returned pointer must be released with tvm_emulator_get_method_result_destroy().
+ * String fields are valid until destroy and are represented as pointer + length.
+ */
+EMULATOR_EXPORT TvmEmulatorGetMethodResult *tvm_emulator_run_get_method_struct(void *tvm_emulator, int method_id,
+                                                                               const char *stack_boc);
+
+EMULATOR_EXPORT TvmEmulatorGetMethodResult *tvm_emulator_get_method_result_error(const char *error, uint8_t fail);
+
+EMULATOR_EXPORT void tvm_emulator_get_method_result_destroy(TvmEmulatorGetMethodResult *result);
+
+/**
+ * @brief Prepares get method for step by step emulation
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ * @param method_id Integer method id
+ * @param stack_boc Base64 encoded BoC serialized stack (VmStack)
+ *
+ * @return JSON object with one of the following shapes:
+ * Error result:
+ * @code{.json}
+ * {
+ *   "success": false,
+ *   "error": "<string>" // Error description
+ * }
+ * @endcode
+ * Success result:
+ * @code{.json}
+ * {
+ *   "success": true
+ * }
+ * @endcode
+ */
+EMULATOR_EXPORT const char *tvm_emulator_sbs_run_get_method(void *tvm_emulator, int method_id, const char *stack_boc);
+
+/**
+ * @brief Performs execution step of get method emulation
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ * @return true if execution is finished and false otherwise.
+ *
+ * @note Must be called only after <code>tvm_emulator_sbs_run_get_method()</code>
+ */
+EMULATOR_EXPORT bool tvm_emulator_sbs_step(void *tvm_emulator);
+
+/**
+ * @brief Finish get method emulation and returns a result
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ *
+ * @return JSON object with one of the following shapes:
+ * Error result:
+ * @code{.json}
+ * {
+ *   "success": false,
+ *   "error": "<string>" // Error description
+ * }
+ * @endcode
+ * Success result:
+ * @code{.json}
+ * {
+ *   "success": true,
+ *   "vm_log": "<logs>",          // VM execution trace
+ *   "vm_exit_code": "<number>",  // VM exit code
+ *   "stack": "<boc>",            // Base64 encoded BoC serialized stack (VmStack)
+ *   "gas_used": <number>         // Amount of gas used for this get method execution
+ *   "missing_library": null,
+ * }
+ * @endcode
+ *
+ * @note This function returns the same result as <code>tvm_emulator_run_get_method</code>
+ *       in normal execution
+ */
+EMULATOR_EXPORT const char *tvm_emulator_sbs_get_method_result(void *tvm_emulator);
+
+/**
+ * @brief Get stack at the current step of a <b>get method emulation</b>
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ * @return Base64 encoded stack at the current step
+ */
+EMULATOR_EXPORT const char *tvm_emulator_sbs_get_stack(void *tvm_emulator);
+
+/**
+ * @brief Get c7 control register value at the current step of a <b>get method emulation</b>
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ * @return Base64 encoded c7 control register value at the current step
+ */
+EMULATOR_EXPORT const char *tvm_emulator_sbs_get_c7(void *tvm_emulator);
+EMULATOR_EXPORT const char *tvm_emulator_sbs_get_control_register(void *tvm_emulator, int idx);
+
+/**
+ * @brief Get position ad code for the current step of a <b>get method emulation</b>
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ * @return String in <code>"cell_hash_hex:offset"</code> format
+ */
+EMULATOR_EXPORT const char *tvm_emulator_sbs_get_code_pos(void *tvm_emulator);
+
+/**
+ * @brief Get current instruction for the current step of a <b>get method emulation</b>
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ * @return Human-readable TVM instruction dump for the current code position
+ */
+EMULATOR_EXPORT const char *tvm_emulator_sbs_get_current_instr(void *tvm_emulator);
+
+/**
+ * @brief Get the uncaught exception code that terminated the SBS get-method execution
+ * @param tvm_emulator Pointer to <code>TvmEmulator</code> object
+ * @return Exception code, or <code>-1</code> if the VM did not terminate with an uncaught exception
+ */
+EMULATOR_EXPORT int tvm_emulator_sbs_get_uncaught_exception_code(void *tvm_emulator);
+
+/**
+ * @brief Run an arbitrary TVM continuation (VmCont)
+ * @param tvm_emulator Pointer to TVM emulator
+ * @param continuation_boc Base64 encoded BoC serialized VmCont
+ * @param stack_boc Base64 encoded BoC serialized stack (VmStack)
+ * @return Json object with the same format as tvm_emulator_run_get_method
+ */
+EMULATOR_EXPORT const char *tvm_emulator_run_continuation(void *tvm_emulator, const char *continuation_boc, const char *stack_boc);
 
 /**
  * @brief Optimized version of "run get method" with all passed parameters in a single call

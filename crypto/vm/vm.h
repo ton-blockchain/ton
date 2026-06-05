@@ -31,6 +31,22 @@
 namespace vm {
 
 using td::Ref;
+using ExtMethodCallback = const char* (*)(void*, const char*);
+using MissingLibraryCallback = void (*)(void*, const char*);
+
+struct ExtMethod {
+  void* ctx{nullptr};
+  ExtMethodCallback callback{nullptr};
+  td::uint8 stack_items_count{255};
+};
+
+using ExtMethods = td::BTreeMap<td::uint64, ExtMethod>;
+
+struct MissingLibraryHandler {
+  void* ctx{nullptr};
+  MissingLibraryCallback callback{nullptr};
+};
+
 struct GasLimits {
   static constexpr long long infty = (1ULL << 63) - 1;
   long long gas_max, gas_limit, gas_credit, gas_remaining, gas_base;
@@ -99,6 +115,8 @@ class VmState final : public VmStateInterface {
   td::HashSet<CellHash> loaded_libraries;
   td::optional<td::uint32> max_library_loads;
   td::HashSet<CellHash> loaded_cells;
+  td::HashSet<CellHash> logged_cell_bocs;
+  std::string stack_dump_buffer;
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
   bool stop_on_accept_message{false};
@@ -110,7 +128,27 @@ class VmState final : public VmStateInterface {
   long long free_gas_consumed = 0;
   std::unique_ptr<ParentVmState> parent = nullptr;
 
+  /**
+   * Whenever to restore parent VM in case of RUNVM in step by step mode.
+   */
+  bool need_restore_parent{false};
+
+  /**
+   * Result of execution of the last instructions or the whole execution
+   */
+  int exit_code{0};
+
+  /**
+   * Set only when execution terminates in the default exception handler.
+   */
+  td::optional<int> uncaught_exception_code;
+
+  void register_stack_cell_bocs();
+  void register_stack_cell_boc(const StackEntry& entry);
+
  public:
+  ExtMethods ext_methods;
+  MissingLibraryHandler missing_library_handler;
   enum {
     cell_load_gas_price = 100,
     cell_reload_gas_price = 25,
@@ -256,6 +294,14 @@ class VmState final : public VmStateInterface {
   td::BitArray<256> get_final_state_hash(int exit_code) const;
   int step();
   int run();
+  td::optional<int> debug_step();
+  int get_exit_code() const;
+  td::optional<int> get_uncaught_exception_code() const {
+    return uncaught_exception_code;
+  }
+  void set_uncaught_exception_code(int excno) {
+    uncaught_exception_code = excno;
+  }
   Stack& get_stack() {
     return stack.write();
   }
@@ -373,7 +419,7 @@ class VmState final : public VmStateInterface {
   int until(Ref<Continuation> body, Ref<Continuation> after);
   int loop_while(Ref<Continuation> cond, Ref<Continuation> body, Ref<Continuation> after);
   int throw_exception(int excno, StackEntry&& arg);
-  int throw_exception(int excno);
+  int throw_exception(int excno, bool add_vm_log = true);
   Ref<OrdCont> extract_cc(int save_cr = 1, int stack_copy = -1, int cc_args = -1);
   Ref<Continuation> c1_envelope(Ref<Continuation> cont, bool save = true);
   Ref<Continuation> c1_envelope_if(bool cond, Ref<Continuation> cont, bool save = true) {
@@ -457,6 +503,7 @@ class VmState final : public VmStateInterface {
  private:
   void init_cregs(bool same_c3 = false, bool push_0 = true);
   int run_inner();
+  int run_step();
 };
 
 struct ParentVmState {
