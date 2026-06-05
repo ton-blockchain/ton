@@ -14,9 +14,10 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "ext-client.h"
 #include "td/utils/Random.h"
 #include "ton/ton-shard.h"
+
+#include "ext-client.h"
 
 namespace liteclient {
 

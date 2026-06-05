@@ -16,18 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/StdStreams.h"
-
-#include "td/utils/logging.h"
-#include "td/utils/misc.h"
-#include "td/utils/port/detail/Iocp.h"
-#include "td/utils/port/detail/NativeFd.h"
-#include "td/utils/port/PollFlags.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/Slice.h"
-
 #include <atomic>
 #include <cassert>
+
+#include "td/utils/Slice.h"
+#include "td/utils/logging.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/PollFlags.h"
+#include "td/utils/port/StdStreams.h"
+#include "td/utils/port/detail/Iocp.h"
+#include "td/utils/port/detail/NativeFd.h"
+#include "td/utils/port/thread.h"
 
 namespace td {
 
@@ -110,7 +109,7 @@ class BufferedStdinImpl : public Iocp::Callback {
   }
 
   Result<size_t> flush_read(size_t max_read = std::numeric_limits<size_t>::max()) TD_WARN_UNUSED_RESULT {
-    info_.get_flags();
+    (void)info_.sync_with_poll();
     info_.clear_flags(PollFlags::Read());
     reader_.sync_with_writer();
     return reader_.size();

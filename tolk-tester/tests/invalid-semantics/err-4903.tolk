@@ -13,5 +13,5 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr method `amb` not found for type `MyMap<cell, builder>`
-@stderr (but it exists for type `MyMap<K, slice>`)
+@stderr (but it exists for types `MyMap<K, slice>`, `MyMap<int, V>`, `MyMap<(int, int, MyMap<int, coins>), slice>`, `MyMap<int, cell | ()>`)
  */

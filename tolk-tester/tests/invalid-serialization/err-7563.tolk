@@ -11,7 +11,7 @@ struct B {
 }
 
 fun main(b: B) {
-    B.fromSlice("").a.load();
+    B.fromSlice(createEmptySlice()).a.load();
 }
 
 /**

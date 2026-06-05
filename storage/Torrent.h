@@ -18,14 +18,14 @@
 */
 
 #pragma once
-#include "MerkleTree.h"
-#include "TorrentMeta.h"
-
-#include "td/utils/buffer.h"
-#include "td/db/utils/BlobView.h"
-
 #include <map>
 #include <set>
+
+#include "td/db/utils/BlobView.h"
+#include "td/utils/buffer.h"
+
+#include "MerkleTree.h"
+#include "TorrentMeta.h"
 
 namespace ton {
 class Torrent {
@@ -159,7 +159,7 @@ class Torrent {
 
   void load_from_files(std::string files_path);
 
-  td::Status copy_to(const std::string& new_root_dir);
+  td::Status copy_to(const std::string &new_root_dir);
 
  private:
   td::Bits256 hash_;

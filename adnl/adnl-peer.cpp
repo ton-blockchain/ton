@@ -16,17 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "auto/tl/ton_api.h"
+#include "td/actor/PromiseFuture.h"
+#include "td/utils/Random.h"
+#include "td/utils/base64.h"
+#include "td/utils/overloaded.h"
+
+#include "adnl-local-id.h"
 #include "adnl-peer.h"
 #include "adnl-peer.hpp"
-#include "adnl-local-id.h"
-
 #include "utils.hpp"
-
-#include "td/actor/PromiseFuture.h"
-#include "td/utils/base64.h"
-#include "td/utils/Random.h"
-#include "auto/tl/ton_api.h"
-#include "td/utils/overloaded.h"
 
 namespace ton {
 
@@ -45,15 +44,19 @@ void AdnlPeerPairImpl::start_up() {
   });
   td::actor::send_closure(peer_table_, &AdnlPeerTable::get_static_node, peer_id_short_, std::move(P2));
 
-  if (!dht_node_.empty()) {
-    discover();
+  set_idle_mark(false);
+}
+
+void AdnlPeerPairImpl::tear_down() {
+  if (channel_inited_) {
+    td::actor::send_closure(peer_table_, &AdnlPeerTable::unregister_channel, channel_in_id_);
   }
 }
 
 void AdnlPeerPairImpl::alarm() {
   if (!disable_dht_query_) {
-    disable_dht_query_ = true;
     if (next_dht_query_at_ && next_dht_query_at_.is_in_past()) {
+      disable_dht_query_ = true;
       next_dht_query_at_ = td::Timestamp::never();
       discover();
     }
@@ -67,7 +70,7 @@ void AdnlPeerPairImpl::alarm() {
       item.priority_addr_list = priority_addr_list_;
 
       td::actor::send_closure(peer_table_, &AdnlPeerTable::write_new_addr_list_to_db, local_id_, peer_id_short_,
-                              std::move(item), [](td::Unit) {});
+                              std::move(item), [](td::Result<>) {});
     }
     next_db_update_at_ = td::Timestamp::in(td::Random::fast(60.0, 120.0));
   }
@@ -75,14 +78,32 @@ void AdnlPeerPairImpl::alarm() {
     retry_send_at_ = td::Timestamp::never();
     send_messages_from_queue();
   }
+  if (mark_idle_at_ && mark_idle_at_.is_in_past()) {
+    set_idle_mark(true);
+  }
   alarm_timestamp().relax(next_db_update_at_);
   alarm_timestamp().relax(retry_send_at_);
+  alarm_timestamp().relax(mark_idle_at_);
+
+  while (!peer_node_waiters_.empty()) {
+    auto &[promise, timeout] = peer_node_waiters_.front();
+    if (timeout.is_in_past()) {
+      promise.set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
+      peer_node_waiters_.pop();
+    } else {
+      alarm_timestamp().relax(timeout);
+      break;
+    }
+  }
 }
 
 void AdnlPeerPairImpl::discover() {
   CHECK(!dht_query_active_);
-  CHECK(!dht_node_.empty());
   dht_query_active_ = true;
+  if (dht_node_.empty()) {
+    got_data_from_dht(td::Status::Error("no dht node"));
+    return;
+  }
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), id = print_id(),
                                        peer_id = peer_id_short_](td::Result<dht::DhtValue> kv) {
@@ -94,6 +115,10 @@ void AdnlPeerPairImpl::discover() {
     auto k = kv.move_as_ok();
     auto pub = AdnlNodeIdFull{k.key().public_key()};
     CHECK(pub.compute_short_id() == peer_id);
+    if (!pub.pubkey().is_ed25519()) {
+      td::actor::send_closure(SelfId, &AdnlPeerPairImpl::got_data_from_dht, td::Status::Error("bad public key"));
+      return;
+    }
 
     auto addr_list = fetch_tl_object<ton_api::adnl_addressList>(k.value().clone(), true);
     if (addr_list.is_error()) {
@@ -118,7 +143,7 @@ void AdnlPeerPairImpl::discover() {
 
 void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
   last_received_packet_ = td::Timestamp::now();
-  try_reinit_at_ = td::Timestamp::never();
+  try_reinit_at_ = td::Timestamp::in(IDLE_REINIT_TIMEOUT);
   drop_addr_list_at_ = td::Timestamp::never();
   request_reverse_ping_after_ = td::Timestamp::in(15.0);
   auto d = Adnl::adnl_start_time();
@@ -142,7 +167,7 @@ void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
       auto addr_list = packet.addr_list();
       if (packet.remote_addr().is_valid() && addr_list.size() == 0) {
         VLOG(ADNL_DEBUG) << "adding implicit address " << packet.remote_addr();
-        addr_list.add_udp_address(packet.remote_addr());
+        addr_list.add_udp_adnl_address(packet.remote_addr());
       }
       update_addr_list(std::move(addr_list));
     }
@@ -193,7 +218,7 @@ void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
     auto addr_list = packet.addr_list();
     if (packet.remote_addr().is_valid() && addr_list.size() == 0) {
       VLOG(ADNL_DEBUG) << "adding implicit address " << packet.remote_addr();
-      addr_list.add_udp_address(packet.remote_addr());
+      addr_list.add_udp_adnl_address(packet.remote_addr());
     }
     update_addr_list(std::move(addr_list));
   }
@@ -212,6 +237,7 @@ void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
 
 void AdnlPeerPairImpl::receive_packet_from_channel(AdnlChannelIdShort id, AdnlPacket packet,
                                                    td::uint64 serialized_size) {
+  set_idle_mark(false);
   add_packet_stats(serialized_size, /* in = */ true, /* channel = */ true);
   if (id != channel_in_id_) {
     VLOG(ADNL_NOTICE) << this << ": dropping IN message: outdated channel id" << id;
@@ -227,6 +253,7 @@ void AdnlPeerPairImpl::receive_packet_from_channel(AdnlChannelIdShort id, AdnlPa
 }
 
 void AdnlPeerPairImpl::receive_packet(AdnlPacket packet, td::uint64 serialized_size) {
+  set_idle_mark(false);
   add_packet_stats(serialized_size, /* in = */ true, /* channel = */ false);
   packet.run_basic_checks().ensure();
 
@@ -252,19 +279,20 @@ void AdnlPeerPairImpl::send_messages_from_queue() {
   while (!out_messages_queue_.empty() && out_messages_queue_.front().second.is_in_past()) {
     out_messages_queue_total_size_ -= out_messages_queue_.front().first.size();
     add_expired_msg_stats(out_messages_queue_.front().first.size());
-    out_messages_queue_.pop();
+    out_messages_queue_.pop_front();
     VLOG(ADNL_NOTICE) << this << ": dropping OUT message: message in queue expired";
   }
   if (out_messages_queue_.empty()) {
     return;
   }
 
+  set_idle_mark(false);
   auto connR = get_conn();
   if (connR.is_error()) {
     disable_dht_query_ = false;
     retry_send_at_.relax(td::Timestamp::in(message_in_queue_ttl_ - 1.0));
-    alarm_timestamp().relax(retry_send_at_);
     VLOG(ADNL_INFO) << this << ": delaying OUT messages: cannot get conn: " << connR.move_as_error();
+    alarm();
     return;
   }
   disable_dht_query_ = true;
@@ -318,7 +346,7 @@ void AdnlPeerPairImpl::send_messages_from_queue() {
       auto &M = out_messages_queue_.front().first;
       if (!is_direct && (M.flags() & Adnl::SendFlags::direct_only)) {
         out_messages_queue_total_size_ -= M.size();
-        out_messages_queue_.pop();
+        out_messages_queue_.pop_front();
         continue;
       }
       CHECK(M.size() <= get_mtu());
@@ -326,7 +354,7 @@ void AdnlPeerPairImpl::send_messages_from_queue() {
         s += M.size();
         out_messages_queue_total_size_ -= M.size();
         packet.add_message(M.release());
-        out_messages_queue_.pop();
+        out_messages_queue_.pop_front();
         skip_init_packet_ = false;
       } else {
         break;
@@ -378,6 +406,7 @@ void AdnlPeerPairImpl::send_messages_from_queue() {
 }
 
 void AdnlPeerPairImpl::send_messages(std::vector<OutboundAdnlMessage> messages) {
+  set_idle_mark(false);
   std::vector<OutboundAdnlMessage> new_vec;
   for (auto &M : messages) {
     if (M.size() <= get_mtu()) {
@@ -406,15 +435,24 @@ void AdnlPeerPairImpl::send_messages(std::vector<OutboundAdnlMessage> messages) 
   }
   for (auto &m : new_vec) {
     out_messages_queue_total_size_ += m.size();
-    out_messages_queue_.emplace(std::move(m), td::Timestamp::in(message_in_queue_ttl_));
+    out_messages_queue_.emplace_back(std::move(m), td::Timestamp::in(message_in_queue_ttl_));
   }
   send_messages_from_queue();
+  while (out_messages_queue_total_size_ > MAX_MESSAGE_QUEUE_TOTAL_SIZE) {
+    out_messages_queue_total_size_ -= out_messages_queue_.back().first.size();
+    out_messages_queue_.pop_back();
+    VLOG(ADNL_NOTICE) << this << ": dropping OUT message: queue is too big";
+  }
 }
 
 void AdnlPeerPairImpl::send_packet_continue(AdnlPacket packet, td::actor::ActorId<AdnlNetworkConnection> conn,
                                             bool via_channel) {
-  if (!try_reinit_at_ && last_received_packet_ < td::Timestamp::in(-5.0)) {
-    try_reinit_at_ = td::Timestamp::in(10.0);
+  if (last_received_packet_ < td::Timestamp::in(-5.0)) {
+    if (try_reinit_at_) {
+      try_reinit_at_ = std::min(try_reinit_at_, td::Timestamp::in(10.0));
+    } else {
+      try_reinit_at_ = td::Timestamp::in(10.0);
+    }
   }
   if (!drop_addr_list_at_ && last_received_packet_ < td::Timestamp::in(-60.0 * 9.0)) {
     drop_addr_list_at_ = td::Timestamp::in(60.0);
@@ -457,6 +495,7 @@ void AdnlPeerPairImpl::send_packet_continue(AdnlPacket packet, td::actor::ActorI
 
 void AdnlPeerPairImpl::send_query(std::string name, td::Promise<td::BufferSlice> promise, td::Timestamp timeout,
                                   td::BufferSlice data, td::uint32 flags) {
+  set_idle_mark(false);
   AdnlQueryId id = AdnlQuery::random_query_id();
   CHECK(out_queries_.count(id) == 0);
 
@@ -473,11 +512,21 @@ void AdnlPeerPairImpl::alarm_query(AdnlQueryId id) {
   out_queries_.erase(id);
 }
 
+void AdnlPeerPairImpl::get_peer_node(td::Promise<AdnlNode> promise) {
+  set_idle_mark(false);
+  if (!peer_id_.empty() && !addr_list_.empty()) {
+    promise.set_value(AdnlNode{peer_id_, addr_list_});
+    return;
+  }
+  disable_dht_query_ = false;
+  peer_node_waiters_.emplace(std::move(promise), td::Timestamp::in(10.0));
+  alarm();
+}
+
 AdnlPeerPairImpl::AdnlPeerPairImpl(td::actor::ActorId<AdnlNetworkManager> network_manager,
                                    td::actor::ActorId<AdnlPeerTable> peer_table, td::uint32 local_mode,
-                                   td::actor::ActorId<AdnlLocalId> local_actor,
-                                   td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
-                                   AdnlNodeIdShort peer_id) {
+                                   td::actor::ActorId<AdnlLocalId> local_actor, td::actor::ActorId<dht::Dht> dht_node,
+                                   AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id) {
   network_manager_ = network_manager;
   peer_table_ = peer_table;
   local_actor_ = local_actor;
@@ -516,8 +565,7 @@ void AdnlPeerPairImpl::create_channel(pubkeys::Ed25519 pub, td::uint32 date) {
     channel_ = R.move_as_ok();
     channel_inited_ = true;
 
-    td::actor::send_closure_later(peer_table_, &AdnlPeerTable::register_channel, channel_in_id_, local_id_,
-                                  channel_.get());
+    td::actor::send_closure(peer_table_, &AdnlPeerTable::register_channel, channel_in_id_, local_id_, channel_.get());
   } else {
     VLOG(ADNL_WARNING) << this << ": failed to create channel: " << R.move_as_error();
   }
@@ -688,7 +736,7 @@ void AdnlPeerPairImpl::reinit(td::int32 date) {
     huge_message_hash_.set_zero();
     huge_message_.clear();
 
-    channel_.release();
+    channel_.reset();
 
     reinit_date_ = date;
   }
@@ -740,6 +788,7 @@ td::Result<std::pair<td::actor::ActorId<AdnlNetworkConnection>, bool>> AdnlPeerP
 }
 
 void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
+  set_idle_mark(false);
   if (addr_list.empty()) {
     return;
   }
@@ -770,7 +819,7 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
 
   VLOG(ADNL_INFO) << this << ": updating addr list to version " << addr_list.version() << " size=" << addr_list.size();
 
-  const auto addrs = addr_list.addrs();
+  const auto addrs = addr_list.adnl_addrs();
   has_reverse_addr_ = addr_list.has_reverse();
   if (has_reverse_addr_ && addrs.empty()) {
     return;
@@ -780,9 +829,6 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
 
   size_t idx = 0;
   for (const auto &addr : addrs) {
-    if (addr->is_reverse()) {
-      continue;
-    }
     if ((mode_ & static_cast<td::uint32>(AdnlLocalIdMode::direct_only)) && !addr->is_public()) {
       continue;
     }
@@ -797,6 +843,13 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
 
   old_conns = std::move(conns);
   (priority ? priority_addr_list_ : addr_list_) = addr_list;
+
+  if (!peer_id_.empty() && !addr_list_.empty()) {
+    while (!peer_node_waiters_.empty()) {
+      peer_node_waiters_.front().first.set_value(AdnlNode{peer_id_, addr_list_});
+      peer_node_waiters_.pop();
+    }
+  }
 }
 
 void AdnlPeerPairImpl::get_conn_ip_str(td::Promise<td::string> promise) {
@@ -833,7 +886,7 @@ void AdnlPeerPairImpl::get_stats(bool all, td::Promise<tl_object_ptr<ton_api::ad
   auto stats = create_tl_object<ton_api::adnl_stats_peerPair>();
   stats->local_id_ = local_id_.bits256_value();
   stats->peer_id_ = peer_id_short_.bits256_value();
-  for (const AdnlAddress &addr : addr_list_.addrs()) {
+  for (const AdnlAddress &addr : addr_list_.adnl_addrs()) {
     ton_api::downcast_call(*addr->tl(), td::overloaded(
                                             [&](const ton_api::adnl_address_udp &obj) {
                                               stats->ip_str_ = PSTRING() << td::IPAddress::ipv4_to_str(obj.ip_) << ":"
@@ -886,10 +939,12 @@ void AdnlPeerPairImpl::conn_change_state(AdnlConnectionIdShort id, bool ready) {
   }
 }
 
-td::actor::ActorOwn<AdnlPeerPair> AdnlPeerPair::create(
-    td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<AdnlPeerTable> peer_table,
-    td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor,
-    td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id) {
+td::actor::ActorOwn<AdnlPeerPair> AdnlPeerPair::create(td::actor::ActorId<AdnlNetworkManager> network_manager,
+                                                       td::actor::ActorId<AdnlPeerTable> peer_table,
+                                                       td::uint32 local_mode,
+                                                       td::actor::ActorId<AdnlLocalId> local_actor,
+                                                       td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
+                                                       AdnlNodeIdShort peer_id) {
   auto X = td::actor::create_actor<AdnlPeerPairImpl>("peerpair", network_manager, peer_table, local_mode, local_actor,
                                                      dht_node, local_id, peer_id);
   return td::actor::ActorOwn<AdnlPeerPair>(std::move(X));
@@ -1030,6 +1085,19 @@ void AdnlPeerPairImpl::prepare_packet_stats() {
       packet_stats_prev_.ts_start = packet_stats_prev_.ts_end - 60.0;
     }
   }
+}
+
+void AdnlPeerPairImpl::set_idle_mark(bool value) {
+  if (value) {
+    mark_idle_at_ = td::Timestamp::never();
+  } else {
+    alarm_timestamp().relax(mark_idle_at_ = td::Timestamp::in(MARK_IDLE_TIMEOUT));
+  }
+  if (idle_mark_ != value) {
+    VLOG(ADNL_INFO) << this << ": marked as " << (value ? "idle" : "not idle");
+    td::actor::send_closure(peer_table_, &AdnlPeerTable::set_peer_pair_idle, local_id_, peer_id_short_, value);
+  }
+  idle_mark_ = value;
 }
 
 tl_object_ptr<ton_api::adnl_stats_packets> AdnlPeerPairImpl::PacketStats::tl() const {

@@ -17,12 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells/CellTraits.h"
-#include "common/bitstring.h"
-
-#include "td/utils/as.h"
-
 #include <array>
+
+#include "common/bitstring.h"
+#include "td/utils/as.h"
+#include "vm/cells/CellTraits.h"
 namespace td {
 class StringBuilder;
 }
@@ -30,6 +29,10 @@ class StringBuilder;
 namespace vm {
 struct CellHash {
  public:
+  CellHash() = default;
+  explicit CellHash(const td::Bits256& b) {
+    td::MutableSlice(hash_.data(), hash_.size()).copy_from(b.as_slice());
+  }
   td::Slice as_slice() const {
     return td::Slice(hash_.data(), hash_.size());
   }
@@ -83,7 +86,7 @@ template <>
 struct hash<vm::CellHash> {
   typedef vm::CellHash argument_type;
   typedef std::size_t result_type;
-  result_type operator()(argument_type const& s) const noexcept {
+  result_type operator()(const argument_type& s) const noexcept {
     return cell_hash_slice_hash(s.as_slice());
   }
 };

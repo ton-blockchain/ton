@@ -16,16 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/db/CellStorage.h"
+#include <block-auto.h>
 
 #include "td/utils/Parser.h"
-#include "vm/db/DynamicBagOfCellsDb.h"
-#include "vm/boc.h"
 #include "td/utils/base64.h"
-#include "td/utils/tl_parsers.h"
 #include "td/utils/tl_helpers.h"
-
-#include <block-auto.h>
+#include "td/utils/tl_parsers.h"
+#include "vm/boc.h"
+#include "vm/db/CellStorage.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
 namespace vm {
 namespace {
@@ -155,7 +154,7 @@ class RefcntCellParser {
       if (!data.empty()) {
         return td::Status::Error("Too much data");
       }
-      TRY_RESULT(data_cell, info.create_data_cell(cell_data, td::Span<Ref<Cell>>(refs, info.refs_cnt)));
+      TRY_RESULT(data_cell, info.create_data_cell(cell_data, td::Span<Ref<Cell>>(refs, info.refs_cnt), true));
       cell = std::move(data_cell);
       return td::Status::OK();
     }();
@@ -194,8 +193,8 @@ td::Result<CellLoader::LoadResult> CellLoader::load(td::Slice hash, bool need_da
   return res;
 }
 
-td::Result<std::vector<CellLoader::LoadResult>> CellLoader::load_bulk(td::Span<td::Slice> hashes, bool need_data, 
-                                                                ExtCellCreator &ext_cell_creator) {
+td::Result<std::vector<CellLoader::LoadResult>> CellLoader::load_bulk(td::Span<td::Slice> hashes, bool need_data,
+                                                                      ExtCellCreator &ext_cell_creator) {
   std::vector<std::string> values;
   TRY_RESULT(get_statuses, reader_->get_multi(hashes, &values));
   std::vector<LoadResult> res;

@@ -19,9 +19,9 @@
 #pragma once
 
 #include "adnl-local-id.h"
-#include "adnl-peer.h"
-#include "adnl-peer-table.h"
 #include "adnl-network-manager.h"
+#include "adnl-peer-table.h"
+#include "adnl-peer.h"
 
 namespace ton {
 

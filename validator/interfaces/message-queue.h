@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "ton/ton-types.h"
 #include "crypto/common/refcnt.hpp"
 #include "crypto/vm/cells.h"
+#include "ton/ton-types.h"
 
 namespace ton {
 

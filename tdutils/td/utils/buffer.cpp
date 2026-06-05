@@ -16,12 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/buffer.h"
-
-#include "td/utils/port/thread_local.h"
-
 #include <cstddef>
 #include <new>
+
+#include "td/utils/buffer.h"
+#include "td/utils/port/thread_local.h"
 
 // fixes https://bugs.llvm.org/show_bug.cgi?id=33723 for clang >= 3.6 + c++11 + libc++
 #if TD_CLANG && _LIBCPP_VERSION

@@ -16,18 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <jni.h>
-#include <string>
 #include <cstdint>
 #include <cstdlib>
+#include <jni.h>
+#include <string>
 #include <utility>
 
-#include "tl/tl_jni_object.h"
-
-#include "tonlib/tonlib_client_json.h"
-
-#include "tonlib/Client.h"
 #include "auto/tl/tonlib_api.h"
+#include "tl/tl_jni_object.h"
+#include "tonlib/Client.h"
+#include "tonlib/tonlib_client_json.h"
 
 extern "C" JNIEXPORT jstring JNICALL Java_drinkless_org_tonlib_MainActivity_stringFromJNI(JNIEnv *env,
                                                                                           jobject /* this */,

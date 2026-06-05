@@ -28,9 +28,14 @@ struct PackSize {
   int max_bits;
   int min_refs;
   int max_refs;
+  bool skipping_is_dangerous = false;
 
   bool is_unpredictable_infinity() const {
     return max_bits >= 9999;
+  }
+
+  bool is_zero() const {
+    return max_bits == 0 && max_refs == 0;
   }
 
   explicit PackSize(int exact_bits)
@@ -39,8 +44,8 @@ struct PackSize {
   PackSize(int min_bits, int max_bits)
     : min_bits(min_bits), max_bits(max_bits), min_refs(0), max_refs() {
   }
-  PackSize(int min_bits, int max_bits, int min_refs, int max_refs)
-    : min_bits(min_bits), max_bits(max_bits), min_refs(min_refs), max_refs(max_refs) {
+  PackSize(int min_bits, int max_bits, int min_refs, int max_refs, bool skipping_is_dangerous = false)
+    : min_bits(min_bits), max_bits(max_bits), min_refs(min_refs), max_refs(max_refs), skipping_is_dangerous(skipping_is_dangerous) {
   }
 
   static PackSize unpredictable_infinity() {
@@ -56,20 +61,22 @@ enum class PrefixWriteMode {
 
 class PackContext {
   CodeBlob& code;
-  SrcLocation loc;
+  AnyV origin;
   const FunctionPtr f_storeInt;
   const FunctionPtr f_storeUint;
   mutable PrefixWriteMode prefix_mode = PrefixWriteMode::WritePrefixOfStruct;
 
 public:
+  const std::vector<var_idx_t> ir_options;    // struct PackOptions from stdlib
   const std::vector<var_idx_t> ir_builder;
   const var_idx_t ir_builder0;
-  const var_idx_t option_skipBitsNValidation;
 
-  PackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_builder, const std::vector<var_idx_t>& ir_options);
+  PackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_builder, std::vector<var_idx_t> ir_options);
 
   PrefixWriteMode get_prefix_mode() const { return prefix_mode; }
 
+  var_idx_t option_skipBitsNValidation() const { return ir_options[0]; }
+  
   void storeInt(var_idx_t ir_idx, int len) const;
   void storeUint(var_idx_t ir_idx, int len) const;
   void storeUint_var(var_idx_t ir_idx, var_idx_t ir_len) const;
@@ -77,7 +84,8 @@ public:
   void storeCoins(var_idx_t ir_idx) const;
   void storeRef(var_idx_t ir_idx) const;
   void storeMaybeRef(var_idx_t ir_idx) const;
-  void storeAddress(var_idx_t ir_idx) const;
+  void storeAddressInt(var_idx_t ir_idx) const;
+  void storeAddressAny(var_idx_t ir_idx) const;
   void storeBuilder(var_idx_t ir_idx) const;
   void storeSlice(var_idx_t ir_idx) const;
   void storeOpcode(PackOpcode opcode) const;
@@ -102,34 +110,41 @@ struct LazyMatchOptions {
   bool is_statement;              // it's `match` statement, not expression, so it does not return any result
   bool add_return_to_all_arms;    // it's the last statement in a function, add "return" to its cases for better Fift code
   std::vector<MatchBlock> match_blocks;
+  LocalVarPtr lazy_var_ref = nullptr; // for emitting MARK_SMART_CAST at the start of each arm
 
   const MatchBlock* find_match_block(TypePtr variant) const;
-  void save_match_result_on_arm_end(CodeBlob& code, SrcLocation loc, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const;
+  void save_match_result_on_arm_end(CodeBlob& code, AnyV origin, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const;
 };
 
 class UnpackContext {
   CodeBlob& code;
-  SrcLocation loc;
+  AnyV origin;
   const FunctionPtr f_loadInt;
   const FunctionPtr f_loadUint;
   const FunctionPtr f_skipBits;
   mutable PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck;
 
 public:
+  const std::vector<var_idx_t> ir_options;    // struct UnpackOptions from stdlib
   const std::vector<var_idx_t> ir_slice;
   const var_idx_t ir_slice0;
-  const var_idx_t option_assertEndAfterReading;
-  const var_idx_t option_throwIfOpcodeDoesNotMatch;
 
-  UnpackContext(CodeBlob& code, SrcLocation loc, std::vector<var_idx_t> ir_slice, const std::vector<var_idx_t>& ir_options);
+  UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, std::vector<var_idx_t> ir_options);
 
   PrefixReadMode get_prefix_mode() const { return prefix_mode; }
 
+  var_idx_t option_assertEndAfterReading() const { return ir_options[0]; }
+  var_idx_t option_throwIfOpcodeDoesNotMatch() const { return ir_options[1]; }
+
   std::vector<var_idx_t> loadInt(int len, const char* debug_desc) const;
   std::vector<var_idx_t> loadUint(int len, const char* debug_desc) const;
+  std::vector<var_idx_t> loadRef(const char* debug_desc) const;
+  std::vector<var_idx_t> loadMaybeRef(const char* debug_desc) const;
   void loadAndCheckOpcode(PackOpcode opcode) const;
   void skipBits(int len) const;
   void skipBits_var(var_idx_t ir_len) const;
+  void skipRef() const;
+  void skipMaybeRef() const;
   void assertEndIfOption() const;
   void throwInvalidOpcode() const;
 
@@ -152,22 +167,30 @@ public:
   PrefixEstimateMode get_prefix_mode() const { return prefix_mode; }
 
   static PackSize minmax(PackSize a, PackSize b) {
-    return PackSize(std::min(a.min_bits, b.min_bits), std::max(a.max_bits, b.max_bits), std::min(a.min_refs, b.min_refs), std::max(a.max_refs, b.max_refs));
+    return PackSize(std::min(a.min_bits, b.min_bits), std::max(a.max_bits, b.max_bits), std::min(a.min_refs, b.min_refs), std::max(a.max_refs, b.max_refs), a.skipping_is_dangerous || b.skipping_is_dangerous);
   }
   static PackSize sum(PackSize a, PackSize b) {
-    return PackSize(a.min_bits + b.min_bits, std::min(9999, a.max_bits + b.max_bits), a.min_refs + b.min_refs, a.max_refs + b.max_refs);
+    return PackSize(a.min_bits + b.min_bits, std::min(9999, a.max_bits + b.max_bits), a.min_refs + b.min_refs, a.max_refs + b.max_refs, a.skipping_is_dangerous || b.skipping_is_dangerous);
   }
 
   PackSize estimate_any(TypePtr any_type, PrefixEstimateMode prefix_mode = PrefixEstimateMode::IncludePrefixOfStruct) const;
 };
 
+struct CustomPackUnpackF {
+  FunctionPtr f_pack;
+  FunctionPtr f_unpack;
 
-bool is_type_cellT(TypePtr any_type);
-FunctionPtr get_custom_pack_unpack_function(TypePtr receiver_type, bool is_pack);
-std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg);
+  explicit operator bool() const { return f_pack != nullptr || f_unpack != nullptr; }
+};
+
+
+struct MethodCallCandidate;
+
+CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::vector<MethodCallCandidate>* out_candidates = nullptr);
+std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std::string& because_msg, bool& tree_auto_generated);
 TypePtr calculate_intN_to_serialize_enum(EnumDefPtr enum_ref);
 
-std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, SrcLocation loc);
-std::vector<var_idx_t> create_default_UnpackOptions(CodeBlob& code, SrcLocation loc);
+std::vector<var_idx_t> create_default_PackOptions(CodeBlob& code, AnyV origin);
+std::vector<var_idx_t> create_default_UnpackOptions(CodeBlob& code, AnyV origin);
 
 } // namespace tolk

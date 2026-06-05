@@ -17,9 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/fec/online/Rfc.h"
 #include "td/fec/algebra/MatrixGF256.h"
-
+#include "td/fec/online/Rfc.h"
 #include "td/utils/buffer.h"
 
 namespace td {

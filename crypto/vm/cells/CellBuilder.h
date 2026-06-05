@@ -17,12 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include "common/refint.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "vm/cells/DataCell.h"
 #include "vm/cells/VirtualCell.h"
 #include "vm/vmstate.h"
-#include "common/refint.h"
-
-#include "td/utils/ThreadSafeCounter.h"
 
 namespace vm {
 
@@ -177,16 +176,16 @@ class CellBuilder : public td::CntObject {
   CellBuilder* make_copy() const override;
   bool can_extend_by(std::size_t bits) const;
   bool can_extend_by(std::size_t bits, unsigned refs) const;
-  Ref<DataCell> finalize_copy(bool special = false) const;
-  Ref<DataCell> finalize(bool special = false);
-  Ref<DataCell> finalize_novm(bool special = false);
-  td::Result<Ref<DataCell>> finalize_novm_nothrow(bool special = false);
-  bool finalize_to(Ref<Cell>& res, bool special = false) {
-    return (res = finalize(special)).not_null();
+  Ref<DataCell> finalize_copy(bool special = false, DataCell::HashHint hash_hint = {}) const;
+  Ref<DataCell> finalize(bool special = false, DataCell::HashHint hash_hint = {});
+  Ref<DataCell> finalize_novm(bool special = false, DataCell::HashHint hash_hint = {});
+  td::Result<Ref<DataCell>> finalize_novm_nothrow(bool special = false, DataCell::HashHint hash_hint = {});
+  bool finalize_to(Ref<Cell>& res, bool special = false, DataCell::HashHint hash_hint = {}) {
+    return (res = finalize(special, std::move(hash_hint))).not_null();
   }
-  CellSlice as_cellslice() const &;
+  CellSlice as_cellslice() const&;
   CellSlice as_cellslice() &&;
-  Ref<CellSlice> as_cellslice_ref() const &;
+  Ref<CellSlice> as_cellslice_ref() const&;
   Ref<CellSlice> as_cellslice_ref() &&;
   static td::int64 get_total_cell_builders() {
     return get_thread_safe_counter().sum();

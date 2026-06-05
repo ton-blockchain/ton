@@ -17,12 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "TorrentInfo.h"
-
+#include "td/utils/misc.h"
 #include "vm/cells/CellString.h"
 #include "vm/cellslice.h"
 
-#include "td/utils/misc.h"
+#include "TorrentInfo.h"
 
 namespace ton {
 bool TorrentInfo::pack(vm::CellBuilder &cb) const {
@@ -76,7 +75,7 @@ td::Status TorrentInfo::validate() const {
   if (piece_size > (1 << 23)) {
     return td::Status::Error("Piece size is too big");
   }
-  if (pieces_count() >= (1ULL << 31)) {
+  if (file_size > piece_size * ((1ULL << 31) - 1)) {
     return td::Status::Error("Too many pieces");
   }
   return td::Status::OK();

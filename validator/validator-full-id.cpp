@@ -16,8 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "interfaces/validator-full-id.h"
 #include "adnl/utils.hpp"
+#include "interfaces/validator-full-id.h"
 
 namespace ton {
 

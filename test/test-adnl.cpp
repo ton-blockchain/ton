@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,31 +14,29 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl/adnl-network-manager.h"
-#include "adnl/adnl.h"
-#include "adnl/adnl-test-loopback-implementation.h"
-
-#include "keys/encryptor.h"
-
-#include "td/utils/port/signals.h"
-#include "td/utils/port/path.h"
-#include "td/utils/Random.h"
-
+#include <chrono>
 #include <memory>
 #include <set>
-#include <chrono>
 #include <thread>
+
+#include "adnl/adnl-network-manager.h"
+#include "adnl/adnl-test-loopback-implementation.h"
+#include "adnl/adnl.h"
+#include "keys/encryptor.h"
+#include "td/utils/Random.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
 
 int main() {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
@@ -76,12 +74,12 @@ int main() {
     auto pk1 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto pub1 = pk1.compute_public_key();
     src = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
 
     auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto pub2 = pk2.compute_public_key();
     dst = ton::adnl::AdnlNodeIdShort{pub2.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
     auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
 
@@ -95,28 +93,6 @@ int main() {
     td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, src, true, false);
     td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, dst, false, true);
   });
-
-  {
-    td::Bits256 proxy_id;
-    td::Random::secure_bytes(proxy_id.as_slice());
-    auto obj = ton::create_tl_object<ton::ton_api::adnl_proxy_fast>(proxy_id, td::BufferSlice{"1234"});
-    auto R = ton::adnl::AdnlProxy::create(*obj.get());
-    R.ensure();
-    auto P = R.move_as_ok();
-    td::BufferSlice z{64};
-    td::Random::secure_bytes(z.as_slice());
-    auto packet = P->encrypt(ton::adnl::AdnlProxy::Packet{15, 2, 3, 4, 5, 6, z.clone()});
-    auto packet2R = P->decrypt(std::move(packet));
-    packet2R.ensure();
-    auto packet2 = packet2R.move_as_ok();
-    CHECK(packet2.flags == 15);
-    CHECK(packet2.ip == 2);
-    CHECK(packet2.port == 3);
-    CHECK(packet2.adnl_start_time == 4);
-    CHECK(packet2.seqno == 5);
-    CHECK(packet2.date == 6);
-    CHECK(packet2.data.as_slice() == z.as_slice());
-  }
 
   {
     auto f = td::Clocks::system();

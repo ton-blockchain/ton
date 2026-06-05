@@ -16,15 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "HighloadWallet.h"
-#include "GenericAccount.h"
-#include "SmartContractCode.h"
+#include <limits>
 
+#include "td/utils/base64.h"
 #include "vm/boc.h"
 #include "vm/cells/CellString.h"
-#include "td/utils/base64.h"
 
-#include <limits>
+#include "GenericAccount.h"
+#include "HighloadWallet.h"
+#include "SmartContractCode.h"
 
 namespace ton {
 

@@ -17,10 +17,10 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells.h"
-#include "ton/ton-types.h"
-#include "block/block.h"
 #include "block/block-parse.h"
+#include "block/block.h"
+#include "ton/ton-types.h"
+#include "vm/cells.h"
 
 namespace tonlib {
 extern int VERBOSITY_NAME(tonlib_query);

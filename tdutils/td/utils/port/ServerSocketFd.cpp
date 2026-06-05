@@ -16,20 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/ServerSocketFd.h"
-
-#include "td/utils/port/config.h"
-
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
-#include "td/utils/port/detail/skip_eintr.h"
 #include "td/utils/port/IPAddress.h"
 #include "td/utils/port/PollFlags.h"
+#include "td/utils/port/ServerSocketFd.h"
+#include "td/utils/port/config.h"
+#include "td/utils/port/detail/skip_eintr.h"
 
 #if TD_PORT_POSIX
-#include <cerrno>
-
 #include <arpa/inet.h>
+#include <cerrno>
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -38,10 +35,14 @@
 #include <unistd.h>
 #endif
 
+#if TD_LINUX
+#include <linux/vm_sockets.h>
+#endif
+
 #if TD_PORT_WINDOWS
-#include "td/utils/port/detail/Iocp.h"
-#include "td/utils/SpinLock.h"
 #include "td/utils/VectorQueue.h"
+#include "td/utils/port/Mutex.h"
+#include "td/utils/port/detail/Iocp.h"
 #endif
 
 #include <atomic>
@@ -51,7 +52,7 @@ namespace td {
 
 namespace detail {
 #if TD_PORT_WINDOWS
-class ServerSocketFdImpl : private Iocp::Callback {
+class ServerSocketFdImpl final : private Iocp::Callback {
  public:
   ServerSocketFdImpl(NativeFd fd, int socket_family) : info_(std::move(fd)), socket_family_(socket_family) {
     VLOG(fd) << get_native_fd() << " create ServerSocketFd";
@@ -98,7 +99,7 @@ class ServerSocketFdImpl : private Iocp::Callback {
  private:
   PollableFdInfo info_;
 
-  SpinLock lock_;
+  Mutex lock_;
   VectorQueue<SocketFd> accepted_;
   VectorQueue<Status> pending_errors_;
   static constexpr size_t MAX_ADDR_SIZE = sizeof(sockaddr_in6) + 16;
@@ -183,7 +184,7 @@ class ServerSocketFdImpl : private Iocp::Callback {
     get_poll_info().add_flags_from_poll(PollFlags::Error());
   }
 
-  void on_iocp(Result<size_t> r_size, WSAOVERLAPPED *overlapped) override {
+  void on_iocp(Result<size_t> r_size, WSAOVERLAPPED *overlapped) final {
     // called from other thread
     if (dec_refcnt() || close_flag_) {
       VLOG(fd) << "Ignore IOCP (server socket is closing)";
@@ -253,13 +254,29 @@ class ServerSocketFdImpl {
     }
 
     auto error = Status::PosixError(accept_errno, PSLICE() << "Accept from " << get_native_fd() << " has failed");
-    get_poll_info().clear_flags(PollFlags::Read());
-    get_poll_info().add_flags(PollFlags::Close());
-    return std::move(error);
+    switch (accept_errno) {
+      case EBADF:
+      case EFAULT:
+      case EINVAL:
+      case ENOTSOCK:
+      case EOPNOTSUPP:
+        LOG(FATAL) << error;
+        UNREACHABLE();
+        break;
+      default:
+        LOG(ERROR) << error;
+      // fallthrough
+      case EMFILE:
+      case ENFILE:
+      case ECONNABORTED:  //???
+        get_poll_info().clear_flags(PollFlags::Read());
+        get_poll_info().add_flags(PollFlags::Close());
+        return std::move(error);
+    }
   }
 
   Status get_pending_error() {
-    if (!get_poll_info().get_flags().has_pending_error()) {
+    if (!get_poll_info().get_flags_local().has_pending_error()) {
       return Status::OK();
     }
     TRY_STATUS(detail::get_socket_pending_error(get_native_fd()));
@@ -277,8 +294,8 @@ void ServerSocketFdImplDeleter::operator()(ServerSocketFdImpl *impl) {
 }  // namespace detail
 
 ServerSocketFd::ServerSocketFd() = default;
-ServerSocketFd::ServerSocketFd(ServerSocketFd &&) = default;
-ServerSocketFd &ServerSocketFd::operator=(ServerSocketFd &&) = default;
+ServerSocketFd::ServerSocketFd(ServerSocketFd &&) noexcept = default;
+ServerSocketFd &ServerSocketFd::operator=(ServerSocketFd &&) noexcept = default;
 ServerSocketFd::~ServerSocketFd() = default;
 ServerSocketFd::ServerSocketFd(unique_ptr<detail::ServerSocketFdImpl> impl) : impl_(impl.release()) {
 }
@@ -311,8 +328,13 @@ bool ServerSocketFd::empty() const {
 }
 
 Result<ServerSocketFd> ServerSocketFd::open(int32 port, CSlice addr) {
-  IPAddress address;
-  TRY_STATUS(address.init_ipv4_port(addr, port));
+  if (port <= 0 || port >= (1 << 16)) {
+    return Status::Error(PSLICE() << "Invalid server port " << port << " specified");
+  }
+
+  TRY_RESULT(address, IPAddress::get_ip_address(addr));
+  address.set_port(port);
+
   NativeFd fd{socket(address.get_address_family(), SOCK_STREAM, 0)};
   if (!fd) {
     return OS_SOCKET_ERROR("Failed to create a socket");
@@ -328,7 +350,11 @@ Result<ServerSocketFd> ServerSocketFd::open(int32 port, CSlice addr) {
   setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, reinterpret_cast<const char *>(&flags), sizeof(flags));
 #endif
 #elif TD_PORT_WINDOWS
-  BOOL flags = TRUE;
+  BOOL flags = FALSE;
+  if (address.is_ipv6()) {
+    setsockopt(sock, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast<const char *>(&flags), sizeof(flags));
+  }
+  flags = TRUE;
 #endif
   setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&flags), sizeof(flags));
   setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, reinterpret_cast<const char *>(&flags), sizeof(flags));
@@ -353,6 +379,49 @@ Result<ServerSocketFd> ServerSocketFd::open(int32 port, CSlice addr) {
 #endif
 
   return ServerSocketFd(std::move(impl));
+}
+Result<ServerSocketFd> ServerSocketFd::open_vsock(int32 port) {
+#if !TD_LINUX
+  return OS_SOCKET_ERROR("vsock is only supported on linux");
+#else
+  if (port <= 0 || port >= (1 << 16)) {
+    return Status::Error(PSLICE() << "Invalid server port " << port << " specified");
+  }
+
+  NativeFd fd{socket(AF_VSOCK, SOCK_STREAM, 0)};
+  if (!fd) {
+    return OS_SOCKET_ERROR("Failed to create a socket");
+  }
+
+  TRY_STATUS(fd.set_is_blocking_unsafe(false));
+  auto sock = fd.socket();
+
+  struct sockaddr_vm sa_listen = {};
+  sa_listen.svm_family = AF_VSOCK;
+  sa_listen.svm_cid = VMADDR_CID_ANY;
+  sa_listen.svm_port = static_cast<uint32>(port);
+  int e_bind = bind(sock, reinterpret_cast<struct sockaddr *>(&sa_listen), sizeof(sa_listen));
+  if (e_bind != 0) {
+    return OS_SOCKET_ERROR("Failed to bind a socket");
+  }
+
+  // TODO: magic constant
+  int e_listen = listen(sock, 8192);
+  if (e_listen != 0) {
+    return OS_SOCKET_ERROR("Failed to listen on a socket");
+  }
+
+  auto impl = make_unique<detail::ServerSocketFdImpl>(std::move(fd));
+  return ServerSocketFd(std::move(impl));
+#endif
+}
+
+Result<uint32> ServerSocketFd::maximize_snd_buffer(uint32 max_size) {
+  return get_native_fd().maximize_snd_buffer(max_size);
+}
+
+Result<uint32> ServerSocketFd::maximize_rcv_buffer(uint32 max_size) {
+  return get_native_fd().maximize_rcv_buffer(max_size);
 }
 
 }  // namespace td

@@ -16,18 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_json_converter.h"
+#include <utility>
 
 #include "td/tl/tl_simple.h"
-
+#include "td/utils/Slice.h"
+#include "td/utils/StringBuilder.h"
 #include "td/utils/buffer.h"
 #include "td/utils/common.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/logging.h"
-#include "td/utils/Slice.h"
-#include "td/utils/StringBuilder.h"
 
-#include <utility>
+#include "tl_json_converter.h"
 
 namespace td {
 
@@ -145,8 +144,8 @@ void gen_from_json_constructor(StringBuilder &sb, const T *constructor, bool is_
     sb << " {\n";
     for (auto &arg : constructor->args) {
       sb << "  {\n";
-      sb << "    TRY_RESULT(value, get_json_object_field(from, \"" << tl::simple::gen_cpp_name(arg.name)
-         << "\", JsonValue::Type::Null, true));\n";
+      sb << "    TRY_RESULT(value, from.extract_optional_field(\"" << tl::simple::gen_cpp_name(arg.name)
+         << "\", JsonValue::Type::Null));\n";
       sb << "    if (value.type() != JsonValue::Type::Null) {\n";
       if (arg.type->type == tl::simple::Type::Bytes || arg.type->type == tl::simple::Type::SecureBytes) {
         sb << "      TRY_STATUS(from_json_bytes(to." << tl::simple::gen_cpp_field_name(arg.name)

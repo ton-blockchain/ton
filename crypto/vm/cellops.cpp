@@ -17,15 +17,16 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
+
+#include "common/bigint.hpp"
+#include "common/refint.h"
 #include "vm/cellops.h"
+#include "vm/excno.hpp"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/excno.hpp"
-#include "vm/vmstate.h"
 #include "vm/vm.h"
-#include "common/bigint.hpp"
-#include "common/refint.h"
+#include "vm/vmstate.h"
 
 namespace vm {
 
@@ -1541,10 +1542,16 @@ void register_cell_deserialize_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xd765, 16, "CDEPTH", exec_cell_depth))
       .insert(OpcodeInstr::mksimple(0xd766, 16, "CLEVEL", exec_cell_level)->require_version(6))
       .insert(OpcodeInstr::mksimple(0xd767, 16, "CLEVELMASK", exec_cell_level_mask)->require_version(6))
-      .insert(OpcodeInstr::mkfixed(0xd768 >> 2, 14, 2, instr::dump_1c_and(3, "CHASHI "), std::bind(exec_cell_hash_i, _1, _2, false))->require_version(6))
-      .insert(OpcodeInstr::mkfixed(0xd76c >> 2, 14, 2, instr::dump_1c_and(3, "CDEPTHI "), std::bind(exec_cell_depth_i, _1, _2, false))->require_version(6))
-      .insert(OpcodeInstr::mksimple(0xd770, 16, "CHASHIX ", std::bind(exec_cell_hash_i, _1, 0, true))->require_version(6))
-      .insert(OpcodeInstr::mksimple(0xd771, 16, "CDEPTHIX ", std::bind(exec_cell_depth_i, _1, 0, true))->require_version(6));
+      .insert(OpcodeInstr::mkfixed(0xd768 >> 2, 14, 2, instr::dump_1c_and(3, "CHASHI "),
+                                   std::bind(exec_cell_hash_i, _1, _2, false))
+                  ->require_version(6))
+      .insert(OpcodeInstr::mkfixed(0xd76c >> 2, 14, 2, instr::dump_1c_and(3, "CDEPTHI "),
+                                   std::bind(exec_cell_depth_i, _1, _2, false))
+                  ->require_version(6))
+      .insert(
+          OpcodeInstr::mksimple(0xd770, 16, "CHASHIX ", std::bind(exec_cell_hash_i, _1, 0, true))->require_version(6))
+      .insert(OpcodeInstr::mksimple(0xd771, 16, "CDEPTHIX ", std::bind(exec_cell_depth_i, _1, 0, true))
+                  ->require_version(6));
 }
 
 void register_cell_ops(OpcodeTable& cp0) {

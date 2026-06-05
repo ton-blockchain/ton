@@ -17,6 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include <algorithm>
+
 #include "openssl/digest.hpp"
 #include "vm/cells/DataCell.h"
 
@@ -26,12 +28,13 @@ namespace {
 
 class CellChecker {
  public:
-  CellChecker(bool is_special, td::Slice data, int bit_length, td::Span<Ref<Cell>> refs)
+  CellChecker(bool is_special, td::Slice data, int bit_length, td::Span<Ref<Cell>> refs, DataCell::HashHint hash_hint)
       : is_special_(is_special)
       , refs_(refs)
       , refs_cnt_(static_cast<int>(refs.size()))
       , data_(data)
-      , bit_length_(bit_length) {
+      , bit_length_(bit_length)
+      , hash_hint_(std::move(hash_hint)) {
   }
 
   td::Status check_and_compute_level_info() {
@@ -71,16 +74,13 @@ class CellChecker {
         return td::Status::Error("Invalid special cell type");
     }
 
-    // Afterwards, we do some common checks and compute virtualization level.
+    // Afterwards, we validate depth array and figure out if this cell should be virtualized.
     if (*std::max_element(depth_.begin(), depth_.end()) > CellTraits::max_depth) {
       return td::Status::Error("Depth is too big");
     }
 
     for (int i = 0; i < refs_cnt_; ++i) {
-      virtualization_ = std::max(virtualization_, refs_[i]->get_virtualization());
-    }
-    if (virtualization_ > std::numeric_limits<td::uint8>::max()) {
-      return td::Status::Error("Virtualization is too big to be stored in vm::DataCell");
+      virtualized_ |= refs_[i]->is_virtualized();
     }
 
     // And finally, we compute cell hashes.
@@ -92,7 +92,14 @@ class CellChecker {
         continue;
       }
 
-      compute_hash(i, last_computed_hash);
+      if (hash_hint_ && hash_hint_(i, level_mask_, hash_[i])) {
+        // Debug check:
+        // CellHash hinted = hash_[i];
+        // compute_hash(i, last_computed_hash);
+        // CHECK(hinted == hash_[i]);
+      } else {
+        compute_hash(i, last_computed_hash);
+      }
       for (int j = last_computed_hash + 1; j < i; ++j) {
         hash_[j] = hash_[i];
       }
@@ -111,15 +118,15 @@ class CellChecker {
     return level_mask_;
   }
 
-  td::uint8 virtualization() const {
-    return static_cast<td::uint8>(virtualization_);
+  bool virtualized() const {
+    return virtualized_;
   }
 
-  std::array<td::uint16, 4> const& depths() const {
+  const std::array<td::uint16, 4>& depths() const {
     return depth_;
   }
 
-  std::array<CellHash, 4> const& hashes() const {
+  const std::array<CellHash, 4>& hashes() const {
     return hash_;
   }
 
@@ -312,9 +319,10 @@ class CellChecker {
   int refs_cnt_;
   td::Slice data_;
   int bit_length_;
+  DataCell::HashHint hash_hint_;
 
   Cell::LevelMask level_mask_;
-  td::uint32 virtualization_{0};
+  bool virtualized_{false};
   std::array<td::uint16, max_level + 1> depth_{};
   std::array<CellHash, max_level + 1> hash_{};
 };
@@ -324,7 +332,7 @@ char* allocate_in_arena(size_t size) {
   thread_local td::MutableSlice batch;
 
   auto aligned_size = (size + 7) / 8 * 8;
-  if (batch.size() < size) {
+  if (batch.size() < aligned_size) {
     batch = td::MutableSlice(new char[batch_size], batch_size);
   }
   auto res = batch.begin();
@@ -336,7 +344,8 @@ char* allocate_in_arena(size_t size) {
 
 thread_local bool DataCell::use_arena = false;
 
-td::Result<Ref<DataCell>> DataCell::create(td::Slice data, int bit_length, td::Span<Ref<Cell>> refs, bool is_special) {
+td::Result<Ref<DataCell>> DataCell::create(td::Slice data, int bit_length, td::Span<Ref<Cell>> refs, bool is_special,
+                                           HashHint hash_hint) {
   CHECK(bit_length >= 0 && data.size() * 8 >= static_cast<size_t>(bit_length));
   if (refs.size() > CellTraits::max_refs) {
     return td::Status::Error("Too many references");
@@ -345,7 +354,7 @@ td::Result<Ref<DataCell>> DataCell::create(td::Slice data, int bit_length, td::S
     return td::Status::Error("Too many data bits");
   }
 
-  CellChecker checker{is_special, data, bit_length, refs};
+  CellChecker checker{is_special, data, bit_length, refs, std::move(hash_hint)};
   TRY_STATUS(checker.check_and_compute_level_info());
 
   auto level_info_size = sizeof(detail::LevelInfo) * (checker.level_mask().get_level() + 1);
@@ -353,7 +362,7 @@ td::Result<Ref<DataCell>> DataCell::create(td::Slice data, int bit_length, td::S
 
   void* storage = use_arena ? allocate_in_arena(cell_size) : ::operator new(cell_size);
   DataCell* allocated_cell = new (storage)
-      DataCell{bit_length, refs.size(), checker.type(), checker.level_mask(), use_arena, checker.virtualization()};
+      DataCell{bit_length, refs.size(), checker.type(), checker.level_mask(), use_arena, checker.virtualized()};
   auto& cell = *allocated_cell;
 
   auto mutable_data = cell.trailer_ + level_info_size;
@@ -443,14 +452,14 @@ std::string DataCell::to_hex() const {
 }
 
 DataCell::DataCell(int bit_length, size_t refs_cnt, Cell::SpecialType type, LevelMask level_mask,
-                   bool allocated_in_arena, td::uint8 virtualization)
+                   bool allocated_in_arena, bool virtualized)
     : bit_length_(bit_length)
     , refs_cnt_(static_cast<td::uint8>(refs_cnt))
     , type_(static_cast<td::uint8>(type))
     , level_(static_cast<td::uint8>(level_mask.get_level()))
     , level_mask_(level_mask.get_mask())
     , allocated_in_arena_(allocated_in_arena)
-    , virtualization_(virtualization) {
+    , virtualized_(virtualized) {
   get_thread_safe_counter().add(1);
 }
 

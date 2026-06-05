@@ -18,6 +18,7 @@
 */
 #pragma once
 #include <functional>
+
 #include "common/refcnt.hpp"
 #include "common/refint.h"
 #include "vm/stack.hpp"
@@ -27,9 +28,9 @@ using td::Ref;
 struct IntCtx;
 
 /*
- * 
+ *
  *    FIFT CONTINUATIONS
- * 
+ *
  */
 
 class FiftCont : public td::CntObject {

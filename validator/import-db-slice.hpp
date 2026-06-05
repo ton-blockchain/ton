@@ -20,8 +20,8 @@
 
 #include "td/actor/actor.h"
 #include "td/utils/port/path.h"
-#include "validator/interfaces/validator-manager.h"
 #include "validator/db/package.hpp"
+#include "validator/interfaces/validator-manager.h"
 
 namespace ton {
 

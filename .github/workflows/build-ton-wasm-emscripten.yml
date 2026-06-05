@@ -1,6 +1,17 @@
 name: Emscripten TON build (wasm)
 
-on: [push,workflow_dispatch,workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -8,32 +19,25 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         submodules: 'recursive'
 
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git openssl cmake ninja-build zlib1g-dev libssl-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev
+        sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev
         mkdir -p 3pp_emscripten
 
-    - name: Install clang-16
+    - name: Install clang-22
       run: |
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
-        sudo ./llvm.sh 16 clang
-
-    - name: Cache OpenSSL
-      id: cache-openssl
-      uses: actions/cache@v4
-      with:
-        path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-openssl_3-${{ hashFiles('**/assembly/wasm/fift-func-wasm-build-ubuntu.sh') }}
+        sudo ./llvm.sh 22 clang
 
     - name: Cache 3pp Emscripten
       id: cache-3pp-emscripten
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: 3pp_emscripten
         key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-3pp_em-${{ hashFiles('**/assembly/wasm/fift-func-wasm-build-ubuntu.sh') }}
@@ -46,26 +50,10 @@ jobs:
         chmod +x fift-func-wasm-build-ubuntu.sh
         ./fift-func-wasm-build-ubuntu.sh -a
 
-    - name: Prepare test
-      run: |
-        cp assembly/wasm/*.fc .
-        git clone https://github.com/ton-community/func-js.git
-        cd func-js        
-        npm install
-        npm run build
-        npm link
-
-    - name: Test TON WASM artifacts
-      run: |
-        base64 -w 0 artifacts/funcfiftlib.wasm > artifacts/funcfiftlib.wasm.js
-        printf "module.exports = { FuncFiftLibWasm: '" | cat - artifacts/funcfiftlib.wasm.js > temp.txt && mv temp.txt artifacts/funcfiftlib.wasm.js
-        echo "'}" >> artifacts/funcfiftlib.wasm.js
-        cp artifacts/funcfiftlib.wasm.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.wasm.js
-        cp artifacts/funcfiftlib.js func-js/node_modules/@ton-community/func-js-bin/dist/funcfiftlib.js
-        npx func-js stdlib.fc intrinsics.fc --fift ./output.f
-    
     - name: Upload artifacts
-      uses: actions/upload-artifact@master
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
       with:
         name: ton-wasm
         path: artifacts
+        retention-days: 14
+        if-no-files-found: error

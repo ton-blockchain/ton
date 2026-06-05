@@ -17,9 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include "td/utils/SharedSlice.h"
 #include "td/utils/common.h"
 #include "td/utils/port/thread.h"
-#include "td/utils/SharedSlice.h"
 #include "td/utils/tests.h"
 
 char disable_linker_warning_about_empty_file_tdutils_test_shared_slice_cpp TD_UNUSED;

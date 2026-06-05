@@ -33,22 +33,23 @@ namespace tolk {
 class ASTStringifier final : public ASTVisitor {
   constexpr static std::pair<ASTNodeKind, const char*> name_pairs[] = {
     {ast_identifier, "ast_identifier"},
+    {ast_parameter, "ast_parameter"},
+    {ast_parameter_list, "ast_parameter_list"},
     // types
     {ast_type_leaf_text, "ast_type_leaf_text"},
     {ast_type_question_nullable, "ast_type_question_nullable"},
     {ast_type_parenthesis_tensor, "ast_type_parenthesis_tensor"},
-    {ast_type_bracket_tuple, "ast_type_bracket_tuple"},
+    {ast_type_brackets_shape, "ast_type_brackets_shape"},
     {ast_type_arrow_callable, "ast_type_arrow_callable"},
     {ast_type_vertical_bar_union, "ast_type_vertical_bar_union"},
     {ast_type_triangle_args, "ast_type_triangle_args"},
     // expressions
     {ast_empty_expression, "ast_empty_expression"},
-    {ast_parenthesized_expression, "ast_parenthesized_expression"},
     {ast_braced_expression, "ast_braced_expression"},
     {ast_braced_yield_result, "ast_braced_yield_result"},
     {ast_artificial_aux_vertex, "ast_artificial_aux_vertex"},
     {ast_tensor, "ast_tensor"},
-    {ast_bracket_tuple, "ast_bracket_tuple"},
+    {ast_square_brackets, "ast_square_brackets"},
     {ast_reference, "ast_reference"},
     {ast_local_var_lhs, "ast_local_var_lhs"},
     {ast_local_vars_declaration, "ast_local_vars_declaration"},
@@ -66,6 +67,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_unary_operator, "ast_unary_operator"},
     {ast_binary_operator, "ast_binary_operator"},
     {ast_ternary_operator, "ast_ternary_operator"},
+    {ast_null_coalesce_operator, "ast_null_coalesce_operator"},
     {ast_cast_as_operator, "ast_cast_as_operator"},
     {ast_is_type_operator, "ast_is_type_operator"},
     {ast_not_null_operator, "ast_not_null_operator"},
@@ -75,6 +77,7 @@ class ASTStringifier final : public ASTVisitor {
     {ast_object_field, "ast_object_field"},
     {ast_object_body, "ast_object_body"},
     {ast_object_literal, "ast_object_literal"},
+    {ast_lambda_fun, "ast_lambda_fun"},
     // statements
     {ast_empty_statement, "ast_empty_statement"},
     {ast_block_statement, "ast_block_statement"},
@@ -92,8 +95,6 @@ class ASTStringifier final : public ASTVisitor {
     {ast_genericsT_list, "ast_genericsT_list"},
     {ast_instantiationT_item, "ast_instantiationT_item"},
     {ast_instantiationT_list, "ast_instantiationT_list"},
-    {ast_parameter, "ast_parameter"},
-    {ast_parameter_list, "ast_parameter_list"},
     {ast_annotation, "ast_annotation"},
     {ast_function_declaration, "ast_function_declaration"},
     {ast_global_var_declaration, "ast_global_var_declaration"},
@@ -106,6 +107,8 @@ class ASTStringifier final : public ASTVisitor {
     {ast_enum_body, "ast_enum_body"},
     {ast_enum_declaration, "ast_enum_declaration"},
     {ast_tolk_required_version, "ast_tolk_required_version"},
+    {ast_contract_directive_item, "ast_contract_directive_item"},
+    {ast_contract_directive, "ast_contract_directive"},
     {ast_import_directive, "ast_import_directive"},
     {ast_tolk_file, "ast_tolk_file"},
   };
@@ -204,13 +207,13 @@ class ASTStringifier final : public ASTVisitor {
       case ast_annotation:
         return static_cast<std::string>(v->as<ast_annotation>()->name);
       case ast_parameter:
-        return static_cast<std::string>(v->as<ast_parameter>()->param_name) + ": " + ast_type_node_to_string(v->as<ast_parameter>()->type_node);
+        return static_cast<std::string>(v->as<ast_parameter>()->get_name()) + ": " + ast_type_node_to_string(v->as<ast_parameter>()->type_node);
       case ast_function_declaration: {
         std::string param_names;
         for (int i = 0; i < v->as<ast_function_declaration>()->get_num_params(); i++) {
           if (!param_names.empty())
             param_names += ",";
-          param_names += v->as<ast_function_declaration>()->get_param(i)->param_name;
+          param_names += v->as<ast_function_declaration>()->get_param(i)->get_name();
         }
         std::string decl = "fun ";
         if (auto receiver_node = v->as<ast_function_declaration>()->receiver_type_node) {
@@ -218,6 +221,15 @@ class ASTStringifier final : public ASTVisitor {
           decl += ".";
         }
         return decl + static_cast<std::string>(v->as<ast_function_declaration>()->get_identifier()->name) + "(" + param_names + ")";
+      }
+      case ast_lambda_fun: {
+        std::string param_names;
+        for (int i = 0; i < v->as<ast_lambda_fun>()->get_num_params(); i++) {
+          if (!param_names.empty())
+            param_names += ",";
+          param_names += v->as<ast_lambda_fun>()->get_param(i)->get_name();
+        }
+        return "lambda(" + param_names + ")";
       }
       case ast_local_var_lhs: {
         std::string str_type = v->as<ast_local_var_lhs>()->inferred_type ? v->as<ast_local_var_lhs>()->inferred_type->as_human_readable() : ast_type_node_to_string(v->as<ast_local_var_lhs>()->type_node);
@@ -251,6 +263,8 @@ class ASTStringifier final : public ASTVisitor {
         return static_cast<std::string>(v->as<ast_tolk_required_version>()->semver);
       case ast_import_directive:
         return static_cast<std::string>(v->as<ast_import_directive>()->get_file_leaf()->str_val);
+      case ast_contract_directive_item:
+        return static_cast<std::string>(v->as<ast_contract_directive_item>()->name);
       case ast_tolk_file:
         return v->as<ast_tolk_file>()->file->realpath;
       default:
@@ -301,18 +315,17 @@ public:
       case ast_type_leaf_text:                return handle_vertex(v->as<ast_type_leaf_text>());
       case ast_type_question_nullable:        return handle_vertex(v->as<ast_type_question_nullable>());
       case ast_type_parenthesis_tensor:       return handle_vertex(v->as<ast_type_parenthesis_tensor>());
-      case ast_type_bracket_tuple:            return handle_vertex(v->as<ast_type_bracket_tuple>());
+      case ast_type_brackets_shape:           return handle_vertex(v->as<ast_type_brackets_shape>());
       case ast_type_arrow_callable:           return handle_vertex(v->as<ast_type_arrow_callable>());
       case ast_type_vertical_bar_union:       return handle_vertex(v->as<ast_type_vertical_bar_union>());
       case ast_type_triangle_args:            return handle_vertex(v->as<ast_type_triangle_args>());
       // expressions
       case ast_empty_expression:              return handle_vertex(v->as<ast_empty_expression>());
-      case ast_parenthesized_expression:      return handle_vertex(v->as<ast_parenthesized_expression>());
       case ast_braced_expression:             return handle_vertex(v->as<ast_braced_expression>());
       case ast_braced_yield_result:           return handle_vertex(v->as<ast_braced_yield_result>());
       case ast_artificial_aux_vertex:         return handle_vertex(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                        return handle_vertex(v->as<ast_tensor>());
-      case ast_bracket_tuple:                 return handle_vertex(v->as<ast_bracket_tuple>());
+      case ast_square_brackets:               return handle_vertex(v->as<ast_square_brackets>());
       case ast_reference:                     return handle_vertex(v->as<ast_reference>());
       case ast_local_var_lhs:                 return handle_vertex(v->as<ast_local_var_lhs>());
       case ast_local_vars_declaration:        return handle_vertex(v->as<ast_local_vars_declaration>());
@@ -330,6 +343,7 @@ public:
       case ast_unary_operator:                return handle_vertex(v->as<ast_unary_operator>());
       case ast_binary_operator:               return handle_vertex(v->as<ast_binary_operator>());
       case ast_ternary_operator:              return handle_vertex(v->as<ast_ternary_operator>());
+      case ast_null_coalesce_operator:        return handle_vertex(v->as<ast_null_coalesce_operator>());
       case ast_cast_as_operator:              return handle_vertex(v->as<ast_cast_as_operator>());
       case ast_is_type_operator:              return handle_vertex(v->as<ast_is_type_operator>());
       case ast_not_null_operator:             return handle_vertex(v->as<ast_not_null_operator>());
@@ -339,6 +353,7 @@ public:
       case ast_object_field:                  return handle_vertex(v->as<ast_object_field>());
       case ast_object_body:                   return handle_vertex(v->as<ast_object_body>());
       case ast_object_literal:                return handle_vertex(v->as<ast_object_literal>());
+      case ast_lambda_fun:                    return handle_vertex(v->as<ast_lambda_fun>());
       // statements
       case ast_empty_statement:               return handle_vertex(v->as<ast_empty_statement>());
       case ast_block_statement:               return handle_vertex(v->as<ast_block_statement>());
@@ -371,6 +386,8 @@ public:
       case ast_enum_declaration:              return handle_vertex(v->as<ast_enum_declaration>());
       case ast_tolk_required_version:         return handle_vertex(v->as<ast_tolk_required_version>());
       case ast_import_directive:              return handle_vertex(v->as<ast_import_directive>());
+      case ast_contract_directive_item:       return handle_vertex(v->as<ast_contract_directive_item>());
+      case ast_contract_directive:            return handle_vertex(v->as<ast_contract_directive>());
       case ast_tolk_file:                     return handle_vertex(v->as<ast_tolk_file>());
       default:
         throw UnexpectedASTNodeKind(v, "ASTStringifier::visit");

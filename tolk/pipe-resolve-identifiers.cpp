@@ -14,13 +14,11 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "tolk.h"
-#include "platform-utils.h"
-#include "compiler-state.h"
-#include "src-file.h"
 #include "ast.h"
 #include "ast-visitor.h"
-#include <unordered_map>
+#include "compilation-errors.h"
+#include "compiler-state.h"
+#include "src-file.h"
 
 /*
  *   This pipe resolves identifiers (local variables, globals, constants, etc.) in all functions bodies.
@@ -46,30 +44,50 @@
 
 namespace tolk {
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_undefined_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
+// if we had `import "ContractA"`, and it had `get fun methodA`, we did not register that method at all;
+// so, we want a human-readable error if a user calls it manually:
+// not just "undefined symbol methodA", but that it's not accessible
+static SrcFilePtr find_skipped_imported_getter(std::string_view name, const SrcRange* v_range_file_id = nullptr) {
+  for (const auto& [skipped_name, skipped_file] : G.skipped_imported_getters) {
+    if (skipped_name == name) {   // "methodA"
+      if (v_range_file_id == nullptr || skipped_file == v_range_file_id->get_src_file()) {
+        return skipped_file;      // "ContractA.tolk"
+      }
+    }
+  }
+  return nullptr;
+}
+
+static Error err_skipped_imported_getter(V<ast_identifier> v, SrcFilePtr skipped_file) {
+  return err("`{}` is a contract getter in `{}` and is not accessible when imported\n""hint: extract shared logic into a regular function", v->name, skipped_file->extract_short_name());
+}
+
+static Error err_undefined_symbol(V<ast_identifier> v) {
   if (v->name == "self") {
-    fire(cur_f, v->loc, "using `self` in a non-member function (it does not accept the first `self` parameter)");
-  } else {
-    fire(cur_f, v->loc, "undefined symbol `" + static_cast<std::string>(v->name) + "`");
+    return err("using `self` in a non-member function (it does not accept the first `self` parameter)");
   }
+  if (SrcFilePtr skipped_file = find_skipped_imported_getter(v->name)) {
+    return err_skipped_imported_getter(v, skipped_file);
+  }
+  return err("undefined symbol `{}`", v->name);
 }
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_type_used_as_symbol(FunctionPtr cur_f, V<ast_identifier> v) {
+static Error err_type_used_as_symbol(V<ast_identifier> v) {
   if (v->name == "random") {    // calling `random()`, but it's a struct, correct is `random.uint256()`
-    fire(cur_f, v->loc, "`random` is not a function, you probably want `random.uint256()`");
+    return err("`random` is not a function, you probably want `random.uint256()`");
   } else {
-    fire(cur_f, v->loc, "`" + static_cast<std::string>(v->name) + "` only refers to a type, but is being used as a value here");
+    return err("`{}` only refers to a type, but is being used as a value here", v->name);
   }
 }
 
-GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
-static void fire_error_using_self_not_in_method(FunctionPtr cur_f, SrcLocation loc) {
-  if (cur_f->is_static_method()) {
-    fire(cur_f, loc, "using `self` in a static method");
+GNU_ATTRIBUTE_NOINLINE
+static Error err_using_self_not_in_method(FunctionPtr cur_f) {
+  if (!cur_f) {
+    return err("using `self` outside a function");
+  } else if (cur_f->is_static_method()) {
+    return err("using `self` in a static method");
   } else {
-    fire(cur_f, loc, "using `self` in a regular function (not a method)");
+    return err("using `self` in a regular function (not a method)");
   }
 }
 
@@ -80,16 +98,13 @@ struct NameAndScopeResolver {
     return std::hash<std::string_view>{}(name_key);
   }
 
-  void open_scope([[maybe_unused]] SrcLocation loc) {
-    // std::cerr << "open_scope " << scopes.size() + 1 << " at " << loc << std::endl;
+  void open_scope() {
     scopes.emplace_back();
   }
 
-  void close_scope([[maybe_unused]] SrcLocation loc) {
+  void close_scope() {
     // std::cerr << "close_scope " << scopes.size() << " at " << loc << std::endl;
-    if (UNLIKELY(scopes.empty())) {
-      throw Fatal("cannot close the outer scope");
-    }
+    tolk_assert(!scopes.empty());
     scopes.pop_back();
   }
 
@@ -105,55 +120,58 @@ struct NameAndScopeResolver {
   }
 
   void add_local_var(LocalVarPtr v_sym) {
-    if (UNLIKELY(scopes.empty())) {
-      throw Fatal("unexpected scope_level = 0");
-    }
+    tolk_assert(!scopes.empty());
     if (v_sym->name.empty()) {    // underscore
       return;
     }
 
     uint64_t key = key_hash(v_sym->name);
     const auto& [_, inserted] = scopes.rbegin()->emplace(key, v_sym);
-    if (UNLIKELY(!inserted)) {
-      throw ParseError(v_sym->loc, "redeclaration of local variable `" + v_sym->name + "`");
+    if (!inserted) {
+      err("redeclaration of local variable `{}`", v_sym).fire(v_sym->ident_anchor);
     }
   }
 };
 
 class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
-  // more correctly this field shouldn't be static, but currently there is no need to make it a part of state
-  static NameAndScopeResolver current_scope;
-  static FunctionPtr cur_f;
+  NameAndScopeResolver current_scope;
+  
+  struct LambdaCaptureState {
+    std::vector<LocalVarPtr> captured_vars;
+    std::vector<LocalVarPtr> local_vars;
+  };
+  std::vector<LambdaCaptureState> lambda_stack;
 
-  static LocalVarPtr create_local_var_sym(std::string_view name, SrcLocation loc, AnyTypeV declared_type_node, bool immutable, bool lateinit) {
-    LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), loc, declared_type_node, nullptr, immutable * LocalVarData::flagImmutable + lateinit * LocalVarData::flagLateInit, -1);
+  LocalVarPtr create_local_var_sym(std::string_view name, AnyV ident_anchor, AnyTypeV declared_type_node, bool immutable, bool lateinit) {
+    LocalVarData* v_sym = new LocalVarData(static_cast<std::string>(name), ident_anchor, declared_type_node, nullptr, immutable * LocalVarData::flagImmutable + lateinit * LocalVarData::flagLateInit, -1);
     current_scope.add_local_var(v_sym);
+    if (!lambda_stack.empty()) {
+      lambda_stack.back().local_vars.push_back(v_sym);
+    }
     return v_sym;
   }
 
-  static void process_catch_variable(AnyExprV catch_var) {
+  void maybe_register_capture(LocalVarPtr var_ref) {
+    for (auto it = lambda_stack.rbegin(); it != lambda_stack.rend(); ++it) {
+      if (std::find(it->local_vars.begin(), it->local_vars.end(), var_ref) != it->local_vars.end()) {
+        break;
+      }
+      if (std::find(it->captured_vars.begin(), it->captured_vars.end(), var_ref) == it->captured_vars.end()) {
+        it->captured_vars.push_back(var_ref);
+      }
+    }
+  }
+
+  void process_catch_variable(AnyExprV catch_var) {
     if (auto v_ref = catch_var->try_as<ast_reference>()) {
-      LocalVarPtr var_ref = create_local_var_sym(v_ref->get_name(), catch_var->loc, nullptr, true, false);
+      LocalVarPtr var_ref = create_local_var_sym(v_ref->get_name(), catch_var, nullptr, true, false);
       v_ref->mutate()->assign_sym(var_ref);
     }
   }
 
-protected:
   void visit(V<ast_local_var_lhs> v) override {
-    if (v->marked_as_redef) {
-      const Symbol* sym = current_scope.lookup_symbol(v->get_name());
-      if (sym == nullptr) {
-        throw ParseError(cur_f, v->loc, "`redef` for unknown variable");
-      }
-      LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
-      if (!var_ref) {
-        throw ParseError(cur_f, v->loc, "`redef` for unknown variable");
-      }
-      v->mutate()->assign_var_ref(var_ref);
-    } else {
-      LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v->loc, v->type_node, v->is_immutable, v->is_lateinit);
-      v->mutate()->assign_var_ref(var_ref);
-    }
+    LocalVarPtr var_ref = create_local_var_sym(v->get_name(), v, v->type_node, v->is_immutable, v->is_lateinit);
+    v->mutate()->assign_var_ref(var_ref);
   }
 
   void visit(V<ast_assign> v) override {
@@ -164,17 +182,30 @@ protected:
   void visit(V<ast_reference> v) override {
     const Symbol* sym = current_scope.lookup_symbol(v->get_name());
     if (!sym) {
-      fire_error_undefined_symbol(cur_f, v->get_identifier());
+      err_undefined_symbol(v->get_identifier()).fire(v->get_identifier(), cur_f);
     }
-    if (sym->try_as<AliasDefPtr>() || sym->try_as<StructPtr>() || sym->try_as<EnumDefPtr>()) {
-      fire_error_type_used_as_symbol(cur_f, v->get_identifier());
+
+    LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
+    if (!var_ref) {
+      if (SrcFilePtr skipped_file = find_skipped_imported_getter(v->get_name(), &v->range)) {
+        err_skipped_imported_getter(v->get_identifier(), skipped_file).fire(v->get_identifier(), cur_f);
+      }
+      if (sym->try_as<AliasDefPtr>() || sym->try_as<StructPtr>() || sym->try_as<EnumDefPtr>()) {
+        err_type_used_as_symbol(v->get_identifier()).fire(v->get_identifier(), cur_f);
+      }
     }
     v->mutate()->assign_sym(sym);
 
+    // local variable inside a lambda is discoverable from parent's scope
+    if (var_ref && !lambda_stack.empty()) {
+      maybe_register_capture(var_ref);
+    }
+
     // for global functions, global vars and constants, `import` must exist
-    if (!sym->try_as<LocalVarPtr>()) {
-      if (!v->loc.is_symbol_from_same_or_builtin_file(sym->loc)) {
-        sym->check_import_exists_when_used_from(cur_f, v->loc);
+    if (!var_ref) {
+      bool allow_no_import = sym->is_builtin() || sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
+      if (!allow_no_import) {
+        sym->check_import_exists_when_used_from(cur_f, v);
       }
     }
   }
@@ -182,12 +213,12 @@ protected:
   void visit(V<ast_dot_access> v) override {
     try {
       parent::visit(v->get_obj());
-    } catch (const ParseError&) {
+    } catch (const ThrownParseError&) {
       if (auto v_type_name = v->get_obj()->try_as<ast_reference>()) {
         // for `Point.create` / `int.zero` / `Color.Red`, "undefined symbol" is fired for Point/int/Color
         // suppress this exception till a later pipe, it will be tried to be resolved as a type
         if (v_type_name->get_identifier()->name == "self") {
-          fire_error_using_self_not_in_method(cur_f, v_type_name->loc);
+          err_using_self_not_in_method(cur_f).fire(v_type_name, cur_f);
         }
         return;
       }
@@ -196,15 +227,15 @@ protected:
   }
 
   void visit(V<ast_braced_expression> v) override {
-    current_scope.open_scope(v->loc);
+    current_scope.open_scope();
     parent::visit(v->get_block_statement());
-    current_scope.close_scope(v->loc);
+    current_scope.close_scope();
   }
 
   void visit(V<ast_match_expression> v) override {
-    current_scope.open_scope(v->loc);   // `match (var a = init_val) { ... }`
-    parent::visit(v);                   // then `a` exists only inside `match` arms
-    current_scope.close_scope(v->loc);
+    current_scope.open_scope();   // `match (var a = init_val) { ... }`
+    parent::visit(v);             // then `a` exists only inside `match` arms
+    current_scope.close_scope();
   }
 
   void visit(V<ast_match_arm> v) override {
@@ -216,8 +247,8 @@ protected:
       case MatchArmKind::exact_type: {
         if (auto maybe_ident = v->pattern_type_node->try_as<ast_type_leaf_text>()) {
           if (const Symbol* sym = current_scope.lookup_symbol(maybe_ident->text); sym && sym->try_as<GlobalConstPtr>()) {
-            auto v_ident = createV<ast_identifier>(v->loc, sym->name);
-            AnyExprV pattern_expr = createV<ast_reference>(v->loc, v_ident, nullptr);
+            auto v_ident = createV<ast_identifier>(maybe_ident->range, sym->name);
+            AnyExprV pattern_expr = createV<ast_reference>(v_ident->range, v_ident, nullptr);
             parent::visit(pattern_expr);
             v->mutate()->assign_resolved_pattern(MatchArmKind::const_expression, pattern_expr);
           }
@@ -235,54 +266,68 @@ protected:
   }
 
   void visit(V<ast_block_statement> v) override {
-    if (v->empty()) {
+    // function's body block has the same scope as parameters
+    if (cur_f && v == cur_f->ast_root->as<ast_function_declaration>()->get_body()) {
+      parent::visit(v);
       return;
     }
-    current_scope.open_scope(v->loc);
+
+    current_scope.open_scope();
     parent::visit(v);
-    current_scope.close_scope(v->loc_end);
+    current_scope.close_scope();
   }
 
   void visit(V<ast_do_while_statement> v) override {
-    current_scope.open_scope(v->loc);
+    current_scope.open_scope();
     parent::visit(v->get_body());
-    parent::visit(v->get_cond()); // in 'while' condition it's ok to use variables declared inside do
-    current_scope.close_scope(v->get_body()->loc_end);
+    current_scope.close_scope();
+    parent::visit(v->get_cond());
   }
 
   void visit(V<ast_try_catch_statement> v) override {
     visit(v->get_try_body());
-    current_scope.open_scope(v->get_catch_body()->loc);
+    current_scope.open_scope();
     const std::vector<AnyExprV>& catch_items = v->get_catch_expr()->get_items();
     tolk_assert(catch_items.size() == 2);
     process_catch_variable(catch_items[1]);
     process_catch_variable(catch_items[0]);
     parent::visit(v->get_catch_body());
-    current_scope.close_scope(v->get_catch_body()->loc_end);
+    current_scope.close_scope();
+  }
+
+  void visit(V<ast_lambda_fun> v) override {
+    lambda_stack.push_back(LambdaCaptureState{});
+    current_scope.open_scope();
+    for (int i = 0; i < v->get_num_params(); ++i) {
+      V<ast_parameter> v_param = v->get_param(i);
+      create_local_var_sym(v_param->get_name(), v_param->get_identifier(), v_param->type_node, false, false);
+    }
+    parent::visit(v->get_body());
+    current_scope.close_scope();
+    v->mutate()->assign_captured_vars(std::move(lambda_stack.back().captured_vars));
+    lambda_stack.pop_back();
   }
 
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
-    return fun_ref->is_code_function();
+    return !fun_ref->is_generic_function();
   }
 
-  void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v) override {
-    cur_f = fun_ref;
-
-    auto v_block = v->get_body()->as<ast_block_statement>();
-    current_scope.open_scope(v->loc);
-    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
-      LocalVarPtr param_ref = &fun_ref->parameters[i];
-      current_scope.add_local_var(param_ref);
+  void on_enter_function(V<ast_function_declaration>) override {
+    // add all parameters to function's body scope; in parallel, resolve identifiers in their default values
+    current_scope.open_scope();
+    for (int i = 0; i < cur_f->get_num_params(); ++i) {
+      LocalVarPtr param_ref = &cur_f->parameters[i];
       if (param_ref->has_default_value()) {
         parent::visit(param_ref->default_value);
       }
+      current_scope.add_local_var(param_ref);
     }
-    parent::visit(v_block);
-    current_scope.close_scope(v_block->loc_end);
-    tolk_assert(current_scope.scopes.empty());
+  }
 
-    cur_f = nullptr;
+  void on_exit_function(V<ast_function_declaration> v_function) override {
+    current_scope.close_scope();
+    tolk_assert(current_scope.scopes.empty() && lambda_stack.empty());
   }
 
   void start_visiting_constant(GlobalConstPtr const_ref) {
@@ -309,17 +354,14 @@ public:
   }
 };
 
-NameAndScopeResolver AssignSymInsideFunctionVisitor::current_scope;
-FunctionPtr AssignSymInsideFunctionVisitor::cur_f = nullptr;
-
 void pipeline_resolve_identifiers_and_assign_symbols() {
   AssignSymInsideFunctionVisitor visitor;
-  for (const SrcFile* file : G.all_src_files) {
+  for (SrcFilePtr file : G.all_src_files) {
     for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-      if (auto v_func = v->try_as<ast_function_declaration>(); v_func && !v_func->is_builtin_function()) {
-        tolk_assert(v_func->fun_ref);
-        if (visitor.should_visit_function(v_func->fun_ref)) {
-          visitor.start_visiting_function(v_func->fun_ref, v_func);
+      if (auto v_fun = v->try_as<ast_function_declaration>()) {
+        // v_fun->fun_ref may be nullptr if it's `get fun` implicitly imported and ignored because of `contract`
+        if (v_fun->fun_ref && visitor.should_visit_function(v_fun->fun_ref)) {
+          visitor.start_visiting_function(v_fun->fun_ref, v_fun);
         }
 
       } else if (auto v_const = v->try_as<ast_constant_declaration>()) {

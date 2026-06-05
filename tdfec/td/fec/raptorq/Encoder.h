@@ -17,13 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/fec/raptorq/RawEncoder.h"
-#include "td/fec/common/SymbolsView.h"
-
-#include "td/utils/optional.h"
-#include "td/utils/buffer.h"
-
 #include <atomic>
+
+#include "td/fec/common/SymbolsView.h"
+#include "td/fec/raptorq/RawEncoder.h"
+#include "td/utils/buffer.h"
+#include "td/utils/optional.h"
 
 namespace td {
 namespace raptorq {

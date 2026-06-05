@@ -27,8 +27,8 @@
 */
 
 #pragma once
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 
 struct keccak_state;
 

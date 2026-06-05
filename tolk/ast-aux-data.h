@@ -18,7 +18,6 @@
 
 #include "ast.h"
 #include "lazy-helpers.h"
-#include "tolk.h"
 
 /*
  *   This file contains a schema of aux_data inside ast_artificial_aux_vertex
@@ -27,15 +26,7 @@
 
 namespace tolk {
 
-// AuxData_ForceFiftLocation is created when transforming AST to IR;
-// it wraps constants to force codegen location point to usage, not to init_val AST nodes
-struct AuxData_ForceFiftLocation final : ASTAuxData {
-  SrcLocation forced_loc;
-
-  explicit AuxData_ForceFiftLocation(SrcLocation forced_loc)
-    : forced_loc(forced_loc) {
-  }
-};
+struct CodeBlob;
 
 // AuxData_LazyObjectLoadFields is a special auto-inserted vertex to load fields of a lazy struct;
 // example: `var p = lazy Point.fromSlice(s); aux "load x"; return p.x`
@@ -69,7 +60,7 @@ struct AuxData_OnInternalMessage_getField final : ASTAuxData {
     , field_name(field_name) {
   }
 
-  std::vector<var_idx_t> generate_get_InMessage_field(CodeBlob& code, SrcLocation loc) const;
+  std::vector<var_idx_t> generate_get_InMessage_field(CodeBlob& code, AnyV origin) const;
 };
 
 } // namespace tolk

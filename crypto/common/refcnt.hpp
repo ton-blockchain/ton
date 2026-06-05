@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include <cassert>
-#include <utility>
 #include <atomic>
+#include <cassert>
 #include <iostream>
+#include <utility>
 
 #include "td/utils/StringBuilder.h"
 #include "td/utils/logging.h"
@@ -285,14 +285,14 @@ class Ref {
   Ref& operator=(Ref<S>&& r);
   const typename RefValue<T>::Type* operator->() const {
     if (!ptr) {
-      CHECK(ptr && "deferencing null Ref");
+      LOG_CHECK(ptr) << "dereferencing null Ref<" << typeid(T).name() << ">";
       throw NullRef{};
     }
     return RefValue<T>::make_const_ptr(ptr);
   }
   const typename RefValue<T>::Type& operator*() const {
     if (!ptr) {
-      CHECK(ptr && "deferencing null Ref");
+      LOG_CHECK(ptr) << "dereferencing null Ref<" << typeid(T).name() << ">";
       throw NullRef{};
     }
     return RefValue<T>::make_const_ref(ptr);
@@ -363,7 +363,7 @@ Ref<Cnt<T>> make_cnt_ref(Args&&... args) {
   return Ref<Cnt<T>>{true, std::forward<Args>(args)...};
 }
 
-template <class T>
+template <Formattable T>
 td::StringBuilder& operator<<(td::StringBuilder& sb, const Ref<T>& ref) {
   if (ref.is_null()) {
     return sb << "nullptr";

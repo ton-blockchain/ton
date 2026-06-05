@@ -34,3 +34,7 @@ third_party/** linguist-vendored
 *.a binary
 *.jar binary
 *.tlo binary
+
+*.h merge=clang-format-driver
+*.cpp merge=clang-format-driver
+*.hpp merge=clang-format-driver

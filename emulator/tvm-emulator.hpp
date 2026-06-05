@@ -5,10 +5,11 @@ namespace emulator {
 class TvmEmulator {
   ton::SmartContract smc_;
   ton::SmartContract::Args args_;
-public:
+
+ public:
   using Answer = ton::SmartContract::Answer;
 
-  TvmEmulator(td::Ref<vm::Cell> code, td::Ref<vm::Cell> data): smc_({code, data}) {
+  TvmEmulator(td::Ref<vm::Cell> code, td::Ref<vm::Cell> data) : smc_({code, data}) {
   }
 
   void set_vm_verbosity_level(int vm_log_verbosity) {
@@ -23,7 +24,8 @@ public:
     args_.set_limits(vm::GasLimits(limit));
   }
 
-  void set_c7(block::StdAddress address, uint32_t unixtime, uint64_t balance, td::BitArray<256> rand_seed, std::shared_ptr<const block::Config> config) {
+  void set_c7(block::StdAddress address, uint32_t unixtime, uint64_t balance, td::BitArray<256> rand_seed,
+              std::shared_ptr<const block::Config> config) {
     args_.set_address(std::move(address));
     args_.set_now(unixtime);
     args_.set_balance(balance);
@@ -67,4 +69,4 @@ public:
     return smc_.send_internal_message(message_body, args.set_amount(amount));
   }
 };
-}
+}  // namespace emulator

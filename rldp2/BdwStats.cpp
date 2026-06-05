@@ -33,11 +33,27 @@ BdwStats::PacketInfo BdwStats::on_packet_send(td::Timestamp first_sent_at) const
 }
 
 void BdwStats::on_packet_ack(const PacketInfo &info, td::Timestamp sent_at, td::Timestamp now) {
-  if (paused_at_.is_in_past(info.delivered_now)) {
+  // Bandwidth estimation: rate = delivered / time_interval
+  // We measure deliveries that happened AFTER this packet was sent.
+  // Time interval is measured on both sender and receiver sides (take max for robustness).
+  //
+  // sent_passed: sender-side interval
+  //   From: first_sent_at (earliest in-flight packet)
+  //   To: sent_at (when this packet was sent)
+  //
+  // ack_passed: receiver-side interval
+  //   From: first delivery AFTER this packet was sent
+  //   To: now (when we receive this ack)
+  //
+  // Problem: info.delivered_now is last delivery BEFORE send, not first AFTER.
+  // Fix: use max(delivered_now, first_sent_at) as approximation for measurement start.
+  auto effective_delivered_at = td::Timestamp::at(td::max(info.delivered_now.at(), info.first_sent_at.at()));
+  if (paused_at_.is_in_past(effective_delivered_at)) {
     paused_at_ = {};
   }
+
   auto sent_passed = sent_at.at() - info.first_sent_at.at();
-  auto ack_passed = now.at() - info.delivered_now.at();
+  auto ack_passed = now.at() - effective_delivered_at.at();
   auto passed = td::max(sent_passed, ack_passed);
   if (passed < 0.01) {
     VLOG(RLDP_INFO) << "Invalid passed " << passed;

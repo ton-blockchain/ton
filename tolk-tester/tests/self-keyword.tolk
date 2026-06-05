@@ -1,3 +1,10 @@
+struct Point { x: int; y: int }
+
+fun increment(mutate i: int) {
+    i += 1;
+    return i;
+}
+
 @noinline
 fun int.incChained(mutate self): self {
     self = self + 1;
@@ -141,7 +148,7 @@ fun testNotMutatingChainableSelf(arg: int) {
 global onceFailed109: int;
 
 fun int.checkNotEqChainableMutateAnother(self, throwIfEq: int, mutate toInc: int): self {
-    if (onceFailed109) { return self; }
+    if (onceFailed109 != 0) { return self; }
     toInc += 1;
     try { return self.checkNotEqChainable(throwIfEq); }
     catch { onceFailed109 = 1; return self; }
@@ -185,7 +192,7 @@ fun tuple.myTuplePush<T>(mutate self, value: T): self {
 }
 
 fun tuple.myTupleAt<T>(self, idx: int): T {
-    return self.get(idx);
+    return self.get(idx) as T;
 }
 
 global tup111: tuple;
@@ -199,7 +206,20 @@ fun testForallFunctionsWithSelf(): (int, int, tuple) {
     return (t.myTupleAt(0), tup111.myTupleAt(tup111.size() - 1), tup111);
 }
 
+global idCalled: tuple;
 
+fun T.id(self): self {
+    idCalled.push(true);
+    return self;
+}
+
+fun int.asmSelfId(self): self
+    asm "NOP"
+
+@method_id(112)
+fun test112() {
+    return (1.asmSelfId(), 2.asmSelfId().asmSelfId());
+}
 
 fun main() { }
 
@@ -223,6 +243,7 @@ fun main() { }
 @testcase | 109 | 102 | 102 2 1 2
 @testcase | 110 | 0   | 24 [ 2 13 ]
 @testcase | 111 |     | 10 3 [ 1 2 3 ]
+@testcase | 112 |     | 1 2
 
 @fif_codegen
 """
@@ -247,6 +268,14 @@ fun main() { }
     int.incChained2() CALLDICT	    //  x
     int.incChained3() CALLDICT	    //  x
     int.incChained4() CALLDICT	    //  x
+  }>
+"""
+
+@fif_codegen
+"""
+  test112() PROC:<{             //
+    1 PUSHINT                   //  '1
+    2 PUSHINT                   //  '1 '4
   }>
 """
 

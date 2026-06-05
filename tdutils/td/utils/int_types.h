@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/port/platform.h"
-
 #include <cstddef>
 #include <cstdint>
+
+#include "td/utils/port/platform.h"
 
 namespace td {
 

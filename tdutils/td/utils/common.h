@@ -54,12 +54,12 @@
 #endif
 // clang-format on
 
+#include <string>
+#include <vector>
+
 #include "td/utils/check.h"
 #include "td/utils/int_types.h"
 #include "td/utils/unique_ptr.h"
-
-#include <string>
-#include <vector>
 
 #define TD_DEBUG
 

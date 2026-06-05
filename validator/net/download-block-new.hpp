@@ -18,11 +18,10 @@
 */
 #pragma once
 
+#include "adnl/adnl-ext-client.h"
 #include "overlay/overlays.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
-#include "rldp/rldp.h"
-#include "adnl/adnl-ext-client.h"
 
 namespace ton {
 
@@ -34,14 +33,16 @@ class DownloadBlockNew : public td::actor::Actor {
  public:
   DownloadBlockNew(BlockIdExt block_id, adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
                    adnl::AdnlNodeIdShort download_from, td::uint32 priority, td::Timestamp timeout,
-                   td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<rldp::Rldp> rldp,
-                   td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
-                   td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise);
+                   td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                   td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
+                   td::Promise<ReceivedBlock> promise);
   DownloadBlockNew(adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id, BlockIdExt prev_id,
                    adnl::AdnlNodeIdShort download_from, td::uint32 priority, td::Timestamp timeout,
-                   td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<rldp::Rldp> rldp,
-                   td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
-                   td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise);
+                   td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
+                   td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
+                   td::Promise<ReceivedBlock> promise);
 
   void abort_query(td::Status reason);
   void alarm() override;
@@ -53,6 +54,8 @@ class DownloadBlockNew : public td::actor::Actor {
   void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_data(td::BufferSlice data);
   void got_data_from_db(td::BufferSlice data);
+  void got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_DataFull> data_full,
+                                td::Ref<ShardState> state = td::Ref<ShardState>());
   void checked_block_proof();
 
  private:
@@ -67,7 +70,7 @@ class DownloadBlockNew : public td::actor::Actor {
 
   td::Timestamp timeout_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
+  td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;

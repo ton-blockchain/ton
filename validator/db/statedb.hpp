@@ -21,7 +21,6 @@
 #include "td/actor/actor.h"
 #include "td/db/KeyValueAsync.h"
 #include "ton/ton-types.h"
-
 #include "validator/interfaces/db.h"
 
 namespace ton {

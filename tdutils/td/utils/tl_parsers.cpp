@@ -16,13 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/tl_parsers.h"
-
 #include "td/utils/misc.h"
+#include "td/utils/tl_parsers.h"
 
 namespace td {
 
-alignas(4) const unsigned char TlParser::empty_data[sizeof(UInt256)] = {};  // static zero-initialized
+alignas(4) const unsigned char TlParser::empty_data[sizeof(UInt512)] = {};  // static zero-initialized
 
 TlParser::TlParser(Slice slice) {
   data_len = left_len = slice.size();

@@ -18,9 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/Slice.h"
-#include "td/utils/HashSet.h"
 #include <set>
+
+#include "td/utils/HashSet.h"
+#include "td/utils/Slice.h"
 
 namespace vm {
 template <class InfoT>

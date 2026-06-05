@@ -14,30 +14,28 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "common/bitstring.h"
-#include "keys/encryptor.h"
-#include "adnl/adnl-ext-client.h"
-
-#include "td/utils/port/signals.h"
-#include "td/utils/Parser.h"
-#include "td/utils/OptionParser.h"
-#include "td/utils/PathView.h"
-#include "td/utils/misc.h"
-#include "td/utils/filesystem.h"
-#include "td/utils/port/path.h"
-
-#include "td/actor/MultiPromise.h"
-#include "terminal/terminal.h"
-
-#include "auto/tl/ton_api_json.h"
-
-#include <iostream>
-#include <cstring>
 #include <cstdio>
+#include <cstring>
+#include <iostream>
 #include <set>
-#include "git.h"
+
+#include "adnl/adnl-ext-client.h"
+#include "auto/tl/ton_api_json.h"
+#include "common/bitstring.h"
 #include "common/refint.h"
 #include "crypto/block/block.h"
+#include "keys/encryptor.h"
+#include "td/actor/MultiPromise.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/Parser.h"
+#include "td/utils/PathView.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
+#include "terminal/terminal.h"
+
+#include "git.h"
 
 namespace ton {
 

@@ -1,5 +1,5 @@
 #!/usr/bin/fift -s
-{ ."usage: " $0 type ." <num1> <num2>" cr 
+{ ."usage: " $0 type ." <num1> <num2>" cr
   ."Computes the product of two integers." cr bye } : usage
 { ' usage if } : ?usage
 $# 2 <> ?usage

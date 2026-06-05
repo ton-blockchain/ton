@@ -16,13 +16,14 @@
 */
 
 #pragma once
-#include "ton/ton-types.h"
-#include "crypto/vm/cellslice.h"
-#include "block/block-parse.h"
-#include "td/actor/actor.h"
-#include "tonlib/tonlib/TonlibClientWrapper.h"
 #include <queue>
+
+#include "block/block-parse.h"
+#include "crypto/vm/cellslice.h"
 #include "keyring/keyring.h"
+#include "td/actor/actor.h"
+#include "ton/ton-types.h"
+#include "tonlib/tonlib/TonlibClientWrapper.h"
 
 namespace ton {
 

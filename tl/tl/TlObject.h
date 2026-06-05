@@ -118,7 +118,7 @@ using tl_object_ptr = std::unique_ptr<Type>;
  * \return Wrapped pointer to the created TL-object.
  */
 template <class Type, class... Args>
-tl_object_ptr<Type> create_tl_object(Args &&... args) {
+tl_object_ptr<Type> create_tl_object(Args &&...args) {
   return tl_object_ptr<Type>(new Type(std::forward<Args>(args)...));
 }
 

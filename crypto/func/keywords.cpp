@@ -29,9 +29,9 @@ int lexem_is_special(std::string str) {
 namespace funC {
 
 /*
- * 
+ *
  *   KEYWORD DEFINITION
- * 
+ *
  */
 
 void define_keywords() {
@@ -130,8 +130,7 @@ void define_keywords() {
       .add_keyword("infixr", Kw::_Infixr)
       .add_keyword("const", Kw::_Const);
 
-  sym::symbols.add_keyword("#pragma", Kw::_PragmaHashtag)
-      .add_keyword("#include", Kw::_IncludeHashtag);
+  sym::symbols.add_keyword("#pragma", Kw::_PragmaHashtag).add_keyword("#include", Kw::_IncludeHashtag);
 }
 
 }  // namespace funC

@@ -1,5 +1,5 @@
 fun main(x: int) {
-    if (x) {
+    if (x != 0) {
         x = 10;;;;;
         return x;;;
         x = 20;

@@ -1,4 +1,7 @@
+import "@stdlib/strings"
+
 const ZERO = 0;
+const ONE = 1;
 
 fun sumABDef0(a: int, b: int = 0) {
     return a + b;
@@ -7,6 +10,10 @@ fun sumABDef0(a: int, b: int = 0) {
 fun sumADef1BDef2(a: int = ((1)), b: int = 2+ZERO) {
     return a + b;
 }
+
+@pure
+fun incDefault(x: int = ONE): int
+    asm "INC";
 
 fun getAOrB<T>(a: T, b: T, getA: bool = false): T {
     return getA ? a : b;
@@ -30,7 +37,7 @@ fun Point.incrementX(mutate self, deltaX: int = 1) {
 }
 
 fun makeCost(cost: coins = ton("0.05")) {
-    return cost + ton("0.05");
+    return cost + ton("0.05") + ton("0.");
 }
 
 fun makeUnion(v: int | slice = 0) {
@@ -48,7 +55,7 @@ fun log105(a: int, options: MyOptions = {}) {
     if (options.negate) {
         a = -a;
     }
-    if (options.mulBy) {
+    if (options.mulBy != 0) {
         a *= options.mulBy;
     }
     t105.push(a);
@@ -140,7 +147,7 @@ fun test7() {
     return (10.plus(5.plus()), int.plus(4));
 }
 
-fun createTFrom<U = int, V = int100>(v: (int, (U, V)) = (1, (2, 3))) {
+fun createTFrom<U = int, V = int100>(v: (int, (U, V)) = (1, (2, 3))): [int, U, V] {
     return [v.0, v.1.0, v.1.1];
 }
 
@@ -179,6 +186,106 @@ fun test11(a: int, b: int) {
     return ((b < a), (b <= a), (b > a), (b >= a));
 }
 
+@noinline
+fun throwIfNotDivisibleBy3(len: int) {
+    if (len % 3 != 0) {
+        throw 123;
+    }
+    return 100;
+}
+
+@method_id(112)
+fun test12() {
+    try { return throwIfNotDivisibleBy3(100); }
+    catch (ex) { return ex; }
+}
+
+@pure
+fun int.increment(mutate self) { self += 1 }
+@pure
+fun int.clone(self): int { return self }
+
+global g113: int
+
+@pure
+fun pure113(mutate p113: int) {
+    var l113 = 0;
+    l113.increment();
+    p113.increment();
+    // g113.increment();        // not allowed in a pure function
+    l113.clone().increment();
+    p113.clone().increment();
+    g113.clone().increment();
+    return l113;
+}
+
+@method_id(113)
+fun test13() {
+    g113 = 0;
+    var p113 = 0;
+    var l113 = pure113(mutate p113);
+    return (l113, p113, g113);
+}
+
+@method_id(114)
+fun test14(p1: bool?, p2: bool?): (bool, int) {
+    var i = 0;
+    return (p1 ?? (i.increment(), p2).1 ?? (i.increment(), 66).1 as unknown as bool, i);
+}
+
+struct S15 {
+    f: string = "abcd"
+}
+
+@inline_ref
+fun helper15(s: string = "abcd") {
+    return s.equalTo(S15{}.f);
+}
+
+@method_id(115)
+fun test15() {
+    return (
+        helper15(),
+        helper15("abcd"),
+        helper15(StringBuilder{}.append("ab").append("").append("cd").build()),
+        helper15("def"),
+        helper15(StringBuilder{}.append("").build()),
+    )
+}
+
+@noinline fun take2voids(a: void, b: void) {
+    return 123
+}
+
+@method_id(116)
+fun test16() {
+    // by convention, if parameter is `void`, it can be omitted — exactly as for `void` fields in a struct
+    __expect_type(getAOrB<void>(), "void");
+    return (take2voids(), getAOrB<void>());
+}
+
+fun myFormat<T1 = void, T2 = void, T3 = void>(arg1: T1, arg2: T2, arg3: T3): (T1, T2, T3) {
+    return (arg1, arg2, arg3)
+}
+
+@method_id(117)
+fun test17() {
+    __expect_type(myFormat(), "(void, void, void)");
+    __expect_type(myFormat(123, "s"), "(int, string, void)");
+    __expect_type(myFormat((123, "s")), "((int, string), void, void)");
+    return (
+        myFormat(123),
+        myFormat(456, 789),
+        myFormat(3, false, (4, 3)),
+        myFormat(90).0 + 10,
+    )
+}
+
+@method_id(118)
+fun test18() {
+    return (incDefault(), incDefault(10));
+}
+
 fun main() {
     // mark used to codegen them
     cmp1; cmp2; cmp3; cmp4;
@@ -198,6 +305,16 @@ fun main() {
 @testcase | 110 | 5 8     | 3
 @testcase | 111 | 5 8     | 0 0 -1 -1
 @testcase | 111 | 7 7     | 0 -1 0 -1
+@testcase | 112 |         | 123
+@testcase | 113 |         | 1 1 0
+@testcase | 114 | 0 0       | 0 0
+@testcase | 114 | -1 0      | -1 0
+@testcase | 114 | null -1   | -1 1
+@testcase | 114 | null null | 66 2
+@testcase | 115 |           | -1 -1 -1 0 0
+@testcase | 116 |           | 123
+@testcase | 117 |           | 123 456 789 3 0 4 3 100
+@testcase | 118 |           | 2 11
 
 @fif_codegen
 """

@@ -16,15 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
+#include <vector>
+
 #include "adnl/adnl-node-id.hpp"
 #include "adnl/adnl-node.h"
 #include "auto/tl/ton_api.h"
-#include "overlay.hpp"
 #include "td/utils/Status.h"
 #include "td/utils/Time.h"
 #include "td/utils/port/signals.h"
-#include <algorithm>
-#include <vector>
+
+#include "overlay.hpp"
 
 namespace ton {
 
@@ -101,7 +103,7 @@ void OverlayImpl::del_some_peers() {
 }
 
 td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &node,
-                                                  const OverlayMemberCertificate &cert) {
+                                                  const OverlayMemberCertificate &cert, bool received_from_node) {
   if (cert.empty()) {
     if (is_persistent_node(node) || overlay_type_ == OverlayType::Public) {
       return td::Status::OK();
@@ -115,7 +117,8 @@ td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &n
     return td::Status::Error(ErrorCode::timeout, "member certificate has invalid slot");
   }
   const auto &issued_by = cert.issued_by();
-  auto it = peer_list_.root_public_keys_.find(issued_by.compute_short_id());
+  auto issued_by_short = issued_by.compute_short_id();
+  auto it = peer_list_.root_public_keys_.find(issued_by_short);
   if (it == peer_list_.root_public_keys_.end()) {
     return td::Status::Error(ErrorCode::protoviolation, "member certificate is signed by unknown public key");
   }
@@ -124,23 +127,29 @@ td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &n
     if (cert.expire_at() < el.expire_at) {
       return td::Status::Error(ErrorCode::protoviolation,
                                "member certificate rejected, because we know of newer certificate at the same slot");
-    } else if (cert.expire_at() == el.expire_at) {
+    }
+    if (cert.expire_at() == el.expire_at) {
       if (node < el.node) {
         return td::Status::Error(ErrorCode::protoviolation,
                                  "member certificate rejected, because we know of newer certificate at the same slot");
-      } else if (el.node == node) {
-        // we could return OK here, but we must make sure, that the unchecked signature will not be used for updating PeerNode.
       }
     }
   }
-  auto R = get_encryptor(issued_by);
-  if (R.is_error()) {
-    return R.move_as_error_prefix("failed to check member certificate: failed to create encryptor: ");
-  }
-  auto enc = R.move_as_ok();
-  auto S = enc->check_signature(cert.to_sign_data(node).as_slice(), cert.signature());
-  if (S.is_error()) {
-    return S.move_as_error_prefix("failed to check member certificate: bad signature: ");
+
+  auto &limiter = authorized_key_limiters_[issued_by_short];
+  std::pair cache_key{node, get_tl_object_sha_bits256(cert.tl())};
+  bool cached = limiter.checked_member_certificates_lru_.contains(cache_key);
+  if (!cached) {
+    td::Timestamp now = td::Timestamp::now();
+    if (!limiter.certificate_check_rate_limiter_.check(now)) {
+      return td::Status::Error("member certificate rejected: rate limit exceeded");
+    }
+    TD_PERF_COUNTER(check_signature_overlay_member_certificate);
+    TRY_STATUS_PREFIX(check_signature_from_peer(issued_by, cert.to_sign_data(node), cert.signature(),
+                                                received_from_node ? node : adnl::AdnlNodeIdShort::zero()),
+                      "failed to check member certificate: bad signature: ");
+    limiter.certificate_check_rate_limiter_.insert(now);
+    limiter.checked_member_certificates_lru_.put(cache_key, td::Unit{});
   }
   if (it->second.size() <= (size_t)cert.slot()) {
     it->second.resize((size_t)cert.slot() + 1);
@@ -167,7 +176,12 @@ td::Status OverlayImpl::validate_peer_certificate(const adnl::AdnlNodeIdShort &n
   return validate_peer_certificate(node, *cert);
 }
 
-void OverlayImpl::add_peer(OverlayNode node) {
+void OverlayImpl::add_peer(OverlayNode node, bool verified, bool checked_signature) {
+  td::Timestamp now = td::Timestamp::now();
+  if (!verified && !receive_peers_rate_limiter_.check(now)) {
+    VLOG(OVERLAY_DEBUG) << this << ": dropping new peer: rate limit exceeded";
+    return;
+  }
   CHECK(overlay_type_ != OverlayType::FixedMemberList);
   if (node.overlay_id() != overlay_id_) {
     VLOG(OVERLAY_WARNING) << this << ": received node with bad overlay";
@@ -185,10 +199,15 @@ void OverlayImpl::add_peer(OverlayNode node) {
     return;
   }
 
-  auto S = node.check_signature();
-  if (S.is_error()) {
-    VLOG(OVERLAY_WARNING) << this << ": bad signature: " << S;
-    return;
+  if (!verified) {
+    receive_peers_rate_limiter_.insert(now);
+  }
+  if (!checked_signature) {
+    auto S = node.check_signature();
+    if (S.is_error()) {
+      VLOG(OVERLAY_WARNING) << this << ": bad signature: " << S;
+      return;
+    }
   }
 
   if (overlay_type_ == OverlayType::CertificatedMembers) {
@@ -206,10 +225,11 @@ void OverlayImpl::add_peer(OverlayNode node) {
   if (V) {
     VLOG(OVERLAY_DEBUG) << this << ": updating peer " << id << " up to version " << node.version();
     V->update(std::move(node));
-  } else {
+  } else if (verified) {
     VLOG(OVERLAY_DEBUG) << this << ": adding peer " << id << " of version " << node.version();
     CHECK(overlay_type_ != OverlayType::CertificatedMembers || (node.certificate() && !node.certificate()->empty()));
     peer_list_.peers_.insert(id, OverlayPeer(std::move(node)));
+    peer_list_.pending_peers_.remove(id);
     del_some_peers();
     auto X = peer_list_.peers_.get(id);
     if (X != nullptr && !X->is_neighbour() && peer_list_.neighbours_.size() < max_neighbours() &&
@@ -219,29 +239,79 @@ void OverlayImpl::add_peer(OverlayNode node) {
     }
 
     update_neighbours(0);
+  } else if (!processing_pending_peers_.contains(id)) {
+    VLOG(OVERLAY_DEBUG) << this << ": adding pending peer " << id << " of version " << node.version();
+    auto pending = peer_list_.pending_peers_.get(id);
+    if (pending) {
+      pending->update(std::move(node));
+    } else {
+      peer_list_.pending_peers_.insert(id, std::move(node));
+    }
+    while (peer_list_.pending_peers_.size() > opts_.max_pending_peers_) {
+      auto to_remove = peer_list_.pending_peers_.get_random();
+      CHECK(to_remove);
+      peer_list_.pending_peers_.remove(to_remove->adnl_id_short());
+    }
+    process_pending_peers();
   }
 }
 
-void OverlayImpl::add_peers(std::vector<OverlayNode> peers) {
+void OverlayImpl::process_pending_peers() {
+  while (peer_list_.pending_peers_.size() > 0 && process_pending_peers_rate_limiter_.check(td::Timestamp::now())) {
+    OverlayNode node = std::move(*peer_list_.pending_peers_.get_random());
+    peer_list_.pending_peers_.remove(node.adnl_id_short());
+    if (node.version() + Overlays::overlay_peer_ttl() < td::Clocks::system()) {
+      VLOG(OVERLAY_INFO) << this << ": dropping pending node " << node.adnl_id_short() << " of too old version "
+                         << node.version();
+      continue;
+    }
+    process_pending_peers_rate_limiter_.insert(td::Timestamp::now());
+    processing_pending_peers_.insert(node.adnl_id_short());
+    process_pending_peer(std::move(node)).start().detach_silent();
+  }
+}
+
+td::actor::Task<> OverlayImpl::process_pending_peer(OverlayNode node) {
+  VLOG(OVERLAY_INFO) << this << ": trying to ping pending peer " << node.adnl_id_short();
+  for (size_t attempt = 0; attempt < 3; ++attempt) {
+    auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+    td::actor::send_closure(manager_, &OverlayManager::send_query, node.adnl_id_short(), local_id_, overlay_id_,
+                            "overlay ping", std::move(promise), td::Timestamp::in(5.0),
+                            create_serialize_tl_object<ton_api::overlay_ping>());
+    auto result = co_await std::move(task).wrap();
+    if (result.is_ok() || peer_list_.peers_.exists(node.adnl_id_short())) {
+      VLOG(OVERLAY_INFO) << this << ": adding pending peer " << node.adnl_id_short();
+      processing_pending_peers_.erase(node.adnl_id_short());
+      add_peer(std::move(node), /* verified = */ true, /* checked_signature = */ true);
+      co_return {};
+    }
+  }
+  VLOG(OVERLAY_INFO) << this << ": dropping pending node " << node.adnl_id_short() << " - does not respond";
+  processing_pending_peers_.erase(node.adnl_id_short());
+  co_return {};
+}
+
+void OverlayImpl::add_peers(std::vector<OverlayNode> peers, bool verified, bool checked_signature) {
   for (auto &node : peers) {
-    add_peer(std::move(node));
+    add_peer(std::move(node), verified, checked_signature);
   }
 }
 
-void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodes> &nodes) {
+void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodes> &nodes, bool verified, bool checked_signature) {
   for (auto &n : nodes->nodes_) {
     auto N = OverlayNode::create(n);
     if (N.is_ok()) {
-      add_peer(N.move_as_ok());
+      add_peer(N.move_as_ok(), verified, checked_signature);
     }
   }
 }
 
-void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodesV2> &nodes) {
+void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodesV2> &nodes, bool verified,
+                            bool checked_signature) {
   for (auto &n : nodes->nodes_) {
     auto N = OverlayNode::create(n);
     if (N.is_ok()) {
-      add_peer(N.move_as_ok());
+      add_peer(N.move_as_ok(), verified, checked_signature);
     }
   }
 }
@@ -260,6 +330,10 @@ void OverlayImpl::on_ping_result(adnl::AdnlNodeIdShort peer, bool success, doubl
       peer_list_.bad_peers_.erase(peer);
     } else {
       peer_list_.bad_peers_.insert(peer);
+      if (p->is_neighbour()) {
+        del_from_neighbour_list(p);
+        update_neighbours(0);
+      }
     }
   }
 }
@@ -278,7 +352,7 @@ void OverlayImpl::receive_random_peers(adnl::AdnlNodeIdShort src, td::Result<td:
     return;
   }
 
-  add_peers(R2.move_as_ok());
+  add_peers(R2.move_as_ok(), /* verified = */ false);
 }
 
 void OverlayImpl::receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<td::BufferSlice> R, double elapsed) {
@@ -295,7 +369,7 @@ void OverlayImpl::receive_random_peers_v2(adnl::AdnlNodeIdShort src, td::Result<
     return;
   }
 
-  add_peers(R2.move_as_ok());
+  add_peers(R2.move_as_ok(), /* verified = */ false);
 }
 
 void OverlayImpl::send_random_peers_cont(adnl::AdnlNodeIdShort src, OverlayNode node,
@@ -350,8 +424,9 @@ void OverlayImpl::send_random_peers_v2_cont(adnl::AdnlNodeIdShort src, OverlayNo
                                             td::Promise<td::BufferSlice> promise) {
   std::vector<tl_object_ptr<ton_api::overlay_nodeV2>> vec;
   if (announce_self_) {
-    CHECK(is_persistent_node(node.adnl_id_short()) || !node.certificate()->empty());
-    vec.emplace_back(node.tl_v2());
+    if (overlay_type_ == OverlayType::Public || is_persistent_node(local_id_) || !node.certificate()->empty()) {
+      vec.emplace_back(node.tl_v2());
+    }
   }
 
   td::uint32 max_iterations = nodes_to_send() + 16;
@@ -398,8 +473,8 @@ void OverlayImpl::send_random_peers_v2(adnl::AdnlNodeIdShort src, td::Promise<td
 void OverlayImpl::ping_random_peers() {
   auto peers = get_neighbours(5);
   for (const adnl::AdnlNodeIdShort &peer : peers) {
-    auto P =
-        td::PromiseCreator::lambda([SelfId = actor_id(this), peer, timer = td::Timer(), oid = print_id()](td::Result<td::BufferSlice> R) {
+    auto P = td::PromiseCreator::lambda(
+        [SelfId = actor_id(this), peer, timer = td::Timer(), oid = print_id()](td::Result<td::BufferSlice> R) {
           if (R.is_error()) {
             VLOG(OVERLAY_INFO) << oid << " ping to " << peer << " failed : " << R.move_as_error();
             return;
@@ -415,7 +490,7 @@ void OverlayImpl::receive_pong(adnl::AdnlNodeIdShort peer, double elapsed) {
   on_ping_result(peer, true, elapsed);
 }
 
-void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
+void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delete) {
   if (peer_list_.peers_.size() == 0) {
     return;
   }
@@ -430,8 +505,8 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       continue;
     }
 
-    if (overlay_type_ != OverlayType::FixedMemberList && X->get_version() <= td::Clocks::system() -
-        Overlays::overlay_peer_ttl()) {
+    if (allow_delete && overlay_type_ != OverlayType::FixedMemberList &&
+        X->get_version() <= td::Clocks::system() - Overlays::overlay_peer_ttl()) {
       if (X->is_permanent_member()) {
         del_from_neighbour_list(X);
       } else {
@@ -441,7 +516,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       continue;
     }
 
-    if (overlay_type_ == OverlayType::CertificatedMembers && !X->is_permanent_member() &&
+    if (allow_delete && overlay_type_ == OverlayType::CertificatedMembers && !X->is_permanent_member() &&
         X->certificate()->is_expired()) {
       auto id = X->get_id();
       del_peer(id);
@@ -455,7 +530,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       continue;
     }
 
-    if (X->is_neighbour()) {
+    if (X->is_neighbour() || !X->is_alive()) {
       continue;
     }
 
@@ -463,7 +538,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change) {
       VLOG(OVERLAY_INFO) << this << ": adding new neighbour " << X->get_id();
       peer_list_.neighbours_.push_back(X->get_id());
       X->set_neighbour(true);
-    } else if (X->is_alive()) {
+    } else {
       CHECK(nodes_to_change > 0);
       auto i = td::Random::fast(0, static_cast<td::uint32>(peer_list_.neighbours_.size()) - 1);
       auto Y = peer_list_.peers_.get(peer_list_.neighbours_[i]);
@@ -500,7 +575,7 @@ OverlayPeer *OverlayImpl::get_random_peer(bool only_alive) {
     }
     res = P;
   }
-  update_neighbours(0);
+  update_neighbours(0, false);
   return res;
 }
 
@@ -532,13 +607,13 @@ void OverlayImpl::get_overlay_random_peers(td::uint32 max_peers,
 
 void OverlayImpl::receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> tl_nodes) {
   if (overlay_type_ != OverlayType::FixedMemberList) {
-    add_peers(tl_nodes);
+    add_peers(tl_nodes, /* verified = */ false);
   }
 }
 
 void OverlayImpl::receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> tl_nodes) {
   if (overlay_type_ != OverlayType::FixedMemberList) {
-    add_peers(tl_nodes);
+    add_peers(tl_nodes, /* verified = */ false);
   }
 }
 
@@ -550,8 +625,12 @@ bool OverlayImpl::is_persistent_node(const adnl::AdnlNodeIdShort &id) {
   return P->is_permanent_member();
 }
 
-bool OverlayImpl::is_valid_peer(const adnl::AdnlNodeIdShort &src,
-                                const ton_api::overlay_MemberCertificate *certificate) {
+size_t OverlayImpl::persistent_node_count() {
+  return peer_list_.persistent_node_count_;
+}
+
+bool OverlayImpl::check_src_peer(const adnl::AdnlNodeIdShort &src,
+                                 const ton_api::overlay_MemberCertificate *certificate) {
   if (overlay_type_ == OverlayType::Public) {
     on_ping_result(src, true);
     return true;
@@ -569,7 +648,7 @@ bool OverlayImpl::is_valid_peer(const adnl::AdnlNodeIdShort &src,
       }
     }
 
-    auto S = validate_peer_certificate(src, cert);
+    auto S = validate_peer_certificate(src, cert, true);
     if (S.is_error()) {
       VLOG(OVERLAY_WARNING) << "adnl=" << src << ": certificate is invalid: " << S;
       return false;
@@ -680,8 +759,8 @@ size_t OverlayImpl::neighbours_cnt() const {
 
 void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids,
                                           std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert) {
-  auto expected_size =
-      (td::uint32)(ids.size() + root_public_keys.size() * opts_.max_slaves_in_semiprivate_overlay_);
+  protected_peers_guard_ = adnl::Adnl::ProtectedPeersGuard{adnl_, local_id_, ids};
+  auto expected_size = (td::uint32)(ids.size() + root_public_keys.size() * opts_.max_slaves_in_semiprivate_overlay_);
   opts_.max_peers_ = std::max(opts_.max_peers_, expected_size);
   std::sort(ids.begin(), ids.end());
   auto old_root_public_keys = std::move(peer_list_.root_public_keys_);
@@ -717,9 +796,11 @@ void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids
       peer_list_.peers_.insert(std::move(id), std::move(peer));
     }
   }
+  peer_list_.persistent_node_count_ = ids.size();
 
   update_member_certificate(std::move(cert));
   update_neighbours(0);
+  cleanup_authorized_key_limiters();
 }
 
 void OverlayImpl::update_member_certificate(OverlayMemberCertificate cert) {

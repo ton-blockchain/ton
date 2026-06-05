@@ -33,14 +33,14 @@ $2 parse-int dup =: prop-hash
   256 ufits not abort"invalid proposal hash"
 $3 savefile replace-if-null =: savefile
 
-."Creating a request " internal? { ."with seqno " seqno . ."expiring at " expire-at . } ifnot 
+."Creating a request " internal? { ."with seqno " seqno . ."expiring at " expire-at . } ifnot
 ."to vote for configuration proposal 0x" prop-hash 64x.
 ."on behalf of validator with index " val-idx . cr
 
 internal? { B{566f7445} } {
   B{566f7465} seqno 32 u>B B+ expire-at 32 u>B B+
 } cond
-val-idx 16 u>B B+ prop-hash 256 u>B B+ 
+val-idx 16 u>B B+ prop-hash 256 u>B B+
 dup Bx. cr
 dup B>base64url type cr
 savefile tuck B>file ."Saved to file " type cr

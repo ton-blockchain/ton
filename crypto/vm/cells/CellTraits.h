@@ -17,8 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/utils/int_types.h"
 #include "common/refcnt.hpp"
+#include "td/utils/int_types.h"
 
 namespace td {
 class StringBuilder;

@@ -129,8 +129,8 @@ class PrunnedCell final : public Cell {
 
   explicit PrunnedCell(Info info, ExtraT&& extra) : info_(info), extra_(std::move(extra)) {
   }
-  td::uint32 get_virtualization() const override {
-    return 0;
+  virtual bool is_virtualized() const override {
+    return false;
   }
   CellUsageTree::NodePtr get_tree_node() const override {
     return {};
@@ -148,7 +148,7 @@ class PrunnedCell final : public Cell {
     return info_.get_depth(trailer_)[get_level_mask().apply(level).get_hash_i()];
   }
 
-  td::Status set_data_cell(Ref<DataCell> &&data_cell) const override {
+  td::Status set_data_cell(Ref<DataCell>&& data_cell) const override {
     return td::Status::OK();
   }
 

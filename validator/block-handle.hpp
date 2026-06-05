@@ -19,12 +19,11 @@
 #pragma once
 
 #include "interfaces/block-handle.h"
-#include "ton/ton-shard.h"
-#include "td/actor/actor.h"
 #include "interfaces/validator-manager.h"
-#include "ton/ton-io.hpp"
-
+#include "td/actor/actor.h"
 #include "td/utils/ThreadSafeCounter.h"
+#include "ton/ton-io.hpp"
+#include "ton/ton-shard.h"
 
 namespace ton {
 
@@ -270,6 +269,12 @@ struct BlockHandleImpl : public BlockHandleInterface {
   }
   void flush(td::actor::ActorId<ValidatorManagerInterface> manager, BlockHandle self,
              td::Promise<td::Unit> promise) override;
+  td::actor::Task<> flush(td::actor::ActorId<ValidatorManagerInterface> manager,
+                          std::shared_ptr<BlockHandleInterface> self) override {
+    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+    flush(std::move(manager), std::move(self), std::move(promise));
+    co_return co_await std::move(task);
+  }
   void flushed_upto(td::uint32 version) override {
     if (version > written_version_.load(std::memory_order_consume)) {
       written_version_.store(version, std::memory_order_release);

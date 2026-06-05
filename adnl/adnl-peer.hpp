@@ -18,20 +18,19 @@
 */
 #pragma once
 
-#include <vector>
 #include <map>
 #include <queue>
-
-#include "adnl-peer.h"
-#include "adnl-peer-table.h"
-#include "adnl-network-manager.h"
-#include "keys/encryptor.h"
-#include "adnl-channel.h"
-#include "adnl-query.h"
+#include <vector>
 
 #include "crypto/Ed25519.h"
+#include "keys/encryptor.h"
 #include "td/utils/DecTree.h"
 
+#include "adnl-channel.h"
+#include "adnl-network-manager.h"
+#include "adnl-peer-table.h"
+#include "adnl-peer.h"
+#include "adnl-query.h"
 #include "utils.hpp"
 
 namespace ton {
@@ -60,9 +59,9 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   AdnlPeerPairImpl(td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<AdnlPeerTable> peer_table,
                    td::uint32 local_mode, td::actor::ActorId<AdnlLocalId> local_actor,
-                   td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id,
-                   AdnlNodeIdShort peer_id);
+                   td::actor::ActorId<dht::Dht> dht_node, AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id);
   void start_up() override;
+  void tear_down() override;
   void alarm() override;
 
   void discover();
@@ -80,7 +79,7 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
 
   void alarm_query(AdnlQueryId id) override;
 
-  void discover_query_result(td::Result<dht::DhtValue> B, bool dummy);
+  void get_peer_node(td::Promise<AdnlNode> promise) override;
 
   void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) override {
     dht_node_ = dht_node;
@@ -95,8 +94,6 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   void got_data_from_db(td::Result<AdnlDbItem> R);
   void got_data_from_static_nodes(td::Result<AdnlNode> R);
   void got_data_from_dht(td::Result<AdnlNode> R);
-
-  //void conn_ready(AdnlConnectionIdShort id, td::Result<td::actor::ActorOwn<AdnlNetworkConnection>> R);
 
   void process_message(const adnlmessage::AdnlMessageCreateChannel &message);
   void process_message(const adnlmessage::AdnlMessageConfirmChannel &message);
@@ -198,13 +195,14 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   };
 
   // Messages waiting for connection or for nochannel rate limiter
-  std::queue<std::pair<OutboundAdnlMessage, td::Timestamp>> out_messages_queue_;
+  std::deque<std::pair<OutboundAdnlMessage, td::Timestamp>> out_messages_queue_;
   td::uint64 out_messages_queue_total_size_ = 0;
   RateLimiter nochannel_rate_limiter_ = RateLimiter(50, 0.5);  // max 50, period = 0.5s
   td::Timestamp retry_send_at_ = td::Timestamp::never();
-  bool disable_dht_query_ = false;
+  bool disable_dht_query_ = true;
   bool skip_init_packet_ = false;
   double message_in_queue_ttl_ = 10.0;
+  std::queue<std::pair<td::Promise<AdnlNode>, td::Timestamp>> peer_node_waiters_;
 
   td::actor::ActorId<AdnlNetworkManager> network_manager_;
   td::actor::ActorId<AdnlPeerTable> peer_table_;
@@ -260,12 +258,15 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   bool received_from_static_nodes_ = false;
   bool dht_query_active_ = false;
 
-  td::Timestamp next_dht_query_at_ = td::Timestamp::never();
+  td::Timestamp next_dht_query_at_ = td::Timestamp::now();
   td::Timestamp next_db_update_at_ = td::Timestamp::never();
 
   td::Timestamp last_received_packet_ = td::Timestamp::never();
   td::Timestamp try_reinit_at_ = td::Timestamp::never();
   td::Timestamp drop_addr_list_at_ = td::Timestamp::never();
+
+  td::Timestamp mark_idle_at_ = td::Timestamp::never();
+  bool idle_mark_ = false;
 
   bool has_reverse_addr_ = false;
   td::Timestamp request_reverse_ping_after_ = td::Timestamp::now();
@@ -284,6 +285,11 @@ class AdnlPeerPairImpl : public AdnlPeerPair {
   void add_packet_stats(td::uint64 bytes, bool in, bool channel);
   void add_expired_msg_stats(td::uint64 bytes);
   void prepare_packet_stats();
+  void set_idle_mark(bool value);
+
+  static constexpr double IDLE_REINIT_TIMEOUT = 120.0;
+  static constexpr double MARK_IDLE_TIMEOUT = 130.0;
+  static constexpr td::uint64 MAX_MESSAGE_QUEUE_TOTAL_SIZE = 10 << 20;
 };
 
 }  // namespace adnl

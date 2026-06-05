@@ -16,6 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <set>
+
+#include "td/utils/Slice.h"
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
@@ -25,10 +28,7 @@
 #include "td/utils/port/signals.h"
 #include "td/utils/port/thread.h"
 #include "td/utils/port/thread_local.h"
-#include "td/utils/Slice.h"
 #include "td/utils/tests.h"
-
-#include <set>
 
 using namespace td;
 
@@ -54,7 +54,7 @@ TEST(Port, files) {
   const int ITER_COUNT = 1000;
   for (int i = 0; i < ITER_COUNT; i++) {
     walk_path(main_dir, [&](CSlice name, WalkPath::Type type) {
-      if (type == WalkPath::Type::NotDir) {
+      if (type == WalkPath::Type::RegularFile) {
         ASSERT_TRUE(name == fd_path || name == fd2_path);
       }
       cnt++;
@@ -147,12 +147,11 @@ TEST(Port, Writev) {
 }
 
 #if TD_PORT_POSIX && !TD_THREAD_UNSUPPORTED
+#include <algorithm>
+#include <mutex>
 #include <signal.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-
-#include <algorithm>
-#include <mutex>
 
 static std::mutex m;
 static std::vector<std::string> ptrs;

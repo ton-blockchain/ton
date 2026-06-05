@@ -3,8 +3,8 @@
 //
 
 serialized_boc_idx#68ff65f3 size:(## 8) { size <= 4 }
-  off_bytes:(## 8) { off_bytes <= 8 } 
-  cells:(##(size * 8)) 
+  off_bytes:(## 8) { off_bytes <= 8 }
+  cells:(##(size * 8))
   roots:(##(size * 8)) { roots = 1 }
   absent:(##(size * 8)) { roots + absent <= cells }
   tot_cells_size:(##(off_bytes * 8))
@@ -13,8 +13,8 @@ serialized_boc_idx#68ff65f3 size:(## 8) { size <= 4 }
   = BagOfCells;
 
 serialized_boc_idx_crc32c#acc3a728 size:(## 8) { size <= 4 }
-  off_bytes:(## 8) { off_bytes <= 8 } 
-  cells:(##(size * 8)) 
+  off_bytes:(## 8) { off_bytes <= 8 }
+  cells:(##(size * 8))
   roots:(##(size * 8)) { roots = 1 }
   absent:(##(size * 8)) { roots + absent <= cells }
   tot_cells_size:(##(off_bytes * 8))
@@ -22,11 +22,11 @@ serialized_boc_idx_crc32c#acc3a728 size:(## 8) { size <= 4 }
   cell_data:(tot_cells_size * [ uint8 ])
   crc32c:uint32 = BagOfCells;
 
-serialized_boc#b5ee9c72 has_idx:(## 1) has_crc32c:(## 1) 
+serialized_boc#b5ee9c72 has_idx:(## 1) has_crc32c:(## 1)
   has_cache_bits:(## 1) flags:(## 2) { flags = 0 }
   size:(## 3) { size <= 4 }
-  off_bytes:(## 8) { off_bytes <= 8 } 
-  cells:(##(size * 8)) 
+  off_bytes:(## 8) { off_bytes <= 8 }
+  cells:(##(size * 8))
   roots:(##(size * 8)) { roots >= 1 }
   absent:(##(size * 8)) { roots + absent <= cells }
   tot_cells_size:(##(off_bytes * 8))
@@ -43,4 +43,4 @@ compiled_smart_contract
        compiler_version:(Maybe ^TinyString) ]
   = CompiledSmartContract;
 
-tiny_string#_ len:(#<= 126) str:(len * [ uint8 ]) = TinyString; 
+tiny_string#_ len:(#<= 126) str:(len * [ uint8 ]) = TinyString;

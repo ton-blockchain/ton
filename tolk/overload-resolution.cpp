@@ -81,9 +81,9 @@ static ShapeScore calculate_shape_score(TypePtr t) {
     return {ShapeKind::Tensor, 1 + d};
   }
 
-  if (const auto* t_brackets = t->try_as<TypeDataBrackets>()) {
+  if (const auto* t_shaped = t->try_as<TypeDataShapedTuple>()) {
     int d = 0;
-    for (TypePtr item : t_brackets->items) {
+    for (TypePtr item : t_shaped->items) {
       d = std::max(d, calculate_shape_score(item).depth);
     }
     return {ShapeKind::Tensor, 1 + d};
@@ -102,8 +102,30 @@ static ShapeScore calculate_shape_score(TypePtr t) {
     return {ShapeKind::Instantiated, 1 + d};
   }
 
+  if (const auto* t_array = t->try_as<TypeDataArray>()) {
+    int d = calculate_shape_score(t_array->innerT).depth;
+    return {ShapeKind::Instantiated, 1 + d};
+  }
+
   if (const auto* t_alias = t->try_as<TypeDataAlias>()) {
+    if (t_alias->alias_ref->is_instantiation_of_generic_alias()) {
+      int d = 0;
+      for (int i = 0; i < t_alias->alias_ref->substitutedTs->size(); ++i) {
+        d = std::max(d, calculate_shape_score(t_alias->alias_ref->substitutedTs->typeT_at(i)).depth);
+      }
+      return {ShapeKind::Instantiated, 1 + d};
+    }
     return calculate_shape_score(t_alias->underlying_type);
+  }
+
+  if (const auto* t_struct = t->try_as<TypeDataStruct>()) {
+    if (t_struct->struct_ref->is_instantiation_of_generic_struct()) {
+      int d = 0;
+      for (int i = 0; i < t_struct->struct_ref->substitutedTs->size(); ++i) {
+        d = std::max(d, calculate_shape_score(t_struct->struct_ref->substitutedTs->typeT_at(i)).depth);
+      }
+      return {ShapeKind::Instantiated, 1 + d};
+    }
   }
 
   return {ShapeKind::Primitive, 1};
@@ -128,24 +150,51 @@ static bool is_more_specific_generic(TypePtr typeA, TypePtr typeB, const Generic
      && !can_substitute_Ts_to_reach_actual(typeA, typeB, genericTsA);
 }
 
+// Find a receiver pattern that dominates all other applicable overloads:
+// - `map<K, slice>` beats both `map<K, V>` and `map<K, V | slice>`
+// - `Container<int>` beats `Container<T>`
+// But `map<int, V>` and `map<K, slice>` are incomparable, so no dominator exists.
+static const MethodCallCandidate* find_the_only_generic_dominator(const std::vector<MethodCallCandidate>& candidates) {
+  const MethodCallCandidate* dominator = nullptr;
+  for (const MethodCallCandidate& candidate : candidates) {
+    bool dominates_all = true;
+    for (const MethodCallCandidate& other : candidates) {
+      if (candidate.method_ref != other.method_ref) {
+        dominates_all &= is_more_specific_generic(candidate.original_receiver, other.original_receiver, candidate.method_ref->genericTs, other.method_ref->genericTs);
+      }
+    }
+    if (dominates_all) {
+      if (dominator) {
+        return nullptr;
+      }
+      dominator = &candidate;
+    }
+  }
+  return dominator;
+}
+
 // the main "overload resolution" entrypoint: given `obj.method()`, find best applicable methods;
 // if there are many (no one is better than others), a caller side will emit "ambiguous call"
-std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_receiver, std::string_view called_name) {
+std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_receiver, std::string_view called_name, bool skip_instantiations) {
   // find all methods theoretically applicable; we'll filter them by priority;
   // for instance, if there is `T.method`, it will be instantiated with T=provided_receiver
   std::vector<MethodCallCandidate> viable;
   for (FunctionPtr method_ref : G.all_methods) {
     if (method_ref->method_name == called_name) {
+      if (skip_instantiations && method_ref->is_instantiation_of_generic_function()) {
+        continue;
+      }
+
       TypePtr receiver = method_ref->receiver_type;
       if (receiver->has_genericT_inside()) {
         try {   // check whether exist some T to make it a valid call (probably with type coercion)
           GenericSubstitutionsDeducing deducingTs(method_ref);
           TypePtr replaced = deducingTs.auto_deduce_from_argument(receiver, provided_receiver);
-          if (replaced->can_rhs_be_assigned(provided_receiver)) {
+          if (replaced->can_rhs_be_assigned(provided_receiver) && !replaced->has_genericT_inside()) {
             viable.emplace_back(receiver, replaced, method_ref, deducingTs.flush());
           }
         } catch (...) {}
-      } else if (receiver->can_rhs_be_assigned(provided_receiver)) {
+      } else if (receiver->can_rhs_be_assigned(provided_receiver) && provided_receiver != TypeDataNever::create()) {
         viable.emplace_back(receiver, receiver, method_ref, GenericsSubstitutions(method_ref->genericTs));
       }
     }
@@ -160,10 +209,12 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
   // 1) exact match candidates with equal_to()
   //    (for instance, an alias equals to its underlying type, as well as `T1|T2` equals to `T2|T1`)
   std::vector<MethodCallCandidate> exact;
+  size_t n_generics = 0;
   for (const MethodCallCandidate& candidate : viable) {
     if (candidate.instantiated_receiver->equal_to(provided_receiver)) {
       exact.push_back(candidate);
     }
+    n_generics += candidate.is_generic();
   }
   if (exact.size() == 1) {
     return exact;
@@ -171,21 +222,18 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
   if (!exact.empty()) {
     viable = std::move(exact);
   }
-
-  // 2) if there are both generic and non-generic functions, filter out generic
-  size_t n_generics = 0;
-  for (const MethodCallCandidate& candidate : viable) {
-    n_generics += candidate.is_generic();
+  if (n_generics == 0) {
+    // with only non-generic candidates, do not use shape as a tie-breaker:
+    // if none was an exact single match above, the call is ambiguous
+    return viable;
   }
-  if (n_generics < viable.size()) {
-    std::vector<MethodCallCandidate> non_generic;
-    for (const MethodCallCandidate& candidate : viable) {
-      if (!candidate.is_generic()) {
-        non_generic.push_back(candidate);
-      }
-    }
-    // all the code below is dedicated to choosing between generic Ts, so return if non-generic
-    return non_generic;
+
+  // 2) find the overload that dominates all others
+  //    (prefer `Container<int>` over `Container<T>` and `map<K, slice>` over `map<K, V>`)
+  //    Check this before shape scoring, since shape is only a structural fallback:
+  //    for example, `map<K, V | slice>` is deeper, but `map<K, slice>` is more specific.
+  if (const MethodCallCandidate* dominator = find_the_only_generic_dominator(viable)) {
+    return {*dominator};
   }
 
   // 3) better shape in terms of structural depth
@@ -211,23 +259,23 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
     viable = std::move(best_by_shape);
   }
 
-  // 4) find the overload that dominates all others
-  //    (prefer `Container<int>` over `Container<T>` and `map<K, slice>` over `map<K, V>`)
-  const MethodCallCandidate* dominator = nullptr;
+  // 4) if there are both generic and non-generic functions of the same shape, filter out generic
+  n_generics = 0;
   for (const MethodCallCandidate& candidate : viable) {
-    bool dominates_all = true;
-    for (const MethodCallCandidate& other : viable) {
-      if (candidate.method_ref != other.method_ref) {
-        dominates_all &= is_more_specific_generic(candidate.original_receiver, other.original_receiver, candidate.method_ref->genericTs, other.method_ref->genericTs);
+    n_generics += candidate.is_generic();
+  }
+  if (n_generics < viable.size()) {
+    std::vector<MethodCallCandidate> non_generic;
+    for (const MethodCallCandidate& candidate : viable) {
+      if (!candidate.is_generic()) {
+        non_generic.push_back(candidate);
       }
     }
-    if (dominates_all) {
-      assert(!dominator);
-      dominator = &candidate;
-    }
+    return non_generic;
   }
 
-  if (dominator) {
+  // 5) now choose inside the remaining best-shaped subset
+  if (const MethodCallCandidate* dominator = find_the_only_generic_dominator(viable)) {
     return {*dominator};
   }
   return viable;

@@ -17,12 +17,13 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "common/refcnt.hpp"
-#include <utility>
 #include <array>
-#include <string>
-#include <ostream>
 #include <cstdlib>
+#include <ostream>
+#include <string>
+#include <utility>
+
+#include "common/refcnt.hpp"
 #include "td/utils/bits.h"
 
 namespace td {
@@ -284,7 +285,7 @@ class BitSliceGen {
     ensure_throw(set_size_bool(bits));
     return *this;
   }
-  BitSliceGen subslice(unsigned from, unsigned bits) const & {
+  BitSliceGen subslice(unsigned from, unsigned bits) const& {
     return BitSliceGen(*this, from, bits);
   }
   BitSliceGen subslice(unsigned from, unsigned bits) && {

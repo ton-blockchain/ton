@@ -17,18 +17,18 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "td/utils/benchmark.h"
+#include <functional>
+#include <limits>
+
 #include "td/utils/FileLog.h"
+#include "td/utils/Slice.h"
+#include "td/utils/TsFileLog.h"
+#include "td/utils/benchmark.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/thread.h"
-#include "td/utils/Slice.h"
 #include "td/utils/tests.h"
-#include "td/utils/TsFileLog.h"
-
-#include <functional>
-#include <limits>
 
 char disable_linker_warning_about_empty_file_tdutils_test_log_cpp TD_UNUSED;
 

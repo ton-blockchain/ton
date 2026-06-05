@@ -15,11 +15,12 @@
   along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
+#include <memory>
+
+#include "common/bitstring.h"
 #include "common/refcnt.hpp"
 #include "td/utils/buffer.h"
-#include "common/bitstring.h"
 #include "vm/cells/Cell.h"
-#include <memory>
 
 namespace vm {
 
@@ -55,4 +56,4 @@ class Hasher {
   std::unique_ptr<HasherImpl> impl_;
 };
 
-}
+}  // namespace vm

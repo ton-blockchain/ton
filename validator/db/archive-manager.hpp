@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "archive-slice.hpp"
 #include "interfaces/persistent-state.h"
+
+#include "archive-slice.hpp"
 
 namespace ton {
 
@@ -33,6 +34,8 @@ class ArchiveManager : public td::actor::Actor {
 
   void add_handle(BlockHandle handle, td::Promise<td::Unit> promise);
   void update_handle(BlockHandle handle, td::Promise<td::Unit> promise);
+  td::actor::Task<> move_block_to_archive(BlockHandle handle,
+                                          std::vector<std::pair<FileReference, td::BufferSlice>> files);
   void add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void add_key_block_proof(BlockSeqno seqno, UnixTime ts, LogicalTime lt, FileReference ref_id, td::BufferSlice data,
                            td::Promise<td::Unit> promise);
@@ -62,7 +65,7 @@ class ArchiveManager : public td::actor::Actor {
   void truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise);
   //void truncate_continue(BlockSeqno masterchain_seqno, td::Promise<td::Unit> promise);
 
-  void run_gc(UnixTime mc_ts, UnixTime gc_ts, double archive_ttl);
+  void run_gc(td::Ref<MasterchainState> shard_client_state, UnixTime gc_ts, double archive_ttl);
 
   /* from LTDB */
   void get_block_by_unix_time(AccountIdPrefixFull account_id, UnixTime ts, td::Promise<ConstBlockHandle> promise);
@@ -76,7 +79,6 @@ class ArchiveManager : public td::actor::Actor {
   void start_up() override;
   void alarm() override;
 
-  void commit_transaction();
   void set_async_mode(bool mode, td::Promise<td::Unit> promise);
 
   void set_current_shard_split_depth(td::uint32 value) {
@@ -182,9 +184,7 @@ class ArchiveManager : public td::actor::Actor {
   FileMap files_, key_files_, temp_files_;
   td::actor::ActorOwn<ArchiveLru> archive_lru_;
   BlockSeqno finalized_up_to_{0};
-  bool async_mode_ = false;
-  bool huge_transaction_started_ = false;
-  td::uint32 huge_transaction_size_ = 0;
+  bool async_mode_ = true;
   td::uint32 cur_shard_split_depth_ = 0;
 
   DbStatistics statistics_;
@@ -200,14 +200,15 @@ class ArchiveManager : public td::actor::Actor {
   std::map<std::pair<BlockSeqno, FileHash>, PermState> perm_states_;  // Mc block seqno, hash -> state
 
   void load_package(PackageId seqno);
+  td::actor::ActorOwn<ArchiveSlice> create_archive_slice(const PackageId &id, td::uint32 shard_split_depth);
   void delete_package(PackageId seqno, td::Promise<td::Unit> promise);
   void deleted_package(PackageId seqno, td::Promise<td::Unit> promise);
   void get_handle_cont(BlockIdExt block_id, PackageId id, td::Promise<BlockHandle> promise);
   void get_handle_finish(BlockHandle handle, td::Promise<BlockHandle> promise);
-  void get_file_short_cont(FileReference ref_id, PackageId idx, td::Promise<td::BufferSlice> promise);
+  void get_temp_file_short_cont(FileReference ref_id, PackageId idx, td::Promise<td::BufferSlice> promise);
 
-  const FileDescription *get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts, LogicalTime lt,
-                                       bool force);
+  td::Result<const FileDescription *> get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts,
+                                                    LogicalTime lt, bool force);
   const FileDescription *add_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts, LogicalTime lt);
   void update_desc(FileMap &f, const FileDescription &desc, ShardIdFull shard, BlockSeqno seqno, UnixTime ts,
                    LogicalTime lt);
@@ -222,7 +223,7 @@ class ArchiveManager : public td::actor::Actor {
   PackageId get_max_temp_file_desc_idx();
   PackageId get_prev_temp_file_desc_idx(PackageId id);
 
-  void add_persistent_state_impl(FileReferenceShort const &id, td::Promise<td::Unit> promise,
+  void add_persistent_state_impl(const FileReferenceShort &id, td::Promise<td::Unit> promise,
                                  std::function<void(std::string, td::Promise<std::string>)> create_writer);
   void register_perm_state(FileReferenceShort id);
 
@@ -243,7 +244,12 @@ class ArchiveManager : public td::actor::Actor {
 
   void update_permanent_slices();
 
-  static constexpr double TEMP_PACKAGES_TTL = 3600;
+  void run_gc_temp_cont(PackageId id, td::Ref<MasterchainState> shard_client_state,
+                        std::map<ShardIdFull, BlockSeqno> max_seqnos);
+
+  static constexpr td::uint32 TEMP_PACKAGES_PERIOD = 3600;
+  static constexpr td::uint32 TEMP_PACKAGES_TTL = 3600;
+  static constexpr td::uint32 TEMP_PACKAGES_HARD_TTL = 3600 * 4;
 };
 
 }  // namespace validator

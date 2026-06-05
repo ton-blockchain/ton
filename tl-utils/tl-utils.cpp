@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl-utils.hpp"
-#include "tl/tl_object_store.h"
 #include "auto/tl/ton_api.hpp"
-#include "td/utils/tl_storers.h"
-#include "td/utils/crypto.h"
 #include "crypto/common/bitstring.h"
+#include "td/utils/crypto.h"
+#include "td/utils/tl_storers.h"
+#include "tl/tl_object_store.h"
+
+#include "tl-utils.hpp"
 
 namespace ton {
 
@@ -114,7 +115,7 @@ td::UInt256 get_tl_object_sha256(const ton_api::Object *T) {
   T->store(Y);
 
   td::UInt256 id256;
-  td::sha256(B.as_slice(), id256.as_slice());
+  td::sha256(B.as_slice(), id256.as_mutable_slice());
 
   return id256;
 }

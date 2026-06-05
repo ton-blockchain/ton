@@ -17,8 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include <string>
 #include <cassert>
+#include <string>
 
 namespace prng {
 

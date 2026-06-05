@@ -35,18 +35,24 @@ class AdnlReceivedMask {
     if (seqno <= 0) {
       return false;
     }
-    if (seqno + 64 <= seqno_) {
-      return true;
-    }
     if (seqno > seqno_) {
       return false;
     }
-    return mask_ & (1ull << (seqno_ - seqno));
+    // Avoid signed overflow UB from (seqno + 64).
+    td::uint64 diff = static_cast<td::uint64>(seqno_ - seqno);
+    if (diff >= 64) {
+      return true;
+    }
+    return mask_ & (1ull << diff);
   }
   void deliver_packet(td::int64 seqno) {
-    CHECK(!packet_is_delivered(seqno));
-
-    CHECK(seqno > 0);
+    // Untrusted inputs must not be able to crash the process.
+    if (seqno <= 0) {
+      return;
+    }
+    if (packet_is_delivered(seqno)) {
+      return;
+    }
     if (seqno <= seqno_) {
       mask_ |= (1ull << (seqno_ - seqno));
     } else {
@@ -72,19 +78,27 @@ class AdnlReceivedMaskVersion {
     if (utime < utime_) {
       return true;
     } else if (utime == utime_) {
-      return mask_.packet_is_delivered(seqno);
+      if (seqno == 0 || seqno > static_cast<td::uint64>(std::numeric_limits<td::int64>::max())) {
+        return false;
+      }
+      return mask_.packet_is_delivered(static_cast<td::int64>(seqno));
     } else {
       return false;
     }
   }
   void deliver_packet(td::int32 utime, td::uint64 seqno) {
-    CHECK(utime >= utime_);
+    if (utime < utime_) {
+      return;
+    }
+    if (seqno == 0 || seqno > static_cast<td::uint64>(std::numeric_limits<td::int64>::max())) {
+      return;
+    }
     if (utime == utime_) {
-      mask_.deliver_packet(seqno);
+      mask_.deliver_packet(static_cast<td::int64>(seqno));
     } else {
       utime_ = utime;
       mask_.reset();
-      mask_.deliver_packet(seqno);
+      mask_.deliver_packet(static_cast<td::int64>(seqno));
     }
   }
   void reset() {

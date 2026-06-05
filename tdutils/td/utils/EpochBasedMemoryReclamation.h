@@ -18,12 +18,12 @@
 */
 #pragma once
 
+#include <atomic>
+#include <memory>
+
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/sleep.h"
-
-#include <atomic>
-#include <memory>
 
 namespace td {
 

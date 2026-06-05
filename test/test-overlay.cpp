@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,32 +14,34 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
+#include <memory>
+#include <vector>
+
 #include "adnl/adnl-node-id.hpp"
+#include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
-#include "adnl/adnl-test-loopback-implementation.h"
 #include "auto/tl/ton_api.h"
-#include "checksum.h"
 #include "common/bitstring.h"
+#include "common/errorlog.h"
 #include "dht/dht.h"
 #include "keys/keys.hpp"
-#include "overlay-manager.h"
-#include "overlay.h"
-#include "overlay-id.hpp"
 #include "overlay/overlays.h"
 #include "td/actor/actor.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
 #include "td/utils/Status.h"
 #include "td/utils/Time.h"
 #include "td/utils/UInt.h"
@@ -47,24 +49,24 @@
 #include "td/utils/crypto.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
-#include "td/utils/port/path.h"
-#include "td/utils/Random.h"
-#include "td/utils/port/signals.h"
-#include "td/utils/port/FileFd.h"
 #include "td/utils/overloaded.h"
-#include "common/errorlog.h"
+#include "td/utils/port/FileFd.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
 #include "tl-utils/common-utils.hpp"
 #include "tl/TlObject.h"
-#include <memory>
-#include <vector>
+
+#include "checksum.h"
+#include "overlay-id.hpp"
+#include "overlay-manager.h"
+#include "overlay.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <iostream>
-#include <sstream>
-
 #include <set>
+#include <sstream>
 
 struct Node {
   ton::PrivateKey pk;
@@ -170,7 +172,7 @@ int main(int argc, char *argv[]) {
         auto pub1 = pk1.compute_public_key();
         n.adnl_id_full = ton::adnl::AdnlNodeIdFull{pub1};
         n.adnl_id = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
         td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                                 static_cast<td::uint8>(0));
         td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, n.adnl_id, true,
@@ -181,7 +183,7 @@ int main(int argc, char *argv[]) {
         n.id_full = pub2;
         n.id = pub2.compute_short_id();
         n.pk = pk2;
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
 
@@ -201,7 +203,7 @@ int main(int argc, char *argv[]) {
         auto pub1 = pk1.compute_public_key();
         n.adnl_id_full = ton::adnl::AdnlNodeIdFull{pub1};
         n.adnl_id = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
         td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                                 static_cast<td::uint8>(0));
         td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, n.adnl_id, true,
@@ -212,7 +214,7 @@ int main(int argc, char *argv[]) {
         n.id_full = pub2;
         n.id = pub2.compute_short_id();
         n.pk = pk2;
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
         all_nodes.push_back(&n);
@@ -238,7 +240,7 @@ int main(int argc, char *argv[]) {
             (n1.can_receive ? 0 : ton::overlay::OverlayMemberFlags::DoNotReceiveBroadcasts);
 
         ton::overlay::OverlayMemberCertificate cert(root_nodes[i / node_slaves_cnt].id_full, 0, i % node_slaves_cnt,
-                                                  2000000000, td::BufferSlice());
+                                                    2000000000, td::BufferSlice());
         auto buf = cert.to_sign_data(n1.adnl_id);
         auto dec = root_nodes[i / node_slaves_cnt].pk.create_decryptor().move_as_ok();
         auto signature = dec->sign(buf.as_slice()).move_as_ok();
@@ -354,7 +356,7 @@ int main(int argc, char *argv[]) {
         auto pub1 = pk1.compute_public_key();
         n.adnl_id_full = ton::adnl::AdnlNodeIdFull{pub1};
         n.adnl_id = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
         td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                                 static_cast<td::uint8>(0));
         td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, n.adnl_id, true,
@@ -365,7 +367,7 @@ int main(int argc, char *argv[]) {
         n.id_full = pub2;
         n.id = pub2.compute_short_id();
         n.pk = pk2;
-        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+        td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
         LOG(DEBUG) << "created node " << n.adnl_id << " " << n.id;
 

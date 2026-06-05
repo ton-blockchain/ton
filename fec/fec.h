@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/fec/fec.h"
 #include "auto/tl/ton_api.h"
+#include "td/fec/fec.h"
 #include "td/utils/Variant.h"
 
 namespace ton {

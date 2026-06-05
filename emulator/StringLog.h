@@ -1,8 +1,8 @@
-#ifndef TON_STRINGLOG_H
-#define TON_STRINGLOG_H
+#pragma once
+
+#include <thread>
 
 #include "td/utils/logging.h"
-#include <thread>
 
 class StringLog : public td::LogInterface {
  public:
@@ -23,5 +23,3 @@ class StringLog : public td::LogInterface {
  private:
   std::string str;
 };
-
-#endif  //TON_STRINGLOG_H

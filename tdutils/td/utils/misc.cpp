@@ -16,14 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/misc.h"
-
-#include "td/utils/port/thread_local.h"
-
 #include <algorithm>
 #include <cstdlib>
 #include <locale>
 #include <sstream>
+
+#include "td/utils/misc.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 

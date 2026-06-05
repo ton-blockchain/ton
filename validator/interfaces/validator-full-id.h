@@ -18,9 +18,9 @@
 */
 #pragma once
 
-#include "ton/ton-types.h"
 #include "auto/tl/ton_api.h"
 #include "keys/keys.hpp"
+#include "ton/ton-types.h"
 
 namespace ton {
 

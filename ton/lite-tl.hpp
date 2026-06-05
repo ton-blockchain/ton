@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "ton-types.h"
 #include "auto/tl/lite_api.h"
+
+#include "ton-types.h"
 
 namespace ton {
 

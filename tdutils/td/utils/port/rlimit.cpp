@@ -17,11 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "td/utils/port/rlimit.h"
-
-#include "td/utils/port/config.h"
-
 #include "td/utils/misc.h"
+#include "td/utils/port/config.h"
+#include "td/utils/port/rlimit.h"
 
 #if TD_PORT_POSIX
 #include <sys/resource.h>
@@ -104,4 +102,3 @@ td::Status change_maximize_rlimit(RlimitType rlim, td::uint64 value) {
 #endif
 
 }  // namespace td
-

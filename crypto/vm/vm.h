@@ -20,13 +20,13 @@
 
 #include "common/refcnt.hpp"
 #include "td/utils/HashMap.h"
-#include "vm/cellslice.h"
-#include "vm/stack.hpp"
-#include "vm/vmstate.h"
-#include "vm/log.h"
-#include "vm/continuation.h"
 #include "td/utils/HashSet.h"
 #include "td/utils/optional.h"
+#include "vm/cellslice.h"
+#include "vm/continuation.h"
+#include "vm/log.h"
+#include "vm/stack.hpp"
+#include "vm/vmstate.h"
 
 namespace vm {
 
@@ -96,12 +96,14 @@ class VmState final : public VmStateInterface {
   VmLog log;
   GasLimits gas;
   std::vector<Ref<Cell>> libraries;
+  td::HashSet<CellHash> loaded_libraries;
+  td::optional<td::uint32> max_library_loads;
   td::HashSet<CellHash> loaded_cells;
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
   bool stop_on_accept_message{false};
   td::optional<td::Bits256> missing_library;
-  td::uint16 max_data_depth = 512; // Default value
+  td::uint16 max_data_depth = 512;  // Default value
   int global_version{0};
   size_t chksgn_counter = 0;
   size_t get_extra_balance_counter = 0;
@@ -170,8 +172,8 @@ class VmState final : public VmStateInterface {
     get_extra_balance_cheap_max_gas_price = 200
   };
   VmState();
-  VmState(Ref<CellSlice> _code, int global_version, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0, Ref<Cell> _data = {},
-          VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
+  VmState(Ref<CellSlice> _code, int global_version, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0,
+          Ref<Cell> _data = {}, VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {});
   VmState(Ref<Cell> _code, int global_version, Ref<Stack> _stack, const GasLimits& _gas, int flags = 0,
           Ref<Cell> _data = {}, VmLog log = {}, std::vector<Ref<Cell>> _libraries = {}, Ref<Tuple> init_c7 = {})
       : VmState(convert_code_cell(std::move(_code), global_version, _libraries), global_version, std::move(_stack),
@@ -179,6 +181,7 @@ class VmState final : public VmStateInterface {
   }
   VmState(const VmState&) = delete;
   VmState(VmState&&) = default;
+  ~VmState() override;
   VmState& operator=(const VmState&) = delete;
   VmState& operator=(VmState&&) = default;
   bool set_gas_limits(long long _max, long long _limit, long long _credit = 0);
@@ -353,6 +356,9 @@ class VmState final : public VmStateInterface {
   int get_global_version() const override {
     return global_version;
   }
+  bool is_actual_tvm() const override {
+    return true;
+  }
   int call(Ref<Continuation> cont);
   int call(Ref<Continuation> cont, int pass_args, int ret_args = -1);
   int jump(Ref<Continuation> cont);
@@ -442,6 +448,10 @@ class VmState final : public VmStateInterface {
 
   td::HashSet<CellHash> extract_loaded_cells() {
     return std::move(loaded_cells);
+  }
+
+  void set_max_library_loads(td::uint32 value) {
+    max_library_loads = value;
   }
 
  private:

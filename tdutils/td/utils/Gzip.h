@@ -21,9 +21,9 @@
 #include "td/utils/common.h"
 
 #if TD_HAVE_ZLIB
-#include "td/utils/buffer.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
+#include "td/utils/buffer.h"
 
 namespace td {
 
@@ -32,8 +32,8 @@ class Gzip {
   Gzip();
   Gzip(const Gzip &) = delete;
   Gzip &operator=(const Gzip &) = delete;
-  Gzip(Gzip &&other);
-  Gzip &operator=(Gzip &&other);
+  Gzip(Gzip &&other) noexcept;
+  Gzip &operator=(Gzip &&other) noexcept;
   ~Gzip();
 
   enum class Mode { Empty, Encode, Decode };

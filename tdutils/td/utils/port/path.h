@@ -18,14 +18,14 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/port/FileFd.h"
-#include "td/utils/Slice.h"
-#include "td/utils/Status.h"
-
 #include <functional>
 #include <type_traits>
 #include <utility>
+
+#include "td/utils/Slice.h"
+#include "td/utils/Status.h"
+#include "td/utils/common.h"
+#include "td/utils/port/FileFd.h"
 
 namespace td {
 
@@ -56,7 +56,7 @@ Result<string> mkdtemp(CSlice dir, Slice prefix) TD_WARN_UNUSED_RESULT;
 class WalkPath {
  public:
   enum class Action { Continue, Abort, SkipDir };
-  enum class Type { EnterDir, ExitDir, NotDir };
+  enum class Type { EnterDir, ExitDir, RegularFile, Symlink };
 
   template <class F, class R = decltype(std::declval<F>()("", Type::ExitDir))>
   static TD_WARN_UNUSED_RESULT std::enable_if_t<std::is_same<R, Action>::value, Status> run(CSlice path, F &&func) {

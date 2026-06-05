@@ -1,3 +1,5 @@
+import "@stdlib/reflection"
+
 type MInt = int
 type MSlice = slice
 
@@ -10,7 +12,8 @@ const int111: MInt = 111;
 const int1r = int1;
 
 const str1 = "const1";
-const str2: MSlice = stringHexToSlice("aabbcc");
+const str2: MSlice = "aabbcc".hexToSlice();
+const str3: MSlice = ("aabbccdd" as string).literalSlice();
 
 const str2r: slice = str2;
 
@@ -19,10 +22,11 @@ const str2int = 0xAABBCC;
 
 const nibbles: int = 4;
 
-const strange_zero = (!10 as int);
-const strange_minus_1: MInt = (!0 as int);
+const strange_zero = 1 >> 10;
+const strange_minus_1: MInt = -1 as Color as int;
 
 const addr1 = address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF");
+const addr2: any_address = address("Ef8zMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM0vF") as any_address;
 
 // since `;` is not mandatory, this is correct from a syntax point of view
 const true1 = true const true2 = !!true const true3 = true1 && true2
@@ -30,11 +34,16 @@ const true1 = true const true2 = !!true const true3 = true1 && true2
 const false1 = !true;
 const false2 = false1 || false;
 
-const tens1 = (1, 2);
+const tens1 = (1, - -(2 as int32)*1);
 const tens2: (int, int, (int8, int16)) = (tens1.1, tens1.0 << 2, tens1);
 
 const intOrN: int? = null;
 const int32Or64: int32 | int64 = 7 as int64;
+const int32OrCoins: int32 | coins = ton("0.05");
+const intOrSlice = 5 as int|slice;
+const int32Or128 = (7 as int32) as int32 | int128;
+
+const nameOfAddress = reflect.typeNameOf<address>()
 
 fun iget1(): int { return int1; }
 fun iget2(): int { return int2; }
@@ -42,11 +51,105 @@ fun iget3(): int { return int1+int2; }
 
 fun iget1r(): int { return int1r; }
 
-fun sget1(): slice { return str1; }
+fun sget1(): string { return str1; }
 fun sget2(): slice { return str2; }
 fun sget2r(): slice { return str2r; }
 
 const int240: int = ((int1+int2)*10)<<3;
+
+enum Color {
+    red,
+    green,
+    blue,
+}
+
+const boolOpsWithInts = (10 < 3, 10 <= 3, 10 > 3, 10 >= 3, 10 == 3, 10 != 3, 10 <= 10, 10 >= (9 + 1), )
+const boolOpsWithBools = (true == true, true != true, false == false, !!false != !!false)
+const boolBitwise = (true & true, true & false, false & true, false & false, true | false, true ^ true, true ^ false)
+const intBitwise = (2 & 3, 2 ^ 3, 2 | 3, 1 | 5, 0xFF & 0x80, 0 == 0, 100 == 0)
+const alsoBlue = Color.blue
+const also2 = Color.blue as int
+
+const nullable5: int? = 5
+const nullableTensor: (int, int)? = (((null)))
+const nullableTricky: (UnpackOptions?, int?, (int, slice)?) = (null, null, null)
+const unionTricky: (address | int, address | int, int | int8 | null, int8 | int16 | null) = (address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF"), 100, 50, null);
+
+const anyAddr = address("99:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e") as any_address;
+const anyAddrOrInt: any_address | int = address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e") as any_address;
+const anyAddrOrAddr1: any_address | address = address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e");
+const anyAddrOrAddr2 = (address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e") as any_address) as any_address | address;
+
+const colorsTensor: (int, Color, int32|Color, int32|Color) = (
+    Color.green as int32,
+    Color.green,
+    Color.green,
+    Color.green as int,
+)
+
+const someTensWithNull: ((int, int)?, int) = (null, 5);
+const nullFromThatTens = someTensWithNull.0;
+
+struct SubParams {
+    sub1: bool = true
+    sub2: int8 = 8
+    sub3: coins
+}
+
+struct MyOptions {
+    allowPenalty: bool = false
+    closeTo: (int8, int8)? = null
+    sub: SubParams = { sub3: ton("0.05") }
+    coeff: int16 = 2
+}
+
+const opts1 = MyOptions { allowPenalty: true }
+const opts2 = MyOptions { coeff: 3, sub: { sub1: false, sub3: 0 } }
+const opts3: MyOptions = { coeff: 0, closeTo: null, allowPenalty: true }
+const opts4: MyOptions = { sub: { sub3: ton("1") }, closeTo: (3, 4), coeff: 55 }
+
+@noinline
+fun MyOptions.equals(self, rhs: MyOptions = {}) {
+    return self.toCell().hash() == rhs.toCell().hash()
+}
+
+struct Wrapper<T> {
+    item: T
+}
+
+const wOneTon = Wrapper<coins> { item: ton("0.5") * 2 }
+const wNoTon: Wrapper<int> = { item: 0 }
+const wNoSubParams: Wrapper<SubParams>? = null
+
+struct Point {
+    x: int = 10
+    y: int = 20
+}
+
+const shape1: [int, bool, int32] = [5, false, 7];
+const shape2: [int, (int, bool), Point?, Point?, ()] = [5, (6, true), {}, null, ()]
+const shape1_tens = (shape1.0, shape1.1);
+
+const nul_arr_i: array<int>? = [1]
+const nul_list_i: lisp_list<int>? = [1]
+const nul_list_i_n: lisp_list<int>? = null
+const coins_or_int8: coins | int8 = Wrapper { item: ton("0.05") }.item
+const arr_or_int: array<int> | int = []
+
+struct WithNullableArray {
+    x: array<int>?
+}
+
+struct WithNullableArrayDef {
+    x: array<int>? = [2]
+}
+
+const objWithNullableArray: WithNullableArray = { x: [1] }
+const objWithNullableArrayDef: WithNullableArrayDef = {}
+
+const emptyMapNullable: map<int8, int32>? = []
+const emptyMapAsNullableConst = [] as map<int8, int32>?
+
 
 fun iget240(): MInt { return int240; }
 
@@ -86,13 +189,142 @@ fun test4() {
 
 @method_id(105)
 fun test5() {
-    return (intOrN == null, int32Or64 is int32, int32Or64);
+    return (intOrN == null, int32Or64 is int32, int32Or64, int32OrCoins, intOrSlice, int32Or128, int32Or128 is int32);
 }
 
 @method_id(106)
 fun test6() {
     __expect_type(addr1, "address");
-    return (addr1 == addr1, addr1 != addr1, addr1 == createAddressNone(), addr1.getWorkchain());
+    __expect_type(addr2, "any_address");
+    return (addr1 == addr1, addr1 != addr1, addr1 == createAddressNone(), addr1.getWorkchain(), addr1 == addr2);
+}
+
+@method_id(107)
+fun test7() {
+    return boolOpsWithInts
+}
+
+@method_id(108)
+fun test8() {
+    return boolOpsWithBools
+}
+
+@method_id(109)
+fun test9() {
+    return boolBitwise
+}
+
+@method_id(110)
+fun test10() {
+    return intBitwise
+}
+
+@method_id(111)
+fun test11() {
+    __expect_type(alsoBlue, "Color");
+    __expect_type(also2, "int");
+    return (alsoBlue, also2)
+}
+
+@method_id(112)
+fun test12() {
+    return nullableTensor
+}
+
+@method_id(113)
+fun test13() {
+    return nullableTricky
+}
+
+@method_id(114)
+fun test14() {
+    return (unionTricky.0 is address, unionTricky.1 is address, unionTricky.1 is int, unionTricky.1 is slice, unionTricky.1, 777, unionTricky.2, unionTricky.3)
+}
+
+@method_id(115)
+fun test15() {
+    return (
+        opts1.equals(), opts1.equals(opts1), opts1.equals(opts2), opts1.equals(opts3), opts1.equals(opts4),  
+        opts4.equals(), opts4.equals(opts1), opts4.equals(opts2), opts4.equals(opts3), opts4.equals(opts4),
+        777,
+        opts1.equals({ closeTo: null, allowPenalty: true }),
+        opts2.equals({ coeff: 3, sub: { sub1: false, sub3: 0 } }),
+        opts3.equals({ closeTo: null, coeff: 0, allowPenalty: true }),
+        opts4.equals({ sub: { sub3: ton("1") }, coeff: 55, closeTo: (3, 4) })
+    )
+}
+
+@method_id(116)
+fun test16() {
+    __expect_type(wOneTon, "Wrapper<coins>");
+    return (wOneTon, wNoTon, wNoSubParams)
+}
+
+@method_id(117)
+fun test17() {
+    __expect_type(nameOfAddress, "string");
+    return (
+        nameOfAddress.beginParse().bitsEqual("address".beginParse()),
+        reflect.typeNameOfObject(nameOfAddress.beginParse()).beginParse().bitsEqual("slice".literalSlice())
+    )
+}
+
+@method_id(118)
+fun test18() {
+    __expect_type(anyAddr, "any_address");
+    return (
+        anyAddr.getWorkchain(),
+        anyAddrOrInt is any_address,
+        anyAddrOrAddr1 is any_address,
+        anyAddrOrAddr2 is any_address,
+    )
+}
+
+@method_id(119)
+fun test19() {
+    return colorsTensor;
+}
+
+@method_id(120)
+fun test20() {
+    return (shape1, shape2, shape1_tens)
+}
+
+@method_id(121)
+fun test21() {
+    return nullFromThatTens;
+}
+
+@method_id(122)
+fun test22() {
+    __expect_type(str1, "string");
+    return (str1.beginParse().remainingBitsCount(), str3.remainingBitsCount());
+}
+
+@method_id(123)
+fun test123() {
+    return (nul_arr_i!, nul_list_i!, 777, nul_list_i_n)
+}
+
+@method_id(124)
+fun test124() {
+    return (
+        match (val ii = arr_or_int) { array<int> => ii.size(), int => ii },
+        match (val ii = coins_or_int8) { int8 => 0, coins => ii as int },
+    )
+}
+
+@method_id(125)
+fun test125() {
+    val manual = objWithNullableArray.x!;
+    val def = objWithNullableArrayDef.x!;
+    return (manual.size(), manual.get(0), def.size(), def.get(0));
+}
+
+@method_id(126)
+fun test126() {
+    __expect_type(emptyMapAsNullableConst, "map<int8, int32>?");
+    return (emptyMapAsNullableConst == null, emptyMapAsNullableConst!.isEmpty());
 }
 
 fun main() {
@@ -104,13 +336,13 @@ fun main() {
     assert(i2 == 2) throw 102;
     assert(i3 == 3) throw 103;
 
-    var s1: slice = sget1();
+    var s1: slice = sget1().beginParse();
     var s2: slice = sget2();
-    var s3: slice = newc().stslicer(str1).stslicer(str2r).endcs();
+    var s3: slice = newc().stslicer(str1.beginParse()).stslicer(str2r).endcs();
 
-    assert(sdeq(s1, newc().storeUint(str1int, 12 * nibbles).endcs())) throw int111;
-    assert(sdeq(s2, newc().storeUint(str2int, 6 * nibbles).endcs())) throw 112;
-    assert(sdeq(s3, newc().storeUint(0x636f6e737431AABBCC, 18 * nibbles).endcs())) throw 113;
+    assert(sdeq(s1, newc().storeUint(str1int, 12 * nibbles).endcs()) != 0) throw int111;
+    assert(sdeq(s2, newc().storeUint(str2int, 6 * nibbles).endcs()) != 0) throw 112;
+    assert(sdeq(s3, newc().storeUint(0x636f6e737431AABBCC, 18 * nibbles).endcs()) != 0) throw 113;
 
     var i4: int = iget240();
     assert(i4 == 240) throw ((104));
@@ -123,8 +355,28 @@ fun main() {
 @testcase | 102 |   | -1 -1 -1
 @testcase | 103 |   | 0 0
 @testcase | 104 |   | 1 1 2
-@testcase | 105 |   | -1 0 7 48
-@testcase | 106 |   | -1 0 0 -1
+@testcase | 105 |   | -1 0 7 48 50000000 17 5 1 7 46 -1
+@testcase | 106 |   | -1 0 0 -1 -1
+@testcase | 107 |   | 0 0 -1 -1 0 -1 -1 -1
+@testcase | 108 |   | -1 0 -1 0
+@testcase | 109 |   | -1 0 0 0 -1 0 -1
+@testcase | 110 |   | 2 1 3 5 128 -1 0
+@testcase | 111 |   | 2 2
+@testcase | 112 |   | (null) (null) 0
+@testcase | 113 |   | (null) (null) 0 (null) (null) (null) 0
+@testcase | 114 |   | -1 0 -1 0 100 1 777 50 1 (null) 0
+@testcase | 115 |   | 0 -1 0 0 0 0 0 0 0 -1 777 -1 -1 -1 -1
+@testcase | 116 |   | 1000000000 0 (null) (null) (null) 0
+@testcase | 117 |   | -1 -1
+@testcase | 118 |   | 99 -1 0 -1
+@testcase | 119 |   | 1 1 1 typeid-2 1 46
+@testcase | 120 |   | [ 5 0 7 ] [ 5 [ 6 -1 ] [ 10 20 typeid-3 ] [ (null) (null) 0 ] [] ] 5 0
+@testcase | 121 |   | (null) (null) 0 
+@testcase | 122 |   | 48 64
+@testcase | 123 |   | [ 1 ] [ 1 (null) ] 777 (null) 0
+@testcase | 124 |   | 0 50000000
+@testcase | 125 |   | 1 1 1 2
+@testcase | 126 |   | 0 -1
 
-@code_hash 32362412747322136329528616455651783746542516198110452861733590440068294458753
+@code_hash 69450727578206805235623888457664461735127156131005024409888318254979905151137
 */

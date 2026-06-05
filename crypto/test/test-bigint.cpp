@@ -14,20 +14,21 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include <assert.h>
-#include <string.h>
 #include <array>
-#include <string>
-#include <iostream>
-#include <sstream>
-#include <random>
+#include <assert.h>
 #include <getopt.h>
-#include "common/refcnt.hpp"
-#include "common/bigint.hpp"
-#include "common/refint.h"
-#include "modbigint.cpp"
+#include <iostream>
+#include <random>
+#include <sstream>
+#include <string.h>
+#include <string>
 
+#include "common/bigint.hpp"
+#include "common/refcnt.hpp"
+#include "common/refint.h"
 #include "td/utils/tests.h"
+
+#include "modbigint.cpp"
 
 int mkint_chk_mode = -1, res_chk_mode = 0;
 long long iterations = 100000, cur_iteration = -1, debug_iteration = -2;

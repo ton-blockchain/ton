@@ -18,9 +18,8 @@
 */
 #pragma once
 
-#include "tonlib/LastBlock.h"
-
 #include "tonlib/KeyValue.h"
+#include "tonlib/LastBlock.h"
 
 namespace tonlib {
 class LastBlockStorage {

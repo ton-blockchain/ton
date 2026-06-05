@@ -16,11 +16,11 @@ The sources were taken from MinGW-runtime project.
 #### LICENSE
 
     Copyright (c) 2002 Todd C. Miller <Todd.Miller@courtesan.com>
-    
+
     Permission to use, copy, modify, and distribute this software for any
     purpose with or without fee is hereby granted, provided that the above
     copyright notice and this permission notice appear in all copies.
-    
+
     THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
     WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
     MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
@@ -28,7 +28,7 @@ The sources were taken from MinGW-runtime project.
     WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
     ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-    
+
     Sponsored in part by the Defense Advanced Research Projects
     Agency (DARPA) and Air Force Research Laboratory, Air Force
     Materiel Command, USAF, under agreement number F39502-99-1-0512.
@@ -37,10 +37,10 @@ The sources were taken from MinGW-runtime project.
 
     Copyright (c) 2000 The NetBSD Foundation, Inc.
     All rights reserved.
-    
+
     This code is derived from software contributed to The NetBSD Foundation
     by Dieter Baron and Thomas Klausner.
-    
+
     Redistribution and use in source and binary forms, with or without
     modification, are permitted provided that the following conditions
     are met:
@@ -49,7 +49,7 @@ The sources were taken from MinGW-runtime project.
     2. Redistributions in binary form must reproduce the above copyright
        notice, this list of conditions and the following disclaimer in the
        documentation and/or other materials provided with the distribution.
-    
+
     THIS SOFTWARE IS PROVIDED BY THE NETBSD FOUNDATION, INC. AND CONTRIBUTORS
     ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
     TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR

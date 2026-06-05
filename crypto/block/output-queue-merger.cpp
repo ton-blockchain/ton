@@ -16,14 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "ton/ton-io.hpp"
+
 #include "output-queue-merger.h"
 
 namespace block {
 
 /*
- * 
- *  OUTPUT QUEUE MERGER 
- * 
+ *
+ *  OUTPUT QUEUE MERGER
+ *
  */
 
 bool OutputQueueMerger::MsgKeyValue::operator<(const MsgKeyValue& other) const {
@@ -158,7 +160,7 @@ OutputQueueMerger::OutputQueueMerger(ton::ShardIdFull queue_for, std::vector<Out
   for (Neighbor& neighbor : neighbors) {
     if (!neighbor.disabled_) {
       LOG(DEBUG) << "adding " << (neighbor.outmsg_root_.is_null() ? "" : "non-") << "empty output queue for neighbor #"
-                 << i << " (" << neighbor.block_id_.to_str() << ")";
+                 << i << " (" << neighbor.block_id_ << ")";
       add_root(i++, neighbor.outmsg_root_, neighbor.msg_limit_);
     } else {
       LOG(DEBUG) << "skipping output queue for disabled neighbor #" << i;
@@ -168,7 +170,9 @@ OutputQueueMerger::OutputQueueMerger(ton::ShardIdFull queue_for, std::vector<Out
   std::make_heap(heap.begin(), heap.end(), MsgKeyValue::greater);
   eof = heap.empty();
   if (!eof) {
-    load();
+    if (!load()) {
+      eof = true;
+    }
   }
 }
 
@@ -214,7 +218,7 @@ bool OutputQueueMerger::load() {
   } while (!heap.empty() && heap[0]->lt <= lt);
   std::sort(msg_list.begin() + orig_size, msg_list.end(), MsgKeyValue::less);
   for (size_t i = orig_size; i < msg_list.size(); ++i) {
-    td::int32 &remaining = src_remaining_msgs_[msg_list[i]->source];
+    td::int32& remaining = src_remaining_msgs_[msg_list[i]->source];
     if (remaining != -1) {
       if (remaining == 0) {
         limit_exceeded = true;

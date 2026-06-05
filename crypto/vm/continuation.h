@@ -20,9 +20,9 @@
 
 #include "common/refcnt.hpp"
 #include "vm/cellslice.h"
+#include "vm/log.h"
 #include "vm/stack.hpp"
 #include "vm/vmstate.h"
-#include "vm/log.h"
 
 namespace vm {
 
@@ -132,7 +132,7 @@ struct ControlRegs {
     }
     return true;
   }
-  bool define(unsigned idx, StackEntry value);
+  bool define(unsigned idx, StackEntry value, bool silent_if_set = false);
   ControlRegs& operator&=(const ControlRegs& save);  // clears all c[i]'s which are present in save
   ControlRegs& operator^=(const ControlRegs& save);  // sets c[i]=save.c[i] for all save.c[i] != 0
   ControlRegs& operator^=(ControlRegs&& save);
@@ -373,7 +373,7 @@ class OrdCont : public Continuation {
   Ref<Stack> get_stack_ref() const {
     return data.stack;
   }
-  Ref<OrdCont> copy_ord() const & {
+  Ref<OrdCont> copy_ord() const& {
     return Ref<OrdCont>{true, *this};
   }
   Ref<OrdCont> copy_ord() && {

@@ -18,16 +18,15 @@
 */
 #pragma once
 
-#include "rldp.hpp"
-
-#include "tl-utils/tl-utils.hpp"
-#include "adnl/adnl-query.h"
-#include "adnl/adnl-peer-table.h"
-
-#include "td/utils/List.h"
-
 #include <map>
 #include <set>
+
+#include "adnl/adnl-peer-table.h"
+#include "adnl/adnl-query.h"
+#include "td/utils/List.h"
+#include "tl-utils/tl-utils.hpp"
+
+#include "rldp.hpp"
 
 namespace ton {
 
@@ -90,28 +89,36 @@ class RldpIn : public RldpImpl {
 
   void add_id(adnl::AdnlNodeIdShort local_id) override;
 
-  void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id, td::Promise<td::string> promise) override;
+  void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
+                       td::Promise<td::string> promise) override;
 
-  void set_default_mtu(td::uint64 mtu) override;
-
-  RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
+  explicit RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
   }
+
+ protected:
+  void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
+                      td::optional<adnl::AdnlNodeIdShort> peer_id) override;
+
+  void alarm() override;
 
  private:
   std::unique_ptr<adnl::Adnl::Callback> make_adnl_callback();
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
 
-  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::actor::ActorOwn<RldpConnectionActor>>
-      connections_;
+  struct Connection;
+  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, Connection> connections_;
+  std::set<std::tuple<td::Timestamp, adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>> timeout_set_;
 
   std::map<TransferId, td::Promise<td::BufferSlice>> queries_;
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
 
-  td::optional<td::uint64> custom_default_mtu_;
+  td::actor::ActorId<RldpConnectionActor> get_or_create_connection(adnl::AdnlNodeIdShort local_id,
+                                                                   adnl::AdnlNodeIdShort peer_id, bool incoming,
+                                                                   td::Timestamp timeout = {});
 
-  td::actor::ActorId<RldpConnectionActor> create_connection(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst);
+  static constexpr double CONNECTION_TIMEOUT = 120.0;
 };
 
 }  // namespace rldp2

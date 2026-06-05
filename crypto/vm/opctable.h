@@ -17,11 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/dispatch.h"
 #include <functional>
+#include <map>
 #include <utility>
 #include <vector>
-#include <map>
+
+#include "vm/dispatch.h"
 
 namespace vm {
 
@@ -194,13 +195,16 @@ class OpcodeInstrExt : public OpcodeInstr {
 class OpcodeInstrWithVersion : public OpcodeInstr {
  public:
   OpcodeInstrWithVersion() = delete;
-  OpcodeInstrWithVersion(OpcodeInstr* instr, int required_version) :
-      OpcodeInstr(instr->get_opcode_min(), instr->get_opcode_max()), instr(instr), required_version(required_version) {
+  OpcodeInstrWithVersion(OpcodeInstr* instr, int required_version)
+      : OpcodeInstr(instr->get_opcode_min(), instr->get_opcode_max())
+      , instr(instr)
+      , required_version(required_version) {
   }
   ~OpcodeInstrWithVersion() override = default;
   int dispatch(VmState* st, CellSlice& cs, unsigned opcode, unsigned bits) const override;
   std::string dump(CellSlice& cs, unsigned opcode, unsigned bits) const override;
   int instr_len(const CellSlice& cs, unsigned opcode, unsigned bits) const override;
+
  private:
   OpcodeInstr* instr;
   int required_version;

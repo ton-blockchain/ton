@@ -25,18 +25,20 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <iostream>
 #include <iomanip>
+#include <iostream>
 #include <string>
+
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api_json.h"
-#include "tl/tl_json.h"
+#include "dht/dht-node.hpp"
+#include "keys/encryptor.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/filesystem.h"
-#include "keys/encryptor.h"
+#include "tl/tl_json.h"
+
 #include "git.h"
-#include "dht/dht-node.hpp"
 
 int main(int argc, char *argv[]) {
   ton::PrivateKey pk;
@@ -59,7 +61,8 @@ int main(int argc, char *argv[]) {
     std::exit(2);
   });
   p.add_option('V', "version", "shows generate-random-id build information", [&]() {
-    std::cout << "generate-random-id build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+    std::cout << "generate-random-id build information: [ Commit: " << GitMetadata::CommitSHA1()
+              << ", Date: " << GitMetadata::CommitDate() << "]\n";
     std::exit(0);
   });
   p.add_option('n', "name", "path to save private keys to", [&](td::Slice arg) { name = arg.str(); });

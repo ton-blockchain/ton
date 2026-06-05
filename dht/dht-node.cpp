@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "dht-node.hpp"
 #include "keys/encryptor.h"
+
+#include "dht-node.hpp"
 
 namespace ton {
 

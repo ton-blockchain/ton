@@ -25,39 +25,33 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
-#include "http/http-server.h"
-#include "http/http-client.h"
-
-#include "td/utils/port/signals.h"
-#include "td/utils/OptionParser.h"
-#include "td/utils/FileLog.h"
-#include "td/utils/Random.h"
-#include "td/utils/filesystem.h"
-
-#include "auto/tl/ton_api_json.h"
-#include "auto/tl/tonlib_api.hpp"
-
-#include "td/actor/MultiPromise.h"
-
-#include "common/errorcode.h"
-
-#include "tonlib/tonlib/TonlibClient.h"
-
-#include "adnl/adnl.h"
-#include "rldp/rldp.h"
-#include "rldp2/rldp.h"
-#include "dht/dht.h"
-
 #include <algorithm>
 #include <list>
 #include <set>
-#include "git.h"
-#include "td/utils/BufferedFd.h"
-#include "common/delay.h"
-#include "td/utils/port/path.h"
 
+#include "adnl/adnl.h"
+#include "auto/tl/ton_api_json.h"
+#include "auto/tl/tonlib_api.hpp"
+#include "common/delay.h"
+#include "common/errorcode.h"
+#include "dht/dht.h"
+#include "http/http-client.h"
+#include "http/http-server.h"
+#include "rldp/rldp.h"
+#include "rldp2/rldp.h"
+#include "td/actor/MultiPromise.h"
+#include "td/utils/BufferedFd.h"
+#include "td/utils/FileLog.h"
+#include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
+#include "tonlib/tonlib/TonlibClient.h"
 #include "tonlib/tonlib/TonlibClientWrapper.h"
+
 #include "DNSResolver.h"
+#include "git.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -608,7 +602,7 @@ class RldpTcpTunnel : public td::actor::Actor, private td::ObserverBase {
 
   void tear_down() override {
     LOG(INFO) << "RldpTcpTunnel: tear_down";
-    td::actor::SchedulerContext::get()->get_poll().unsubscribe(fd_.get_poll_info().get_pollable_fd_ref());
+    td::actor::SchedulerContext::get().get_poll().unsubscribe(fd_.get_poll_info().get_pollable_fd_ref());
   }
 
   void registered_sender(RegisteredPayloadSenderGuard guard) {
@@ -890,32 +884,6 @@ class RldpHttpProxy : public td::actor::Actor {
     return td::Status::OK();
   }
 
-  void store_dht() {
-    for (auto &serv : hosts_) {
-      if (serv.first != "*") {
-        for (auto &serv_id : server_ids_) {
-          ton::PublicKey key = ton::pubkeys::Unenc{"http." + serv.first};
-          ton::dht::DhtKey dht_key{key.compute_short_id(), "http." + serv.first, 0};
-          auto dht_update_rule = ton::dht::DhtUpdateRuleAnybody::create().move_as_ok();
-          ton::dht::DhtKeyDescription dht_key_description{std::move(dht_key), key, std::move(dht_update_rule),
-                                                          td::BufferSlice()};
-          dht_key_description.check().ensure();
-
-          auto ttl = static_cast<td::uint32>(td::Clocks::system() + 3600);
-          ton::dht::DhtValue dht_value{std::move(dht_key_description), td::BufferSlice{serv_id.as_slice()}, ttl,
-                                       td::BufferSlice("")};
-
-          td::actor::send_closure(dht_, &ton::dht::Dht::set_value, std::move(dht_value), [](td::Unit) {});
-        }
-      }
-    }
-    alarm_timestamp() = td::Timestamp::in(60.0);
-  }
-
-  void alarm() override {
-    store_dht();
-  }
-
   void got_full_id(ton::adnl::AdnlNodeIdShort short_id, ton::adnl::AdnlNodeIdFull full_id) {
     server_ids_full_[short_id] = full_id;
   }
@@ -1004,16 +972,14 @@ class RldpHttpProxy : public td::actor::Actor {
 
       ton::adnl::AdnlAddressList addr_list;
       if (!is_client_) {
-        ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-            ton::create_tl_object<ton::ton_api::adnl_address_udp>(addr_.get_ipv4(), addr_.get_port()));
-        addr_list.add_addr(std::move(x));
+        addr_list.add_udp_adnl_address(addr_).ensure();
       }
       addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
       addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
       {
         auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
         auto pub = pk.compute_public_key();
-        td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
+        td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Result<>) {});
         local_id_ = ton::adnl::AdnlNodeIdShort{pub.compute_short_id()};
         td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, addr_list,
                                 static_cast<td::uint8>(0));
@@ -1025,7 +991,7 @@ class RldpHttpProxy : public td::actor::Actor {
       {
         auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
         auto pub = pk.compute_public_key();
-        td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
+        td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Result<>) {});
         dht_id_ = ton::adnl::AdnlNodeIdShort{pub.compute_short_id()};
         td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub}, addr_list,
                                 static_cast<td::uint8>(0));
@@ -1145,8 +1111,6 @@ class RldpHttpProxy : public td::actor::Actor {
     }
 
     rldp_dispatcher_ = td::actor::create_actor<RldpDispatcher>("RldpDispatcher", rldp_.get(), rldp2_.get());
-
-    store_dht();
   }
 
   void receive_http_request(
@@ -1549,6 +1513,7 @@ void HttpRldpPayloadSender::start_up() {
       [SelfId = actor_id(this)](td::Result<RegisteredPayloadSenderGuard> R) {
         if (R.is_error()) {
           LOG(INFO) << "Failed to register request sender: " << R.move_as_error();
+          return;
         }
         td::actor::send_closure(SelfId, &HttpRldpPayloadSender::registered_sender, R.move_as_ok());
       });
@@ -1583,8 +1548,8 @@ void HttpRldpPayloadSender::start_up() {
 
 void RldpTcpTunnel::start_up() {
   self_ = actor_id(this);
-  td::actor::SchedulerContext::get()->get_poll().subscribe(fd_.get_poll_info().extract_pollable_fd(this),
-                                                           td::PollFlags::ReadWrite());
+  td::actor::SchedulerContext::get().get_poll().subscribe(fd_.get_poll_info().extract_pollable_fd(this),
+                                                          td::PollFlags::ReadWrite());
   td::actor::send_closure(
       proxy_, &RldpHttpProxy::register_payload_sender, id_,
       [SelfId = actor_id(this)](ton::tl_object_ptr<ton::ton_api::http_getNextPayloadPart> f,
@@ -1594,6 +1559,7 @@ void RldpTcpTunnel::start_up() {
       [SelfId = actor_id(this)](td::Result<RegisteredPayloadSenderGuard> R) {
         if (R.is_error()) {
           LOG(INFO) << "Failed to register request sender: " << R.move_as_error();
+          return;
         }
         td::actor::send_closure(SelfId, &RldpTcpTunnel::registered_sender, R.move_as_ok());
       });

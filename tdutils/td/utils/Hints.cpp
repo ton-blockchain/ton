@@ -16,16 +16,15 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/Hints.h"
+#include <algorithm>
 
+#include "td/utils/Hints.h"
+#include "td/utils/Slice.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
-#include "td/utils/Slice.h"
 #include "td/utils/translit.h"
 #include "td/utils/unicode.h"
 #include "td/utils/utf8.h"
-
-#include <algorithm>
 
 namespace td {
 
@@ -53,7 +52,7 @@ vector<string> Hints::get_words(Slice name, bool is_search) {
   auto end = name.uend();
   while (pos != end) {
     uint32 code;
-    pos = next_utf8_unsafe(pos, &code, is_search ? "get_words_search" : "get_words_add");
+    pos = next_utf8_unsafe(pos, &code);
 
     code = prepare_search_character(code);
     if (code == 0) {

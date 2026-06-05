@@ -14,8 +14,11 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include "common/delay.h"
+#include "interfaces/validator-full-id.h"
+#include "ton/ton-io.hpp"
+
 #include "shard-block-retainer.hpp"
-#include <delay.h>
 
 namespace ton::validator {
 
@@ -69,19 +72,19 @@ void ShardBlockRetainer::update_masterchain_state(td::Ref<MasterchainState> stat
         adnl::AdnlNodeIdShort adnl_id{val.addr};
         if (adnl_id.is_zero()) {
           adnl_id = adnl::AdnlNodeIdShort{ValidatorFullId{val.key}.short_id()};
-          validator_adnl_ids_.insert(adnl_id);
         }
+        validator_adnl_ids_.insert(adnl_id);
       }
     }
     LOG(INFO) << "Updating validator set: " << validator_adnl_ids_.size() << " adnl ids";
     for (auto it = subscribers_.begin(); it != subscribers_.end();) {
       if (it->second.is_in_past()) {
-        LOG(INFO) << "Unsubscribed " << it->first.first << " for " << it->first.second.to_str() << " (expired)";
+        LOG(INFO) << "Unsubscribed " << it->first.first << " for " << it->first.second << " (expired)";
         it = subscribers_.erase(it);
         continue;
       }
       if (!validator_adnl_ids_.contains(it->first.first)) {
-        LOG(INFO) << "Unsubscribed " << it->first.first << " for " << it->first.second.to_str() << " (not a validator)";
+        LOG(INFO) << "Unsubscribed " << it->first.first << " for " << it->first.second << " (not a validator)";
         it = subscribers_.erase(it);
         continue;
       }
@@ -112,7 +115,7 @@ void ShardBlockRetainer::new_shard_block_description(td::Ref<ShardTopBlockDescri
       manager_, &ValidatorManager::wait_block_state_short, desc->block_id(), 0, td::Timestamp::in(30.0), true,
       [SelfId = actor_id(this), desc](td::Result<td::Ref<ShardState>> R) {
         if (R.is_error()) {
-          LOG(WARNING) << "Wait block state for " << desc->block_id().to_str() << " : " << R.move_as_error();
+          LOG(WARNING) << "Wait block state for " << desc->block_id() << " : " << R.move_as_error();
           td::actor::send_closure(SelfId, &ShardBlockRetainer::new_shard_block_description, std::move(desc));
           return;
         }
@@ -125,7 +128,7 @@ void ShardBlockRetainer::process_query(adnl::AdnlNodeIdShort src, td::BufferSlic
   TRY_RESULT_PROMISE(promise, query, fetch_tl_object<ton_api::shardBlockVerifier_subscribe>(data, true))
   ShardIdFull shard = create_shard_id(query->shard_);
   if (!shard.is_valid_ext() || shard.is_masterchain()) {
-    promise.set_error(td::Status::Error(PSTRING() << "invalid shard " << shard.to_str()));
+    promise.set_error(td::Status::Error(PSTRING() << "invalid shard " << shard));
     return;
   }
   if (!validator_adnl_ids_.contains(src)) {
@@ -140,7 +143,7 @@ void ShardBlockRetainer::process_query(adnl::AdnlNodeIdShort src, td::BufferSlic
         blocks.push_back(block);
       }
     }
-    LOG(INFO) << "New subscriber " << src << " for " << shard.to_str() << ", sending " << blocks.size() << " blocks";
+    LOG(INFO) << "New subscriber " << src << " for " << shard << ", sending " << blocks.size() << " blocks";
     send_confirmations(src, std::move(blocks));
   }
   ttl = td::Timestamp::in(SUBSCRIPTION_TTL);
@@ -171,7 +174,7 @@ void ShardBlockRetainer::confirm_block(BlockIdExt block_id) {
   size_t sent = 0;
   for (auto it = subscribers_.begin(); it != subscribers_.end();) {
     if (it->second.is_in_past()) {
-      LOG(INFO) << "Unsubscribed " << it->first.first << " for " << it->first.second.to_str() << " (expired)";
+      LOG(INFO) << "Unsubscribed " << it->first.first << " for " << it->first.second << " (expired)";
       it = subscribers_.erase(it);
       continue;
     }
@@ -181,12 +184,12 @@ void ShardBlockRetainer::confirm_block(BlockIdExt block_id) {
     }
     ++it;
   }
-  LOG(INFO) << "Confirmed block " << block_id.to_str() << ", sending " << sent << " confirmations";
+  LOG(INFO) << "Confirmed block " << block_id << ", sending " << sent << " confirmations";
 }
 
 void ShardBlockRetainer::got_block_from_db(BlockIdExt block_id) {
   if (!is_block_outdated(block_id)) {
-    LOG(INFO) << "Loaded confirmed block from DB: " << block_id.to_str();
+    LOG(INFO) << "Loaded confirmed block from DB: " << block_id;
     confirm_block(block_id);
   }
 }

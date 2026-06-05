@@ -3,7 +3,7 @@ fun alwaysThrows(): never {
 }
 
 fun testUnreachable(x: int) {
-    if (x) { throw 123; }
+    if (x != 0) { throw 123; }
     else { alwaysThrows(); }
     return 1;
 }

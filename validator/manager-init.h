@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "interfaces/validator-manager.h"
 #include "interfaces/db.h"
+#include "interfaces/validator-manager.h"
+
 #include "shard-client.hpp"
 
 namespace ton {

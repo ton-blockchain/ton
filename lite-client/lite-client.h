@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,29 +14,30 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "ext-client.h"
 #include "adnl/adnl-ext-client.h"
-#include "tl-utils/tl-utils.hpp"
-#include "ton/ton-types.h"
-#include "terminal/terminal.h"
-#include "vm/cells.h"
-#include "vm/stack.hpp"
+#include "auto/tl/lite_api.h"
 #include "block/block.h"
 #include "block/mc-config.h"
 #include "td/utils/filesystem.h"
-#include "auto/tl/lite_api.h"
+#include "terminal/terminal.h"
+#include "tl-utils/tl-utils.hpp"
+#include "ton/ton-types.h"
+#include "vm/cells.h"
+#include "vm/stack.hpp"
+
+#include "ext-client.h"
 
 using td::Ref;
 
@@ -45,7 +46,9 @@ class TestNode : public td::actor::Actor {
   std::string global_config_ = "ton-global.config";
   enum {
     min_ls_version = 0x101,
-    min_ls_capabilities = 1
+    min_ls_capabilities = 1,
+    masterchain_info_ext_capability = 2,
+    shard_client_state_masterchain_info_capability = 8
   };  // server version >= 1.1, capabilities at least +1 = build proof chains
   td::actor::ActorOwn<liteclient::ExtClient> client_;
   td::actor::ActorOwn<td::TerminalIO> io_;
@@ -143,7 +146,7 @@ class TestNode : public td::actor::Actor {
     ton::LogicalTime end_lt{0};
     ton::Bits256 vset_hash;
     Ref<vm::Cell> vset_root;
-    std::shared_ptr<block::ValidatorSet> vset;
+    std::shared_ptr<block::TotalValidatorSet> vset;
     std::map<ton::Bits256, int> vset_map;
     int special_idx{-1};
     std::pair<td::int64, td::int64> created_total, created_special;
@@ -178,9 +181,13 @@ class TestNode : public td::actor::Actor {
   bool get_server_version(int mode = 0);
   void got_server_version(td::Result<td::BufferSlice> res, int mode);
   bool get_server_mc_block_id();
+  bool get_server_shard_client_mc_block_id();
   void got_server_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int created_at);
   void got_server_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int mode, int version,
                                   long long capabilities, int last_utime, int server_now);
+  void got_server_shard_client_state_mc_block_id(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int created_at);
+  void got_server_shard_client_state_mc_block_id_ext(ton::BlockIdExt blkid, ton::ZeroStateIdExt zstateid, int version,
+                                                     long long capabilities, int last_utime, int server_now);
   void set_mc_server_version(td::int32 version, td::int64 capabilities);
   void set_mc_server_time(int server_utime);
   bool request_block(ton::BlockIdExt blkid);
@@ -287,14 +294,14 @@ class TestNode : public td::actor::Actor {
   struct LoadValidatorShardSharesState {
     ton::BlockSeqno start_seqno;
     ton::BlockSeqno end_seqno;
-    block::ValidatorSet validator_set;
+    block::TotalValidatorSet validator_set;
     std::unique_ptr<block::CatchainValidatorsConfig> catchain_config;
     std::vector<block::ShardConfig> shard_configs;
     td::uint32 cur_idx = 0, pending = 0, loaded = 0;
     td::Promise<std::map<td::Bits256, td::uint64>> promise;
   };
   void load_validator_shard_shares(ton::BlockSeqno start_seqno, ton::BlockSeqno end_seqno,
-                                   block::ValidatorSet validator_set,
+                                   block::TotalValidatorSet validator_set,
                                    std::unique_ptr<block::CatchainValidatorsConfig> catchain_config,
                                    td::Promise<std::map<td::Bits256, td::uint64>> promise);
   void load_validator_shard_shares_cont(std::shared_ptr<LoadValidatorShardSharesState> state);
@@ -453,7 +460,7 @@ class TestNode : public td::actor::Actor {
   }
   void tear_down() override {
     // FIXME: do not work in windows
-    //td::actor::SchedulerContext::get()->stop();
+    //td::actor::SchedulerContext::get().stop();
   }
 
   void got_result(td::Result<td::BufferSlice> R, td::Promise<td::BufferSlice> promise);

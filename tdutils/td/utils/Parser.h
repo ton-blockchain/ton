@@ -18,14 +18,12 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/format.h"
-#include "td/utils/logging.h"
-#include "td/utils/Slice.h"
-#include "td/utils/Status.h"
-
 #include <cstring>
 #include <utility>
+
+#include "td/utils/Slice.h"
+#include "td/utils/Status.h"
+#include "td/utils/common.h"
 
 namespace td {
 
@@ -36,10 +34,10 @@ class ParserImpl {
  public:
   explicit ParserImpl(SliceT data) : ptr_(data.begin()), end_(data.end()), status_() {
   }
-  ParserImpl(ParserImpl &&other) : ptr_(other.ptr_), end_(other.end_), status_(std::move(other.status_)) {
+  ParserImpl(ParserImpl &&other) noexcept : ptr_(other.ptr_), end_(other.end_), status_(std::move(other.status_)) {
     other.clear();
   }
-  ParserImpl &operator=(ParserImpl &&other) {
+  ParserImpl &operator=(ParserImpl &&other) noexcept {
     if (&other == this) {
       return *this;
     }
@@ -111,7 +109,7 @@ class ParserImpl {
     }
     SliceT res = read_till_nofail(c);
     if (ptr_ == end_ || ptr_[0] != c) {
-      status_ = Status::Error(PSLICE() << "Read till " << tag("char", c) << " failed");
+      status_ = Status::Error(PSLICE() << "Read till '" << c << "' failed");
       return SliceT();
     }
     return res;
@@ -138,7 +136,7 @@ class ParserImpl {
       return;
     }
     if (ptr_ == end_ || ptr_[0] != c) {
-      status_ = Status::Error(PSLICE() << "Skip " << tag("char", c) << " failed");
+      status_ = Status::Error(PSLICE() << "Skip '" << c << "' failed");
       return;
     }
     ptr_++;
@@ -149,6 +147,14 @@ class ParserImpl {
       return true;
     }
     return false;
+  }
+
+  bool try_skip(Slice prefix) {
+    if (prefix.size() > static_cast<size_t>(end_ - ptr_) || prefix != Slice(ptr_, prefix.size())) {
+      return false;
+    }
+    advance(prefix.size());
+    return true;
   }
 
   void skip_till_not(Slice str) {

@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,29 +14,28 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl/adnl.h"
-#include "dht/dht.h"
+#pragma once
 
-#include "td/actor/MultiPromise.h"
-
-#include "ton/ton-types.h"
-
-#include "auto/tl/ton_api_json.h"
-#include "auto/tl/ton_api.hpp"
-
-#include <set>
 #include <map>
+#include <set>
+
+#include "adnl/adnl.h"
+#include "auto/tl/ton_api.hpp"
+#include "auto/tl/ton_api_json.h"
+#include "dht/dht.h"
+#include "td/actor/MultiPromise.h"
+#include "ton/ton-types.h"
 
 enum DhtServerPermissions : td::uint32 { vep_default = 1, vep_modify = 2, vep_unsafe = 4 };
 
@@ -52,7 +51,6 @@ struct Config {
   };
   struct AddrCats {
     td::IPAddress in_addr;
-    std::shared_ptr<ton::adnl::AdnlProxy> proxy;
     std::set<AdnlCategory> cats;
     std::set<AdnlCategory> priority_cats;
   };
@@ -75,8 +73,7 @@ struct Config {
   }
 
   td::Result<bool> config_add_network_addr(td::IPAddress in_addr, td::IPAddress out_addr,
-                                           std::shared_ptr<ton::adnl::AdnlProxy> proxy, std::vector<AdnlCategory> cats,
-                                           std::vector<AdnlCategory> prio_cats);
+                                           std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats);
   td::Result<bool> config_add_adnl_addr(ton::PublicKeyHash addr, AdnlCategory cat);
   td::Result<bool> config_add_dht_node(ton::PublicKeyHash id);
   td::Result<bool> config_add_control_interface(ton::PublicKeyHash key, td::int32 port);

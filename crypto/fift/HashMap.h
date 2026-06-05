@@ -16,8 +16,8 @@
 */
 #pragma once
 #include "common/refcnt.hpp"
-#include "vm/stack.hpp"
 #include "vm/atom.h"
+#include "vm/stack.hpp"
 
 namespace fift {
 

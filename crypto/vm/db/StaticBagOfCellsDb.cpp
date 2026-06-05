@@ -16,19 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/db/StaticBagOfCellsDb.h"
+#include <limits>
 
-#include "vm/boc.h"
-
-#include "vm/cells/ExtCell.h"
-
+#include "td/utils/ConcurrentHashTable.h"
 #include "td/utils/crypto.h"
 #include "td/utils/format.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/RwMutex.h"
-#include "td/utils/ConcurrentHashTable.h"
-
-#include <limits>
+#include "vm/boc.h"
+#include "vm/cells/ExtCell.h"
+#include "vm/db/StaticBagOfCellsDb.h"
 
 namespace vm {
 //
@@ -39,17 +36,17 @@ class RootCell : public Cell {
   struct PrivateTag {};
 
  public:
-  td::Status set_data_cell(Ref<DataCell> &&data_cell) const override {
+  td::Status set_data_cell(Ref<DataCell>&& data_cell) const override {
     return cell_->set_data_cell(std::move(data_cell));
   }
   td::Result<LoadedCell> load_cell() const override {
     return cell_->load_cell();
   }
-  Ref<Cell> virtualize(VirtualizationParameters virt) const override {
-    return cell_->virtualize(virt);
+  Ref<Cell> virtualize(td::uint32 effective_level) const override {
+    return cell_->virtualize(effective_level);
   }
-  td::uint32 get_virtualization() const override {
-    return cell_->get_virtualization();
+  bool is_virtualized() const override {
+    return cell_->is_virtualized();
   }
   CellUsageTree::NodePtr get_tree_node() const override {
     return cell_->get_tree_node();
@@ -198,10 +195,7 @@ td::Result<std::shared_ptr<StaticBagOfCellsDb>> StaticBagOfCellsDbBaseline::crea
 
 td::Result<std::shared_ptr<StaticBagOfCellsDb>> StaticBagOfCellsDbBaseline::create(td::Slice data) {
   BagOfCells boc;
-  TRY_RESULT(x, boc.deserialize(data));
-  if (x <= 0) {
-    return td::Status::Error("failed to deserialize");
-  }
+  TRY_STATUS(boc.deserialize(data));
   std::vector<Ref<Cell>> roots(boc.get_root_count());
   for (int i = 0; i < boc.get_root_count(); i++) {
     roots[i] = boc.get_root_cell(i);
@@ -281,7 +275,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
   }
   template <class T>
   T check_result(T&& to_check) {
-    CHECK(status_.is_ok());
+    CHECK(!has_error_.load());
     if (to_check.is_error()) {
       std::lock_guard<std::mutex> guard(status_mutex_);
       has_error_.store(true);
@@ -371,12 +365,14 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     }
     if (std::numeric_limits<std::size_t>::max() - res.begin < info_.data_offset ||
         std::numeric_limits<std::size_t>::max() - res.end < info_.data_offset) {
-      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid cell location (1) " << res.begin << ":" << res.end);
+      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid cell location (1) " << res.begin << ":"
+                                         << res.end);
     }
     res.begin += static_cast<std::size_t>(info_.data_offset);
     res.end += static_cast<std::size_t>(info_.data_offset);
     if (res.begin > res.end) {
-      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid cell location (2) " << res.begin << ":" << res.end);
+      return td::Status::Error(PSTRING() << "bag-of-cell error: invalid cell location (2) " << res.begin << ":"
+                                         << res.end);
     }
     return res;
   }
@@ -391,8 +387,8 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     if (parse_res <= 0) {
       return td::Status::Error("bag-of-cell error: failed to read header");
     }
-    if (info_.total_size < data_.size()) {
-      return td::Status::Error("bag-of-cell error: not enough data");
+    if (info_.total_size != data_.size()) {
+      return td::Status::Error("bag-of-cell error: wrong data size");
     }
     if (options_.check_crc32c && info_.has_crc32c) {
       std::string buf(td::narrow_cast<std::size_t>(info_.total_size), '\0');

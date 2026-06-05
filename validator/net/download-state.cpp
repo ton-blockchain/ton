@@ -16,10 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "download-state.hpp"
-#include "ton/ton-tl.hpp"
-#include "ton/ton-io.hpp"
 #include "td/utils/overloaded.h"
+#include "ton/ton-io.hpp"
+#include "ton/ton-tl.hpp"
+
+#include "download-state.hpp"
 #include "full-node.h"
 
 namespace ton {
@@ -55,7 +56,7 @@ DownloadState::DownloadState(BlockIdExt block_id, BlockIdExt masterchain_block_i
 
 void DownloadState::abort_query(td::Status reason) {
   if (promise_) {
-    LOG(WARNING) << "failed to download state " << block_id_.to_str() << " from " << download_from_ << ": " << reason;
+    LOG(WARNING) << "failed to download state " << block_id_ << " from " << download_from_ << ": " << reason;
     promise_.set_error(std::move(reason));
   }
   stop();
@@ -80,7 +81,7 @@ void DownloadState::start_up() {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &DownloadState::get_block_handle);
     } else {
-      LOG(WARNING) << "got block state from disk: " << block_id.to_str();
+      LOG(WARNING) << "got block state from disk: " << block_id;
       td::actor::send_closure(SelfId, &DownloadState::got_block_state, R.move_as_ok());
     }
   };
@@ -131,7 +132,7 @@ void DownloadState::got_block_handle(BlockHandle handle) {
 
 void DownloadState::got_node_to_download(adnl::AdnlNodeIdShort node) {
   download_from_ = node;
-  LOG(WARNING) << "downloading state " << block_id_.to_str() << " ("
+  LOG(WARNING) << "downloading state " << block_id_ << " ("
                << persistent_state_type_to_string(block_id_.shard_full(), type_) << ") from " << download_from_;
 
   td::Promise<td::BufferSlice> P;
@@ -209,13 +210,13 @@ void DownloadState::got_block_state_description(td::BufferSlice data) {
             if (client_.empty()) {
               td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_,
                                       overlay_id_, "download state", std::move(P), td::Timestamp::in(3.0),
-                                      std::move(query), FullNode::max_state_size(), rldp_);
+                                      std::move(query), FullNode::max_zerostate_size(), rldp_);
             } else {
               td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "download state",
                                       create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
                                       td::Timestamp::in(3.0), std::move(P));
             }
-            status_.set_status(PSTRING() << block_id_.id.to_str() << " : download started");
+            status_.set_status(PSTRING() << block_id_.id << " : download started");
           }));
 }
 
@@ -250,19 +251,12 @@ void DownloadState::request_total_size() {
     td::actor::send_closure(SelfId, &DownloadState::got_total_size, res.ok()->size_);
   });
 
-  td::BufferSlice query;
-  if (effective_shard_ == 0) {
-    query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSize>(
-        create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_));
-  } else {
-    query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSizeV2>(
-        create_tl_object<ton_api::tonNode_persistentStateIdV2>(
-            create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_));
-  }
+  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getPersistentStateSizeV2>(
+      create_tl_object<ton_api::tonNode_persistentStateIdV2>(
+          create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_));
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "get size", std::move(P), td::Timestamp::in(3.0), std::move(query),
-                            FullNode::max_state_size(), rldp_);
+                            "get size", std::move(P), td::Timestamp::in(3.0), std::move(query), 1024, rldp_);
   } else {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "get size",
                             create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
@@ -297,13 +291,13 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
       }
     }
     sb << ")";
-    LOG(WARNING) << "downloading state " << block_id_.to_str() << " : " << sb.as_cslice();
-    status_.set_status(PSTRING() << block_id_.id.to_str() << " : " << sb.as_cslice());
+    LOG(WARNING) << "downloading state " << block_id_ << " : " << sb.as_cslice();
+    status_.set_status(PSTRING() << block_id_.id << " : " << sb.as_cslice());
     prev_logged_sum_ = sum_;
   }
 
   if (last_part) {
-    status_.set_status(PSTRING() << block_id_.id.to_str() << " : " << sum_ << " bytes, finishing");
+    status_.set_status(PSTRING() << block_id_.id << " : " << sum_ << " bytes, finishing");
     td::BufferSlice res{td::narrow_cast<std::size_t>(sum_)};
     auto S = res.as_slice();
     for (auto &p : parts_) {
@@ -325,20 +319,14 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
     }
   });
 
-  td::BufferSlice query;
-  if (effective_shard_ == 0) {
-    query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSlice>(
-        create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), sum_, part_size);
-  } else {
-    query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSliceV2>(
-        create_tl_object<ton_api::tonNode_persistentStateIdV2>(
-            create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_),
-        sum_, part_size);
-  }
+  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_downloadPersistentStateSliceV2>(
+      create_tl_object<ton_api::tonNode_persistentStateIdV2>(
+          create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_),
+      sum_, part_size);
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "download state", std::move(P), td::Timestamp::in(20.0), std::move(query),
-                            FullNode::max_state_size(), rldp_);
+                            "download state", std::move(P), td::Timestamp::in(20.0), std::move(query), part_size + 1024,
+                            rldp_);
   } else {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "download state",
                             create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
@@ -348,7 +336,7 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
 
 void DownloadState::got_block_state(td::BufferSlice data) {
   state_ = std::move(data);
-  LOG(WARNING) << "finished downloading state " << block_id_.to_str() << ": " << td::format::as_size(state_.size());
+  LOG(WARNING) << "finished downloading state " << block_id_ << ": " << td::format::as_size(state_.size());
   finish_query();
 }
 

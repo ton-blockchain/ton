@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-packet.h"
 #include "td/utils/Random.h"
+
+#include "adnl-packet.h"
 
 namespace ton {
 
@@ -56,7 +57,7 @@ td::Result<AdnlPacket> AdnlPacket::create(tl_object_ptr<ton_api::adnl_packetCont
     R.addr_ = std::move(addr_list);
   }
   if (R.flags_ & Flags::f_priority_address) {
-    TRY_RESULT(addr_list, AdnlAddressList::create(std::move(packet->address_)));
+    TRY_RESULT(addr_list, AdnlAddressList::create(std::move(packet->priority_address_)));
     R.priority_addr_ = std::move(addr_list);
   }
   if (R.flags_ & Flags::f_seqno) {

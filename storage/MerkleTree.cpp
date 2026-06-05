@@ -17,15 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "MerkleTree.h"
-
 #include "common/bitstring.h"
 #include "td/utils/UInt.h"
-
 #include "vm/cells/CellSlice.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cellslice.h"
 #include "vm/excno.hpp"
+
+#include "MerkleTree.h"
 
 namespace ton {
 static td::Result<td::Ref<vm::Cell>> unpack_proof(td::Ref<vm::Cell> root) {
@@ -68,9 +67,12 @@ MerkleTree::MerkleTree(std::vector<td::Bits256> hashes) : pieces_count_(hashes.s
   root_proof_ = vm::CellBuilder::create_merkle_proof(std::move(root));
 }
 
-static td::Status do_validate_proof(td::Ref<vm::Cell> node, size_t depth) {
+static td::Status do_validate_proof(td::Ref<vm::Cell> node, size_t depth, td::HashSet<vm::Cell::Hash> &visited) {
   if (node->get_depth(0) != depth) {
     return td::Status::Error("Depth mismatch");
+  }
+  if (!visited.insert(node->get_hash()).second) {
+    return td::Status::OK();
   }
   vm::CellSlice cs(vm::NoVm(), std::move(node));
   if (cs.is_special()) {
@@ -93,8 +95,8 @@ static td::Status do_validate_proof(td::Ref<vm::Cell> node, size_t depth) {
     if (cs.size_refs() != 2) {
       return td::Status::Error("Node in proof must have two refs");
     }
-    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1));
-    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1));
+    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1, visited));
+    TRY_STATUS(do_validate_proof(cs.fetch_ref(), depth - 1, visited));
   }
   return td::Status::OK();
 }
@@ -107,14 +109,12 @@ td::Status MerkleTree::add_proof(td::Ref<vm::Cell> proof) {
   if (root_hash_ != proof_raw->get_hash(0).bits()) {
     return td::Status::Error("Root hash mismatch");
   }
-  TRY_STATUS(do_validate_proof(proof_raw, depth_));
+  td::HashSet<vm::Cell::Hash> visited;
+  TRY_STATUS(do_validate_proof(proof_raw, depth_, visited));
   if (root_proof_.is_null()) {
     root_proof_ = std::move(proof);
   } else {
-    auto combined = vm::MerkleProof::combine_fast(root_proof_, std::move(proof));
-    if (combined.is_null()) {
-      return td::Status::Error("Can't combine proofs");
-    }
+    TRY_RESULT(combined, vm::MerkleProof::combine_fast(root_proof_, std::move(proof)));
     root_proof_ = std::move(combined);
   }
   return td::Status::OK();
@@ -174,12 +174,10 @@ td::Result<td::Ref<vm::Cell>> MerkleTree::gen_proof(size_t l, size_t r) const {
     return td::Status::Error("Got no proofs yet");
   }
   auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto root_raw = vm::MerkleProof::virtualize(root_proof_, 1);
+  TRY_RESULT(root_raw, vm::MerkleProof::virtualize(root_proof_));
   auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
   TRY_STATUS(TRY_VM(do_gen_proof(std::move(usage_cell), 0, n_ - 1, l, r)));
-  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());
-  CHECK(res.not_null());
-  return res;
+  return vm::MerkleProof::generate(root_raw, usage_tree.get());
 }
 
 static void do_gen_proof(td::Ref<vm::Cell> node, td::Ref<vm::Cell> node_raw, size_t depth_limit) {
@@ -202,11 +200,10 @@ td::Ref<vm::Cell> MerkleTree::get_root(size_t depth_limit) const {
     return root_proof_;
   }
   auto usage_tree = std::make_shared<vm::CellUsageTree>();
-  auto root_raw = vm::MerkleProof::virtualize(root_proof_, 1);
+  auto root_raw = vm::MerkleProof::virtualize(root_proof_).ensure().move_as_ok();
   auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
   do_gen_proof(std::move(usage_cell), unpack_proof(root_proof_).move_as_ok(), depth_limit);
-  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get());
-  CHECK(res.not_null());
+  auto res = vm::MerkleProof::generate(root_raw, usage_tree.get()).ensure().move_as_ok();
   return res;
 }
 

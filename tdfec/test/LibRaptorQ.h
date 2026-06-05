@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/utils/buffer.h"
 #include "td/fec/fec.h"
+#include "td/utils/buffer.h"
 
 namespace td {
 namespace fec {

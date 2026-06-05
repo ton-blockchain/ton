@@ -18,12 +18,12 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/Slice.h"
-
 #include <map>
 #include <unordered_map>
 #include <utility>
+
+#include "td/utils/Slice.h"
+#include "td/utils/common.h"
 
 namespace td {
 

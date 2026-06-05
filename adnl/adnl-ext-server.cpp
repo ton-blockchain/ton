@@ -16,8 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-ext-server.hpp"
 #include "keys/encryptor.h"
+
+#include "adnl-ext-server.hpp"
 #include "utils.hpp"
 
 namespace ton {
@@ -65,9 +66,10 @@ void AdnlInboundConnection::inited_crypto(td::Result<td::BufferSlice> R) {
     stop();
     return;
   }
-  auto S = init_crypto(R.move_as_ok().as_slice());
+  auto init_data = R.move_as_ok();
+  auto S = init_crypto(init_data.as_slice());
   if (S.is_error()) {
-    LOG(ERROR) << "failed to init crypto (2): " << R.move_as_error();
+    LOG(ERROR) << "failed to init crypto (2): " << S;
     stop();
     return;
   }
@@ -94,6 +96,9 @@ td::Status AdnlInboundConnection::process_custom_packet(td::BufferSlice &data, b
         return td::Status::Error(ErrorCode::protoviolation, "duplicate authenticate");
       }
       auto f = F.move_as_ok();
+      if (f->nonce_.size() == 0 || f->nonce_.size() > 512) {
+        return td::Status::Error(ErrorCode::protoviolation, "bad nonce size");
+      }
       nonce_ = td::SecureString{f->nonce_.size() + 256};
       nonce_.as_mutable_slice().truncate(f->nonce_.size()).copy_from(f->nonce_.as_slice());
       td::Random::secure_bytes(nonce_.as_mutable_slice().remove_prefix(f->nonce_.size()));
@@ -128,18 +133,26 @@ td::Status AdnlInboundConnection::process_custom_packet(td::BufferSlice &data, b
   return td::Status::OK();
 }
 
-void AdnlExtServerImpl::add_tcp_port(td::uint16 port) {
+void AdnlExtServerImpl::add_tcp_port(td::uint16 port, td::Promise<td::Unit> promise) {
   auto it = listeners_.find(port);
   if (it != listeners_.end()) {
+    promise.set_value(td::Unit());
     return;
   }
 
   class Callback : public td::TcpListener::Callback {
    private:
     td::actor::ActorId<AdnlExtServerImpl> id_;
+    td::Promise<td::Unit> promise_;
 
    public:
-    Callback(td::actor::ActorId<AdnlExtServerImpl> id) : id_(id) {
+    Callback(td::actor::ActorId<AdnlExtServerImpl> id, td::Promise<td::Unit> promise)
+        : id_(id), promise_(std::move(promise)) {
+    }
+    void on_bind() override {
+      if (promise_) {
+        promise_.set_value(td::Unit());
+      }
     }
     void accept(td::SocketFd fd) override {
       td::actor::send_closure(id_, &AdnlExtServerImpl::accepted, std::move(fd));
@@ -147,7 +160,8 @@ void AdnlExtServerImpl::add_tcp_port(td::uint16 port) {
   };
 
   auto act = td::actor::create_actor<td::TcpInfiniteListener>(
-      td::actor::ActorOptions().with_name("listener").with_poll(), port, std::make_unique<Callback>(actor_id(this)));
+      td::actor::ActorOptions().with_name("listener").with_poll(), port,
+      std::make_unique<Callback>(actor_id(this), std::move(promise)));
   listeners_.emplace(port, std::move(act));
 }
 
@@ -171,10 +185,11 @@ void AdnlExtServerImpl::decrypt_init_packet(AdnlNodeIdShort dst, td::BufferSlice
   }
 }
 
-td::actor::ActorOwn<AdnlExtServer> AdnlExtServerCreator::create(td::actor::ActorId<AdnlPeerTable> adnl,
-                                                                std::vector<AdnlNodeIdShort> ids,
-                                                                std::vector<td::uint16> ports) {
-  return td::actor::create_actor<AdnlExtServerImpl>("extserver", adnl, std::move(ids), std::move(ports));
+void AdnlExtServerCreator::create(td::actor::ActorId<AdnlPeerTable> adnl, std::vector<AdnlNodeIdShort> ids,
+                                  std::vector<td::uint16> ports,
+                                  td::Promise<td::actor::ActorOwn<AdnlExtServer>> promise) {
+  td::actor::create_actor<AdnlExtServerImpl>("extserver", adnl, std::move(ids), std::move(ports), std::move(promise))
+      .release();
 }
 
 }  // namespace adnl

@@ -1,8 +1,8 @@
 # Generation of Tonlib libraries for Android OS
 **Tl;dr** Download the latest version of Tonlib libraries for Android from TON release page or check the artifacts from [Android JNI GitHub action](https://github.com/ton-blockchain/ton/actions/workflows/tonlib-android-jni.yml).
 
-## Compile Tonlib for Android manually 
-Prerequisite: installed Java and set environment variable JAVA_HOME. 
+## Compile Tonlib for Android manually
+Prerequisite: installed Java and set environment variable JAVA_HOME.
 ```bash
 git clone --recursive https://github.com/ton-blockchain/ton.git
 cd ton

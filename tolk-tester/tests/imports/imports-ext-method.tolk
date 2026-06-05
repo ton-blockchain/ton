@@ -1,0 +1,1 @@
+import "./has-ext-method"

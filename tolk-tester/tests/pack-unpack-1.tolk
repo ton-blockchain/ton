@@ -19,7 +19,7 @@ fun test1(value: int) {
     var t2 = c.load();
     __expect_type(c, "Cell<JustInt32>");
     __expect_type(t2, "JustInt32");
-    if (0) {
+    if (false) {
         var rawCell: cell = c;           // Cell<Something> is assignable to raw cell
         contract.setData(t.toCell());    // (for this purpose, since we don't have overloads)
     }
@@ -98,11 +98,25 @@ fun test8(): cell | int {
     }
 }
 
+struct RecursiveWithNestedCell {
+    value: int8
+    withCell: Cell<(RecursiveWithNestedCell, int8)>?
+}
+
+@method_id(109)
+fun test9() {
+    val inner: RecursiveWithNestedCell = { value: 10, withCell: null };
+    val outer: RecursiveWithNestedCell = { value: 20, withCell: (inner, 30 as int8).toCell() };
+    val loaded = outer.toCell().load();
+    val (loadedInner, loadedTail) = loaded.withCell!.load();
+    return (loaded.value, loadedInner.value, loadedTail, loadedInner.withCell == null);
+}
+
 fun main(c: cell) {
     c as Cell<Point>;
     (c as Cell<Point>) as cell;
     (c as Cell<Point?>) as cell?;
-    __expect_type((c as Cell<Point?>?)!, "Cell<Point?>");
+    __expect_type((c as Cell<Point?> as Cell<Point?>?)!, "Cell<Point?>");
     c = c as Cell<Point>;           // Cell<T> implicitly converts to cell
 }
 
@@ -118,17 +132,15 @@ fun main(c: cell) {
 @testcase | 107 | x{2}          | 5 1
 @testcase | 107 | x{0234}       | 6 16
 @testcase | 108 |               | 5 1
+@testcase | 109 |               | 20 10 30 -1
 
 @fif_codegen
 """
   test3() PROC:<{
-    NEWC
-    x{0000000a00000014} STSLICECONST  //  b
-    ENDC                        //  c
-    CTOS                        //  s
+    x{0000000a00000014} PUSHSLICE  //  '15
     64 LDU
     NIP                         //  s
-    SBITS                       //  '17
+    SBITS                       //  '18
   }>
 """
 

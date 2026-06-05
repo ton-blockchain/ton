@@ -17,10 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "td/utils/Status.h"
-
 #include "td/fec/algebra/MatrixGF256.h"
 #include "td/fec/algebra/SparseMatrixGF2.h"
+#include "td/utils/Status.h"
 
 namespace td {
 namespace raptorq {
@@ -69,7 +68,7 @@ class Rfc {
       while (t.b1 >= P)
         t.b1 = (t.b1 + t.a1) % P1;
       f(W + t.b1);
-      for (uint16 j = 1; j < t.d1; ++j) {
+      for (uint32 j = 1; j < t.d1; ++j) {
         t.b1 = (t.b1 + t.a1) % P1;
         while (t.b1 >= P)
           t.b1 = (t.b1 + t.a1) % P1;

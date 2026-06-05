@@ -16,11 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/common.h"
-#include "td/utils/SharedObjectPool.h"
-#include "td/utils/tests.h"
-
 #include <memory>
+
+#include "td/utils/SharedObjectPool.h"
+#include "td/utils/common.h"
+#include "td/utils/tests.h"
 
 TEST(AtomicRefCnt, simple) {
   td::detail::AtomicRefCnt cnt{0};
@@ -101,15 +101,27 @@ TEST(SharedObjectPool, simple) {
   };
   {
     td::SharedObjectPool<Node> pool;
-    { auto ptr1 = pool.alloc(); }
-    { auto ptr2 = pool.alloc(); }
-    { auto ptr3 = pool.alloc(); }
-    { auto ptr4 = pool.alloc(); }
-    { auto ptr5 = pool.alloc(); }
+    {
+      auto ptr1 = pool.alloc();
+    }
+    {
+      auto ptr2 = pool.alloc();
+    }
+    {
+      auto ptr3 = pool.alloc();
+    }
+    {
+      auto ptr4 = pool.alloc();
+    }
+    {
+      auto ptr5 = pool.alloc();
+    }
     CHECK(Node::cnt() == 0);
     CHECK(pool.total_size() == 1);
     CHECK(pool.calc_free_size() == 1);
-    { auto ptr6 = pool.alloc(), ptr7 = pool.alloc(), ptr8 = pool.alloc(); }
+    {
+      auto ptr6 = pool.alloc(), ptr7 = pool.alloc(), ptr8 = pool.alloc();
+    }
     CHECK(pool.total_size() == 3);
     CHECK(pool.calc_free_size() == 3);
   }

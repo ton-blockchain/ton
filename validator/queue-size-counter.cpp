@@ -14,12 +14,14 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "queue-size-counter.hpp"
 #include "block/block-auto.h"
 #include "block/block-parse.h"
 #include "common/delay.h"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/Random.h"
+#include "ton/ton-io.hpp"
+
+#include "queue-size-counter.hpp"
 
 namespace ton::validator {
 
@@ -256,7 +258,7 @@ void QueueSizeCounter::get_queue_size_ex_retry(BlockIdExt block_id, bool calc_wh
   get_queue_size_ex(block_id, calc_whole,
                     [=, promise = std::move(promise), SelfId = actor_id(this)](td::Result<td::uint64> R) mutable {
                       if (R.is_error()) {
-                        LOG(WARNING) << "Failed to calculate queue size for block " << block_id.to_str() << ": "
+                        LOG(WARNING) << "Failed to calculate queue size for block " << block_id << ": "
                                      << R.move_as_error();
                         delay_action(
                             [=, promise = std::move(promise)]() mutable {

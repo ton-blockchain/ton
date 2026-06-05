@@ -17,15 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "TorrentCreator.h"
-
 #include "td/db/utils/CyclicBuffer.h"
-
-#include "td/utils/crypto.h"
 #include "td/utils/PathView.h"
+#include "td/utils/crypto.h"
 #include "td/utils/port/path.h"
 #include "td/utils/tl_helpers.h"
+
 #include "MicrochunkTree.h"
+#include "TorrentCreator.h"
 #include "TorrentHeader.hpp"
 
 namespace ton {
@@ -53,7 +52,7 @@ td::Result<Torrent> Torrent::Creator::create_from_path(Options options, td::CSli
     Torrent::Creator creator(options);
     td::Status status;
     auto walk_status = td::WalkPath::run(path, [&](td::CSlice name, td::WalkPath::Type type) {
-      if (type == td::WalkPath::Type::NotDir) {
+      if (type == td::WalkPath::Type::RegularFile) {
         std::string rel_name = td::PathView::relative(name, path).str();
         td::Slice file_name = rel_name;
         for (size_t i = 0; i < rel_name.size(); ++i) {

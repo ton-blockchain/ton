@@ -17,8 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "vm/cells.h"
 #include "block/block.h"
+#include "vm/cells.h"
+
 #include "Ed25519.h"
 #include "SmartContract.h"
 

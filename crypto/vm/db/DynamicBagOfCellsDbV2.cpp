@@ -1,18 +1,15 @@
-#include "vm/db/DynamicBagOfCellsDb.h"
-#include "vm/db/CellStorage.h"
-#include "vm/db/CellHashTable.h"
+#include <optional>
 
-#include "vm/cells/ExtCell.h"
-
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/base64.h"
 #include "td/utils/format.h"
-#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/misc.h"
 #include "validator/validator.h"
-
+#include "vm/cells/ExtCell.h"
 #include "vm/cellslice.h"
-
-#include <optional>
+#include "vm/db/CellHashTable.h"
+#include "vm/db/CellStorage.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
 namespace vm {
 namespace {
@@ -770,9 +767,9 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     std::vector<std::pair<std::string, std::string>> result;
     auto s = cell_db_reader_->key_value_reader().for_each_in_range(
         "desc", "desd", [&](const td::Slice &key, const td::Slice &value) {
-           if (result.size() >= max_count) {
-             return td::Status::Error("COUNT_LIMIT");
-           }
+          if (result.size() >= max_count) {
+            return td::Status::Error("COUNT_LIMIT");
+          }
           if (td::begins_with(key, "desc") && key.size() != 32) {
             result.emplace_back(key.str(), value.str());
           }
@@ -832,10 +829,11 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     CHECK(cell_db_reader_);
     return cell_db_reader_->load_cell_async(hash, std::move(executor), std::move(promise));
   }
-  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) override {
+  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, StoreCellHint hint,
+                            td::Promise<td::Unit> promise) override {
     auto promise_ptr = std::make_shared<td::Promise<td::Unit>>(std::move(promise));
-    executor->execute_async([this, promise_ptr = std::move(promise_ptr)] {
-      prepare_commit();
+    executor->execute_async([this, hint = std::move(hint), promise_ptr = std::move(promise_ptr)] {
+      prepare_commit(std::move(hint));
       promise_ptr->set_value(td::Unit());
     });
   }
@@ -844,7 +842,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_inc_.push_back(cell);
@@ -853,7 +851,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_dec_.push_back(cell);
@@ -867,7 +865,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
     return {};
   }
 
-  td::Status prepare_commit() override {
+  td::Status prepare_commit(StoreCellHint hint = {}) override {
     if (is_prepared_for_commit()) {
       return td::Status::OK();
     }
@@ -910,8 +908,8 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
           prepared_to_inc.push_back(&info);
         }
       }
-      new_cells_leaves =
-          executor({std::move(prepared_to_inc)}, [&](CellInfo *info, auto &worker) { gather_new_cells(info, worker); });
+      new_cells_leaves = executor({std::move(prepared_to_inc)},
+                                  [&](CellInfo *info, auto &worker) { gather_new_cells(info, worker, hint); });
       visited_cells.push_back(std::move(visited_roots));
     }
 
@@ -1142,6 +1140,32 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
       return cell_info->cell->load_cell().move_as_ok().data_cell;
     }
 
+    Ref<Cell> create_unloaded_cell(const Ref<Cell> &cell, int merkle_depth) override {
+      bool loaded = false;
+      if (auto loaded_cell = load_cell_fast_path(cell->get_hash(merkle_depth).as_slice(), false, &loaded);
+          loaded_cell.not_null()) {
+        if (!loaded) {
+          stats_.load_cell_sync_cache_hits.inc();
+        }
+        return loaded_cell;
+      }
+
+      Cell::LevelMask mask = cell->get_level_mask().apply(merkle_depth);
+      td::uint8 hashes[Cell::hash_bytes * (Cell::max_level + 1)];
+      td::uint8 depths[Cell::depth_bytes * (Cell::max_level + 1)];
+      size_t n = 0;
+      for (unsigned i = 0; i <= mask.get_level(); ++i) {
+        if (mask.is_significant(i)) {
+          td::MutableSlice{hashes + Cell::hash_bytes * n, Cell::hash_bytes}.copy_from(cell->get_hash(i).as_slice());
+          DataCell::store_depth(depths + Cell::depth_bytes * n, cell->get_depth(i));
+          ++n;
+        }
+      }
+      return ext_cell(mask, td::Slice{hashes, Cell::hash_bytes * n}, td::Slice{depths, Cell::depth_bytes * n})
+          .ensure()
+          .move_as_ok();
+    }
+
     CellInfo &cell_info(Ref<Cell> cell) {
       // thread safe function, but called only by DB
       CHECK(internal_storage_)
@@ -1267,7 +1291,7 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
   bool dbg{false};
 
   template <class WorkerT>
-  void gather_new_cells(CellInfo *info, WorkerT &worker) {
+  void gather_new_cells(CellInfo *info, WorkerT &worker, const StoreCellHint &hint) {
     stats_.gather_new_cells_calls.inc();
     do {
       // invariant: info is not in DB; with created in_db_info
@@ -1284,6 +1308,11 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
 
         if (child_state.in_db) {
           LOG_IF(INFO, dbg) << "gather_new_cells: IN DB\n\tchld: " << *child_info;
+          continue;
+        }
+        if (hint.prev_state_cells.contains(child_info->cell->get_hash())) {
+          child_info->set_in_db();
+          LOG_IF(INFO, dbg) << "gather_new_cells: IN DB (from hint)\n\tchld: " << *child_info;
           continue;
         }
 
@@ -1443,9 +1472,10 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
           CHECK(state.sync_with_db);
           auto data_cell = info->cell->load_cell().move_as_ok().data_cell;
           stats_.diff_full.inc();
-          worker.add_result({.type = CellStorer::Diff::Set,
-                             .key = info->cell->get_hash(),
-                             .value = CellStorer::serialize_value(ref_cnt_diff + state.db_ref_cnt, data_cell, should_compress)});
+          worker.add_result(
+              {.type = CellStorer::Diff::Set,
+               .key = info->cell->get_hash(),
+               .value = CellStorer::serialize_value(ref_cnt_diff + state.db_ref_cnt, data_cell, should_compress)});
         } else {
           stats_.diff_ref_cnt.inc();
           worker.add_result({.type = CellStorer::Diff::Merge,
@@ -1478,10 +1508,10 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
 
         LOG_IF(ERROR, dbg) << "DEC REFCNT " << *info;
         CHECK(info->cell->is_loaded());
-        worker.add_result(
-            {.type = CellStorer::Diff::Set,
-             .key = info->cell->get_hash(),
-             .value = CellStorer::serialize_value(new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
+        worker.add_result({.type = CellStorer::Diff::Set,
+                           .key = info->cell->get_hash(),
+                           .value = CellStorer::serialize_value(
+                               new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
         stats_.dec_save_full.inc();
       }
     } else {
@@ -1495,10 +1525,10 @@ class DynamicBagOfCellsDbImplV2 : public DynamicBagOfCellsDb {
         LOG_IF(ERROR, dbg) << "INC REFCNT " << *info;
       }
 
-      worker.add_result(
-          {.type = CellStorer::Diff::Set,
-           .key = info->cell->get_hash(),
-           .value = CellStorer::serialize_value(new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
+      worker.add_result({.type = CellStorer::Diff::Set,
+                         .key = info->cell->get_hash(),
+                         .value = CellStorer::serialize_value(
+                             new_ref_cnt, info->cell->load_cell().move_as_ok().data_cell, should_compress)});
       stats_.inc_save_full.inc();
     }
   }

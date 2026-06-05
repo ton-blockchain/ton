@@ -18,11 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/Status.h"
+#include <string>
 
 #include "crypto/Ed25519.h"
-
-#include <string>
+#include "td/utils/Status.h"
 
 namespace tonlib {
 struct DecryptedKey;

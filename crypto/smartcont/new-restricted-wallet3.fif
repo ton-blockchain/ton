@@ -27,11 +27,11 @@ begin-options
     "Expiration time of the initialization message (" expires-in (.) $+
     +" seconds by default)" option-help
   "t" "--start-at" { dup "now" $= { drop now } { parse-int } cond =: start-at } short-long-option-arg
-    "Restriction start Unixtime (`now` by default)" option-help 
+    "Restriction start Unixtime (`now` by default)" option-help
   "h" "--help" { usage } short-long-option
     "Shows a help message" option-help
 parse-options
-    
+
 $# dup 3 < swap 4 > or ' usage if
 4 :$1..n
 
@@ -52,7 +52,7 @@ start-at 32 ufits not abort"invalid restriction start time"
 restrict-mode dup 0 < swap 2 > or abort"unknown restriction mode"
 filename-base +".pk" load-keypair =: init_pk =: init_pubkey
 
-."Creating new restricted lockup wallet v3 in workchain " wc . 
+."Creating new restricted lockup wallet v3 in workchain " wc .
 ."with restriction mode " restrict-mode . ."and nominal amount " amount .GR cr
 ."controlled by public key " PubKey .pubkey ." and initialized by public key " init_pubkey 256 B>u@ .pubkey cr
 ."(subwallet id is " subwallet-id ._ .")" cr
@@ -85,8 +85,8 @@ filename-base +".pk" load-keypair =: init_pk =: init_pubkey
 
 amount
 restrict-mode ?dup {
-  1 = { make-rdict1 } { make-rdict2 } cond 
-} { make-rdict0 } cond  
+  1 = { make-rdict1 } { make-rdict2 } cond
+} { make-rdict0 } cond
 =: rdict
 
 ."Restrictions start at " start-at ._ .": " cr
@@ -108,7 +108,7 @@ dup =: StateInit hashu wc swap 2dup 2constant wallet_addr
 dup ."signing message: " <s csr. cr
 dup hashu init_pk ed25519_sign_uint
 
-<b b{1000100} s, wallet_addr addr, b{000010} s, StateInit <s s, 
+<b b{1000100} s, wallet_addr addr, b{000010} s, StateInit <s s,
   b{0} s, swap B, swap <s s, b>
 dup ."External message for initialization is " <s csr. cr
 2 boc+>B dup Bx. cr

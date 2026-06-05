@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,25 +14,27 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2019 Telegram Systems LLP
 */
+#include <getopt.h>
+#include <iostream>
+
 #include "block/block.h"
 #include "vm/boc.h"
-#include <iostream>
-#include "block-db.h"
-#include "block-auto.h"
-#include "block-parse.h"
 #include "vm/cp0.h"
-#include <getopt.h>
+
+#include "block-auto.h"
+#include "block-db.h"
+#include "block-parse.h"
 
 using td::Ref;
 
@@ -57,7 +59,7 @@ td::Ref<vm::Cell> load_boc(std::string filename) {
   if (res.is_error()) {
     throw IntError{PSTRING() << "cannot deserialize bag-of-cells " << res.move_as_error()};
   }
-  if (res.move_as_ok() <= 0 || boc.get_root_cell().is_null()) {
+  if (boc.get_root_cell().is_null()) {
     throw IntError{"cannot deserialize bag-of-cells "};
   }
   return boc.get_root_cell();
@@ -149,7 +151,7 @@ void test1() {
       std::cout << "    cb = " << cb.finalize() << std::endl;
     }
   }
-  /* 
+  /*
   {
     vm::CellBuilder cb;
     td::BitArray<256> hash;

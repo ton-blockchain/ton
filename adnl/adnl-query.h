@@ -18,12 +18,12 @@
 */
 #pragma once
 
-#include "td/actor/actor.h"
+#include <functional>
+
 #include "common/bitstring.h"
 #include "common/errorcode.h"
+#include "td/actor/actor.h"
 #include "td/utils/buffer.h"
-
-#include <functional>
 
 namespace ton {
 

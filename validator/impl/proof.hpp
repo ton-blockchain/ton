@@ -17,11 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "interfaces/proof.h"
-#include "interfaces/config.h"
 #include "block/block-db.h"
 #include "block/mc-config.h"
-#include "vm/db/StaticBagOfCellsDb.h"
+#include "common/AtomicRef.h"
+#include "interfaces/config.h"
+#include "interfaces/proof.h"
+
 #include "config.hpp"
 
 namespace ton {
@@ -32,6 +33,9 @@ class ProofLinkQ : virtual public ProofLink {
  protected:
   BlockIdExt id_;
   td::BufferSlice data_;
+  mutable td::AtomicRef<vm::Cell> root_;
+
+  td::Result<td::Ref<vm::Cell>> get_root_cell() const;
 
  public:
   ProofLinkQ(const BlockIdExt &id, td::BufferSlice data) : id_(id), data_(std::move(data)) {
@@ -50,19 +54,17 @@ class ProofLinkQ : virtual public ProofLink {
   td::Result<BasicHeaderInfo> get_basic_header_info() const override;
 
   struct VirtualizedProof {
-    Ref<vm::Cell> root, sig_root;
-    std::shared_ptr<vm::StaticBagOfCellsDb> boc;
+    Ref<vm::Cell> root, sig_root, proof_root;
     VirtualizedProof() = default;
-    VirtualizedProof(Ref<vm::Cell> _vroot, Ref<vm::Cell> _sigroot, std::shared_ptr<vm::StaticBagOfCellsDb> _boc)
-        : root(std::move(_vroot)), sig_root(std::move(_sigroot)), boc(std::move(_boc)) {
+    VirtualizedProof(Ref<vm::Cell> _vroot, Ref<vm::Cell> _sigroot, Ref<vm::Cell> _proof_root)
+        : root(std::move(_vroot)), sig_root(std::move(_sigroot)), proof_root(std::move(_proof_root)) {
     }
     void clear() {
       root.clear();
       sig_root.clear();
-      boc.reset();
     }
   };
-  td::Result<VirtualizedProof> get_virtual_root(bool lazy = false) const;
+  td::Result<VirtualizedProof> get_virtual_root() const;
 };
 
 #if TD_MSVC

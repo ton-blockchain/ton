@@ -28,6 +28,7 @@ using AnyTypeV = const ASTNodeDeclaredTypeBase*;
 using AnyExprV = const ASTNodeExpressionBase*;
 using AnyStatementV = const ASTNodeStatementBase*;
 
+struct SrcFile;
 struct Symbol;
 struct LocalVarData;
 struct FunctionData;
@@ -39,6 +40,7 @@ struct StructData;
 struct EnumMemberData;
 struct EnumDefData;
 
+using SrcFilePtr = const SrcFile*;
 using LocalVarPtr = const LocalVarData*;
 using FunctionPtr = const FunctionData*;
 using GlobalVarPtr = const GlobalVarData*;

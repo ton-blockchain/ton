@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/StringBuilder.h"
-#include "td/utils/Status.h"
-
 #include <functional>
+
+#include "td/utils/Status.h"
+#include "td/utils/StringBuilder.h"
 
 namespace td {
 
@@ -106,8 +106,19 @@ class RealCpuTimer {
       cpu += other.cpu;
       return *this;
     }
+    Time &operator-=(const Time &other) {
+      real -= other.real;
+      cpu -= other.cpu;
+      return *this;
+    }
+    Time operator+(const Time &other) const {
+      return {.real = real + other.real, .cpu = cpu + other.cpu};
+    }
     Time operator-(const Time &other) const {
       return {.real = real - other.real, .cpu = cpu - other.cpu};
+    }
+    Time operator*(double x) const {
+      return {.real = real * x, .cpu = cpu * x};
     }
   };
   Time elapsed_both() const {
@@ -125,6 +136,41 @@ class RealCpuTimer {
  private:
   Timer real_;
   ThreadCpuTimer cpu_;
+};
+
+class ScopedRealCpuTimer {
+ public:
+  ScopedRealCpuTimer();
+  explicit ScopedRealCpuTimer(RealCpuTimer::Time &time, double coef = 1.0) : time_(&time), coef_(coef) {
+  }
+  ScopedRealCpuTimer(const ScopedRealCpuTimer &) = delete;
+  ScopedRealCpuTimer(ScopedRealCpuTimer &&) = delete;
+  ~ScopedRealCpuTimer() {
+    pause();
+  }
+  void pause() {
+    if (paused_) {
+      return;
+    }
+    paused_ = true;
+    *time_ += timer_.elapsed_both() * coef_;
+  }
+  void resume() {
+    if (!paused_) {
+      return;
+    }
+    paused_ = false;
+    timer_ = {};
+  }
+
+  ScopedRealCpuTimer &operator=(const ScopedRealCpuTimer &) = delete;
+  ScopedRealCpuTimer &operator=(ScopedRealCpuTimer &&other) = delete;
+
+ private:
+  RealCpuTimer::Time *time_;
+  double coef_;
+  RealCpuTimer timer_;
+  bool paused_ = false;
 };
 
 class PerfLog;
@@ -151,7 +197,7 @@ class PerfLog {
     std::string name;
     double begin{};
     double end{};
-    td::Status status;
+    td::Status status{};
   };
   std::vector<Entry> entries_;
   friend class PerfLogAction;

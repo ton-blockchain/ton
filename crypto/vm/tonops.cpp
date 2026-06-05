@@ -17,23 +17,24 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
-#include "vm/tonops.h"
+#include <sodium.h>
+
+#include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "crypto/ellcurve/p256.h"
+#include "crypto/ellcurve/secp256k1.h"
+#include "openssl/digest.hpp"
+#include "vm/Hasher.h"
+#include "vm/boc.h"
+#include "vm/dict.h"
+#include "vm/excno.hpp"
 #include "vm/log.h"
 #include "vm/opctable.h"
 #include "vm/stack.hpp"
-#include "vm/excno.hpp"
+#include "vm/tonops.h"
 #include "vm/vm.h"
-#include "vm/dict.h"
-#include "vm/boc.h"
-#include "Ed25519.h"
-#include "vm/Hasher.h"
-#include "block/block-auto.h"
-#include "block/block-parse.h"
-#include "crypto/ellcurve/secp256k1.h"
-#include "crypto/ellcurve/p256.h"
 
-#include "openssl/digest.hpp"
-#include <sodium.h>
+#include "Ed25519.h"
 #include "bls.h"
 #include "mc-config.h"
 
@@ -59,7 +60,7 @@ bool debug(int x) {
 }  // namespace
 
 #define DBG_START int dbg = 0;
-#define DBG debug(++dbg)&&
+#define DBG debug(++dbg) &&
 #define DEB_START DBG_START
 #define DEB DBG
 
@@ -322,8 +323,7 @@ int exec_get_storage_fee(VmState* st) {
   td::int64 delta = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 bits = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
   td::uint64 cells = stack.pop_long_range(std::numeric_limits<td::int64>::max(), 0);
-  td::optional<block::StoragePrices> maybe_prices =
-      util::get_storage_prices(get_unpacked_config_tuple(st));
+  td::optional<block::StoragePrices> maybe_prices = util::get_storage_prices(get_unpacked_config_tuple(st));
   stack.push_int(util::calculate_storage_fee(maybe_prices, is_masterchain, delta, bits, cells));
   return 0;
 }
@@ -467,15 +467,23 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf82a, 16, "MYCODE", std::bind(exec_get_param, _1, 10, "MYCODE")))
       .insert(OpcodeInstr::mksimple(0xf82b, 16, "INCOMINGVALUE", std::bind(exec_get_param, _1, 11, "INCOMINGVALUE")))
       .insert(OpcodeInstr::mksimple(0xf82c, 16, "STORAGEFEES", std::bind(exec_get_param, _1, 12, "STORAGEFEES")))
-      .insert(OpcodeInstr::mksimple(0xf82d, 16, "PREVBLOCKSINFOTUPLE", std::bind(exec_get_param, _1, 13, "PREVBLOCKSINFOTUPLE")))
-      .insert(OpcodeInstr::mksimple(0xf82e, 16, "UNPACKEDCONFIGTUPLE", std::bind(exec_get_param, _1, 14, "UNPACKEDCONFIGTUPLE")))
+      .insert(OpcodeInstr::mksimple(0xf82d, 16, "PREVBLOCKSINFOTUPLE",
+                                    std::bind(exec_get_param, _1, 13, "PREVBLOCKSINFOTUPLE")))
+      .insert(OpcodeInstr::mksimple(0xf82e, 16, "UNPACKEDCONFIGTUPLE",
+                                    std::bind(exec_get_param, _1, 14, "UNPACKEDCONFIGTUPLE")))
       .insert(OpcodeInstr::mksimple(0xf82f, 16, "DUEPAYMENT", std::bind(exec_get_param, _1, 15, "DUEPAYMENT")))
       .insert(OpcodeInstr::mksimple(0xf830, 16, "CONFIGDICT", exec_get_config_dict))
       .insert(OpcodeInstr::mksimple(0xf832, 16, "CONFIGPARAM", std::bind(exec_get_config_param, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf833, 16, "CONFIGOPTPARAM", std::bind(exec_get_config_param, _1, true)))
-      .insert(OpcodeInstr::mksimple(0xf83400, 24, "PREVMCBLOCKS", std::bind(exec_get_prev_blocks_info, _1, 0, "PREVMCBLOCKS"))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf83401, 24, "PREVKEYBLOCK", std::bind(exec_get_prev_blocks_info, _1, 1, "PREVKEYBLOCK"))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf83402, 24, "PREVMCBLOCKS_100", std::bind(exec_get_prev_blocks_info, _1, 2, "PREVMCBLOCKS_100"))->require_version(9))
+      .insert(OpcodeInstr::mksimple(0xf83400, 24, "PREVMCBLOCKS",
+                                    std::bind(exec_get_prev_blocks_info, _1, 0, "PREVMCBLOCKS"))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf83401, 24, "PREVKEYBLOCK",
+                                    std::bind(exec_get_prev_blocks_info, _1, 1, "PREVKEYBLOCK"))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf83402, 24, "PREVMCBLOCKS_100",
+                                    std::bind(exec_get_prev_blocks_info, _1, 2, "PREVMCBLOCKS_100"))
+                  ->require_version(9))
       .insert(OpcodeInstr::mksimple(0xf835, 16, "GLOBALID", exec_get_global_id)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf836, 16, "GETGASFEE", exec_get_gas_fee)->require_version(6))
       .insert(OpcodeInstr::mksimple(0xf837, 16, "GETSTORAGEFEE", exec_get_storage_fee)->require_version(6))
@@ -488,21 +496,42 @@ void register_ton_config_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mkfixedrange(0xf841, 0xf860, 16, 5, instr::dump_1c_and(31, "GETGLOB "), exec_get_global))
       .insert(OpcodeInstr::mksimple(0xf860, 16, "SETGLOBVAR", exec_set_global_var))
       .insert(OpcodeInstr::mkfixedrange(0xf861, 0xf880, 16, 5, instr::dump_1c_and(31, "SETGLOB "), exec_set_global))
-      .insert(OpcodeInstr::mksimple(0xf880, 16, "GETEXTRABALANCE", exec_get_extra_currency_balance)->require_version(10))
-      .insert(OpcodeInstr::mkfixedrange(0xf88100, 0xf88111, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "), exec_get_var_param_long)->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf88111, 24, "INMSGPARAMS", std::bind(exec_get_param, _1, 17, "INMSGPARAMS"))->require_version(11))
-      .insert(OpcodeInstr::mkfixedrange(0xf88112, 0xf881ff, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "), exec_get_var_param_long)->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf890, 16, "INMSG_BOUNCE", std::bind(exec_get_in_msg_param, _1, 0, "INMSG_BOUNCE"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf891, 16, "INMSG_BOUNCED", std::bind(exec_get_in_msg_param, _1, 1, "INMSG_BOUNCED"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf892, 16, "INMSG_SRC", std::bind(exec_get_in_msg_param, _1, 2, "INMSG_SRC"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf893, 16, "INMSG_FWDFEE", std::bind(exec_get_in_msg_param, _1, 3, "INMSG_FWDFEE"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf894, 16, "INMSG_LT", std::bind(exec_get_in_msg_param, _1, 4, "INMSG_LT"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf895, 16, "INMSG_UTIME", std::bind(exec_get_in_msg_param, _1, 5, "INMSG_UTIME"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf896, 16, "INMSG_ORIGVALUE", std::bind(exec_get_in_msg_param, _1, 6, "INMSG_ORIGVALUE"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf897, 16, "INMSG_VALUE", std::bind(exec_get_in_msg_param, _1, 7, "INMSG_VALUE"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf898, 16, "INMSG_VALUEEXTRA", std::bind(exec_get_in_msg_param, _1, 8, "INMSG_VALUEEXTRA"))->require_version(11))
-      .insert(OpcodeInstr::mksimple(0xf899, 16, "INMSG_STATEINIT", std::bind(exec_get_in_msg_param, _1, 9, "INMSG_STATEINIT"))->require_version(11))
-      .insert(OpcodeInstr::mkfixedrange(0xf89a, 0xf8a0, 16, 4, instr::dump_1c("INMSGPARAM "), exec_get_var_in_msg_param)->require_version(11));
+      .insert(
+          OpcodeInstr::mksimple(0xf880, 16, "GETEXTRABALANCE", exec_get_extra_currency_balance)->require_version(10))
+      .insert(OpcodeInstr::mkfixedrange(0xf88100, 0xf88111, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "),
+                                        exec_get_var_param_long)
+                  ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf88111, 24, "INMSGPARAMS", std::bind(exec_get_param, _1, 17, "INMSGPARAMS"))
+                  ->require_version(11))
+      .insert(OpcodeInstr::mkfixedrange(0xf88112, 0xf881ff, 24, 8, instr::dump_1c_l_add(0, "GETPARAMLONG "),
+                                        exec_get_var_param_long)
+                  ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf890, 16, "INMSG_BOUNCE", std::bind(exec_get_in_msg_param, _1, 0, "INMSG_BOUNCE"))
+                  ->require_version(11))
+      .insert(
+          OpcodeInstr::mksimple(0xf891, 16, "INMSG_BOUNCED", std::bind(exec_get_in_msg_param, _1, 1, "INMSG_BOUNCED"))
+              ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf892, 16, "INMSG_SRC", std::bind(exec_get_in_msg_param, _1, 2, "INMSG_SRC"))
+                  ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf893, 16, "INMSG_FWDFEE", std::bind(exec_get_in_msg_param, _1, 3, "INMSG_FWDFEE"))
+                  ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf894, 16, "INMSG_LT", std::bind(exec_get_in_msg_param, _1, 4, "INMSG_LT"))
+                  ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf895, 16, "INMSG_UTIME", std::bind(exec_get_in_msg_param, _1, 5, "INMSG_UTIME"))
+                  ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf896, 16, "INMSG_ORIGVALUE",
+                                    std::bind(exec_get_in_msg_param, _1, 6, "INMSG_ORIGVALUE"))
+                  ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf897, 16, "INMSG_VALUE", std::bind(exec_get_in_msg_param, _1, 7, "INMSG_VALUE"))
+                  ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf898, 16, "INMSG_VALUEEXTRA",
+                                    std::bind(exec_get_in_msg_param, _1, 8, "INMSG_VALUEEXTRA"))
+                  ->require_version(11))
+      .insert(OpcodeInstr::mksimple(0xf899, 16, "INMSG_STATEINIT",
+                                    std::bind(exec_get_in_msg_param, _1, 9, "INMSG_STATEINIT"))
+                  ->require_version(11))
+      .insert(OpcodeInstr::mkfixedrange(0xf89a, 0xf8a0, 16, 4, instr::dump_1c("INMSGPARAM "), exec_get_var_in_msg_param)
+                  ->require_version(11));
 }
 
 td::RefInt256 generate_randu256(VmState* st) {
@@ -751,6 +780,18 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
     throw VmError{Excno::range_chk, "Ed25519 public key must fit in an unsigned 256-bit integer"};
   }
   st->register_chksgn_call();
+  // Starting with TVM 14, reject the canonical Ed25519 identity public key
+  // encoding `01 00..00` and zero public key before handing it to the verifier.
+  if (st->get_global_version() >= 14) {
+    bool reject = (key[0] == 0x00 || key[0] == 0x01);
+    for (unsigned int i = 1; reject && i < 32; ++i) {
+      reject = (key[i] == 0x00);
+    }
+    if (reject) {
+      stack.push_bool(st->get_chksig_always_succeed());
+      return 0;
+    }
+  }
   td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, 32})};
   auto res = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, 64});
   stack.push_bool(res.is_ok() || st->get_chksig_always_succeed());
@@ -772,6 +813,11 @@ int exec_ecrecover(VmState* st) {
   }
   if (!s->export_bytes(signature + 32, 32, false)) {
     throw VmError{Excno::range_chk, "s must fit in an unsigned 256-bit integer"};
+  }
+  // Ethereum legacy signatures encode raw recovery ids 0/1 as v=27/28;
+  // they were not accepted until TVM 14
+  if (st->get_global_version() >= 14 && (v == 27 || v == 28)) {
+    v -= 27;
   }
   signature[64] = v;
   unsigned char hash_bytes[32];
@@ -980,14 +1026,34 @@ int exec_ristretto255_mul(VmState* st, bool quiet) {
   auto n = stack.pop_int() % get_ristretto256_l();
   auto x = stack.pop_int();
   st->consume_gas(VmState::rist255_mul_gas_price);
-  if (n->sgn() == 0) {
+  unsigned char xb[32], nb[32], rb[32];
+  if (st->get_global_version() >= 14 && !(n->is_valid() && x->is_valid())) {
+    if (quiet) {
+      stack.push_bool(false);
+      return 0;
+    }
+    throw VmError{Excno::range_chk, "invalid x or n"};
+  }
+  // libsodium's `crypto_scalarmult_ristretto255` returns -1 BOTH when the input point is invalid
+  // AND when the result is the identity element (0).
+  // Before TVM 14, result=0 was rejected: `RIST255_MUL(0, 1)` led to `range_chk`.
+  if (n->sgn() == 0 || (st->get_global_version() >= 14 && x->sgn() == 0)) {
+    // fast skip "n%l==0" should also validate the point, but before TVM 14 it did not
+    bool invalid_point =
+        x->sgn() != 0 && (!x->export_bytes(xb, 32, false) || !crypto_core_ristretto255_is_valid_point(xb));
+    if (st->get_global_version() >= 14 && invalid_point) {
+      if (quiet) {
+        stack.push_bool(false);
+        return 0;
+      }
+      throw VmError{Excno::range_chk, "invalid x or n"};
+    }
     stack.push_smallint(0);
     if (quiet) {
       stack.push_bool(true);
     }
     return 0;
   }
-  unsigned char xb[32], nb[32], rb[32];
   if (!x->export_bytes(xb, 32, false) || !export_bytes_little(n, nb) || crypto_scalarmult_ristretto255(rb, nb, xb)) {
     if (quiet) {
       stack.push_bool(false);
@@ -1009,10 +1075,19 @@ int exec_ristretto255_mul_base(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   auto n = stack.pop_int() % get_ristretto256_l();
   st->consume_gas(VmState::rist255_mulbase_gas_price);
+  // Mirror exec_ristretto255_mul above: early exit, because `std::all_of` below (previous implementation)
+  // is system-dependent (libsodium api does not guarantee to not change rb)
+  if (st->get_global_version() >= 14 && n->sgn() == 0) {
+    stack.push_smallint(0);
+    if (quiet) {
+      stack.push_bool(true);
+    }
+    return 0;
+  }
   unsigned char nb[32], rb[32];
   memset(rb, 255, sizeof(rb));
   if (!export_bytes_little(n, nb) || crypto_scalarmult_ristretto255_base(rb, nb)) {
-    if (std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
+    if (st->get_global_version() >= 14 || std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
       if (quiet) {
         stack.push_bool(false);
         return 0;
@@ -1364,30 +1439,65 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
       .insert(OpcodeInstr::mksimple(0xf910, 16, "CHKSIGNU", std::bind(exec_ed25519_check_signature, _1, false)))
       .insert(OpcodeInstr::mksimple(0xf911, 16, "CHKSIGNS", std::bind(exec_ed25519_check_signature, _1, true)))
       .insert(OpcodeInstr::mksimple(0xf912, 16, "ECRECOVER", exec_ecrecover)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf913, 16, "SECP256K1_XONLY_PUBKEY_TWEAK_ADD", exec_secp256k1_xonly_pubkey_tweak_add)->require_version(9))
-      .insert(OpcodeInstr::mksimple(0xf914, 16, "P256_CHKSIGNU", std::bind(exec_p256_chksign, _1, false))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf915, 16, "P256_CHKSIGNS", std::bind(exec_p256_chksign, _1, true))->require_version(4))
+      .insert(
+          OpcodeInstr::mksimple(0xf913, 16, "SECP256K1_XONLY_PUBKEY_TWEAK_ADD", exec_secp256k1_xonly_pubkey_tweak_add)
+              ->require_version(9))
+      .insert(OpcodeInstr::mksimple(0xf914, 16, "P256_CHKSIGNU", std::bind(exec_p256_chksign, _1, false))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf915, 16, "P256_CHKSIGNS", std::bind(exec_p256_chksign, _1, true))
+                  ->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf916, 16, "HASHBU", std::bind(exec_compute_hash, _1, 2))->require_version(12))
 
       .insert(OpcodeInstr::mksimple(0xf920, 16, "RIST255_FROMHASH", exec_ristretto255_from_hash)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf921, 16, "RIST255_VALIDATE", std::bind(exec_ristretto255_validate, _1, false))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf922, 16, "RIST255_ADD", std::bind(exec_ristretto255_add, _1, false))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf923, 16, "RIST255_SUB", std::bind(exec_ristretto255_sub, _1, false))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf924, 16, "RIST255_MUL", std::bind(exec_ristretto255_mul, _1, false))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf925, 16, "RIST255_MULBASE", std::bind(exec_ristretto255_mul_base, _1, false))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf921, 16, "RIST255_VALIDATE", std::bind(exec_ristretto255_validate, _1, false))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf922, 16, "RIST255_ADD", std::bind(exec_ristretto255_add, _1, false))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf923, 16, "RIST255_SUB", std::bind(exec_ristretto255_sub, _1, false))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf924, 16, "RIST255_MUL", std::bind(exec_ristretto255_mul, _1, false))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf925, 16, "RIST255_MULBASE", std::bind(exec_ristretto255_mul_base, _1, false))
+                  ->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf926, 16, "RIST255_PUSHL", exec_ristretto255_push_l)->require_version(4))
 
-      .insert(OpcodeInstr::mksimple(0xb7f921, 24, "RIST255_QVALIDATE", std::bind(exec_ristretto255_validate, _1, true))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xb7f922, 24, "RIST255_QADD", std::bind(exec_ristretto255_add, _1, true))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xb7f923, 24, "RIST255_QSUB", std::bind(exec_ristretto255_sub, _1, true))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xb7f924, 24, "RIST255_QMUL", std::bind(exec_ristretto255_mul, _1, true))->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xb7f925, 24, "RIST255_QMULBASE", std::bind(exec_ristretto255_mul_base, _1, true))->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f921, 24, "RIST255_QVALIDATE", std::bind(exec_ristretto255_validate, _1, true))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f922, 24, "RIST255_QADD", std::bind(exec_ristretto255_add, _1, true))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f923, 24, "RIST255_QSUB", std::bind(exec_ristretto255_sub, _1, true))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f924, 24, "RIST255_QMUL", std::bind(exec_ristretto255_mul, _1, true))
+                  ->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xb7f925, 24, "RIST255_QMULBASE", std::bind(exec_ristretto255_mul_base, _1, true))
+                  ->require_version(4))
 
       .insert(OpcodeInstr::mksimple(0xf93000, 24, "BLS_VERIFY", exec_bls_verify)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93001, 24, "BLS_AGGREGATE", exec_bls_aggregate)->require_version(4))
-      .insert(OpcodeInstr::mksimple(0xf93002, 24, "BLS_FASTAGGREGATEVERIFY", exec_bls_fast_aggregate_verify)->require_version(4))
+      .insert(OpcodeInstr::mksimple(0xf93002, 24, "BLS_FASTAGGREGATEVERIFY", exec_bls_fast_aggregate_verify)
+                  ->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93003, 24, "BLS_AGGREGATEVERIFY", exec_bls_aggregate_verify)->require_version(4))
 
+      // SECURITY: Low-level BLS12-381 arithmetic and pairing opcodes do not
+      // provide comprehensive implicit subgroup validation. This is intentional:
+      // these instructions are expert primitives for custom on-chain protocols.
+      //
+      // IMPORTANT FOR EVM MIGRATIONS: unlike Ethereum EIP-2537 precompiles,
+      // which perform subgroup checks and fail for points outside G1/G2, TON
+      // leaves subgroup validation to the caller for these low-level opcodes.
+      //
+      // In particular, BLS_PAIRING evaluates pairing equations on provided
+      // points without enforcing subgroup checks by itself. Callers that rely
+      // on subgroup soundness MUST validate inputs explicitly (for example,
+      // with BLS_G1_INGROUP / BLS_G2_INGROUP) before pairing-based checks.
+      //
+      // Some arithmetic paths may reject certain out-of-subgroup operands as
+      // an implementation detail, but callers MUST NOT rely on this.
+      //
+      // NOTE: subgroup checks are necessary but not sufficient for secure
+      // aggregate BLS verification. Protocols also need rogue-key defenses
+      // appropriate to the scheme (for example, distinct messages, message
+      // augmentation, or proof of possession).
       .insert(OpcodeInstr::mksimple(0xf93010, 24, "BLS_G1_ADD", exec_bls_g1_add)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93011, 24, "BLS_G1_SUB", exec_bls_g1_sub)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93012, 24, "BLS_G1_NEG", exec_bls_g1_neg)->require_version(4))
@@ -1533,12 +1643,86 @@ bool skip_message_addr(CellSlice& cs, int global_version) {
   }
 }
 
+bool skip_std_message_addr(CellSlice& cs, int global_version) {
+  switch ((unsigned)cs.fetch_ulong(2)) {
+    case 2: {                                        // addr_std$10
+      return skip_maybe_anycast(cs, global_version)  // anycast:(Maybe Anycast)
+             && cs.advance(8 + 256);                 // workchain_id:int8 address:bits256  = MsgAddressInt;
+    }
+    case 0:  // addr_none$00 = MsgAddressExt;
+    case 1:  // addr_extern$01
+    case 3:  // addr_var$11
+    default:
+      return false;
+  }
+}
+
 int exec_load_message_addr(VmState* st, bool quiet) {
   VM_LOG(st) << "execute LDMSGADDR" << (quiet ? "Q" : "");
   Stack& stack = st->get_stack();
   auto csr = stack.pop_cellslice();
   td::Ref<CellSlice> addr{true};
   if (util::load_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {
+    stack.push_cellslice(std::move(addr));
+    stack.push_cellslice(std::move(csr));
+    if (quiet) {
+      stack.push_bool(true);
+    }
+  } else {
+    stack.push_cellslice(std::move(csr));
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
+int exec_load_std_message_addr(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute LDSTDADDR" << (quiet ? "Q" : "");
+  Stack& stack = st->get_stack();
+  auto csr = stack.pop_cellslice();
+  td::Ref<CellSlice> addr{true};
+  if (util::load_std_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {
+    stack.push_cellslice(std::move(addr));
+    stack.push_cellslice(std::move(csr));
+    if (quiet) {
+      stack.push_bool(true);
+    }
+  } else {
+    stack.push_cellslice(std::move(csr));
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
+int exec_load_opt_std_message_addr(VmState* st, bool quiet) {
+  VM_LOG(st) << "execute LDOPTSTDADDR" << (quiet ? "Q" : "");
+  Stack& stack = st->get_stack();
+  auto csr = stack.pop_cellslice();
+
+  if (!csr->have(2)) {
+    // No data to load the tag for the address (0b00 or 0b10)
+    if (quiet) {
+      stack.push_cellslice(std::move(csr));
+      stack.push_bool(false);
+      return 0;
+    }
+
+    throw VmError{Excno::cell_und};
+  }
+
+  auto tag = csr.write().prefetch_ulong(2);
+  if (tag == 0b00) {  // addr_none$00
+    csr.write().skip_first(2);
+    // addr_none -> push null
+    stack.push_null();
+    stack.push_cellslice(std::move(csr));
+    if (quiet) {
+      stack.push_bool(true);
+    }
+    return 0;
+  }
+
+  td::Ref<CellSlice> addr{true};
+  if (util::load_std_msg_addr_q(csr.write(), addr.write(), st->get_global_version(), quiet)) {
     stack.push_cellslice(std::move(addr));
     stack.push_cellslice(std::move(csr));
     if (quiet) {
@@ -1722,6 +1906,123 @@ int exec_rewrite_message_addr(VmState* st, bool allow_var_addr, bool quiet) {
   return 0;
 }
 
+bool is_valid_std_msg_addr(const Ref<CellSlice>& cs, int global_version) {
+  if ((unsigned)cs->prefetch_ulong(2) != 0b10) {
+    // not a addr_std$10
+    return false;
+  }
+
+  if (global_version >= 10) {
+    if (cs->prefetch_ulong(3) == 0b10'1) {  // 0b10 prefix and 0b1 for Maybe Anycast
+      // anycast addresses is disabled since TVM 11
+      return false;
+    }
+
+    return cs->size() == 3 + 8 + 256 &&
+           cs->size_refs() == 0;  // anycast:(Maybe Anycast) workchain_id:int8 address:bits256  = MsgAddressInt;
+  }
+
+  // Fallback to copy cell slice and check with anycast
+  Ref<CellSlice> cloned_cs = cs;
+  if (!skip_std_message_addr(cloned_cs.write(), global_version)) {
+    return false;
+  }
+  return cloned_cs->size() == 0 && cloned_cs->size_refs() == 0;
+}
+
+int exec_store_std_address(VmState* st, bool quiet) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute STSTDADDR" << (quiet ? "Q" : "");
+  stack.check_underflow(2);
+  auto builder = stack.pop_builder();
+  auto cs = stack.pop_cellslice();
+  bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());
+
+  if (!builder->can_extend_by(cs->size(), cs->size_refs()) || !is_std) {
+    if (!quiet) {
+      if (!is_std) {
+        throw VmError{Excno::cell_ov, "not a MsgAddressInt"};
+      }
+      throw VmError{Excno::cell_ov};
+    }
+    stack.push_cellslice(std::move(cs));
+    stack.push_builder(std::move(builder));
+    stack.push_bool(true);
+    return 0;
+  }
+  cell_builder_add_slice(builder.write(), *cs);
+  stack.push_builder(std::move(builder));
+  if (quiet) {
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
+int exec_store_opt_std_address(VmState* st, bool quiet) {
+  Stack& stack = st->get_stack();
+  VM_LOG(st) << "execute STOPTSTDADDR" << (quiet ? "Q" : "");
+  stack.check_underflow(2);
+  auto builder = stack.pop_builder();
+
+  auto cs_or_null = stack.pop();
+  if (cs_or_null.is_null()) {
+    if (!builder->can_extend_by(2, 0)) {
+      // No room to store 0b00 for addr_none
+      if (!quiet) {
+        throw VmError{Excno::cell_ov};
+      }
+      stack.push_null();
+      stack.push_builder(std::move(builder));
+      stack.push_bool(true);
+      return 0;
+    }
+
+    // null is stored as addr_none$00
+    builder.write().store_zeroes_bool(2);
+    stack.push_builder(std::move(builder));
+    if (quiet) {
+      stack.push_bool(false);
+    }
+    return 0;
+  }
+
+  auto cs = cs_or_null.as_slice();
+  if (cs.is_null()) {
+    if (!quiet) {
+      throw VmError{Excno::type_chk, "not a cell slice"};
+    }
+    if (st->get_global_version() >= 14) {
+      stack.push(std::move(cs_or_null));
+    } else {
+      stack.push_cellslice(std::move(cs));
+    }
+    stack.push_builder(std::move(builder));
+    stack.push_bool(true);
+    return 0;
+  }
+  bool is_std = is_valid_std_msg_addr(cs, st->get_global_version());
+
+  if (!builder->can_extend_by(cs->size(), cs->size_refs()) || !is_std) {
+    if (!quiet) {
+      if (!is_std) {
+        throw VmError{Excno::cell_ov, "not a MsgAddressInt"};
+      }
+      throw VmError{Excno::cell_ov};
+    }
+    stack.push_cellslice(std::move(cs));
+    stack.push_builder(std::move(builder));
+    stack.push_bool(true);
+    return 0;
+  }
+
+  cell_builder_add_slice(builder.write(), *cs);
+  stack.push_builder(std::move(builder));
+  if (quiet) {
+    stack.push_bool(false);
+  }
+  return 0;
+}
+
 void register_ton_currency_address_ops(OpcodeTable& cp0) {
   using namespace std::placeholders;
   cp0.insert(OpcodeInstr::mksimple(0xfa00, 16, "LDGRAMS", std::bind(exec_load_var_integer, _1, 4, false, false)))
@@ -1743,7 +2044,23 @@ void register_ton_currency_address_ops(OpcodeTable& cp0) {
       .insert(
           OpcodeInstr::mksimple(0xfa46, 16, "REWRITEVARADDR", std::bind(exec_rewrite_message_addr, _1, true, false)))
       .insert(
-          OpcodeInstr::mksimple(0xfa47, 16, "REWRITEVARADDRQ", std::bind(exec_rewrite_message_addr, _1, true, true)));
+          OpcodeInstr::mksimple(0xfa47, 16, "REWRITEVARADDRQ", std::bind(exec_rewrite_message_addr, _1, true, true)))
+      .insert(OpcodeInstr::mksimple(0xfa48, 16, "LDSTDADDR", std::bind(exec_load_std_message_addr, _1, false))
+                  ->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa49, 16, "LDSTDADDRQ", std::bind(exec_load_std_message_addr, _1, true))
+                  ->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa50, 16, "LDOPTSTDADDR", std::bind(exec_load_opt_std_message_addr, _1, false))
+                  ->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa51, 16, "LDOPTSTDADDRQ", std::bind(exec_load_opt_std_message_addr, _1, true))
+                  ->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa52, 16, "STSTDADDR", std::bind(exec_store_std_address, _1, false))
+                  ->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa53, 16, "STSTDADDRQ", std::bind(exec_store_std_address, _1, true))
+                  ->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa54, 16, "STOPTSTDADDR", std::bind(exec_store_opt_std_address, _1, false))
+                  ->require_version(12))
+      .insert(OpcodeInstr::mksimple(0xfa55, 16, "STOPTSTDADDRQ", std::bind(exec_store_opt_std_address, _1, true))
+                  ->require_version(12));
 }
 
 static constexpr int output_actions_idx = 5;
@@ -1783,10 +2100,11 @@ int parse_addr_workchain(CellSlice cs) {
     throw VmError{Excno::range_chk, "not an internal MsgAddress"};
   }
   bool is_var = cs.fetch_ulong(1);
-  if (cs.fetch_ulong(1) == 1) { // Anycast
+  if (cs.fetch_ulong(1) == 1) {  // Anycast
     unsigned depth;
-    cs.fetch_uint_leq(30, depth);
-    cs.skip_first(depth);
+    if (cs.fetch_uint_leq(30, depth)) {
+      cs.skip_first(depth);
+    }
   }
 
   if (is_var) {
@@ -1825,7 +2143,7 @@ int exec_send_message(VmState* st) {
   unsigned extra_flags_len = 0;
   bool have_extra_currencies = false;
   bool ext_msg = msg.info->prefetch_ulong(1);
-  if (ext_msg) { // External message
+  if (ext_msg) {  // External message
     block::gen::CommonMsgInfoRelaxed::Record_ext_out_msg_info info;
     if (!tlb::csr_unpack(msg.info, info)) {
       throw VmError{Excno::unknown, "invalid message"};
@@ -1833,7 +2151,7 @@ int exec_send_message(VmState* st) {
     ihr_disabled = true;
     dest = std::move(info.dest);
     value = user_fwd_fee = user_ihr_fee = td::zero_refint();
-  } else { // Internal message
+  } else {  // Internal message
     block::gen::CommonMsgInfoRelaxed::Record_int_msg_info info;
     if (!tlb::csr_unpack(msg.info, info)) {
       throw VmError{Excno::unknown, "invalid message"};
@@ -1852,6 +2170,12 @@ int exec_send_message(VmState* st) {
     } else {
       // Legacy: extra_flags was previously ihr_fee
       user_ihr_fee = block::tlb::t_Grams.as_integer(info.extra_flags);
+    }
+    if (user_fwd_fee.is_null()) {
+      user_fwd_fee = td::zero_refint();
+    }
+    if (user_ihr_fee.is_null()) {
+      user_ihr_fee = td::zero_refint();
     }
   }
 
@@ -1936,11 +2260,11 @@ int exec_send_message(VmState* st) {
   td::uint64 bits = stat.bits;
   auto compute_fees = [&]() {
     td::uint64 fwd_fee_short = prices.lump_price + td::uint128(prices.bit_price)
-                                                 .mult(bits)
-                                                 .add(td::uint128(prices.cell_price).mult(cells))
-                                                 .add(td::uint128(0xffffu))
-                                                 .shr(16)
-                                                 .lo();
+                                                       .mult(bits)
+                                                       .add(td::uint128(prices.cell_price).mult(cells))
+                                                       .add(td::uint128(0xffffu))
+                                                       .shr(16)
+                                                       .lo();
     td::uint64 ihr_fee_short;
     if (ihr_disabled) {
       ihr_fee_short = 0;
@@ -1949,14 +2273,18 @@ int exec_send_message(VmState* st) {
     }
     fwd_fee = td::RefInt256{true, fwd_fee_short};
     ihr_fee = td::RefInt256{true, ihr_fee_short};
-    fwd_fee = std::max(fwd_fee, user_fwd_fee);
-    if (!ihr_disabled) {
-      ihr_fee = std::max(ihr_fee, user_ihr_fee);
+    // Since the action phase ignores user-provided `fwd_fee`/`ihr_fee` for internal messages (transaction.cpp),
+    // mirror that here so the SENDMSG doesn't change estimation by writing a large `fwd_fee` into the message cell.
+    if (st->get_global_version() < 14) {
+      fwd_fee = std::max(fwd_fee, user_fwd_fee);
+      if (!ihr_disabled) {
+        ihr_fee = std::max(ihr_fee, user_ihr_fee);
+      }
     }
   };
   compute_fees();
 
-  auto stored_grams_len = [](td::RefInt256 const& x) -> unsigned {
+  auto stored_grams_len = [](const td::RefInt256& x) -> unsigned {
     unsigned bits = x->bit_size(false);
     return 4 + ((bits + 7) & ~7);
   };
@@ -2166,6 +2494,18 @@ bool load_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool qui
       return false;
     }
     throw VmError{Excno::cell_und, "cannot load a MsgAddress"};
+  }
+  res.cut_tail(cs);
+  return true;
+}
+bool load_std_msg_addr_q(CellSlice& cs, CellSlice& res, int global_version, bool quiet) {
+  res = cs;
+  if (!skip_std_message_addr(cs, global_version)) {
+    cs = res;
+    if (quiet) {
+      return false;
+    }
+    throw VmError{Excno::cell_und, "cannot load a MsgAddressInt"};
   }
   res.cut_tail(cs);
   return true;

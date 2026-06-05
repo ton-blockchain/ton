@@ -18,8 +18,8 @@
 */
 
 #pragma once
-#include "td/utils/int_types.h"
 #include "td/utils/Time.h"
+#include "td/utils/int_types.h"
 
 namespace ton {
 namespace rldp2 {
@@ -45,4 +45,3 @@ struct Bbr {
 
 }  // namespace rldp2
 }  // namespace ton
-

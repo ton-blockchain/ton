@@ -17,13 +17,14 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "Torrent.h"
-
 #include "td/utils/Status.h"
 #include "td/utils/crypto.h"
 #include "td/utils/port/Stat.h"
-#include "td/utils/tl_helpers.h"
 #include "td/utils/port/path.h"
+#include "td/utils/tl_helpers.h"
+
+#include "Torrent.h"
+#include "TorrentHeader.hpp"
 
 namespace ton {
 

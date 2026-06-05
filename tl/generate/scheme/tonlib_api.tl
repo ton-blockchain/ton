@@ -219,6 +219,7 @@ liteServer.info now:int53 version:int32 capabilities:int64 = liteServer.Info;
 
 
 blocks.masterchainInfo last:ton.BlockIdExt state_root_hash:bytes init:ton.BlockIdExt = blocks.MasterchainInfo;
+blocks.masterchainInfoExt mode:int32 version:int32 capabilities:int64 last:ton.BlockIdExt last_utime:int53 now:int53 state_root_hash:bytes init:ton.BlockIdExt = blocks.MasterchainInfoExt;
 blocks.shards shards:vector<ton.BlockIdExt> = blocks.Shards;
 blocks.accountTransactionId account:bytes lt:int64 = blocks.AccountTransactionId;
 blocks.shortTxId mode:# account:mode.0?bytes lt:mode.1?int64 hash:mode.2?bytes = liteServer.TransactionId;
@@ -228,7 +229,11 @@ blocks.header id:ton.blockIdExt global_id:int32 version:int32 flags:# after_merg
 //blocks.shortData header:blocks.Header transactions:blocks.Header = blocks.BlockData;
 
 blocks.signature node_id_short:int256 signature:bytes = blocks.Signature;
+
 blocks.blockSignatures id:ton.blockIdExt signatures:(vector blocks.signature) = blocks.BlockSignatures;
+blocks.blockSignatures.simplex id:ton.blockIdExt signatures:(vector blocks.signature)
+    session_id:int256 slot:int32 candidate:bytes = blocks.BlockSignatures;
+
 blocks.shardBlockLink id:ton.blockIdExt proof:bytes = blocks.ShardBlockLink;
 blocks.blockLinkBack to_key_block:Bool from:ton.blockIdExt to:ton.blockIdExt dest_proof:bytes proof:bytes state_proof:bytes = blocks.BlockLinkBack;
 blocks.shardBlockProof from:ton.blockIdExt mc_id:ton.blockIdExt links:(vector blocks.shardBlockLink) mc_proof:(vector blocks.blockLinkBack) = blocks.ShardBlockProof;
@@ -329,6 +334,7 @@ pchan.unpackPromise data:secureBytes = pchan.Promise;
 
 
 blocks.getMasterchainInfo = blocks.MasterchainInfo;
+blocks.getMasterchainInfoExt mode:int32 = blocks.MasterchainInfoExt;
 blocks.getShards id:ton.blockIdExt = blocks.Shards;
 blocks.lookupBlock mode:int32 id:ton.blockId lt:int64 utime:int32 = ton.BlockIdExt;
 blocks.getTransactions id:ton.blockIdExt mode:# count:# after:blocks.accountTransactionId = blocks.Transactions;

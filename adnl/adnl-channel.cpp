@@ -16,12 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-channel.hpp"
-#include "adnl-peer.h"
-#include "adnl-peer-table.h"
-
-#include "td/utils/crypto.h"
 #include "crypto/Ed25519.h"
+#include "td/utils/crypto.h"
+
+#include "adnl-channel.hpp"
+#include "adnl-peer-table.h"
+#include "adnl-peer.h"
 
 namespace ton {
 

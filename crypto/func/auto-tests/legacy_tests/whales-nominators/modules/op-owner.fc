@@ -1,5 +1,5 @@
 () op_owner(int flags, int value, slice in_msg) impure {
-    
+
     ;; Ignore bounced
     if (flags & 1) {
         return ();

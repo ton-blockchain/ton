@@ -16,14 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/common.h"
-#include "td/utils/logging.h"
-#include "td/utils/MpmcQueue.h"
-#include "td/utils/port/thread.h"
-#include "td/utils/tests.h"
-
 #include <algorithm>
 #include <tuple>
+
+#include "td/utils/MpmcQueue.h"
+#include "td/utils/common.h"
+#include "td/utils/logging.h"
+#include "td/utils/port/thread.h"
+#include "td/utils/tests.h"
 
 TEST(OneValue, simple) {
   {

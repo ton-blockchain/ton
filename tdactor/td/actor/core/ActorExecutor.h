@@ -26,7 +26,6 @@
 #include "td/actor/core/ActorState.h"
 #include "td/actor/core/ActorTypeStat.h"
 #include "td/actor/core/SchedulerContext.h"
-
 #include "td/utils/format.h"
 
 namespace td {

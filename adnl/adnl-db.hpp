@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "adnl-db.h"
 #include "td/db/KeyValue.h"
+
+#include "adnl-db.h"
 
 namespace ton {
 

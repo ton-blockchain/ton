@@ -36,6 +36,7 @@ void TokenManager::get_token(size_t size, td::uint32 priority, td::Timestamp tim
   }
 
   pending_.emplace(PendingPromiseKey{size, priority, seqno_++}, PendingPromise{timeout, std::move(promise)});
+  alarm_timestamp().relax(timeout);
 }
 
 void TokenManager::token_cleared(size_t size, td::uint32 priority) {
@@ -48,8 +49,7 @@ void TokenManager::token_cleared(size_t size, td::uint32 priority) {
   for (auto it = pending_.begin(); it != pending_.end();) {
     if (it->first.priority && (free_tokens_ || free_priority_tokens_)) {
       it->second.promise.set_value(gen_token(size, priority));
-      auto it2 = it++;
-      pending_.erase(it2);
+      it = pending_.erase(it);
       if (free_priority_tokens_ > 0) {
         free_priority_tokens_--;
       } else {
@@ -57,8 +57,7 @@ void TokenManager::token_cleared(size_t size, td::uint32 priority) {
       }
     } else if (!it->first.priority && free_tokens_) {
       it->second.promise.set_value(gen_token(size, priority));
-      auto it2 = it++;
-      pending_.erase(it2);
+      it = pending_.erase(it);
       free_tokens_--;
     } else {
       break;
@@ -72,7 +71,8 @@ void TokenManager::alarm() {
       it->second.promise.set_error(td::Status::Error(ErrorCode::timeout, "timeout in wait token"));
       it = pending_.erase(it);
     } else {
-      it++;
+      alarm_timestamp().relax(it->second.timeout);
+      ++it;
     }
   }
 }

@@ -1,9 +1,9 @@
 add_subdirectory(generate)
 set_source_files_properties(${TL_TON_API} PROPERTIES GENERATED TRUE)
-add_library(tl_api STATIC 
-	${TL_TON_API} 
-	tl/tl_object_parse.h 
-	tl/tl_object_store.h 
+add_library(tl_api STATIC
+	${TL_TON_API}
+	tl/tl_object_parse.h
+	tl/tl_object_store.h
 	tl/TlObject.h)
 add_dependencies(tl_api tl_generate_common)
 target_link_libraries(tl_api tdutils)
@@ -13,10 +13,10 @@ target_include_directories(tl_api PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../crypto/> $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/generate>)
 
 set_source_files_properties(${TL_LITE_API} PROPERTIES GENERATED TRUE)
-add_library(tl_lite_api STATIC 
-	${TL_LITE_API} 
-	tl/tl_object_parse.h 
-	tl/tl_object_store.h 
+add_library(tl_lite_api STATIC
+	${TL_LITE_API}
+	tl/tl_object_parse.h
+	tl/tl_object_store.h
 	tl/TlObject.h)
 add_dependencies(tl_lite_api tl_generate_common)
 target_link_libraries(tl_lite_api tdutils)

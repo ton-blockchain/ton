@@ -11,11 +11,11 @@ int check_signatures(msg_hash, signatures, signers, bitmask_size) impure {
         if (_found){
           if (check_signature(msg_hash, sig, public_key)){
             var signer_index = cs~load_uint(bitmask_size);
-                    bitmask = bitmask | (1 << (signer_index - 1));  
-          } 
+                    bitmask = bitmask | (1 << (signer_index - 1));
+          }
         }
       } until (~ _found);
-      ;; signature~touch(); 
+      ;; signature~touch();
     }
   } until (~ f);
   return bitmask;

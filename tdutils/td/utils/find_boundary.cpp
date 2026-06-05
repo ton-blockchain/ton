@@ -16,9 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/find_boundary.h"
-
 #include <cstring>
+
+#include "td/utils/find_boundary.h"
 
 namespace td {
 

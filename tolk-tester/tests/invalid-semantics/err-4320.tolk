@@ -1,10 +1,12 @@
+import "@stdlib/reflection"
+
 struct Point {
     x: int;
     y: int;
 }
 
 fun main() {
-    return sizeof(Point);
+    return reflect.stackSizeOfObject(Point);
 }
 
 /**

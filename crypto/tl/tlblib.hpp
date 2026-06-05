@@ -17,10 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <functional>
 #include <iostream>
 #include <map>
+
 #include "vm/cellslice.h"
-#include <functional>
 
 namespace tlb {
 
@@ -263,9 +264,22 @@ class TLB {
     return cs_ref.not_null() ? as_string(*cs_ref, indent) : "<null>";
   }
   std::string as_string_ref(Ref<vm::Cell> cell_ref, int indent = 0) const;
-  static inline size_t nat_abs(int x) {
-    return (x > 1) * 2 + (x & 1);
+  static inline size_t nat_abs(unsigned x) {
+    return (x > 1u) * 2u + (x & 1u);
   }
+
+  class ValidateCache : public td::Context<ValidateCache> {
+   public:
+    ValidateCache(std::function<bool(const TLB*, const td::Ref<vm::Cell>&)> f) : f_(std::move(f)) {
+    }
+    bool operator()(const TLB* type, const td::Ref<vm::Cell>& cell) {
+      return f_(type, cell);
+    }
+    static ValidateCache create_for_type(const TLB* type);
+
+   private:
+    std::function<bool(const TLB*, const td::Ref<vm::Cell>&)> f_;
+  };
 
  protected:
   bool validate_ref_internal(int* ops, Ref<vm::Cell> cell_ref, bool weak = false) const;
@@ -344,6 +358,10 @@ static inline bool add_r1(int& x, int y, int z) {
   return z >= y && (x = z - y) >= 0;
 }
 
+static inline bool add_r1(unsigned& x, unsigned y, unsigned z) {
+  return z >= y && (x = z - y) >= 0;
+}
+
 static inline bool add_r3(int& x, int y, int& z) {
   return (z = (x + y)) >= 0;
 }
@@ -353,6 +371,10 @@ static inline bool mul_chk(int x, int y, int z) {
 }
 
 static inline bool mul_r1(int& x, int y, int z) {
+  return y && !(z % y) && (x = z / y) >= 0;
+}
+
+static inline bool mul_r1(unsigned& x, unsigned y, unsigned z) {
   return y && !(z % y) && (x = z / y) >= 0;
 }
 
@@ -404,19 +426,19 @@ bool csr_unpack_safe(Ref<vm::CellSlice> csr, R& rec, Args&... args) {
 
 template <typename R, typename... Args>
 bool unpack_cell(Ref<vm::Cell> cell, R& rec, Args&... args) {
-  vm::CellSlice cs = vm::load_cell_slice(std::move(cell));
+  vm::CellSlice cs = vm::load_cell_slice_quiet(std::move(cell));
   return cs.is_valid() && (typename R::type_class{}).unpack(cs, rec, args...) && cs.empty_ext();
 }
 
 template <typename R, typename... Args>
 bool unpack_cell_inexact(Ref<vm::Cell> cell, R& rec, Args&... args) {
-  vm::CellSlice cs = vm::load_cell_slice(std::move(cell));
+  vm::CellSlice cs = vm::load_cell_slice_quiet(std::move(cell));
   return cs.is_valid() && (typename R::type_class{}).unpack(cs, rec, args...);
 }
 
 template <typename T, typename R, typename... Args>
 bool type_unpack_cell(Ref<vm::Cell> cell, const T& type, R& rec, Args&... args) {
-  vm::CellSlice cs = vm::load_cell_slice(std::move(cell));
+  vm::CellSlice cs = vm::load_cell_slice_quiet(std::move(cell));
   return cs.is_valid() && type.unpack(cs, rec, args...) && cs.empty_ext();
 }
 

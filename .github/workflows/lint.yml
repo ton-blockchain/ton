@@ -1,0 +1,73 @@
+name: Lint
+
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Check out repository
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
+        submodules: 'recursive'
+
+    - name: Install system libraries
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev
+
+    - name: Install Clang 22
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 22 all
+
+    - name: Check spaces at EOL
+      run: |
+        ! git grep --cached -Il '\s$' -- :/ \
+          ':(exclude)crypto/smartcont/tolk-stdlib/' \
+          ':(exclude)tolk/' \
+          ':(exclude)tolk-tester/' \
+          ':(exclude)third-party/'
+
+    - name: "Check #pragma once in headers"
+      run: |
+        ! git grep --cached -L '^#pragma once$' -- '*.h' '*.hpp' \
+          ':(exclude)third-party/' \
+          ':(exclude)tdactor/benchmark/third_party/' \
+          ':(exclude)tdutils/td/utils/date.h'
+
+    - name: Check C++ formatting
+      run: |
+        # TODO: Run clang-format only on changed files.
+        clang-format-22 -i $(git ls-files '*.h' '*.hpp' '*.cpp' \
+          ':(exclude)crypto/smartcont/tolk-stdlib/' \
+          ':(exclude)tolk/' \
+          ':(exclude)tolk-tester/' \
+          ':(exclude)third-party/' \
+          ':(exclude)tdactor/benchmark/third_party' )
+        git diff --exit-code
+
+    - name: Prepare Python environment
+      run: |
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        uv sync
+        uv run test/tontester/generate_tl.py
+
+    - name: Lint Python
+      run: |
+        uv run ruff check
+        uv run ruff format --check
+        uv run basedpyright

@@ -16,9 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_writer_java.h"
-
 #include <cassert>
+
+#include "tl_writer_java.h"
 
 namespace td {
 
@@ -33,9 +33,9 @@ int TD_TL_writer_java::get_max_arity() const {
 }
 
 bool TD_TL_writer_java::is_built_in_simple_type(const std::string &name) const {
-  return name == "Bool" || name == "Int32" || name == "Int53" || name == "Int64" || name == "Int128" || name == "Int256" || name == "Double" ||
-         name == "String" || name == "Bytes" || name == "SecureString" || name == "SecureBytes" || name == "Object" ||
-         name == "Function";
+  return name == "Bool" || name == "Int32" || name == "Int53" || name == "Int64" || name == "Int128" ||
+         name == "Int256" || name == "Double" || name == "String" || name == "Bytes" || name == "SecureString" ||
+         name == "SecureBytes" || name == "Object" || name == "Function";
 }
 
 bool TD_TL_writer_java::is_built_in_complex_type(const std::string &name) const {

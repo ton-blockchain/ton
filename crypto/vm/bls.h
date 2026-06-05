@@ -14,11 +14,13 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#pragma once
 
 #include <vector>
-#include "td/utils/buffer.h"
+
 #include "common/bitstring.h"
 #include "common/refint.h"
+#include "td/utils/buffer.h"
 
 namespace vm {
 namespace bls {

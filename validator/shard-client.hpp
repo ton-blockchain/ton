@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "interfaces/validator-manager.h"
 #include <set>
+
+#include "interfaces/validator-manager.h"
 
 namespace ton {
 

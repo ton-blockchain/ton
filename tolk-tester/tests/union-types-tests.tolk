@@ -1,3 +1,5 @@
+import "@stdlib/reflection"
+
 type MInt = int
 type MNull = | null
 type MSlice = slice
@@ -19,15 +21,15 @@ fun testFlatten() {
     __expect_type(0 as (int? | int), "int?");
     __expect_type(0 as (slice | int? | slice? | cell), "slice | int | null | cell");
     __expect_type(0 as (| int | (int | int)), "int");
-    __expect_type(0 as (slice | (slice | (slice | int) | (| cell | slice?))), "slice | int | cell | null");
+    __expect_type(0 as (string | (string | (string | int) | (| cell | string?))), "string | int | cell | null");
 
     __expect_type(0 as (MInt | MNull), "MInt?");
-    __expect_type(0 as (MInt | slice | int), "MInt | slice");
+    __expect_type(0 as (MInt | slice | MInt), "MInt | slice");
     __expect_type(0 as (MIntN), "MIntN");
     __expect_type(0 as (MIntN | null), "int?");
     __expect_type(0 as (MIntN | MNull | MSlice), "int | null | MSlice");
     __expect_type(0 as (MIntN | MNull? | MSlice), "int | null | MSlice");
-    __expect_type(0 as (MInt | IntOrSliceOrBuilder | MSlice), "MInt | slice | builder");
+    __expect_type(0 as (MInt | builder | MSlice), "MInt | builder | MSlice");
     __expect_type((1, 2) as (Pair2 | Pair2Or3 | (slice, int?)), "Pair2 | (int, int, int) | (slice, int?)");
 
     __expect_type(0 as (int | int8), "int | int8");
@@ -47,14 +49,19 @@ fun testFlatten() {
     __expect_type(0 !is builder, "bool");
     __expect_type(0!!is builder, "bool");
 
-    __expect_type(match (0) { int => [] }, "[]");
+    __expect_type(match (0) { int => [] }, "array<unknown>");
     __expect_type(match (0 as int|slice) { int => 0, slice => 0 }, "int");
-    __expect_type(match (0 as int|slice) { int => 0, slice => 0 as int8 } as int|int8, "int | int8");
-    __expect_type(match (0 as int?) { int => "", null => null }, "slice?");
+    __expect_type(match (0 as int|string) { int => 0, string => 0 as int8 } as int|int8, "int | int8");
+    __expect_type(match (0 as int?) { int => "", null => null }, "string?");
     __expect_type(match (0 as int?) {
         int => 10>3 ? match(0) { int => 0 } : match (10>3 ? 6 : null) { null => 0, int => { return; } },
         null => match(null) { null => 0 }
     }, "int");
+
+    __expect_type(0 as (int | void | int | void), "int | void");
+    __expect_type(0 as (int | void)?, "int | void | null");
+    __expect_type(0 !is void, "bool");
+    __expect_type(match (0 as int | void) { int => 0, void => 1 }, "int");
 }
 
 @method_id(101)
@@ -105,8 +112,8 @@ fun test4() {
 
 @method_id(105)
 fun test5() {
-    var a: int | int | IntOrSlice = getIntOrSlice();
-    __expect_type(a, "int | slice");
+    var a: MInt | MInt | IntOrSlice = getIntOrSlice();
+    __expect_type(a, "MInt | slice");
     a = 5;
     return (a, a as IntOrSlice, a as IntOrSliceOrBuilder, a as MIntN);
 }
@@ -236,13 +243,13 @@ fun test21() {
 }
 
 @method_id(122)
-fun test22(a: int, b: int | slice) {
+fun test22(a: int, b: int | string) {
     var result = 0;
     if (a is int) { result += 1 }
-    if (a is int || a is slice) { result += 2 }
-    if (a is builder || a is slice) { result += 3 }
+    if (a is int || a is string) { result += 2 }
+    if (a is builder || a is string) { result += 3 }
     if (b is int) { result += 10 }
-    if ((b is int) | (b is slice)) { result += 11 }
+    if ((b is int) | (b is string)) { result += 11 }
     if ((b is builder) | (b is int)) { result += 12 }
     return result
 }
@@ -776,6 +783,202 @@ fun test61(i: int32 | int64 | int) {
     }
 }
 
+fun myFromTuple<T>(t: tuple): T {
+    return T.fromTuple(t)
+}
+
+@method_id(162)
+fun test62() {
+    return (
+        ((5 as int32) as int32 | varint32).toTuple(),
+        ((5 as varint32) as int32 | varint32).toTuple(),
+        myFromTuple<int32 | varint32>([10, 143] as tuple) is varint32,
+        reflect.typeNameOfObject(myFromTuple<int32 | varint32>([10, 48] as tuple)).beginParse().bitsEqual("int32 | varint32".literalSlice()),
+    ) 
+}
+
+@method_id(163)
+fun test63(makeSingleInt: bool) {
+    var v: array<int> | int = makeSingleInt ? 10 : [1, 2, 3];
+    return (
+        v is array<int>,
+        v is array<slice>,
+        v is int,
+        match (v) { array<int> => v.size(), int => v },
+        (v is array<int>) ? v.last() : -1,
+    )
+}
+
+@method_id(164)
+fun test64(makeArrInt32: bool) {
+    var v: array<int32> | array<int64> = makeArrInt32 ? [5, 6] as array<int32> : [12, 13] as array<int64>;
+    var m: map<int32, bool> | map<int64, bool> = createEmptyMap<int64, bool>();
+    if (makeArrInt32) {
+        m = createEmptyMap<int32, bool>();
+        match (v) {
+            array<int64> => {}
+            array<int32> => {
+                var i = 0;
+                repeat (v.size()) {
+                    m.set(v.get(i), true);
+                    i += 1;
+                }
+            }    
+        }
+    }
+    return (
+        v is array<int32>,
+        v is array<int48>,
+        v is array<int64>,
+        m is map<int32, bool>,
+        m is map<int32, slice>,
+        match (m) {
+            map<int32, bool> => [m.exists(5), (!m.mustGet(6)) as int],
+            map<int64, bool> => [m.exists(12), match (v) { array<int32> => throw 123, array<int64> => v.size() }],
+        } as [bool, int]
+    )
+}
+
+@method_id(165)
+fun test65() {
+    var ai: array<int> | array<int32> = [1, 2, 3];
+    __expect_type(ai, "array<int>");
+    return ai.size();
+}
+
+type U = unknown
+
+@method_id(166)
+fun test66(x: int) {
+    var t: tuple = [1];
+    var u: tuple | int = x == 0 ? t : 5;
+    return u is array<U>
+}
+
+fun (int8 | int16).unionId(self): self {
+    return self;
+}
+
+@method_id(167)
+fun test67(x: int8, y: int16) {
+    __expect_type(x.unionId(), "int8 | int16");
+    return (x.unionId(), y.unionId());
+}
+
+type BoolOrInt = bool | int1;
+
+@method_id(168)
+fun test68(): int {
+    var x: BoolOrInt = 1;
+    __expect_type(x, "int1");
+    do {
+        x += 1;
+    } while (x !is int1);
+    __expect_type(x, "int1");
+    return x;
+}
+
+
+@noinline
+fun makeIntOrVoid(case: int): int | void {
+    if (case == 1) { return 42; }
+    return;
+}
+
+fun makeWide(case: int): int | slice | void {
+    if (case == 1) { return 42; }
+    if (case == 2) { return getSlice32(); }
+    return;
+}
+
+struct PointV { x: int8; y: int8; }
+
+fun makePointOrIntOrVoid(case: int): PointV | int32 | void {
+    if (case == 1) { return PointV { x: 7, y: 9 }; }
+    if (case == 2) { return 100 as int32; }
+    return;
+}
+
+@method_id(169)
+fun test69(case: int) {
+    var a = makeIntOrVoid(case);
+    __expect_type(a, "int | void");
+    var r1 = a is int;
+    var r2 = a is void;
+    var r3 = a !is void;
+    if (a is int) {
+        __expect_type(a, "int");
+    } else {
+        __expect_type(a, "void");
+    }
+    if (a !is void) {
+        __expect_type(a, "int");
+        return (r1, r2, r3, a);
+    }
+    __expect_type(a, "void");
+    return (r1, r2, r3, -1);
+}
+
+@method_id(170)
+fun test70(case: int) {
+    return match (var b = makeWide(case)) {
+        int    => b + 1000,
+        slice  => b.loadInt(32) + 2000,
+        void   => -3000,
+    }
+}
+
+@method_id(171)
+fun test71(case: int) {
+    var b = makeWide(case);
+    var r: int = match (b) {
+        int   => 1,
+        slice => 2,
+        void  => -1,
+    };
+    return (r, b is int, b is slice, b is void);
+}
+
+@method_id(172)
+fun test72(case: int) {
+    var p = makePointOrIntOrVoid(case);
+    var u: unknown = p;
+    var p2 = u as PointV | int32 | void;
+    return match (p2) {
+        PointV => p2.x as int + p2.y,
+        int32  => p2 as int * 10,
+        void   => -1,
+    }
+}
+
+fun isVoidOf<T>(v: T | void) {
+    return v is void
+}
+
+@noinline
+fun makeSliceOrVoid(emit: bool): slice | void {
+    if (emit) { return getSlice32(); }
+    return
+}
+
+@method_id(173)
+fun test73() {
+    return (
+        isVoidOf<int>(makeIntOrVoid(0)),
+        isVoidOf<int>(makeIntOrVoid(1)),
+        isVoidOf<slice>(makeSliceOrVoid(false)),
+        isVoidOf<slice>(makeSliceOrVoid(true)),
+    );
+}
+
+@method_id(174)
+fun test74(case: int) {
+    var a: int | void = makeIntOrVoid(case);
+    if (a is void) {
+        a = 7;
+    }
+    return a + 0;
+}
 
 
 fun main() {
@@ -800,7 +1003,7 @@ fun main() {
 @testcase | 120 |           | 5
 @testcase | 121 |           | -1 0 0 -1 -1 0
 @testcase | 122 | 0 0 1     | 36
-@testcase | 122 | 0 0 4     | 14
+@testcase | 122 | 0 0 18    | 14
 @testcase | 123 | 1         | 1 2
 @testcase | 123 | 0         | 10 20
 @testcase | 124 |           | 0 1 0 1 0 0 1 0
@@ -850,6 +1053,29 @@ fun main() {
 @testcase | 159 | null 0    | 123
 @testcase | 160 |           | 10 0
 @testcase | 161 | 100 48    | 20
+@testcase | 162 |           | [ 5 46 ] [ 5 typeid-15 ] -1 -1
+@testcase | 163 | -1        | 0 0 -1 10 -1
+@testcase | 163 | 0         | -1 0 0 3 3
+@testcase | 164 | -1        | -1 0 0 -1 0 [ -1 0 ]
+@testcase | 164 | 0         | 0 0 -1 0 0 [ 0 2 ]
+@testcase | 165 |           | 3
+@testcase | 166 | 0         | -1
+@testcase | 167 | 1 2       | 1 42 2 44
+@testcase | 168 |           | 2
+@testcase | 169 | 0         | 0 -1 0 -1
+@testcase | 169 | 1         | -1 0 -1 42
+@testcase | 170 | 0         | -3000
+@testcase | 170 | 1         | 1042
+@testcase | 170 | 2         | 2032
+@testcase | 171 | 0         | -1 0 0 -1
+@testcase | 171 | 1         | 1 -1 0 0
+@testcase | 171 | 2         | 2 0 -1 0
+@testcase | 172 | 0         | -1
+@testcase | 172 | 1         | 16
+@testcase | 172 | 2         | 1000
+@testcase | 173 |           | -1 0 -1 0
+@testcase | 174 | 0         | 7
+@testcase | 174 | 1         | 42
 
 
 @fif_codegen
@@ -897,6 +1123,6 @@ fun main() {
   }>
 """
 
-@fif_codegen DECLPROC checkGeneric3<int,int8,int16>()
+@fif_codegen DECLPROC checkGeneric3<int,`int8,`int16>()
 
  */

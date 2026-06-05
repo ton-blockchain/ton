@@ -18,14 +18,13 @@
 */
 #pragma once
 
+#include "td/actor/core/ActorMailbox.h"
 #include "td/actor/core/ActorState.h"
 #include "td/actor/core/ActorTypeStat.h"
-#include "td/actor/core/ActorMailbox.h"
-
 #include "td/utils/Heap.h"
 #include "td/utils/List.h"
-#include "td/utils/Time.h"
 #include "td/utils/SharedObjectPool.h"
+#include "td/utils/Time.h"
 
 namespace td {
 namespace actor {
@@ -71,9 +70,28 @@ class ActorInfo : private HeapNode, private ListNode {
   void on_add_to_queue() {
     in_queue_since_ = td::Clocks::rdtsc();
   }
-  void destroy_actor() {
-    actor_.reset();
+  // ActorRef refcount: prevents actor destruction while coroutines hold refs
+  bool try_acquire_ref() {
+    auto cnt = actor_ref_cnt_.load(std::memory_order_acquire);
+    while (cnt > 0) {
+      if (actor_ref_cnt_.compare_exchange_weak(cnt, cnt + 1, std::memory_order_acq_rel, std::memory_order_acquire)) {
+        return true;
+      }
+    }
+    return false;
   }
+
+  void acquire_ref() {
+    auto old = actor_ref_cnt_.fetch_add(1, std::memory_order_relaxed);
+    CHECK(old > 0);
+  }
+
+  void dec_ref() {
+    if (actor_ref_cnt_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      actor_.reset();
+    }
+  }
+
   ActorState &state() {
     return state_;
   }
@@ -92,10 +110,10 @@ class ActorInfo : private HeapNode, private ListNode {
   }
 
   Timestamp get_alarm_timestamp() const {
-    return Timestamp::at(alarm_timestamp_at_.load(std::memory_order_relaxed));
+    return alarm_timestamp_at_.load(std::memory_order_relaxed);
   }
   void set_alarm_timestamp(Timestamp timestamp) {
-    alarm_timestamp_at_.store(timestamp.at(), std::memory_order_relaxed);
+    alarm_timestamp_at_.store(timestamp, std::memory_order_relaxed);
   }
 
   void pin(ActorInfoPtr ptr) {
@@ -113,11 +131,13 @@ class ActorInfo : private HeapNode, private ListNode {
   ActorState state_;
   ActorMailbox mailbox_;
   std::string name_;
-  std::atomic<double> alarm_timestamp_at_{0};
+  std::atomic<Timestamp> alarm_timestamp_at_{};
+  static_assert(decltype(alarm_timestamp_at_)::is_always_lock_free);
 
   ActorInfoPtr pin_;
   td::uint64 in_queue_since_{0};
   td::uint32 actor_stat_id_{0};
+  std::atomic<td::uint32> actor_ref_cnt_{1};
 };
 
 }  // namespace core

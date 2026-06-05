@@ -18,13 +18,13 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/MovableValue.h"
-#include "td/utils/Slice.h"
-
 #include <array>
 #include <cstdlib>
 #include <memory>
+
+#include "td/utils/MovableValue.h"
+#include "td/utils/Slice.h"
+#include "td/utils/common.h"
 
 namespace td {
 

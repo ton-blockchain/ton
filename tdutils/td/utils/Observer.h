@@ -25,29 +25,37 @@ namespace td {
 class ObserverBase {
  public:
   ObserverBase() = default;
-  ObserverBase(const ObserverBase &) = delete;
-  ObserverBase &operator=(const ObserverBase &) = delete;
-  ObserverBase(ObserverBase &&) = delete;
-  ObserverBase &operator=(ObserverBase &&) = delete;
   virtual ~ObserverBase() = default;
 
   virtual void notify() = 0;
+  virtual void on_destroy() {
+  }
 };
 
-class Observer : ObserverBase {
+class Observer {
  public:
   Observer() = default;
-  explicit Observer(unique_ptr<ObserverBase> &&ptr) : observer_ptr_(std::move(ptr)) {
+  ~Observer() {
+    if (observer_ptr_) {
+      observer_ptr_->on_destroy();
+    }
+  }
+  explicit Observer(std::shared_ptr<ObserverBase> &&ptr) : observer_ptr_(std::move(ptr)) {
   }
 
-  void notify() override {
+  Observer(Observer &&) = default;
+  Observer &operator=(Observer &&) = default;
+  Observer(const Observer &) = delete;
+  Observer &operator=(const Observer &) = delete;
+
+  void notify() {
     if (observer_ptr_) {
       observer_ptr_->notify();
     }
   }
 
  private:
-  unique_ptr<ObserverBase> observer_ptr_;
+  std::shared_ptr<ObserverBase> observer_ptr_;
 };
 
 }  // namespace td

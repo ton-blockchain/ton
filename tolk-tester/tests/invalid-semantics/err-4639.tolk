@@ -5,5 +5,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr assignment can not be used as lvalue
+@stderr can not assign to a temporary expression
 */

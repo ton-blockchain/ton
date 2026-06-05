@@ -16,10 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "TestGiver.h"
-#include "GenericAccount.h"
-
 #include "td/utils/base64.h"
+
+#include "GenericAccount.h"
+#include "TestGiver.h"
 
 namespace ton {
 const block::StdAddress& TestGiver::address() noexcept {

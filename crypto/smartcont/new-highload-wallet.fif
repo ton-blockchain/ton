@@ -4,7 +4,7 @@
 
 { ."usage: " @' $0 type ." <workchain-id> <subwallet-id> [<filename-base>]" cr
   ."Creates a new high-load wallet in the specified workchain, with the controlling private key saved to or loaded from <filename-base>.pk "
-  ."('new-wallet.pk' by default)" cr 
+  ."('new-wallet.pk' by default)" cr
   ."<subwallet-id> is the 32-bit identifier of this subwallet among all controlled by the same private key" cr 1 halt
 } : usage
 $# 2- -2 and ' usage if
@@ -15,7 +15,7 @@ $2 parse-int dup =: subwallet-id   // parse subwallet-id
 { subwallet-id (.) $+ } : +subwallet
 def? $3 { @' $3 } { "new-wallet" } cond constant file-base
 
-."Creating new high-load wallet in workchain " wc . 
+."Creating new high-load wallet in workchain " wc .
 ."with subwallet id " subwallet-id . cr
 
 // Create new high-load wallet; source code included from `auto/highload-wallet-code.fif`
@@ -24,7 +24,7 @@ def? $3 { @' $3 } { "new-wallet" } cond constant file-base
 <b 0 32 u, subwallet-id 32 i,
    file-base +".pk" load-generate-keypair
    constant wallet_pk
-   B, 
+   B,
 b> // data
 null // no libraries
 <b b{0011} s, 3 roll ref, rot ref, swap dict, b>  // create StateInit

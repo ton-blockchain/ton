@@ -17,12 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "Bbr.h"
+#include "td/utils/Random.h"
 
+#include "Bbr.h"
 #include "BdwStats.h"
 #include "RttStats.h"
-
-#include "td/utils/Random.h"
 
 namespace ton {
 namespace rldp2 {

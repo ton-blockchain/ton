@@ -16,15 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "errorlog.h"
-#include "checksum.h"
-
-#include "td/utils/port/FileFd.h"
-#include "td/utils/filesystem.h"
-#include "td/utils/port/path.h"
-#include "td/utils/Time.h"
-
 #include <mutex>
+#include <thread>
+
+#include "td/utils/Time.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/FileFd.h"
+#include "td/utils/port/path.h"
+
+#include "checksum.h"
+#include "errorlog.h"
 
 namespace ton {
 
@@ -66,7 +67,8 @@ void ErrorLog::log_file(td::BufferSlice data) {
   auto filename = sha256_bits256(data.as_slice());
   auto path = files_path_ + "/" + filename.to_hex();
 
-  td::write_file(path, data.as_slice()).ensure();
+  auto thread_suffix = std::hash<std::thread::id>{}(std::this_thread::get_id());
+  td::atomic_write_file(path, data.as_slice(), path + "." + std::to_string(thread_suffix)).ensure();
 }
 
 }  // namespace errorlog

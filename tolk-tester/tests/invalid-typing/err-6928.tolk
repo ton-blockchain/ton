@@ -1,4 +1,4 @@
-fun int.f(self, v: (int, int) = (0, 1+"")) {
+fun int.f(self, v: (int, int) = (0, 1+"".literalSlice())) {
 }
 
 /**

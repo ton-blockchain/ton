@@ -18,7 +18,6 @@
 */
 #pragma once
 #include <assert.h>
-
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
 #include <openssl/sha.h>
@@ -129,8 +128,10 @@ typedef HashCtx<OpensslEVP_SHA512> SHA512;
 
 struct SHA256Tag {};
 
+#if defined(__GNUC__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 
 template <>
 struct HashCtx<SHA256Tag> {
@@ -178,7 +179,9 @@ struct HashCtx<SHA256Tag> {
   SHA256_CTX ctx_;
 };
 
+#if defined(__GNUC__)
 #pragma GCC diagnostic pop
+#endif
 
 typedef HashCtx<SHA256Tag> SHA256;
 

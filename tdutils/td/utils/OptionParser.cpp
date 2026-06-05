@@ -17,12 +17,11 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "td/utils/OptionParser.h"
-
-#include "td/utils/misc.h"
-
 #include <cstring>
 #include <unordered_map>
+
+#include "td/utils/OptionParser.h"
+#include "td/utils/misc.h"
 
 namespace td {
 

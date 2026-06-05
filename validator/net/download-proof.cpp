@@ -16,13 +16,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "download-proof.hpp"
-#include "ton/ton-tl.hpp"
 #include "adnl/utils.hpp"
-#include "ton/ton-shard.h"
 #include "td/utils/overloaded.h"
 #include "ton/ton-io.hpp"
+#include "ton/ton-shard.h"
+#include "ton/ton-tl.hpp"
 #include "validator/full-node.h"
+
+#include "download-proof.hpp"
 
 namespace ton {
 
@@ -34,9 +35,9 @@ DownloadProof::DownloadProof(BlockIdExt block_id, bool allow_partial_proof, bool
                              adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
                              adnl::AdnlNodeIdShort download_from, td::uint32 priority, td::Timestamp timeout,
                              td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                             td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                             td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
-                             td::Promise<td::BufferSlice> promise)
+                             td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
+                             td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
+                             td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<td::BufferSlice> promise)
     : block_id_(block_id)
     , allow_partial_proof_(allow_partial_proof)
     , is_key_block_(is_key_block)

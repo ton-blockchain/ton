@@ -19,8 +19,8 @@
 #include "auto/tl/ton_api.h"
 #include "td/utils/Variant.h"
 #include "td/utils/overloaded.h"
-#include "ton/ton-types.h"
 #include "ton/ton-shard.h"
+#include "ton/ton-types.h"
 
 namespace ton {
 
@@ -36,13 +36,13 @@ struct SplitPersistentStateType {};
 
 using PersistentStateType = td::Variant<UnsplitStateType, SplitAccountStateType, SplitPersistentStateType>;
 
-auto persistent_state_id_from_v1_query(auto const &query) {
+auto persistent_state_id_from_v1_query(const auto &query) {
   auto block = create_tl_block_id(create_block_id(query.block_));
   auto mc_block = create_tl_block_id(create_block_id(query.masterchain_block_));
   return create_tl_object<ton_api::tonNode_persistentStateIdV2>(std::move(block), std::move(mc_block), 0);
 }
 
-auto persistent_state_from_v2_query(auto const &query) {
+auto persistent_state_from_v2_query(const auto &query) {
   auto block = create_block_id(query.state_->block_);
   auto mc_block = create_block_id(query.state_->masterchain_block_);
   ShardId effective_shard = static_cast<ShardId>(query.state_->effective_shard_);
@@ -61,7 +61,7 @@ auto persistent_state_from_v2_query(auto const &query) {
   return std::tuple{block, mc_block, PersistentStateType{SplitAccountStateType{effective_shard}}};
 }
 
-inline ShardId persistent_state_to_effective_shard(ShardIdFull const &shard, PersistentStateType const &type) {
+inline ShardId persistent_state_to_effective_shard(const ShardIdFull &shard, const PersistentStateType &type) {
   ShardId result = 0;
   type.visit(td::overloaded([](UnsplitStateType) {},
                             [&](SplitAccountStateType type) { result = type.effective_shard_id; },
@@ -69,19 +69,23 @@ inline ShardId persistent_state_to_effective_shard(ShardIdFull const &shard, Per
   return result;
 }
 
-inline std::string persistent_state_type_to_string(ShardIdFull const &shard, PersistentStateType const &state) {
+inline std::string persistent_state_type_to_string(const ShardIdFull &shard, const PersistentStateType &state) {
   std::string result;
-  state.visit(td::overloaded([&](UnsplitStateType) { result = "unsplit"; },
-                             [&](SplitAccountStateType type) {
-                               int real_pfx_len = shard_prefix_length(shard.shard);
-                               int effective_pfx_len = shard_prefix_length(type.effective_shard_id);
-                               td::uint64 parts_count = 1 << (effective_pfx_len - real_pfx_len);
-                               td::uint64 part_idx =
-                                   type.effective_shard_id >> (64 - effective_pfx_len) & (parts_count - 1);
-                               result =
-                                   "part " + std::to_string(part_idx + 1) + " out of " + std::to_string(parts_count);
-                             },
-                             [&](SplitPersistentStateType) { result = "split header"; }));
+  state.visit(
+      td::overloaded([&](UnsplitStateType) { result = "unsplit"; },
+                     [&](SplitAccountStateType type) {
+                       auto real_pfx_len = shard_prefix_length(shard.shard);
+                       auto effective_pfx_len = shard_prefix_length(type.effective_shard_id);
+                       if (shard.shard == 0 || type.effective_shard_id == 0 || effective_pfx_len <= real_pfx_len ||
+                           !shard_is_proper_ancestor(shard.shard, type.effective_shard_id)) {
+                         result = "invalid split part";
+                         return;
+                       }
+                       td::uint64 parts_count = td::uint64{1} << (effective_pfx_len - real_pfx_len);
+                       td::uint64 part_idx = type.effective_shard_id >> (64 - effective_pfx_len) & (parts_count - 1);
+                       result = "part " + std::to_string(part_idx + 1) + " out of " + std::to_string(parts_count);
+                     },
+                     [&](SplitPersistentStateType) { result = "split header"; }));
   return result;
 }
 

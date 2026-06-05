@@ -23,11 +23,12 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "validator-telemetry.hpp"
-#include "git.h"
+#include "interfaces/validator-manager.h"
 #include "td/utils/Random.h"
 #include "td/utils/port/uname.h"
-#include "interfaces/validator-manager.h"
+
+#include "git.h"
+#include "validator-telemetry.hpp"
 
 namespace ton::validator {
 
@@ -76,8 +77,8 @@ void ValidatorTelemetry::send_telemetry() {
   telemetry->ram_size_ = ram_size_;
   telemetry->cpu_cores_ = cpu_cores_;
   telemetry->node_threads_ = (td::int32)td::actor::SchedulerContext::get()
-                                 ->scheduler_group()
-                                 ->schedulers.at(td::actor::SchedulerContext::get()->get_scheduler_id().value())
+                                 .scheduler_group()
+                                 ->schedulers.at(td::actor::SchedulerContext::get().get_scheduler_id().value())
                                  .cpu_threads_count;
 
   LOG(DEBUG) << "Sending validator telemetry for adnl id " << local_id_;

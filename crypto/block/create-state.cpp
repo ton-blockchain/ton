@@ -25,42 +25,40 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include <cassert>
 #include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <fstream>
+#include <functional>
+#include <getopt.h>
+#include <iostream>
+#include <limits>
+#include <map>
+#include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
-#include <iostream>
-#include <sstream>
-#include <fstream>
-#include <memory>
-#include <cstring>
-#include <cstdlib>
-#include <cmath>
-#include <map>
-#include <functional>
-#include <limits>
-#include <getopt.h>
 
-#include "vm/stack.hpp"
-#include "vm/boc.h"
-
-#include "fift/Fift.h"
 #include "fift/Dictionary.h"
-#include "fift/SourceLookup.h"
+#include "fift/Fift.h"
 #include "fift/IntCtx.h"
+#include "fift/SourceLookup.h"
 #include "fift/words.h"
-
+#include "td/utils/Parser.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
-#include "td/utils/Parser.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
+#include "vm/boc.h"
+#include "vm/stack.hpp"
 
-#include "block.h"
-#include "block-parse.h"
 #include "block-auto.h"
-#include "mc-config.h"
+#include "block-parse.h"
+#include "block.h"
 #include "git.h"
+#include "mc-config.h"
 
 #if defined(_INTERNAL_COMPILE) || defined(_TONLIB_COMPILE)
 #define WITH_TONLIB
@@ -81,6 +79,10 @@
   }
 
 using td::Ref;
+
+extern "C" const char* __asan_default_options() {
+  return "detect_leaks=0";
+}
 
 int verbosity;
 
@@ -329,7 +331,7 @@ td::RefInt256 create_smartcontract(td::RefInt256 smc_addr, Ref<vm::Cell> code, R
   }
   PDO(cb.store_long_bool(ctor, 2));  // addr_std$10 or addr_var$11
   if (fixed_prefix_length) {
-    PDO(cb.store_long_bool(1, 1)                            // just$1
+    PDO(cb.store_long_bool(1, 1)                                    // just$1
         && cb.store_ulong_rchk_bool(fixed_prefix_length, 5)         // depth:(## 5)
         && cb.store_bits_bool(addr.cbits(), fixed_prefix_length));  // rewrite pfx:(depth * Bit)
   } else {
@@ -593,13 +595,17 @@ void interpret_set_config_param(vm::Stack& stack) {
   int x = stack.pop_smallint_range(0x7fffffff, 0x80000000);
   Ref<vm::Cell> value = stack.pop_cell();
   if (verbosity > 2 && x >= 0) {
+    unsigned cfg_idx = static_cast<unsigned>(x);
     std::cerr << "setting configuration parameter #" << x << " to ";
     // vm::load_cell_slice(value).print_rec(std::cerr);
-    block::gen::ConfigParam{x}.print_ref(std::cerr, value);
+    block::gen::ConfigParam{cfg_idx}.print_ref(std::cerr, value);
     std::cerr << std::endl;
   }
-  if (x >= 0 && !block::gen::ConfigParam{x}.validate_ref(value)) {
-    throw fift::IntError{"invalid value for indicated configuration parameter"};
+  if (x >= 0) {
+    unsigned cfg_idx = static_cast<unsigned>(x);
+    if (!block::gen::ConfigParam{cfg_idx}.validate_ref(value)) {
+      throw fift::IntError{"invalid value for indicated configuration parameter"};
+    }
   }
   if (!config_dict.set_ref(td::BitArray<32>{x}, std::move(value))) {
     throw fift::IntError{"cannot set value of configuration parameter (value too long?)"};
@@ -610,12 +616,18 @@ void interpret_check_config_param(vm::Stack& stack) {
   int x = stack.pop_smallint_range(0x7fffffff, 0x80000000);
   Ref<vm::Cell> value = stack.pop_cell();
   if (verbosity > 2 && x >= 0) {
+    unsigned cfg_idx = static_cast<unsigned>(x);
     std::cerr << "checking validity as configuration parameter #" << x << " of ";
     // vm::load_cell_slice(value).print_rec(std::cerr);
-    block::gen::ConfigParam{x}.print_ref(std::cerr, value);
+    block::gen::ConfigParam{cfg_idx}.print_ref(std::cerr, value);
     std::cerr << std::endl;
   }
-  stack.push_bool(x < 0 || block::gen::ConfigParam{x}.validate_ref(value));
+  if (x < 0) {
+    stack.push_bool(true);
+    return;
+  }
+  unsigned cfg_idx = static_cast<unsigned>(x);
+  stack.push_bool(block::gen::ConfigParam{cfg_idx}.validate_ref(value));
 }
 
 void interpret_is_shard_state(vm::Stack& stack) {
@@ -815,11 +827,11 @@ void usage(const char* progname) {
 void parse_include_path_set(std::string include_path_set, std::vector<std::string>& res) {
   td::Parser parser(include_path_set);
   while (!parser.empty()) {
-    #if TD_WINDOWS
+#if TD_WINDOWS
     auto path_separator = '@';
-    #else
+#else
     auto path_separator = ':';
-    #endif
+#endif
     auto path = parser.read_till_nofail(path_separator);
     if (!path.empty()) {
       res.push_back(path.str());

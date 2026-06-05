@@ -18,6 +18,9 @@
 */
 #pragma once
 
+#include <cstddef>
+#include <type_traits>
+
 namespace td {
 
 template <class FunctionT>
@@ -38,5 +41,47 @@ template <class FunctionT>
 constexpr size_t member_function_argument_count() {
   return member_function_class<FunctionT>::argument_count();
 }
+
+template <typename...>
+struct TypeList {};
+
+namespace detail {
+
+template <typename T, template <typename...> typename Template>
+struct IsSpecializationOfHelper : std::false_type {};
+
+template <template <typename...> typename Template, typename... Args>
+struct IsSpecializationOfHelper<Template<Args...>, Template> : std::true_type {};
+
+template <typename, typename>
+struct ConcatHelper {};
+
+template <typename... List1, typename... List2>
+struct ConcatHelper<TypeList<List1...>, TypeList<List2...>> {
+  using type = TypeList<List1..., List2...>;
+};
+
+template <typename, typename>
+struct InHelper {};
+
+template <typename T, typename... Ts>
+struct InHelper<T, TypeList<Ts...>> {
+  constexpr static bool value = (std::is_same_v<T, Ts> || ...);
+};
+
+}  // namespace detail
+
+template <typename T, template <typename...> typename Template>
+concept IsSpecializationOf =
+    detail::IsSpecializationOfHelper<std::remove_cv_t<std::remove_reference_t<T>>, Template>::value;
+
+template <IsSpecializationOf<TypeList> List1, IsSpecializationOf<TypeList> List2>
+using Concat = typename detail::ConcatHelper<List1, List2>::type;
+
+template <typename T, typename List>
+concept In = detail::InHelper<T, List>::value;
+
+template <typename T, typename... Ts>
+concept OneOf = (std::is_same_v<T, Ts> || ...);
 
 }  // namespace td

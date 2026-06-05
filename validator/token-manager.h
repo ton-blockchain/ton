@@ -18,10 +18,10 @@
 */
 #pragma once
 
+#include <set>
+
 #include "td/actor/actor.h"
 #include "validator/interfaces/validator-manager.h"
-
-#include <set>
 
 namespace ton {
 
@@ -48,7 +48,7 @@ class TokenManager : public td::actor::Actor {
     td::uint64 seqno;
 
     bool operator<(const PendingPromiseKey &with) const {
-      return priority < with.priority || (priority == with.priority && seqno < with.seqno);
+      return priority > with.priority || (priority == with.priority && seqno < with.seqno);
     }
   };
   struct PendingPromise {

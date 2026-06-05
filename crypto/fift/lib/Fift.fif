@@ -17,7 +17,7 @@
 10 constant ten
 { bl word 1 { find 0= abort"word not found" } } :: (')
 { bl word find not abort"-?" 0 swap } :: [compile]
-{ bl word 1 { 
+{ bl word 1 {
   dup find { " -?" $+ abort } ifnot nip execute
 } } :: @'
 { bl word 1 { swap 1 'nop does swap 0 (create) }

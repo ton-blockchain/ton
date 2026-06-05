@@ -16,12 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "keyring.hpp"
 #include "common/errorcode.h"
 #include "common/io.hpp"
-#include "td/utils/port/path.h"
-#include "td/utils/filesystem.h"
 #include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/path.h"
+
+#include "keyring.hpp"
 
 namespace ton {
 
@@ -43,7 +44,7 @@ void KeyringImpl::start_up() {
   }
 }
 
-td::Result<KeyringImpl::PrivateKeyDescr *> KeyringImpl::load_key(PublicKeyHash key_hash) {
+td::Result<KeyringImpl::PrivateKeyDescr*> KeyringImpl::load_key(PublicKeyHash key_hash) {
   auto it = map_.find(key_hash);
   if (it != map_.end()) {
     return it->second.get();
@@ -124,6 +125,16 @@ void KeyringImpl::del_key(PublicKeyHash key_hash, td::Promise<td::Unit> promise)
   td::write_file(name, d.as_slice()).ensure();
   td::unlink(name).ensure();
   promise.set_value(td::Unit());
+}
+
+void KeyringImpl::export_private_key(PublicKeyHash key_hash, td::Promise<PrivateKey> promise) {
+  auto S = load_key(key_hash);
+
+  if (S.is_error()) {
+    promise.set_error(S.move_as_error());
+  } else {
+    promise.set_result(map_[key_hash]->private_key);
+  }
 }
 
 void KeyringImpl::get_public_key(PublicKeyHash key_hash, td::Promise<PublicKey> promise) {

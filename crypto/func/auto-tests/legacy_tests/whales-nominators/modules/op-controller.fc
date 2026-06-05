@@ -36,7 +36,7 @@
 
     ;; Lock stakes
     on_locked();
-    
+
     ;; Update operation state
     proxy_stake_at = stake_at;
     proxy_stake_until = stake_at + electedFor + stakeHeldFor;
@@ -50,11 +50,11 @@
 
     ;; Send message to elector
     send_std_message(
-        ctx_proxy, 
-        stake + coins::1(), 
-        send_mode::separate_gas(), 
-        elector::stake::request(), 
-        proxy_stored_query_id, 
+        ctx_proxy,
+        stake + coins::1(),
+        send_mode::separate_gas(),
+        elector::stake::request(),
+        proxy_stored_query_id,
         begin_cell()
             .store_uint(validator_pubkey, 256)
             .store_uint(stake_at, 32)
@@ -136,7 +136,7 @@
 () op_stake_recover(int value) impure {
 
     ;; NOTE: We never block stake recover operation
-    ;;       in case of misbehaviour of something anyone always can get 
+    ;;       in case of misbehaviour of something anyone always can get
     ;;       coins from elector after lockup period is up
 
     ;; Allow request only if stake is exited lockup period
@@ -154,10 +154,10 @@
 
     ;; Send message to elector
     send_empty_std_message(
-        ctx_proxy, 
-        0, 
+        ctx_proxy,
+        0,
         send_mode::carry_remaining_value(),
-        elector::refund::request(), 
+        elector::refund::request(),
         proxy_stored_query_id
     );
 
@@ -169,7 +169,7 @@
 () op_elector_recover_response(int value, slice in_msg) impure {
 
     if ((proxy_stake_until != 0) & (now() > proxy_stake_until)) {
-        
+
         ;; Reset state: all stake is returned
         proxy_stake_sent = 0;
         proxy_stake_at = 0;
@@ -181,12 +181,12 @@
         proxy_stored_query_stake = 0;
 
         ;; Handle stake recovered event
-        ;; NOTE: Any stake recovery outside this condition might be just a noise and 
+        ;; NOTE: Any stake recovery outside this condition might be just a noise and
         ;;       effect of various race condirtions that doesn't carry any substantianal vakue
         on_stake_recovered(value - fees::stake_fees());
 
         ;; Reset lock state
-        ;; NOTE: MUST be after on_stake_recovered since it adjusts withdrawals and 
+        ;; NOTE: MUST be after on_stake_recovered since it adjusts withdrawals and
         ;;       modifies global balance
         on_unlocked();
     }
@@ -207,10 +207,10 @@
 
     ;; Send message to controller
     send_empty_std_message(
-        ctx_controller, 
-        0, 
-        send_mode::carry_remaining_balance(), 
-        op::withdraw_unowned::response(), 
+        ctx_controller,
+        0,
+        send_mode::carry_remaining_balance(),
+        op::withdraw_unowned::response(),
         ctx_query_id
     );
 }
@@ -293,7 +293,7 @@
         (member, var cs, var f) = members.udict_get_next?(256, member);
         if (f) {
 
-            ;; Reject owner kicking 
+            ;; Reject owner kicking
             throw_if(error::invalid_message(), member == owner_id());
 
             ;; Kick member from a pool
@@ -312,7 +312,7 @@
                 op::force_kick::notification(),
                 ctx_query_id
             );
-            
+
             ;; Persist membership
             store_member();
         }
@@ -388,7 +388,7 @@
     ctx_query_id = query_id;
 
     ;; Bounced
-    ;; It seems that handling doesn't make sence sicne there are no throws (?) 
+    ;; It seems that handling doesn't make sence sicne there are no throws (?)
     ;; in elector contract
     if (flags & 1) {
         return ();

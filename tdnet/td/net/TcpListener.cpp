@@ -19,7 +19,8 @@
 #include "td/net/TcpListener.h"
 
 namespace td {
-TcpListener::TcpListener(int port, std::unique_ptr<Callback> callback) : port_(port), callback_(std::move(callback)) {
+TcpListener::TcpListener(int port, std::unique_ptr<Callback> callback, Slice server_address)
+    : port_(port), callback_(std::move(callback)), server_address_(server_address.str()) {
 }
 void TcpListener::notify() {
   td::actor::send_closure_later(self_, &TcpListener::on_net);
@@ -31,7 +32,13 @@ void TcpListener::on_net() {
 void TcpListener::start_up() {
   self_ = actor_id(this);
 
-  auto r_socket = td::ServerSocketFd::open(port_);
+  td::Result<ServerSocketFd> r_socket;
+  if (server_address_ == "@vsock") {
+    r_socket = ServerSocketFd::open_vsock(port_);
+  } else {
+    r_socket = ServerSocketFd::open(port_, server_address_);
+  }
+
   if (r_socket.is_error()) {
     LOG(ERROR) << r_socket.error();
     return stop();
@@ -41,15 +48,17 @@ void TcpListener::start_up() {
 
   // Subscribe for socket updates
   // NB: Interface will be changed
-  td::actor::SchedulerContext::get()->get_poll().subscribe(server_socket_fd_.get_poll_info().extract_pollable_fd(this),
-                                                           PollFlags::Read());
+  td::actor::SchedulerContext::get().get_poll().subscribe(server_socket_fd_.get_poll_info().extract_pollable_fd(this),
+                                                          PollFlags::Read());
+
+  callback_->on_bind();
 }
 
 void TcpListener::tear_down() {
   if (!server_socket_fd_.empty()) {
     // unsubscribe from socket updates
     // nb: interface will be changed
-    td::actor::SchedulerContext::get()->get_poll().unsubscribe(server_socket_fd_.get_poll_info().get_pollable_fd_ref());
+    td::actor::SchedulerContext::get().get_poll().unsubscribe(server_socket_fd_.get_poll_info().get_pollable_fd_ref());
   }
 }
 
@@ -61,7 +70,6 @@ void TcpListener::loop() {
         break;
       }
       TRY_RESULT(client_socket, std::move(r_socket));
-      LOG(INFO) << "Accept";
       callback_->accept(std::move(client_socket));
     }
     if (td::can_close(server_socket_fd_)) {
@@ -75,8 +83,9 @@ void TcpListener::loop() {
     return stop();
   }
 }
-TcpInfiniteListener::TcpInfiniteListener(int32 port, std::unique_ptr<TcpListener::Callback> callback)
-    : port_(port), callback_(std::move(callback)) {
+TcpInfiniteListener::TcpInfiniteListener(int32 port, std::unique_ptr<TcpListener::Callback> callback,
+                                         td::Slice server_address)
+    : port_(port), callback_(std::move(callback)), server_address_(server_address.str()) {
 }
 
 void TcpInfiniteListener::start_up() {
@@ -99,6 +108,9 @@ void TcpInfiniteListener::loop() {
    public:
     Callback(actor::ActorShared<TcpInfiniteListener> parent) : parent_(std::move(parent)) {
     }
+    void on_bind() override {
+      actor::send_closure(parent_, &TcpInfiniteListener::on_bind);
+    }
     void accept(SocketFd fd) override {
       actor::send_closure(parent_, &TcpInfiniteListener::accept, std::move(fd));
     }
@@ -109,7 +121,11 @@ void TcpInfiniteListener::loop() {
   refcnt_++;
   tcp_listener_ = actor::create_actor<TcpListener>(
       actor::ActorOptions().with_name(PSLICE() << "TcpListener" << tag("port", port_)).with_poll(), port_,
-      std::make_unique<Callback>(actor_shared(this)));
+      std::make_unique<Callback>(actor_shared(this)), server_address_);
+}
+
+void TcpInfiniteListener::on_bind() {
+  callback_->on_bind();
 }
 
 void TcpInfiniteListener::accept(SocketFd fd) {

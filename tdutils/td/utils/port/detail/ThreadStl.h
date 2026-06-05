@@ -22,16 +22,16 @@
 
 #ifdef TD_THREAD_STL
 
-#include "td/utils/common.h"
-#include "td/utils/invoke.h"
-#include "td/utils/port/detail/ThreadIdGuard.h"
-#include "td/utils/port/thread_local.h"
-#include "td/utils/Slice.h"
-
 #include <thread>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+
+#include "td/utils/Slice.h"
+#include "td/utils/common.h"
+#include "td/utils/invoke.h"
+#include "td/utils/port/detail/ThreadIdGuard.h"
+#include "td/utils/port/thread_local.h"
 
 namespace td {
 namespace detail {
@@ -46,7 +46,7 @@ class ThreadStl {
     join();
   }
   template <class Function, class... Args>
-  explicit ThreadStl(Function &&f, Args &&... args) {
+  explicit ThreadStl(Function &&f, Args &&...args) {
     thread_ = std::thread([args = std::make_tuple(decay_copy(std::forward<Function>(f)),
                                                   decay_copy(std::forward<Args>(args))...)]() mutable {
       ThreadIdGuard thread_id_guard;

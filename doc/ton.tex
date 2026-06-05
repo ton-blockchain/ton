@@ -291,7 +291,7 @@ a huge number of ``account-chains'', each describing the state and
 state transitions of only one account, and sending value-bearing
 messages to each other to transfer value and information.
 
-Of course, it is impractical to have hundreds of millions of blockchains, with updates (i.e., new blocks) usually appearing quite rarely in each of them. In order to implement them more efficiently, we group these ``account-chains'' into ``shardchains'', so that each block of the shardchain is essentially a collection of blocks of account-chains that have been assigned to this shard. Thus the ``account-chains'' have only a purely virtual or logical existence inside the ``shardchains''. 
+Of course, it is impractical to have hundreds of millions of blockchains, with updates (i.e., new blocks) usually appearing quite rarely in each of them. In order to implement them more efficiently, we group these ``account-chains'' into ``shardchains'', so that each block of the shardchain is essentially a collection of blocks of account-chains that have been assigned to this shard. Thus the ``account-chains'' have only a purely virtual or logical existence inside the ``shardchains''.
 
 We call this perspective the {\em Infinite Sharding Paradigm}. It explains many of the design decisions for the TON Blockchain.
 
@@ -677,7 +677,7 @@ possibilities:
 \item A lazy functional language (think of Haskell).
 \item An eager functional language (think of ML).
 \end{itemize}
- 
+
 \nxsubpoint\label{sp:config.param} \embt(Configurable parameters.)  An
 important feature of the TON Block\-chain is that many of its
 parameters are {\em configurable}. This means that they are part of
@@ -1653,7 +1653,7 @@ The idea is as follows. During the ``slow'' hypercube routing, the
 message travels (in the network) along the edges of the hypercube, but
 it is delayed (for approximately five seconds) at each intermediate
 vertex to be committed into the corresponding shardchain before
-continuing its voyage. 
+continuing its voyage.
 
 To avoid unnecessary delays, one might instead relay the message along
 with a suitable Merkle proof along the edges of the hypercube, without
@@ -2269,7 +2269,7 @@ then computes for example
 $\Hash(\code(w).\code(s).\vr{validator\_id}.\vr{rand\_seed})$ for each
 validator. Then validators are sorted by the value of this hash, and
 the first several are selected, so as to have at least $20/T$ of the
-total validator stakes and consist of at least 5 validators. 
+total validator stakes and consist of at least 5 validators.
 
 This selection could be done by a special smart contract. In that
 case, the selection algorithm would easily be upgradable without hard
@@ -5812,7 +5812,7 @@ millions of users.
 
 \bibitem{Birman}
   {\sc K.~Birman}, {\sl Reliable Distributed Systems: Technologies, Web Services and Applications}, Springer, 2005.
-  
+
 \bibitem{EthWP}
   {\sc V.~Buterin}, {\sl Ethereum: A next-generation smart contract and decentralized application platform}, \url{https://github.com/ethereum/wiki/wiki/White-Paper}, 2013.
 

@@ -15,10 +15,25 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "tolk.h"
+#include "compilation-errors.h"
 #include "compiler-state.h"
 #include "type-system.h"
+#include "td/utils/misc.h"
 
 namespace tolk {
+
+// only "substantial" AsmOps have "origin" — AST node (with SrcRange) which generated it;
+// stack ops (auto-inserted by the compiler to align the stack) and debug marks don't have origin;
+// also, `}>ELSE<{` and similar don't have origin, it's not actually an asm instruction
+static constexpr AnyV NULL_ORIGIN = nullptr;
+
+static void sanitize_fift_name(std::string &name) {
+  for (char &c : name) {
+    if (c == ' ' || c == '\t') {
+      c = '`';
+    }
+  }
+}
 
 /*
  * 
@@ -26,18 +41,18 @@ namespace tolk {
  * 
  */
 
-StackLayout Stack::vars() const {
-  StackLayout res;
+StackLayoutVars Stack::vars() const {
+  StackLayoutVars res;
   res.reserve(s.size());
-  for (auto x : s) {
-    res.push_back(x.first);
+  for (StackItemInfo x : s) {
+    res.push_back(x.var_idx);
   }
   return res;
 }
 
-int Stack::find(var_idx_t var, int from) const {
+int Stack::find(var_idx_t var_idx, int from) const {
   for (int i = from; i < depth(); i++) {
-    if (at(i).first == var) {
+    if (get(i).var_idx == var_idx) {
       return i;
     }
   }
@@ -45,9 +60,9 @@ int Stack::find(var_idx_t var, int from) const {
 }
 
 // finds var in [from .. to)
-int Stack::find(var_idx_t var, int from, int to) const {
+int Stack::find(var_idx_t var_idx, int from, int to) const {
   for (int i = from; i < depth() && i < to; i++) {
-    if (at(i).first == var) {
+    if (get(i).var_idx == var_idx) {
       return i;
     }
   }
@@ -65,170 +80,191 @@ int Stack::find_outside(var_idx_t var, int from, int to) const {
   }
 }
 
-int Stack::find_const(const_idx_t cst, int from) const {
+int Stack::find_const(const_idx_t const_idx, int from) const {
   for (int i = from; i < depth(); i++) {
-    if (at(i).second == cst) {
+    if (get(i).const_idx == const_idx) {
       return i;
     }
   }
   return -1;
 }
 
-void Stack::forget_const() {
-  for (auto& vc : s) {
-    if (vc.second != not_const) {
-      vc.second = not_const;
+const_idx_t Stack::register_const(td::RefInt256 new_const) {
+  tolk_assert(!new_const.is_null());
+  const_idx_t const_idx = 0;
+  for (; const_idx < static_cast<int>(unique_constants.size()); ++const_idx) {
+    if (!td::cmp(new_const, unique_constants[const_idx])) {
+      return const_idx;
     }
+  }
+  unique_constants.push_back(std::move(new_const));
+  return const_idx;
+}
+
+void Stack::forget_const() {
+  for (StackItemInfo& vc : s) {
+    vc.const_idx = -1;
   }
 }
 
-void Stack::issue_pop(SrcLocation loc, int i) {
+void Stack::issue_pop(int i) {
   validate(i);
   if (output_enabled()) {
-    o << AsmOp::Pop(loc, i);
+    o << AsmOp::Pop(NULL_ORIGIN, i);
   }
   at(i) = get(0);
   s.pop_back();
-  modified();
-  opt_show();
+  save_stack_comment();
 }
 
-void Stack::issue_push(SrcLocation loc, int i) {
+void Stack::issue_push(int i) {
   validate(i);
   if (output_enabled()) {
-    o << AsmOp::Push(loc, i);
+    o << AsmOp::Push(NULL_ORIGIN, i);
   }
   s.push_back(get(i));
-  modified();
-  opt_show();
+  save_stack_comment();
 }
 
-void Stack::issue_xchg(SrcLocation loc, int i, int j) {
+void Stack::issue_xchg(int i, int j) {
   validate(i);
   validate(j);
   if (i != j && get(i) != get(j)) {
     if (output_enabled()) {
-      o << AsmOp::Xchg(loc, i, j);
+      o << AsmOp::Xchg(NULL_ORIGIN, i, j);
     }
     std::swap(at(i), at(j));
-    modified();
-    opt_show();
+    save_stack_comment();
   }
 }
 
-int Stack::drop_vars_except(SrcLocation loc, const VarDescrList& var_info, int excl_var) {
-  int dropped = 0, changes;
+void Stack::drop_vars_except(const VarDescrList& var_info) {
+  bool changed = false;
   do {
-    changes = 0;
+    changed = false;
     int n = depth();
     for (int i = 0; i < n; i++) {
-      var_idx_t idx = at(i).first;
-      if (((!var_info[idx] || var_info[idx]->is_unused()) && idx != excl_var) || find(idx, 0, i - 1) >= 0) {
+      var_idx_t var_idx = get(i).var_idx;
+      if (!var_info[var_idx] || var_info[var_idx]->is_unused() || find(var_idx, 0, i - 1) >= 0) {
         // unneeded
-        issue_pop(loc, i);
-        changes = 1;
+        issue_pop(i);
+        changed = true;
         break;
       }
     }
-    dropped += changes;
-  } while (changes);
-  return dropped;
+  } while (changed);
 }
 
-void Stack::show() {
-  std::ostringstream os;
-  for (auto i : s) {
-    os << ' ';
-    o.show_var_ext(os, i);
+void Stack::save_stack_comment() const {
+  if (!output_enabled() || (mode & Stack::_InsideLet)) {
+    return;
   }
-  o << AsmOp::Comment({}, os.str());
-  mode |= _Shown;
-}
 
-void Stack::forget_var(var_idx_t idx) {
-  for (auto& x : s) {
-    if (x.first == idx) {
-      x = std::make_pair(_Garbage, not_const);
-      modified();
+  std::vector<DebugMarkCurrentStack::StackSlot> slots;
+  slots.reserve(s.size());
+  for (StackItemInfo ith : s) {
+    tolk_assert(ith.var_idx >= 0);
+    slots.emplace_back(DebugMarkCurrentStack::StackSlot{
+      .ir_var = &named_vars[ith.var_idx],
+      .int_val = ith.const_idx == -1 ? td::RefInt256{} : unique_constants[ith.const_idx],
+    });
+  }
+
+  for (auto prev = o.list_.rbegin(); prev != o.list_.rend() && prev->is_debug_mark(); ++prev) {
+    if (const auto* prev_info = std::get_if<DebugMarkCurrentStack>(&prev->debug_mark)) {
+      tolk_assert(prev_info->stack_slots.size() == slots.size());
+      bool equal = true;
+      for (int i = static_cast<int>(slots.size()) - 1; i >= 0 && equal; --i) {
+        equal &= prev_info->stack_slots[i].ir_var == slots[i].ir_var;
+      }
+      if (equal) {
+        return;
+      }
+      break;
     }
   }
+
+  o << AsmOp::DebugMark(DebugMarkCurrentStack{
+    .stack_slots = std::move(slots)
+  });
 }
 
-void Stack::push_new_var(var_idx_t idx) {
-  forget_var(idx);
-  s.emplace_back(idx, not_const);
-  modified();
+void Stack::push_new_var(var_idx_t var_idx) {
+  for (const StackItemInfo& x : s) {
+    tolk_assert(x.var_idx != var_idx);
+  }
+  s.emplace_back(var_idx, -1);
 }
 
-void Stack::push_new_const(var_idx_t idx, const_idx_t cidx) {
-  forget_var(idx);
-  s.emplace_back(idx, cidx);
-  modified();
+void Stack::push_new_const(var_idx_t var_idx, const_idx_t const_idx) {
+  for (const StackItemInfo& x : s) {
+    tolk_assert(x.var_idx != var_idx);
+  }
+  s.emplace_back(var_idx, const_idx);
 }
 
 void Stack::assign_var(var_idx_t new_idx, var_idx_t old_idx) {
   int i = find(old_idx);
   tolk_assert(i >= 0 && "variable not found in stack");
   if (new_idx != old_idx) {
-    at(i).first = new_idx;
-    modified();
+    at(i).var_idx = new_idx;
   }
 }
 
-void Stack::do_copy_var(SrcLocation loc, var_idx_t new_idx, var_idx_t old_idx) {
+void Stack::do_copy_var(var_idx_t new_idx, var_idx_t old_idx) {
   int i = find(old_idx);
   tolk_assert(i >= 0 && "variable not found in stack");
   if (find(old_idx, i + 1) < 0) {
-    issue_push(loc, i);
-    tolk_assert(at(0).first == old_idx);
+    issue_push(i);
+    tolk_assert(get(0).var_idx == old_idx);
   }
   assign_var(new_idx, old_idx);
 }
 
-void Stack::enforce_state(SrcLocation loc, const StackLayout& req_stack) {
+void Stack::enforce_state(const StackLayoutVars& req_stack) {
   int k = (int)req_stack.size();
   for (int i = 0; i < k; i++) {
     var_idx_t x = req_stack[i];
-    if (i < depth() && s[i].first == x) {
+    if (i < depth() && s[i].var_idx == x) {
       continue;
     }
-    while (depth() > 0 && std::find(req_stack.cbegin(), req_stack.cend(), get(0).first) == req_stack.cend()) {
+    while (depth() > 0 && std::find(req_stack.cbegin(), req_stack.cend(), get(0).var_idx) == req_stack.cend()) {
       // current TOS entry is unused in req_stack, drop it
-      issue_pop(loc, 0);
+      issue_pop(0);
     }
     int j = find(x);
     if (j >= depth() - i) {
-      issue_push(loc, j);
+      issue_push(j);
       j = 0;
     }
-    issue_xchg(loc, j, depth() - i - 1);
-    tolk_assert(s[i].first == x);
+    issue_xchg(j, depth() - i - 1);
+    tolk_assert(s[i].var_idx == x);
   }
   while (depth() > k) {
-    issue_pop(loc, 0);
+    issue_pop(0);
   }
   tolk_assert(depth() == k);
   for (int i = 0; i < k; i++) {
-    tolk_assert(s[i].first == req_stack[i]);
+    tolk_assert(s[i].var_idx == req_stack[i]);
   }
 }
 
 void Stack::merge_const(const Stack& req_stack) {
   tolk_assert(s.size() == req_stack.s.size());
   for (std::size_t i = 0; i < s.size(); i++) {
-    tolk_assert(s[i].first == req_stack.s[i].first);
-    if (s[i].second != req_stack.s[i].second) {
-      s[i].second = not_const;
+    tolk_assert(s[i].var_idx == req_stack.s[i].var_idx);
+    if (s[i].const_idx != req_stack.s[i].const_idx) {
+      s[i].const_idx = -1;
     }
   }
 }
 
-void Stack::merge_state(SrcLocation loc, const Stack& req_stack) {
-  enforce_state(loc, req_stack.vars());
+void Stack::merge_state(const Stack& req_stack) {
+  enforce_state(req_stack.vars());
   merge_const(req_stack);
 }
 
-void Stack::rearrange_top(SrcLocation loc, const StackLayout& top, std::vector<bool> last) {
+void Stack::rearrange_top(const StackLayoutVars& top, std::vector<bool> last) {
   while (last.size() < top.size()) {
     last.push_back(false);
   }
@@ -253,76 +289,145 @@ void Stack::rearrange_top(SrcLocation loc, const StackLayout& top, std::vector<b
     int j = find_outside(x, ss, ss + i);
     if (last[i]) {
       // rearrange x to be at s(ss-1)
-      issue_xchg(loc, --ss, j);
-      tolk_assert(get(ss).first == x);
+      issue_xchg(--ss, j);
+      tolk_assert(get(ss).var_idx == x);
     } else {
       // create a new copy of x
-      issue_push(loc, j);
-      issue_xchg(loc, 0, ss);
-      tolk_assert(get(ss).first == x);
+      issue_push(j);
+      issue_xchg(0, ss);
+      tolk_assert(get(ss).var_idx == x);
     }
   }
   tolk_assert(!ss);
 }
 
-void Stack::rearrange_top(SrcLocation loc, var_idx_t top, bool last) {
-  int i = find(top);
+void Stack::rearrange_top(var_idx_t top_var_idx, bool last) {
+  int i = find(top_var_idx);
   if (last) {
-    issue_xchg(loc, 0, i);
+    issue_xchg(0, i);
   } else {
-    issue_push(loc, i);
+    issue_push(i);
   }
-  tolk_assert(get(0).first == top);
+  tolk_assert(get(0).var_idx == top_var_idx);
 }
 
-bool Op::generate_code_step(Stack& stack) {
-  stack.opt_show();
+void Stack::apply_wrappers_if_retalt(AnyV origin, int callxargs_count) {
+  int pos0 = o.list_[0].is_debug_mark() ? 1 : 0;
+  if (o.retalt_inserted_) {
+    o.insert(pos0, NULL_ORIGIN, "SAMEALTSAVE");
+    o.insert(pos0, NULL_ORIGIN, "c2 SAVE");
+  }
+  if (callxargs_count != -1 || ((mode & _InlineFunc) && o.retalt_)) {
+    o.insert(pos0, origin, "CONT:<{");
+    o << AsmOp::Custom(NULL_ORIGIN, "}>");
+    if (callxargs_count != -1) {
+      if (callxargs_count <= 15) {
+        o << AsmOp::Custom(origin, PSTRING() << callxargs_count << " -1 CALLXARGS");
+      } else {
+        if (callxargs_count >= 255) {
+          err("can not compile try/catch, doo deep stack").fire(origin);
+        }
+        o << AsmOp::Custom(origin, PSTRING() << callxargs_count << " PUSHINT -1 PUSHINT CALLXVARARGS");
+      }
+    } else {
+      o << AsmOp::Custom(origin, "EXECUTE");
+    }
+  }
+}
+
+
+// Generates Fift assembly for a single op, using `stack` to track the TVM stack state.
+// Looks ahead at the next op for optimization decisions (e.g. skip unused values).
+// Returns true if execution continues to the next op, false if control flow diverges (return, infinite loop).
+bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_idx) {
+  if (cl != Op::_Import) {
+    stack.save_stack_comment();
+  }
+  // the last op is always a terminal _Nop, no code to generate, no next_op
+  if (self_idx + 1 >= parent_ops.size()) {
+    return false;
+  }
+  const Op& next_op = *parent_ops[self_idx + 1];
+  bool next_is_terminal_nop = self_idx + 2 >= parent_ops.size() && next_op.cl == Op::_Nop;
 
   // detect `throw 123` (actually _IntConst 123 + _Call __throw)
   // don't clear the stack, since dropping unused elements make no sense, an exception is thrown anyway
-  bool will_now_immediate_throw = (cl == _Call && f_sym->is_builtin_function() && f_sym->name == "__throw")
-      || (cl == _IntConst && next->cl == _Call && next->f_sym->is_builtin_function() && next->f_sym->name == "__throw");
+  bool will_now_immediate_throw = (cl == _Call && f_sym->is_builtin() && f_sym->name == "__throw")
+      || (cl == _IntConst && next_op.cl == _Call && next_op.f_sym->is_builtin() && next_op.f_sym->name == "__throw");
   if (!will_now_immediate_throw) {
-    stack.drop_vars_except(loc, var_info);
-    stack.opt_show();
+    stack.drop_vars_except(var_info);
   }
 
-  bool inline_func = stack.mode & Stack::_InlineFunc;
   switch (cl) {
     case _Nop:
+      return true;
     case _Import:
+      stack.o << AsmOp::DebugMark(debug_mark);  // DebugMarkEnterFunction
+      return true;
+    case _DebugMark:
+      tolk_assert(false && "_DebugMark should be handled in generate_code_all");
       return true;
     case _Return: {
-      stack.enforce_state(loc, left);
+      stack.enforce_state(left);
       if (stack.o.retalt_ && (stack.mode & Stack::_NeedRetAlt)) {
-        stack.o << AsmOp::Custom(loc, "RETALT");
+        stack.o << AsmOp::Custom(origin, "RETALT");
         stack.o.retalt_inserted_ = true;
       }
-      stack.opt_show();
+      stack.o << AsmOp::DebugMark(debug_mark);  // DebugMarkLeaveFunction
       return false;
     }
     case _IntConst: {
-      auto p = next->var_info[left[0]];
+      auto p = next_op.var_info[left[0]];
       if (!p || p->is_unused()) {
         return true;
       }
-      auto cidx = stack.o.register_const(int_const);
-      int i = stack.find_const(cidx);
+      const_idx_t const_idx = stack.register_const(int_const);
+      int i = stack.find_const(const_idx);
       if (i < 0) {
-        stack.o << push_const(loc, int_const);
-        stack.push_new_const(left[0], cidx);
+        stack.o << AsmOp::IntConst(origin, int_const);
+        stack.push_new_const(left[0], const_idx);
       } else {
-        tolk_assert(stack.at(i).second == cidx);
-        stack.do_copy_var(loc, left[0], stack[i]);
+        stack.do_copy_var(left[0], stack.get(i).var_idx);
       }
       return true;
     }
     case _SliceConst: {
-      auto p = next->var_info[left[0]];
+      auto p = next_op.var_info[left[0]];
       if (!p || p->is_unused()) {
         return true;
       }
-      stack.o << AsmOp::Const(loc, "x{" + str_const + "} PUSHSLICE");
+      stack.o << AsmOp::Const(origin, "x{" + str_const + "} PUSHSLICE");
+      stack.push_new_var(left[0]);
+      return true;
+    }
+    case _SnakeStringConst: {
+      auto p = next_op.var_info[left[0]];
+      if (!p || p->is_unused()) {
+        return true;
+      }
+      // str_const is an original string "abcd", calc str_hex "61626364"
+      std::string str_hex = td::hex_encode(td::Slice(str_const.data(), str_const.size()));
+      int hex_len = static_cast<int>(str_hex.size());
+      int MAX_CHUNK_HEX = 254;  // 127 bytes = 254 hex chars = 1016 bits
+
+      if (hex_len <= MAX_CHUNK_HEX) {
+        // most strings are small, it's just a TVM cell with no refs inside
+        stack.o << AsmOp::Const(origin, "<b x{" + str_hex + "} s, b> PUSHREF");
+      } else {
+        // make a snake string with refs: "head".ref("middle".ref("tail"))
+        // Fift output is: <b x{tail} s, b> <b x{middle} s, swap ref, b> ... PUSHREF
+        std::vector<std::string_view> chunks;
+        for (int i = 0; i < hex_len; i += MAX_CHUNK_HEX) {
+          chunks.push_back(std::string_view(str_hex).substr(i, MAX_CHUNK_HEX));
+        }
+
+        std::string fift_code = "<b x{" + std::string(chunks.back()) + "} s, b>";
+        for (int i = static_cast<int>(chunks.size()) - 2; i >= 0; --i) {
+          fift_code += " <b x{" + std::string(chunks[i]) + "} s, swap ref, b>";
+        }
+        fift_code += " PUSHREF";
+        stack.o << AsmOp::Const(origin, fift_code);
+      }
       stack.push_new_var(left[0]);
       return true;
     }
@@ -330,7 +435,7 @@ bool Op::generate_code_step(Stack& stack) {
       if (g_sym) {
         bool used = false;
         for (auto i : left) {
-          auto p = next->var_info[i];
+          auto p = next_op.var_info[i];
           if (p && !p->is_unused()) {
             used = true;
           }
@@ -338,10 +443,9 @@ bool Op::generate_code_step(Stack& stack) {
         if (!used || disabled()) {
           return true;
         }
-        stack.o << AsmOp::Custom(loc, "$" + g_sym->name + " GETGLOB", 0, 1);
+        stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(g_sym) + " GETGLOB", 0, 1);
         if (left.size() != 1) {
-          tolk_assert(left.size() <= 15);
-          stack.o << AsmOp::UnTuple(loc, (int)left.size());
+          stack.o << AsmOp::UnTuple(origin, (int)left.size());
         }
         for (auto i : left) {
           stack.push_new_var(i);
@@ -349,14 +453,12 @@ bool Op::generate_code_step(Stack& stack) {
         return true;
       } else {
         tolk_assert(left.size() == 1);
-        auto p = next->var_info[left[0]];
+        auto p = next_op.var_info[left[0]];
         if (!p || p->is_unused() || disabled()) {
           return true;
         }
-        stack.o << AsmOp::Custom(loc, "CONT:<{");
-        stack.o.indent();
-        if (f_sym->is_asm_function() || f_sym->is_builtin_function()) {
-          // TODO: create and compile a true lambda instead of this (so that arg_order and ret_order would work correctly)
+        stack.o << AsmOp::Custom(origin, "CONT:<{");
+        if (f_sym->is_asm_function() || f_sym->is_builtin()) {
           std::vector<VarDescr> args0, res;
           int w_arg = 0;
           for (const LocalVarData& param : f_sym->parameters) {
@@ -370,16 +472,21 @@ bool Op::generate_code_step(Stack& stack) {
           for (int i = 0; i < w_arg; i++) {
             args0.emplace_back(0);
           }
+          // we use NULL_ORIGIN to all asm ops inside a lambda `CONT<...>`, to prevent debugger jump there
           if (f_sym->is_asm_function()) {
-            std::get<FunctionBodyAsm*>(f_sym->body)->compile(stack.o, loc);  // compile res := f (args0)
+            std::get<FunctionBodyAsm*>(f_sym->body)->compile(stack.o, NULL_ORIGIN);  // compile res := f (args0)
           } else {
-            std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(stack.o, res, args0, loc);  // compile res := f (args0)
+            std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(stack.o, res, args0, NULL_ORIGIN);  // compile res := f (args0)
           }
         } else {
-          stack.o << AsmOp::Custom(loc, f_sym->name + "() CALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(NULL_ORIGIN, CodeBlob::fift_name(f_sym) + " CALLDICT", (int)right.size(), (int)left.size());
         }
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>");
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
+        // intentionally insert NOP after passing a callback/lambda; it's for debugger:
+        // `CONT<...> NOP MARK_XXX`, to make marks offset not equal to CONT end offset;
+        // this works automatically for IF/ELSE/loops in Fift, because `IF<{...}>` is actually `CONT<...> IF`;
+        // but for "just a continuation" (a lambda) manual NOP is a reasonable trade-off to be replayed identically
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "NOP", 0, 0);
         stack.push_new_var(left.at(0));
         return true;
       }
@@ -390,9 +497,10 @@ bool Op::generate_code_step(Stack& stack) {
       active.reserve(left.size());
       for (std::size_t k = 0; k < left.size(); k++) {
         var_idx_t y = left[k];  // "y" = "x"
-        auto p = next->var_info[y];
+        auto p = next_op.var_info[y];
         active.push_back(p && !p->is_unused());
       }
+      stack.mode |= Stack::_InsideLet;    // don't print out stack comments while negative indices used (--i)
       for (std::size_t k = 0; k < left.size(); k++) {
         if (!active[k]) {
           continue;
@@ -411,7 +519,7 @@ bool Op::generate_code_step(Stack& stack) {
         if (is_last) {
           stack.assign_var(--i, x);
         } else {
-          stack.do_copy_var(loc, --i, x);
+          stack.do_copy_var(--i, x);
         }
       }
       i = 0;
@@ -420,6 +528,7 @@ bool Op::generate_code_step(Stack& stack) {
           stack.assign_var(left[k], --i);
         }
       }
+      stack.mode &= ~Stack::_InsideLet;
       return true;
     }
     case _Tuple:
@@ -431,15 +540,14 @@ bool Op::generate_code_step(Stack& stack) {
       for (var_idx_t x : right) {
         last.push_back(var_info[x] && var_info[x]->is_last());
       }
-      stack.rearrange_top(loc, right, std::move(last));
-      stack.opt_show();
+      stack.rearrange_top(right, std::move(last));
       int k = (int)stack.depth() - (int)right.size();
       tolk_assert(k >= 0);
       if (cl == _Tuple) {
-        stack.o << AsmOp::Tuple(loc, (int)right.size());
+        stack.o << AsmOp::Tuple(origin, (int)right.size());
         tolk_assert(left.size() == 1);
       } else {
-        stack.o << AsmOp::UnTuple(loc, (int)left.size());
+        stack.o << AsmOp::UnTuple(origin, (int)left.size());
         tolk_assert(right.size() == 1);
       }
       stack.s.resize(k);
@@ -480,21 +588,22 @@ bool Op::generate_code_step(Stack& stack) {
       for (var_idx_t x : right1) {
         last.push_back(var_info[x] && var_info[x]->is_last());
       }
-      stack.rearrange_top(loc, right1, std::move(last));
-      stack.opt_show();
+      stack.rearrange_top(right1, std::move(last));
       int k = (int)stack.depth() - (int)right1.size();
       tolk_assert(k >= 0);
       for (int i = 0; i < (int)right1.size(); i++) {
-        tolk_assert(stack.s[k + i].first == right1[i]);
+        tolk_assert(stack.s[k + i].var_idx == right1[i]);
       }
       auto exec_callxargs = [&](int args, int ret) {
         if (args <= 15 && ret <= 15) {
-          stack.o << exec_arg2_op(loc, "CALLXARGS", args, ret, args + 1, ret);
+          stack.o << AsmOp::Custom(origin, PSTRING() << args << ' ' << ret << " CALLXARGS", args + 1, ret);
         } else {
-          tolk_assert(args <= 254 && ret <= 254);
-          stack.o << AsmOp::Const(loc, PSTRING() << args << " PUSHINT");
-          stack.o << AsmOp::Const(loc, PSTRING() << ret << " PUSHINT");
-          stack.o << AsmOp::Custom(loc, "CALLXVARARGS", args + 3, ret);
+          if (args >= 255 || ret >= 255) {
+            err("can not compile try/catch, doo deep stack").fire(origin);
+          }
+          stack.o << AsmOp::Const(origin, PSTRING() << args << " PUSHINT");
+          stack.o << AsmOp::Const(origin, PSTRING() << ret << " PUSHINT");
+          stack.o << AsmOp::Custom(origin, "CALLXVARARGS", args + 3, ret);
         }
       };
       if (cl == _CallInd) {
@@ -506,27 +615,26 @@ bool Op::generate_code_step(Stack& stack) {
           res.emplace_back(i);
         }
         if (f_sym->is_asm_function()) {
-          std::get<FunctionBodyAsm*>(f_sym->body)->compile(stack.o, loc);  // compile res := f (args)
+          std::get<FunctionBodyAsm*>(f_sym->body)->compile(stack.o, origin);  // compile res := f (args)
         } else {
           if (arg_order_already_equals_asm()) {
             maybe_swap_builtin_args_to_compile();
           }
-          std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(stack.o, res, args, loc);  // compile res := f (args)
+          std::get<FunctionBodyBuiltinAsmOp*>(f_sym->body)->compile(stack.o, res, args, origin);  // compile res := f (args)
           if (arg_order_already_equals_asm()) {
             maybe_swap_builtin_args_to_compile();
           }
         }
       } else {
         if (f_sym->inline_mode == FunctionInlineMode::inlineViaFif || f_sym->inline_mode == FunctionInlineMode::inlineRef) {
-          stack.o << AsmOp::Custom(loc, f_sym->name + "() INLINECALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " INLINECALLDICT", (int)right.size(), (int)left.size());
         } else if (f_sym->is_code_function() && std::get<FunctionBodyCode*>(f_sym->body)->code->require_callxargs) {
-          stack.o << AsmOp::Custom(loc, f_sym->name + ("() PREPAREDICT"), 0, 2);
+          stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " PREPAREDICT", 0, 2);
           exec_callxargs((int)right.size() + 1, (int)left.size());
         } else {
-          stack.o << AsmOp::Custom(loc, f_sym->name + "() CALLDICT", (int)right.size(), (int)left.size());
+          stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " CALLDICT", (int)right.size(), (int)left.size());
         }
       }
-      stack.modified();
       stack.s.resize(k);
       for (int i = 0; i < (int)left.size(); i++) {
         int j = ret_order ? ret_order->at(i) : i;
@@ -540,296 +648,297 @@ bool Op::generate_code_step(Stack& stack) {
       for (var_idx_t x : right) {
         last.push_back(var_info[x] && var_info[x]->is_last());
       }
-      stack.rearrange_top(loc, right, std::move(last));
-      stack.opt_show();
+      stack.rearrange_top(right, std::move(last));
       int k = (int)stack.depth() - (int)right.size();
       tolk_assert(k >= 0);
       for (int i = 0; i < (int)right.size(); i++) {
-        tolk_assert(stack.s[k + i].first == right[i]);
+        tolk_assert(stack.s[k + i].var_idx == right[i]);
       }
+      stack.o << AsmOp::DebugMark(debug_mark);  // DebugMarkSetGlob
       if (right.size() > 1) {
-        stack.o << AsmOp::Tuple(loc, (int)right.size());
+        stack.o << AsmOp::Tuple(origin, (int)right.size());
       }
       if (!right.empty()) {
-        stack.o << AsmOp::Custom(loc, "$" + g_sym->name + " SETGLOB", 1, 0);
-        stack.modified();
+        stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(g_sym) + " SETGLOB", 1, 0);
       }
       stack.s.resize(k);
       return true;
     }
-    case _If: {
-      if (block0->is_empty() && block1->is_empty()) {
+    case _SetContArgs: {
+      // right = [captured_vals..., continuation], left = [result_continuation]
+      // rearrange stack so captured values and continuation are on top, then SETCONTARGS
+      if (disabled()) {
         return true;
       }
-      if (!next->noreturn() && (block0->noreturn() != block1->noreturn())) {
+      tolk_assert(right.size() >= 2 && left.size() == 1);
+      std::vector<bool> last;
+      last.reserve(right.size());
+      for (var_idx_t x : right) {
+        last.push_back(var_info[x] && var_info[x]->is_last());
+      }
+      stack.rearrange_top(right, std::move(last));
+      int k = (int)stack.depth() - (int)right.size();
+      tolk_assert(k >= 0);
+      stack.s.resize(k);
+
+      int r = (int)right.size() - 1;
+      if (r <= 15) {
+        stack.o << AsmOp::Custom(origin, std::to_string(r) + " -1 SETCONTARGS", r + 1, 1);
+      } else {
+        stack.o << AsmOp::Custom(origin, std::to_string(r) + " PUSHINT", 0, 1);
+        stack.o << AsmOp::Custom(origin, "-1 PUSHINT", 0, 1);
+        stack.o << AsmOp::Custom(origin, "SETCONTVARARGS", r + 3, 1);
+      }
+      stack.push_new_var(left[0]);
+      return true;
+    }
+    case _If: {
+      if (block0.is_empty_block() && block1.is_empty_block()) {
+        return true;
+      }
+      if (!next_op.noreturn() && (block0.is_noreturn() != block1.is_noreturn())) {
         stack.o.retalt_ = true;
       }
       var_idx_t x = left[0];
-      stack.rearrange_top(loc, x, var_info[x] && var_info[x]->is_last());
-      tolk_assert(stack[0] == x);
-      stack.opt_show();
-      stack.s.pop_back();
-      stack.modified();
-      if (inline_func && (block0->noreturn() || block1->noreturn())) {
-        bool is0 = block0->noreturn();
-        Op* block_noreturn = is0 ? block0.get() : block1.get();
-        Op* block_other = is0 ? block1.get() : block0.get();
-        stack.mode &= ~Stack::_InlineFunc;
-        stack.o << AsmOp::Custom(loc, is0 ? "IF:<{" : "IFNOT:<{");
-        stack.o.indent();
-        Stack stack_copy{stack};
-        block_noreturn->generate_code_all(stack_copy);
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>ELSE<{");
-        stack.o.indent();
-        block_other->generate_code_all(stack);
-        if (!block_other->noreturn()) {
-          next->generate_code_all(stack);
+      // For late-init variables alive at IF entry but not yet on the stack:
+      // push NULL placeholders so both branches can merge stack layout.
+      // Example: inferring CFG has proven definite assignment, but our IR splits it into disjoint IFs,
+      // e.g. for lateinit x followed by `if (c && (x = 1) == 1) || (x = 2) == 2) { ... }`
+      for (const VarDescr& vd : var_info.list) {
+        if (vd.idx != x && !vd.is_unused() && stack.find(vd.idx) < 0) {
+          stack.o << AsmOp::Const(origin, "PUSHNULL");
+          stack.push_new_var(vd.idx);
         }
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>");
+      }
+      stack.rearrange_top(x, var_info[x] && var_info[x]->is_last());
+      tolk_assert(stack.get(0).var_idx == x);
+      stack.s.pop_back();
+      if ((stack.mode & Stack::_InlineFunc) && (block0.is_noreturn() || block1.is_noreturn())) {
+        bool is0 = block0.is_noreturn();
+        OpList& blk_noreturn = is0 ? block0 : block1;
+        OpList& blk_other = is0 ? block1 : block0;
+        stack.mode &= ~Stack::_InlineFunc;
+        stack.o << AsmOp::Custom(origin, is0 ? "IF:<{" : "IFNOT:<{");
+        Stack stack_copy{stack};
+        blk_noreturn.generate_code_all(stack_copy);
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>ELSE<{");
+        stack.save_stack_comment();
+        blk_other.generate_code_all(stack);
+        if (!blk_other.is_noreturn()) {
+          parent_ops.generate_code_all(stack, self_idx + 1);
+        }
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
         return false;
       }
-      if (block1->is_empty() || block0->is_empty()) {
-        bool is0 = block1->is_empty();
-        Op* block = is0 ? block0.get() : block1.get();
+      if (block1.is_empty_block() || block0.is_empty_block()) {
+        bool is0 = block1.is_empty_block();
+        OpList& blk = is0 ? block0 : block1;
         // if (left) block0; ...
         // if (!left) block1; ...
-        if (block->noreturn()) {
-          stack.o << AsmOp::Custom(loc, is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
-          stack.o.indent();
+        if (blk.is_noreturn()) {
+          stack.o << AsmOp::Custom(origin, is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
           Stack stack_copy{stack};
           stack_copy.mode &= ~Stack::_InlineFunc;
-          stack_copy.mode |= next->noreturn() ? 0 : Stack::_NeedRetAlt;
-          block->generate_code_all(stack_copy);
-          stack.o.undent();
-          stack.o << AsmOp::Custom({}, "}>");
+          stack_copy.mode |= next_op.noreturn() ? 0 : Stack::_NeedRetAlt;
+          blk.generate_code_all(stack_copy);
+          stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
           return true;
         }
-        stack.o << AsmOp::Custom(loc, is0 ? "IF:<{" : "IFNOT:<{");
-        stack.o.indent();
+        stack.o << AsmOp::Custom(origin, is0 ? "IF:<{" : "IFNOT:<{");
         Stack stack_copy{stack}, stack_target{stack};
         stack_target.disable_output();
-        stack_target.drop_vars_except(loc, next->var_info);
+        stack_target.drop_vars_except(next_op.var_info);
         stack_copy.mode &= ~Stack::_InlineFunc;
-        block->generate_code_all(stack_copy);
-        stack_copy.drop_vars_except(loc, var_info);
-        stack_copy.opt_show();
-        if ((is0 && stack_copy == stack) || (!is0 && stack_copy.vars() == stack.vars())) {
-          stack.o.undent();
-          stack.o << AsmOp::Custom({}, "}>");
+        blk.generate_code_all(stack_copy);
+        stack_copy.drop_vars_except(var_info);
+        if ((is0 && stack_copy.s == stack.s) || (!is0 && stack_copy.vars() == stack.vars())) {
+          stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
           if (!is0) {
             stack.merge_const(stack_copy);
           }
           return true;
         }
-        // stack_copy.drop_vars_except(next->var_info);
-        stack_copy.enforce_state(loc, stack_target.vars());
-        stack_copy.opt_show();
+        stack_copy.enforce_state(stack_target.vars());
         if (stack_copy.vars() == stack.vars()) {
-          stack.o.undent();
-          stack.o << AsmOp::Custom({}, "}>");
+          stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
           stack.merge_const(stack_copy);
           return true;
         }
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>ELSE<{");
-        stack.o.indent();
-        stack.merge_state(loc, stack_copy);
-        stack.opt_show();
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>");
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>ELSE<{");
+        stack.save_stack_comment();
+        stack.merge_state(stack_copy);
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
         return true;
       }
-      if (block0->noreturn() || block1->noreturn()) {
-        bool is0 = block0->noreturn();
-        Op* block_noreturn = is0 ? block0.get() : block1.get();
-        Op* block_other = is0 ? block1.get() : block0.get();
-        stack.o << AsmOp::Custom(loc, is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
-        stack.o.indent();
+      if (block0.is_noreturn() || block1.is_noreturn()) {
+        bool is0 = block0.is_noreturn();
+        OpList& blk_noreturn = is0 ? block0 : block1;
+        OpList& blk_other = is0 ? block1 : block0;
+        stack.o << AsmOp::Custom(origin, is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
         Stack stack_copy{stack};
         stack_copy.mode &= ~Stack::_InlineFunc;
-        stack_copy.mode |= (block_other->noreturn() || next->noreturn()) ? 0 : Stack::_NeedRetAlt;
-        block_noreturn->generate_code_all(stack_copy);
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>");
-        block_other->generate_code_all(stack);
-        return !block_other->noreturn();
+        stack_copy.mode |= (blk_other.is_noreturn() || next_op.noreturn()) ? 0 : Stack::_NeedRetAlt;
+        blk_noreturn.generate_code_all(stack_copy);
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
+        blk_other.generate_code_all(stack);
+        return !blk_other.is_noreturn();
       }
-      stack.o << AsmOp::Custom(loc, "IF:<{");
-      stack.o.indent();
+      stack.o << AsmOp::Custom(origin, "IF:<{");
       Stack stack_copy{stack};
       stack_copy.mode &= ~Stack::_InlineFunc;
-      block0->generate_code_all(stack_copy);
-      stack_copy.drop_vars_except(loc, next->var_info);
-      stack_copy.opt_show();
-      stack.o.undent();
-      stack.o << AsmOp::Custom({}, "}>ELSE<{");
-      stack.o.indent();
+      block0.generate_code_all(stack_copy);
+      stack_copy.drop_vars_except(next_op.var_info);
+      stack.o << AsmOp::Custom(NULL_ORIGIN, "}>ELSE<{");
+      stack.save_stack_comment();
       stack.mode &= ~Stack::_InlineFunc;
-      block1->generate_code_all(stack);
-      stack.merge_state(loc, stack_copy);
-      stack.opt_show();
-      stack.o.undent();
-      stack.o << AsmOp::Custom({}, "}>");
+      block1.generate_code_all(stack);
+      stack.merge_state(stack_copy);
+      stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
       return true;
     }
     case _Repeat: {
       var_idx_t x = left[0];
-      //stack.drop_vars_except(block0->var_info, x);
-      stack.rearrange_top(loc, x, var_info[x] && var_info[x]->is_last());
-      tolk_assert(stack[0] == x);
-      stack.opt_show();
+      stack.rearrange_top(x, var_info[x] && var_info[x]->is_last());
+      tolk_assert(stack.get(0).var_idx == x);
       stack.s.pop_back();
-      stack.modified();
-      if (block0->noreturn()) {
+      if (block0.is_noreturn()) {
         stack.o.retalt_ = true;
       }
-      if (true || !next->is_empty()) {
-        stack.o << AsmOp::Custom(loc, "REPEAT:<{");
-        stack.o.indent();
+      if (true || !next_is_terminal_nop) {
+        stack.o << AsmOp::Custom(origin, "REPEAT:<{");
         stack.forget_const();
-        if (block0->noreturn()) {
+        if (block0.is_noreturn()) {
           Stack stack_copy{stack};
-          StackLayout layout1 = stack.vars();
+          StackLayoutVars layout1 = stack.vars();
           stack_copy.mode &= ~Stack::_InlineFunc;
           stack_copy.mode |= Stack::_NeedRetAlt;
-          block0->generate_code_all(stack_copy);
+          block0.generate_code_all(stack_copy);
         } else {
-          StackLayout layout1 = stack.vars();
+          StackLayoutVars layout1 = stack.vars();
           stack.mode &= ~Stack::_InlineFunc;
           stack.mode |= Stack::_NeedRetAlt;
-          block0->generate_code_all(stack);
-          stack.enforce_state(loc, std::move(layout1));
-          stack.opt_show();
+          block0.generate_code_all(stack);
+          stack.enforce_state(layout1);
+          // repeat may execute zero times, so body constants are not valid after the loop
+          stack.forget_const();
         }
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>");
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
         return true;
       } else {
-        stack.o << AsmOp::Custom(loc, "REPEATEND");
+        stack.o << AsmOp::Custom(origin, "REPEATEND");
         stack.forget_const();
-        StackLayout layout1 = stack.vars();
-        block0->generate_code_all(stack);
-        stack.enforce_state(loc, std::move(layout1));
-        stack.opt_show();
+        StackLayoutVars layout1 = stack.vars();
+        block0.generate_code_all(stack);
+        stack.enforce_state(layout1);
         return false;
       }
     }
     case _Again: {
-      stack.drop_vars_except(loc, block0->var_info);
-      stack.opt_show();
-      if (block0->noreturn()) {
+      stack.drop_vars_except(block0.entry_var_info());
+      if (block0.is_noreturn()) {
         stack.o.retalt_ = true;
       }
-      if (!next->is_empty() || inline_func) {
-        stack.o << AsmOp::Custom(loc, "AGAIN:<{");
-        stack.o.indent();
+      if (!next_is_terminal_nop || (stack.mode & Stack::_InlineFunc)) {
+        stack.o << AsmOp::Custom(origin, "AGAIN:<{");
         stack.forget_const();
-        StackLayout layout1 = stack.vars();
+        StackLayoutVars layout1 = stack.vars();
         stack.mode &= ~Stack::_InlineFunc;
         stack.mode |= Stack::_NeedRetAlt;
-        block0->generate_code_all(stack);
-        stack.enforce_state(loc, std::move(layout1));
-        stack.opt_show();
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>");
+        block0.generate_code_all(stack);
+        stack.enforce_state(layout1);
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
         return true;
       } else {
-        stack.o << AsmOp::Custom(loc, "AGAINEND");
+        stack.o << AsmOp::Custom(origin, "AGAINEND");
         stack.forget_const();
-        StackLayout layout1 = stack.vars();
-        block0->generate_code_all(stack);
-        stack.enforce_state(loc, std::move(layout1));
-        stack.opt_show();
+        StackLayoutVars layout1 = stack.vars();
+        block0.generate_code_all(stack);
+        stack.enforce_state(layout1);
         return false;
       }
     }
     case _Until: {
-      // stack.drop_vars_except(block0->var_info);
-      // stack.opt_show();
-      if (block0->noreturn()) {
+      if (block0.is_noreturn()) {
         stack.o.retalt_ = true;
       }
-      if (true || !next->is_empty()) {
-        stack.o << AsmOp::Custom(loc, "UNTIL:<{");
-        stack.o.indent();
+      // for not initialized yet late-init variables defined inside the body: allocate stack slots
+      for (const VarDescr& vd : var_info.list) {
+        if (!vd.is_unused() && stack.find(vd.idx) < 0) {
+          stack.o << AsmOp::Const(origin, "PUSHNULL");
+          stack.push_new_var(vd.idx);
+        }
+      }
+      if (true || !next_is_terminal_nop) {
+        stack.o << AsmOp::Custom(origin, "UNTIL:<{");
         stack.forget_const();
         auto layout1 = stack.vars();
         stack.mode &= ~Stack::_InlineFunc;
         stack.mode |= Stack::_NeedRetAlt;
-        block0->generate_code_all(stack);
+        block0.generate_code_all(stack);
         layout1.push_back(left[0]);
-        stack.enforce_state(loc, std::move(layout1));
-        stack.opt_show();
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>");
+        stack.enforce_state(layout1);
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
         stack.s.pop_back();
-        stack.modified();
         return true;
       } else {
-        stack.o << AsmOp::Custom(loc, "UNTILEND");
+        stack.o << AsmOp::Custom(origin, "UNTILEND");
         stack.forget_const();
-        StackLayout layout1 = stack.vars();
-        block0->generate_code_all(stack);
+        StackLayoutVars layout1 = stack.vars();
+        block0.generate_code_all(stack);
         layout1.push_back(left[0]);
-        stack.enforce_state(loc, std::move(layout1));
-        stack.opt_show();
+        stack.enforce_state(layout1);
         return false;
       }
     }
     case _While: {
       // while (block0 | left) block1; ...next
       var_idx_t x = left[0];
-      stack.drop_vars_except(loc, block0->var_info);
-      stack.opt_show();
-      StackLayout layout1 = stack.vars();
-      bool next_empty = false && next->is_empty();
-      if (block0->noreturn()) {
+      stack.drop_vars_except(block0.entry_var_info());
+      StackLayoutVars layout1 = stack.vars();
+      bool next_empty = false && next_is_terminal_nop;
+      if (block0.is_noreturn()) {
         stack.o.retalt_ = true;
       }
-      stack.o << AsmOp::Custom(loc, "WHILE:<{");
-      stack.o.indent();
+      stack.o << AsmOp::Custom(origin, "WHILE:<{");
       stack.forget_const();
       stack.mode &= ~Stack::_InlineFunc;
       stack.mode |= Stack::_NeedRetAlt;
-      block0->generate_code_all(stack);
-      stack.rearrange_top(loc, x, !next->var_info[x] && !block1->var_info[x]);
-      stack.opt_show();
+      block0.generate_code_all(stack);
+      stack.rearrange_top(x, !next_op.var_info[x] && !block1.entry_var_info()[x]);
       stack.s.pop_back();
-      stack.modified();
-      stack.o.undent();
       Stack stack_copy{stack};
-      stack.o << AsmOp::Custom(loc, next_empty ? "}>DO:" : "}>DO<{");
+      stack.o << AsmOp::Custom(origin, next_empty ? "}>DO:" : "}>DO<{");
+      block1.generate_code_all(stack_copy);
+      stack_copy.enforce_state(layout1);
       if (!next_empty) {
-        stack.o.indent();
-      }
-      stack_copy.opt_show();
-      block1->generate_code_all(stack_copy);
-      stack_copy.enforce_state(loc, std::move(layout1));
-      stack_copy.opt_show();
-      if (!next_empty) {
-        stack.o.undent();
-        stack.o << AsmOp::Custom({}, "}>");
+        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
         return true;
       } else {
         return false;
       }
     }
     case _TryCatch: {
-      if (block0->is_empty() && block1->is_empty()) {
+      if (block0.is_empty_block() && block1.is_empty_block()) {
         return true;
       }
-      if (block0->noreturn() || block1->noreturn()) {
+      if (block0.is_noreturn() || block1.is_noreturn()) {
         stack.o.retalt_ = true;
       }
-      Stack catch_stack{stack.o, 0};
+      // For late-init variables alive at TRYCATCH entry but not yet on the stack:
+      // push NULL placeholders so falsely-fallthrough try stacks can still merge with catch.
+      for (const VarDescr& vd : var_info.list) {
+        if (!vd.is_unused() && stack.find(vd.idx) < 0) {
+          stack.o << AsmOp::Const(origin, "PUSHNULL");
+          stack.push_new_var(vd.idx);
+        }
+      }
+      Stack catch_stack{stack.o, stack.unique_constants, stack.named_vars, 0};
       std::vector<var_idx_t> catch_vars;
       std::vector<bool> catch_last;
-      for (const VarDescr& var : block1->var_info.list) {
+      for (const VarDescr& var : block1.entry_var_info().list) {
         if (stack.find(var.idx) >= 0) {
           catch_vars.push_back(var.idx);
-          catch_last.push_back(!block0->var_info[var.idx]);
+          catch_last.push_back(!block0.entry_var_info()[var.idx]);
         }
       }
       const size_t block_size = 255;
@@ -841,76 +950,91 @@ bool Op::generate_code_step(Stack& stack) {
       }
       catch_stack.push_new_var(left[0]);
       catch_stack.push_new_var(left[1]);
-      stack.rearrange_top(loc, catch_vars, catch_last);
-      stack.opt_show();
-      stack.o << AsmOp::Custom(loc, "<{");
-      stack.o.indent();
-      if (block1->noreturn()) {
+      stack.rearrange_top(catch_vars, catch_last);
+      stack.o << AsmOp::Custom(origin, "CONT:<{");
+      if (block1.is_noreturn()) {
         catch_stack.mode |= Stack::_NeedRetAlt;
       }
-      block1->generate_code_all(catch_stack);
-      catch_stack.drop_vars_except(loc, next->var_info);
-      catch_stack.opt_show();
-      stack.o.undent();
-      stack.o << AsmOp::Custom({}, "}>CONT");
-      stack.o << AsmOp::Custom(loc, "0b10111010 SETCONTMANY");
+      block1.generate_code_all(catch_stack);
+      catch_stack.drop_vars_except(next_op.var_info);
+      stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
+      stack.o << AsmOp::Custom(NULL_ORIGIN, "0b10111010 SETCONTMANY");
       for (size_t begin = catch_vars.size(), end = begin; end > 0; end = begin) {
         begin = end >= block_size ? end - block_size : 0;
-        stack.o << AsmOp::Custom(loc, std::to_string(end - begin) + " PUSHINT");
-        stack.o << AsmOp::Custom(loc, "-1 PUSHINT");
-        stack.o << AsmOp::Custom(loc, "SETCONTVARARGS");
+        stack.o << AsmOp::Custom(origin, std::to_string(end - begin) + " PUSHINT");
+        stack.o << AsmOp::Custom(origin, "-1 PUSHINT");
+        stack.o << AsmOp::Custom(origin, "SETCONTVARARGS");
       }
       stack.s.erase(stack.s.end() - catch_vars.size(), stack.s.end());
-      stack.modified();
-      stack.o << AsmOp::Custom(loc, "<{");
-      stack.o.indent();
-      if (block0->noreturn()) {
+      stack.o << AsmOp::Custom(origin, "CONT:<{");
+      if (block0.is_noreturn()) {
         stack.mode |= Stack::_NeedRetAlt;
       }
-      block0->generate_code_all(stack);
-      if (block0->noreturn()) {
+      block0.generate_code_all(stack);
+      if (block0.is_noreturn()) {
         stack.s = std::move(catch_stack.s);
-      } else if (!block1->noreturn()) {
-        stack.merge_state(loc, catch_stack);
+      } else if (!block1.is_noreturn()) {
+        stack.merge_state(catch_stack);
       }
-      stack.opt_show();
-      stack.o.undent();
-      stack.o << AsmOp::Custom({}, "}>CONT");
-      stack.o << AsmOp::Custom(loc, "c1 PUSH");
-      stack.o << AsmOp::Custom(loc, "COMPOSALT");
-      stack.o << AsmOp::Custom(loc, "SWAP");
-      stack.o << AsmOp::Custom(loc, "TRY");
+      stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
+      stack.o << AsmOp::Custom(NULL_ORIGIN, "c1 PUSH");
+      stack.o << AsmOp::Custom(origin, "COMPOSALT");
+      stack.o << AsmOp::Custom(origin, "SWAP");
+      stack.o << AsmOp::Custom(origin, "TRY");
       return true;
     }
     default:
-      std::cerr << "fatal: unknown operation <??" << cl << ">\n";
-      throw ParseError(loc, "unknown operation in generate_code()");
+      err("unknown operation in generate_code()").fire(origin);
   }
 }
 
-void Op::generate_code_all(Stack& stack) {
-  int saved_mode = stack.mode;
-  auto cont = generate_code_step(stack);
-  stack.mode = (stack.mode & ~Stack::_ModeSave) | (saved_mode & Stack::_ModeSave);
-  if (cont && next) {
-    next->generate_code_all(stack);
+void OpList::set_entry_var_info(VarDescrList&& front_var_info) {
+  list.front()->var_info = std::move(front_var_info);
+}
+
+void OpList::generate_code_all(Stack& stack, size_t from) const {
+  for (size_t i = from; i < list.size(); ++i) {
+    // _DebugMark doesn't affect the stack; handle it here to avoid interfering
+    // with optimizations in generate_code_step (e.g. will_now_immediate_throw, drop_vars_except)
+    if (list[i]->cl == Op::_DebugMark) {
+      stack.save_stack_comment();
+      stack.o << AsmOp::DebugMark(list[i]->debug_mark);
+      continue;
+    }
+    int saved_mode = stack.mode;
+    bool cont = list[i]->generate_code_step(stack, *this, i);
+    stack.mode = saved_mode;
+    if (!cont) {
+      break;
+    }
   }
 }
 
-void CodeBlob::generate_code(std::ostream& os, int mode, int indent) const {
-  AsmOpList out_list(indent, &vars);
-  Stack stack{out_list, mode};
-  tolk_assert(ops && ops->cl == Op::_Import);
-  int n_import_width = static_cast<int>(ops->left.size());
-  for (var_idx_t x : ops->left) {
+std::string CodeBlob::fift_name(FunctionPtr fun_ref) {
+  std::string fift_name = fun_ref->name;
+  sanitize_fift_name(fift_name);
+  return fift_name + "()";
+}
+
+std::string CodeBlob::fift_name(GlobalVarPtr var_ref) {
+  std::string fift_name = "$" + var_ref->name;
+  sanitize_fift_name(fift_name);
+  return fift_name;
+}
+
+
+std::vector<AsmOp> CodeBlob::generate_asm_code(int mode) const {
+  AsmOpList out_list;
+  std::vector<td::RefInt256> constants;
+  Stack stack(out_list, constants, vars, mode);
+  tolk_assert(!ops.empty() && ops.front()->cl == Op::_Import);
+  int n_import_width = static_cast<int>(ops.front()->left.size());
+  for (var_idx_t x : ops.front()->left) {
     stack.push_new_var(x);
   }
-  ops->generate_code_all(stack);
-  stack.apply_wrappers(fun_ref->loc, require_callxargs && (mode & Stack::_InlineAny) ? n_import_width : -1);
-  if (G.settings.optimization_level >= 2) {
-    optimize_code(out_list);
-  }
-  out_list.out(os, mode);
+  ops.generate_code_all(stack);
+  stack.apply_wrappers_if_retalt(fun_ref->ident_anchor, require_callxargs && (mode & Stack::_InlineAny) ? n_import_width : -1);
+  return std::move(out_list.list_);
 }
 
 }  // namespace tolk

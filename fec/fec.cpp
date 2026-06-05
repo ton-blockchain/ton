@@ -16,10 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "fec.h"
-#include "td/utils/overloaded.h"
 #include "auto/tl/ton_api.hpp"
 #include "td/utils/misc.h"
+#include "td/utils/overloaded.h"
+
+#include "fec.h"
 
 namespace ton {
 
@@ -47,13 +48,13 @@ tl_object_ptr<ton_api::fec_Type> FecType::tl() const {
 }
 
 td::Result<std::unique_ptr<td::fec::Decoder>> FecType::create_decoder() const {
-  std::unique_ptr<td::fec::Decoder> res;
+  td::Result<std::unique_ptr<td::fec::Decoder>> res;
   type_.visit(td::overloaded(
       [&](const Empty &obj) { UNREACHABLE(); },
       [&](const td::fec::RaptorQEncoder::Parameters &obj) { res = td::fec::RaptorQDecoder::create(obj); },
       [&](const td::fec::RoundRobinEncoder::Parameters &obj) { res = td::fec::RoundRobinDecoder::create(obj); },
       [&](const td::fec::OnlineEncoder::Parameters &obj) { res = td::fec::OnlineDecoder::create(obj); }));
-  return std::move(res);
+  return res;
 }
 
 td::Result<std::unique_ptr<td::fec::Encoder>> FecType::create_encoder(td::BufferSlice data) {
@@ -115,21 +116,17 @@ td::Result<FecType> FecType::create(tl_object_ptr<ton_api::fec_Type> obj) {
   if (symbol_size > 1 << 11) {
     return td::Status::Error("invalid fec type: symbol_size is too big");
   }
+  if (data_size > symbol_size * (1ull << 24)) {
+    return td::Status::Error("invalid fec type: too many symbols");
+  }
   if (symbols_count != (data_size + symbol_size - 1) / symbol_size) {
     return td::Status::Error("invalid fec type: wrong symbols_count");
   }
+  if (obj->get_id() != ton_api::fec_raptorQ::ID) {
+    return td::Status::Error("invalid fec type: only RaptorQ is allowed");
+  }
   FecType T;
-  ton_api::downcast_call(*obj,
-                         td::overloaded(
-                             [&](const ton_api::fec_raptorQ &obj) {
-                               T.type_ = td::fec::RaptorQEncoder::Parameters{data_size, symbol_size, symbols_count};
-                             },
-                             [&](const ton_api::fec_roundRobin &obj) {
-                               T.type_ = td::fec::RoundRobinEncoder::Parameters{data_size, symbol_size, symbols_count};
-                             },
-                             [&](const ton_api::fec_online &obj) {
-                               T.type_ = td::fec::OnlineEncoder::Parameters{data_size, symbol_size, symbols_count};
-                             }));
+  T.type_ = td::fec::RaptorQEncoder::Parameters{data_size, symbol_size, symbols_count};
   return T;
 }
 

@@ -23,9 +23,9 @@
 
 namespace block {
 /*
- * 
+ *
  *   BINLOG (BUFFERS) -- move to separate file
- * 
+ *
  */
 
 class BinlogBuffer;

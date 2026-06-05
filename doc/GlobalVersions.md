@@ -47,7 +47,7 @@ __Enabled in mainnet on 2024-02-03__
 ### Gas limits
 Version 5 enables higher gas limits for special contracts.
 
-* Gas limit for all transactions on special contracts is set to `special_gas_limit` from `ConfigParam 20` (which is 35M at the moment of writing). 
+* Gas limit for all transactions on special contracts is set to `special_gas_limit` from `ConfigParam 20` (which is 35M at the moment of writing).
 Previously only ticktock transactions had this limit, while ordinary transactions had a default limit of `gas_limit` gas (1M).
 * Gas usage of special contracts is not taken into account when checking block limits. This allows keeping masterchain block limits low
 while having high gas limits for elector.
@@ -82,7 +82,7 @@ __Enabled in mainnet on 2024-03-16__
 * `GETSTORAGEFEE` (`cells bits seconds is_mc - price`) - calculates storage fees (only current StoragePrices entry is used).
 * `GETFORWARDFEE` (`cells bits is_mc - price`) - calculates forward fee.
 * `GETPRECOMPILEDGAS` (`- x`) - returns gas usage for the current contract if it is precompiled, `null` otherwise.
-* `GETORIGINALFWDFEE` (`fwd_fee is_mc - orig_fwd_fee`) - calculate `fwd_fee * 2^16 / first_frac`. Can be used to get the original `fwd_fee` of the message.
+* `GETORIGINALFWDFEE` (`fwd_fee is_mc - orig_fwd_fee`) - calculate `fwd_fee * 2^16 / (2^16 - first_frac)`. Can be used to get the original `fwd_fee` of the message.
 * `GETGASFEESIMPLE` (`gas_used is_mc - price`) - same as `GETGASFEE`, but without flat price (just `(gas_used * price) / 2^16`).
 * `GETFORWARDFEESIMPLE` (`cells bits is_mc - price`) - same as `GETFORWARDFEE`, but without lump price (just `(bits*bit_price + cells*cell_price) / 2^16`).
 
@@ -230,6 +230,7 @@ This is required to help computing storage stats in the future, after collator-v
 - In new internal messages `ihr_disabled` is automatically set to `1`, `ihr_fee` is always zero.
 
 ## Version 12
+__Enabled in mainnet on 2025-11-13__
 
 ### Extra message flags and new bounce format
 Field `ihr_fee:Grams` in internal message is now called `extra_flags:(VarUInteger 16)` (it's the same format).
@@ -237,6 +238,9 @@ This field does not represent fees. `ihr_fee` is always zero since version 11, s
 
 `(extra_flags & 1) = 1` enables the new bounce format for the message. The bounced message contains information about the transaction.
 If `(extra_flags & 3) = 3`, the bounced message contains the whole body of the original message. Otherwise, only the bits from the root of the original body are returned.
+
+All other bits in `extra_flags` are reserved for future use and are not allowed now (internal messages with flags other than `0..3` are invalid).
+
 When the message with new bounce flag is bounced, the bounced message body has the following format (`new_bounce_body`):
 ```
 _ value:CurrencyCollection created_lt:uint64 created_at:uint32 = NewBounceOriginalInfo;
@@ -263,9 +267,19 @@ new_bounce_body#fffffffe
 - `compute_phase` - exists if it was not skipped (`bounced_by_phase > 0`):
   - `gas_used`, `vm_steps` - same as in `TrComputePhase` of the transaction.
 
+The bounced message has the same 0th and 1st bits in `extra_flags` as the original message.
+
 ### New TVM instructions
 - `BTOS` (`b - s`) - same as `ENDC CTOS`, but without gas cost for cell creation and loading. Gas cost: `26`.
 - `HASHBU` (`b - hash`) - same as `ENDC HASHCU`, but without gas cost for cell creation. Gas cost: `26`.
+- `LDSTDADDR` (`s - a s'`) - loads `addr_std$10`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `LDSTDADDRQ` (`s - a s' -1 or s 0`) - quiet version of `LDSTDADDR`. Gas cost: `26`.
+- `LDOPTSTDADDR` (`s - a s or null s`) - loads `addr_std$10` or `addr_none$00`, if address is `addr_none$00` pushes a Null, if address is not `addr_std` or `addr_none`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `LDOPTSTDADDRQ` (`s - (a s' -1 or null s' -1) or s 0`) - quiet version of `LDOPTSTDADDR`. Gas cost: `26`.
+- `STSTDADDR` (`s b - b'`) - stores `addr_std$10`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `STSTDADDRQ` (`s b - b' 0 or s b -1`) - quiet version of `STSTDADDR`. Gas cost: `26`.
+- `STOPTSTDADDR` (`s b - b'`) - stores `addr_std$10` or Null. Null is stored as `addr_none$00`, if address is not `addr_std`, throws an error 9 (`cannot load a MsgAddressInt`). Gas cost: `26`.
+- `STOPTSTDADDRQ` (`s b - b' 0 or s b -1`) - quiet version of `STOPTSTDADDR`. Gas cost: `26`.
 
 ### Other TVM changes
 - `SENDMSG` instruction treats `extra_flags` field accordingly (see above).
@@ -273,3 +287,35 @@ new_bounce_body#fffffffe
 ### Other changes
 - Account size in masterchain is now limited to `2048` cells. This can be configured in size limits config (`ConfigParam 43`).
   - The previous limit was the same as in basechain (`65536`).
+
+## Version 13
+__Enabled in mainnet on 2026-04-03__
+
+### TVM changes
+- Instructions `LSHIFT`, `RSHIFT`, `LSHIFTDIV`, `MULRSHIFT`, `POW2`, `AND`, `OR` now correctly return an error (or `NaN`, if quiet) when one of the arguments is `NaN` (or out of bounds for shifts).
+
+### Transaction changes
+- `end_status` of a transaction is now correctly set to `uninit` when the account is frozen with `frozen_hash` equal to its address.
+- Message flag `+2` now correctly works when sending fails because of invalid `src` (code `35`), invalid libraries in `StateInit` or invalid mode.
+- Fix `fwd_fee` for bounced messages with extra currencies: now extra currency dict is not charged.
+- Correctly set `destroyed` flag in transaction when the account is deleted in storage phase.
+
+### Other changes
+- Block timestamps are now non-strictly increasing. Block timestamp now can be equal to the timestamp of:
+  - Previous block
+  - Reference masterchain block
+  - Top shard block (in masterchain)
+
+## Version 14
+
+### TVM changes
+- `SENDMSG` no longer uses user-provided `fwd_fee` / `ihr_fee` as a lower bound for the returned fee estimate of an internal message. This aligns the compute-phase estimate with action-phase behavior, which has been ignoring those fields since version 8 (`disable_custom_fess`). Previously a large `fwd_fee` written into the message cell could inflate the value returned by `SENDMSG` (and its estimate-only mode `+1024`) arbitrarily, while the action phase still charged only the recomputed network price.
+- `RIST255_MUL` and `RIST255_QMUL` now accept the identity element (integer `0`) and return `0` in that case. They also validate point `x` and number `n` on all paths. Previously, libsodium's non-zero return code (which it also uses to signal "result is identity") was misinterpreted as "invalid x or n".
+- `ECRECOVER` now accepts Ethereum legacy recovery bytes `v = 27` and `v = 28`, normalizing them to raw recovery ids `0` and `1`.
+- `CHKSIGNS` and `CHKSIGNU` now reject the canonical Ed25519 identity public key (`01 00..00`, that is, `2^248`) and `0` public key before invoking the verifier and return `false`. The check is a fixed 32-byte comparison and does not affect gas.
+- Quiet `RSHIFT`/`MODPOW2` compound opcodes now return `NaN` instead of throwing `range_chk` when their stack-provided shift argument is `NaN` or out of range.
+- `LSHIFT` and similar invoked with `NaN` return `NaN`, not zero.
+- The savelist-writing opcodes `SETCONTCTR`, `SETCONTCTRX`, `SETRETCTR`, `SETALTCTR`, `SAVECTR`, `SAVEALTCTR`, `SETCONTCTRMANY`, and `SETCONTCTRMANYX` now silently do nothing when the targeted savelist slot is already filled (as required by the TVM whitepaper). Earlier they threw `type_chk` in that case.
+
+### Transaction changes
+- When the action phase fails with bounce-on-fail, bounce now returns the whole remaining message balance before action phase.

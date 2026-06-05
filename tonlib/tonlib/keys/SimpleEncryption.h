@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "td/utils/crypto.h"
-#include "td/utils/Slice.h"
-#include "td/utils/SharedSlice.h"
 #include "crypto/Ed25519.h"
+#include "td/utils/SharedSlice.h"
+#include "td/utils/Slice.h"
+#include "td/utils/crypto.h"
 
 namespace tonlib {
 class SimpleEncryption {

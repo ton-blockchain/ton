@@ -132,8 +132,8 @@ _ perform_action(cfg_dict, public_key, action, cs) inline_ref {
 (cell, int, cell) get_current_vset() inline_ref {
   var vset = config_param(34);
   var cs = begin_parse(vset);
-  ;; validators_ext#12 utime_since:uint32 utime_until:uint32 
-  ;; total:(## 16) main:(## 16) { main <= total } { main >= 1 } 
+  ;; validators_ext#12 utime_since:uint32 utime_until:uint32
+  ;; total:(## 16) main:(## 16) { main <= total } { main >= 1 }
   ;; total_weight:uint64
   throw_unless(40, cs~load_uint(8) == 0x12);
   cs~skip_bits(32 + 32 + 16 + 16);

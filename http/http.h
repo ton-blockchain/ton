@@ -18,13 +18,13 @@
 */
 #pragma once
 
-#include "td/utils/buffer.h"
+#include <list>
+#include <map>
+#include <mutex>
+
 #include "auto/tl/ton_api.h"
 #include "td/actor/PromiseFuture.h"
-
-#include <map>
-#include <list>
-#include <mutex>
+#include "td/utils/buffer.h"
 
 namespace ton {
 
@@ -97,6 +97,8 @@ class HttpPayload {
    public:
     virtual void run(size_t ready_bytes) = 0;
     virtual void completed() = 0;
+    virtual void flush() {
+    }
     virtual ~Callback() = default;
   };
   void add_callback(std::unique_ptr<Callback> callback);
@@ -141,6 +143,16 @@ class HttpPayload {
     return ready_bytes_ == 0 && parse_completed() && written_zero_chunk_ && written_trailer_;
   }
 
+  void flush();
+
+  bool is_flushing() const {
+    return is_flushing_;
+  }
+
+  void set_flushed() {
+    is_flushing_ = false;
+  }
+
  private:
   enum class ParseState { reading_chunk_header, reading_chunk_data, reading_trailer, reading_crlf, completed };
   PayloadType type_{PayloadType::pt_chunked};
@@ -157,6 +169,7 @@ class HttpPayload {
   bool written_zero_chunk_ = false;
   bool written_trailer_ = false;
   bool error_ = false;
+  bool is_flushing_ = false;
 
   std::list<std::unique_ptr<Callback>> callbacks_;
 

@@ -17,17 +17,19 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <ostream>
+
+#include "block/block.h"
 #include "common/refcnt.hpp"
+#include "td/utils/StringBuilder.h"
+#include "td/utils/bits.h"
+#include "tl/tlblib.hpp"
+#include "ton/ton-types.h"
+#include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cellslice.h"
 #include "vm/dict.h"
-#include "vm/boc.h"
-#include "block/block.h"
-#include <ostream>
-#include "tl/tlblib.hpp"
-#include "td/utils/bits.h"
-#include "td/utils/StringBuilder.h"
-#include "ton/ton-types.h"
+
 #include "block-auto.h"
 
 namespace block {
@@ -39,10 +41,14 @@ using namespace ::tlb;
 
 struct Anycast final : TLB {
   int get_size(const vm::CellSlice& cs) const override {
-    return cs.have(5) ? 5 + (int)cs.prefetch_ulong(5) : -1;
+    if (!cs.have(5)) {
+      return -1;
+    }
+    int depth = (int)cs.prefetch_ulong(5);
+    return (1 <= depth && depth <= 30 && cs.have(5 + depth)) ? 5 + depth : -1;
   }
   bool skip_get_depth(vm::CellSlice& cs, int& depth) const {
-    return cs.fetch_uint_leq(30, depth) && cs.advance(depth);
+    return cs.fetch_uint_leq(30, depth) && 1 <= depth && cs.advance(depth);
   }
 };
 

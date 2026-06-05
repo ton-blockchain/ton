@@ -73,7 +73,7 @@ fun test1() {
 
 @method_id(102)
 fun test2(a: int8, b: int16) {
-    var c = b as coins?;
+    var c = b as coins as coins?;
     return (a.plus1(), b.plusN(a), c!.plus1());
 }
 
@@ -99,7 +99,7 @@ fun test4() {
 
 @method_id(105)
 fun test5(a: MInt, b: int) {
-    var t = [a,b];
+    var t = [a,b] as [MInt, int];
     return (t.getSum(), t.assignLast(a+b), t.getSum(), Tuple2Int.getLast(t));
 }
 
@@ -132,7 +132,7 @@ fun test8(x: int32) {
     var cp = x.copy();
     x.assign(10);
     int32.assign(mutate x, x+cp);
-    (x as int18).assign(x+2);
+    x.assign(x+2);
     __expect_type(x, "int32");
     return (x, cp);
 }
@@ -288,6 +288,28 @@ fun test18() {
     return cb(10);
 }
 
+struct MethodRefBox { x: int }
+
+fun makeMethodRefBox(): MethodRefBox {
+    callOrder.push(5);
+    return { x: 10 };
+}
+
+fun MethodRefBox.add(self, y: int): int {
+    return self.x + y;
+}
+
+fun invokeMethodRef(cb: (MethodRefBox, int) -> int): int {
+    return cb({ x: 1 }, 2);
+}
+
+@method_id(119)
+fun test119() {
+    callOrder = [];
+    val cb = makeMethodRefBox().add;
+    return (callOrder, invokeMethodRef(cb));
+}
+
 type BalanceList = dict
 type AssetList = dict
 
@@ -305,6 +327,21 @@ fun test19(b: BalanceList, a: AssetList) {
     }
     __expect_type(b, "BalanceList");
     __expect_type(a, "AssetList");
+}
+
+fun int.double(self) {
+    return self * 2
+}
+
+fun getI1(v: int?, default: int) {
+    callOrder.push(v);
+    return v ?? default
+}
+
+@method_id(120)
+fun test20(v1: int?) {
+    callOrder = [];
+    return ((getI1(v1, 5) ?? getI1(100, 10)).double(), callOrder)
 }
 
 fun main() {}
@@ -327,8 +364,11 @@ fun main() {}
 @testcase | 116 |        | 100 100 5
 @testcase | 117 |        | 3
 @testcase | 118 |        | 10
+@testcase | 119 |        | [ 5 ] 3
+@testcase | 120 | 6      | 12 [ 6 ] 
+@testcase | 120 | null   | 10 [ (null) ] 
 
-@fif_codegen DECLPROC Pair<int16,int8>.createFrom<int,coins>()
-@fif_codegen DECLPROC Pair<int8,int16>.compareWith<int16,int8>()
+@fif_codegen DECLPROC Pair<int16,`int8>.createFrom<int,`coins>()
+@fif_codegen DECLPROC Pair<int8,`int16>.compareWith<int16,`int8>()
 @fif_codegen DECLPROC CounterMsg.onInternalMessage()
  */

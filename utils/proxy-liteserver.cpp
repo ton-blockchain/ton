@@ -23,31 +23,32 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "td/utils/filesystem.h"
-#include "td/actor/actor.h"
+#include "adnl/adnl.h"
+#include "auto/tl/lite_api.h"
+#include "auto/tl/ton_api.h"
+#include "auto/tl/ton_api_json.h"
+#include "lite-client/ext-client.h"
 #include "td/actor/MultiPromise.h"
+#include "td/actor/actor.h"
+#include "td/utils/FileLog.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/port/IPAddress.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
-#include "td/utils/port/IPAddress.h"
-#include "td/utils/Random.h"
-#include "td/utils/FileLog.h"
-#include "git.h"
-#include "auto/tl/ton_api.h"
-#include "auto/tl/lite_api.h"
 #include "tl-utils/lite-utils.hpp"
-#include "auto/tl/ton_api_json.h"
-#include "adnl/adnl.h"
-#include "lite-client/ext-client.h"
+
+#include "git.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
-#include "td/utils/overloaded.h"
-
+#include <auto/tl/lite_api.hpp>
 #include <iostream>
 #include <map>
-#include <auto/tl/lite_api.hpp>
+
+#include "td/utils/overloaded.h"
 #include "td/utils/tl_storers.h"
 
 using namespace ton;

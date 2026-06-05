@@ -18,14 +18,13 @@
 */
 #pragma once
 
-#include "td/utils/port/detail/NativeFd.h"
-#include "td/utils/port/detail/PollableFd.h"
-#include "td/utils/port/SocketFd.h"
+#include <memory>
 
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
-
-#include <memory>
+#include "td/utils/port/SocketFd.h"
+#include "td/utils/port/detail/NativeFd.h"
+#include "td/utils/port/detail/PollableFd.h"
 
 namespace td {
 namespace detail {
@@ -41,11 +40,15 @@ class ServerSocketFd {
   ServerSocketFd();
   ServerSocketFd(const ServerSocketFd &) = delete;
   ServerSocketFd &operator=(const ServerSocketFd &) = delete;
-  ServerSocketFd(ServerSocketFd &&);
-  ServerSocketFd &operator=(ServerSocketFd &&);
+  ServerSocketFd(ServerSocketFd &&) noexcept;
+  ServerSocketFd &operator=(ServerSocketFd &&) noexcept;
   ~ServerSocketFd();
 
+  Result<uint32> maximize_snd_buffer(uint32 max_size = 0);
+  Result<uint32> maximize_rcv_buffer(uint32 max_size = 0);
+
   static Result<ServerSocketFd> open(int32 port, CSlice addr = CSlice("0.0.0.0")) TD_WARN_UNUSED_RESULT;
+  static Result<ServerSocketFd> open_vsock(int32 svm_port) TD_WARN_UNUSED_RESULT;
 
   PollableFdInfo &get_poll_info();
   const PollableFdInfo &get_poll_info() const;

@@ -1,6 +1,17 @@
-name: Ubuntu TON build (shared, arm64)
+name: Ubuntu TON build (arm64)
 
-on: [push,workflow_dispatch,workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -12,8 +23,8 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
-      with:      
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
         submodules: 'recursive'
 
     - name: Date Stamp
@@ -25,28 +36,27 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev libjemalloc-dev ccache
+        sudo apt-get install -y build-essential git cmake ninja-build libjemalloc-dev ccache
         mkdir ~/.ccache
 
     - if: matrix.os != 'ubuntu-24.04-arm'
-      name: Install llvm-16
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 22 clang
+
+    - if: matrix.os == 'ubuntu-24.04-arm'
+      name: Install llvm-22
       run: |
         lsb_release -a
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-        echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-16 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+        echo "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" | sudo tee /etc/apt/sources.list.d/llvm.list
         sudo apt-get -y update
-        sudo apt-get install -y clang-16
-
-    - name: Cache OpenSSL
-      id: cache-openssl
-      uses: actions/cache@v4
-      with:
-        path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-shared.sh') }}
+        sudo apt-get install -y clang-22
 
     - name: Cache TON test
       id: cache-ton
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.ccache
         key: ${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
@@ -63,5 +73,9 @@ jobs:
 
     - name: Run Tests
       run: |
-        cd build        
+        cd build
         ctest --output-on-failure --timeout 1800
+
+    - name: Run tonlib integration test
+      run: |
+        ./test/tonlib/integration/test_integration.sh

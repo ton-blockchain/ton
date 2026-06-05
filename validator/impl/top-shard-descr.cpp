@@ -16,17 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "top-shard-descr.hpp"
+#include "block/block-auto.h"
+#include "block/block-parse.h"
+#include "block/signature-set.h"
+#include "block/validator-set.h"
 #include "common/errorcode.h"
-#include "shard.hpp"
-#include "signature-set.hpp"
-#include "validator-set.hpp"
-
+#include "ton/ton-io.hpp"
+#include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cells/MerkleProof.h"
-#include "vm/boc.h"
-#include "block/block-parse.h"
-#include "block/block-auto.h"
+
+#include "shard.hpp"
+#include "top-shard-descr.hpp"
 
 namespace ton {
 
@@ -39,12 +40,7 @@ ShardTopBlockDescrQ* ShardTopBlockDescrQ::make_copy() const {
 }
 
 td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cell> proof_root, bool is_head) {
-  auto virt_root = vm::MerkleProof::virtualize(proof_root, 1);
-  if (virt_root.is_null()) {
-    return td::Status::Error(-666, "link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
-                                       block_id_.to_str() +
-                                       " does not contain a valid Merkle proof for the block header");
-  }
+  TRY_RESULT(virt_root, vm::MerkleProof::virtualize(proof_root));
   RootHash virt_hash{virt_root->get_hash().bits()};
   if (virt_hash != cur_id.root_hash) {
     return td::Status::Error(-666, "link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
@@ -76,19 +72,18 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
     }
   } catch (vm::VmVirtError& err) {
     // backward compatibility with older Proofs / ProofLinks
-    LOG(WARNING) << "virtualization error while parsing BlockExtra in proof link of " << cur_id.to_str()
+    LOG(WARNING) << "virtualization error while parsing BlockExtra in proof link of " << cur_id
                  << ", setting creator_id to zero: " << err.get_msg();
     extra.created_by.set_zero();
   }
   CHECK(after_split == info.after_split);
   if (info.gen_catchain_seqno != catchain_seqno_) {
     return td::Status::Error(
-        -666, PSTRING() << "link for block " << cur_id.to_str()
-                        << " is invalid because block header has catchain_seqno = " << info.gen_catchain_seqno
-                        << " while ShardTopBlockDescr declares " << catchain_seqno_);
+        -666, PSTRING() << "link for block " << cur_id << " is invalid because block header has catchain_seqno = "
+                        << info.gen_catchain_seqno << " while ShardTopBlockDescr declares " << catchain_seqno_);
   }
   if (info.gen_validator_list_hash_short != validator_set_hash_) {
-    return td::Status::Error(-666, PSTRING() << "link for block " << cur_id.to_str()
+    return td::Status::Error(-666, PSTRING() << "link for block " << cur_id
                                              << " is invalid because block header has validator_set_hash = "
                                              << info.gen_validator_list_hash_short
                                              << " while ShardTopBlockDescr declares " << validator_set_hash_);
@@ -117,14 +112,14 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
     }
     if (info.gen_utime > first_gen_utime_) {
       return td::Status::Error(-666, PSTRING() << "block creation unixtime goes back from " << info.gen_utime << " to "
-                                               << first_gen_utime_ << " in intermediate link for blocks "
-                                               << cur_id.to_str() << " and " << chain_blk_ids_.back().to_str());
+                                               << first_gen_utime_ << " in intermediate link for blocks " << cur_id
+                                               << " and " << chain_blk_ids_.back());
     }
     first_gen_utime_ = info.gen_utime;
     if (vert_seqno_ != BlockSeqno(info.vert_seq_no)) {
-      return td::Status::Error(-666, PSTRING() << "intermediate link for block " << cur_id.to_str()
-                                               << " has vertical seqno " << info.vert_seq_no
-                                               << " distinct from the final value in chain " << vert_seqno_);
+      return td::Status::Error(-666, PSTRING() << "intermediate link for block " << cur_id << " has vertical seqno "
+                                               << info.vert_seq_no << " distinct from the final value in chain "
+                                               << vert_seqno_);
     }
   }
   chain_mc_blk_ids_.push_back(mc_blkid);
@@ -178,57 +173,47 @@ td::Status ShardTopBlockDescrQ::unpack() {
     FLOG(INFO) {
       sb << "invalid ShardTopBlockDescr: ";
       block::gen::t_TopBlockDescr.print_ref(sb, root_);
-      vm::load_cell_slice(root_).print_rec(sb);
+      vm::load_cell_slice_special(root_).print_rec(sb);
     };
     return td::Status::Error(-666, "Shard top block description is not a valid TopBlockDescr TL-B object");
   }
-  LOG(DEBUG) << "unpacking a ShardTopBlockDescr for " << block_id_.to_str() << " with " << rec.len << " links";
+  LOG(DEBUG) << "unpacking a ShardTopBlockDescr for " << block_id_ << " with " << rec.len << " links";
   CHECK(rec.len > 0 && rec.len <= 8);
   // unpack signatures
   Ref<vm::Cell> sig_root = rec.signatures->prefetch_ref();
   if (sig_root.not_null()) {
-    vm::CellSlice cs{vm::NoVmOrd(), sig_root};
-    bool have_sig;
-    if (!(cs.fetch_ulong(8) == 0x11                     // block_signatures#11
-          && cs.fetch_uint_to(32, validator_set_hash_)  // validator_set_hash:uint32
-          && cs.fetch_uint_to(32, catchain_seqno_)      // catchain_seqno:uint32
-          && cs.fetch_uint_to(32, sig_count_)           // sig_count:uint32
-          && cs.fetch_uint_to(64, sig_weight_)          // sig_weight:uint64
-          && cs.fetch_bool_to(have_sig) && have_sig == (sig_count_ > 0) &&
-          cs.size_ext() == ((unsigned)have_sig << 16))) {
+    auto r_sig_set = block::BlockSignatureSet::fetch(sig_root, sig_weight_);
+    if (r_sig_set.is_error()) {
       return td::Status::Error(
-          -666, std::string{"cannot parse BlockSignatures in ShardTopBlockDescr for "} + block_id_.to_str());
+          -666, PSTRING() << "cannot parse BlockSignatures in ShardTopBlockDescr for " + block_id_.to_str() << " : "
+                          << r_sig_set.error().message());
     }
-    sig_root_ = cs.prefetch_ref();
-    sig_set_ = BlockSignatureSetQ::fetch(sig_root_);
-    if (sig_set_.is_null() && sig_count_) {
-      return td::Status::Error(
-          -666, std::string{"cannot deserialize signature list in ShardTopBlockDescr for "} + block_id_.to_str());
-    }
+    sig_set_ = r_sig_set.move_as_ok();
+    catchain_seqno_ = sig_set_->get_catchain_seqno();
+    validator_set_hash_ = sig_set_->get_validator_set_hash();
   } else {
     validator_set_hash_ = 0;
     catchain_seqno_ = 0;
-    sig_count_ = 0;
     sig_weight_ = 0;
-    sig_root_.clear();
+    sig_set_ = {};
   }
-  if (!sig_count_ && !is_fake_) {
+  if ((sig_set_.is_null() || sig_set_->get_size() == 0) && !is_fake_) {
     return td::Status::Error(-666, std::string{"invalid BlockSignatures in ShardTopBlockDescr for "} +
                                        block_id_.to_str() + ": no signatures present, and fake mode is not enabled");
   }
-  is_fake_ = !sig_count_;
+  is_fake_ = sig_set_.is_null() || sig_set_->get_size() == 0;
   // unpack proof link chain
   auto chain = std::move(rec.chain);
   BlockIdExt cur_id = block_id_;
-  for (int i = 0; i < rec.len; i++) {
-    CHECK(chain->size_ext() == (i == rec.len - 1 ? 0x10000u : 0x20000u));
-    auto proof = chain->prefetch_ref();
-    proof_roots_.push_back(proof);
-    if (i < rec.len - 1) {
-      chain = vm::load_cell_slice_ref(chain->prefetch_ref(1));
-    }
+  for (unsigned i = 0; i < rec.len; i++) {
     try {
-      auto res = unpack_one_proof(cur_id, std::move(proof), i == rec.len - 1);
+      CHECK(chain->size_ext() == (i + 1 == rec.len ? 0x10000u : 0x20000u));
+      auto proof = chain->prefetch_ref();
+      proof_roots_.push_back(proof);
+      if (i + 1 < rec.len) {
+        chain = vm::load_cell_slice_ref(chain->prefetch_ref(1));
+      }
+      auto res = unpack_one_proof(cur_id, std::move(proof), i + 1 == rec.len);
       if (res.is_error()) {
         return res;
       }
@@ -297,12 +282,12 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
   auto config = state->get_config();
   if (config->get_vert_seqno() != vert_seqno_) {
     if (vert_seqno_ < config->get_vert_seqno()) {
-      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
+      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_
                                                << " is too old: it has vertical seqno " << vert_seqno_
                                                << " but we already know about " << config->get_vert_seqno());
     }
     if (mode & Mode::fail_new) {
-      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
+      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_
                                                << " is too new for us: it has vertical seqno " << vert_seqno_
                                                << " but we know only about " << config->get_vert_seqno());
     }
@@ -407,7 +392,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
                     " but the masterchain instead refers to another shardchain block " + oldr->blk_.to_str());
     }
   }
-  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_.to_str() << " appears to have a valid chain of " << clen
+  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_ << " appears to have a valid chain of " << clen
              << " new links out of " << size();
   // check validator_set_{ts,hash}
   int vset_ok = 0;
@@ -427,7 +412,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
   if (!vset_ok) {
     res_flags |= 1;
     return td::Status::Error(-666, PSTRING()
-                                       << "ShardTopBlockDescr for " << block_id_.to_str()
+                                       << "ShardTopBlockDescr for " << block_id_
                                        << " is invalid because it refers to shard validator set with hash "
                                        << validator_set_hash_ << " and catchain_seqno " << catchain_seqno_
                                        << " while the current masterchain configuration expects "
@@ -442,22 +427,22 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
         -666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() + " does not have valid signatures");
   }
   CHECK(sig_set_.not_null());
-  auto sig_chk = vset->check_signatures(block_id_.root_hash, block_id_.file_hash, sig_set_);
-  if (sig_chk.is_error()) {
+  auto result = sig_set_->check_signatures(vset, block_id_);
+  if (result.is_error()) {
     res_flags |= 0x21;
     return td::Status::Error(-666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
-                                       " does not have valid signatures: " + sig_chk.move_as_error().to_string());
+                                       " does not have valid signatures: " + result.move_as_error().to_string());
   }
   res_flags |= 0x10;  // signatures checked ok
-  auto wt = sig_chk.move_as_ok();
+  auto wt = result.move_as_ok();
   if (wt != sig_weight_) {
     res_flags |= 1;
-    return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
-                                             << " has incorrect signature weight " << sig_weight_
-                                             << " (actual weight is " << wt << ")");
+    return td::Status::Error(-666, PSTRING()
+                                       << "ShardTopBlockDescr for " << block_id_ << " has incorrect signature weight "
+                                       << sig_weight_ << " (actual weight is " << wt << ")");
   }
-  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_.to_str() << " has valid validator signatures of total weight "
-             << sig_weight_ << " out of " << Ref<ValidatorSetQ>(vset)->get_total_weight();
+  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_ << " has valid validator signatures of total weight "
+             << sig_weight_ << " out of " << vset->get_total_weight();
   return (int)clen;
 }
 
@@ -508,8 +493,11 @@ Ref<block::McShardHash> ShardTopBlockDescrQ::get_prev_descr(int pos, int sum_cnt
       (unsigned)(pos + sum_cnt) > size()) {
     return {};
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof_roots_.at(pos), 1);
-  auto res = block::McShardHash::from_block(std::move(virt_root), chain_blk_ids_.at(pos).file_hash);
+  auto r_virt_root = vm::MerkleProof::virtualize(proof_roots_.at(pos));
+  if (r_virt_root.is_error()) {
+    return {};
+  }
+  auto res = block::McShardHash::from_block(r_virt_root.move_as_ok(), chain_blk_ids_.at(pos).file_hash);
   if (res.not_null()) {
     auto& total_fees = res.write().fees_collected_;
     auto& funds_created = res.write().funds_created_;

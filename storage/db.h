@@ -24,8 +24,7 @@ namespace db {
 using DbType = td::KeyValueAsync<td::Bits256, td::BufferSlice>;
 
 template <typename T>
-inline void db_get(DbType& db, td::Bits256 key, bool allow_not_found,
-                   td::Promise<ton::tl_object_ptr<T>> promise) {
+inline void db_get(DbType& db, td::Bits256 key, bool allow_not_found, td::Promise<ton::tl_object_ptr<T>> promise) {
   db.get(key, [allow_not_found, promise = std::move(promise)](td::Result<DbType::GetResult> R) mutable {
     TRY_RESULT_PROMISE(promise, r, std::move(R));
     if (r.status == td::KeyValueReader::GetStatus::NotFound) {

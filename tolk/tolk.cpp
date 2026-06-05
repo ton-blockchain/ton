@@ -23,35 +23,47 @@
     exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 */
-#include "tolk.h"
 #include "pipeline.h"
 #include "compiler-state.h"
-#include "lexer.h"
-#include "ast.h"
-#include "type-system.h"
+#include "compiler-settings.h"
+#include "compilation-errors.h"
+#include <sstream>
+#include <mutex>
 
 namespace tolk {
 
+// G_settings is filled by tolk-main or tolk-wasm before calling tolk_proceed()
+thread_local CompilerSettings G_settings;
+// G is the per-compilation mutable state
+thread_local CompilerState G;
 
-void on_assertion_failed(const char *description, const char *file_name, int line_number) {
-  std::string message = static_cast<std::string>("Assertion failed at ") + file_name + ":" + std::to_string(line_number) + ": " + description;
-#ifdef TOLK_DEBUG
-#ifdef __arm64__
-  // when developing, it's handy when the debugger stops on assertion failure (stacktraces and watches are available)
-  std::cerr << message << std::endl;
-  __builtin_debugtrap();
-#endif
-#endif
-  throw Fatal(std::move(message));
-}
+// prototypes of functions initializing/resetting global state and pointers
+void define_builtins();
+void type_system_init();
+void lexer_init();
+void clear_computed_constants_cache();
 
-int tolk_proceed(const std::string &entrypoint_filename) {
-  type_system_init();
-  define_builtins();
-  lexer_init();
 
-  // on any error, an exception is thrown, and the message is printed out below
-  // (currently, only a single error can be printed)
+TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
+  // one-time global initialization (thread-safe, shared across all threads):
+  // type system singletons and lexer trie are immutable after creation
+  static std::once_flag init_flag;
+  std::call_once(init_flag, [] {
+    type_system_init();
+    lexer_init();
+  });
+
+  // reset per-compilation mutable state to allow successive compilation within each thread
+  G = CompilerState{};
+  clear_computed_constants_cache();
+  define_builtins();    // add built-in functions into G.symtable
+  G.symbol_types_pool.seed_primitive_types();
+
+  // enable error collecting for check stages (multiple errors can be reported):
+  // - if used err("...").fire() — execution is stopped immediately (it's `throw`)
+  // - if used err("...").collect() — added to a collector and reported before codegen to IR
+  ErrorCollector error_collector;
+  G.error_collector = &error_collector;
   try {
     pipeline_discover_and_parse_sources("@stdlib/common.tolk", entrypoint_filename);
 
@@ -65,28 +77,107 @@ int tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_check_rvalue_lvalue();
     pipeline_check_private_fields_usage();
     pipeline_check_pure_impure_operations();
-    pipeline_constant_folding();
+    pipeline_check_constant_expressions();
+    pipeline_mini_borrow_checker_for_mutate();
     pipeline_optimize_boolean_expressions();
     pipeline_detect_inline_in_place();
     pipeline_check_serialized_fields();
+
+    // return errors, if any
+    if (!error_collector.empty()) {
+      return TolkCompilationResult{
+        .errors = error_collector.flush(),
+        .fatal_msg = "",
+        .fift_code = "",
+        .abi_json = "",
+        .symbols_json = "",
+        .marks_json = "",
+      };
+    }
+    // output warnings to console, if any collected
+    if (!G_settings.show_errors_as_json) {
+      for (const ThrownParseError& err : error_collector.flush()) {
+        if (err.is_warning) {
+          err.output_to_console(std::cerr);
+        }
+      }
+    }
+    G.error_collector = nullptr;
+
+    // the following pipes can't operate if any previous errors exist
     pipeline_lazy_load_insertions();
     pipeline_transform_onInternalMessage();
+
+    // for IDE in background: all checks passed, skip codegen
+    if (G_settings.check_only_no_output) {
+      return TolkCompilationResult{
+        .errors = {},
+        .fatal_msg = "",
+        .fift_code = "",
+        .abi_json = "",
+        .symbols_json = "",
+        .marks_json = "",
+      };
+    }
+
     pipeline_convert_ast_to_legacy_Expr_Op();
 
     pipeline_find_unused_symbols();
-    pipeline_generate_fif_output_to_std_cout();
 
-    return 0;
-  } catch (Fatal& fatal) {
-    std::cerr << "fatal: " << fatal << std::endl;
-    return 2;
-  } catch (ParseError& error) {
-    std::cerr << error << std::endl;
-    return 2;
-  } catch (UnexpectedASTNodeKind& error) {
-    std::cerr << "fatal: " << error.what() << std::endl;
-    std::cerr << "It's a compiler bug, please report to developers" << std::endl;
-    return 2;
+    pipeline_collect_symbol_types();
+
+    std::ostringstream os_fif;
+    pipeline_generate_fif_output(os_fif);
+    std::ostringstream os_abi;
+    pipeline_collect_abi_output(os_abi);
+    std::ostringstream os_symbol_types;
+    if (G_settings.emit_symbol_types) {
+      G.symbol_types_pool.to_pretty_json(os_symbol_types);
+    }
+    std::ostringstream os_debug_marks;
+    if (G_settings.emit_debug_marks) {
+      G.debug_marks.to_pretty_json(os_debug_marks, G.symbol_types_pool);
+    }
+
+    return TolkCompilationResult{
+      .errors = {},
+      .fatal_msg = "",
+      .fift_code = os_fif.str(),
+      .abi_json = os_abi.str(),
+      .symbols_json = os_symbol_types.str(),
+      .marks_json = os_debug_marks.str(),
+    };
+  } catch (const ThrownParseError& error) {
+    // append `err("...").fire()` to earlier `err("...").collect()`
+    error_collector.add(error);
+    return TolkCompilationResult{
+      .errors = error_collector.flush(),
+      .fatal_msg = "",
+      .fift_code = "",
+      .abi_json = "",
+      .symbols_json = "",
+      .marks_json = "",
+    };
+
+  } catch (const Fatal& fatal) {
+    return TolkCompilationResult{
+      .errors = {},
+      .fatal_msg = fatal.message,
+      .fift_code = "",
+      .abi_json = "",
+      .symbols_json = "",
+      .marks_json = "",
+    };
+
+  } catch (const UnexpectedASTNodeKind& error) {
+    return TolkCompilationResult{
+      .errors = {},
+      .fatal_msg = error.message,
+      .fift_code = "",
+      .abi_json = "",
+      .symbols_json = "",
+      .marks_json = "",
+    };
   }
 }
 

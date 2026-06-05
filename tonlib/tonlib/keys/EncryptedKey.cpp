@@ -16,12 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "EncryptedKey.h"
-
+#include "td/utils/crypto.h"
 #include "tonlib/keys/DecryptedKey.h"
 #include "tonlib/keys/SimpleEncryption.h"
 
-#include "td/utils/crypto.h"
+#include "EncryptedKey.h"
 
 namespace tonlib {
 td::Result<DecryptedKey> EncryptedKey::decrypt(td::Slice local_password, bool check_public_key, bool old) const {

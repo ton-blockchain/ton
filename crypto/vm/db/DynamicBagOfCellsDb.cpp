@@ -16,20 +16,18 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "vm/db/DynamicBagOfCellsDb.h"
-#include "vm/db/CellStorage.h"
-#include "vm/db/CellHashTable.h"
+#include <queue>
 
-#include "vm/cells/ExtCell.h"
-
+#include "common/delay.h"
+#include "td/actor/actor.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/base64.h"
 #include "td/utils/format.h"
-#include "td/utils/ThreadSafeCounter.h"
-
+#include "vm/cells/ExtCell.h"
 #include "vm/cellslice.h"
-#include <queue>
-#include "td/actor/actor.h"
-#include "common/delay.h"
+#include "vm/db/CellHashTable.h"
+#include "vm/db/CellStorage.h"
+#include "vm/db/DynamicBagOfCellsDb.h"
 
 namespace vm {
 namespace {
@@ -87,13 +85,6 @@ struct CellInfo {
     }
   };
 };
-bool operator<(const CellInfo &a, td::Slice b) {
-  return a.key().as_slice() < b;
-}
-
-bool operator<(td::Slice a, const CellInfo &b) {
-  return a < b.key().as_slice();
-}
 
 class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreator {
  public:
@@ -181,29 +172,28 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
       return;
     }
     SimpleExtCellCreator ext_cell_creator(cell_db_reader_);
-    executor->execute_async(
-        [executor, loader = *loader_, hash = CellHash::from_slice(hash), db = this,
-         ext_cell_creator = std::move(ext_cell_creator), promise = std::move(promise_ptr)]() mutable {
-          TRY_RESULT_PROMISE((*promise), res, loader.load(hash.as_slice(), true, ext_cell_creator));
-          if (res.status != CellLoader::LoadResult::Ok) {
-            promise->set_error(td::Status::Error("cell not found"));
-            return;
-          }
-          Ref<Cell> cell = res.cell();
-          executor->execute_sync([hash, db, res = std::move(res),
-                                  ext_cell_creator = std::move(ext_cell_creator)]() mutable {
-            db->hash_table_.apply(hash.as_slice(), [&](CellInfo &info) {
-              db->update_cell_info_loaded(info, hash.as_slice(), std::move(res));
-            });
-            for (auto &ext_cell : ext_cell_creator.get_created_cells()) {
-              auto ext_cell_hash = ext_cell->get_hash();
-              db->hash_table_.apply(ext_cell_hash.as_slice(), [&](CellInfo &info) {
-                db->update_cell_info_created_ext(info, std::move(ext_cell));
-              });
-            }
-          });
-          promise->set_result(std::move(cell));
+    executor->execute_async([executor, loader = *loader_, hash = CellHash::from_slice(hash), db = this,
+                             ext_cell_creator = std::move(ext_cell_creator),
+                             promise = std::move(promise_ptr)]() mutable {
+      TRY_RESULT_PROMISE((*promise), res, loader.load(hash.as_slice(), true, ext_cell_creator));
+      if (res.status != CellLoader::LoadResult::Ok) {
+        promise->set_error(td::Status::Error("cell not found"));
+        return;
+      }
+      Ref<Cell> cell = res.cell();
+      executor->execute_sync([hash, db, res = std::move(res),
+                              ext_cell_creator = std::move(ext_cell_creator)]() mutable {
+        db->hash_table_.apply(hash.as_slice(), [&](CellInfo &info) {
+          db->update_cell_info_loaded(info, hash.as_slice(), std::move(res));
         });
+        for (auto &ext_cell : ext_cell_creator.get_created_cells()) {
+          auto ext_cell_hash = ext_cell->get_hash();
+          db->hash_table_.apply(ext_cell_hash.as_slice(),
+                                [&](CellInfo &info) { db->update_cell_info_created_ext(info, std::move(ext_cell)); });
+        }
+      });
+      promise->set_result(std::move(cell));
+    });
   }
   CellInfo &get_cell_info_lazy(Cell::LevelMask level_mask, td::Slice hash, td::Slice depth) {
     return hash_table_.apply(hash.substr(hash.size() - Cell::hash_bytes),
@@ -217,7 +207,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_inc_.push_back(cell);
@@ -226,7 +216,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_dec_.push_back(cell);
@@ -241,7 +231,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
     return stats_diff_;
   }
 
-  td::Status prepare_commit() override {
+  td::Status prepare_commit(StoreCellHint hint = {}) override {
     if (pca_state_) {
       return td::Status::Error("prepare_commit_async is not finished");
     }
@@ -400,7 +390,7 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
         return db_->load_bulk(hashes);
       }
       TRY_RESULT(load_result, cell_loader_->load_bulk(hashes, true, *this));
-      
+
       std::vector<Ref<DataCell>> res;
       res.reserve(load_result.size());
       for (auto &load_res : load_result) {
@@ -410,6 +400,23 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
         res.push_back(std::move(load_res.cell()));
       }
       return res;
+    }
+
+    Ref<Cell> create_unloaded_cell(const Ref<Cell> &cell, int merkle_depth) override {
+      Cell::LevelMask mask = cell->get_level_mask().apply(merkle_depth);
+      td::uint8 hashes[Cell::hash_bytes * (Cell::max_level + 1)];
+      td::uint8 depths[Cell::depth_bytes * (Cell::max_level + 1)];
+      size_t n = 0;
+      for (unsigned i = 0; i <= mask.get_level(); ++i) {
+        if (mask.is_significant(i)) {
+          td::MutableSlice{hashes + Cell::hash_bytes * n, Cell::hash_bytes}.copy_from(cell->get_hash(i).as_slice());
+          DataCell::store_depth(depths + Cell::depth_bytes * n, cell->get_depth(i));
+          ++n;
+        }
+      }
+      return ext_cell(mask, td::Slice{hashes, Cell::hash_bytes * n}, td::Slice{depths, Cell::depth_bytes * n})
+          .ensure()
+          .move_as_ok();
     }
 
    private:
@@ -700,14 +707,6 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
         return key() < other.key();
       }
 
-      friend bool operator<(const CellInfo2 &a, td::Slice b) {
-        return a.key().as_slice() < b;
-      }
-
-      friend bool operator<(td::Slice a, const CellInfo2 &b) {
-        return a < b.key().as_slice();
-      }
-
       struct Eq {
         using is_transparent = void;  // Pred to use
         bool operator()(const CellInfo2 &info, const CellInfo2 &other_info) const {
@@ -740,7 +739,8 @@ class DynamicBagOfCellsDbImpl : public DynamicBagOfCellsDb, private ExtCellCreat
   };
   std::unique_ptr<PrepareCommitAsyncState> pca_state_;
 
-  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) override {
+  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, StoreCellHint hint,
+                            td::Promise<td::Unit> promise) override {
     hash_table_ = {};
     if (pca_state_) {
       promise.set_error(td::Status::Error("Other prepare_commit_async is not finished"));

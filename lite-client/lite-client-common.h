@@ -18,9 +18,8 @@
 */
 #pragma once
 
-#include "crypto/block/block.h"
-
 #include "auto/tl/lite_api.hpp"
+#include "crypto/block/block.h"
 
 namespace liteclient {
 

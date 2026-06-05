@@ -25,13 +25,19 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "func.h"
-#include "parser/srcread.h"
-#include "parser/lexer.h"
-#include "parser/symtable.h"
-#include <getopt.h>
 #include <fstream>
+#include <getopt.h>
+
+#include "parser/lexer.h"
+#include "parser/srcread.h"
+#include "parser/symtable.h"
+
+#include "func.h"
 #include "git.h"
+
+extern "C" const char* __asan_default_options() {
+  return "detect_leaks=0";
+}
 
 void usage(const char* progname) {
   std::cerr
@@ -96,7 +102,8 @@ int main(int argc, char* const argv[]) {
         break;
       case 'V':
         std::cout << "FunC semantic version: v" << funC::func_version << "\n";
-        std::cout << "Build information: [ Commit: " << GitMetadata::CommitSHA1() << ", Date: " << GitMetadata::CommitDate() << "]\n";
+        std::cout << "Build information: [ Commit: " << GitMetadata::CommitSHA1()
+                  << ", Date: " << GitMetadata::CommitDate() << "]\n";
         std::exit(0);
         break;
       case 'h':
@@ -105,7 +112,7 @@ int main(int argc, char* const argv[]) {
     }
   }
 
-  std::ostream *outs = &std::cout;
+  std::ostream* outs = &std::cout;
 
   std::unique_ptr<std::fstream> fs;
   if (!output_filename.empty()) {

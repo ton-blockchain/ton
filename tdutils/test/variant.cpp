@@ -18,8 +18,8 @@
 */
 #include "td/utils/Slice.h"
 #include "td/utils/StringBuilder.h"
-#include "td/utils/tests.h"
 #include "td/utils/Variant.h"
+#include "td/utils/tests.h"
 
 REGISTER_TESTS(variant);
 

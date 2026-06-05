@@ -18,12 +18,11 @@
 */
 #pragma once
 
+#include <atomic>
+
 #include "td/actor/core/ActorSignals.h"
 #include "td/actor/core/ActorState.h"
-
 #include "td/utils/logging.h"
-
-#include <atomic>
 
 namespace td {
 namespace actor {

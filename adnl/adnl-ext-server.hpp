@@ -18,15 +18,17 @@
 */
 #pragma once
 
-#include "adnl-peer-table.h"
-#include "td/net/TcpListener.h"
-#include "td/utils/crypto.h"
-#include "td/utils/BufferedFd.h"
-#include "adnl-ext-connection.hpp"
-#include "adnl-ext-server.h"
-
 #include <map>
 #include <set>
+
+#include "td/actor/MultiPromise.h"
+#include "td/net/TcpListener.h"
+#include "td/utils/BufferedFd.h"
+#include "td/utils/crypto.h"
+
+#include "adnl-ext-connection.hpp"
+#include "adnl-ext-server.h"
+#include "adnl-peer-table.h"
 
 namespace ton {
 
@@ -57,24 +59,33 @@ class AdnlInboundConnection : public AdnlExtConnection {
 
 class AdnlExtServerImpl : public AdnlExtServer {
  public:
-  void add_tcp_port(td::uint16 port) override;
+  void add_tcp_port(td::uint16 port, td::Promise<td::Unit> promise) override;
   void add_local_id(AdnlNodeIdShort id) override;
   void accepted(td::SocketFd fd);
   void decrypt_init_packet(AdnlNodeIdShort dst, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
 
   void start_up() override {
+    td::MultiPromise mp;
+    auto ig = mp.init_guard();
+    ig.add_promise(td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+      td::actor::send_closure(SelfId, &AdnlExtServerImpl::initial_ports_bound);
+    }));
     for (auto &port : ports_) {
-      add_tcp_port(port);
+      add_tcp_port(port, ig.get_promise());
     }
     ports_.clear();
+  }
+
+  void initial_ports_bound() {
+    promise_.set_value(td::actor::ActorOwn{actor_id(this)});
   }
 
   void reopen_port() {
   }
 
   AdnlExtServerImpl(td::actor::ActorId<AdnlPeerTable> adnl, std::vector<AdnlNodeIdShort> ids,
-                    std::vector<td::uint16> ports)
-      : peer_table_(adnl) {
+                    std::vector<td::uint16> ports, td::Promise<td::actor::ActorOwn<AdnlExtServer>> promise)
+      : promise_(std::move(promise)), peer_table_(adnl) {
     for (auto &id : ids) {
       add_local_id(id);
     }
@@ -84,6 +95,7 @@ class AdnlExtServerImpl : public AdnlExtServer {
   }
 
  private:
+  td::Promise<td::actor::ActorOwn<AdnlExtServer>> promise_;
   td::actor::ActorId<AdnlPeerTable> peer_table_;
   std::set<AdnlNodeIdShort> local_ids_;
   std::set<td::uint16> ports_;

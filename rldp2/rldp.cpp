@@ -16,22 +16,28 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "rldp-in.hpp"
 #include "auto/tl/ton_api.h"
 #include "auto/tl/ton_api.hpp"
-#include "td/utils/Random.h"
 #include "fec/fec.h"
+#include "td/utils/Random.h"
+
 #include "RldpConnection.h"
+#include "rldp-in.hpp"
 
 namespace ton {
 
 namespace rldp2 {
 
+struct RldpIn::Connection {
+  td::actor::ActorOwn<RldpConnectionActor> actor;
+  td::Timestamp remove_at;
+};
+
 class RldpConnectionActor : public td::actor::Actor, private ConnectionCallback {
  public:
   RldpConnectionActor(td::actor::ActorId<RldpIn> rldp, adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                       td::actor::ActorId<adnl::Adnl> adnl)
-      : rldp_(std::move(rldp)), src_(src), dst_(dst), adnl_(std::move(adnl)){};
+      : rldp_(std::move(rldp)), src_(src), dst_(dst), adnl_(std::move(adnl)) {};
 
   void send(TransferId transfer_id, td::BufferSlice query, td::Timestamp timeout = td::Timestamp::never()) {
     connection_.send(transfer_id, std::move(query), timeout);
@@ -93,7 +99,8 @@ void RldpIn::send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort ds
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_message>(id, std::move(data)), true);
 
   auto transfer_id = get_random_transfer_id();
-  send_closure(create_connection(src, dst), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
+  send_closure(get_or_create_connection(src, dst, false, timeout), &RldpConnectionActor::send, transfer_id,
+               std::move(B), timeout);
 }
 
 void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -105,7 +112,7 @@ void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_query>(query_id, max_answer_size, date, std::move(data)),
                                true);
 
-  auto connection = create_connection(src, dst);
+  auto connection = get_or_create_connection(src, dst, false, timeout);
   auto transfer_id = get_random_transfer_id();
   auto response_transfer_id = get_responce_transfer_id(transfer_id);
   send_closure(connection, &RldpConnectionActor::set_receive_limits, response_transfer_id, timeout, max_answer_size);
@@ -118,33 +125,54 @@ void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, 
                           adnl::AdnlQueryId query_id, TransferId transfer_id, td::BufferSlice data) {
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_answer>(query_id, std::move(data)), true);
 
-  send_closure(create_connection(src, dst), &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
+  send_closure(get_or_create_connection(src, dst, false, timeout), &RldpConnectionActor::send, transfer_id,
+               std::move(B), timeout);
 }
 
 void RldpIn::receive_message_part(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, td::BufferSlice data) {
-  send_closure(create_connection(local_id, source), &RldpConnectionActor::receive_raw, std::move(data));
+  auto connection = get_or_create_connection(local_id, source, true);
+  if (connection.empty()) {
+    return;
+  }
+  send_closure(connection, &RldpConnectionActor::receive_raw, std::move(data));
 }
 
-td::actor::ActorId<RldpConnectionActor> RldpIn::create_connection(adnl::AdnlNodeIdShort src,
-                                                                  adnl::AdnlNodeIdShort dst) {
-  auto it = connections_.find(std::make_pair(src, dst));
+td::actor::ActorId<RldpConnectionActor> RldpIn::get_or_create_connection(adnl::AdnlNodeIdShort local_id,
+                                                                         adnl::AdnlNodeIdShort peer_id, bool incoming,
+                                                                         td::Timestamp timeout) {
+  if (!timeout) {
+    timeout = td::Timestamp::now();
+  }
+  timeout += CONNECTION_TIMEOUT;
+  auto it = connections_.find(std::make_pair(local_id, peer_id));
   if (it != connections_.end()) {
-    return it->second.get();
+    timeout_set_.erase({it->second.remove_at, local_id, peer_id});
+    it->second.remove_at = std::max(it->second.remove_at, timeout);
+    timeout_set_.emplace(it->second.remove_at, local_id, peer_id);
+    alarm_timestamp().relax(timeout);
+    return it->second.actor.get();
   }
-  auto connection = td::actor::create_actor<RldpConnectionActor>("RldpConnection", actor_id(this), src, dst, adnl_);
-  if (custom_default_mtu_) {
-    td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, custom_default_mtu_.value());
+  td::uint64 mtu = get_peer_mtu(local_id, peer_id);
+  if (mtu == 0 && incoming) {
+    VLOG(RLDP_INFO) << "dropping incoming packet " << local_id << " <- " << peer_id << " : peer not allowed";
+    return {};
   }
+  auto connection =
+      td::actor::create_actor<RldpConnectionActor>("RldpConnection", actor_id(this), local_id, peer_id, adnl_);
+  td::actor::send_closure(connection, &RldpConnectionActor::set_default_mtu, mtu);
   auto res = connection.get();
-  connections_[std::make_pair(src, dst)] = std::move(connection);
+  connections_[std::make_pair(local_id, peer_id)] = {std::move(connection), timeout};
+  timeout_set_.emplace(timeout, local_id, peer_id);
+  alarm_timestamp().relax(timeout);
+  VLOG(RLDP_INFO) << "creating connection " << local_id << " , " << peer_id << " ("
+                  << (incoming ? "inbound" : "outbound") << ")";
   return res;
 }
 
 void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
                              td::Result<td::BufferSlice> r_data) {
   if (r_data.is_error()) {
-    auto it = queries_.find(transfer_id);
-    if (it != queries_.end()) {
+    if (auto it = queries_.find(transfer_id); it != queries_.end()) {
       it->second.set_error(r_data.move_as_error());
       queries_.erase(it);
     } else {
@@ -154,15 +182,23 @@ void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   }
 
   auto data = r_data.move_as_ok();
-  //LOG(ERROR) << "RECEIVE MESSAGE " << data.size();
   auto F = fetch_tl_object<ton_api::rldp_Message>(std::move(data), true);
   if (F.is_error()) {
-    VLOG(RLDP_INFO) << "failed to parse rldp packet [" << source << "->" << local_id << "]: " << F.move_as_error();
+    VLOG(RLDP_INFO) << "failed to parse rldp packet [" << source << "->" << local_id << "]: " << F.error();
+    if (auto it = queries_.find(transfer_id); it != queries_.end()) {
+      it->second.set_error(F.move_as_error_prefix("received invalid rldp query answer: "));
+      queries_.erase(it);
+    }
     return;
   }
 
   ton_api::downcast_call(*F.move_as_ok().get(),
                          [&](auto &obj) { this->process_message(source, local_id, transfer_id, obj); });
+
+  if (auto it = queries_.find(transfer_id); it != queries_.end()) {
+    it->second.set_error(td::Status::Error("received invalid rldp query answer"));
+    queries_.erase(it);
+  }
 }
 
 void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
@@ -175,12 +211,15 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), source, local_id,
                                        timeout = td::Timestamp::at_unix(message.timeout_), query_id = message.query_id_,
                                        max_answer_size = static_cast<td::uint64>(message.max_answer_size_),
-                                       transfer_id](td::Result<td::BufferSlice> R) {
+                                       transfer_id](td::Result<td::BufferSlice> R) mutable {
     if (R.is_ok()) {
       auto data = R.move_as_ok();
       if (data.size() > max_answer_size) {
         VLOG(RLDP_NOTICE) << "rldp query failed: answer too big";
       } else {
+        if (!timeout || td::Timestamp::in(60.0) < timeout) {
+          timeout = td::Timestamp::in(60.0);
+        }
         td::actor::send_closure(SelfId, &RldpIn::answer_query, local_id, source, timeout, query_id,
                                 transfer_id ^ TransferId::ones(), std::move(data));
       }
@@ -227,10 +266,40 @@ void RldpIn::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p
   td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::get_conn_ip_str, l_id, p_id, std::move(promise));
 }
 
-void RldpIn::set_default_mtu(td::uint64 mtu) {
-  custom_default_mtu_ = mtu;
-  for (auto &connection : connections_) {
-    td::actor::send_closure(connection.second, &RldpConnectionActor::set_default_mtu, mtu);
+void RldpIn::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id, td::optional<adnl::AdnlNodeIdShort> peer_id) {
+  auto update_mtu = [&](const auto &it) {
+    auto &[p, connection] = *it;
+    td::actor::send_closure(connection.actor, &RldpConnectionActor::set_default_mtu, get_peer_mtu(p.first, p.second));
+  };
+  if (local_id && peer_id) {
+    auto it = connections_.find({local_id.value(), peer_id.value()});
+    if (it != connections_.end()) {
+      update_mtu(it);
+    }
+    return;
+  }
+  auto it =
+      local_id ? connections_.lower_bound({local_id.value(), adnl::AdnlNodeIdShort::zero()}) : connections_.begin();
+  while (it != connections_.end()) {
+    if (local_id && it->first.second != local_id.value()) {
+      break;
+    }
+    update_mtu(it);
+    ++it;
+  }
+}
+
+void RldpIn::alarm() {
+  for (auto it = timeout_set_.begin(); it != timeout_set_.end();) {
+    auto &[timeout, local_id, peer_id] = *it;
+    if (timeout.is_in_past()) {
+      VLOG(RLDP_INFO) << "removing old connection " << local_id << " , " << peer_id;
+      connections_.erase({local_id, peer_id});
+      it = timeout_set_.erase(it);
+    } else {
+      alarm_timestamp() = timeout;
+      break;
+    }
   }
 }
 

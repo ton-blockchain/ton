@@ -18,11 +18,11 @@
 */
 #pragma once
 
-#include "vm/cells/CellTraits.h"
+#include <functional>
 
 #include "td/utils/int_types.h"
 #include "td/utils/logging.h"
-#include <functional>
+#include "vm/cells/CellTraits.h"
 
 namespace vm {
 

@@ -18,15 +18,13 @@
 */
 #pragma once
 
+#include "block/block.h"
+#include "block/mc-config.h"
+#include "td/utils/crypto.h"
+#include "td/utils/optional.h"
 #include "vm/cells.h"
 #include "vm/stack.hpp"
 #include "vm/vm.h"
-
-#include "td/utils/optional.h"
-#include "td/utils/crypto.h"
-
-#include "block/block.h"
-#include "block/mc-config.h"
 
 namespace ton {
 class SmartContract : public td::CntObject {
@@ -51,7 +49,7 @@ class SmartContract : public td::CntObject {
     td::int64 gas_used;
     td::optional<td::Bits256> missing_library;
     std::string vm_log;
-    static int output_actions_count(td::Ref<vm::Cell> list);
+    static unsigned output_actions_count(td::Ref<vm::Cell> list);
   };
 
   struct Args {

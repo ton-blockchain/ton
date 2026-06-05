@@ -16,12 +16,12 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_config.h"
-
 #include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+
+#include "tl_config.h"
 
 namespace td {
 namespace tl {
@@ -356,7 +356,7 @@ tl_config tl_config_parser::parse_config() {
   try_parse_int();  // version
 
   std::int32_t types_n = try_parse_int();
-  std::size_t constructors_total = 0;
+  [[maybe_unused]] std::size_t constructors_total = 0;
   for (std::int32_t i = 0; i < types_n; i++) {
     tl_type *type = read_type();
     config.add_type(type);

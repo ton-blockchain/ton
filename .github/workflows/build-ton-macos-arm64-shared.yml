@@ -1,6 +1,17 @@
 name: MacOS-14 TON build (shared, arm64)
 
-on: [push,workflow_dispatch,workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -8,7 +19,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: 'recursive'
 
@@ -24,7 +35,7 @@ jobs:
 
       - name: Cache TON
         id: cache-ton
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.ccache
           key: ${{ runner.os }}-${{ runner.arch }}-14-shared-ccache-${{ steps.date-stamp.outputs.timestamp }}
@@ -41,5 +52,9 @@ jobs:
 
       - name: Run Tests
         run: |
-          cd build        
+          cd build
           ctest --output-on-failure --timeout 1800
+
+      - name: Run tonlib integration test
+        run: |
+          ./test/tonlib/integration/test_integration.sh

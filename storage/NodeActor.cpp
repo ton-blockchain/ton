@@ -17,18 +17,17 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "NodeActor.h"
-
-#include "vm/boc.h"
-#include "vm/cellslice.h"
-
-#include "td/utils/Enumerator.h"
-#include "td/utils/tests.h"
-#include "td/utils/overloaded.h"
-#include "tl-utils/tl-utils.hpp"
 #include "auto/tl/ton_api.hpp"
 #include "common/delay.h"
 #include "td/actor/MultiPromise.h"
+#include "td/utils/Enumerator.h"
+#include "td/utils/overloaded.h"
+#include "td/utils/tests.h"
+#include "tl-utils/tl-utils.hpp"
+#include "vm/boc.h"
+#include "vm/cellslice.h"
+
+#include "NodeActor.h"
 
 namespace ton {
 NodeActor::NodeActor(PeerId self_id, Torrent torrent, td::unique_ptr<Callback> callback,
@@ -694,8 +693,8 @@ void NodeActor::got_torrent_info_str(td::BufferSlice data) {
     return;
   }
   TorrentInfo info;
-  vm::CellSlice cs = vm::load_cell_slice(r_info_cell.move_as_ok());
-  if (!info.unpack(cs)) {
+  vm::CellSlice cs = vm::load_cell_slice_quiet(r_info_cell.move_as_ok());
+  if (!cs.is_valid() || !info.unpack(cs)) {
     return;
   }
   info.init_cell();

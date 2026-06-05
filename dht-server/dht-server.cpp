@@ -25,29 +25,29 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "dht-server.hpp"
-
-#include "td/utils/filesystem.h"
+#include "memprof/memprof.h"
 #include "td/actor/MultiPromise.h"
-#include "td/utils/overloaded.h"
 #include "td/utils/OptionParser.h"
-#include "td/utils/port/path.h"
-#include "td/utils/port/user.h"
-#include "td/utils/port/signals.h"
+#include "td/utils/Random.h"
 #include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/TsFileLog.h"
-#include "td/utils/Random.h"
+#include "td/utils/filesystem.h"
+#include "td/utils/overloaded.h"
+#include "td/utils/port/path.h"
+#include "td/utils/port/signals.h"
+#include "td/utils/port/user.h"
 
-#include "memprof/memprof.h"
+#include "dht-server.hpp"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
 #endif
 #include <algorithm>
-#include <iostream>
-#include <sstream>
 #include <cstdlib>
+#include <iostream>
 #include <set>
+#include <sstream>
+
 #include "git.h"
 
 Config::Config() {
@@ -62,7 +62,6 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
   for (auto &addr : config.addrs_) {
     td::IPAddress in_ip;
     td::IPAddress out_ip;
-    std::shared_ptr<ton::adnl::AdnlProxy> proxy = nullptr;
     std::vector<AdnlCategory> categories;
     std::vector<AdnlCategory> priority_categories;
     ton::ton_api::downcast_call(
@@ -78,25 +77,9 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
                 priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
               }
             },
-            [&](const ton::ton_api::engine_addrProxy &obj) {
-              in_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.in_ip_), static_cast<td::uint16>(obj.in_port_))
-                  .ensure();
-              out_ip.init_ipv4_port(td::IPAddress::ipv4_to_str(obj.out_ip_), static_cast<td::uint16>(obj.out_port_))
-                  .ensure();
-              if (obj.proxy_type_) {
-                auto R = ton::adnl::AdnlProxy::create(*obj.proxy_type_.get());
-                R.ensure();
-                proxy = R.move_as_ok();
-                for (auto &cat : obj.categories_) {
-                  categories.push_back(td::narrow_cast<td::uint8>(cat));
-                }
-                for (auto &cat : obj.priority_categories_) {
-                  priority_categories.push_back(td::narrow_cast<td::uint8>(cat));
-                }
-              }
-            }));
+            [&](const auto &) { UNREACHABLE(); }));
 
-    config_add_network_addr(in_ip, out_ip, std::move(proxy), categories, priority_categories).ensure();
+    config_add_network_addr(in_ip, out_ip, categories, priority_categories).ensure();
   }
   for (auto &adnl : config.adnl_) {
     config_add_adnl_addr(ton::PublicKeyHash{adnl->id_}, td::narrow_cast<td::uint8>(adnl->category_)).ensure();
@@ -124,18 +107,10 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
 ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_Addr>> addrs_vec;
   for (auto &x : addrs) {
-    if (x.second.proxy) {
-      addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addrProxy>(
-          static_cast<td::int32>(x.second.in_addr.get_ipv4()), x.second.in_addr.get_port(),
-          static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(), x.second.proxy->tl(),
-          std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
-          std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
-    } else {
-      addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addr>(
-          static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(),
-          std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
-          std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
-    }
+    addrs_vec.push_back(ton::create_tl_object<ton::ton_api::engine_addr>(
+        static_cast<td::int32>(x.first.addr.get_ipv4()), x.first.addr.get_port(),
+        std::vector<td::int32>(x.second.cats.begin(), x.second.cats.end()),
+        std::vector<td::int32>(x.second.priority_cats.begin(), x.second.priority_cats.end())));
   }
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_adnl>> adnl_vec;
   for (auto &x : adnl_ids) {
@@ -176,7 +151,6 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
 }
 
 td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddress out_ip,
-                                                 std::shared_ptr<ton::adnl::AdnlProxy> proxy,
                                                  std::vector<AdnlCategory> cats, std::vector<AdnlCategory> prio_cats) {
   Addr addr{out_ip};
 
@@ -185,10 +159,6 @@ td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddr
     bool mod = false;
     if (!(it->second.in_addr == in_ip)) {
       it->second.in_addr = in_ip;
-      mod = true;
-    }
-    if (it->second.proxy != proxy) {
-      it->second.proxy = std::move(proxy);
       mod = true;
     }
     for (auto &c : cats) {
@@ -205,7 +175,6 @@ td::Result<bool> Config::config_add_network_addr(td::IPAddress in_ip, td::IPAddr
   } else {
     it = addrs.emplace(std::move(addr), AddrCats{}).first;
     it->second.in_addr = in_ip;
-    it->second.proxy = std::move(proxy);
     for (auto &c : cats) {
       it->second.cats.insert(c);
     }
@@ -409,7 +378,7 @@ void DhtServer::deleted_key(ton::PublicKeyHash x) {
   auto R = config_.config_del_gc(x);
   R.ensure();
   if (R.move_as_ok()) {
-    write_config([](td::Unit) {});
+    write_config([](td::Result<>) {});
   }
 }
 
@@ -433,14 +402,6 @@ td::Status DhtServer::load_global_config() {
   TRY_RESULT_PREFIX(dht, ton::dht::Dht::create_global_config(std::move(conf.dht_)), "bad [dht] section: ");
   dht_config_ = std::move(dht);
 
-  if (!conf.validator_) {
-    return td::Status::Error(ton::ErrorCode::error, "does not contain [validator] section");
-  }
-
-  if (!conf.validator_->zero_state_) {
-    return td::Status::Error(ton::ErrorCode::error, "[validator] section does not contain [zero_state]");
-  }
-
   return td::Status::OK();
 }
 
@@ -459,8 +420,7 @@ void DhtServer::load_empty_local_config(td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{})
-        .ensure();
+    config_.config_add_network_addr(addr, addr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{}).ensure();
   }
 
   {
@@ -486,7 +446,7 @@ void DhtServer::load_local_config(td::Promise<td::Unit> promise) {
   auto conf_data = conf_data_R.move_as_ok();
   auto conf_json_R = td::json_decode(conf_data.as_slice());
   if (conf_json_R.is_error()) {
-    promise.set_error(conf_data_R.move_as_error_prefix("failed to parse json: "));
+    promise.set_error(conf_json_R.move_as_error_prefix("failed to parse json: "));
     return;
   }
   auto conf_json = conf_json_R.move_as_ok();
@@ -512,8 +472,7 @@ void DhtServer::load_local_config(td::Promise<td::Unit> promise) {
   ig.add_promise(std::move(ret_promise));
 
   for (auto &addr : addrs_) {
-    config_.config_add_network_addr(addr, addr, nullptr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{})
-        .ensure();
+    config_.config_add_network_addr(addr, addr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{}).ensure();
   }
 
   for (auto &local_id : conf.local_ids_) {
@@ -600,7 +559,7 @@ void DhtServer::load_config(td::Promise<td::Unit> promise) {
   auto conf_data = conf_data_R.move_as_ok();
   auto conf_json_R = td::json_decode(conf_data.as_slice());
   if (conf_json_R.is_error()) {
-    promise.set_error(conf_data_R.move_as_error_prefix("failed to parse json: "));
+    promise.set_error(conf_json_R.move_as_error_prefix("failed to parse json: "));
     return;
   }
   auto conf_json = conf_json_R.move_as_ok();
@@ -683,30 +642,20 @@ void DhtServer::add_addr(const Config::Addr &addr, const Config::AddrCats &cats)
   for (auto cat : cats.priority_cats) {
     cat_mask[cat] = true;
   }
-  if (!cats.proxy) {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
-                            std::move(cat_mask), cats.cats.size() ? 0 : 1);
-  } else {
-    td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_proxy_addr, cats.in_addr,
-                            static_cast<td::uint16>(addr.addr.get_port()), cats.proxy, std::move(cat_mask),
-                            cats.cats.size() ? 0 : 1);
-  }
+  td::actor::send_closure(adnl_network_manager_, &ton::adnl::AdnlNetworkManager::add_self_addr, addr.addr,
+                          std::move(cat_mask), cats.cats.size() ? 0 : 1);
 
   td::uint32 ts = static_cast<td::uint32>(td::Clocks::system());
 
   for (auto cat : cats.cats) {
     CHECK(cat >= 0);
-    ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-        ton::create_tl_object<ton::ton_api::adnl_address_udp>(cats.in_addr.get_ipv4(), cats.in_addr.get_port()));
-    addr_lists_[cat].add_addr(std::move(x));
+    addr_lists_[cat].add_udp_adnl_address(cats.in_addr).ensure();
     addr_lists_[cat].set_version(ts);
     addr_lists_[cat].set_reinit_date(ton::adnl::Adnl::adnl_start_time());
   }
   for (auto cat : cats.priority_cats) {
     CHECK(cat >= 0);
-    ton::adnl::AdnlAddress x = ton::adnl::AdnlAddressImpl::create(
-        ton::create_tl_object<ton::ton_api::adnl_address_udp>(cats.in_addr.get_ipv4(), cats.in_addr.get_port()));
-    prio_addr_lists_[cat].add_addr(std::move(x));
+    prio_addr_lists_[cat].add_udp_adnl_address(cats.in_addr).ensure();
     prio_addr_lists_[cat].set_version(ts);
     prio_addr_lists_[cat].set_reinit_date(ton::adnl::Adnl::adnl_start_time());
   }
@@ -859,7 +808,8 @@ void DhtServer::add_control_interface(ton::PublicKeyHash id, td::int32 port, td:
   }
 
   td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_local_id, ton::adnl::AdnlNodeIdShort{id});
-  td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_tcp_port, static_cast<td::uint16>(port));
+  td::actor::send_closure(control_ext_server_, &ton::adnl::AdnlExtServer::add_tcp_port, static_cast<td::uint16>(port),
+                          td::Promise<td::Unit>{});
 
   write_config(std::move(promise));
 }
@@ -1233,24 +1183,24 @@ int main(int argc, char *argv[]) {
     td::log_interface = logger_.get();
   });
   td::uint32 threads = 7;
-  p.add_checked_option(
-      't', "threads", PSTRING() << "number of threads (default=" << threads << ")", [&](td::Slice arg) {
-        td::int32 v;
-        try {
-          v = std::stoi(arg.str());
-        } catch (...) {
-          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
-        }
-        if (v <= 0) {
-          return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be > 0");
-        }
-        if (v > 127) {
-          LOG(WARNING) << "`--threads " << v << "` is too big, effective value will be 127";
-          v = 127;
-        }
-        threads = v;
-        return td::Status::OK();
-      });
+  p.add_checked_option('t', "threads", PSTRING() << "number of threads (default=" << threads << ")",
+                       [&](td::Slice arg) {
+                         td::int32 v;
+                         try {
+                           v = std::stoi(arg.str());
+                         } catch (...) {
+                           return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: not a number");
+                         }
+                         if (v <= 0) {
+                           return td::Status::Error(ton::ErrorCode::error, "bad value for --threads: should be > 0");
+                         }
+                         if (v > 127) {
+                           LOG(WARNING) << "`--threads " << v << "` is too big, effective value will be 127";
+                           v = 127;
+                         }
+                         threads = v;
+                         return td::Status::OK();
+                       });
   p.add_checked_option('u', "user", "change user", [&](td::Slice user) { return td::change_user(user.str()); });
   p.run(argc, argv).ensure();
 

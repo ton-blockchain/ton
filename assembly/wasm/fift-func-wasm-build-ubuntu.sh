@@ -1,12 +1,12 @@
 # Execute these prerequisites first
 # sudo apt update
-# sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev zlib1g-dev libssl-dev \
-#                    libreadline-dev libmicrohttpd-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
-#                    nodejs libsodium-dev automake libtool libjemalloc-dev ccache
+# sudo apt install -y build-essential git make cmake ninja-build clang libgflags-dev \
+#                    libreadline-dev pkg-config libgsl-dev python3 python3-dev python3-pip \
+#                    nodejs automake libtool libjemalloc-dev ccache
 
 # wget https://apt.llvm.org/llvm.sh
 # chmod +x llvm.sh
-# sudo ./llvm.sh 16 all
+# sudo ./llvm.sh 21 clang
 
 with_artifacts=false
 scratch_new=false
@@ -20,38 +20,23 @@ while getopts 'af' flag; do
   esac
 done
 
-export CC=$(which clang-16)
-export CXX=$(which clang++-16)
+export CC=$(which clang-22)
+export CXX=$(which clang++-22)
 export CCACHE_DISABLE=1
+ROOT_DIR=$(pwd)
+EMSCRIPTEN_3PP_DIR="$ROOT_DIR/build/3pp_emscripten"
 
 echo `pwd`
 if [ "$scratch_new" = true ]; then
   echo Compiling openssl zlib lz4 emsdk libsodium emsdk ton
-  rm -rf openssl zlib lz4 emsdk libsodium build openssl_em
-fi
-
-if [ ! -d "openssl_3" ]; then
-  git clone https://github.com/openssl/openssl openssl_3
-  cd openssl_3
-  opensslPath=`pwd`
-  git checkout openssl-3.1.4
-  ./config
-  make build_libs -j$(nproc)
-  test $? -eq 0 || { echo "Can't compile openssl_3"; exit 1; }
-  cd ..
-else
-  opensslPath=$(pwd)/openssl_3
-  echo "Using compiled openssl_3"
+  rm -rf openssl zlib lz4 emsdk libsodium build openssl_em 3pp_emscripten
 fi
 
 if [ ! -d "build" ]; then
   mkdir build
   cd build
   cmake -GNinja -DTON_USE_JEMALLOC=ON .. \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DOPENSSL_ROOT_DIR=$opensslPath \
-  -DOPENSSL_INCLUDE_DIR=$opensslPath/include \
-  -DOPENSSL_CRYPTO_LIBRARY=$opensslPath/libcrypto.so
+  -DCMAKE_BUILD_TYPE=Release
 
   test $? -eq 0 || { echo "Can't configure TON build"; exit 1; }
   ninja fift smc-envelope
@@ -63,15 +48,17 @@ else
   rm -rf build/* build/.ninja* build/CMakeCache.txt
 fi
 
+mkdir -p "$EMSCRIPTEN_3PP_DIR"
+
 if [ ! -d "emsdk" ]; then
   git clone https://github.com/emscripten-core/emsdk.git
 echo
   echo Using cloned emsdk
 fi
 
-cd emsdk
-./emsdk install 3.1.19
-./emsdk activate 3.1.19
+cd emsdk || exit
+./emsdk install 4.0.17
+./emsdk activate 4.0.17
 EMSDK_DIR=`pwd`
 
 . $EMSDK_DIR/emsdk_env.sh
@@ -81,11 +68,10 @@ export CCACHE_DISABLE=1
 
 cd ..
 
-if [ ! -f "3pp_emscripten/openssl_em/openssl_em" ]; then
-  mkdir -p 3pp_emscripten
-  git clone https://github.com/openssl/openssl 3pp_emscripten/openssl_em
-  cd 3pp_emscripten/openssl_em
-  emconfigure ./Configure linux-generic32 no-shared no-dso no-engine no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer
+if [ ! -d "$EMSCRIPTEN_3PP_DIR/openssl_em" ]; then
+  git clone https://github.com/openssl/openssl "$EMSCRIPTEN_3PP_DIR/openssl_em"
+  cd "$EMSCRIPTEN_3PP_DIR/openssl_em" || exit
+  emconfigure ./Configure linux-generic32 no-shared no-dso no-unit-test no-tests no-fuzz-afl no-fuzz-libfuzzer enable-quic
   sed -i 's/CROSS_COMPILE=.*/CROSS_COMPILE=/g' Makefile
   sed -i 's/-ldl//g' Makefile
   sed -i 's/-O3/-Os/g' Makefile
@@ -93,55 +79,54 @@ if [ ! -f "3pp_emscripten/openssl_em/openssl_em" ]; then
   emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile OpenSSL with emmake "; exit 1; }
   opensslPath=`pwd`
-  touch openssl_em
-  cd ../..
+  cd "$ROOT_DIR"
 else
-  opensslPath=`pwd`/3pp_emscripten/openssl_em
+  opensslPath="$EMSCRIPTEN_3PP_DIR/openssl_em"
   echo Using compiled with empscripten openssl at $opensslPath
 fi
 
-if [ ! -d "3pp_emscripten/zlib" ]; then
-  git clone https://github.com/madler/zlib.git 3pp_emscripten/zlib
-  cd 3pp_emscripten/zlib
+if [ ! -d "$EMSCRIPTEN_3PP_DIR/zlib" ]; then
+  git clone https://github.com/madler/zlib.git "$EMSCRIPTEN_3PP_DIR/zlib"
+  cd "$EMSCRIPTEN_3PP_DIR/zlib" || exit
   git checkout v1.3.1
   ZLIB_DIR=`pwd`
   emconfigure ./configure --static
   emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile zlib with emmake "; exit 1; }
-  cd ../..
+  cd "$ROOT_DIR"
 else
-  ZLIB_DIR=`pwd`/3pp_emscripten/zlib
+  ZLIB_DIR="$EMSCRIPTEN_3PP_DIR/zlib"
   echo Using compiled zlib with emscripten at $ZLIB_DIR
 fi
 
-if [ ! -d "3pp_emscripten/lz4" ]; then
-  git clone https://github.com/lz4/lz4.git 3pp_emscripten/lz4
-  cd 3pp_emscripten/lz4
+if [ ! -d "$EMSCRIPTEN_3PP_DIR/lz4" ]; then
+  git clone https://github.com/lz4/lz4.git "$EMSCRIPTEN_3PP_DIR/lz4"
+  cd "$EMSCRIPTEN_3PP_DIR/lz4" || exit
   git checkout v1.9.4
   LZ4_DIR=`pwd`
   emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile lz4 with emmake "; exit 1; }
-  cd ../..
+  cd "$ROOT_DIR"
 else
-  LZ4_DIR=`pwd`/3pp_emscripten/lz4
+  LZ4_DIR="$EMSCRIPTEN_3PP_DIR/lz4"
   echo Using compiled lz4 with emscripten at $LZ4_DIR
 fi
 
-if [ ! -d "3pp_emscripten/libsodium" ]; then
-  git clone https://github.com/jedisct1/libsodium 3pp_emscripten/libsodium
-  cd 3pp_emscripten/libsodium
+if [ ! -d "$EMSCRIPTEN_3PP_DIR/libsodium" ]; then
+  git clone https://github.com/jedisct1/libsodium "$EMSCRIPTEN_3PP_DIR/libsodium"
+  cd "$EMSCRIPTEN_3PP_DIR/libsodium" || exit
   git checkout 1.0.18-RELEASE
   SODIUM_DIR=`pwd`
   emconfigure ./configure --disable-ssp
   emmake make -j$(nproc)
   test $? -eq 0 || { echo "Can't compile libsodium with emmake "; exit 1; }
-  cd ../..
+  cd "$ROOT_DIR"
 else
-  SODIUM_DIR=`pwd`/3pp_emscripten/libsodium
+  SODIUM_DIR="$EMSCRIPTEN_3PP_DIR/libsodium"
   echo Using compiled libsodium with emscripten at $SODIUM_DIR
 fi
 
-cd build
+cd build || exit
 
 emcmake cmake -DUSE_EMSCRIPTEN=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_VERBOSE_MAKEFILE:BOOL=ON \
 -DZLIB_FOUND=1 \

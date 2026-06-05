@@ -16,9 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/actor/core/IoWorker.h"
-
 #include "td/actor/core/ActorExecutor.h"
+#include "td/actor/core/IoWorker.h"
 #include "td/actor/core/Scheduler.h"
 
 namespace td {
@@ -26,26 +25,26 @@ namespace actor {
 namespace core {
 void IoWorker::start_up() {
 #if TD_PORT_POSIX
-  auto &poll = SchedulerContext::get()->get_poll();
+  auto &poll = SchedulerContext::get().get_poll();
   poll.subscribe(queue_.reader_get_event_fd().get_poll_info().extract_pollable_fd(nullptr), PollFlags::Read());
 #endif
 }
 void IoWorker::tear_down() {
 #if TD_PORT_POSIX
-  auto &poll = SchedulerContext::get()->get_poll();
+  auto &poll = SchedulerContext::get().get_poll();
   poll.unsubscribe(queue_.reader_get_event_fd().get_poll_info().get_pollable_fd_ref());
 #endif
 }
 
 bool IoWorker::run_once(double timeout, bool skip_timeouts) {
-  auto &dispatcher = *SchedulerContext::get();
+  auto &dispatcher = SchedulerContext::get();
 #if TD_PORT_POSIX
-  auto &poll = SchedulerContext::get()->get_poll();
+  auto &poll = SchedulerContext::get().get_poll();
 #endif
-  auto &heap = SchedulerContext::get()->get_heap();
-  auto &debug = SchedulerContext::get()->get_debug();
+  auto &heap = SchedulerContext::get().get_heap();
+  auto &debug = SchedulerContext::get().get_debug();
 
-  auto now = Time::now();  // update Time::now_cached()
+  auto now = Timestamp::now();
   while (!heap.empty() && heap.top_key() <= now) {
     auto *heap_node = heap.pop();
     auto *actor_info = ActorInfo::from_heap_node(heap_node);
@@ -81,7 +80,7 @@ bool IoWorker::run_once(double timeout, bool skip_timeouts) {
   if (can_sleep) {
     auto wakeup_timestamp = Timestamp::in(timeout);
     if (!heap.empty()) {
-      wakeup_timestamp.relax(Timestamp::at(heap.top_key()));
+      wakeup_timestamp.relax(heap.top_key());
     }
     timeout_ms = static_cast<int>(wakeup_timestamp.in() * 1000) + 1;
     if (timeout_ms < 0) {

@@ -35,7 +35,7 @@ fun testLoop(x: int): int {
     var n = 0;
     while (x > 1) {
         n += 1;
-        if (x & 1) {
+        if ((x & 1) != 0) {
             x = 3 * x + 1;
         } else {
             x >>= 1;
@@ -57,12 +57,13 @@ fun test5(id: int): (int, int) {
 @method_id(106)
 fun test6(x: int): int {
     var i: int = 0;
+    var f: bool;
     do {
         i = i + 1;
         if (i > 5) {
             return 1;
         }
-        var f: bool = (i * i == 64);
+        f = (i * i == 64);
     } while (!f);
     return -1;
 }
@@ -92,6 +93,42 @@ fun test9(s: int) {
         z -= 1;
     }
     return ~ t;
+}
+
+@method_id(110)
+fun test10(x: int) {
+    var t = createEmptyTuple();
+
+    do {
+        t.push(x);
+        x += 1;
+    } while (x < -4);
+
+    var y = x;
+    do {
+        t.push(y);
+        y -= 1;
+    } while (y > -8);
+
+    y = 804;
+    do {
+        y -= 1;
+        t.push(y);
+    } while (y > 800);
+
+    y = -804;
+    do {
+        y += 1;
+        t.push(y);
+    } while (y < -800);
+
+    y = 130;
+    do {
+        y -= 1;
+        t.push(y);
+    } while (y > 127);
+
+    return t;
 }
 
 
@@ -124,4 +161,12 @@ fun test9(s: int) {
 @testcase | 108 | -5  | 2
 @testcase | 109 | 1   | -2
 @testcase | 109 | 5   | -6
+@testcase | 110 | -6  | [ -6 -5 -4 -5 -6 -7 803 802 801 800 -803 -802 -801 -800 129 128 127 ]
+
+Check that it's not replaced to `128 LESSINT`
+@fif_codegen
+"""
+      127 GTINT
+      NOT
+"""
 */

@@ -19,20 +19,19 @@
 
 #pragma once
 
+#include <set>
+
+#include "common/bitstring.h"
+#include "td/utils/Heap.h"
+#include "td/utils/VectorQueue.h"
+#include "td/utils/buffer.h"
+
 #include "Bbr.h"
 #include "InboundTransfer.h"
 #include "LossStats.h"
 #include "OutboundTransfer.h"
 #include "Pacer.h"
 #include "RttStats.h"
-
-#include "common/bitstring.h"
-
-#include "td/utils/buffer.h"
-#include "td/utils/Heap.h"
-#include "td/utils/VectorQueue.h"
-
-#include <set>
 
 namespace ton {
 namespace rldp2 {
@@ -65,8 +64,10 @@ class RldpConnection {
     return default_mtu_;
   }
 
+  static constexpr td::uint64 DEFAULT_MTU = 7680;
+
  private:
-  td::uint64 default_mtu_ = 7680;
+  td::uint64 default_mtu_ = DEFAULT_MTU;
 
   std::map<TransferId, OutboundTransfer> outbound_transfers_;
   td::uint32 in_flight_count_{0};
@@ -77,7 +78,7 @@ class RldpConnection {
     td::uint64 max_size;
     bool is_inbound;
     bool operator<(const Limit &other) const {
-      return transfer_id < other.transfer_id;
+      return transfer_id == other.transfer_id ? is_inbound < other.is_inbound : transfer_id < other.transfer_id;
     }
   };
   td::KHeap<double> limits_heap_;
@@ -92,7 +93,7 @@ class RldpConnection {
 
   void add_limit(td::Timestamp timeout, Limit limit);
   td::Timestamp next_limit_expires_at();
-  void drop_limits(TransferId id);
+  void drop_limits(TransferId id, bool is_inbound);
   void on_inbound_completed(TransferId transfer_id, td::Timestamp now);
   td::Timestamp loop_limits(td::Timestamp now);
 
@@ -119,7 +120,7 @@ class RldpConnection {
     const RldpSender &sender;
     td::uint32 before_in_flight{sender.get_inflight_symbols_count()};
 
-    Guard(td::uint32 &in_flight_count, const RldpSender &sender) : in_flight_count(in_flight_count), sender(sender){};
+    Guard(td::uint32 &in_flight_count, const RldpSender &sender) : in_flight_count(in_flight_count), sender(sender) {};
     ~Guard() {
       in_flight_count -= before_in_flight;
       in_flight_count += sender.get_inflight_symbols_count();

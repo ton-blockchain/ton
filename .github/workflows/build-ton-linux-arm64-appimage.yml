@@ -1,6 +1,17 @@
 name: Ubuntu TON build (AppImages, arm64)
 
-on: [push,workflow_dispatch,workflow_call]
+on:
+  pull_request:
+    branches: [master, testnet]
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [master, testnet]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -8,8 +19,8 @@ jobs:
 
     steps:
     - name: Check out repository
-      uses: actions/checkout@v3
-      with:      
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      with:
         submodules: 'recursive'
 
     - name: Date Stamp
@@ -21,33 +32,19 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt update
-        sudo apt install -y build-essential git cmake ninja-build zlib1g-dev libsecp256k1-dev libmicrohttpd-dev libsodium-dev liblz4-dev ccache libgsl-dev libblas-dev libgslcblas0
-        mkdir ~/.ccache 3pp
+        sudo apt install -y build-essential git cmake ninja-build ccache libgsl-dev libblas-dev libgslcblas0
+        mkdir ~/.ccache
 
-    - name: Install clang-16
+    - name: Install clang-22
       run: |
         lsb_release -a
         wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
-        echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-16 main" | sudo tee /etc/apt/sources.list.d/llvm.list
+        echo "deb http://apt.llvm.org/jammy/ llvm-toolchain-jammy-22 main" | sudo tee /etc/apt/sources.list.d/llvm.list
         sudo apt-get -y update
-        sudo apt-get install -y clang-16
-
-    - name: Cache 3pp
-      id: cache-3pp
-      uses: actions/cache@v4
-      with:
-        path: 3pp
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-3pp-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
-
-    - name: Cache OpenSSL
-      id: cache-openssl
-      uses: actions/cache@v4
-      with:
-        path: openssl_3
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-openssl_3-${{ hashFiles('**/assembly/native/build-ubuntu-appimages.sh') }}
+        sudo apt-get install -y clang-22
 
     - name: Restore cache TON
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.ccache
         key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
@@ -63,7 +60,7 @@ jobs:
         ccache -sp
 
     - name: Save cache TON
-      uses: actions/cache/save@v4
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.ccache
         key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
@@ -78,7 +75,7 @@ jobs:
         rm -rf artifacts
 
     - name: Save/Restore cache TON libs
-      uses: actions/cache@v4
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.ccache
         key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-libs-ccache-${{ steps.date-stamp.outputs.timestamp }}
@@ -93,7 +90,9 @@ jobs:
         cp ./artifacts/libemulator.so appimages/artifacts/
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@master
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
       with:
         name: ton-arm64-linux
         path: appimages/artifacts
+        retention-days: 14
+        if-no-files-found: error

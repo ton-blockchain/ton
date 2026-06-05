@@ -15,10 +15,10 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "vm/cells.h"
-#include "ton/ton-types.h"
 #include "auto/tl/ton_api.h"
 #include "block/block.h"
+#include "ton/ton-types.h"
+#include "vm/cells.h"
 
 namespace ton {
 

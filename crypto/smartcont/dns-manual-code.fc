@@ -150,11 +150,11 @@ cell udict_get_ref_(cell dict, int key_len, int index) asm(index dict key_len) "
   ;; operations with codes 20..29 replace / delete dict, no need
   if (op < 20) {
     ;; lets resolve the name here so as not to duplicate the code
-    (slice pfx, cell val, slice tail, int succ) = 
+    (slice pfx, cell val, slice tail, int succ) =
       root.pfxdict_get_ref(1023, name);
     if (succ) {
       ;; must match EXACTLY to prevent accident changes
-      throw_unless(35, tail.slice_empty?()); 
+      throw_unless(35, tail.slice_empty?());
       cat_table = val;
     }
     ;; otherwise cat_table is null which is reasonable for actions
@@ -169,7 +169,7 @@ cell udict_get_ref_(cell dict, int key_len, int index) asm(index dict key_len) "
   ;; 12 VDel: delete specified subdomain->category value
   if (op == 12) {
     if (cat_table~udict_delete?(256, cat)) { ;; update: category length now u256 instead of i16
-       root~pfxdict_set_ref(1023, name, cat_table);      
+       root~pfxdict_set_ref(1023, name, cat_table);
     }
     return (root, ops);
   }
@@ -262,10 +262,10 @@ cell process_ops(cell root, slice ops) inline_ref {
 
 {-
   Data structure:
-  Root cell: [UInt<32b>:seqno] [UInt<256b>:owner_public_key] 
+  Root cell: [UInt<32b>:seqno] [UInt<256b>:owner_public_key]
          [OptRef<1b+1r?>:Hashmap<PfxDict:Slice->CatTable>:domains]
   <CatTable> := HashmapE 256 (~~16~~) ^DNSRecord
-  
+
   STORED DOMAIN NAME SLICE FORMAT: (#ZeroChars<7b>) (Domain name value)
   #Zeros allows to simultaneously store, for example, com\0 and com\0google\0
   That will be stored as \1com\0 and \2com\0google\0 (pfx tree has restricitons)
@@ -316,7 +316,7 @@ int get_public_key() method_id {
     bits -= 8;
   }
   (_, _, _, cell root, _) = load_data();
-  
+
   slice cname = subdomain;
   int zeros = 0;
   repeat (bits >> 3) {
@@ -349,7 +349,7 @@ int get_public_key() method_id {
   }
   int pfx_bits = pfx.slice_bits() - 7;
   cell cat_table = val;
-  ;; pfx.slice_bits() will contain 8m, where m is number of bytes in subdomain 
+  ;; pfx.slice_bits() will contain 8m, where m is number of bytes in subdomain
   ;;   COUNTING the zero byte (if structurally correct: no multiple-ZB keys)
   ;;   which corresponds to 8m, m=one plus the number of bytes in the subdomain found)
   if (category == 0) {

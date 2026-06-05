@@ -19,7 +19,6 @@
 #pragma once
 
 #include "td/utils/port/config.h"
-
 #include "td/utils/port/detail/ThreadPthread.h"
 #include "td/utils/port/detail/ThreadStl.h"
 

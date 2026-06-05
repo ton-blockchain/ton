@@ -18,9 +18,9 @@
 */
 #pragma once
 #include "adnl/adnl-node-id.hpp"
+#include "lite-client/ext-client.h"
 #include "td/utils/port/IPAddress.h"
 #include "ton/ton-types.h"
-#include "lite-client/ext-client.h"
 
 namespace tonlib {
 struct Config {

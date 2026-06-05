@@ -17,7 +17,6 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "td/utils/Random.h"
-
 #include "td/utils/logging.h"
 #include "td/utils/port/thread_local.h"
 

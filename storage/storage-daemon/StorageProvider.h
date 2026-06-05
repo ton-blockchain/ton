@@ -16,13 +16,14 @@
 */
 
 #pragma once
-#include "td/actor/actor.h"
-#include "storage/db.h"
-#include "tonlib/tonlib/TonlibClientWrapper.h"
-#include "StorageManager.h"
 #include "keyring/keyring.h"
-#include "smc-util.h"
 #include "storage/MicrochunkTree.h"
+#include "storage/db.h"
+#include "td/actor/actor.h"
+#include "tonlib/tonlib/TonlibClientWrapper.h"
+
+#include "StorageManager.h"
+#include "smc-util.h"
 
 namespace ton {
 

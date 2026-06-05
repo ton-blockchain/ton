@@ -16,10 +16,11 @@
 */
 #pragma once
 
-#include "validator.h"
+#include <atomic>
+
 #include "common/AtomicRef.h"
 
-#include <atomic>
+#include "validator.h"
 
 namespace ton {
 

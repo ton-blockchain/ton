@@ -18,10 +18,11 @@
 */
 #pragma once
 
-#include "td/utils/SpinLock.h"
-#include "common/refcnt.hpp"
-
+#include <limits>
 #include <type_traits>
+
+#include "common/refcnt.hpp"
+#include "td/utils/SpinLock.h"
 
 namespace td {
 template <class T>

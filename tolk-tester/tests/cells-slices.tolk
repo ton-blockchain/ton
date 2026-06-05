@@ -1,3 +1,5 @@
+import "@stdlib/exotic-cells"
+
 fun builder.store_u32(mutate self, value: int): self {
     return self.storeUint(value, 32);
 }
@@ -48,9 +50,9 @@ fun test2(): [int,int,int] {
     var b: builder = beginCell().myStoreInt(1, 32);
     b = b.myStoreInt(2, 32);
     // operator ! here and below is used just for testing purposes, it doesn't affect the result
-    b!.myStoreInt(3, 32);
+    b.myStoreInt(3, 32);
 
-    var cs: slice = b.endCell().beginParse();
+    var cs: slice = b.toSlice();
     var one: int = cs.myLoadInt(32);
     var (two: int, three: int) = (cs.myLoadInt(32), cs.myLoadInt(32));
 
@@ -59,14 +61,14 @@ fun test2(): [int,int,int] {
 
 @method_id(103)
 fun test3(ret: int): int {
-    val same: int = beginCell()!.storeUint(ret,32).endCell().beginParse().loadUint(32);
+    val same: int = beginCell().storeUint(ret,32).toSlice().loadUint(32);
     return same;
 }
 
 @method_id(104)
 fun test4(): [int,int] {
-    var b: builder = (beginCell() as builder).myStoreInt(1, 32);
-    b = b!.storeInt(2, 32)!.storeInt(3, 32);
+    var b: builder = beginCell().myStoreInt(1, 32);
+    b = b.storeInt(2, 32).storeInt(3, 32);
 
     var cs: slice = b.endCell().beginParse();
     var (one, _, three) = (cs.getFirstBits(32).loadUint(32), cs.skipBits(64), cs.load_u32());
@@ -94,8 +96,8 @@ fun test6() {
 fun test7() {
     // since .store() methods now mutate, this piece of code works not as earlier (mutates uri_builder)
     var uri_builder = beginCell();
-    var uri_slice = uri_builder.storeSlice(".json").endCell().beginParse();
-    var image_slice = uri_builder.storeSlice(".png").endCell().beginParse();
+    var uri_slice = uri_builder.storeSlice(".json".beginParse()).endCell().beginParse();
+    var image_slice = uri_builder.storeSlice(".png".beginParse()).endCell().beginParse();
     return (uri_builder.bitsCount(), uri_slice.remainingBitsCount(), image_slice.remainingBitsCount());
 }
 
@@ -103,9 +105,9 @@ fun test7() {
 fun test8() {
     var uri_builder = beginCell();
     var fresh = uri_builder;
-    var uri_slice = fresh.storeSlice(".json").endCell().beginParse();
-    var fresh redef = uri_builder;
-    var image_slice = fresh.storeSlice(".png").endCell().beginParse();
+    var uri_slice = fresh.storeSlice(".json".literalSlice()).endCell().beginParse();
+    fresh = uri_builder;
+    var image_slice = fresh.storeSlice(".png".literalSlice()).endCell().beginParse();
     return (uri_builder.bitsCount(), uri_slice.remainingBitsCount(), image_slice.remainingBitsCount());
 }
 
@@ -133,7 +135,7 @@ fun test10() {
 fun test11() {
     var s: slice = beginCell().storeInt(1, 32).storeInt(2, 32).storeInt(3, 32).storeInt(4, 32).storeInt(5, 32).storeInt(6, 32).storeInt(7, 32).endCell().beginParse();
     var size1 = s.remainingBitsCount();
-    s!.skipBits(32);
+    s.skipBits(32);
     var s1: slice = s.getFirstBits(64);
     var n1 = s1.loadInt(32);
     var size2 = s.remainingBitsCount();
@@ -143,7 +145,14 @@ fun test11() {
     var size4 = s.remainingBitsCount();
     var n2 = s.loadInt(32);
     var size5 = s.remainingBitsCount();
-    return (n1, n2, size1, size2, size3, size4, size5);
+
+    var s32 = stringHexToSlice("00000000");
+    s32.skipBits(8);
+    // but this will be denied as "can not mutate a temporary exression"
+    // (s32, 0).0.skipBits(8);
+    // (s32 as slice, 0).0.skipBits(8);
+
+    return (n1, n2, size1, size2, size3, size4, size5, s32.remainingBitsCount());
 }
 
 @method_id(112)
@@ -193,7 +202,7 @@ fun test111() {
         .endCell().beginParse();
     var op1 = s.loadUint(32);
     var q1 = s.loadUint(64);
-    if ((s as address).isNone()) {
+    if ((s as any_address).isNone()) {
         s.skipBits(2);
     }
     if (s.loadBool() == false) {
@@ -255,7 +264,7 @@ fun test18() {
   if (true) {
       b.storeInt(x + 2, 8).storeUint(x = match (x) { 24 => 5, else => 0 }, 4);
   }
-  var s = b.endCell().beginParse();
+  var s = ([b.endCell()] as [cell]).0.beginParse();
   return (s.loadUint(14), s.loadInt(8), s.loadUint(4));
 }
 
@@ -274,7 +283,7 @@ fun test20() {
   var b = true ? beginCell() : null;
   b.storeBool(true).storeBool(x);
   b = b.storeBool(true).storeUint(0, n *= 2).storeBool(!!true).storeCoins(0);
-  var s = b.endCell().beginParse();
+  var s = b.toSlice();
   return (s.loadBool(), s.loadBool(), s.loadBool(), s.loadUint(8), s.loadBool(), s.loadCoins());
 }
 
@@ -333,7 +342,7 @@ fun test24(uns: bool) {
 fun builder.my_storeRef(mutate self, value: cell): self
     asm(self value) "STREFR";
 
-fun builder.my_storeAddress(mutate self, value: address): self
+fun builder.my_storeAddress(mutate self, value: any_address): self
     asm(value self) "STSLICE";
 
 fun builder.my_storeBuilder(mutate self, value: builder): self
@@ -368,7 +377,7 @@ fun demo33(value: builder, dest: builder) {
 }
 
 @noinline
-fun demo34(dest: builder, value: address) {
+fun demo34(dest: builder, value: any_address) {
     // SWAP + STSLICE => STSLICER
     return dest.my_storeAddress(value);
 }
@@ -469,6 +478,219 @@ fun test36() {
     return beginCell().storeInt(0, 0)
 }
 
+@method_id(137)
+fun test37() {
+    return beginCell().storeInt(12, 32).endCell().hash() & 0xFFFF
+}
+
+@method_id(138)
+fun test38() {
+    return beginCell().endCell().beginParse().remainingBitsCount()
+}
+
+@method_id(139)
+fun test39() {
+    return beginCell().endCell()
+}
+
+@method_id(140)
+fun test40() {
+    return beginCell().toSlice().remainingBitsAndRefsCount()
+}
+
+@method_id(141)
+fun test41() {
+    var empty = "".literalSlice();
+    var incorrect = stringHexToSlice("8");
+    var incomplete = (address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF") as slice).getFirstBits(266);
+
+    var data = createEmptyTuple();
+    var b = beginCell();
+
+    try { data.push(empty.loadAddress()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incorrect.loadAddress()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incomplete.loadAddress()) }
+    catch (ex) { data.push(ex) }
+
+    try { data.push(empty.loadAddressOpt()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incorrect.loadAddressOpt()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incomplete.loadAddressOpt()) }
+    catch (ex) { data.push(ex) }
+
+    try { data.push(empty.loadAddressAny()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incorrect.loadAddressAny()) }
+    catch (ex) { data.push(ex) }
+    try { data.push(incomplete.loadAddressAny()) }
+    catch (ex) { data.push(ex) }
+
+    try { b.storeAddress(createAddressNone() as address) }
+    catch (ex) { data.push(ex) }
+    try { b.storeAddressOpt(createAddressNone() as address) }
+    catch (ex) { data.push(ex) }
+    try { b.storeAny("123".beginParse() as address) }
+    catch (ex) { data.push(ex) }
+    try { b.storeAny("123".beginParse() as address as address?) }
+    catch (ex) { data.push(ex) }
+
+    try { b.storeAddressOpt(null); data.push(b.bitsCount()) }
+    catch (ex) { data.push(ex) }
+
+    return data;
+}
+
+@method_id(142)
+fun test42() {
+    var c1 = beginCell().endCell();
+    var c2 = beginCell().endCellSpecial(false);
+    return (
+        c1.hash() == c1.hashOfLevel(3), 
+        c1.depth() == c1.depthOfLevel(3),
+        c1.hash() == c2.hash(),
+        c2.depth() == 0,
+    );
+}
+
+@method_id(143)
+fun test43() {
+    var c3 = beginCell().storeUint(123, 32).endCell();
+    var c3lib = c3.toLibraryReference();
+    
+    var (s, isExotic) = c3lib.beginParseSpecial();
+    assert (isExotic) throw 123;
+    val cellType = s.loadInt(8) as ExoticCellType;
+    return (cellType, s.loadUint(256) == c3.hash(), s.remainingBitsCount());
+    // 73669
+}
+
+@method_id(144)
+fun test44() {
+    return (
+        stringHexToSlice("").remainingBitsAndRefsCount(),
+        stringCrc32(""),
+        stringCrc16(""),
+        stringSha256("") == 0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855,
+        stringSha256_32(""),
+        // they are the same
+        stringHexToSlice("  0   A   1    4   ").bitsEqual(stringHexToSlice("0a14")),
+        // but they are not
+        stringCrc32("  0A14  ") == stringCrc32("0A14"),
+        stringSha256("  0A14  ") == stringSha256("0A14"),
+    )
+}
+
+@method_id(145)
+fun test45() {
+    var s = stringHexToSlice("FF");
+    s.skipBits(0);      // optimized out
+    return s.remainingBitsCount();
+}
+
+@method_id(146)
+fun test46() {
+    return (
+        beginCell().storeInt(0, 256).hash() & 0xFFFF,
+        beginCell().storeInt(0, 255).storeInt(0, 1).hash() & 0xFFFF,
+        beginCell().storeInt(1<<100, 256).hash() & 0xFFFF,
+        beginCell().storeInt((1<<255) - 1, 256).hash() & 0xFFFF,
+        beginCell().storeInt(-(1<<255), 256).hash() & 0xFFFF,
+        beginCell().storeInt(0, 257).hash() & 0xFFFF,
+        beginCell().storeInt(0, 255).storeInt(0, 1).storeInt(0, 1).hash() & 0xFFFF,
+        beginCell().storeUint(0, 254).storeUint(0, 2).storeUint(0, 1).hash() & 0xFFFF,
+        beginCell().storeInt(1<<100, 257).hash() & 0xFFFF,
+        beginCell().storeInt((1<<255) + (1<<254), 257).hash() & 0xFFFF,
+        beginCell().storeInt(-(1<<255) * 2, 257).hash() & 0xFFFF,
+        beginCell().storeUint(0, 256).hash() & 0xFFFF,
+        beginCell().storeUint(0, 255).storeUint(0, 1).hash() & 0xFFFF,
+        beginCell().storeUint(1<<100, 256).hash() & 0xFFFF,
+        beginCell().storeUint((1<<255) + (1<<254), 256).hash() & 0xFFFF,
+    )
+}
+
+@method_id(147)
+fun test47() {
+    var ce = createEmptyCell();
+    var c1 = beginCell().storeUint(1, 32).endCell();
+    var c2 = beginCell().storeUint(2, 32).endCell();
+    var c3 = beginCell().storeUint(2, 32).storeRef(ce).endCell();
+    return (
+        ce == ce,
+        ce == c1,
+        ce == c2,
+        ce == c3,
+        c1 == c1,
+        c1 == c2,
+        c1 == c3,
+        c2 == c2,
+        c2 == c3,
+        c3 == c3,
+        c3 == ce,
+        c1 != c2,
+        c1 != c1,
+        777,
+        c1.beginParse().hash() == beginCell().storeUint(1, 32).hash(),
+        c1.beginParse().hash() == c1.hash(),
+        c1.beginParse().hash() == c1.beginParse().hash(),
+    )
+}
+
+@method_id(148)
+fun test48() {
+    var s = beginCell().storeUint(1, 8).endCell().beginParse();
+    slice.skipBits(mutate s, 1);
+    var b = beginCell();
+    val b2 = builder.storeAny<int32>(mutate b, 1);
+    return (s.remainingBitsCount(), b2.bitsCount());
+}
+
+@method_id(149)
+fun test49() {
+    var c1 = (1 as int32).toCell();
+    var c2 = (1 as int32).toCell();
+    var c3 = (1 as int64).toCell();
+    var raw1: cell = c1;
+    var raw3: cell = c3;
+    return (
+        c1 == c1,
+        c1 == c2,
+        c1 == c3,
+        c1 != c3,
+        c1 != c2,
+        c1 == raw1,
+        raw1 == c2,
+        c1 != raw3,
+    );
+}
+
+@method_id(150)
+fun test50(s: slice): int {
+    try {
+        s.skipBits(800);    // they are not merged (since >1023), and
+        s.skipBits(800);    // triggers "cell underflow", not 'invalid integer"
+        return s.remainingBitsCount();
+    } catch (errCode) {
+        return errCode;
+    }
+}
+
+fun dupStoreWithOpaqueStur(b: builder, x: int): (builder, builder)
+    asm "OVER SWAP 8 STUR"
+
+@method_id(151)
+fun test51(): int {
+    try {
+        val (original, stored) = dupStoreWithOpaqueStur(beginCell(), 10);
+        var s = stored.toSlice();
+        return original.bitsCount() * 100 + stored.bitsCount() * 10 + s.loadUint(8);
+    } catch (err) {
+        return err;
+    }
+}
+
 fun main(): int {
     return 0;
 }
@@ -483,7 +705,7 @@ fun main(): int {
 @testcase | 107 |     | 72 40 72
 @testcase | 108 |     | 0 40 32
 @testcase | 110 |     | 64 3 0 0 -1 0 100 -1
-@testcase | 111 |     | 2 3 224 192 160 128 96
+@testcase | 111 |     | 2 3 224 192 160 128 96 24
 @testcase | 112 |     | 9 100
 @testcase | 113 |     | [ 3 128 5 ] [ 2 96 3 ] 444
 @testcase | 114 | -1  | -1 0 -1
@@ -512,22 +734,32 @@ fun main(): int {
 @testcase | 135 | 7   | 5
 @testcase | 135 | 8   | 5
 @testcase | 136 |     | BC{0000}
+@testcase | 137 |     | 39065
+@testcase | 138 |     | 0
+@testcase | 140 |     | 0 0
+@testcase | 141 |     | [ 9 9 9 9 9 9 9 9 9 8 8 8 8 2 ]
+@testcase | 142 |     | -1 -1 -1 -1
+@testcase | 143 |     | 2 -1 0
+@testcase | 144 |     | 0 0 0 0 -1 3820012610 -1 0 0
+@testcase | 146 |     | 64898 64898 30460 59911 15354 54467 54467 54467 15533 16598 20076 64898 64898 30460 11765
+@testcase | 147 |     | -1 0 0 0 -1 0 0 -1 0 -1 0 -1 0 777 -1 -1 -1
+@testcase | 148 |     | 7 32
+@testcase | 149 |     | -1 -1 0 -1 0 -1 -1 -1
+@testcase | 150 | x{} | 9
+@testcase | 151 |     | 90
 
 We test that consequtive storeInt/storeUint with constants are joined into a single number
 
 @fif_codegen
 """
   test6() PROC:<{
-    NEWC
-    x{000000010000000200000003} STSLICECONST
-    ENDC        //  '11
+    x{000000010000000200000003} PUSHSLICE
 """
 
 @fif_codegen
 """
   test17() PROC:<{
-    NEWC
-    x{107b} STSLICECONST
+    x{107b} PUSHSLICE
 """
 
 @fif_codegen
@@ -552,8 +784,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 @fif_codegen
 """
   test20() PROC:<{
-    NEWC
-    x{a010} STSLICECONST
+    x{a010} PUSHSLICE
 """
 
 @fif_codegen
@@ -567,7 +798,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
 @fif_codegen
 """
   test22() PROC:<{
-    NEWC                    	//  '2
+    NEWC                    	//  '0
     NEWC                    	//  b1 b2
     SWAP                        //  b2 b1
     x{000808} STSLICECONST      //  b2 b1
@@ -698,6 +929,45 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     NEWC
     OVER
     STIX
+  }>
+"""
+
+@fif_codegen
+"""
+  test37() PROC:<{
+    NEWC
+    x{0000000c} STSLICECONST
+    HASHBU
+"""
+
+@fif_codegen
+"""
+  test38() PROC:<{ 
+    x{} PUSHSLICE
+    SBITS
+  }>
+"""
+
+@fif_codegen
+"""
+  test39() PROC:<{ 
+    <b b> PUSHREF
+  }>
+"""
+
+@fif_codegen
+"""
+  test40() PROC:<{ 
+    x{} PUSHSLICE
+    SBITREFS
+  }>
+"""
+
+@fif_codegen
+"""
+  test45() PROC:<{ 
+    x{FF} PUSHSLICE
+    SBITS
   }>
 """
 

@@ -36,11 +36,11 @@ enum TokenType {
   tok_const,
   tok_var,
   tok_val,
-  tok_redef,
   tok_mutate,
   tok_self,
 
   tok_annotation_at,
+  tok_doc_comment,
   tok_colon,
   tok_asm,
   tok_builtin,
@@ -126,6 +126,8 @@ enum TokenType {
   tok_double_arrow,
   tok_as,
   tok_is,
+  tok_not_is,
+  tok_double_question,
 
   tok_tolk,
   tok_semver,
@@ -154,12 +156,12 @@ class Lexer {
   int cur_token_idx = -1;
   Token cur_token;  // = tokens_circularbuf[cur_token_idx & 7]
 
-  const SrcFile* file;
+  int file_id;
   const char *p_start, *p_end, *p_next;
-  SrcLocation location;
+  int cur_token_offset = 0;
 
   void update_location() {
-    location.char_offset = static_cast<int>(p_next - p_start);
+    cur_token_offset = static_cast<int>(p_next - p_start); 
   }
 
 public:
@@ -167,11 +169,11 @@ public:
   struct SavedPositionForLookahead {
     const char* p_next = nullptr;
     int cur_token_idx = 0;
+    int cur_token_offset = 0;
     Token cur_token;
-    SrcLocation loc;
   };
 
-  explicit Lexer(const SrcFile* file);
+  explicit Lexer(SrcFilePtr file);
   Lexer(const Lexer&) = delete;
   Lexer &operator=(const Lexer&) = delete;
 
@@ -208,8 +210,8 @@ public:
 
   TokenType tok() const { return cur_token.type; }
   std::string_view cur_str() const { return cur_token.str_val; }
-  SrcLocation cur_location() const { return location; }
-  const SrcFile* cur_file() const { return file; }
+  SrcRange cur_range() const { return SrcRange::span(file_id, cur_token_offset, static_cast<int>(cur_token.str_val.size())); }
+  SrcRange range_start() const { return SrcRange::unclosed_range(file_id, cur_token_offset); }
 
   void next();
   void next_special(TokenType parse_next_as, const char* str_expected);
@@ -235,10 +237,5 @@ public:
   GNU_ATTRIBUTE_NORETURN GNU_ATTRIBUTE_COLD
   void error(const std::string& err_msg) const;
 };
-
-void lexer_init();
-
-// todo #ifdef TOLK_PROFILING
-void lexer_measure_performance(const AllRegisteredSrcFiles& files_to_just_parse);
 
 }  // namespace tolk

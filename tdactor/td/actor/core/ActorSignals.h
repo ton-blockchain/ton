@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
 #include "td/utils/bits.h"
+#include "td/utils/common.h"
 #include "td/utils/format.h"
 
 namespace td {

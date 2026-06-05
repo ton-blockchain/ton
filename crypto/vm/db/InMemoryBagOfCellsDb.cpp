@@ -1,5 +1,7 @@
-#include "CellStorage.h"
-#include "DynamicBagOfCellsDb.h"
+#include <optional>
+
+#include "td/utils/HashMap.h"
+#include "td/utils/HashSet.h"
 #include "td/utils/Timer.h"
 #include "td/utils/base64.h"
 #include "td/utils/format.h"
@@ -11,10 +13,8 @@
 #include "vm/cells/DataCell.h"
 #include "vm/cells/ExtCell.h"
 
-#include "td/utils/HashMap.h"
-#include "td/utils/HashSet.h"
-
-#include <optional>
+#include "CellStorage.h"
+#include "DynamicBagOfCellsDb.h"
 
 #if TD_PORT_POSIX
 #include <sys/mman.h>
@@ -860,7 +860,7 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_inc_.push_back(cell);
@@ -870,7 +870,7 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     if (cell.is_null()) {
       return;
     }
-    if (cell->get_virtualization() != 0) {
+    if (cell->is_virtualized()) {
       return;
     }
     to_dec_.push_back(cell);
@@ -926,7 +926,7 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     return td::Status::OK();
   }
 
-  td::Status prepare_commit() override {
+  td::Status prepare_commit(StoreCellHint hint = {}) override {
     CHECK(info_.empty());
     for (auto &to_inc : to_inc_) {
       auto new_root = do_inc(to_inc);
@@ -939,7 +939,8 @@ class InMemoryBagOfCellsDb : public DynamicBagOfCellsDb {
     to_inc_ = {};
     return td::Status::OK();
   }
-  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, td::Promise<td::Unit> promise) override {
+  void prepare_commit_async(std::shared_ptr<AsyncExecutor> executor, StoreCellHint hint,
+                            td::Promise<td::Unit> promise) override {
     TRY_STATUS_PROMISE(promise, prepare_commit());
     promise.set_value(td::Unit());
   }

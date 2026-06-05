@@ -51,12 +51,11 @@ fun test2() {
     val a = address("0:1234aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     val b = address("0:FFFFbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
     val dd1 = buildAddrInShard_manual(a, {closeTo: b, fixedPrefixLength: 16});
-    val dd2 = a.buildSameAddressInAnotherShard({fixedPrefixLength: 16, closeTo: b});
+    val dd2 = a.calculateSameAddressInAnotherShard({fixedPrefixLength: 16, closeTo: b});
     assert((a as slice).remainingBitsCount() == 267, 267);
     assert((b as slice).remainingBitsCount() == 267, 267);
-    assert(dd1.endCell().hash() == dd2.endCell().hash(), 400);
-    return address.fromValidBuilder(dd2)
-    == address("0:FFFFaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    assert(dd1.endCell().hash() == (dd2 as slice).hash(), 400);
+    return dd2 == address("0:FFFFaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 }
 
 @method_id(103)
@@ -68,12 +67,12 @@ fun test3() {
     var t3_a = address("EQAUTbQiM522Y_XJ_T98QPhPhTmb4nV--VSPiha8kC6kRfPO");
     var t3_b = address("EQBlqsm144Dq6SjbPI4jjZvA1hqTIP3CvHovbIfW_t-SCALE");
     return (
-        t1_a.buildSameAddressInAnotherShard({fixedPrefixLength: 8, closeTo: t1_b}).endCell().hash() & 0xFFFF,
-        t1_a.buildSameAddressInAnotherShard({fixedPrefixLength: 4, closeTo: t1_b}).endCell().hash() & 0xFFFF,
-        t2_a.buildSameAddressInAnotherShard({fixedPrefixLength: 2, closeTo: t2_b}).endCell().hash() & 0xFFFF,
-        t3_a.buildSameAddressInAnotherShard({fixedPrefixLength: 30, closeTo: t2_b}).endCell().hash() & 0xFFFF,
-        t2_a.buildSameAddressInAnotherShard({fixedPrefixLength: 1, closeTo: t3_b}).endCell().hash() & 0xFFFF,
-        t2_a.buildSameAddressInAnotherShard({fixedPrefixLength: 0, closeTo: t3_b}).endCell().hash() & 0xFFFF,
+        (t1_a.calculateSameAddressInAnotherShard({fixedPrefixLength: 8, closeTo: t1_b}) as slice).hash() & 0xFFFF,
+        (t1_a.calculateSameAddressInAnotherShard({fixedPrefixLength: 4, closeTo: t1_b}) as slice).hash() & 0xFFFF,
+        (t2_a.calculateSameAddressInAnotherShard({fixedPrefixLength: 2, closeTo: t2_b}) as slice).hash() & 0xFFFF,
+        (t3_a.calculateSameAddressInAnotherShard({fixedPrefixLength: 30, closeTo: t2_b}) as slice).hash() & 0xFFFF,
+        (t2_a.calculateSameAddressInAnotherShard({fixedPrefixLength: 1, closeTo: t3_b}) as slice).hash() & 0xFFFF,
+        (t2_a.calculateSameAddressInAnotherShard({fixedPrefixLength: 0, closeTo: t3_b}) as slice).hash() & 0xFFFF,
     )
 }
 
@@ -98,7 +97,7 @@ fun test5() {
 fun test6() {
     val a = address("0:00000000000000000000000000000000000000000000000000000000000000FF");
     val b = address("1:1100000000000000000000000000000000000000000000000000000000000000");
-    return  address.fromValidBuilder(a.buildSameAddressInAnotherShard({fixedPrefixLength: 8, closeTo: b})) ==
+    return  a.calculateSameAddressInAnotherShard({fixedPrefixLength: 8, closeTo: b}) ==
     address("1:11000000000000000000000000000000000000000000000000000000000000FF");
 }
 
@@ -219,8 +218,7 @@ fun test12() {
             stateInit: { code: jwCode, data: createEmptyCell() },
             toShard: { fixedPrefixLength: i, closeTo: ownerAddress }
         };
-        val addrBuilt = params.buildAddress();
-        val addr = address.fromValidBuilder(addrBuilt);
+        val addr = params.calculateAddress();
         assert (params.addressMatches(addr)) throw 123;
         params.workchain = 0;
         assert (!params.addressMatches(addr)) throw 123;
@@ -276,20 +274,94 @@ fun test14() {
         stateInit: stateInitCell,
         toShard: { fixedPrefixLength: 10, closeTo: ownerAddress }
     };
-    val addrBuilt = si.buildAddress();
-    val addr = addrBuilt.endCell().beginParse() as address;
+    val addr = si.calculateAddress();
 
     val stateInitHash = stateInitCell.hash();
     val (wc, hash) = addr.getWorkchainAndHash();
     val manual_isAddrOfContract = ((stateInitHash & ((1 << 246) - 1)) == (hash & ((1 << 246) - 1))) & (9 == wc);
 
     return (
-        manualBuilt.endCell().hash() == addrBuilt.endCell().hash(),
+        manualBuilt.endCell().hash() == (addr as slice).hash(),
         manual_isAddrOfContract,
         si.addressMatches(addr),
     )
 }
 
+@method_id(115)
+fun test15() {
+    var any = createAddressNone();
+    var addr = address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF");
+
+    any as any_address;
+    any as address;
+    (any as slice) as any_address;
+    addr as any_address;
+    addr as address;
+    (addr as slice) as address;
+
+    return (
+        any == addr, any != addr,
+        (any as address) == addr, any == (addr as any_address),
+        (any as slice).bitsEqual(addr as slice),
+        (any as bits123 as any_address as slice).remainingBitsCount(),
+        (addr as bytes1 as address as slice).remainingBitsCount(),
+    )
+}
+
+@method_id(116)
+fun test16() {
+    val any = address("Ef9nzj6RBc4mQ6p3ng7mGJ7tp7MbzERhe7obkM9A0wnCCEcf") as any_address;
+    val addr = any.castToInternal();
+    return (
+        addr == any, (any as slice).remainingBitsCount(), (addr as slice).remainingBitsCount(),
+        addr.getWorkchain() == any.getWorkchain(),
+        addr.getWorkchainAndHash().1 == any.getWorkchainAndHash().1,
+    );
+}
+
+@method_id(117)
+fun test17() {
+    val ex = beginCell().storeUint(0b01, 2).storeUint(6, 9).storeUint(0, 6).endCell().beginParse() as any_address;
+    val in = address("Ef9nzj6RBc4mQ6p3ng7mGJ7tp7MbzERhe7obkM9A0wnCCEcf") as any_address;
+    val no = createAddressNone();
+    __expect_type(no, "any_address");
+
+    assert (ex.isExternal()) throw 123;
+    assert (in.isInternal()) throw 123;
+    assert (no.isNone()) throw 123;
+    return (ex.isInternal(), ex.isNone(), in.isExternal(), in.isNone(), no.isInternal(), no.isExternal());
+}
+
+@method_id(118)
+fun test18(): (int, int8) {
+    try {
+        val any = createAddressNone();
+        return (0, any.castToInternal().getWorkchain());
+    } catch (ex) {
+        try {
+            return (ex, createAddressNone().getWorkchain())
+        } catch (ex2) {
+            return (ex, ex2);
+        }
+    }
+}
+
+@method_id(119)
+fun test19() {
+    val a = address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF");
+
+    val c1 = a.toCell();
+    val c2 = (a as address?).toCell();
+    val c3 = (a as any_address).toCell();
+    assert (c1.hash() == c2.hash()) throw 123;
+    assert (c1.hash() == c3.hash()) throw 123;
+
+    val e1 = (null as address?).toCell();
+    val e2 = createAddressNone().toCell();
+    assert (e1.hash() == e2.hash()) throw 123;
+
+    return e1.beginParse().remainingBitsCount();
+}
 
 
 fun main() {}
@@ -307,4 +379,9 @@ fun main() {}
 @testcase | 112 |   | 10
 @testcase | 113 |   | -1 0
 @testcase | 114 |   | -1 -1 -1
+@testcase | 115 |   | 0 -1 0 0 0 2 267
+@testcase | 116 |   | -1 267 267 -1 -1
+@testcase | 117 |   | 0 0 0 0 0 0
+@testcase | 118 |   | 9 9
+@testcase | 119 |   | 2
  */

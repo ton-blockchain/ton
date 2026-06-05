@@ -17,9 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "FecHelper.h"
-
 #include "td/utils/check.h"
+
+#include "FecHelper.h"
 
 namespace ton {
 namespace rldp2 {

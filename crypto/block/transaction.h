@@ -17,21 +17,23 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include "account-storage-stat.h"
+#include <ostream>
+
+#include "block/block-auto.h"
+#include "block/block.h"
+#include "block/mc-config.h"
 #include "common/refcnt.hpp"
 #include "common/refint.h"
+#include "precompiled-smc/PrecompiledSmartContract.h"
+#include "td/utils/bits.h"
+#include "tl/tlblib.hpp"
+#include "ton/ton-types.h"
+#include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cellslice.h"
 #include "vm/dict.h"
-#include "vm/boc.h"
-#include <ostream>
-#include "tl/tlblib.hpp"
-#include "td/utils/bits.h"
-#include "ton/ton-types.h"
-#include "block/block.h"
-#include "block/mc-config.h"
-#include "precompiled-smc/PrecompiledSmartContract.h"
-#include "block/block-auto.h"
+
+#include "account-storage-stat.h"
 
 namespace block {
 using td::Ref;
@@ -184,6 +186,7 @@ struct ActionPhaseConfig {
 };
 
 struct SerializeConfig {
+  int global_version = 0;
   bool extra_currency_v2{false};
   bool disable_anycast{false};
   bool store_storage_dict_hash{false};
@@ -266,13 +269,16 @@ struct Account {
   int verbosity{3 * 0};
   ton::UnixTime now_{0};
   ton::WorkchainId workchain{ton::workchainInvalid};
-  td::BitArray<32> addr_rewrite;     // rewrite (anycast) data, addr_rewrite_length bits
+  td::BitArray<32> addr_rewrite;  // rewrite (anycast) data, addr_rewrite_length bits
   bool addr_rewrite_length_set{false};
   unsigned char addr_rewrite_length{0};
-  ton::StdSmcAddress addr;           // rewritten address (by replacing a prefix of `addr_orig` with `addr_rewrite`); it is the key in ShardAccounts
-  ton::StdSmcAddress addr_orig;      // address indicated in smart-contract data (must coincide with hash of StateInit)
-  Ref<vm::CellSlice> my_addr;        // address as stored in the smart contract (MsgAddressInt); corresponds to `addr_orig` + anycast info
-  Ref<vm::CellSlice> my_addr_exact;  // exact address without anycast info; corresponds to `addr` and has no anycast (rewrite) info
+  ton::StdSmcAddress
+      addr;  // rewritten address (by replacing a prefix of `addr_orig` with `addr_rewrite`); it is the key in ShardAccounts
+  ton::StdSmcAddress addr_orig;  // address indicated in smart-contract data (must coincide with hash of StateInit)
+  Ref<vm::CellSlice>
+      my_addr;  // address as stored in the smart contract (MsgAddressInt); corresponds to `addr_orig` + anycast info
+  Ref<vm::CellSlice>
+      my_addr_exact;  // exact address without anycast info; corresponds to `addr` and has no anycast (rewrite) info
   ton::LogicalTime last_trans_end_lt_;
   ton::LogicalTime last_trans_lt_;
   ton::Bits256 last_trans_hash_;
@@ -306,7 +312,8 @@ struct Account {
   td::Result<Ref<vm::Cell>> compute_account_storage_dict() const;
   td::Status init_account_storage_stat(Ref<vm::Cell> dict_root);
   bool deactivate();
-  bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int fixed_prefix_length, td::ConstBitPtr orig_addr_rewrite) const;
+  bool recompute_tmp_addr(Ref<vm::CellSlice>& tmp_addr, int fixed_prefix_length,
+                          td::ConstBitPtr orig_addr_rewrite) const;
   td::RefInt256 compute_storage_fees(ton::UnixTime now, const std::vector<block::StoragePrices>& pricing) const;
   bool is_masterchain() const {
     return workchain == ton::masterchainId;
@@ -358,6 +365,7 @@ struct Transaction {
   bool bounce_enabled{false};
   bool in_msg_extern{false};
   gen::CommonMsgInfo::Record_int_msg_info in_msg_info;
+  td::RefInt256 in_msg_extra_flags = td::zero_refint();
   bool new_bounce_format{false};
   bool new_bounce_format_full_body{false};
   bool use_msg_state{false};
@@ -442,8 +450,8 @@ struct Transaction {
   int try_action_send_msg(const vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg, int redoing = 0);
   int try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg);
   bool check_replace_src_addr(Ref<vm::CellSlice>& src_addr) const;
-  bool check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const ActionPhaseConfig& cfg,
-                               bool* is_mc = nullptr, bool allow_anycast = true) const;
+  bool check_rewrite_dest_addr(Ref<vm::CellSlice>& dest_addr, const ActionPhaseConfig& cfg, bool* is_mc = nullptr,
+                               bool allow_anycast = true) const;
   bool serialize_storage_phase(vm::CellBuilder& cb);
   bool serialize_credit_phase(vm::CellBuilder& cb);
   bool serialize_compute_phase(vm::CellBuilder& cb);

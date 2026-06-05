@@ -63,11 +63,18 @@ class VmError {
     p[_msg.size()] = 0;
     msg = p;
   }
+  VmError(const VmError&) = delete;
+  VmError(VmError&& other) noexcept : exc_no(other.exc_no), msg_alloc(other.msg_alloc), msg(other.msg), arg(other.arg) {
+    other.msg_alloc = false;
+    other.msg = nullptr;
+  }
   ~VmError() {
     if (msg_alloc) {
       free(const_cast<char*>(msg));
     }
   }
+  VmError& operator=(const VmError&) = delete;
+  VmError& operator=(VmError&&) = delete;
   int get_errno() const {
     return static_cast<int>(exc_no);
   }

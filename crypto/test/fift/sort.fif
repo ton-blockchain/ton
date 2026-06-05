@@ -2,7 +2,7 @@
   { dup null? not }
   { uncons swap rot cons -rot } while drop
 } : split
-variable 'sort  variable 'merge  variable 'compare       
+variable 'sort  variable 'merge  variable 'compare
 { 'sort @ execute } : sort
 { 'merge @ execute } : merge
 { 'compare @ execute } : compare

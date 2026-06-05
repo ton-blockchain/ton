@@ -34,14 +34,16 @@ namespace tolk {
  * BTW, don't confuse this way of inferring with Hindley-Milner, they have nothing in common.
  */
 class TypeInferringUnifyStrategy {
+  TypePtr dest_hint = nullptr;
   TypePtr unified_result = nullptr;
   bool different_types_became_union = false;
 
 public:
-  void unify_with(TypePtr next, TypePtr dest_hint = nullptr);
+  explicit TypeInferringUnifyStrategy(TypePtr hint);
+  void unify_with(TypePtr next);
 
   TypePtr get_result() const { return unified_result; }
-  bool is_union_of_different_types() const { return different_types_became_union; }
+  bool became_union_without_hint() const { return different_types_became_union && dest_hint == nullptr; }
 };
 
 /*
@@ -71,6 +73,7 @@ struct SinkExpression {
   explicit operator bool() const { return var_ref != nullptr; }
 
   std::string to_string() const;
+  bool is_child_of(SinkExpression rhs) const;
   SinkExpression get_child_s_expr(int field_idx) const;
 };
 
@@ -157,6 +160,7 @@ public:
   }
 
   bool is_unreachable() const { return unreachable; }
+  bool equivalent_to(const FlowContext& another) const;
 
   bool smart_cast_exists(SinkExpression s_expr) const { return known_facts.find(s_expr) != known_facts.end(); }
   TypePtr smart_cast_or_original(SinkExpression s_expr, TypePtr originally_declared_type) const;
@@ -203,6 +207,7 @@ std::ostream& operator<<(std::ostream& os, const FactsAboutExpr& facts);
 std::ostream& operator<<(std::ostream& os, const FlowContext& flow);
 TypePtr calculate_type_subtract_rhs_type(TypePtr type, TypePtr subtract_type);
 SinkExpression extract_sink_expression_from_vertex(AnyExprV v);
+bool is_valid_lvalue_path(AnyExprV v, std::vector<SinkExpression>* out_sinks = nullptr, bool inside_dot_obj = false);
 TypePtr calc_declared_type_before_smart_cast(AnyExprV v);
 TypePtr calc_smart_cast_type_on_assignment(TypePtr lhs_declared_type, TypePtr rhs_inferred_type);
 

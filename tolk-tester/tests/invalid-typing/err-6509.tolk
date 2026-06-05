@@ -8,4 +8,5 @@ fun cantApplyPlusOnNullable() {
 @compilation_should_fail
 @stderr in function `calcSum<int?>`
 @stderr can not apply operator `+` to `int?` and `int?`
+@stderr check on `null` first, or use unsafe operator `!`
  */

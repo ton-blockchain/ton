@@ -16,18 +16,17 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/port/path.h"
-
-#include "td/utils/port/config.h"
-
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
+#include "td/utils/port/config.h"
 #include "td/utils/port/detail/skip_eintr.h"
-#include "td/utils/ScopeGuard.h"
+#include "td/utils/port/path.h"
 
 #if TD_PORT_WINDOWS
-#include "td/utils/port/wstring_convert.h"
 #include "td/utils/Random.h"
+#include "td/utils/port/FromApp.h"
+#include "td/utils/port/wstring_convert.h"
 #endif
 
 #if TD_PORT_POSIX
@@ -85,7 +84,10 @@ Status mkpath(CSlice path, int32 mode) {
     }
   }
   if (last_error.is_error()) {
-    return first_error;
+    if (last_error.message() == first_error.message() && last_error.code() == first_error.code()) {
+      return first_error;
+    }
+    return last_error.move_as_error_suffix(PSLICE() << ": " << first_error);
   }
   return Status::OK();
 }
@@ -98,7 +100,11 @@ Status rmrf(CSlice path) {
       case WalkPath::Type::ExitDir:
         rmdir(path).ignore();
         break;
-      case WalkPath::Type::NotDir:
+      case WalkPath::Type::RegularFile:
+        unlink(path).ignore();
+        break;
+      case WalkPath::Type::Symlink:
+        // never follow symbolic links, but delete the link themselves
         unlink(path).ignore();
         break;
     }
@@ -270,6 +276,8 @@ Result<bool> walk_path_dir(string &path, const WalkFunction &func) TD_WARN_UNUSE
 
 Result<bool> walk_path_file(string &path, const WalkFunction &func) TD_WARN_UNUSED_RESULT;
 
+Result<bool> walk_path_symlink(string &path, const WalkFunction &func) TD_WARN_UNUSED_RESULT;
+
 Result<bool> walk_path(string &path, const WalkFunction &func) TD_WARN_UNUSED_RESULT;
 
 Result<bool> walk_path_subdir(string &path, DIR *dir, const WalkFunction &func) {
@@ -303,9 +311,13 @@ Result<bool> walk_path_subdir(string &path, DIR *dir, const WalkFunction &func) 
       status = walk_path_dir(path, func);
     } else if (entry->d_type == DT_REG) {
       status = walk_path_file(path, func);
+    } else if (entry->d_type == DT_LNK) {
+      status = walk_path_symlink(path, func);
     }
 #else
+#if !TD_SOLARIS
 #warning "Slow walk_path"
+#endif
     status = walk_path(path, func);
 #endif
     if (status.is_error() || !status.ok()) {
@@ -359,7 +371,18 @@ Result<bool> walk_path_dir(string &path, const WalkFunction &func) {
 }
 
 Result<bool> walk_path_file(string &path, const WalkFunction &func) {
-  switch (func(path, WalkPath::Type::NotDir)) {
+  switch (func(path, WalkPath::Type::RegularFile)) {
+    case WalkPath::Action::Abort:
+      return false;
+    case WalkPath::Action::SkipDir:
+    case WalkPath::Action::Continue:
+      break;
+  }
+  return true;
+}
+
+Result<bool> walk_path_symlink(string &path, const WalkFunction &func) {
+  switch (func(path, WalkPath::Type::Symlink)) {
     case WalkPath::Action::Abort:
       return false;
     case WalkPath::Action::SkipDir:
@@ -373,15 +396,18 @@ Result<bool> walk_path(string &path, const WalkFunction &func) {
   TRY_RESULT(fd, FileFd::open(path, FileFd::Read));
   TRY_RESULT(stat, fd.stat());
 
-  bool is_dir = stat.is_dir_;
-  bool is_reg = stat.is_reg_;
-  if (is_dir) {
+  if (stat.is_dir_) {
     return walk_path_dir(path, std::move(fd), func);
   }
 
   fd.close();
-  if (is_reg) {
+
+  if (stat.is_reg_) {
     return walk_path_file(path, func);
+  }
+
+  if (stat.is_symbolic_link_) {
+    return walk_path_symlink(path, func);
   }
 
   return true;
@@ -402,7 +428,10 @@ Status WalkPath::do_run(CSlice path, const detail::WalkFunction &func) {
 
 Status mkdir(CSlice dir, int32 mode) {
   TRY_RESULT(wdir, to_wstring(dir));
-  auto status = CreateDirectoryW(wdir.c_str(), nullptr);
+  while (!wdir.empty() && (wdir.back() == L'/' || wdir.back() == L'\\')) {
+    wdir.pop_back();
+  }
+  auto status = td::CreateDirectoryFromAppW(wdir.c_str(), nullptr);
   if (status == 0 && GetLastError() != ERROR_ALREADY_EXISTS) {
     return OS_ERROR(PSLICE() << "Can't create directory \"" << dir << '"');
   }
@@ -412,7 +441,7 @@ Status mkdir(CSlice dir, int32 mode) {
 Status rename(CSlice from, CSlice to) {
   TRY_RESULT(wfrom, to_wstring(from));
   TRY_RESULT(wto, to_wstring(to));
-  auto status = MoveFileExW(wfrom.c_str(), wto.c_str(), MOVEFILE_REPLACE_EXISTING);
+  auto status = td::MoveFileExFromAppW(wfrom.c_str(), wto.c_str(), MOVEFILE_REPLACE_EXISTING);
   if (status == 0) {
     return OS_ERROR(PSLICE() << "Can't rename \"" << from << "\" to \"" << to << '\"');
   }
@@ -436,6 +465,7 @@ Result<string> realpath(CSlice slice, bool ignore_access_denied) {
   if (res.empty()) {
     return Status::Error("Empty path");
   }
+  // TODO GetFullPathName doesn't resolve symbolic links
   if (!slice.empty() && slice.end()[-1] == TD_DIR_SLASH) {
     if (res.back() != TD_DIR_SLASH) {
       res += TD_DIR_SLASH;
@@ -455,7 +485,7 @@ Status chdir(CSlice dir) {
 
 Status rmdir(CSlice dir) {
   TRY_RESULT(wdir, to_wstring(dir));
-  int status = RemoveDirectoryW(wdir.c_str());
+  int status = td::RemoveDirectoryFromAppW(wdir.c_str());
   if (!status) {
     return OS_ERROR(PSLICE() << "Can't delete directory \"" << dir << '"');
   }
@@ -464,7 +494,7 @@ Status rmdir(CSlice dir) {
 
 Status unlink(CSlice path) {
   TRY_RESULT(wpath, to_wstring(path));
-  int status = DeleteFileW(wpath.c_str());
+  int status = td::DeleteFileFromAppW(wpath.c_str());
   if (!status) {
     return OS_ERROR(PSLICE() << "Can't unlink \"" << path << '"');
   }
@@ -481,7 +511,7 @@ CSlice get_temporary_dir() {
       }
       auto rs = from_wstring(buf);
       LOG_IF(FATAL, rs.is_error()) << "GetTempPathW failed: " << rs.error();
-      temporary_dir = rs.ok();
+      temporary_dir = rs.move_as_ok();
     }
     if (temporary_dir.size() > 1 && temporary_dir.back() == TD_DIR_SLASH) {
       temporary_dir.pop_back();
@@ -561,7 +591,8 @@ static Result<bool> walk_path_dir(const std::wstring &dir_name,
                                   const std::function<WalkPath::Action(CSlice name, WalkPath::Type type)> &func) {
   std::wstring name = dir_name + L"\\*";
   WIN32_FIND_DATA file_data;
-  auto handle = FindFirstFileExW(name.c_str(), FindExInfoStandard, &file_data, FindExSearchNameMatch, nullptr, 0);
+  auto handle =
+      td::FindFirstFileExFromAppW(name.c_str(), FindExInfoStandard, &file_data, FindExSearchNameMatch, nullptr, 0);
   if (handle == INVALID_HANDLE_VALUE) {
     return OS_ERROR(PSLICE() << "FindFirstFileEx" << tag("name", from_wstring(name).ok()));
   }
@@ -589,14 +620,24 @@ static Result<bool> walk_path_dir(const std::wstring &dir_name,
         if (!is_ok) {
           return false;
         }
-      } else {
-        switch (func(entry_name, WalkPath::Type::NotDir)) {
+      } else if ((file_data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0) {
+        switch (func(entry_name, WalkPath::Type::RegularFile)) {
           case WalkPath::Action::Abort:
             return false;
           case WalkPath::Action::SkipDir:
           case WalkPath::Action::Continue:
             break;
         }
+      } else if (file_data.dwReserved0 == IO_REPARSE_TAG_SYMLINK) {
+        switch (func(entry_name, WalkPath::Type::Symlink)) {
+          case WalkPath::Action::Abort:
+            return false;
+          case WalkPath::Action::SkipDir:
+          case WalkPath::Action::Continue:
+            break;
+        }
+      } else {
+        // skip other reparse points
       }
     }
     auto status = FindNextFileW(handle, &file_data);

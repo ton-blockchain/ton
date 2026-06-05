@@ -16,9 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/actor/MultiPromise.h"
-
 #include <mutex>
+
+#include "td/actor/MultiPromise.h"
 
 namespace td {
 namespace detail {

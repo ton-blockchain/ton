@@ -18,10 +18,10 @@
 */
 #pragma once
 
+#include <set>
+
 #include "adnl/adnl.h"
 #include "td/utils/Random.h"
-
-#include <set>
 
 namespace ton {
 
@@ -35,9 +35,6 @@ class TestLoopbackNetworkManager : public ton::adnl::AdnlNetworkManager {
   }
 
   void add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) override {
-  }
-  void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
-                      AdnlCategoryMask cat_mask, td::uint32 priority) override {
   }
   void send_udp_packet(ton::adnl::AdnlNodeIdShort src_id, ton::adnl::AdnlNodeIdShort dst_id, td::IPAddress dst_addr,
                        td::uint32 priority, td::BufferSlice data) override {

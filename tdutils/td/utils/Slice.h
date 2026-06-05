@@ -18,11 +18,11 @@
 */
 #pragma once
 
-#include "td/utils/common.h"
-#include "td/utils/Slice-decl.h"
-
 #include <cstring>
 #include <type_traits>
+
+#include "td/utils/Slice-decl.h"
+#include "td/utils/common.h"
 
 namespace td {
 

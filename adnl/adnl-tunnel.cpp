@@ -16,8 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "adnl-tunnel.h"
 #include "adnl-peer-table.h"
+#include "adnl-tunnel.h"
 
 namespace ton {
 

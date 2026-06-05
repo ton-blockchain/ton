@@ -28,7 +28,7 @@ def? $2 { @' $2 } { "new-wallet" } cond constant file-base
    CHKSIGNU              // pubk cs cnt ?
    34 THROWIFNOT         // signature mismatch
    ACCEPT
-   SWAP 32 LDU NIP 
+   SWAP 32 LDU NIP
    DUP SREFS IF:<{
      // 3 INT 35 LSHIFT# 3 INT RAWRESERVE    // reserve all but 103 Grams from the balance
      8 LDU LDREF         // pubk cnt mode msg cs
@@ -38,10 +38,10 @@ def? $2 { @' $2 } { "new-wallet" } cond constant file-base
    INC NEWC 32 STU 256 STU ENDC c4 POPCTR
 }>c // >libref
 // code
-<b 0 32 u, 
+<b 0 32 u,
    file-base +".pk" load-generate-keypair
    constant wallet_pk
-   B, 
+   B,
 b> // data
 null // no libraries
 // Libs{ x{ABACABADABACABA} drop x{AAAA} s>c public_lib x{1234} x{5678} |_ s>c public_lib }Libs

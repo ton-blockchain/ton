@@ -18,14 +18,14 @@
 */
 #pragma once
 
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/thread.h"
-
-#include <atomic>
-#include <algorithm>
-#include <condition_variable>
-#include <mutex>
 
 namespace td {
 

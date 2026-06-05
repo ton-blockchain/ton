@@ -18,8 +18,8 @@
 */
 #pragma once
 
-#include "adnl-node-id.hpp"
 #include "adnl-address-list.h"
+#include "adnl-node-id.hpp"
 
 namespace ton {
 
@@ -53,6 +53,11 @@ class AdnlAddressUdp : public AdnlAddressImpl {
   td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
+  td::Result<td::IPAddress> to_ip_address() const override {
+    td::IPAddress ip;
+    TRY_STATUS(ip.init_host_port(td::IPAddress::ipv4_to_str(ip_), port_));
+    return ip;
+  }
 };
 
 class AdnlAddressUdp6 : public AdnlAddressImpl {
@@ -83,6 +88,11 @@ class AdnlAddressUdp6 : public AdnlAddressImpl {
   td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
+  td::Result<td::IPAddress> to_ip_address() const override {
+    td::IPAddress ip;
+    TRY_STATUS(ip.init_host_port(td::IPAddress::ipv6_to_str(ip_.as_slice()), port_));
+    return ip;
+  }
 };
 
 class AdnlAddressTunnel : public AdnlAddressImpl {
@@ -114,31 +124,6 @@ class AdnlAddressTunnel : public AdnlAddressImpl {
   td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
-};
-
-class AdnlAddressReverse : public AdnlAddressImpl {
- public:
-  AdnlAddressReverse *make_copy() const override {
-    return new AdnlAddressReverse();
-  }
-  bool is_public() const override {
-    return true;
-  }
-  td::uint32 serialized_size() const override {
-    return 4;
-  }
-  tl_object_ptr<ton_api::adnl_Address> tl() const override {
-    return create_tl_object<ton_api::adnl_address_reverse>();
-  }
-  td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
-      td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
-      std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override {
-    LOG(ERROR) << "Cannot create connection for AdnlAddressReverse";
-    return {};
-  }
-  bool is_reverse() const override {
-    return true;
-  }
 };
 
 }  // namespace adnl

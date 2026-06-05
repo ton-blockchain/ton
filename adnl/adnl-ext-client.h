@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "adnl-node-id.hpp"
 #include "td/utils/port/IPAddress.h"
+
+#include "adnl-node-id.hpp"
 
 namespace ton {
 

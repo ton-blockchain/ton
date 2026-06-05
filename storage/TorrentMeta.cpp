@@ -17,17 +17,15 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
-#include "TorrentMeta.h"
-
-#include "TorrentHeader.hpp"
-
+#include "td/utils/UInt.h"
 #include "td/utils/crypto.h"
 #include "td/utils/tl_helpers.h"
-#include "td/utils/UInt.h"
-
 #include "vm/boc.h"
 #include "vm/cells/MerkleProof.h"
 #include "vm/cellslice.h"
+
+#include "TorrentHeader.hpp"
+#include "TorrentMeta.h"
 
 namespace ton {
 
@@ -42,10 +40,7 @@ td::Result<TorrentMeta> TorrentMeta::deserialize(td::Slice data) {
     }
   }
   if (res.root_proof.not_null()) {
-    auto root = vm::MerkleProof::virtualize(res.root_proof, 1);
-    if (root.is_null()) {
-      return td::Status::Error("Root proof is not a merkle proof");
-    }
+    TRY_RESULT(root, vm::MerkleProof::virtualize(res.root_proof));
     if (root->get_hash().as_slice() != res.info.root_hash.as_slice()) {
       return td::Status::Error("Root proof hash mismatch");
     }
@@ -125,8 +120,8 @@ void TorrentMeta::parse(ParserT &parser) {
     root_proof = r_root_proof.move_as_ok();
   }
 
-  auto cs = vm::load_cell_slice(r_info_cell.move_as_ok());
-  if (!info.unpack(cs)) {
+  auto cs = vm::load_cell_slice_quiet(r_info_cell.move_as_ok());
+  if (!cs.is_valid() || !info.unpack(cs)) {
     parser.set_error("Failed to parse TorrentInfo");
     return;
   }

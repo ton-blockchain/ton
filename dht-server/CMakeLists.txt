@@ -1,8 +1,3 @@
-if (NOT OPENSSL_FOUND)
-  find_package(OpenSSL REQUIRED)
-endif()
-
-
 set (DHT_SERVER_SOURCE
   dht-server.cpp
   dht-server.hpp

@@ -17,12 +17,12 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
-#include <random>
 #include <algorithm>
+#include <random>
 
-#include "td/utils/Status.h"
-#include "td/utils/Span.h"
 #include "td/utils/Random.h"
+#include "td/utils/Span.h"
+#include "td/utils/Status.h"
 
 namespace td {
 namespace online_code {

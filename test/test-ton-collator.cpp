@@ -1,4 +1,4 @@
-/* 
+/*
     This file is part of TON Blockchain source code.
 
     TON Blockchain is free software; you can redistribute it and/or
@@ -14,13 +14,13 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 
-    In addition, as a special exception, the copyright holders give permission 
-    to link the code of portions of this program with the OpenSSL library. 
-    You must obey the GNU General Public License in all respects for all 
-    of the code used other than OpenSSL. If you modify file(s) with this 
-    exception, you may extend this exception to your version of the file(s), 
-    but you are not obligated to do so. If you do not wish to do so, delete this 
-    exception statement from your version. If you delete this exception statement 
+    In addition, as a special exception, the copyright holders give permission
+    to link the code of portions of this program with the OpenSSL library.
+    You must obey the GNU General Public License in all respects for all
+    of the code used other than OpenSSL. If you modify file(s) with this
+    exception, you may extend this exception to your version of the file(s),
+    but you are not obligated to do so. If you do not wish to do so, delete this
+    exception statement from your version. If you delete this exception statement
     from all source files in the program, then also delete it here.
 
     Copyright 2017-2020 Telegram Systems LLP
@@ -28,32 +28,24 @@
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api_json.h"
+#include "common/errorlog.h"
+#include "crypto/block/block-db.h"
+#include "crypto/vm/vm.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
 #include "td/utils/OptionParser.h"
+#include "td/utils/Random.h"
 #include "td/utils/Time.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/format.h"
-#include "td/utils/Random.h"
-#include "td/utils/port/signals.h"
 #include "td/utils/port/FileFd.h"
-#include "catchain/catchain.h"
-#include "validator-session/validator-session.h"
-#include "validator/manager-disk.h"
-#include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
-
-#include "ton/ton-types.h"
-#include "ton/ton-tl.hpp"
+#include "td/utils/port/signals.h"
 #include "ton/ton-io.hpp"
-
-
+#include "ton/ton-tl.hpp"
+#include "ton/ton-types.h"
 #include "validator/fabric.h"
-#include "validator/impl/collator.h"
-#include "crypto/vm/vm.h"
-#include "crypto/block/block-db.h"
-
-#include "common/errorlog.h"
+#include "validator/manager-disk.h"
 
 #if TD_DARWIN || TD_LINUX
 #include <unistd.h>
@@ -111,7 +103,7 @@ class TestNode : public td::actor::Actor {
     zero_id_.file_hash = hash;
   }
   void set_shard(ton::ShardIdFull shard) {
-    LOG(DEBUG) << "setting shard to " << shard.to_str();
+    LOG(DEBUG) << "setting shard to " << shard;
     shard_ = shard;
   }
   void set_shard_top_block(ton::BlockIdExt block_id) {
@@ -120,9 +112,6 @@ class TestNode : public td::actor::Actor {
   void set_top_descr_prefix(std::string tdescr_pfx) {
     tdescr_pfx_ = tdescr_pfx;
     tdescr_save_ = true;
-  }
-  void set_collator_flags(int flags) {
-    ton::collator_settings |= flags;
   }
   void start_up() override {
   }
@@ -231,12 +220,12 @@ class TestNode : public td::actor::Actor {
   }
 
   td::Status create_validator_options() {
-    if(!global_config_.length()) {
+    if (!global_config_.length()) {
       LOG(INFO) << "no global config file passed. Using zero-init config";
       opts_ = ton::validator::ValidatorManagerOptions::create(
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
-        ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
-     return td::Status::OK();
+          ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()},
+          ton::BlockIdExt{ton::masterchainId, ton::shardIdAll, 0, ton::RootHash::zero(), ton::FileHash::zero()});
+      return td::Status::OK();
     }
     TRY_RESULT_PREFIX(conf_data, td::read_file(global_config_), "failed to read: ");
     TRY_RESULT_PREFIX(conf_json, td::json_decode(conf_data.as_slice()), "failed to parse json: ");
@@ -256,7 +245,7 @@ class TestNode : public td::actor::Actor {
     std::vector<ton::BlockIdExt> h;
     for (auto &x : conf.validator_->hardforks_) {
       auto b = ton::create_block_id(x);
-       if (!b.is_masterchain()) {
+      if (!b.is_masterchain()) {
         return td::Status::Error(ton::ErrorCode::error,
                                  "[validator/hardforks] section contains not masterchain block id");
       }
@@ -272,11 +261,9 @@ class TestNode : public td::actor::Actor {
     }
     opts_.write().set_hardforks(std::move(h));
 
-
-    LOG(INFO) << "Hardforks num in config: "<< opts_->get_hardforks().size();
+    LOG(INFO) << "Hardforks num in config: " << opts_->get_hardforks().size();
     return td::Status::OK();
   }
-
 
   void run() {
     zero_id_.workchain = ton::masterchainId;
@@ -299,8 +286,9 @@ class TestNode : public td::actor::Actor {
     validator_manager_ = ton::validator::ValidatorManagerDiskFactory::create(ton::PublicKeyHash::zero(), opts, shard_,
                                                                              shard_top_block_id_, db_root_);
     for (auto &msg : ext_msgs_) {
-      td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManager::new_external_message,
-                              std::move(msg), 0);
+      td::actor::ask(validator_manager_, &ton::validator::ValidatorManager::new_external_message_broadcast,
+                     std::move(msg), 0)
+          .detach();
     }
     for (auto &topmsg : top_shard_descrs_) {
       td::actor::send_closure(validator_manager_,
@@ -322,70 +310,29 @@ class TestNode : public td::actor::Actor {
 
       void initial_read_complete(ton::validator::BlockHandle handle) override {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
-                                td::PromiseCreator::lambda([](td::Unit) {}));
-      }
-      void on_new_masterchain_block(td::Ref<ton::validator::MasterchainState> state,
-                                    std::set<ton::ShardIdFull> shards_to_monitor) override {
-      }
-      void send_ihr_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
-      }
-      void send_ext_message(ton::AccountIdPrefixFull dst, td::BufferSlice data) override {
+                                td::PromiseCreator::lambda([](td::Result<>) {}));
       }
       void send_shard_block_info(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::BufferSlice data) override {
         ++tdescr_cnt_;
         if (!tdescr_save_) {
-          LOG(INFO) << "Ignoring newly-generated ShardTopBlockDescr for " << block_id.to_str();
+          LOG(INFO) << "Ignoring newly-generated ShardTopBlockDescr for " << block_id;
         } else {
           char buffer[16];
           sprintf(buffer, "%d.boc", tdescr_cnt_);
           std::string fname = std::string{tdescr_pfx_.empty() ? "tdescr" : tdescr_pfx_} + buffer;
-          LOG(INFO) << "Saving newly-generated ShardTopBlockDescr for " << block_id.to_str() << " into file " << fname;
+          LOG(INFO) << "Saving newly-generated ShardTopBlockDescr for " << block_id << " into file " << fname;
           auto res = block::save_binary_file(fname, std::move(data));
           if (res.is_error()) {
-            LOG(ERROR) << "Cannot save ShardTopBlockDescr for " << block_id.to_str() << " into file " << fname << " : "
+            LOG(ERROR) << "Cannot save ShardTopBlockDescr for " << block_id << " into file " << fname << " : "
                        << res.move_as_error().to_string();
           }
         }
-      }
-      void send_block_candidate(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                td::BufferSlice data, int mode) override {
-      }
-      void send_broadcast(ton::BlockBroadcast broadcast, int mode) override {
-      }
-      void download_block(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                          td::Promise<ton::ReceivedBlock> promise) override {
-      }
-      void download_zero_state(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                               td::Promise<td::BufferSlice> promise) override {
-      }
-      void download_persistent_state(ton::BlockIdExt block_id, ton::BlockIdExt masterchain_block_id,
-                                     ton::validator::PersistentStateType type, td::uint32 priority,
-                                     td::Timestamp timeout, td::Promise<td::BufferSlice> promise) override {
-      }
-      void download_block_proof(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                td::Promise<td::BufferSlice> promise) override {
-      }
-      void download_block_proof_link(ton::BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                     td::Promise<td::BufferSlice> promise) override {
-      }
-      void get_next_key_blocks(ton::BlockIdExt block_id, td::Timestamp timeout,
-                               td::Promise<std::vector<ton::BlockIdExt>> promise) override {
-      }
-      void download_archive(ton::BlockSeqno masterchain_seqno, ton::ShardIdFull shard_prefix, std::string tmp_dir,
-                            td::Timestamp timeout, td::Promise<std::string> promise) override {
-      }
-      void download_out_msg_queue_proof(
-          ton::ShardIdFull dst_shard, std::vector<ton::BlockIdExt> blocks, block::ImportedMsgQueueLimits limits,
-          td::Timestamp timeout, td::Promise<std::vector<td::Ref<ton::validator::OutMsgQueueProof>>> promise) override {
-      }
-
-      void new_key_block(ton::validator::BlockHandle handle) override {
       }
     };
 
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::install_callback,
                             std::make_unique<Callback>(validator_manager_.get(), tdescr_save_, tdescr_pfx_),
-                            td::PromiseCreator::lambda([](td::Unit) {}));
+                            td::PromiseCreator::lambda([](td::Result<>) {}));
   }
 };
 
@@ -463,17 +410,13 @@ int main(int argc, char *argv[]) {
     td::actor::send_closure(x, &TestNode::set_shard, ton::ShardIdFull{workchain, shard ? shard : ton::shardIdAll});
     return td::Status::OK();
   });
-  p.add_option('S', "want-split", "forces setting want_split in the header of new shard block",
-               [&]() { td::actor::send_closure(x, &TestNode::set_collator_flags, 1); });
-  p.add_option('G', "want-merge", "forces setting want_merge in the header of new shard block",
-               [&]() { td::actor::send_closure(x, &TestNode::set_collator_flags, 2); });
   p.add_option('s', "save-top-descr", "saves generated shard top block description into files with specified prefix",
                [&](td::Slice arg) { td::actor::send_closure(x, &TestNode::set_top_descr_prefix, arg.str()); });
   p.add_checked_option('T', "top-block", "BlockIdExt of top block (new block will be generated atop of it)",
                        [&](td::Slice arg) {
                          ton::BlockIdExt block_id;
                          if (block::parse_block_id_ext(arg, block_id)) {
-                           LOG(INFO) << "setting previous block to " << block_id.to_str();
+                           LOG(INFO) << "setting previous block to " << block_id;
                            td::actor::send_closure(x, &TestNode::set_shard_top_block, block_id);
 
                            return td::Status::OK();

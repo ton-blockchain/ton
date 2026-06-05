@@ -15,7 +15,8 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #pragma once
-#include "PrecompiledSmartContract.h"
 #include "vm/arithops.h"
 #include "vm/cellops.h"
 #include "vm/tonops.h"
+
+#include "PrecompiledSmartContract.h"

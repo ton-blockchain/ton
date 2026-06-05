@@ -16,10 +16,10 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "tl_writer_td.h"
-
-#include <iostream>
 #include <cassert>
+#include <iostream>
+
+#include "tl_writer_td.h"
 
 namespace td {
 
