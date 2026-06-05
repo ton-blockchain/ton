@@ -2786,12 +2786,24 @@ td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_grou
     };
   }
 
-  auto config = new_consensus_config.value();
   return IValidatorGroup::create_bridge(
-      PSTRING() << "valgroup" << shard, shard, validator_id, session_id, validator_set, key_seqno, config, keyring_,
-      adnl_, config.use_quic ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_, overlays_, db_root_,
-      actor_id(this), get_collation_manager(adnl_id), init_session, opts_,
-      opts_->need_monitor(shard, last_masterchain_state_), is_validator, adnl_id, std::move(overlay_members));
+      PSTRING() << "valgroup" << shard,
+      GroupParams{
+          .is_create_session_called = init_session,
+          .shard = shard,
+          .manager = actor_id(this),
+          .keyring = keyring_,
+          .validator_opts = opts_,
+          .validator_set = validator_set,
+          .identity = {adnl_id, is_validator ? std::optional{validator_id} : std::nullopt},
+          .collation_manager = get_collation_manager(adnl_id),
+          .config = new_consensus_config.value(),
+          .session_id = session_id,
+          .overlays = overlays_,
+          .adnl_sender = new_consensus_config.value().use_quic ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_,
+          .db_root = db_root_,
+          .all_validators = overlay_members,
+      });
 }
 
 td::actor::ActorId<CollationManager> ValidatorManagerImpl::get_collation_manager(adnl::AdnlNodeIdShort adnl_id) {
