@@ -2486,8 +2486,8 @@ void ValidatorManagerImpl::update_shards() {
       auto validator_id = get_validator(shard, val_set);
 
       auto consensus_config = last_masterchain_state_->get_new_consensus_config(shard.workchain);
-      bool want_observer = validator_id.is_zero() && consensus_config && consensus_config.value().enable_observers &&
-                           !observer_local_adnl_id.is_zero();
+      bool want_observer = validator_id.is_zero() && consensus_config &&
+                           consensus_config.value().enable_block_observers && !observer_local_adnl_id.is_zero();
 
       if (!validator_id.is_zero()) {
         ++(shard.is_masterchain() ? active_validator_groups_master_ : active_validator_groups_shard_);
