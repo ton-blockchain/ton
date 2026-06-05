@@ -251,8 +251,7 @@ class BridgeImpl final : public IValidatorGroup {
     bus->manager = manager_facade_.get();
     bus->keyring = params_.keyring;
     bus->validator_opts = params_.validator_opts;
-    bus->is_validator = params_.is_validator;
-    bus->overlay_members = params_.overlay_members;
+    bus->all_validators = params_.overlay_members;
 
     bool found = false;
     size_t idx = 0;
@@ -280,17 +279,8 @@ class BridgeImpl final : public IValidatorGroup {
     bus->total_weight = total_weight;
     bus->cc_seqno = params_.validator_set->get_catchain_seqno();
     bus->validator_set_hash = params_.validator_set->get_validator_set_hash();
-    if (params_.is_validator) {
-      CHECK(found);
-    } else {
-      bus->local_id = PeerValidator{
-          .idx = PeerValidatorId{std::numeric_limits<size_t>::max()},
-          .key = {},
-          .short_id = PublicKeyHash::zero(),
-          .adnl_id = params_.local_adnl_id,
-          .weight = 0,
-      };
-    }
+    CHECK(!params_.is_validator || found);
+    bus->local_adnl_id = params_.local_adnl_id;
 
     bus->config = params_.config;
     bus->config.noncritical_params =

@@ -109,6 +109,8 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   void start_up() override {
+    CHECK(owning_bus()->is_validator());
+
     params_ = owning_bus()->config.noncritical_params;
     load_from_db();
   }
@@ -328,7 +330,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       ProtocolMessage request{serialize_tl_object(request_tl, true)};
 
       size_t peer_idx = td::Random::fast(0, static_cast<int>(bus.validator_set.size()) - 2);
-      if (peer_idx >= bus.local_id.idx.value()) {
+      if (peer_idx >= bus.local_id->idx.value()) {
         peer_idx += 1;
       }
       PeerValidatorId peer{peer_idx};

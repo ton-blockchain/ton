@@ -36,8 +36,10 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   void start_up() override {
     auto& bus = *owning_bus();
+    CHECK(bus.is_validator());
+
     overlays_ = bus.overlays;
-    local_id_ = bus.local_id;
+    local_id_ = *bus.local_id;
     adnl_sender_ = bus.adnl_sender;
 
     std::vector<adnl::AdnlNodeIdShort> overlay_nodes;

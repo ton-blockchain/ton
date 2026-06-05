@@ -17,6 +17,10 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  void start_up() override {
+    CHECK(owning_bus()->is_validator());
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
@@ -28,7 +32,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
 
     int broadcast_mode = fullnode::FullNode::broadcast_mode_custom;
-    if (event->candidate->leader == owning_bus()->local_id.idx) {
+    if (event->candidate->leader == owning_bus()->local_id->idx) {
       broadcast_mode |= fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
     }
     if (last_mc_finalized_seqno_ >= 2 && block.id.seqno() < last_mc_finalized_seqno_ - 2) {

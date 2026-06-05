@@ -33,7 +33,7 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   void start_up() override {
     auto& bus = *owning_bus();
     overlays_ = bus.overlays;
-    local_adnl_id_ = bus.local_id.adnl_id;
+    local_adnl_id_ = bus.local_adnl_id;
     adnl_sender_ = bus.adnl_sender;
 
     std::map<PublicKeyHash, td::uint32> authorized_keys;
@@ -57,7 +57,7 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     options.allow_old_broadcasts_ = false;
 
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_adnl_id_,
-                            std::move(overlay_full_id), bus.overlay_members, make_callback(),
+                            std::move(overlay_full_id), bus.all_validators, make_callback(),
                             overlay::OverlayPrivacyRules{0, 0, std::move(authorized_keys)},
                             PSTRING() << R"({ "type": "blocksync", "shard": ")" << bus.shard << R"(", "cc_seqno": )"
                                       << bus.cc_seqno << R"( })",

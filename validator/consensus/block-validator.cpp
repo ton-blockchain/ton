@@ -30,6 +30,10 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  void start_up() override {
+    CHECK(owning_bus()->is_validator());
+  }
+
   void tear_down() override {
     for (auto& p : next_block_promises_) {
       p.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
@@ -93,7 +97,7 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
           .shard = bus.shard,
           .min_masterchain_block_id = event->state->min_mc_block_id(),
           .prev = event->state->block_ids(),
-          .local_validator_id = bus.local_id.short_id,
+          .local_validator_id = bus.local_id->short_id,
           .prev_block_state_roots = event->state->state(),
       };
       auto result = co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
@@ -108,7 +112,7 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     owning_bus().publish<TraceEvent>(stats::ValidationFinished::create(event->candidate->id));
 
     if (validation_result.has<CandidateReject>()) {
-      if (event->candidate->leader == bus.local_id.idx) {
+      if (event->candidate->leader == bus.local_id->idx) {
         LOG(ERROR) << "BUG! Candidate " << event->candidate->id
                    << " is self-rejected: " << validation_result.get<CandidateReject>().reason;
       }

@@ -316,6 +316,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
   void start_up() override {
     auto &bus = *owning_bus();
+    CHECK(bus.is_validator());
 
     slots_per_leader_window_ = bus.config.slots_per_leader_window;
     params_ = bus.config.noncritical_params;
@@ -326,7 +327,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     state_.emplace(State(bus));
     state_->slot_at(0)->state->available_base = ParentId{};
 
-    LOG(INFO) << "Validator group started. We are " << bus.local_id << " with weight " << bus.local_id.weight
+    LOG(INFO) << "Validator group started. We are " << *bus.local_id << " with weight " << bus.local_id->weight
               << " out of " << bus.total_weight;
 
     first_nonannounced_window_ = bus.first_nonannounced_window;
@@ -378,8 +379,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   void handle(BusHandle, std::shared_ptr<const Start>) {
     auto &bus = *owning_bus();
     owning_bus().publish<TraceEvent>(
-        consensus::stats::Id::create(bus.shard, bus.cc_seqno, bus.local_id.idx.value(), bus.validator_set.size(),
-                                     bus.local_id.weight, bus.total_weight, bus.config.slots_per_leader_window));
+        consensus::stats::Id::create(bus.shard, bus.cc_seqno, bus.local_id->idx.value(), bus.validator_set.size(),
+                                     bus.local_id->weight, bus.total_weight, bus.config.slots_per_leader_window));
 
     reschedule_standstill_resolution();
     is_started_ = true;
@@ -621,7 +622,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
         std::vector<ProtocolMessage> messages;
         state->certs.serialize_to(messages);
-        state->votes[bus.local_id.idx.value()].serialize_to(messages, state->certs);
+        state->votes[bus.local_id->idx.value()].serialize_to(messages, state->certs);
 
         for (auto &message : messages) {
           co_await send(std::move(message));
@@ -707,13 +708,13 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
     auto vote_to_sign = serialize_tl_object(vote.to_tl(), true);
     auto data_to_sign = create_serialize_tl_object<consensus::tl::dataToSign>(bus.session_id, std::move(vote_to_sign));
-    auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
+    auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id->short_id,
                                              std::move(data_to_sign));
 
-    Signed<Vote> signed_vote{bus.local_id.idx, vote, std::move(signature)};
+    Signed<Vote> signed_vote{bus.local_id->idx, vote, std::move(signature)};
     td::BufferSlice serialized = signed_vote.serialize();
 
-    if (handle_vote(bus.local_id, std::move(signed_vote), tolerate_conflicts)) {
+    if (handle_vote(*bus.local_id, std::move(signed_vote), tolerate_conflicts)) {
       if (!suppress_vote_broadcast) {
         owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(OutgoingProtocolMessage::BroadcastToAll{},
                                                                        std::move(serialized)));

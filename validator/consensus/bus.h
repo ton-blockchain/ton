@@ -179,6 +179,10 @@ class Bus : public td::actor::Bus {
     stop_promise.set_value(td::Unit());
   }
 
+  bool is_validator() const {
+    return local_id.has_value();
+  }
+
   virtual void populate_collator_schedule() = 0;
 
   ValidatorSessionId session_id;
@@ -192,10 +196,10 @@ class Bus : public td::actor::Bus {
   ValidatorWeight total_weight;
   ton::CatchainSeqno cc_seqno;
   td::uint32 validator_set_hash;
-  PeerValidator local_id;
+  std::optional<PeerValidator> local_id;
 
-  bool is_validator = true;
-  std::vector<adnl::AdnlNodeIdShort> overlay_members;
+  adnl::AdnlNodeIdShort local_adnl_id;
+  std::vector<adnl::AdnlNodeIdShort> all_validators;
 
   NewConsensusConfig config;
 
