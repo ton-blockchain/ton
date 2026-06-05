@@ -407,9 +407,9 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
     std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager,
-    td::actor::ActorId<CollationManager> collation_manager, bool create_session, bool allow_unsafe_self_blocks_resync,
-    td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard, bool is_validator,
-    adnl::AdnlNodeIdShort local_adnl_id, std::vector<adnl::AdnlNodeIdShort> overlay_members) {
+    td::actor::ActorId<CollationManager> collation_manager, bool create_session, td::Ref<ValidatorManagerOptions> opts,
+    bool monitoring_shard, bool is_validator, adnl::AdnlNodeIdShort local_adnl_id,
+    std::vector<adnl::AdnlNodeIdShort> overlay_members) {
   auto name_with_seqno =
       std::string(name.begin(), name.end()) + "." + std::to_string(validator_set->get_catchain_seqno());
   consensus::BridgeCreationParams params{

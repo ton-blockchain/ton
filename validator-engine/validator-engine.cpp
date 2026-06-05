@@ -1643,9 +1643,6 @@ td::Status ValidatorEngine::load_global_config() {
   if (key_proof_ttl_ != 0) {
     validator_options_.write().set_key_proof_ttl(key_proof_ttl_);
   }
-  for (auto seq : unsafe_catchains_) {
-    validator_options_.write().add_unsafe_resync_catchain(seq);
-  }
   for (auto rot : unsafe_catchain_rotations_) {
     validator_options_.write().add_unsafe_catchain_rotate(rot.first, rot.second.first, rot.second.second);
   }
@@ -1675,12 +1672,6 @@ td::Status ValidatorEngine::load_global_config() {
   }
   validator_options_.write().set_celldb_direct_io(celldb_direct_io_);
   validator_options_.write().set_celldb_preload_all(celldb_preload_all_);
-  if (catchain_max_block_delay_) {
-    validator_options_.write().set_catchain_max_block_delay(catchain_max_block_delay_.value());
-  }
-  if (catchain_max_block_delay_slow_) {
-    validator_options_.write().set_catchain_max_block_delay_slow(catchain_max_block_delay_slow_.value());
-  }
   validator_options_.write().set_permanent_celldb(permanent_celldb_);
   validator_options_.write().set_initial_sync_disabled(skip_key_sync_);
 
@@ -1702,7 +1693,6 @@ td::Status ValidatorEngine::load_global_config() {
     h.push_back(b);
   }
   validator_options_.write().set_hardforks(std::move(h));
-  validator_options_.write().set_catchain_broadcast_speed_multiplier(broadcast_speed_multiplier_catchain_);
   validator_options_.write().set_parallel_validation(parallel_validation_);
   validator_options_.write().set_db_event_fifo_path(db_event_fifo_path_);
 
@@ -5760,12 +5750,6 @@ int main(int argc, char *argv[]) {
   p.add_option('\0', "session-logs", "file for validator session stats (default: {logname}.session-stats)",
                [&](td::Slice fname) { session_logs_file = fname.str(); });
   acts.push_back([&]() { td::actor::send_closure(x, &ValidatorEngine::set_session_logs_file, session_logs_file); });
-  p.add_checked_option(
-      'U', "unsafe-catchain-restore", "use SLOW and DANGEROUS catchain recover method", [&](td::Slice id) {
-        TRY_RESULT(seq, td::to_integer_safe<ton::CatchainSeqno>(id));
-        acts.push_back([&x, seq]() { td::actor::send_closure(x, &ValidatorEngine::add_unsafe_catchain, seq); });
-        return td::Status::OK();
-      });
   p.add_checked_option('F', "unsafe-catchain-rotate", "use forceful and DANGEROUS catchain rotation",
                        [&](td::Slice params) {
                          auto pos1 = params.find(':');
@@ -5892,28 +5876,6 @@ int main(int argc, char *argv[]) {
   p.add_option('\0', "unsynced-liteserver", "allow liteserver queries before node is fully synced", [&]() {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_unsynced_liteserver, true); });
   });
-  p.add_checked_option(
-      '\0', "catchain-max-block-delay", "delay before creating a new catchain block, in seconds (default: 0.4)",
-      [&](td::Slice s) -> td::Status {
-        auto v = td::to_double(s);
-        if (v < 0) {
-          return td::Status::Error("catchain-max-block-delay should be non-negative");
-        }
-        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_catchain_max_block_delay, v); });
-        return td::Status::OK();
-      });
-  p.add_checked_option('\0', "catchain-max-block-delay-slow",
-                       "max extended catchain block delay (for too long rounds), (default: 1.0)",
-                       [&](td::Slice s) -> td::Status {
-                         auto v = td::to_double(s);
-                         if (v < 0) {
-                           return td::Status::Error("catchain-max-block-delay-slow should be non-negative");
-                         }
-                         acts.push_back([&x, v]() {
-                           td::actor::send_closure(x, &ValidatorEngine::set_catchain_max_block_delay_slow, v);
-                         });
-                         return td::Status::OK();
-                       });
   p.add_option('\0', "fast-state-serializer", "deprecated option (enabled by default)", [&]() {});
   p.add_option('\0', "collect-validator-telemetry",
                "store validator telemetry from fast sync overlay to a given file (json format)", [&](td::Slice s) {
@@ -5925,18 +5887,6 @@ int main(int argc, char *argv[]) {
       '\0', "disable-state-serializer",
       "disable persistent state serializer (similar to set-state-serializer-enabled 0 in validator console)", [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_state_serializer_disabled_flag); });
-      });
-  p.add_checked_option(
-      '\0', "broadcast-speed-catchain",
-      "multiplier for broadcast speed in catchain overlays (experimental, default is 3.33, which is ~1 MB/s)",
-      [&](td::Slice s) -> td::Status {
-        auto v = td::to_double(s);
-        if (v <= 0.0) {
-          return td::Status::Error("broadcast-speed-catchain should be positive");
-        }
-        acts.push_back(
-            [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_catchain, v); });
-        return td::Status::OK();
       });
   p.add_checked_option(
       '\0', "broadcast-speed-public",

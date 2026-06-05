@@ -2770,8 +2770,7 @@ td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_grou
   return IValidatorGroup::create_bridge(
       PSTRING() << "valgroup" << shard, shard, validator_id, session_id, validator_set, key_seqno, config, keyring_,
       adnl_, config.use_quic ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_, overlays_, db_root_,
-      actor_id(this), get_collation_manager(adnl_id), init_session,
-      opts_->check_unsafe_resync_allowed(validator_set->get_catchain_seqno()), opts_,
+      actor_id(this), get_collation_manager(adnl_id), init_session, opts_,
       opts_->need_monitor(shard, last_masterchain_state_), is_validator, adnl_id, std::move(overlay_members));
 }
 

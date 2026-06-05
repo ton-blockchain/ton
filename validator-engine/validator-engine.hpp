@@ -257,7 +257,6 @@ class ValidatorEngine : public td::actor::Actor {
   bool celldb_in_memory_ = false;
   bool celldb_disable_bloom_filter_ = false;
   bool unsynced_liteserver_ = false;
-  td::optional<double> catchain_max_block_delay_, catchain_max_block_delay_slow_;
   bool read_config_ = false;
   bool started_keyring_ = false;
   bool started_ = false;
@@ -268,7 +267,6 @@ class ValidatorEngine : public td::actor::Actor {
   bool not_all_shards_ = false;
   std::vector<ton::ShardIdFull> add_shard_cmds_;
   bool state_serializer_disabled_flag_ = false;
-  double broadcast_speed_multiplier_catchain_ = 3.33;
   bool permanent_celldb_ = false;
   bool skip_key_sync_ = false;
   td::optional<ton::BlockSeqno> sync_shards_upto_;
@@ -282,7 +280,6 @@ class ValidatorEngine : public td::actor::Actor {
                                                                   .fast_sync_broadcast_speed_multiplier_ = 3.33,
                                                                   .initial_sync_delay_ = 60.0};
 
-  std::set<ton::CatchainSeqno> unsafe_catchains_;
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
   ton::quic::QuicServer::Options quic_options_ = {};
 
@@ -291,9 +288,6 @@ class ValidatorEngine : public td::actor::Actor {
     return 250;
   }
 
-  void add_unsafe_catchain(ton::CatchainSeqno seq) {
-    unsafe_catchains_.insert(seq);
-  }
   void add_unsafe_catchain_rotation(ton::BlockSeqno b_seqno, ton::CatchainSeqno cc_seqno, td::uint32 value) {
     unsafe_catchain_rotations_.insert({b_seqno, {cc_seqno, value}});
   }
@@ -370,12 +364,6 @@ class ValidatorEngine : public td::actor::Actor {
   void set_unsynced_liteserver(bool value) {
     unsynced_liteserver_ = value;
   }
-  void set_catchain_max_block_delay(double value) {
-    catchain_max_block_delay_ = value;
-  }
-  void set_catchain_max_block_delay_slow(double value) {
-    catchain_max_block_delay_slow_ = value;
-  }
   void set_validator_telemetry_filename(std::string value) {
     validator_telemetry_filename_ = std::move(value);
   }
@@ -387,9 +375,6 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_state_serializer_disabled_flag() {
     state_serializer_disabled_flag_ = true;
-  }
-  void set_broadcast_speed_multiplier_catchain(double value) {
-    broadcast_speed_multiplier_catchain_ = value;
   }
   void set_broadcast_speed_multiplier_public(double value) {
     full_node_options_.public_broadcast_speed_multiplier_ = value;
