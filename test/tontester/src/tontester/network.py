@@ -211,8 +211,6 @@ class Network:
             cmd_flags = [
                 "--global-config",
                 global_config_file,
-                "--local-config",
-                local_config_file,
                 "--db",
                 ".",
                 "-v" + str(start_options.verbosity),

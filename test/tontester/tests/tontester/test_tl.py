@@ -6,8 +6,6 @@ from tonapi.ton_api import (
     Adnl_packetContents,
     Catchain_config_global,
     Engine_validator_config,
-    Id_config_local,
-    Pk_aes,
     Pub_unenc,
     TonNode_blockIdExt,
 )
@@ -163,20 +161,6 @@ def test_to_dict(pubk: Pub_unenc, block: TonNode_blockIdExt):
 
 
 def test_from_dict(pubk: Pub_unenc):
-    key = b"\x01" * 32
-    c = Id_config_local(id=Pk_aes(key=key))
-
-    c2 = Id_config_local.from_dict(
-        {
-            "@type": "id.config.local",
-            "id": {
-                "@type": "pk.aes",
-                "key": base64.b64encode(key).decode(),
-            },
-        }
-    )
-    assert c == c2
-
     pc_decoded = Adnl_packetContents.from_dict(
         {
             "@type": "adnl.packetContents",

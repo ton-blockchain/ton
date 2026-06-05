@@ -341,9 +341,6 @@ td::Result<bool> Config::config_del_gc(ton::PublicKeyHash key) {
   return gc.erase(key);
 }
 
-void DhtServer::set_local_config(std::string str) {
-  local_config_ = str;
-}
 void DhtServer::set_global_config(std::string str) {
   global_config_ = str;
 }
@@ -433,101 +430,6 @@ void DhtServer::load_empty_local_config(td::Promise<td::Unit> promise) {
   }
 }
 
-void DhtServer::load_local_config(td::Promise<td::Unit> promise) {
-  if (local_config_.size() == 0) {
-    load_empty_local_config(std::move(promise));
-    return;
-  }
-  auto conf_data_R = td::read_file(local_config_);
-  if (conf_data_R.is_error()) {
-    promise.set_error(conf_data_R.move_as_error_prefix("failed to read: "));
-    return;
-  }
-  auto conf_data = conf_data_R.move_as_ok();
-  auto conf_json_R = td::json_decode(conf_data.as_slice());
-  if (conf_json_R.is_error()) {
-    promise.set_error(conf_json_R.move_as_error_prefix("failed to parse json: "));
-    return;
-  }
-  auto conf_json = conf_json_R.move_as_ok();
-
-  ton::ton_api::config_local conf;
-  auto S = ton::ton_api::from_json(conf, conf_json.get_object());
-  if (S.is_error()) {
-    promise.set_error(S.move_as_error_prefix("json does not fit TL scheme"));
-    return;
-  }
-
-  auto ret_promise = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), promise = std::move(promise)](td::Result<td::Unit> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error());
-        } else {
-          td::actor::send_closure(SelfId, &DhtServer::write_config, std::move(promise));
-        }
-      });
-
-  td::MultiPromise mp;
-  auto ig = mp.init_guard();
-  ig.add_promise(std::move(ret_promise));
-
-  for (auto &addr : addrs_) {
-    config_.config_add_network_addr(addr, addr, std::vector<td::int8>{0, 1, 2, 3}, std::vector<td::int8>{}).ensure();
-  }
-
-  for (auto &local_id : conf.local_ids_) {
-    ton::PrivateKey pk{local_id->id_};
-    keys_.emplace(pk.compute_short_id(), pk.compute_public_key());
-    td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), false, ig.get_promise());
-  }
-
-  if (conf.dht_.size() > 0) {
-    for (auto &d : conf.dht_) {
-      ton::ton_api::downcast_call(*d.get(), td::overloaded(
-                                                [&](ton::ton_api::dht_config_local &obj) {
-                                                  auto node_id = ton::adnl::AdnlNodeIdShort{obj.id_->id_};
-                                                  auto it = keys_.find(node_id.pubkey_hash());
-                                                  if (it == keys_.end()) {
-                                                    ig.get_promise().set_error(td::Status::Error(
-                                                        ton::ErrorCode::error, "cannot find private key for dht"));
-                                                    return;
-                                                  }
-
-                                                  config_.config_add_adnl_addr(node_id.pubkey_hash(), 0).ensure();
-                                                  config_.config_add_dht_node(node_id.pubkey_hash()).ensure();
-                                                },
-                                                [&](ton::ton_api::dht_config_random_local &obj) {
-                                                  for (td::int32 i = 0; i < obj.cnt_; i++) {
-                                                    auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
-                                                    keys_.emplace(pk.compute_short_id(), pk.compute_public_key());
-                                                    auto id = pk.compute_short_id();
-                                                    td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key,
-                                                                            std::move(pk), false, ig.get_promise());
-                                                    config_.config_add_adnl_addr(id, 0).ensure();
-                                                    config_.config_add_dht_node(id).ensure();
-                                                  }
-                                                }));
-    }
-  } else {
-    auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
-    keys_.emplace(pk.compute_short_id(), pk.compute_public_key());
-    auto id = pk.compute_short_id();
-    td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), false, ig.get_promise());
-    config_.config_add_adnl_addr(id, 0).ensure();
-    config_.config_add_dht_node(id).ensure();
-  }
-
-  for (auto &ci : conf.control_) {
-    ton::PrivateKey pk{ci->priv_};
-    keys_.emplace(pk.compute_short_id(), pk.compute_public_key());
-    auto short_id = pk.compute_short_id();
-    td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), false, ig.get_promise());
-
-    config_.config_add_control_interface(short_id, ci->port_).ensure();
-    config_.config_add_control_process(short_id, ci->port_, ton::PublicKeyHash{ci->pub_}, 0x7fffffff).ensure();
-  }
-}
-
 void DhtServer::load_config(td::Promise<td::Unit> promise) {
   if (!config_file_.size()) {
     config_file_ = db_root_ + "/config.json";
@@ -540,19 +442,7 @@ void DhtServer::load_config(td::Promise<td::Unit> promise) {
     }
   }
   if (conf_data_R.is_error()) {
-    auto P = td::PromiseCreator::lambda(
-        [name = local_config_, new_name = config_file_, promise = std::move(promise)](td::Result<td::Unit> R) {
-          if (R.is_error()) {
-            LOG(ERROR) << "failed to parse local config '" << name << "': " << R.move_as_error();
-            std::_Exit(2);
-          } else {
-            LOG(ERROR) << "created config file '" << new_name << "'";
-            LOG(ERROR) << "check it manually before continue";
-            std::_Exit(0);
-          }
-        });
-
-    load_local_config(std::move(P));
+    promise.set_error(conf_data_R.move_as_error_prefix("failed to read config: "));
     return;
   }
 
@@ -1158,9 +1048,6 @@ int main(int argc, char *argv[]) {
   });
   p.add_option('C', "global-config", "file to read global config", [&](td::Slice fname) {
     acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &DhtServer::set_global_config, fname); });
-  });
-  p.add_option('c', "local-config", "file to read local config", [&](td::Slice fname) {
-    acts.push_back([&x, fname = fname.str()]() { td::actor::send_closure(x, &DhtServer::set_local_config, fname); });
   });
   p.add_checked_option('I', "ip", "ip:port of instance", [&](td::Slice arg) {
     td::IPAddress addr;
