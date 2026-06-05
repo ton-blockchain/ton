@@ -293,9 +293,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
 
   virtual ~ValidatorManagerInterface() = default;
   virtual void install_callback(std::unique_ptr<Callback> new_callback, td::Promise<td::Unit> promise) = 0;
-  virtual void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) = 0;
   virtual void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) = 0;
-  virtual void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) = 0;
   virtual void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) = 0;
 
   virtual void validate_block_is_next_proof(BlockIdExt prev_block_id, BlockIdExt next_block_id, td::BufferSlice proof,

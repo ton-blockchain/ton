@@ -1477,10 +1477,6 @@ void ValidatorEngine::alarm() {
       }
       for (auto &x : to_del) {
         config_.config_del_validator_permanent_key(x);
-        if (!validator_manager_.empty()) {
-          td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::del_permanent_key, x,
-                                  [](td::Result<>) {});
-        }
         if (!full_node_.empty()) {
           td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::del_permanent_key, x,
                                   [](td::Result<>) {});
@@ -2328,9 +2324,6 @@ void ValidatorEngine::start_validator() {
       validator_options_, db_root_, keyring_.get(), adnl_.get(), rldp2_.get(), quic_.get(), overlay_manager_.get());
 
   for (auto &v : config_.validators) {
-    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_permanent_key, v.first,
-                            [](td::Result<>) {});
-
     for (auto &t : v.second.temp_keys) {
       td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_temp_key, t.first,
                               [](td::Result<>) {});
@@ -2595,10 +2588,6 @@ void ValidatorEngine::try_add_validator_permanent_key(ton::PublicKeyHash key_has
   auto ig = mp.init_guard();
   ig.add_promise(std::move(promise));
 
-  if (!validator_manager_.empty()) {
-    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_permanent_key, key_hash,
-                            ig.get_promise());
-  }
   if (!full_node_.empty()) {
     td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, key_hash,
                             ig.get_promise());
@@ -2787,10 +2776,6 @@ void ValidatorEngine::try_del_validator_permanent_key(ton::PublicKeyHash pub, td
     return;
   }
 
-  if (!validator_manager_.empty()) {
-    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::del_permanent_key, pub,
-                            [](td::Result<>) {});
-  }
   if (!full_node_.empty()) {
     td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::del_permanent_key, pub,
                             [](td::Result<>) {});

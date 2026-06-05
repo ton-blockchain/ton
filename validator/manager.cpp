@@ -2433,7 +2433,7 @@ void ValidatorManagerImpl::update_shards() {
       PublicKeyHash key_hash = ValidatorFullId{val.key}.compute_short_id();
       adnl::AdnlNodeIdShort adnl_id{val.addr.is_zero() ? key_hash.bits256_value() : val.addr};
       overlay_members.push_back(adnl_id);
-      if (temp_keys_.count(key_hash) || permanent_keys_.count(key_hash)) {
+      if (validator_keys_.count(key_hash)) {
         local_key_to_adnl.emplace(key_hash, adnl_id);
       }
     }
@@ -3099,7 +3099,7 @@ void ValidatorManagerImpl::get_archive_slice(td::uint64 archive_id, td::uint64 o
 }
 
 bool ValidatorManagerImpl::is_validator() {
-  return temp_keys_.size() > 0 || permanent_keys_.size() > 0;
+  return validator_keys_.size() > 0;
 }
 
 bool ValidatorManagerImpl::validating_masterchain() {
@@ -3109,7 +3109,7 @@ bool ValidatorManagerImpl::validating_masterchain() {
 }
 
 PublicKeyHash ValidatorManagerImpl::get_validator(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set) {
-  for (auto &key : temp_keys_) {
+  for (auto &key : validator_keys_) {
     if (val_set->is_validator(key.bits256_value())) {
       return key;
     }
