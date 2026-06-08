@@ -141,6 +141,14 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   overlay::OverlayIdFull overlay_id_full_;
   overlay::OverlayIdShort overlay_id_;
 
+  std::vector<adnl::AdnlNodeIdShort> custom_download_peers() const;
+  void download_block_from_custom_peers(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
+                                        std::vector<adnl::AdnlNodeIdShort> peers, size_t offset,
+                                        td::Promise<ReceivedBlock> promise);
+  void download_next_block_from_custom_peers(BlockIdExt prev_id, td::uint32 priority, td::Timestamp timeout,
+                                             std::vector<adnl::AdnlNodeIdShort> peers, size_t offset,
+                                             td::Promise<ReceivedBlock> promise);
+
   void try_init();
   void init();
 };

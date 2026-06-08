@@ -219,7 +219,7 @@ void FullNodeShardImpl::try_get_next_block(td::Timestamp timeout, td::Promise<Re
                                 std::move(promise));
       });
   td::actor::send_closure(full_node_, &FullNode::download_next_block, handle_->id(), download_next_priority(),
-                          td::Timestamp::in(0.5), std::move(P));
+                          td::Timestamp::in(1.0), std::move(P));
 }
 
 void FullNodeShardImpl::try_get_next_block_from_public_overlay(td::Timestamp timeout,

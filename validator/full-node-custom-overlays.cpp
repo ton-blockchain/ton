@@ -474,6 +474,90 @@ void FullNodeCustomOverlay::send_shard_block_info(BlockIdExt block_id, CatchainS
   }
 }
 
+std::vector<adnl::AdnlNodeIdShort> FullNodeCustomOverlay::custom_download_peers() const {
+  std::vector<adnl::AdnlNodeIdShort> peers;
+  auto add_peer = [&](adnl::AdnlNodeIdShort peer) {
+    if (peer.is_zero() || peer == local_id_) {
+      return;
+    }
+    if (std::find(peers.begin(), peers.end(), peer) == peers.end()) {
+      peers.push_back(peer);
+    }
+  };
+  for (auto peer : block_senders_) {
+    add_peer(peer);
+  }
+  for (auto peer : nodes_) {
+    add_peer(peer);
+  }
+  return peers;
+}
+
+void FullNodeCustomOverlay::download_block_from_custom_peers(BlockIdExt id, td::uint32 priority,
+                                                             td::Timestamp timeout,
+                                                             std::vector<adnl::AdnlNodeIdShort> peers, size_t offset,
+                                                             td::Promise<ReceivedBlock> promise) {
+  if (offset >= peers.size()) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "no custom overlay peer has this block"));
+    return;
+  }
+  if (timeout.is_in_past()) {
+    promise.set_error(td::Status::Error(ErrorCode::timeout, "custom overlay block download timeout"));
+    return;
+  }
+  auto peer = peers[offset];
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), id, priority, timeout, peers = std::move(peers),
+                                       offset, promise = std::move(promise),
+                                       peer](td::Result<ReceivedBlock> R) mutable {
+    if (R.is_ok()) {
+      promise.set_value(R.move_as_ok());
+      return;
+    }
+    VLOG(FULL_NODE_DEBUG) << "failed to download block " << id.to_str() << " from custom overlay peer " << peer
+                          << ": " << R.move_as_error();
+    td::actor::send_closure(SelfId, &FullNodeCustomOverlay::download_block_from_custom_peers, id, priority, timeout,
+                            std::move(peers), offset + 1, std::move(promise));
+  });
+  td::actor::create_actor<DownloadBlockNew>(
+      "customdownloadreq", id, local_id_, overlay_id_, peer, priority, timeout, validator_manager_,
+      td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
+      td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(P))
+      .release();
+}
+
+void FullNodeCustomOverlay::download_next_block_from_custom_peers(BlockIdExt prev_id, td::uint32 priority,
+                                                                  td::Timestamp timeout,
+                                                                  std::vector<adnl::AdnlNodeIdShort> peers,
+                                                                  size_t offset,
+                                                                  td::Promise<ReceivedBlock> promise) {
+  if (offset >= peers.size()) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "no custom overlay peer has next block"));
+    return;
+  }
+  if (timeout.is_in_past()) {
+    promise.set_error(td::Status::Error(ErrorCode::timeout, "custom overlay next block download timeout"));
+    return;
+  }
+  auto peer = peers[offset];
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), prev_id, priority, timeout, peers = std::move(peers),
+                                       offset, promise = std::move(promise),
+                                       peer](td::Result<ReceivedBlock> R) mutable {
+    if (R.is_ok()) {
+      promise.set_value(R.move_as_ok());
+      return;
+    }
+    VLOG(FULL_NODE_DEBUG) << "failed to download next block after " << prev_id.to_str()
+                          << " from custom overlay peer " << peer << ": " << R.move_as_error();
+    td::actor::send_closure(SelfId, &FullNodeCustomOverlay::download_next_block_from_custom_peers, prev_id, priority,
+                            timeout, std::move(peers), offset + 1, std::move(promise));
+  });
+  td::actor::create_actor<DownloadBlockNew>(
+      "customdownloadnext", local_id_, overlay_id_, prev_id, peer, priority, timeout, validator_manager_,
+      td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
+      td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(P))
+      .release();
+}
+
 void FullNodeCustomOverlay::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                            td::Promise<ReceivedBlock> promise) {
   if (!inited_) {
@@ -484,12 +568,10 @@ void FullNodeCustomOverlay::download_block(BlockIdExt id, td::uint32 priority, t
     promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay does not serve shard"));
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Trying custom overlay \"" << name_ << "\" block " << id.to_str();
-  td::actor::create_actor<DownloadBlockNew>(
-      "customdownloadreq", id, local_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), priority, timeout,
-      validator_manager_, td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
-      td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(promise))
-      .release();
+  auto peers = custom_download_peers();
+  VLOG(FULL_NODE_DEBUG) << "Trying custom overlay \"" << name_ << "\" block " << id.to_str() << " from "
+                        << peers.size() << " peers";
+  download_block_from_custom_peers(id, priority, timeout, std::move(peers), 0, std::move(promise));
 }
 
 void FullNodeCustomOverlay::download_next_block(BlockIdExt prev_id, td::uint32 priority, td::Timestamp timeout,
@@ -502,12 +584,10 @@ void FullNodeCustomOverlay::download_next_block(BlockIdExt prev_id, td::uint32 p
     promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay does not serve shard"));
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Trying custom overlay \"" << name_ << "\" next block after " << prev_id.to_str();
-  td::actor::create_actor<DownloadBlockNew>(
-      "customdownloadnext", local_id_, overlay_id_, prev_id, adnl::AdnlNodeIdShort::zero(), priority, timeout,
-      validator_manager_, td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
-      td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(promise))
-      .release();
+  auto peers = custom_download_peers();
+  VLOG(FULL_NODE_DEBUG) << "Trying custom overlay \"" << name_ << "\" next block after " << prev_id.to_str()
+                        << " from " << peers.size() << " peers";
+  download_next_block_from_custom_peers(prev_id, priority, timeout, std::move(peers), 0, std::move(promise));
 }
 
 void FullNodeCustomOverlay::download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
