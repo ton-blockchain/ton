@@ -17,8 +17,11 @@
 #pragma once
 
 #include <fstream>
+#include <memory>
 
+#include "common/errorcode.h"
 #include "full-node.h"
+#include "rate-limiter.h"
 #include "validator-telemetry.hpp"
 
 namespace ton::validator::fullnode {
@@ -42,6 +45,18 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
 
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getShardArchiveInfo &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
+                     td::Promise<td::BufferSlice> promise);
+  template <class T>
+  void process_query(adnl::AdnlNodeIdShort, T &, td::Promise<td::BufferSlice> promise) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "unsupported custom overlay query"));
+  }
+  void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
+
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
     VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
@@ -53,6 +68,8 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
+  void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
+                        td::Timestamp timeout, td::Promise<std::string> promise);
 
   void set_config(FullNodeConfig config) {
     opts_.config_ = std::move(config);
@@ -66,12 +83,13 @@ class FullNodeCustomOverlay : public td::actor::Actor {
                         td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
                         td::actor::ActorId<overlay::Overlays> overlays,
                         td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                        td::actor::ActorId<FullNode> full_node)
+                        td::actor::ActorId<FullNode> full_node, std::shared_ptr<RateLimiter<>> limiter)
       : local_id_(local_id)
       , name_(std::move(params.name_))
       , nodes_(std::move(params.nodes_))
       , msg_senders_(std::move(params.msg_senders_))
       , block_senders_(std::move(params.block_senders_))
+      , sender_shards_(std::move(params.sender_shards_))
       , zero_state_file_hash_(zero_state_file_hash)
       , opts_(opts)
       , keyring_(keyring)
@@ -79,7 +97,8 @@ class FullNodeCustomOverlay : public td::actor::Actor {
       , adnl_sender_(adnl_sender)
       , overlays_(overlays)
       , validator_manager_(validator_manager)
-      , full_node_(full_node) {
+      , full_node_(full_node)
+      , limiter_(std::move(limiter)) {
   }
 
  private:
@@ -88,6 +107,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   std::vector<adnl::AdnlNodeIdShort> nodes_;
   std::map<adnl::AdnlNodeIdShort, int> msg_senders_;
   std::set<adnl::AdnlNodeIdShort> block_senders_;
+  std::vector<ShardIdFull> sender_shards_;
   FileHash zero_state_file_hash_;
   FullNodeOptions opts_;
 
@@ -97,6 +117,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<FullNode> full_node_;
+  std::shared_ptr<RateLimiter<>> limiter_;
 
   bool inited_ = false;
   overlay::OverlayIdFull overlay_id_full_;

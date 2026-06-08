@@ -18,6 +18,8 @@
 */
 #pragma once
 
+#include <vector>
+
 #include "adnl/adnl-ext-client.h"
 #include "overlay/overlays.h"
 #include "td/utils/port/FileFd.h"
@@ -38,17 +40,20 @@ class DownloadArchiveSlice : public td::actor::Actor {
                        td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                        td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
                        td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
-                       td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<std::string> promise);
+                       td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<std::string> promise,
+                       std::vector<adnl::AdnlNodeIdShort> download_from_list = {},
+                       bool use_sender_for_prepare_query = false);
 
   void abort_query(td::Status reason);
   void alarm() override;
   void finish_query();
 
   void start_up() override;
-  void got_node_to_download(adnl::AdnlNodeIdShort node);
+  void got_node_to_download(std::vector<adnl::AdnlNodeIdShort> node);
   void got_archive_info(td::BufferSlice data);
   void get_archive_slice();
   void got_archive_slice(td::BufferSlice data);
+  void try_download(int index);
 
   static constexpr td::uint32 slice_size() {
     return 1 << 21;
@@ -64,8 +69,10 @@ class DownloadArchiveSlice : public td::actor::Actor {
   overlay::OverlayIdShort overlay_id_;
   td::uint64 offset_ = 0;
   td::uint64 archive_id_;
+  bool original_zero_download_ = true;
 
   adnl::AdnlNodeIdShort download_from_ = adnl::AdnlNodeIdShort::zero();
+  std::vector<adnl::AdnlNodeIdShort> download_from_list_;
 
   td::Timestamp timeout_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
@@ -74,6 +81,7 @@ class DownloadArchiveSlice : public td::actor::Actor {
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<std::string> promise_;
+  bool use_sender_for_prepare_query_ = false;
 
   td::uint64 prev_logged_sum_ = 0;
   td::Timer prev_logged_timer_;

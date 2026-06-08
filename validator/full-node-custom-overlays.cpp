@@ -14,12 +14,16 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <algorithm>
+
 #include "auto/tl/ton_api_json.h"
 #include "common/checksum.h"
 #include "common/delay.h"
+#include "net/download-archive-slice.hpp"
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
 #include "ton/ton-io.hpp"
+#include "ton/ton-shard.h"
 #include "ton/ton-tl.hpp"
 
 #include "full-node-custom-overlays.hpp"
@@ -30,6 +34,29 @@ namespace ton::validator::fullnode {
 namespace {
 
 constexpr const char *k_called_from_custom = "custom";
+constexpr td::uint32 k_heavy_request_cost_unit = 1 << 21;
+
+size_t heavy_request_cost(td::uint64 requested_max_size) {
+  size_t cost = static_cast<size_t>((requested_max_size + k_heavy_request_cost_unit - 1) / k_heavy_request_cost_unit);
+  return cost == 0 ? 1 : cost;
+}
+
+size_t request_cost_for_custom_overlay_query(ton_api::Function &function) {
+  size_t cost = 1;
+  ton_api::downcast_call(function, td::overloaded(
+                                       [&](const ton_api::tonNode_getArchiveSlice &query) {
+                                         cost = heavy_request_cost(
+                                             query.max_size_ > 0 ? static_cast<td::uint64>(query.max_size_) : 0);
+                                       },
+                                       [&](const auto &) {}));
+  return cost;
+}
+
+bool custom_overlay_serves_shard(const std::vector<ShardIdFull> &sender_shards, const ShardIdFull &shard) {
+  return sender_shards.empty() ||
+         std::any_of(sender_shards.begin(), sender_shards.end(),
+                     [&](const ShardIdFull &our_shard) { return shard_intersects(shard, our_shard); });
+}
 
 }  // namespace
 
@@ -208,6 +235,71 @@ void FullNodeCustomOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice
   ton_api::downcast_call(*B.move_as_ok(), [src, Self = this](auto &obj) { Self->process_broadcast(src, obj); });
 }
 
+void FullNodeCustomOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveInfo &query,
+                                          td::Promise<td::BufferSlice> promise) {
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::uint64> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveNotFound>());
+    } else {
+      promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveInfo>(R.move_as_ok()));
+    }
+  });
+  VLOG(FULL_NODE_DEBUG) << "Got custom overlay getArchiveInfo " << query.masterchain_seqno_ << " from " << src;
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_id, query.masterchain_seqno_,
+                          ShardIdFull{masterchainId}, std::move(P));
+}
+
+void FullNodeCustomOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getShardArchiveInfo &query,
+                                          td::Promise<td::BufferSlice> promise) {
+  ShardIdFull shard_prefix = create_shard_id(query.shard_prefix_);
+  VLOG(FULL_NODE_DEBUG) << "Got custom overlay getShardArchiveInfo " << query.masterchain_seqno_ << " "
+                        << shard_prefix.to_str() << " from " << src;
+  if (!custom_overlay_serves_shard(sender_shards_, shard_prefix)) {
+    promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveNotFound>());
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([promise = std::move(promise)](td::Result<td::uint64> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveNotFound>());
+    } else {
+      promise.set_value(create_serialize_tl_object<ton_api::tonNode_archiveInfo>(R.move_as_ok()));
+    }
+  });
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_id, query.masterchain_seqno_,
+                          shard_prefix, std::move(P));
+}
+
+void FullNodeCustomOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
+                                          td::Promise<td::BufferSlice> promise) {
+  VLOG(FULL_NODE_DEBUG) << "Got custom overlay getArchiveSlice " << query.archive_id_ << " " << query.offset_ << " "
+                        << query.max_size_ << " from " << src;
+  if (query.max_size_ < 0 || query.max_size_ > (1 << 24)) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "invalid max_size"));
+    return;
+  }
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_archive_slice, query.archive_id_,
+                          query.offset_, query.max_size_, std::move(promise));
+}
+
+void FullNodeCustomOverlay::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
+                                          td::Promise<td::BufferSlice> promise) {
+  if (std::find(nodes_.begin(), nodes_.end(), src) == nodes_.end()) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "custom overlay peer is not authorized"));
+    return;
+  }
+  auto B = fetch_tl_object<ton_api::Function>(std::move(query), true);
+  if (B.is_error()) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot parse custom overlay tonnode query"));
+    return;
+  }
+  auto fun_ptr = B.move_as_ok();
+  if (limiter_ && !limiter_->check_in(fun_ptr->get_id(), request_cost_for_custom_overlay_query(*fun_ptr))) {
+    promise.set_error(td::Status::Error(ErrorCode::failure, "too many custom overlay archive requests"));
+    return;
+  }
+  ton_api::downcast_call(*fun_ptr.get(), [&](auto &obj) { this->process_query(src, obj, std::move(promise)); });
+}
+
 void FullNodeCustomOverlay::send_external_message(td::BufferSlice data) {
   if (!inited_ || opts_.config_.ext_messages_broadcast_disabled_) {
     return;
@@ -262,6 +354,38 @@ void FullNodeCustomOverlay::send_shard_block_info(BlockIdExt block_id, CatchainS
   }
 }
 
+void FullNodeCustomOverlay::download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
+                                             std::string tmp_dir, td::Timestamp timeout,
+                                             td::Promise<std::string> promise) {
+  if (!inited_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay is not ready"));
+    return;
+  }
+  if (!custom_overlay_serves_shard(sender_shards_, shard_prefix)) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay does not serve shard"));
+    return;
+  }
+  std::vector<adnl::AdnlNodeIdShort> peers;
+  for (const auto &node : nodes_) {
+    if (node != local_id_) {
+      peers.push_back(node);
+    }
+  }
+  if (peers.empty()) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay has no remote peers"));
+    return;
+  }
+  LOG(INFO) << "Trying custom overlay \"" << name_ << "\" archive slice #" << masterchain_seqno << " "
+            << shard_prefix.to_str() << " from " << peers.size() << " peers";
+  td::actor::create_actor<DownloadArchiveSlice>(
+      PSTRING() << "customarchive." << masterchain_seqno, masterchain_seqno, shard_prefix, std::move(tmp_dir),
+      local_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), timeout, validator_manager_,
+      td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
+      td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(promise), std::move(peers),
+      true /* use_sender_for_prepare_query */)
+      .release();
+}
+
 void FullNodeCustomOverlay::start_up() {
   std::sort(nodes_.begin(), nodes_.end());
   nodes_.erase(std::unique(nodes_.begin(), nodes_.end()), nodes_.end());
@@ -302,6 +426,7 @@ void FullNodeCustomOverlay::init() {
     }
     void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
                        td::Promise<td::BufferSlice> promise) override {
+      td::actor::send_closure(node_, &FullNodeCustomOverlay::receive_query, src, std::move(data), std::move(promise));
     }
     void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
       td::actor::send_closure(node_, &FullNodeCustomOverlay::receive_broadcast, src, std::move(data));

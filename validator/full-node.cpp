@@ -470,6 +470,38 @@ void FullNodeImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeou
 
 void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                                     td::Timestamp timeout, td::Promise<std::string> promise) {
+  if (client_.empty()) {
+    for (auto &[name, custom_overlay] : custom_overlays_) {
+      if (!custom_overlay.params_.send_shard(shard_prefix)) {
+        continue;
+      }
+      for (auto &[local_id, actor] : custom_overlay.actors_) {
+        auto P = td::PromiseCreator::lambda(
+            [SelfId = actor_id(this), masterchain_seqno, shard_prefix, tmp_dir = tmp_dir, timeout,
+             promise = std::move(promise), name](td::Result<std::string> R) mutable {
+              if (R.is_ok()) {
+                promise.set_value(R.move_as_ok());
+                return;
+              }
+              LOG(INFO) << "failed to download archive slice #" << masterchain_seqno << " " << shard_prefix.to_str()
+                        << " from custom overlay \"" << name << "\": " << R.move_as_error()
+                        << "; falling back to public overlay";
+              td::actor::send_closure(SelfId, &FullNodeImpl::download_archive_from_public_overlay,
+                                      masterchain_seqno, shard_prefix, std::move(tmp_dir), timeout,
+                                      std::move(promise));
+            });
+        td::actor::send_closure(actor, &FullNodeCustomOverlay::download_archive, masterchain_seqno, shard_prefix,
+                                std::move(tmp_dir), timeout, std::move(P));
+        return;
+      }
+    }
+  }
+  download_archive_from_public_overlay(masterchain_seqno, shard_prefix, std::move(tmp_dir), timeout, std::move(promise));
+}
+
+void FullNodeImpl::download_archive_from_public_overlay(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
+                                                        std::string tmp_dir, td::Timestamp timeout,
+                                                        td::Promise<std::string> promise) {
   auto shard = get_shard(shard_prefix, /* historical = */ true);
   if (shard.empty()) {
     VLOG(FULL_NODE_WARNING) << "dropping download archive query to unknown shard";
@@ -781,7 +813,7 @@ void FullNodeImpl::update_custom_overlay(CustomOverlayInfo &overlay) {
         auto adnl_sender = (params.use_quic_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_);
         overlay.actors_[local_id] = td::actor::create_actor<FullNodeCustomOverlay>(
             "CustomOverlay", local_id, params, zero_state_file_hash_, opts_, keyring_, adnl_, adnl_sender, overlays_,
-            validator_manager_, actor_id(this));
+            validator_manager_, actor_id(this), limiter_);
       }
     }
   };

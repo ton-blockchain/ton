@@ -35,7 +35,8 @@ DownloadArchiveSlice::DownloadArchiveSlice(
     overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::Timestamp timeout,
     td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<std::string> promise)
+    td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<std::string> promise,
+    std::vector<adnl::AdnlNodeIdShort> download_from_list, bool use_sender_for_prepare_query)
     : masterchain_seqno_(masterchain_seqno)
     , shard_prefix_(shard_prefix)
     , tmp_dir_(std::move(tmp_dir))
@@ -48,7 +49,12 @@ DownloadArchiveSlice::DownloadArchiveSlice(
     , overlays_(overlays)
     , adnl_(adnl)
     , client_(client)
-    , promise_(std::move(promise)) {
+    , promise_(std::move(promise))
+    , use_sender_for_prepare_query_(use_sender_for_prepare_query) {
+  if (!download_from.is_zero() || !download_from_list.empty()) {
+    original_zero_download_ = false;
+  }
+  download_from_list_ = std::move(download_from_list);
 }
 
 void DownloadArchiveSlice::abort_query(td::Status reason) {
@@ -86,7 +92,9 @@ void DownloadArchiveSlice::start_up() {
   fd_ = std::move(r.first);
   tmp_name_ = std::move(r.second);
 
-  if (download_from_.is_zero() && client_.empty()) {
+  if (!download_from_list_.empty()) {
+    got_node_to_download(std::move(download_from_list_));
+  } else if (download_from_.is_zero() && client_.empty()) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<adnl::AdnlNodeIdShort>> R) {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &DownloadArchiveSlice::abort_query, R.move_as_error());
@@ -96,7 +104,7 @@ void DownloadArchiveSlice::start_up() {
           td::actor::send_closure(SelfId, &DownloadArchiveSlice::abort_query,
                                   td::Status::Error(ErrorCode::notready, "no nodes"));
         } else {
-          td::actor::send_closure(SelfId, &DownloadArchiveSlice::got_node_to_download, vec[0]);
+          td::actor::send_closure(SelfId, &DownloadArchiveSlice::got_node_to_download, std::move(vec));
         }
       }
     });
@@ -104,16 +112,37 @@ void DownloadArchiveSlice::start_up() {
     td::actor::send_closure(overlays_, &overlay::Overlays::get_overlay_random_peers, local_id_, overlay_id_, 1,
                             std::move(P));
   } else {
-    got_node_to_download(download_from_);
+    std::vector<adnl::AdnlNodeIdShort> tmp;
+    tmp.emplace_back(download_from_);
+    got_node_to_download(std::move(tmp));
   }
 }
 
-void DownloadArchiveSlice::got_node_to_download(adnl::AdnlNodeIdShort download_from) {
-  download_from_ = download_from;
+void DownloadArchiveSlice::got_node_to_download(std::vector<adnl::AdnlNodeIdShort> download_from) {
+  if (download_from.empty()) {
+    abort_query(td::Status::Error(ErrorCode::notready, "no nodes"));
+    return;
+  }
+  download_from_list_ = std::move(download_from);
+  try_download(0);
+}
 
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
+void DownloadArchiveSlice::try_download(int index) {
+  download_from_ = download_from_list_[index];
+
+  if (index > 0) {
+    LOG(WARNING) << "Try to download archive slice from random node #" << index << " : " << download_from_;
+  }
+
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), index,
+                                       total_nodes = static_cast<int>(download_from_list_.size())](
+                                          td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
-      td::actor::send_closure(SelfId, &DownloadArchiveSlice::abort_query, R.move_as_error());
+      if (index + 1 >= total_nodes) {
+        td::actor::send_closure(SelfId, &DownloadArchiveSlice::abort_query, R.move_as_error());
+      } else {
+        td::actor::send_closure(SelfId, &DownloadArchiveSlice::try_download, index + 1);
+      }
     } else {
       td::actor::send_closure(SelfId, &DownloadArchiveSlice::got_archive_info, R.move_as_ok());
     }
@@ -127,12 +156,18 @@ void DownloadArchiveSlice::got_node_to_download(adnl::AdnlNodeIdShort download_f
                                                                          create_tl_shard_id(shard_prefix_));
   }
   if (client_.empty()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_query, download_from_, local_id_, overlay_id_,
-                            "get_archive_info", std::move(P), td::Timestamp::in(3.0), std::move(q));
+    if (use_sender_for_prepare_query_) {
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
+                              "get_archive_info", std::move(P), td::Timestamp::in(5.0), std::move(q),
+                              adnl::Adnl::huge_packet_max_size(), rldp_);
+    } else {
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query, download_from_, local_id_, overlay_id_,
+                              "get_archive_info", std::move(P), td::Timestamp::in(5.0), std::move(q));
+    }
   } else {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "get_archive_info",
                             create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(q)),
-                            td::Timestamp::in(1.0), std::move(P));
+                            td::Timestamp::in(3.0), std::move(P));
   }
 }
 
