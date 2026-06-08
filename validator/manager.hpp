@@ -30,6 +30,7 @@
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
 #include "metrics/prometheus-exporter.h"
+#include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
 #include "td/actor/MultiPromise.h"
