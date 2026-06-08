@@ -131,6 +131,11 @@ void ShardClient::saved_to_db() {
   if (!started_) {
     return;
   }
+  waiting_ = true;
+  if (try_apply_pending_masterchain_block()) {
+    return;
+  }
+  waiting_ = false;
   if (masterchain_block_handle_->inited_next_left()) {
     new_masterchain_block_id(masterchain_block_handle_->one_next(true));
   } else {
@@ -228,20 +233,51 @@ void ShardClient::downloaded_shard_state(td::Ref<ShardState> state, td::Promise<
 }
 
 void ShardClient::new_masterchain_block_notification(BlockHandle handle, td::Ref<MasterchainState> state) {
-  if (!waiting_) {
+  if (!masterchain_block_handle_ || handle->id().id.seqno <= masterchain_block_handle_->id().id.seqno) {
     return;
   }
-  if (handle->id().id.seqno <= masterchain_block_handle_->id().id.seqno) {
-    return;
+  pending_masterchain_notifications_[handle->id().id.seqno] = std::make_pair(std::move(handle), std::move(state));
+  prune_pending_masterchain_notifications();
+  if (waiting_) {
+    try_apply_pending_masterchain_block();
   }
-  LOG_CHECK(masterchain_block_handle_->inited_next_left()) << handle->id() << " " << masterchain_block_handle_->id();
-  LOG_CHECK(masterchain_block_handle_->one_next(true) == handle->id())
-      << handle->id() << " " << masterchain_block_handle_->id();
-  masterchain_block_handle_ = std::move(handle);
-  masterchain_state_ = std::move(state);
-  waiting_ = false;
+}
 
+bool ShardClient::try_apply_pending_masterchain_block() {
+  if (!waiting_ || !masterchain_block_handle_ || !masterchain_block_handle_->inited_next_left()) {
+    return false;
+  }
+  auto next_id = masterchain_block_handle_->one_next(true);
+  auto it = pending_masterchain_notifications_.find(next_id.id.seqno);
+  if (it == pending_masterchain_notifications_.end()) {
+    return false;
+  }
+  if (it->second.first->id() != next_id) {
+    LOG(WARNING) << "dropping buffered masterchain notification " << it->second.first->id().to_str()
+                 << ", expected " << next_id.to_str();
+    pending_masterchain_notifications_.erase(it);
+    return false;
+  }
+  VLOG(VALIDATOR_DEBUG) << "using buffered masterchain notification " << next_id.to_str();
+  masterchain_block_handle_ = std::move(it->second.first);
+  masterchain_state_ = std::move(it->second.second);
+  pending_masterchain_notifications_.erase(it);
+  waiting_ = false;
   apply_all_shards();
+  return true;
+}
+
+void ShardClient::prune_pending_masterchain_notifications() {
+  if (masterchain_block_handle_) {
+    auto current_seqno = masterchain_block_handle_->id().id.seqno;
+    while (!pending_masterchain_notifications_.empty() &&
+           pending_masterchain_notifications_.begin()->first <= current_seqno) {
+      pending_masterchain_notifications_.erase(pending_masterchain_notifications_.begin());
+    }
+  }
+  while (pending_masterchain_notifications_.size() > MAX_PENDING_MASTERCHAIN_NOTIFICATIONS) {
+    pending_masterchain_notifications_.erase(std::prev(pending_masterchain_notifications_.end()));
+  }
 }
 
 void ShardClient::get_processed_masterchain_block(td::Promise<BlockSeqno> promise) {

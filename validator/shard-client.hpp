@@ -18,6 +18,9 @@
 */
 #pragma once
 
+#include <cstddef>
+#include <iterator>
+#include <map>
 #include <set>
 
 #include "interfaces/validator-manager.h"
@@ -32,11 +35,13 @@ class ShardClient : public td::actor::Actor {
     BlockIdExt shard;
     td::uint32 split_depth;
   };
+  static constexpr std::size_t MAX_PENDING_MASTERCHAIN_NOTIFICATIONS = 16;
 
   td::Ref<ValidatorManagerOptions> opts_;
 
   BlockHandle masterchain_block_handle_;
   td::Ref<MasterchainState> masterchain_state_;
+  std::map<BlockSeqno, std::pair<BlockHandle, td::Ref<MasterchainState>>> pending_masterchain_notifications_;
 
   std::vector<td::actor::ActorOwn<ShardClient>> children_;
 
@@ -86,6 +91,8 @@ class ShardClient : public td::actor::Actor {
   void saved_to_db();
 
   void new_masterchain_block_notification(BlockHandle handle, td::Ref<MasterchainState> state);
+  bool try_apply_pending_masterchain_block();
+  void prune_pending_masterchain_notifications();
 
   void get_processed_masterchain_block(td::Promise<BlockSeqno> promise);
   void get_processed_masterchain_block_id(td::Promise<BlockIdExt> promise);
