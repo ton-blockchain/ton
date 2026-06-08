@@ -401,30 +401,53 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
 
 void FullNodeImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                   td::Promise<ReceivedBlock> promise) {
-  if (client_.empty()) {
-    for (auto &[name, custom_overlay] : custom_overlays_) {
-      if (!custom_overlay.params_.send_shard(id.shard_full())) {
-        continue;
-      }
-      for (auto &[local_id, actor] : custom_overlay.actors_) {
-        auto P = td::PromiseCreator::lambda(
-            [SelfId = actor_id(this), id, priority, timeout, promise = std::move(promise),
-             name](td::Result<ReceivedBlock> R) mutable {
-              if (R.is_ok()) {
-                promise.set_value(R.move_as_ok());
-                return;
-              }
-              VLOG(FULL_NODE_DEBUG) << "failed to download block " << id.to_str() << " from custom overlay \""
-                                    << name << "\": " << R.move_as_error() << "; falling back to public overlay";
-              td::actor::send_closure(SelfId, &FullNodeImpl::download_block_from_public_overlay, id, priority, timeout,
-                                      std::move(promise));
-            });
-        td::actor::send_closure(actor, &FullNodeCustomOverlay::download_block, id, priority, timeout, std::move(P));
-        return;
-      }
+  for (auto &[name, custom_overlay] : custom_overlays_) {
+    if (!custom_overlay.params_.send_shard(id.shard_full())) {
+      continue;
+    }
+    for (auto &[local_id, actor] : custom_overlay.actors_) {
+      auto P = td::PromiseCreator::lambda(
+          [SelfId = actor_id(this), id, priority, timeout, promise = std::move(promise),
+           name](td::Result<ReceivedBlock> R) mutable {
+            if (R.is_ok()) {
+              promise.set_value(R.move_as_ok());
+              return;
+            }
+            VLOG(FULL_NODE_DEBUG) << "failed to download block " << id.to_str() << " from custom overlay \""
+                                  << name << "\": " << R.move_as_error() << "; falling back to public overlay";
+            td::actor::send_closure(SelfId, &FullNodeImpl::download_block_from_public_overlay, id, priority, timeout,
+                                    std::move(promise));
+          });
+      td::actor::send_closure(actor, &FullNodeCustomOverlay::download_block, id, priority, timeout, std::move(P));
+      return;
     }
   }
   download_block_from_public_overlay(id, priority, timeout, std::move(promise));
+}
+
+void FullNodeImpl::download_next_block(BlockIdExt prev_id, td::uint32 priority, td::Timestamp timeout,
+                                       td::Promise<ReceivedBlock> promise) {
+  for (auto &[name, custom_overlay] : custom_overlays_) {
+    if (!custom_overlay.params_.send_shard(prev_id.shard_full())) {
+      continue;
+    }
+    for (auto &[local_id, actor] : custom_overlay.actors_) {
+      auto P = td::PromiseCreator::lambda(
+          [promise = std::move(promise), prev_id, name](td::Result<ReceivedBlock> R) mutable {
+            if (R.is_ok()) {
+              promise.set_value(R.move_as_ok());
+              return;
+            }
+            VLOG(FULL_NODE_DEBUG) << "failed to download next block after " << prev_id.to_str()
+                                  << " from custom overlay \"" << name << "\": " << R.move_as_error();
+            promise.set_error(R.move_as_error());
+          });
+      td::actor::send_closure(actor, &FullNodeCustomOverlay::download_next_block, prev_id, priority, timeout,
+                              std::move(P));
+      return;
+    }
+  }
+  promise.set_error(td::Status::Error(ErrorCode::notready, "no custom overlay for shard"));
 }
 
 void FullNodeImpl::download_block_from_public_overlay(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
@@ -464,29 +487,27 @@ void FullNodeImpl::download_persistent_state(BlockIdExt id, BlockIdExt mastercha
 
 void FullNodeImpl::download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                         td::Promise<td::BufferSlice> promise) {
-  if (client_.empty()) {
-    for (auto &[name, custom_overlay] : custom_overlays_) {
-      if (!custom_overlay.params_.send_shard(block_id.shard_full())) {
-        continue;
-      }
-      for (auto &[local_id, actor] : custom_overlay.actors_) {
-        auto P = td::PromiseCreator::lambda(
-            [SelfId = actor_id(this), block_id, priority, timeout, promise = std::move(promise),
-             name](td::Result<td::BufferSlice> R) mutable {
-              if (R.is_ok()) {
-                promise.set_value(R.move_as_ok());
-                return;
-              }
-              VLOG(FULL_NODE_DEBUG) << "failed to download block proof " << block_id.to_str()
-                                    << " from custom overlay \"" << name << "\": " << R.move_as_error()
-                                    << "; falling back to public overlay";
-              td::actor::send_closure(SelfId, &FullNodeImpl::download_block_proof_from_public_overlay, block_id,
-                                      priority, timeout, std::move(promise));
-            });
-        td::actor::send_closure(actor, &FullNodeCustomOverlay::download_block_proof, block_id, priority, timeout,
-                                std::move(P));
-        return;
-      }
+  for (auto &[name, custom_overlay] : custom_overlays_) {
+    if (!custom_overlay.params_.send_shard(block_id.shard_full())) {
+      continue;
+    }
+    for (auto &[local_id, actor] : custom_overlay.actors_) {
+      auto P = td::PromiseCreator::lambda(
+          [SelfId = actor_id(this), block_id, priority, timeout, promise = std::move(promise),
+           name](td::Result<td::BufferSlice> R) mutable {
+            if (R.is_ok()) {
+              promise.set_value(R.move_as_ok());
+              return;
+            }
+            VLOG(FULL_NODE_DEBUG) << "failed to download block proof " << block_id.to_str()
+                                  << " from custom overlay \"" << name << "\": " << R.move_as_error()
+                                  << "; falling back to public overlay";
+            td::actor::send_closure(SelfId, &FullNodeImpl::download_block_proof_from_public_overlay, block_id,
+                                    priority, timeout, std::move(promise));
+          });
+      td::actor::send_closure(actor, &FullNodeCustomOverlay::download_block_proof, block_id, priority, timeout,
+                              std::move(P));
+      return;
     }
   }
   download_block_proof_from_public_overlay(block_id, priority, timeout, std::move(promise));
@@ -506,29 +527,27 @@ void FullNodeImpl::download_block_proof_from_public_overlay(BlockIdExt block_id,
 
 void FullNodeImpl::download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                              td::Promise<td::BufferSlice> promise) {
-  if (client_.empty()) {
-    for (auto &[name, custom_overlay] : custom_overlays_) {
-      if (!custom_overlay.params_.send_shard(block_id.shard_full())) {
-        continue;
-      }
-      for (auto &[local_id, actor] : custom_overlay.actors_) {
-        auto P = td::PromiseCreator::lambda(
-            [SelfId = actor_id(this), block_id, priority, timeout, promise = std::move(promise),
-             name](td::Result<td::BufferSlice> R) mutable {
-              if (R.is_ok()) {
-                promise.set_value(R.move_as_ok());
-                return;
-              }
-              VLOG(FULL_NODE_DEBUG) << "failed to download block proof link " << block_id.to_str()
-                                    << " from custom overlay \"" << name << "\": " << R.move_as_error()
-                                    << "; falling back to public overlay";
-              td::actor::send_closure(SelfId, &FullNodeImpl::download_block_proof_link_from_public_overlay, block_id,
-                                      priority, timeout, std::move(promise));
-            });
-        td::actor::send_closure(actor, &FullNodeCustomOverlay::download_block_proof_link, block_id, priority, timeout,
-                                std::move(P));
-        return;
-      }
+  for (auto &[name, custom_overlay] : custom_overlays_) {
+    if (!custom_overlay.params_.send_shard(block_id.shard_full())) {
+      continue;
+    }
+    for (auto &[local_id, actor] : custom_overlay.actors_) {
+      auto P = td::PromiseCreator::lambda(
+          [SelfId = actor_id(this), block_id, priority, timeout, promise = std::move(promise),
+           name](td::Result<td::BufferSlice> R) mutable {
+            if (R.is_ok()) {
+              promise.set_value(R.move_as_ok());
+              return;
+            }
+            VLOG(FULL_NODE_DEBUG) << "failed to download block proof link " << block_id.to_str()
+                                  << " from custom overlay \"" << name << "\": " << R.move_as_error()
+                                  << "; falling back to public overlay";
+            td::actor::send_closure(SelfId, &FullNodeImpl::download_block_proof_link_from_public_overlay, block_id,
+                                    priority, timeout, std::move(promise));
+          });
+      td::actor::send_closure(actor, &FullNodeCustomOverlay::download_block_proof_link, block_id, priority, timeout,
+                              std::move(P));
+      return;
     }
   }
   download_block_proof_link_from_public_overlay(block_id, priority, timeout, std::move(promise));

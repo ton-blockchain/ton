@@ -76,6 +76,8 @@ class FullNodeImpl : public FullNode {
   void send_broadcast(BlockBroadcast broadcast, int mode);
   void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
+  void download_next_block(BlockIdExt prev_id, td::uint32 priority, td::Timestamp timeout,
+                           td::Promise<ReceivedBlock> promise) override;
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                            td::Promise<td::BufferSlice> promise);
   void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,

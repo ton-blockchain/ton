@@ -209,6 +209,26 @@ void FullNodeShardImpl::try_get_next_block(td::Timestamp timeout, td::Promise<Re
     return;
   }
 
+  auto P = td::PromiseCreator::lambda(
+      [SelfId = actor_id(this), timeout, promise = std::move(promise)](td::Result<ReceivedBlock> R) mutable {
+        if (R.is_ok()) {
+          promise.set_value(R.move_as_ok());
+          return;
+        }
+        td::actor::send_closure(SelfId, &FullNodeShardImpl::try_get_next_block_from_public_overlay, timeout,
+                                std::move(promise));
+      });
+  td::actor::send_closure(full_node_, &FullNode::download_next_block, handle_->id(), download_next_priority(),
+                          td::Timestamp::in(0.5), std::move(P));
+}
+
+void FullNodeShardImpl::try_get_next_block_from_public_overlay(td::Timestamp timeout,
+                                                               td::Promise<ReceivedBlock> promise) {
+  if (timeout.is_in_past()) {
+    promise.set_error(td::Status::Error(ErrorCode::timeout, "timeout"));
+    return;
+  }
+
   auto &b = choose_neighbour();
   td::actor::create_actor<DownloadBlockNew>("downloadnext", adnl_id_, overlay_id_, handle_->id(), b.adnl_id,
                                             download_next_priority(), timeout, validator_manager_, rldp2_, overlays_,

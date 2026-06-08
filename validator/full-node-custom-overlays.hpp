@@ -80,6 +80,8 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                       td::Promise<ReceivedBlock> promise);
+  void download_next_block(BlockIdExt prev_id, td::uint32 priority, td::Timestamp timeout,
+                           td::Promise<ReceivedBlock> promise);
   void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                             td::Promise<td::BufferSlice> promise);
   void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,

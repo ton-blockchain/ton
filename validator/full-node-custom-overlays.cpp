@@ -492,6 +492,24 @@ void FullNodeCustomOverlay::download_block(BlockIdExt id, td::uint32 priority, t
       .release();
 }
 
+void FullNodeCustomOverlay::download_next_block(BlockIdExt prev_id, td::uint32 priority, td::Timestamp timeout,
+                                                td::Promise<ReceivedBlock> promise) {
+  if (!inited_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay is not ready"));
+    return;
+  }
+  if (!custom_overlay_serves_shard(sender_shards_, prev_id.shard_full())) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay does not serve shard"));
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Trying custom overlay \"" << name_ << "\" next block after " << prev_id.to_str();
+  td::actor::create_actor<DownloadBlockNew>(
+      "customdownloadnext", local_id_, overlay_id_, prev_id, adnl::AdnlNodeIdShort::zero(), priority, timeout,
+      validator_manager_, td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
+      td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(promise))
+      .release();
+}
+
 void FullNodeCustomOverlay::download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                                  td::Promise<td::BufferSlice> promise) {
   if (!inited_) {

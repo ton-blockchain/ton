@@ -107,6 +107,8 @@ class FullNode : public td::actor::Actor {
   virtual void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                   td::BufferSlice data) = 0;
   virtual void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) = 0;
+  virtual void download_next_block(BlockIdExt prev_id, td::uint32 priority, td::Timestamp timeout,
+                                   td::Promise<ReceivedBlock> promise) = 0;
 
   virtual void set_validator_telemetry_filename(std::string value) = 0;
 
