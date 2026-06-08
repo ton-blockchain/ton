@@ -51,6 +51,16 @@ class FullNodeCustomOverlay : public td::actor::Actor {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_getArchiveSlice &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockFull &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadNextBlockFull &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareBlockProof &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProof &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProofLink &query,
+                     td::Promise<td::BufferSlice> promise);
   template <class T>
   void process_query(adnl::AdnlNodeIdShort, T &, td::Promise<td::BufferSlice> promise) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "unsupported custom overlay query"));
@@ -68,6 +78,12 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
+  void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
+                      td::Promise<ReceivedBlock> promise);
+  void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+                            td::Promise<td::BufferSlice> promise);
+  void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+                                 td::Promise<td::BufferSlice> promise);
   void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
                         td::Timestamp timeout, td::Promise<std::string> promise);
 

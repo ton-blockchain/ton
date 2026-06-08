@@ -20,6 +20,8 @@
 #include "common/checksum.h"
 #include "common/delay.h"
 #include "net/download-archive-slice.hpp"
+#include "net/download-block-new.hpp"
+#include "net/download-proof.hpp"
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
 #include "ton/ton-io.hpp"
@@ -27,6 +29,7 @@
 #include "ton/ton-tl.hpp"
 
 #include "full-node-custom-overlays.hpp"
+#include "full-node-shard-queries.hpp"
 #include "full-node-serializer.hpp"
 
 namespace ton::validator::fullnode {
@@ -47,6 +50,14 @@ size_t request_cost_for_custom_overlay_query(ton_api::Function &function) {
                                        [&](const ton_api::tonNode_getArchiveSlice &query) {
                                          cost = heavy_request_cost(
                                              query.max_size_ > 0 ? static_cast<td::uint64>(query.max_size_) : 0);
+                                       },
+                                       [&](const ton_api::tonNode_downloadBlockFull &) {
+                                         cost = heavy_request_cost(FullNode::max_proof_size() +
+                                                                   FullNode::max_block_size());
+                                       },
+                                       [&](const ton_api::tonNode_downloadNextBlockFull &) {
+                                         cost = heavy_request_cost(FullNode::max_proof_size() +
+                                                                   FullNode::max_block_size());
                                        },
                                        [&](const auto &) {}));
   return cost;
@@ -281,6 +292,115 @@ void FullNodeCustomOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::to
                           query.offset_, query.max_size_, std::move(promise));
 }
 
+void FullNodeCustomOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockFull &query,
+                                          td::Promise<td::BufferSlice> promise) {
+  BlockIdExt block_id = create_block_id(query.block_);
+  VLOG(FULL_NODE_DEBUG) << "Got custom overlay downloadBlockFull " << block_id.to_str() << " from " << src;
+  if (!custom_overlay_serves_shard(sender_shards_, block_id.shard_full())) {
+    promise.set_value(create_serialize_tl_object<ton_api::tonNode_dataFullEmpty>());
+    return;
+  }
+  td::actor::create_actor<BlockFullSender>("customsender", block_id, false, validator_manager_, std::move(promise))
+      .release();
+}
+
+void FullNodeCustomOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadNextBlockFull &query,
+                                          td::Promise<td::BufferSlice> promise) {
+  BlockIdExt block_id = create_block_id(query.prev_block_);
+  VLOG(FULL_NODE_DEBUG) << "Got custom overlay downloadNextBlockFull " << block_id.to_str() << " from " << src;
+  if (!custom_overlay_serves_shard(sender_shards_, block_id.shard_full())) {
+    promise.set_value(create_serialize_tl_object<ton_api::tonNode_dataFullEmpty>());
+    return;
+  }
+  td::actor::create_actor<BlockFullSender>("customsender", block_id, true, validator_manager_, std::move(promise))
+      .release();
+}
+
+void FullNodeCustomOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareBlockProof &query,
+                                          td::Promise<td::BufferSlice> promise) {
+  if (query.block_->seqno_ == 0) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot download proof for zero state"));
+    return;
+  }
+  BlockIdExt block_id = create_block_id(query.block_);
+  VLOG(FULL_NODE_DEBUG) << "Got custom overlay prepareBlockProof " << block_id.to_str() << " from " << src;
+  if (!custom_overlay_serves_shard(sender_shards_, block_id.shard_full())) {
+    promise.set_value(create_serialize_tl_object<ton_api::tonNode_preparedProofEmpty>());
+    return;
+  }
+  auto P = td::PromiseCreator::lambda([allow_partial = query.allow_partial_,
+                                       promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
+    if (R.is_error()) {
+      promise.set_value(create_serialize_tl_object<ton_api::tonNode_preparedProofEmpty>());
+      return;
+    }
+    auto handle = R.move_as_ok();
+    if (!handle || (!handle->inited_proof() && (!allow_partial || !handle->inited_proof_link()))) {
+      promise.set_value(create_serialize_tl_object<ton_api::tonNode_preparedProofEmpty>());
+      return;
+    }
+    if (handle->inited_proof() && handle->id().is_masterchain()) {
+      promise.set_value(create_serialize_tl_object<ton_api::tonNode_preparedProof>());
+    } else {
+      promise.set_value(create_serialize_tl_object<ton_api::tonNode_preparedProofLink>());
+    }
+  });
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle, block_id, false,
+                          std::move(P));
+}
+
+void FullNodeCustomOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProof &query,
+                                          td::Promise<td::BufferSlice> promise) {
+  BlockIdExt block_id = create_block_id(query.block_);
+  VLOG(FULL_NODE_DEBUG) << "Got custom overlay downloadBlockProof " << block_id.to_str() << " from " << src;
+  if (!custom_overlay_serves_shard(sender_shards_, block_id.shard_full())) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise), validator_manager = validator_manager_](td::Result<BlockHandle> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+          return;
+        }
+        auto handle = R.move_as_ok();
+        if (!handle || !handle->inited_proof()) {
+          promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+          return;
+        }
+        td::actor::send_closure(validator_manager, &ValidatorManagerInterface::get_block_proof, handle,
+                                std::move(promise));
+      });
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle, block_id, false,
+                          std::move(P));
+}
+
+void FullNodeCustomOverlay::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockProofLink &query,
+                                          td::Promise<td::BufferSlice> promise) {
+  BlockIdExt block_id = create_block_id(query.block_);
+  VLOG(FULL_NODE_DEBUG) << "Got custom overlay downloadBlockProofLink " << block_id.to_str() << " from " << src;
+  if (!custom_overlay_serves_shard(sender_shards_, block_id.shard_full())) {
+    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+    return;
+  }
+  auto P = td::PromiseCreator::lambda(
+      [promise = std::move(promise), validator_manager = validator_manager_](td::Result<BlockHandle> R) mutable {
+        if (R.is_error()) {
+          promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+          return;
+        }
+        auto handle = R.move_as_ok();
+        if (!handle || !handle->inited_proof_link()) {
+          promise.set_error(td::Status::Error(ErrorCode::protoviolation, "unknown block proof"));
+          return;
+        }
+        td::actor::send_closure(validator_manager, &ValidatorManagerInterface::get_block_proof_link, handle,
+                                std::move(promise));
+      });
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle, block_id, false,
+                          std::move(P));
+}
+
 void FullNodeCustomOverlay::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
                                           td::Promise<td::BufferSlice> promise) {
   if (std::find(nodes_.begin(), nodes_.end(), src) == nodes_.end()) {
@@ -352,6 +472,60 @@ void FullNodeCustomOverlay::send_shard_block_info(BlockIdExt block_id, CatchainS
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                             local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
   }
+}
+
+void FullNodeCustomOverlay::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
+                                           td::Promise<ReceivedBlock> promise) {
+  if (!inited_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay is not ready"));
+    return;
+  }
+  if (!custom_overlay_serves_shard(sender_shards_, id.shard_full())) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay does not serve shard"));
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Trying custom overlay \"" << name_ << "\" block " << id.to_str();
+  td::actor::create_actor<DownloadBlockNew>(
+      "customdownloadreq", id, local_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), priority, timeout,
+      validator_manager_, td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
+      td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(promise))
+      .release();
+}
+
+void FullNodeCustomOverlay::download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+                                                 td::Promise<td::BufferSlice> promise) {
+  if (!inited_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay is not ready"));
+    return;
+  }
+  if (!custom_overlay_serves_shard(sender_shards_, block_id.shard_full())) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay does not serve shard"));
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Trying custom overlay \"" << name_ << "\" block proof " << block_id.to_str();
+  td::actor::create_actor<DownloadProof>(
+      "customdownloadproof", block_id, false, false, local_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), priority,
+      timeout, validator_manager_, td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
+      td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(promise))
+      .release();
+}
+
+void FullNodeCustomOverlay::download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+                                                      td::Promise<td::BufferSlice> promise) {
+  if (!inited_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay is not ready"));
+    return;
+  }
+  if (!custom_overlay_serves_shard(sender_shards_, block_id.shard_full())) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay does not serve shard"));
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Trying custom overlay \"" << name_ << "\" block proof link " << block_id.to_str();
+  td::actor::create_actor<DownloadProof>(
+      "customdownloadproof", block_id, true, false, local_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), priority,
+      timeout, validator_manager_, td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
+      td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(promise))
+      .release();
 }
 
 void FullNodeCustomOverlay::download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,

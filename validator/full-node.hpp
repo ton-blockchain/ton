@@ -135,6 +135,12 @@ class FullNodeImpl : public FullNode {
 
   td::actor::ActorId<FullNodeShard> get_shard(AccountIdPrefixFull dst);
   td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard, bool historical = false);
+  void download_block_from_public_overlay(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
+                                          td::Promise<ReceivedBlock> promise);
+  void download_block_proof_from_public_overlay(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+                                                td::Promise<td::BufferSlice> promise);
+  void download_block_proof_link_from_public_overlay(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
+                                                     td::Promise<td::BufferSlice> promise);
   void download_archive_from_public_overlay(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
                                             std::string tmp_dir, td::Timestamp timeout,
                                             td::Promise<std::string> promise);
