@@ -94,6 +94,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   }
 
   void start_up() override;
+  void alarm() override;
   void tear_down() override;
 
   FullNodeCustomOverlay(adnl::AdnlNodeIdShort local_id, CustomOverlayParams params, FileHash zero_state_file_hash,
@@ -142,6 +143,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   overlay::OverlayIdShort overlay_id_;
 
   std::vector<adnl::AdnlNodeIdShort> custom_download_peers() const;
+  void prewarm_archive_peers();
   void download_block_from_custom_peers(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                         std::vector<adnl::AdnlNodeIdShort> peers, size_t offset,
                                         td::Promise<ReceivedBlock> promise);

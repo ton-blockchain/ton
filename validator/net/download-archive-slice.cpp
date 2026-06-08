@@ -36,7 +36,8 @@ DownloadArchiveSlice::DownloadArchiveSlice(
     td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<std::string> promise,
-    std::vector<adnl::AdnlNodeIdShort> download_from_list, bool use_sender_for_prepare_query)
+    std::vector<adnl::AdnlNodeIdShort> download_from_list, bool use_sender_for_prepare_query,
+    bool use_sender_for_slice_query, bool resolve_peers_before_download)
     : masterchain_seqno_(masterchain_seqno)
     , shard_prefix_(shard_prefix)
     , tmp_dir_(std::move(tmp_dir))
@@ -50,7 +51,9 @@ DownloadArchiveSlice::DownloadArchiveSlice(
     , adnl_(adnl)
     , client_(client)
     , promise_(std::move(promise))
-    , use_sender_for_prepare_query_(use_sender_for_prepare_query) {
+    , use_sender_for_prepare_query_(use_sender_for_prepare_query)
+    , use_sender_for_slice_query_(use_sender_for_slice_query)
+    , resolve_peers_before_download_(resolve_peers_before_download) {
   if (!download_from.is_zero() || !download_from_list.empty()) {
     original_zero_download_ = false;
   }
@@ -124,6 +127,58 @@ void DownloadArchiveSlice::got_node_to_download(std::vector<adnl::AdnlNodeIdShor
     return;
   }
   download_from_list_ = std::move(download_from);
+  if (resolve_peers_before_download_ && client_.empty()) {
+    resolve_download_peers();
+    return;
+  }
+  try_download(0);
+}
+
+void DownloadArchiveSlice::resolve_download_peers() {
+  resolved_download_from_list_.clear();
+  resolving_peers_ = download_from_list_.size();
+  if (resolving_peers_ == 0) {
+    abort_query(td::Status::Error(ErrorCode::notready, "no nodes"));
+    return;
+  }
+
+  LOG(INFO) << "Resolving " << resolving_peers_ << " archive download peers via DHT for slice #"
+            << masterchain_seqno_ << " " << shard_prefix_.to_str();
+  for (const auto &peer : download_from_list_) {
+    td::actor::send_closure(
+        adnl_, &adnl::Adnl::get_peer_node, local_id_, peer,
+        [SelfId = actor_id(this), peer](td::Result<adnl::AdnlNode> R) mutable {
+          td::actor::send_closure(SelfId, &DownloadArchiveSlice::got_resolved_download_peer, peer, std::move(R));
+        });
+  }
+}
+
+void DownloadArchiveSlice::got_resolved_download_peer(adnl::AdnlNodeIdShort peer,
+                                                      td::Result<adnl::AdnlNode> result) {
+  if (result.is_ok()) {
+    auto node = result.move_as_ok();
+    LOG(INFO) << "Resolved archive download peer " << peer << " addr_count=" << node.addr_list().size()
+              << " for slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str();
+    resolved_download_from_list_.push_back(peer);
+  } else {
+    LOG(INFO) << "Failed to resolve archive download peer " << peer << " for slice #" << masterchain_seqno_ << " "
+              << shard_prefix_.to_str() << ": " << result.move_as_error();
+  }
+
+  CHECK(resolving_peers_ > 0);
+  --resolving_peers_;
+  if (resolving_peers_ != 0) {
+    return;
+  }
+
+  if (resolved_download_from_list_.empty()) {
+    abort_query(td::Status::Error(ErrorCode::notready, "no resolved custom archive peers"));
+    return;
+  }
+
+  download_from_list_ = std::move(resolved_download_from_list_);
+  LOG(INFO) << "Trying archive slice #" << masterchain_seqno_ << " " << shard_prefix_.to_str() << " from "
+            << download_from_list_.size() << " resolved peers";
   try_download(0);
 }
 
@@ -207,9 +262,14 @@ void DownloadArchiveSlice::get_archive_slice() {
 
   auto q = create_serialize_tl_object<ton_api::tonNode_getArchiveSlice>(archive_id_, offset_, slice_size());
   if (client_.empty()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "get_archive_slice", std::move(P), td::Timestamp::in(15.0), std::move(q),
-                            slice_size() + 1024, rldp_);
+    if (use_sender_for_slice_query_) {
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
+                              "get_archive_slice", std::move(P), td::Timestamp::in(15.0), std::move(q),
+                              slice_size() + 1024, rldp_);
+    } else {
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query, download_from_, local_id_, overlay_id_,
+                              "get_archive_slice", std::move(P), td::Timestamp::in(15.0), std::move(q));
+    }
   } else {
     td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "get_archive_slice",
                             create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(q)),

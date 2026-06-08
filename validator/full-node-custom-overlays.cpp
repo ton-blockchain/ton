@@ -637,12 +637,7 @@ void FullNodeCustomOverlay::download_archive(BlockSeqno masterchain_seqno, Shard
     promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay does not serve shard"));
     return;
   }
-  std::vector<adnl::AdnlNodeIdShort> peers;
-  for (const auto &node : nodes_) {
-    if (node != local_id_) {
-      peers.push_back(node);
-    }
-  }
+  auto peers = custom_download_peers();
   if (peers.empty()) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "custom overlay has no remote peers"));
     return;
@@ -654,7 +649,8 @@ void FullNodeCustomOverlay::download_archive(BlockSeqno masterchain_seqno, Shard
       local_id_, overlay_id_, adnl::AdnlNodeIdShort::zero(), timeout, validator_manager_,
       td::actor::ActorId<adnl::AdnlSenderInterface>{adnl_sender_}, overlays_, adnl_,
       td::actor::ActorId<adnl::AdnlExtClient>{}, std::move(promise), std::move(peers),
-      true /* use_sender_for_prepare_query */)
+      false /* use_sender_for_prepare_query */, false /* use_sender_for_slice_query */,
+      true /* resolve_peers_before_download */)
       .release();
 }
 
@@ -733,6 +729,37 @@ void FullNodeCustomOverlay::init() {
       overlay_options);
 
   inited_ = true;
+  prewarm_archive_peers();
+  alarm_timestamp().relax(td::Timestamp::in(60.0));
+}
+
+void FullNodeCustomOverlay::prewarm_archive_peers() {
+  auto peers = custom_download_peers();
+  if (peers.empty()) {
+    return;
+  }
+  LOG(INFO) << "Prewarming " << peers.size() << " custom overlay \"" << name_ << "\" archive peers via DHT";
+  for (const auto &peer : peers) {
+    td::actor::send_closure(
+        adnl_, &adnl::Adnl::get_peer_node, local_id_, peer,
+        [name = name_, local_id = local_id_, peer](td::Result<adnl::AdnlNode> R) mutable {
+          if (R.is_ok()) {
+            auto node = R.move_as_ok();
+            LOG(INFO) << "Prewarmed custom overlay \"" << name << "\" peer " << peer << " for local id "
+                      << local_id << " addr_count=" << node.addr_list().size();
+          } else {
+            LOG(INFO) << "Failed to prewarm custom overlay \"" << name << "\" peer " << peer << " for local id "
+                      << local_id << ": " << R.move_as_error();
+          }
+        });
+  }
+}
+
+void FullNodeCustomOverlay::alarm() {
+  if (inited_) {
+    prewarm_archive_peers();
+    alarm_timestamp() = td::Timestamp::in(60.0);
+  }
 }
 
 void FullNodeCustomOverlay::tear_down() {

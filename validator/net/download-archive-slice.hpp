@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "adnl/adnl-ext-client.h"
+#include "adnl/adnl-node.h"
 #include "overlay/overlays.h"
 #include "td/utils/port/FileFd.h"
 #include "ton/ton-types.h"
@@ -42,7 +43,8 @@ class DownloadArchiveSlice : public td::actor::Actor {
                        td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
                        td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<std::string> promise,
                        std::vector<adnl::AdnlNodeIdShort> download_from_list = {},
-                       bool use_sender_for_prepare_query = false);
+                       bool use_sender_for_prepare_query = false, bool use_sender_for_slice_query = true,
+                       bool resolve_peers_before_download = false);
 
   void abort_query(td::Status reason);
   void alarm() override;
@@ -54,6 +56,8 @@ class DownloadArchiveSlice : public td::actor::Actor {
   void get_archive_slice();
   void got_archive_slice(td::BufferSlice data);
   void try_download(int index);
+  void resolve_download_peers();
+  void got_resolved_download_peer(adnl::AdnlNodeIdShort peer, td::Result<adnl::AdnlNode> result);
 
   static constexpr td::uint32 slice_size() {
     return 1 << 21;
@@ -82,6 +86,10 @@ class DownloadArchiveSlice : public td::actor::Actor {
   td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<std::string> promise_;
   bool use_sender_for_prepare_query_ = false;
+  bool use_sender_for_slice_query_ = true;
+  bool resolve_peers_before_download_ = false;
+  size_t resolving_peers_ = 0;
+  std::vector<adnl::AdnlNodeIdShort> resolved_download_from_list_;
 
   td::uint64 prev_logged_sum_ = 0;
   td::Timer prev_logged_timer_;
