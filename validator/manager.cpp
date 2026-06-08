@@ -2147,7 +2147,7 @@ bool ValidatorManagerImpl::out_of_sync() {
   if (shard_client_handle_->id().seqno() + 16 < last_masterchain_seqno_) {
     return true;
   }
-  if (last_masterchain_block_handle_->unix_time() + 80 > td::Clocks::system()) {
+  if (last_masterchain_block_handle_->unix_time() + 8 > td::Clocks::system()) {
     return false;
   }
 

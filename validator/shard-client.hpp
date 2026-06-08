@@ -35,7 +35,7 @@ class ShardClient : public td::actor::Actor {
     BlockIdExt shard;
     td::uint32 split_depth;
   };
-  static constexpr std::size_t MAX_PENDING_MASTERCHAIN_NOTIFICATIONS = 16;
+  static constexpr std::size_t MAX_PENDING_MASTERCHAIN_NOTIFICATIONS = 64;
 
   td::Ref<ValidatorManagerOptions> opts_;
 
