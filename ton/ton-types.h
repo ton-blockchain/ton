@@ -501,37 +501,9 @@ struct ValidatorDescr {
   }
 };
 
-struct CatChainOptions {
-  double idle_timeout = 16.0;
-  td::uint32 max_deps = 4;
-  td::uint32 max_serialized_block_size = 16 * 1024;
-  bool block_hash_covers_data = false;
-  // Max block height = max_block_height_coeff * (1 + N / max_deps) / 1000
-  // N - number of participants
-  // 0 - unlimited
-  td::uint64 max_block_height_coeff = 0;
-
-  bool debug_disable_db = false;
-  double broadcast_speed_multiplier = 1.0;
-};
-
 struct ValidatorSessionConfig {
-  td::uint32 proto_version = 0;
-
-  CatChainOptions catchain_opts;
-
-  td::uint32 round_candidates = 3;
-  /* double */ double next_candidate_delay = 2.0;
-  td::uint32 round_attempt_duration = 16;
-  td::uint32 max_round_attempts = 4;
-
   td::uint32 max_block_size = (4 << 20);
   td::uint32 max_collated_data_size = (4 << 20);
-
-  bool new_catchain_ids = false;
-  bool use_quic = false;
-
-  static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
 };
 
 struct NewConsensusConfig {

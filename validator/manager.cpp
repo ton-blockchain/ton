@@ -2366,7 +2366,8 @@ void ValidatorManagerImpl::update_shards() {
   auto exp_vec = last_masterchain_state_->get_shards();
   auto config = last_masterchain_state_->get_consensus_config();
   validatorsession::ValidatorSessionOptions opts{config};
-  auto opts_hash = opts.get_hash();
+  Bits256 opts_hash = {{10, 91,  242, 57, 159, 23,  47,  238, 90,  142, 120, 111, 85, 169, 210, 113,
+                        73, 209, 237, 51, 230, 184, 224, 204, 129, 239, 69,  250, 59, 140, 184, 215}};
 
   std::map<ShardIdFull, std::vector<BlockIdExt>> new_shards;
   std::set<ShardIdFull> future_shards;
@@ -2742,19 +2743,9 @@ ValidatorSessionId ValidatorManagerImpl::get_validator_set_id(ShardIdFull shard,
     vec.push_back(
         create_tl_object<ton_api::validator_groupMember>(pub_key.compute_short_id().bits256_value(), n.addr, n.weight));
   }
-  if (!opts.new_catchain_ids) {
-    if (vert_seqno == 0) {
-      return create_hash_tl_object<ton_api::validator_group>(shard.workchain, shard.shard,
-                                                             val_set->get_catchain_seqno(), opts_hash, std::move(vec));
-    } else {
-      return create_hash_tl_object<ton_api::validator_groupEx>(
-          shard.workchain, shard.shard, vert_seqno, val_set->get_catchain_seqno(), opts_hash, std::move(vec));
-    }
-  } else {
-    return create_hash_tl_object<ton_api::validator_groupNew>(shard.workchain, shard.shard, vert_seqno,
-                                                              last_key_block_seqno, val_set->get_catchain_seqno(),
-                                                              opts_hash, std::move(vec));
-  }
+  return create_hash_tl_object<ton_api::validator_groupNew>(shard.workchain, shard.shard, vert_seqno,
+                                                            last_key_block_seqno, val_set->get_catchain_seqno(),
+                                                            opts_hash, std::move(vec));
 }
 
 td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_group(
