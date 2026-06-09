@@ -2791,7 +2791,7 @@ td::actor::ActorOwn<IValidatorGroup> ValidatorManagerImpl::create_validator_grou
           .config = new_consensus_config.value(),
           .session_id = session_id,
           .overlays = overlays_,
-          .adnl_sender = new_consensus_config.value().use_quic ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_,
+          .adnl_sender = quic_,
           .db_root = db_root_,
           .all_validators = overlay_members,
       });

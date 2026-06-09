@@ -378,7 +378,6 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
         .max_block_size = consensus_config.max_block_size,
         .max_collated_data_size = consensus_config.max_collated_data_size,
 
-        .use_quic = v1.use_quic,
         .slots_per_leader_window = v1.slots_per_leader_window,
 
         .noncritical_params =
@@ -393,7 +392,6 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
         .max_block_size = consensus_config.max_block_size,
         .max_collated_data_size = consensus_config.max_collated_data_size,
 
-        .use_quic = v2.use_quic,
         .enable_block_observers = v2.enable_block_observers,
         .slots_per_leader_window = v2.slots_per_leader_window,
     };
