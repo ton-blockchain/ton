@@ -146,6 +146,16 @@ td::Result<std::unique_ptr<HttpRequest>> HttpRequest::create(std::string method,
     return td::Status::Error(PSTRING() << "unsupported http method '" << method << "'");
   }
 
+  // The request line is later re-serialized verbatim ("method url proto\r\n").
+  // CR/LF in the url would let an upstream-supplied value inject extra request
+  // lines into the downstream connection (request smuggling), so reject them
+  // here - the same way HttpHeader::basic_check() guards header values.
+  for (const auto &c : url) {
+    if (c == '\r' || c == '\n') {
+      return td::Status::Error("bad character in url");
+    }
+  }
+
   return std::make_unique<HttpRequest>(std::move(method), std::move(url), std::move(proto_version));
 }
 
@@ -762,6 +772,17 @@ td::Result<std::unique_ptr<HttpResponse>> HttpResponse::create(std::string proto
 
   if (code < 100 || code > 999) {
     return td::Status::Error(PSTRING() << "bad status code '" << code << "'");
+  }
+
+  // The status line is later re-serialized verbatim ("proto code reason\r\n").
+  // CR/LF in the reason phrase would let an upstream-supplied value inject
+  // extra header/response lines into the downstream connection (response
+  // splitting), so reject them here - as HttpHeader::basic_check() does for
+  // header values.
+  for (const auto &c : reason) {
+    if (c == '\r' || c == '\n') {
+      return td::Status::Error("bad character in reason phrase");
+    }
   }
 
   return std::make_unique<HttpResponse>(std::move(proto_version), code, std::move(reason), force_no_payload, keep_alive,

@@ -302,6 +302,31 @@ int main(int argc, char *argv[]) {
     dump_reader(ro);
   }
 
+  {
+    // The request-line url and the response reason phrase are re-serialized
+    // verbatim into the first line, so CR/LF in them must be rejected at
+    // creation time, otherwise an upstream-supplied value could smuggle extra
+    // request/response lines into the downstream connection.
+    using ton::http::HttpRequest;
+    using ton::http::HttpResponse;
+
+    // Clean values are still accepted.
+    HttpRequest::create("GET", "/index.html", "HTTP/1.1").ensure();
+    HttpResponse::create("HTTP/1.1", 200, "OK", false, true).ensure();
+
+    // CR/LF in the url is rejected (request smuggling).
+    HttpRequest::create("GET", "/x\r\nGET /admin HTTP/1.1", "HTTP/1.1").ensure_error();
+    HttpRequest::create("GET", "/x\nInjected: 1", "HTTP/1.1").ensure_error();
+    HttpRequest::create("GET", "/x\rInjected: 1", "HTTP/1.1").ensure_error();
+
+    // CR/LF in the reason phrase is rejected (response splitting).
+    HttpResponse::create("HTTP/1.1", 200, "OK\r\nSet-Cookie: x=1", false, true).ensure_error();
+    HttpResponse::create("HTTP/1.1", 200, "OK\nSet-Cookie: x=1", false, true).ensure_error();
+    HttpResponse::create("HTTP/1.1", 200, "OK\rSet-Cookie: x=1", false, true).ensure_error();
+
+    LOG(INFO) << "CR/LF rejection in request url and response reason: OK";
+  }
+
   std::_Exit(0);
   return 0;
 }
