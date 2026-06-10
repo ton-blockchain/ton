@@ -69,6 +69,10 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
   process_block_broadcast(src, query);
 }
 
+void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
+  process_block_finality_broadcast(src, query);
+}
+
 void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_fast_sync);
   if (B.is_error()) {
@@ -78,6 +82,15 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
   VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
                         << "in fast sync overlay from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
+}
+
+void FullNodeFastSyncOverlay::process_block_finality_broadcast(PublicKeyHash src,
+                                                               ton_api::tonNode_blockFinalityBroadcast &query) {
+  auto block_id = create_block_id(query.id_);
+  BlockFinalityBroadcast finality{block_id, block::BlockSignatureSet::fetch(query.signature_set_)};
+
+  VLOG(FULL_NODE_DEBUG) << "Received blockFinalityBroadcast in fast sync overlay from " << src << ": " << block_id;
+  td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality));
 }
 
 void FullNodeFastSyncOverlay::obtain_state_for_decompression(PublicKeyHash src,
@@ -266,6 +279,19 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
+void FullNodeFastSyncOverlay::send_block_finality_broadcast(BlockFinalityBroadcast finality) {
+  if (!inited_) {
+    return;
+  }
+  VLOG(FULL_NODE_DEBUG) << "Sending Plumtree blockFinalityBroadcast in fast sync overlay: " << finality.block_id;
+  auto broadcast_id = get_tl_object_sha_bits256(create_tl_block_id(finality.block_id));
+  auto B = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(create_tl_block_id(finality.block_id),
+                                                                               finality.sig_set->tl());
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), broadcast_id,
+                          std::move(B));
+}
+
 void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                    td::uint32 validator_set_hash, td::BufferSlice data) {
   if (!inited_) {
@@ -277,8 +303,8 @@ void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, Catchain
     VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate in fast sync overlay (with compression): " << block_id;
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+  VLOG(FULL_NODE_DEBUG) << "Sending Plumtree newBlockCandidate in fast sync overlay (with compression): " << block_id;
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
@@ -396,6 +422,8 @@ void FullNodeFastSyncOverlay::init() {
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
   options.twostep_broadcast_sender_ = adnl_sender_;
   options.send_twostep_broadcast_ = send_twostep_broadcasts_;
+  options.enable_plumtree_broadcast_ = true;
+  options.plumtree_broadcast_sender_ = td::actor::ActorId<adnl::AdnlSenderEx>{quic_};
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);

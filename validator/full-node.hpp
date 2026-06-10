@@ -74,6 +74,7 @@ class FullNodeImpl : public FullNode {
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data, int mode);
   void send_broadcast(BlockBroadcast broadcast, int mode);
+  void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode);
   void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
   void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
@@ -95,6 +96,7 @@ class FullNodeImpl : public FullNode {
   void new_key_block(BlockHandle handle);
 
   void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked = false) override;
+  void process_block_finality_broadcast(BlockFinalityBroadcast finality) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                          td::BufferSlice data) override;
   void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;

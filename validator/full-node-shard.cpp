@@ -859,6 +859,11 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
   process_block_broadcast(src, query);
 }
 
+void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
+  VLOG(FULL_NODE_WARNING) << "received blockFinalityBroadcast in public overlay from " << src << ": "
+                          << create_block_id(query.id_) << " (not implemented)";
+}
+
 void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_public);
   if (B.is_error()) {
@@ -1015,7 +1020,7 @@ void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno 
   if (source.is_zero()) {
     return;
   }
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree, adnl_id_, overlay_id_, source,
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec, adnl_id_, overlay_id_, source,
                           overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
 }
 

@@ -27,15 +27,15 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
 
-    int broadcast_mode = fullnode::FullNode::broadcast_mode_custom;
+    int broadcast_mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync;
     if (event->candidate->leader == owning_bus()->local_id.idx) {
-      broadcast_mode |= fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
+      broadcast_mode |= fullnode::FullNode::broadcast_mode_public;
     }
     if (last_mc_finalized_seqno_ >= 2 && block.id.seqno() < last_mc_finalized_seqno_ - 2) {
       broadcast_mode = 0;
     }
     if (sent_candidate_broadcasts_.contains(block.id)) {
-      broadcast_mode &= ~(fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
+      broadcast_mode &= ~fullnode::FullNode::broadcast_mode_custom;
     }
     co_await td::actor::ask(owning_bus()->manager, &ManagerFacade::accept_block, block.id, block_data,
                             event->candidate->leader.value(), event->signatures, broadcast_mode, true);
@@ -58,8 +58,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       return;
     }
     td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, candidate.id,
-                            candidate.data.clone(),
-                            fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
+                            candidate.data.clone(), fullnode::FullNode::broadcast_mode_custom);
   }
 
  private:

@@ -90,8 +90,10 @@ class OverlayManager : public Overlays {
                              td::uint32 flags, td::BufferSlice object) override;
   void send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
                                      td::uint32 flags, td::BufferSlice object, td::BufferSlice extra) override;
+  void send_broadcast_plumtree_fec(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
+                                   td::uint32 flags, td::BufferSlice object) override;
   void send_broadcast_plumtree(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
-                               td::uint32 flags, td::BufferSlice object) override;
+                               td::uint32 flags, td::Bits256 broadcast_id, td::BufferSlice object) override;
 
   void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, OverlayPrivacyRules rules) override;
   void update_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, PublicKeyHash key,

@@ -268,19 +268,39 @@ td::Result<Graph> load_graph(const std::string &graph_path, std::size_t limit, b
 
 Graph make_smoke_graph(std::size_t nodes_count) {
   Graph graph;
-  graph.validator_count = nodes_count;
+  graph.validator_count = std::max<std::size_t>(1, nodes_count / 3);
   graph.nodes.resize(nodes_count);
+  auto add_neighbour = [&](std::size_t node, std::size_t peer) {
+    if (node == peer || node >= graph.nodes.size() || peer >= graph.nodes.size()) {
+      return;
+    }
+    auto &neighbours = graph.nodes[node].recent_neighbours;
+    if (std::find(neighbours.begin(), neighbours.end(), peer) == neighbours.end()) {
+      neighbours.push_back(peer);
+    }
+  };
   for (std::size_t i = 0; i < nodes_count; ++i) {
     graph.nodes[i].graph_id = PSTRING() << "smoke-" << i;
-    graph.nodes[i].is_validator = true;
+    graph.nodes[i].is_validator = i < graph.validator_count;
     graph.nodes[i].fec_observed = true;
     graph.nodes[i].public_ip = true;
     graph.nodes[i].has_geo = true;
     graph.nodes[i].lat = static_cast<double>((i * 17) % 160) - 80.0;
     graph.nodes[i].lon = static_cast<double>((i * 31) % 360) - 180.0;
     graph.nodes[i].rtt_ms = 40.0 + static_cast<double>((i * 7) % 30);
-    for (std::size_t step = 1; step < nodes_count; ++step) {
-      graph.nodes[i].recent_neighbours.push_back((i + step) % nodes_count);
+  }
+
+  for (std::size_t validator = 0; validator < graph.validator_count; ++validator) {
+    for (std::size_t peer = graph.validator_count + validator; peer < nodes_count; peer += graph.validator_count) {
+      add_neighbour(validator, peer);
+    }
+    add_neighbour(validator, (validator + 1) % graph.validator_count);
+  }
+  for (std::size_t i = graph.validator_count; i < nodes_count; ++i) {
+    auto validator = (i - graph.validator_count) % graph.validator_count;
+    add_neighbour(i, validator);
+    for (std::size_t peer = graph.validator_count + validator; peer < nodes_count; peer += graph.validator_count) {
+      add_neighbour(i, peer);
     }
   }
   return graph;

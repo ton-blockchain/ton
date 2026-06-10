@@ -53,8 +53,11 @@ struct DeliveryState {
   explicit DeliveryState(std::size_t node_count);
 
   td::Bits256 payload_hash;
+  bool accept_any_payload_hash = false;
   std::vector<bool> delivered;
   std::vector<bool> expected;
+  std::vector<td::Bits256> delivered_payload_hashes;
+  std::vector<PublicKeyHash> delivered_sources;
   std::vector<double> delivery_ms;
   std::size_t remaining = 0;
   std::size_t expected_remaining = 0;
@@ -62,12 +65,16 @@ struct DeliveryState {
   double broadcast_start_time = 0.0;
   mutable std::mutex mutex;
 
-  void start_broadcast(td::Bits256 hash, std::vector<bool> expected_nodes, double start_time);
-  bool mark_delivered(td::Bits256 hash, std::size_t node_index, double now);
+  void start_broadcast(td::Bits256 hash, std::vector<bool> expected_nodes, double start_time,
+                       bool accept_any_hash = false);
+  bool mark_delivered(td::Bits256 hash, PublicKeyHash source, std::size_t node_index, double now);
   std::size_t remaining_count() const;
   std::size_t expected_remaining_count() const;
   std::size_t delivered_count() const;
   std::vector<double> delivery_times() const;
+  std::vector<bool> delivered_flags() const;
+  std::vector<td::Bits256> delivered_hashes() const;
+  std::vector<PublicKeyHash> delivered_source_hashes() const;
 };
 
 struct SimEvent {

@@ -79,14 +79,22 @@ std::int32_t overlay_payload_constructor_id(td::Slice data) {
 
 }  // namespace
 
-DeliveryState::DeliveryState(std::size_t node_count) : delivered(node_count, false), delivery_ms(node_count, -1.0) {
+DeliveryState::DeliveryState(std::size_t node_count)
+    : delivered(node_count, false)
+    , delivered_payload_hashes(node_count)
+    , delivered_sources(node_count)
+    , delivery_ms(node_count, -1.0) {
 }
 
-void DeliveryState::start_broadcast(td::Bits256 hash, std::vector<bool> expected_nodes, double start_time) {
+void DeliveryState::start_broadcast(td::Bits256 hash, std::vector<bool> expected_nodes, double start_time,
+                                    bool accept_any_hash) {
   std::lock_guard<std::mutex> lock(mutex);
   payload_hash = hash;
+  accept_any_payload_hash = accept_any_hash;
   expected = std::move(expected_nodes);
   delivered.assign(delivered.size(), false);
+  delivered_payload_hashes.assign(delivered_payload_hashes.size(), {});
+  delivered_sources.assign(delivered_sources.size(), {});
   delivery_ms.assign(delivery_ms.size(), -1.0);
   remaining = delivered.size();
   expected_remaining = 0;
@@ -98,15 +106,17 @@ void DeliveryState::start_broadcast(td::Bits256 hash, std::vector<bool> expected
   broadcast_start_time = start_time;
 }
 
-bool DeliveryState::mark_delivered(td::Bits256 hash, std::size_t node_index, double now) {
+bool DeliveryState::mark_delivered(td::Bits256 hash, PublicKeyHash source, std::size_t node_index, double now) {
   std::lock_guard<std::mutex> lock(mutex);
-  if (hash != payload_hash) {
+  if (!accept_any_payload_hash && hash != payload_hash) {
     return false;
   }
   if (delivered[node_index]) {
     return false;
   }
   delivered[node_index] = true;
+  delivered_payload_hashes[node_index] = hash;
+  delivered_sources[node_index] = source;
   delivery_ms[node_index] = (now - broadcast_start_time) * 1000.0;
   CHECK(remaining > 0);
   --remaining;
@@ -135,6 +145,21 @@ std::size_t DeliveryState::delivered_count() const {
 std::vector<double> DeliveryState::delivery_times() const {
   std::lock_guard<std::mutex> lock(mutex);
   return delivery_ms;
+}
+
+std::vector<bool> DeliveryState::delivered_flags() const {
+  std::lock_guard<std::mutex> lock(mutex);
+  return delivered;
+}
+
+std::vector<td::Bits256> DeliveryState::delivered_hashes() const {
+  std::lock_guard<std::mutex> lock(mutex);
+  return delivered_payload_hashes;
+}
+
+std::vector<PublicKeyHash> DeliveryState::delivered_source_hashes() const {
+  std::lock_guard<std::mutex> lock(mutex);
+  return delivered_sources;
 }
 
 double SimNetwork::now_s() const {
@@ -223,7 +248,9 @@ std::vector<SimEvent> SimNetwork::pop_due_events(double time_s) {
         continue;
       }
     }
-    if (overlay_payload_constructor_id(event.data.as_slice()) == ton_api::overlay_broadcastPlumtreePayload::ID) {
+    auto payload_type = overlay_payload_constructor_id(event.data.as_slice());
+    if (payload_type == ton_api::overlay_broadcastPlumtreeFec::ID ||
+        payload_type == ton_api::overlay_broadcastPlumtreeSimple::ID) {
       ++payload_deliveries;
     }
     auto dst_it = node_by_adnl.find(event.dst);
@@ -301,7 +328,7 @@ DeliveryCallback::DeliveryCallback(std::shared_ptr<DeliveryState> state, std::si
 }
 
 void DeliveryCallback::receive_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data) {
-  state_->mark_delivered(td::sha256_bits256(data.as_slice()), node_index_, td::Time::now());
+  state_->mark_delivered(td::sha256_bits256(data.as_slice()), src, node_index_, td::Time::now());
 }
 
 }  // namespace ton::overlay::plumtree_sim

@@ -40,7 +40,7 @@ namespace overlay {
 
 class OverlayImpl;
 
-struct PlumtreeOutboundPayload {
+struct PlumtreeOutboundFecPayload {
   td::Bits256 broadcast_id;
   td::uint32 flags = 0;
   double timestamp = 0.0;
@@ -52,6 +52,15 @@ struct PlumtreeOutboundPayload {
   td::BufferSlice part;
 };
 
+struct PlumtreeOutboundSimplePayload {
+  td::Bits256 broadcast_id;
+  td::uint32 flags = 0;
+  double timestamp = 0.0;
+  PublicKeyHash source;
+  td::uint32 tree_index = 0;
+  td::BufferSlice data;
+};
+
 class BroadcastsPlumtree {
  public:
   explicit BroadcastsPlumtree(PlumtreeFecOptions options = {});
@@ -59,12 +68,18 @@ class BroadcastsPlumtree {
 
   void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender);
 
-  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
-  void signed_payload(OverlayImpl *overlay, PlumtreeOutboundPayload &&payload,
-                      td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void send_fec(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
+  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
+            td::BufferSlice data);
+  void signed_fec(OverlayImpl *overlay, PlumtreeOutboundFecPayload &&payload,
+                  td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void signed_simple(OverlayImpl *overlay, PlumtreeOutboundSimplePayload &&payload,
+                     td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
 
-  td::actor::Task<> process_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
-                                    tl_object_ptr<ton_api::overlay_broadcastPlumtreePayload> msg);
+  td::actor::Task<> process_fec_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+                                        tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> msg);
+  td::actor::Task<> process_simple_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+                                           tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> msg);
   td::actor::Task<> process_ihave(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                   tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg);
   td::actor::Task<> process_repair(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,

@@ -293,14 +293,26 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
 }
 
 td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
-                                                 tl_object_ptr<ton_api::overlay_broadcastPlumtreePayload> bcast) {
+                                                 tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> bcast) {
   if (!opts_.enable_plumtree_broadcast_) {
     co_return td::Status::Error("Plumtree broadcasts are not enabled");
   }
   if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
     co_return td::Unit{};
   }
-  co_await broadcasts_plumtree_.process_payload(this, message_from, std::move(bcast));
+  co_await broadcasts_plumtree_.process_fec_payload(this, message_from, std::move(bcast));
+  co_return td::Unit{};
+}
+
+td::actor::Task<> OverlayImpl::process_broadcast(
+    adnl::AdnlNodeIdShort message_from, tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> bcast) {
+  if (!opts_.enable_plumtree_broadcast_) {
+    co_return td::Status::Error("Plumtree broadcasts are not enabled");
+  }
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+    co_return td::Unit{};
+  }
+  co_await broadcasts_plumtree_.process_simple_payload(this, message_from, std::move(bcast));
   co_return td::Unit{};
 }
 
@@ -705,12 +717,21 @@ bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data
   return true;
 }
 
-void OverlayImpl::send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
+void OverlayImpl::send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
   if (!can_send_broadcast_plumtree(send_as, data.size(), flags)) {
     return;
   }
   flags &= ~Overlays::BroadcastFlagNoTwostep();
-  broadcasts_plumtree_.send(this, send_as, flags, std::move(data));
+  broadcasts_plumtree_.send_fec(this, send_as, flags, std::move(data));
+}
+
+void OverlayImpl::send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
+                                          td::BufferSlice data) {
+  if (!can_send_broadcast_plumtree(send_as, data.size(), flags)) {
+    return;
+  }
+  flags &= ~Overlays::BroadcastFlagNoTwostep();
+  broadcasts_plumtree_.send(this, send_as, flags, broadcast_id, std::move(data));
 }
 
 void OverlayImpl::print(td::StringBuilder &sb) {
@@ -819,9 +840,14 @@ void OverlayImpl::broadcast_twostep_signed_fec(BroadcastTwostepDataFec &&data,
   broadcasts_twostep_.signed_fec(this, std::move(data), std::move(R));
 }
 
-void OverlayImpl::broadcast_plumtree_signed_payload(PlumtreeOutboundPayload &&payload,
-                                                    td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
-  broadcasts_plumtree_.signed_payload(this, std::move(payload), std::move(R));
+void OverlayImpl::broadcast_plumtree_signed_fec(PlumtreeOutboundFecPayload &&payload,
+                                                td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
+  broadcasts_plumtree_.signed_fec(this, std::move(payload), std::move(R));
+}
+
+void OverlayImpl::broadcast_plumtree_signed_simple(PlumtreeOutboundSimplePayload &&payload,
+                                                   td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
+  broadcasts_plumtree_.signed_simple(this, std::move(payload), std::move(R));
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra) {

@@ -206,7 +206,10 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<BlockIdExt, td::Ref<OutMsgQueueProof>> cached_msg_queue_to_masterchain_;
 
   td::LRUCache<BlockIdExt, td::BufferSlice> cached_block_data_{/* max_size = */ 128};
+  td::LRUCache<BlockIdExt, td::BufferSlice> cached_masterchain_block_candidates_{/* max_size = */ 128};
   td::LRUCache<BlockIdExt, td::Unit> cached_checked_shard_block_descriptions_{/* max_size = */ 1024};
+
+  td::LRUCache<BlockIdExt, td::Ref<block::BlockSignatureSet>> pending_block_finality_{/* max_size = */ 256};
 
   td::actor::ActorOwn<ExtMessagePool> ext_message_pool_;
   td::actor::ActorOwn<AppliedExtMessageCleanupActor> applied_ext_message_cleanup_actor_;
@@ -356,6 +359,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                              td::BufferSlice data) override;
   td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                   td::BufferSlice data) override;
+  td::actor::Task<> new_block_finality_broadcast(BlockFinalityBroadcast finality) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -478,6 +482,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override;
+  void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override;
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;
@@ -515,6 +520,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
   void add_cached_block_data(BlockIdExt block_id, td::BufferSlice data);
+  void try_process_pending_block_finality(BlockIdExt block_id);
   void preload_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Promise<td::Unit> promise);
   void loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Ref<OutMsgQueueProof> res,
                                        td::Promise<td::Unit> promise);

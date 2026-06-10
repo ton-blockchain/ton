@@ -34,6 +34,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -69,9 +70,12 @@ namespace {
 
 using namespace ton::overlay::plumtree_sim;
 
+enum class BroadcastMode { Fec, Simple };
+
 struct Settings {
   bool smoke = false;
   bool rebroadcasting_only = false;
+  BroadcastMode broadcast_mode = BroadcastMode::Fec;
   std::string graph_path;
   std::size_t limit = 0;
   std::size_t payload_bytes = 32768;
@@ -102,6 +106,11 @@ struct NodeTrafficSummary {
   std::string max_sent_node;
 };
 
+struct DeliveryDiversity {
+  std::size_t full_node_hashes = 0;
+  std::size_t full_node_sources = 0;
+};
+
 NodeTrafficSummary summarize_node_traffic(const Graph &graph, const std::vector<td::uint64> &received_bytes,
                                           const std::vector<td::uint64> &sent_bytes) {
   NodeTrafficSummary summary;
@@ -127,6 +136,23 @@ NodeTrafficSummary summarize_node_traffic(const Graph &graph, const std::vector<
   summary.average_received_bytes = static_cast<double>(total_received) / static_cast<double>(graph.nodes.size());
   summary.average_sent_bytes = static_cast<double>(total_sent) / static_cast<double>(graph.nodes.size());
   return summary;
+}
+
+DeliveryDiversity summarize_full_node_diversity(const Graph &graph, const std::vector<bool> &delivered,
+                                                const std::vector<td::Bits256> &payload_hashes,
+                                                const std::vector<ton::PublicKeyHash> &sources) {
+  std::set<td::Bits256> hashes;
+  std::set<ton::PublicKeyHash> source_hashes;
+  for (std::size_t i = 0; i < graph.nodes.size() && i < delivered.size() && i < payload_hashes.size() &&
+                          i < sources.size();
+       ++i) {
+    if (graph.nodes[i].is_validator || !delivered[i]) {
+      continue;
+    }
+    hashes.insert(payload_hashes[i]);
+    source_hashes.insert(sources[i]);
+  }
+  return DeliveryDiversity{hashes.size(), source_hashes.size()};
 }
 
 std::vector<td::uint64> subtract_counters(const std::vector<td::uint64> &after, const std::vector<td::uint64> &before) {
@@ -191,6 +217,26 @@ std::string format_bytes(double bytes) {
   return out.str();
 }
 
+td::Result<BroadcastMode> parse_broadcast_mode(td::Slice value) {
+  if (value == "fec") {
+    return BroadcastMode::Fec;
+  }
+  if (value == "simple") {
+    return BroadcastMode::Simple;
+  }
+  return td::Status::Error(PSTRING() << "unknown broadcast mode: " << value);
+}
+
+const char *broadcast_mode_name(BroadcastMode mode) {
+  switch (mode) {
+    case BroadcastMode::Fec:
+      return "fec";
+    case BroadcastMode::Simple:
+      return "simple";
+  }
+  UNREACHABLE();
+}
+
 void print_table_header() {
   std::cout << std::right << std::setw(4) << "#"
             << " " << std::setw(5) << "srcs"
@@ -212,6 +258,7 @@ void print_usage() {
   std::cout << "Usage: plumtree-graph-sim [--smoke | --graph PATH] [options]\n"
                "  --limit N                 Use first N graph nodes\n"
                "  --rebroadcasting-only     Use only public graph peers observed as FEC/rebroadcasting nodes\n"
+               "  --broadcast-mode MODE     Plumtree mode: fec or simple (default fec)\n"
                "  --payload-bytes N         Broadcast payload size (default 32768)\n"
                "  --plumtree-neighbours N   Plumtree active neighbour target (default 20)\n"
                "  --geo-fallback-latency-ms N  One-way ms used when a graph node has no geo (default 75)\n"
@@ -244,6 +291,10 @@ td::Result<Settings> parse_args(int argc, char **argv) {
     } else if (arg == "--graph") {
       TRY_RESULT(value, read_value(arg));
       settings.graph_path = value;
+    } else if (arg == "--broadcast-mode" || arg == "--mode") {
+      TRY_RESULT(value, read_value(arg));
+      TRY_RESULT(mode, parse_broadcast_mode(value));
+      settings.broadcast_mode = mode;
     } else if (arg == "--limit") {
       TRY_RESULT(value, read_value(arg));
       settings.limit = static_cast<std::size_t>(std::stoull(value));
@@ -465,7 +516,8 @@ int main(int argc, char **argv) {
   const double max_time_s = settings.max_time_ms / 1000.0;
   double sim_time_s = 0.0;
   bool all_expected_delivered = true;
-  std::cout << "Plumtree graph simulation: all-validator, nodes=" << graph.nodes.size()
+  std::cout << "Plumtree graph simulation: mode=" << broadcast_mode_name(settings.broadcast_mode)
+            << ", all-validator, nodes=" << graph.nodes.size()
             << ", validators=" << validators.size() << ", senders=" << validators.size()
             << ", tree_slots=" << opts.plumtree_fec_options_.tree_slots_ << ", expected=" << expected_delivered
             << ", unreachable=" << (graph.nodes.size() - expected_delivered);
@@ -477,8 +529,10 @@ int main(int argc, char **argv) {
     td::BufferSlice payload(settings.payload_bytes);
     fill_payload(payload.as_slice(), settings.seed + static_cast<td::uint64>(broadcast_index) * 0x9e3779b97f4a7c15ULL);
     auto payload_hash = td::sha256_bits256(payload.as_slice());
+    auto broadcast_id = payload_hash;
     auto broadcast_start_s = std::max(0.0, td::Time::now() - base_time);
-    delivery->start_broadcast(payload_hash, expected_delivery, td::Time::now());
+    delivery->start_broadcast(payload_hash, expected_delivery, td::Time::now(),
+                              settings.broadcast_mode == BroadcastMode::Simple);
     auto sent_bytes_before = network->sent_bytes_count();
     auto payload_deliveries_before = network->payload_deliveries_count();
     auto prune_messages_before = network->prune_messages_count();
@@ -488,10 +542,25 @@ int main(int argc, char **argv) {
     scheduler.run_in_context([&] {
       for (std::size_t local_index = 0; local_index < validators.size(); ++local_index) {
         auto node_index = validators[local_index];
-        td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::send_broadcast_plumtree,
-                                nodes[node_index].adnl_id, overlay_id_short, nodes[node_index].validator_id,
-                                ton::overlay::Overlays::BroadcastFlagAnySender(),
-                                local_index + 1 == validators.size() ? std::move(payload) : payload.clone());
+        td::BufferSlice payload_for_sender;
+        if (settings.broadcast_mode == BroadcastMode::Simple) {
+          payload_for_sender = td::BufferSlice(settings.payload_bytes);
+          fill_payload(payload_for_sender.as_slice(),
+                       settings.seed + static_cast<td::uint64>(broadcast_index) * 0x9e3779b97f4a7c15ULL +
+                           static_cast<td::uint64>(local_index + 1) * 0xbf58476d1ce4e5b9ULL);
+        } else {
+          payload_for_sender = local_index + 1 == validators.size() ? std::move(payload) : payload.clone();
+        }
+        if (settings.broadcast_mode == BroadcastMode::Fec) {
+          td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::send_broadcast_plumtree_fec,
+                                  nodes[node_index].adnl_id, overlay_id_short, nodes[node_index].validator_id,
+                                  ton::overlay::Overlays::BroadcastFlagAnySender(), std::move(payload_for_sender));
+        } else {
+          td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::send_broadcast_plumtree,
+                                  nodes[node_index].adnl_id, overlay_id_short, nodes[node_index].validator_id,
+                                  ton::overlay::Overlays::BroadcastFlagAnySender(), broadcast_id,
+                                  std::move(payload_for_sender));
+        }
       }
     });
     pump_scheduler(scheduler, 64);
@@ -504,8 +573,9 @@ int main(int argc, char **argv) {
         next_time_s = std::min(next_time_s, event_time.value());
       }
       next_time_s = std::max(now_s, std::min(next_time_s, broadcast_deadline_s));
-      scheduler.run(next_time_s - now_s);
-      sim_time_s = std::min(broadcast_deadline_s, std::max(0.0, td::Time::now() - base_time));
+      td::Time::jump_in_future(base_time + next_time_s);
+      scheduler.run(0);
+      sim_time_s = next_time_s;
 
       auto due_events = network->pop_due_events(sim_time_s);
       if (!due_events.empty()) {
@@ -523,6 +593,9 @@ int main(int argc, char **argv) {
     auto expected_remaining = delivery->expected_remaining_count();
     all_expected_delivered = all_expected_delivered && expected_remaining == 0;
     auto delivery_ms = delivery->delivery_times();
+    auto delivered_flags = delivery->delivered_flags();
+    auto delivered_hashes = delivery->delivered_hashes();
+    auto delivered_sources = delivery->delivered_source_hashes();
     auto sent_bytes = network->sent_bytes_count() - sent_bytes_before;
     auto payload_deliveries = network->payload_deliveries_count() - payload_deliveries_before;
     auto prune_messages = network->prune_messages_count() - prune_messages_before;
@@ -548,6 +621,14 @@ int main(int argc, char **argv) {
               << format_bytes(static_cast<double>(traffic_summary.max_sent_bytes)) << " " << std::setw(9)
               << format_bytes(static_cast<double>(sent_bytes)) << " " << std::setw(8) << prune_messages << " "
               << std::setw(6) << std::fixed << std::setprecision(2) << duplicate_percent << "%" << "\n";
+    if (settings.broadcast_mode == BroadcastMode::Simple) {
+      auto diversity = summarize_full_node_diversity(graph, delivered_flags, delivered_hashes, delivered_sources);
+      std::cout << "     divergent simple: full_node_payload_hashes=" << diversity.full_node_hashes
+                << ", full_node_sources=" << diversity.full_node_sources << "\n";
+      if (diversity.full_node_hashes < 2 || diversity.full_node_sources < 2) {
+        all_expected_delivered = false;
+      }
+    }
     std::cout.flush();
   }
 

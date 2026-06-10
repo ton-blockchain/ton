@@ -40,4 +40,13 @@ struct BlockBroadcast {
   }
 };
 
+struct BlockFinalityBroadcast {
+  BlockIdExt block_id;
+  td::Ref<block::BlockSignatureSet> sig_set;
+
+  BlockFinalityBroadcast clone() const {
+    return {block_id, sig_set};
+  }
+};
+
 }  // namespace ton::validator

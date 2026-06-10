@@ -223,7 +223,9 @@ class OverlayImpl : public Overlay {
   void send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
   void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                           td::BufferSlice extra) override;
-  void send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
+  void send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
+  void send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
+                               td::BufferSlice data) override;
   void receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> nodes) override;
   void receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> nodes) override;
 
@@ -296,8 +298,10 @@ class OverlayImpl : public Overlay {
                                        td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
   void broadcast_twostep_signed_fec(BroadcastTwostepDataFec &&data,
                                     td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
-  void broadcast_plumtree_signed_payload(PlumtreeOutboundPayload &&payload,
-                                         td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void broadcast_plumtree_signed_fec(PlumtreeOutboundFecPayload &&payload,
+                                     td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void broadcast_plumtree_signed_simple(PlumtreeOutboundSimplePayload &&payload,
+                                        td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
 
   void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
   std::vector<adnl::AdnlNodeIdShort> get_neighbours(td::uint32 max_size = 0) const;
@@ -424,7 +428,9 @@ class OverlayImpl : public Overlay {
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
                                       tl_object_ptr<ton_api::overlay_broadcastTwostepFec> bcast);
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
-                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreePayload> bcast);
+                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> bcast);
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
                                       tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg);
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,

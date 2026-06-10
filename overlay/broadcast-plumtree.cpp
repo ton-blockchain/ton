@@ -56,6 +56,8 @@ constexpr double PLUMTREE_BROADCAST_TTL = 25.0;
 constexpr double PLUMTREE_PENDING_FEEDBACK_TTL = 5.0;
 constexpr double PLUMTREE_MISSING_PART_TTL_REPAIR_TIMEOUTS = 10.0;
 constexpr std::size_t MAX_SPECULATIVE_REPAIR_PARTS = 4096;
+constexpr td::uint32 PLUMTREE_SIMPLE_TREE_INDEX = 0;
+constexpr td::uint32 PLUMTREE_FEC_TREE_OFFSET = 1;
 
 struct PlumtreeSlot {
   bool initialized = false;
@@ -79,9 +81,10 @@ struct PlumtreePartState {
 using TreePartKey = std::pair<td::uint32, td::uint32>;
 using MissingPartKey = std::tuple<td::Bits256, td::uint32, td::uint32>;
 
-struct PlumtreeBroadcastState : td::ListNode {
+struct PlumtreeFecBroadcastState : td::ListNode {
   td::Bits256 broadcast_id;
   PublicKeyHash first_valid_source;
+  BroadcastCheckResult check_result = BroadcastCheckResult::Allowed;
   td::Bits256 data_hash;
   td::Timestamp first_seen_at;
   td::uint32 flags = 0;
@@ -94,6 +97,14 @@ struct PlumtreeBroadcastState : td::ListNode {
   bool overlay_limiter_registered = false;
   std::map<td::uint32, td::BufferSlice> parts_by_index;
   std::map<TreePartKey, PlumtreePartState> tree_parts;
+};
+
+struct PlumtreeSimpleBroadcastState : td::ListNode {
+  td::Bits256 broadcast_id;
+  td::uint32 flags = 0;
+  td::BufferSlice data;
+  td::Timestamp first_seen_at;
+  PlumtreePartState part;
 };
 
 struct PlumtreeMissingPart {
@@ -110,6 +121,17 @@ struct PlumtreeControlFields {
   td::uint32 tree_index = 0;
 };
 
+struct PlumtreeDecodedBroadcast {
+  PublicKeyHash source;
+  BroadcastCheckResult check_result = BroadcastCheckResult::Allowed;
+  td::BufferSlice data;
+};
+
+struct PlumtreeFecBroadcastRef {
+  PlumtreeFecBroadcastState *state = nullptr;
+  bool created = false;
+};
+
 template <class T>
 PlumtreeControlFields get_control_fields(const T &msg) {
   return PlumtreeControlFields{msg.broadcast_id_, msg.timestamp_, static_cast<td::uint32>(msg.part_index_),
@@ -118,16 +140,23 @@ PlumtreeControlFields get_control_fields(const T &msg) {
 
 td::Bits256 compute_broadcast_id(td::uint32 flags, const td::Bits256 &data_hash, td::uint32 data_size,
                                  td::uint32 part_size) {
-  return get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastPlumtree_id>(
+  return get_tl_object_sha_bits256(create_tl_object<ton_api::overlay_broadcastPlumtreeFec_id>(
       static_cast<std::int32_t>(flags), data_hash, static_cast<std::int32_t>(data_size),
       static_cast<std::int32_t>(part_size)));
 }
 
-td::BufferSlice make_payload_to_sign(const td::Bits256 &broadcast_id, double timestamp, td::uint32 part_index,
-                                     td::uint32 tree_index, const td::BufferSlice &part) {
-  return create_serialize_tl_object<ton_api::overlay_broadcastPlumtreePayload_toSign>(
+td::BufferSlice make_fec_payload_to_sign(const td::Bits256 &broadcast_id, double timestamp, td::uint32 part_index,
+                                         td::uint32 tree_index, const td::BufferSlice &part) {
+  return create_serialize_tl_object<ton_api::overlay_broadcastPlumtreeFec_toSign>(
       broadcast_id, timestamp, static_cast<std::int32_t>(part_index), static_cast<std::int32_t>(tree_index),
       part.clone());
+}
+
+td::BufferSlice make_simple_payload_to_sign(const td::Bits256 &broadcast_id, double timestamp, td::uint32 tree_index,
+                                            const td::BufferSlice &data) {
+  return create_serialize_tl_object<ton_api::overlay_broadcastPlumtreeSimple_toSign>(broadcast_id, timestamp,
+                                                                                    static_cast<std::int32_t>(tree_index),
+                                                                                    data.clone());
 }
 
 td::Status check_timestamp(double timestamp) {
@@ -144,6 +173,17 @@ td::Status check_timestamp(double timestamp) {
   return td::Status::OK();
 }
 
+td::actor::Task<> check_and_deliver(OverlayImpl *overlay, PublicKeyHash source, BroadcastCheckResult check_result,
+                                    td::BufferSlice data) {
+  if (check_result != BroadcastCheckResult::Allowed) {
+    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+    overlay->check_broadcast(source, data.clone(), std::move(promise));
+    co_await std::move(task);
+  }
+  overlay->deliver_broadcast(source, std::move(data), {});
+  co_return {};
+}
+
 }  // namespace
 
 class BroadcastsPlumtree::Impl {
@@ -156,12 +196,18 @@ class BroadcastsPlumtree::Impl {
     sender_ = sender;
   }
 
-  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
-  void signed_payload(OverlayImpl *overlay, PlumtreeOutboundPayload &&payload,
-                      td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void send_fec(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data);
+  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
+            td::BufferSlice data);
+  void signed_fec(OverlayImpl *overlay, PlumtreeOutboundFecPayload &&payload,
+                  td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void signed_simple(OverlayImpl *overlay, PlumtreeOutboundSimplePayload &&payload,
+                     td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
 
-  td::actor::Task<> process_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
-                                    tl_object_ptr<ton_api::overlay_broadcastPlumtreePayload> msg);
+  td::actor::Task<> process_fec_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+                                        tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> msg);
+  td::actor::Task<> process_simple_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+                                           tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> msg);
   td::actor::Task<> process_ihave(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                   tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg);
   td::actor::Task<> process_repair(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
@@ -180,9 +226,11 @@ class BroadcastsPlumtree::Impl {
   PlumtreeFecOptions options_;
 
   std::vector<PlumtreeSlot> slots_;
-  std::map<td::Bits256, std::unique_ptr<PlumtreeBroadcastState>> broadcasts_;
+  std::map<td::Bits256, std::unique_ptr<PlumtreeFecBroadcastState>> broadcasts_;
+  std::map<td::Bits256, std::unique_ptr<PlumtreeSimpleBroadcastState>> simple_broadcasts_;
   std::map<MissingPartKey, PlumtreeMissingPart> missing_parts_;
   td::ListNode lru_;
+  td::ListNode simple_lru_;
 
   td::Status validate_control_fields(const td::Bits256 &broadcast_id, td::uint32 part_index,
                                      td::uint32 tree_index) const;
@@ -196,15 +244,31 @@ class BroadcastsPlumtree::Impl {
   void trim_eager_to_capacity(PlumtreeSlot &slot);
   void remove_eager(PlumtreeSlot &slot, adnl::AdnlNodeIdShort peer);
 
-  PlumtreeBroadcastState *get_state(const td::Bits256 &broadcast_id);
+  PlumtreeFecBroadcastState *get_state(const td::Bits256 &broadcast_id);
+  PlumtreeSimpleBroadcastState *get_simple_state(const td::Bits256 &broadcast_id);
+  bool has_state(const td::Bits256 &broadcast_id) const;
   PlumtreePartState *get_part(const td::Bits256 &broadcast_id, td::uint32 part_index, td::uint32 tree_index);
-  td::Status ensure_decoder(PlumtreeBroadcastState &broadcast);
-  td::Status add_decoder_part_and_deliver(OverlayImpl *overlay, PlumtreeBroadcastState &broadcast,
-                                          td::uint32 part_index, const td::BufferSlice &part);
+  td::Result<PlumtreeFecBroadcastRef> get_or_create_fec_broadcast_state(
+      const td::Bits256 &broadcast_id, PublicKeyHash source, BroadcastCheckResult check, td::uint32 flags,
+      const td::Bits256 &data_hash, td::uint32 data_size, td::uint32 part_size);
+  td::Status ensure_decoder(PlumtreeFecBroadcastState &broadcast);
+  td::Result<PlumtreeDecodedBroadcast> add_decoder_part_and_decode(OverlayImpl *overlay,
+                                                                   PlumtreeFecBroadcastState &broadcast,
+                                                                   td::uint32 part_index, const td::BufferSlice &part);
+  PlumtreePartState *add_fec_part_state(PlumtreeFecBroadcastState &broadcast, td::uint32 part_index,
+                                        td::uint32 tree_index, double timestamp, PublicKey source_key,
+                                        PublicKeyHash source, std::shared_ptr<Certificate> cert,
+                                        td::BufferSlice signature, td::BufferSlice part_data);
+  td::Result<PlumtreeDecodedBroadcast> decode_fec_part(OverlayImpl *overlay, PlumtreeFecBroadcastState &broadcast,
+                                                       td::uint32 part_index);
 
   bool send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
                     tl_object_ptr<ton_api::overlay_Broadcast> control);
-  bool send_payload_to(OverlayImpl *overlay, PlumtreeBroadcastState &broadcast, PlumtreePartState &part,
+  bool send_fec_payload_to(OverlayImpl *overlay, PlumtreeFecBroadcastState &broadcast, PlumtreePartState &part,
+                           const adnl::AdnlNodeIdShort &dst);
+  bool send_simple_payload_to(OverlayImpl *overlay, PlumtreeSimpleBroadcastState &payload, PlumtreePartState &part,
+                              const adnl::AdnlNodeIdShort &dst);
+  bool send_payload_to(OverlayImpl *overlay, const td::Bits256 &broadcast_id, PlumtreePartState &part,
                        const adnl::AdnlNodeIdShort &dst);
   void send_ihave_to(OverlayImpl *overlay, PlumtreePartState &part, const td::Bits256 &broadcast_id,
                      const adnl::AdnlNodeIdShort &dst);
@@ -212,7 +276,7 @@ class BroadcastsPlumtree::Impl {
                   const td::Bits256 &broadcast_id);
   void send_useful(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst, const PlumtreePartState &part,
                    const td::Bits256 &broadcast_id);
-  void forward_payload(OverlayImpl *overlay, PlumtreeBroadcastState &broadcast, PlumtreePartState &part,
+  void forward_payload(OverlayImpl *overlay, const td::Bits256 &broadcast_id, PlumtreePartState &part,
                        adnl::AdnlNodeIdShort from);
 
   void send_assigned_parts(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
@@ -227,11 +291,17 @@ td::Status BroadcastsPlumtree::Impl::validate_control_fields(const td::Bits256 &
   if (broadcast_id.is_zero()) {
     return td::Status::Error(ErrorCode::protoviolation, "empty Plumtree broadcast id");
   }
-  if (part_index >= options_.parts_ || tree_index >= options_.tree_slots_) {
+  if (tree_index >= options_.tree_slots_) {
     return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree part or tree index");
   }
-  if (part_index != tree_index) {
-    return td::Status::Error(ErrorCode::protoviolation, "Plumtree part must use the matching tree");
+  if (tree_index == PLUMTREE_SIMPLE_TREE_INDEX) {
+    if (part_index != 0) {
+      return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree simple part index");
+    }
+    return td::Status::OK();
+  }
+  if (part_index >= options_.parts_ || tree_index != part_index + PLUMTREE_FEC_TREE_OFFSET) {
+    return td::Status::Error(ErrorCode::protoviolation, "Plumtree FEC part must use the matching tree");
   }
   return td::Status::OK();
 }
@@ -319,22 +389,65 @@ void BroadcastsPlumtree::Impl::remove_eager(PlumtreeSlot &slot, adnl::AdnlNodeId
   slot.pending_feedback.erase(peer);
 }
 
-PlumtreeBroadcastState *BroadcastsPlumtree::Impl::get_state(const td::Bits256 &broadcast_id) {
+PlumtreeFecBroadcastState *BroadcastsPlumtree::Impl::get_state(const td::Bits256 &broadcast_id) {
   auto it = broadcasts_.find(broadcast_id);
   return it == broadcasts_.end() ? nullptr : it->second.get();
 }
 
-PlumtreePartState *BroadcastsPlumtree::Impl::get_part(const td::Bits256 &broadcast_id, td::uint32 part_index,
-                                                          td::uint32 tree_index) {
-  auto *state = get_state(broadcast_id);
-  if (!state) {
-    return nullptr;
-  }
-  auto it = state->tree_parts.find(TreePartKey{part_index, tree_index});
-  return it == state->tree_parts.end() ? nullptr : &it->second;
+PlumtreeSimpleBroadcastState *BroadcastsPlumtree::Impl::get_simple_state(const td::Bits256 &broadcast_id) {
+  auto it = simple_broadcasts_.find(broadcast_id);
+  return it == simple_broadcasts_.end() ? nullptr : it->second.get();
 }
 
-td::Status BroadcastsPlumtree::Impl::ensure_decoder(PlumtreeBroadcastState &broadcast) {
+bool BroadcastsPlumtree::Impl::has_state(const td::Bits256 &broadcast_id) const {
+  return broadcasts_.contains(broadcast_id) || simple_broadcasts_.contains(broadcast_id);
+}
+
+PlumtreePartState *BroadcastsPlumtree::Impl::get_part(const td::Bits256 &broadcast_id, td::uint32 part_index,
+                                                      td::uint32 tree_index) {
+  if (auto *state = get_state(broadcast_id)) {
+    auto it = state->tree_parts.find(TreePartKey{part_index, tree_index});
+    if (it != state->tree_parts.end()) {
+      return &it->second;
+    }
+  }
+  if (auto *state = get_simple_state(broadcast_id)) {
+    if (state->part.part_index == part_index && state->part.tree_index == tree_index) {
+      return &state->part;
+    }
+  }
+  return nullptr;
+}
+
+td::Result<PlumtreeFecBroadcastRef> BroadcastsPlumtree::Impl::get_or_create_fec_broadcast_state(
+    const td::Bits256 &broadcast_id, PublicKeyHash source, BroadcastCheckResult check, td::uint32 flags,
+    const td::Bits256 &data_hash, td::uint32 data_size, td::uint32 part_size) {
+  auto it = broadcasts_.find(broadcast_id);
+  if (it != broadcasts_.end()) {
+    auto &state = *it->second;
+    if (state.flags != flags || state.data_hash != data_hash || state.data_size != data_size ||
+        state.part_size != part_size) {
+      return td::Status::Error(ErrorCode::protoviolation, "Plumtree broadcast id collision");
+    }
+    return PlumtreeFecBroadcastRef{it->second.get(), false};
+  }
+
+  auto state = std::make_unique<PlumtreeFecBroadcastState>();
+  state->broadcast_id = broadcast_id;
+  state->first_valid_source = source;
+  state->check_result = check;
+  state->data_hash = data_hash;
+  state->first_seen_at = td::Timestamp::now();
+  state->flags = flags;
+  state->data_size = data_size;
+  state->part_size = part_size;
+  auto *state_ptr = state.get();
+  lru_.put(state_ptr);
+  broadcasts_.emplace(broadcast_id, std::move(state));
+  return PlumtreeFecBroadcastRef{state_ptr, true};
+}
+
+td::Status BroadcastsPlumtree::Impl::ensure_decoder(PlumtreeFecBroadcastState &broadcast) {
   if (broadcast.delivered || broadcast.decoder) {
     return td::Status::OK();
   }
@@ -348,21 +461,19 @@ td::Status BroadcastsPlumtree::Impl::ensure_decoder(PlumtreeBroadcastState &broa
   return td::Status::OK();
 }
 
-td::Status BroadcastsPlumtree::Impl::add_decoder_part_and_deliver(OverlayImpl *overlay,
-                                                                  PlumtreeBroadcastState &broadcast,
-                                                                  td::uint32 part_index,
-                                                                  const td::BufferSlice &part) {
+td::Result<PlumtreeDecodedBroadcast> BroadcastsPlumtree::Impl::add_decoder_part_and_decode(
+    OverlayImpl *overlay, PlumtreeFecBroadcastState &broadcast, td::uint32 part_index, const td::BufferSlice &part) {
   if (broadcast.delivered || broadcast.decoder_parts.contains(part_index)) {
-    return td::Status::OK();
+    return PlumtreeDecodedBroadcast{};
   }
   TRY_STATUS(ensure_decoder(broadcast));
   if (!broadcast.decoder) {
-    return td::Status::OK();
+    return PlumtreeDecodedBroadcast{};
   }
   TRY_STATUS(broadcast.decoder->add_symbol({part_index, part.clone()}));
   broadcast.decoder_parts.insert(part_index);
   if (!broadcast.decoder->may_try_decode()) {
-    return td::Status::OK();
+    return PlumtreeDecodedBroadcast{};
   }
   TRY_RESULT(decoded, broadcast.decoder->try_decode(false));
   if (broadcast.data_hash != td::sha256_bits256(decoded.data.as_slice())) {
@@ -373,8 +484,36 @@ td::Status BroadcastsPlumtree::Impl::add_decoder_part_and_deliver(OverlayImpl *o
   overlay->register_delivered_broadcast(broadcast.broadcast_id);
   VLOG(PLUMTREE_INFO) << overlay << ": Plumtree FINISH receiver broadcast_id=" << broadcast.broadcast_id.to_hex()
                       << " data_size=" << broadcast.data_size << " decoded=true";
-  overlay->deliver_broadcast(broadcast.first_valid_source, std::move(decoded.data), {});
-  return td::Status::OK();
+  return PlumtreeDecodedBroadcast{broadcast.first_valid_source, broadcast.check_result, std::move(decoded.data)};
+}
+
+PlumtreePartState *BroadcastsPlumtree::Impl::add_fec_part_state(
+    PlumtreeFecBroadcastState &broadcast, td::uint32 part_index, td::uint32 tree_index, double timestamp,
+    PublicKey source_key, PublicKeyHash source, std::shared_ptr<Certificate> cert, td::BufferSlice signature,
+    td::BufferSlice part_data) {
+  if (!broadcast.parts_by_index.contains(part_index)) {
+    broadcast.parts_by_index.emplace(part_index, std::move(part_data));
+  }
+
+  PlumtreePartState part;
+  part.part_index = part_index;
+  part.tree_index = tree_index;
+  part.timestamp = timestamp;
+  part.source_key = std::move(source_key);
+  part.source = source;
+  part.certificate = std::move(cert);
+  part.signature = std::move(signature);
+  auto [part_it, _] = broadcast.tree_parts.emplace(TreePartKey{part_index, tree_index}, std::move(part));
+  return &part_it->second;
+}
+
+td::Result<PlumtreeDecodedBroadcast> BroadcastsPlumtree::Impl::decode_fec_part(
+    OverlayImpl *overlay, PlumtreeFecBroadcastState &broadcast, td::uint32 part_index) {
+  auto part_data_it = broadcast.parts_by_index.find(part_index);
+  if (part_data_it == broadcast.parts_by_index.end()) {
+    return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree FEC part data");
+  }
+  return add_decoder_part_and_decode(overlay, broadcast, part_index, part_data_it->second);
 }
 
 bool BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
@@ -388,8 +527,9 @@ bool BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::Ad
   return true;
 }
 
-bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, PlumtreeBroadcastState &broadcast,
-                                               PlumtreePartState &part, const adnl::AdnlNodeIdShort &dst) {
+bool BroadcastsPlumtree::Impl::send_fec_payload_to(OverlayImpl *overlay, PlumtreeFecBroadcastState &broadcast,
+                                                   PlumtreePartState &part,
+                                                   const adnl::AdnlNodeIdShort &dst) {
   if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
     return false;
   }
@@ -404,7 +544,7 @@ bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, PlumtreeBro
   if (part_data == broadcast.parts_by_index.end()) {
     return false;
   }
-  auto wire = create_serialize_tl_object<ton_api::overlay_broadcastPlumtreePayload>(
+  auto wire = create_serialize_tl_object<ton_api::overlay_broadcastPlumtreeFec>(
       static_cast<std::int32_t>(broadcast.flags), part.timestamp, part.source_key.tl(),
       part.certificate ? part.certificate->tl() : Certificate::empty_tl(), broadcast.data_hash,
       static_cast<std::int32_t>(broadcast.data_size), static_cast<std::int32_t>(part.part_index),
@@ -417,6 +557,43 @@ bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, PlumtreeBro
   ++part.full_sends;
   overlay->get_broadcasts_limiter(part.source, part.certificate.get()).register_out_traffic(wire_size);
   return true;
+}
+
+bool BroadcastsPlumtree::Impl::send_simple_payload_to(OverlayImpl *overlay, PlumtreeSimpleBroadcastState &payload,
+                                                      PlumtreePartState &part,
+                                                      const adnl::AdnlNodeIdShort &dst) {
+  if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
+    return false;
+  }
+  auto *s = slot(part.tree_index);
+  if (!s || !can_reserve_eager_feedback(*s, dst)) {
+    return false;
+  }
+  if (part.full_sends >= options_.eager_limit_ || part.full_sent_to.contains(dst)) {
+    return false;
+  }
+  auto wire = create_serialize_tl_object<ton_api::overlay_broadcastPlumtreeSimple>(
+      static_cast<std::int32_t>(payload.flags), part.timestamp, part.source_key.tl(),
+      part.certificate ? part.certificate->tl() : Certificate::empty_tl(), payload.broadcast_id,
+      static_cast<std::int32_t>(part.tree_index), payload.data.clone(), part.signature.clone());
+  auto wire_size = wire.size();
+  td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_message_via, dst, overlay->local_id(),
+                          overlay->overlay_id(), std::move(wire), sender_);
+  s->pending_feedback[dst] = td::Timestamp::now();
+  part.full_sent_to.insert(dst);
+  ++part.full_sends;
+  overlay->get_broadcasts_limiter(part.source, part.certificate.get()).register_out_traffic(wire_size);
+  return true;
+}
+
+bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, const td::Bits256 &broadcast_id,
+                                               PlumtreePartState &part, const adnl::AdnlNodeIdShort &dst) {
+  if (part.tree_index == PLUMTREE_SIMPLE_TREE_INDEX) {
+    auto *state = get_simple_state(broadcast_id);
+    return state && send_simple_payload_to(overlay, *state, part, dst);
+  }
+  auto *state = get_state(broadcast_id);
+  return state && send_fec_payload_to(overlay, *state, part, dst);
 }
 
 void BroadcastsPlumtree::Impl::send_ihave_to(OverlayImpl *overlay, PlumtreePartState &part,
@@ -456,7 +633,7 @@ void BroadcastsPlumtree::Impl::send_useful(OverlayImpl *overlay, const adnl::Adn
                                                                           static_cast<std::int32_t>(part.tree_index)));
 }
 
-void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, PlumtreeBroadcastState &broadcast,
+void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, const td::Bits256 &broadcast_id,
                                                PlumtreePartState &part, adnl::AdnlNodeIdShort from) {
   auto *s = slot(part.tree_index);
   if (!s) {
@@ -471,7 +648,7 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, PlumtreeBro
   if (s->initialized) {
     trim_eager_to_capacity(*s);
     for (const auto &peer : s->eager) {
-      if (peer != from && send_payload_to(overlay, broadcast, part, peer)) {
+      if (peer != from && send_payload_to(overlay, broadcast_id, part, peer)) {
         full_sent.insert(peer);
       }
     }
@@ -481,7 +658,7 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, PlumtreeBro
       if (slot_load(*s) >= options_.eager_limit_) {
         break;
       }
-      if (send_payload_to(overlay, broadcast, part, peer)) {
+      if (send_payload_to(overlay, broadcast_id, part, peer)) {
         full_sent.insert(peer);
       }
     }
@@ -490,7 +667,7 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, PlumtreeBro
 
   for (const auto &peer : active) {
     if (peer != from && !full_sent.contains(peer) && !s->eager.contains(peer)) {
-      send_ihave_to(overlay, part, broadcast.broadcast_id, peer);
+      send_ihave_to(overlay, part, broadcast_id, peer);
     }
   }
 }
@@ -510,17 +687,17 @@ void BroadcastsPlumtree::Impl::trim_missing_parts() {
   }
 }
 
-void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags,
+void BroadcastsPlumtree::Impl::send_fec(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags,
                                     td::BufferSlice data) {
   if (data.empty() || data.size() > Overlays::max_fec_broadcast_size()) {
-    VLOG(PLUMTREE_WARNING) << overlay << ": invalid Plumtree payload size " << data.size();
+    VLOG(PLUMTREE_WARNING) << overlay << ": invalid Plumtree FEC payload size " << data.size();
     return;
   }
   if (send_as.is_zero()) {
     VLOG(PLUMTREE_INFO) << overlay << ": no local Plumtree source";
     return;
   }
-  if (options_.k_ == 0 || options_.parts_ == 0 || options_.tree_slots_ < options_.parts_) {
+  if (options_.k_ == 0 || options_.parts_ == 0 || options_.tree_slots_ <= options_.parts_) {
     VLOG(PLUMTREE_WARNING) << overlay << ": invalid Plumtree FEC configuration";
     return;
   }
@@ -544,11 +721,58 @@ void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as,
   std::vector<TreePartKey> assigned_parts;
   assigned_parts.reserve(options_.parts_);
   for (td::uint32 part_index = 0; part_index < options_.parts_; ++part_index) {
-    assigned_parts.emplace_back(part_index, part_index);
+    assigned_parts.emplace_back(part_index, part_index + PLUMTREE_FEC_TREE_OFFSET);
   }
 
   send_assigned_parts(overlay, send_as, flags, std::move(data), data_size, part_size, data_hash, broadcast_id,
                       std::move(assigned_parts), "all-parts");
+}
+
+void BroadcastsPlumtree::Impl::send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags,
+                                    td::Bits256 broadcast_id, td::BufferSlice data) {
+  if (broadcast_id.is_zero()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": empty Plumtree simple broadcast id";
+    return;
+  }
+  if (data.empty() || data.size() > Overlays::max_fec_broadcast_size()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": invalid Plumtree simple payload size " << data.size();
+    return;
+  }
+  if (send_as.is_zero()) {
+    VLOG(PLUMTREE_INFO) << overlay << ": no local Plumtree simple source";
+    return;
+  }
+  if (simple_broadcasts_.contains(broadcast_id) || overlay->is_delivered(broadcast_id)) {
+    VLOG(PLUMTREE_INFO) << overlay << ": duplicate Plumtree simple broadcast_id=" << broadcast_id.to_hex();
+    return;
+  }
+
+  auto data_size = static_cast<td::uint32>(data.size());
+  auto cert = overlay->get_certificate(send_as);
+  if (overlay->check_source_eligible(send_as, cert.get(), data_size, /* is_fec = */ true,
+                                     /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender()) ==
+      BroadcastCheckResult::Forbidden) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree simple source is no longer eligible";
+    return;
+  }
+
+  PlumtreeOutboundSimplePayload payload;
+  payload.broadcast_id = broadcast_id;
+  payload.flags = flags;
+  payload.timestamp = td::Clocks::system();
+  payload.source = send_as;
+  payload.tree_index = PLUMTREE_SIMPLE_TREE_INDEX;
+  payload.data = std::move(data);
+
+  auto to_sign =
+      make_simple_payload_to_sign(payload.broadcast_id, payload.timestamp, payload.tree_index, payload.data);
+  auto promise = td::PromiseCreator::lambda([overlay_id = actor_id(overlay), payload = std::move(payload)](
+                                                td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
+    td::actor::send_closure(overlay_id, &OverlayImpl::broadcast_plumtree_signed_simple, std::move(payload),
+                            std::move(R));
+  });
+  td::actor::send_closure(overlay->keyring(), &keyring::Keyring::sign_add_get_public_key, send_as, std::move(to_sign),
+                          std::move(promise));
 }
 
 void BroadcastsPlumtree::Impl::send_assigned_parts(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags,
@@ -578,7 +802,7 @@ void BroadcastsPlumtree::Impl::send_assigned_parts(OverlayImpl *overlay, PublicK
       continue;
     }
 
-    PlumtreeOutboundPayload payload;
+    PlumtreeOutboundFecPayload payload;
     payload.broadcast_id = broadcast_id;
     payload.flags = flags;
     payload.timestamp = td::Clocks::system();
@@ -589,11 +813,11 @@ void BroadcastsPlumtree::Impl::send_assigned_parts(OverlayImpl *overlay, PublicK
     payload.tree_index = tree_index;
     payload.part = std::move(part);
 
-    auto to_sign = make_payload_to_sign(payload.broadcast_id, payload.timestamp, payload.part_index, payload.tree_index,
-                                        payload.part);
+    auto to_sign = make_fec_payload_to_sign(payload.broadcast_id, payload.timestamp, payload.part_index,
+                                            payload.tree_index, payload.part);
     auto promise = td::PromiseCreator::lambda([overlay_id = actor_id(overlay), payload = std::move(payload)](
                                                   td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
-      td::actor::send_closure(overlay_id, &OverlayImpl::broadcast_plumtree_signed_payload, std::move(payload),
+      td::actor::send_closure(overlay_id, &OverlayImpl::broadcast_plumtree_signed_fec, std::move(payload),
                               std::move(R));
     });
     td::actor::send_closure(overlay->keyring(), &keyring::Keyring::sign_add_get_public_key, send_as, std::move(to_sign),
@@ -606,24 +830,24 @@ void BroadcastsPlumtree::Impl::send_assigned_parts(OverlayImpl *overlay, PublicK
                       << " scheduled_parts=" << options_.parts_ << " signed_parts=" << signed_parts << " mode=" << mode;
 }
 
-void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutboundPayload &&payload,
-                                              td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
+void BroadcastsPlumtree::Impl::signed_fec(OverlayImpl *overlay, PlumtreeOutboundFecPayload &&payload,
+                                          td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
   if (R.is_error()) {
     auto status = R.move_as_error();
-    LOG_IF(WARNING, status.code() != ErrorCode::notready) << "failed to sign Plumtree payload: " << status;
+    LOG_IF(WARNING, status.code() != ErrorCode::notready) << "failed to sign Plumtree FEC payload: " << status;
     return;
   }
   auto signed_part = R.move_as_ok();
   if (signed_part.second.compute_short_id() != payload.source) {
-    VLOG(PLUMTREE_WARNING) << overlay << ": keyring signed Plumtree payload with unexpected source";
+    VLOG(PLUMTREE_WARNING) << overlay << ": keyring signed Plumtree FEC payload with unexpected source";
     return;
   }
   if (payload.part_index >= options_.parts_ || payload.tree_index >= options_.tree_slots_ ||
-      payload.part_index != payload.tree_index) {
+      payload.tree_index != payload.part_index + PLUMTREE_FEC_TREE_OFFSET) {
     VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree signed payload is outside current option bounds";
     return;
   }
-  if (options_.k_ == 0 || options_.parts_ == 0 || options_.tree_slots_ < options_.parts_) {
+  if (options_.k_ == 0 || options_.parts_ == 0 || options_.tree_slots_ <= options_.parts_) {
     VLOG(PLUMTREE_WARNING) << overlay << ": invalid Plumtree FEC configuration";
     return;
   }
@@ -636,78 +860,122 @@ void BroadcastsPlumtree::Impl::signed_payload(OverlayImpl *overlay, PlumtreeOutb
   }
 
   auto cert = overlay->get_certificate(payload.source);
-  if (overlay->check_source_eligible(payload.source, cert.get(), payload.data_size, /* is_fec = */ true,
-                                     /* is_any_sender = */ payload.flags & Overlays::BroadcastFlagAnySender()) ==
-      BroadcastCheckResult::Forbidden) {
+  auto check = overlay->check_source_eligible(payload.source, cert.get(), payload.data_size, /* is_fec = */ true,
+                                             /* is_any_sender = */ payload.flags & Overlays::BroadcastFlagAnySender());
+  if (check == BroadcastCheckResult::Forbidden) {
     VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree source became ineligible before signed payload send";
     return;
   }
-  auto source_key = signed_part.second;
-
-  auto it = broadcasts_.find(payload.broadcast_id);
-  if (it == broadcasts_.end()) {
-    auto state = std::make_unique<PlumtreeBroadcastState>();
-    state->broadcast_id = payload.broadcast_id;
-    state->first_valid_source = payload.source;
-    state->data_hash = payload.data_hash;
-    state->first_seen_at = td::Timestamp::now();
-    state->flags = payload.flags;
-    state->data_size = payload.data_size;
-    state->part_size = static_cast<td::uint32>(payload.part.size());
-    lru_.put(state.get());
-    it = broadcasts_.emplace(payload.broadcast_id, std::move(state)).first;
-  } else {
-    auto &state = *it->second;
-    if (state.flags != payload.flags || state.data_hash != payload.data_hash || state.data_size != payload.data_size ||
-        state.part_size != payload.part.size()) {
-      VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree signed payload conflicts with existing broadcast state";
-      return;
-    }
+  auto part_size = static_cast<td::uint32>(payload.part.size());
+  auto broadcast_ref_r = get_or_create_fec_broadcast_state(payload.broadcast_id, payload.source, check, payload.flags,
+                                                           payload.data_hash, payload.data_size, part_size);
+  if (broadcast_ref_r.is_error()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree signed payload conflicts with existing broadcast state: "
+                           << broadcast_ref_r.move_as_error();
+    return;
   }
-
-  auto &broadcast = *it->second;
+  auto broadcast_ref = broadcast_ref_r.move_as_ok();
+  auto &broadcast = *broadcast_ref.state;
   if (get_part(payload.broadcast_id, payload.part_index, payload.tree_index)) {
     return;
   }
 
-  auto part_data_it = broadcast.parts_by_index.find(payload.part_index);
-  if (part_data_it == broadcast.parts_by_index.end()) {
-    part_data_it = broadcast.parts_by_index.emplace(payload.part_index, std::move(payload.part)).first;
-  }
+  auto *part = add_fec_part_state(broadcast, payload.part_index, payload.tree_index, payload.timestamp,
+                                  std::move(signed_part.second), payload.source, cert, std::move(signed_part.first),
+                                  std::move(payload.part));
 
-  PlumtreePartState part;
-  part.part_index = payload.part_index;
-  part.tree_index = payload.tree_index;
-  part.timestamp = payload.timestamp;
-  part.source_key = std::move(source_key);
-  part.source = payload.source;
-  part.certificate = cert;
-  part.signature = std::move(signed_part.first);
-  auto [part_it, _] =
-      broadcast.tree_parts.emplace(TreePartKey{payload.part_index, payload.tree_index}, std::move(part));
-
-  forward_payload(overlay, broadcast, part_it->second, adnl::AdnlNodeIdShort::zero());
-  auto status = add_decoder_part_and_deliver(overlay, broadcast, payload.part_index, part_data_it->second);
-  if (status.is_error()) {
-    VLOG(PLUMTREE_WARNING) << overlay << ": failed to process local Plumtree part: " << status;
+  forward_payload(overlay, payload.broadcast_id, *part, adnl::AdnlNodeIdShort::zero());
+  auto decoded = decode_fec_part(overlay, broadcast, payload.part_index);
+  if (decoded.is_error()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": failed to process local Plumtree part: " << decoded.move_as_error();
     return;
+  }
+  auto decoded_broadcast = decoded.move_as_ok();
+  if (!decoded_broadcast.data.empty()) {
+    check_and_deliver(overlay, decoded_broadcast.source, decoded_broadcast.check_result, std::move(decoded_broadcast.data))
+        .start()
+        .detach();
   }
 
   if (!broadcast.overlay_limiter_registered) {
     overlay->get_broadcasts_limiter(payload.source, cert.get()).register_broadcast(payload.data_size);
     broadcast.overlay_limiter_registered = true;
   }
-  VLOG(PLUMTREE_INFO) << overlay << ": Plumtree SEND_PAYLOAD sender broadcast_id=" << payload.broadcast_id.to_hex()
+  VLOG(PLUMTREE_INFO) << overlay << ": Plumtree FEC_SEND sender broadcast_id=" << payload.broadcast_id.to_hex()
                       << " part_index=" << payload.part_index << " tree_index=" << payload.tree_index
-                      << " full_sent=" << part_it->second.full_sends;
+                      << " full_sent=" << part->full_sends;
 }
 
-td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
-    OverlayImpl *overlay, adnl::AdnlNodeIdShort from, tl_object_ptr<ton_api::overlay_broadcastPlumtreePayload> msg) {
+void BroadcastsPlumtree::Impl::signed_simple(OverlayImpl *overlay, PlumtreeOutboundSimplePayload &&payload,
+                                             td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
+  if (R.is_error()) {
+    auto status = R.move_as_error();
+    LOG_IF(WARNING, status.code() != ErrorCode::notready) << "failed to sign Plumtree simple payload: " << status;
+    return;
+  }
+  auto signed_payload = R.move_as_ok();
+  if (signed_payload.second.compute_short_id() != payload.source) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": keyring signed Plumtree simple payload with unexpected source";
+    return;
+  }
+  if (payload.broadcast_id.is_zero()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": empty Plumtree simple broadcast id";
+    return;
+  }
+  if (payload.data.empty() || payload.data.size() > Overlays::max_fec_broadcast_size()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree signed simple payload has invalid data size";
+    return;
+  }
+  if (auto status = validate_control_fields(payload.broadcast_id, 0, payload.tree_index); status.is_error()) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree signed simple payload has invalid tree: " << status;
+    return;
+  }
+  if (simple_broadcasts_.contains(payload.broadcast_id) || overlay->is_delivered(payload.broadcast_id)) {
+    return;
+  }
+
+  auto data_size = static_cast<td::uint32>(payload.data.size());
+  auto cert = overlay->get_certificate(payload.source);
+  auto check = overlay->check_source_eligible(payload.source, cert.get(), data_size, /* is_fec = */ true,
+                                             /* is_any_sender = */ payload.flags & Overlays::BroadcastFlagAnySender());
+  if (check == BroadcastCheckResult::Forbidden) {
+    VLOG(PLUMTREE_WARNING) << overlay << ": Plumtree simple source became ineligible before send";
+    return;
+  }
+
+  auto state = std::make_unique<PlumtreeSimpleBroadcastState>();
+  state->broadcast_id = payload.broadcast_id;
+  state->flags = payload.flags;
+  state->data = std::move(payload.data);
+  state->first_seen_at = td::Timestamp::now();
+  state->part.part_index = 0;
+  state->part.tree_index = payload.tree_index;
+  state->part.timestamp = payload.timestamp;
+  state->part.source_key = std::move(signed_payload.second);
+  state->part.source = payload.source;
+  state->part.certificate = cert;
+  state->part.signature = std::move(signed_payload.first);
+
+  auto *state_ptr = state.get();
+  simple_lru_.put(state_ptr);
+  simple_broadcasts_.emplace(state_ptr->broadcast_id, std::move(state));
+
+  overlay->get_broadcasts_limiter(state_ptr->part.source, cert.get()).register_broadcast(data_size);
+  forward_payload(overlay, state_ptr->broadcast_id, state_ptr->part, adnl::AdnlNodeIdShort::zero());
+  overlay->register_delivered_broadcast(state_ptr->broadcast_id);
+  VLOG(PLUMTREE_INFO) << overlay << ": Plumtree SIMPLE_SEND sender broadcast_id="
+                      << state_ptr->broadcast_id.to_hex() << " data_size=" << state_ptr->data.size()
+                      << " tree_index=" << state_ptr->part.tree_index
+                      << " full_sent=" << state_ptr->part.full_sends;
+  check_and_deliver(overlay, state_ptr->part.source, check, state_ptr->data.clone()).start().detach();
+}
+
+td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
+    OverlayImpl *overlay, adnl::AdnlNodeIdShort from, tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> msg) {
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree immediate sender");
   }
-  if (options_.k_ == 0 || options_.parts_ == 0 || options_.tree_slots_ < options_.parts_) {
+  if (options_.k_ == 0 || options_.parts_ == 0 || options_.tree_slots_ <= options_.parts_) {
     co_return td::Status::Error(ErrorCode::notready, "invalid Plumtree FEC configuration");
   }
   auto flags = static_cast<td::uint32>(msg->flags_);
@@ -746,7 +1014,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
   auto cert = CO_TRY(Certificate::create(msg->certificate_));
   auto check = overlay->check_source_eligible(source_hash, cert.get(), data_size, /* is_fec = */ true,
                                              /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender(), from);
-  if (check != BroadcastCheckResult::Allowed) {
+  if (check == BroadcastCheckResult::Forbidden) {
     co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree source is not allowed");
   }
 
@@ -755,42 +1023,41 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
     co_await overlay->precheck_broadcast(source_hash, broadcast_id, {}, false).trace("precheck Plumtree broadcast");
   }
 
-  auto to_sign = make_payload_to_sign(broadcast_id, timestamp, part_index, tree_index, msg->part_);
+  auto to_sign = make_fec_payload_to_sign(broadcast_id, timestamp, part_index, tree_index, msg->part_);
   {
-    TD_PERF_COUNTER(check_signature_overlay_broadcast_plumtree_payload);
+    TD_PERF_COUNTER(check_signature_overlay_broadcast_plumtree_fec_payload);
     CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
   }
 
+  PlumtreeFecBroadcastState *broadcast = nullptr;
   if (new_broadcast) {
     co_await overlay->precheck_broadcast(source_hash, broadcast_id, {}, true).trace("precheck Plumtree broadcast");
     CO_TRY(check_timestamp(timestamp));
     it = broadcasts_.find(broadcast_id);
     if (it == broadcasts_.end()) {
       CO_TRY(overlay->get_broadcasts_limiter(source_hash, cert.get()).try_register_broadcast(data_size));
-      auto state = std::make_unique<PlumtreeBroadcastState>();
-      state->broadcast_id = broadcast_id;
-      state->first_valid_source = source_hash;
-      state->data_hash = msg->data_hash_;
-      state->first_seen_at = td::Timestamp::now();
-      state->flags = flags;
-      state->data_size = data_size;
-      state->part_size = part_size;
-      CO_TRY(ensure_decoder(*state));
-      lru_.put(state.get());
-      it = broadcasts_.emplace(broadcast_id, std::move(state)).first;
-      VLOG(PLUMTREE_INFO) << overlay << ": Plumtree START receiver broadcast_id=" << broadcast_id.to_hex()
-                          << " data_hash=" << msg->data_hash_.to_hex() << " data_size=" << data_size
-                          << " from=" << from;
+      auto broadcast_ref =
+          CO_TRY(get_or_create_fec_broadcast_state(broadcast_id, source_hash, check, flags, msg->data_hash_,
+                                                   data_size, part_size));
+      broadcast = broadcast_ref.state;
+      if (broadcast_ref.created) {
+        VLOG(PLUMTREE_INFO) << overlay << ": Plumtree START receiver broadcast_id=" << broadcast_id.to_hex()
+                            << " data_hash=" << msg->data_hash_.to_hex() << " data_size=" << data_size
+                            << " from=" << from;
+      }
     } else {
       auto &state = *it->second;
       if (state.flags != flags || state.data_hash != msg->data_hash_ || state.data_size != data_size ||
           state.part_size != part_size) {
         co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree broadcast id collision");
       }
+      broadcast = it->second.get();
     }
+  } else {
+    broadcast = it->second.get();
   }
+  CO_TRY(ensure_decoder(*broadcast));
 
-  auto &broadcast = *it->second;
   if (auto *known = get_part(broadcast_id, part_index, tree_index)) {
     if (auto *s = slot(tree_index)) {
       remove_eager(*s, from);
@@ -799,21 +1066,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
     co_return td::Status::Error(ErrorCode::notready, "duplicate Plumtree part");
   }
 
-  CO_TRY(ensure_decoder(broadcast));
-  auto part_data_it = broadcast.parts_by_index.find(part_index);
-  if (part_data_it == broadcast.parts_by_index.end()) {
-    part_data_it = broadcast.parts_by_index.emplace(part_index, msg->part_.clone()).first;
-  }
-  PlumtreePartState part;
-  part.part_index = part_index;
-  part.tree_index = tree_index;
-  part.timestamp = timestamp;
-  part.source_key = std::move(source_key);
-  part.source = source_hash;
-  part.certificate = cert;
-  part.signature = std::move(msg->signature_);
-  auto [part_it, _] =
-      broadcast.tree_parts.emplace(TreePartKey{part_index, tree_index}, std::move(part));
+  auto *part = add_fec_part_state(*broadcast, part_index, tree_index, timestamp, std::move(source_key), source_hash,
+                                  cert, std::move(msg->signature_), msg->part_.clone());
   missing_parts_.erase(MissingPartKey{broadcast_id, part_index, tree_index});
 
   auto *s = slot(tree_index);
@@ -821,10 +1075,119 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_payload(
     co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree slot");
   }
   promote_eager(*s, from, true);
-  send_useful(overlay, from, part_it->second, broadcast_id);
-  forward_payload(overlay, broadcast, part_it->second, from);
+  send_useful(overlay, from, *part, broadcast_id);
+  forward_payload(overlay, broadcast_id, *part, from);
 
-  CO_TRY(add_decoder_part_and_deliver(overlay, broadcast, part_index, part_data_it->second));
+  auto decoded = CO_TRY(decode_fec_part(overlay, *broadcast, part_index));
+  if (!decoded.data.empty()) {
+    co_await check_and_deliver(overlay, decoded.source, decoded.check_result, std::move(decoded.data))
+        .trace("check Plumtree broadcast");
+  }
+  co_return td::Unit{};
+}
+
+td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
+    OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+    tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> msg) {
+  if (from.is_zero()) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree simple immediate sender");
+  }
+  auto flags = static_cast<td::uint32>(msg->flags_);
+  auto timestamp = msg->timestamp_;
+  auto broadcast_id = msg->broadcast_id_;
+  td::uint32 part_index = 0;
+  auto tree_index = static_cast<td::uint32>(msg->tree_index_);
+  CO_TRY(check_timestamp(timestamp));
+  if (broadcast_id.is_zero()) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "empty Plumtree simple broadcast id");
+  }
+  CO_TRY(validate_control_fields(broadcast_id, part_index, tree_index));
+  if (msg->data_.empty() || msg->data_.size() > Overlays::max_fec_broadcast_size()) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree simple payload size");
+  }
+  auto data_size = static_cast<td::uint32>(msg->data_.size());
+  auto it = simple_broadcasts_.find(broadcast_id);
+  if (it == simple_broadcasts_.end() && overlay->is_delivered(broadcast_id)) {
+    co_return td::Status::Error(ErrorCode::notready, "known Plumtree simple broadcast");
+  }
+  bool new_broadcast = it == simple_broadcasts_.end();
+
+  PublicKey source_key(msg->src_);
+  auto source_hash = source_key.compute_short_id();
+  auto cert = CO_TRY(Certificate::create(msg->certificate_));
+  auto check = overlay->check_source_eligible(source_hash, cert.get(), data_size, /* is_fec = */ true,
+                                             /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender(), from);
+  if (check == BroadcastCheckResult::Forbidden) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree simple source is not allowed");
+  }
+
+  auto &limiter = overlay->get_broadcasts_limiter(source_hash, cert.get());
+  if (new_broadcast) {
+    CO_TRY(limiter.precheck_new_broadcast(data_size));
+    co_await overlay->precheck_broadcast(source_hash, broadcast_id, {}, false)
+        .trace("precheck Plumtree simple broadcast");
+  }
+
+  auto to_sign = make_simple_payload_to_sign(broadcast_id, timestamp, tree_index, msg->data_);
+  {
+    TD_PERF_COUNTER(check_signature_overlay_broadcast_plumtree_simple_payload);
+    CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
+  }
+
+  if (auto *known = get_part(broadcast_id, part_index, tree_index)) {
+    if (auto *s = slot(tree_index)) {
+      remove_eager(*s, from);
+    }
+    send_prune(overlay, from, *known, broadcast_id);
+    co_return td::Status::Error(ErrorCode::notready, "duplicate Plumtree simple payload");
+  }
+
+  co_await overlay->precheck_broadcast(source_hash, broadcast_id, {}, true).trace("precheck Plumtree simple broadcast");
+  CO_TRY(check_timestamp(timestamp));
+  if (auto *known = get_part(broadcast_id, part_index, tree_index)) {
+    if (auto *s = slot(tree_index)) {
+      remove_eager(*s, from);
+    }
+    send_prune(overlay, from, *known, broadcast_id);
+    co_return td::Status::Error(ErrorCode::notready, "duplicate Plumtree simple payload");
+  }
+  if (!has_state(broadcast_id) && overlay->is_delivered(broadcast_id)) {
+    co_return td::Status::Error(ErrorCode::notready, "known Plumtree simple broadcast");
+  }
+
+  CO_TRY(limiter.try_register_broadcast(data_size));
+
+  auto state = std::make_unique<PlumtreeSimpleBroadcastState>();
+  state->broadcast_id = broadcast_id;
+  state->flags = flags;
+  state->data = std::move(msg->data_);
+  state->first_seen_at = td::Timestamp::now();
+  state->part.part_index = part_index;
+  state->part.tree_index = tree_index;
+  state->part.timestamp = timestamp;
+  state->part.source_key = std::move(source_key);
+  state->part.source = source_hash;
+  state->part.certificate = cert;
+  state->part.signature = std::move(msg->signature_);
+
+  auto *state_ptr = state.get();
+  simple_lru_.put(state_ptr);
+  simple_broadcasts_.emplace(broadcast_id, std::move(state));
+  missing_parts_.erase(MissingPartKey{broadcast_id, part_index, tree_index});
+  VLOG(PLUMTREE_INFO) << overlay << ": Plumtree SIMPLE_RECV broadcast_id=" << state_ptr->broadcast_id.to_hex()
+                      << " tree_index=" << state_ptr->part.tree_index << " data_size=" << state_ptr->data.size()
+                      << " from=" << from;
+
+  auto *s = slot(tree_index);
+  if (!s) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree slot");
+  }
+  promote_eager(*s, from, true);
+  send_useful(overlay, from, state_ptr->part, broadcast_id);
+  forward_payload(overlay, broadcast_id, state_ptr->part, from);
+  overlay->register_delivered_broadcast(state_ptr->broadcast_id);
+  co_await check_and_deliver(overlay, state_ptr->part.source, check, state_ptr->data.clone())
+      .trace("check Plumtree simple broadcast");
   co_return td::Unit{};
 }
 
@@ -839,7 +1202,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   auto part_index = control.part_index;
   auto tree_index = control.tree_index;
 
-  if (!get_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
+  if (!has_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
   }
   if (get_part(control.broadcast_id, part_index, tree_index)) {
@@ -872,19 +1235,18 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_repair(
   auto part_index = control.part_index;
   auto tree_index = control.tree_index;
 
-  auto *state = get_state(control.broadcast_id);
-  if (!state && overlay->is_delivered(control.broadcast_id)) {
+  if (!has_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
   }
   auto *part = get_part(control.broadcast_id, part_index, tree_index);
   auto *s = slot(tree_index);
-  if (!state || !part || !s || !part->advertised_to.contains(from) || part->full_sent_to.contains(from)) {
+  if (!part || !s || !part->advertised_to.contains(from) || part->full_sent_to.contains(from)) {
     co_return td::Unit{};
   }
   if (!can_reserve_eager_feedback(*s, from) || part->full_sends >= options_.eager_limit_) {
     co_return td::Status::Error(ErrorCode::notready, "Plumtree REPAIR cannot be served");
   }
-  send_payload_to(overlay, *state, *part, from);
+  send_payload_to(overlay, control.broadcast_id, *part, from);
   co_return td::Unit{};
 }
 
@@ -899,7 +1261,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_prune(OverlayImpl *overlay, 
   auto part_index = control.part_index;
   auto tree_index = control.tree_index;
 
-  if (!get_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
+  if (!has_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
   }
   auto *part = get_part(control.broadcast_id, part_index, tree_index);
@@ -926,7 +1288,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_useful(
   auto part_index = control.part_index;
   auto tree_index = control.tree_index;
 
-  if (!get_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
+  if (!has_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
   }
   auto *part = get_part(control.broadcast_id, part_index, tree_index);
@@ -988,7 +1350,7 @@ void BroadcastsPlumtree::Impl::gc(OverlayImpl *overlay) {
   auto now = td::Timestamp::now();
   auto broadcast_expired_before = now - PLUMTREE_BROADCAST_TTL;
   while (!broadcasts_.empty()) {
-    auto *bcast = static_cast<PlumtreeBroadcastState *>(lru_.prev);
+    auto *bcast = static_cast<PlumtreeFecBroadcastState *>(lru_.prev);
     CHECK(bcast);
     if (bcast->first_seen_at > broadcast_expired_before) {
       break;
@@ -1001,6 +1363,17 @@ void BroadcastsPlumtree::Impl::gc(OverlayImpl *overlay) {
                           << " decoder_parts=" << bcast->decoder_parts.size();
     }
     CHECK(broadcasts_.erase(broadcast_id));
+    overlay->register_delivered_broadcast(broadcast_id);
+  }
+
+  while (!simple_broadcasts_.empty()) {
+    auto *bcast = static_cast<PlumtreeSimpleBroadcastState *>(simple_lru_.prev);
+    CHECK(bcast);
+    if (bcast->first_seen_at > broadcast_expired_before) {
+      break;
+    }
+    auto broadcast_id = bcast->broadcast_id;
+    CHECK(simple_broadcasts_.erase(broadcast_id));
     overlay->register_delivered_broadcast(broadcast_id);
   }
 
@@ -1026,18 +1399,35 @@ void BroadcastsPlumtree::init_sender(td::actor::ActorId<adnl::AdnlSenderInterfac
   impl_->init_sender(sender);
 }
 
-void BroadcastsPlumtree::send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
-  impl_->send(overlay, send_as, flags, std::move(data));
+void BroadcastsPlumtree::send_fec(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
+  impl_->send_fec(overlay, send_as, flags, std::move(data));
 }
 
-void BroadcastsPlumtree::signed_payload(OverlayImpl *overlay, PlumtreeOutboundPayload &&payload,
-                                        td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
-  impl_->signed_payload(overlay, std::move(payload), std::move(R));
+void BroadcastsPlumtree::send(OverlayImpl *overlay, PublicKeyHash send_as, td::uint32 flags,
+                              td::Bits256 broadcast_id, td::BufferSlice data) {
+  impl_->send(overlay, send_as, flags, broadcast_id, std::move(data));
 }
 
-td::actor::Task<> BroadcastsPlumtree::process_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
-                                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreePayload> msg) {
-  co_await impl_->process_payload(overlay, from, std::move(msg));
+void BroadcastsPlumtree::signed_fec(OverlayImpl *overlay, PlumtreeOutboundFecPayload &&payload,
+                                    td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
+  impl_->signed_fec(overlay, std::move(payload), std::move(R));
+}
+
+void BroadcastsPlumtree::signed_simple(OverlayImpl *overlay, PlumtreeOutboundSimplePayload &&payload,
+                                       td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
+  impl_->signed_simple(overlay, std::move(payload), std::move(R));
+}
+
+td::actor::Task<> BroadcastsPlumtree::process_fec_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+                                                          tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> msg) {
+  co_await impl_->process_fec_payload(overlay, from, std::move(msg));
+  co_return td::Unit{};
+}
+
+td::actor::Task<> BroadcastsPlumtree::process_simple_payload(
+    OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+    tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> msg) {
+  co_await impl_->process_simple_payload(overlay, from, std::move(msg));
   co_return td::Unit{};
 }
 

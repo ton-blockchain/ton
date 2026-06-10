@@ -405,6 +405,16 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
   }
 }
 
+void FullNodeImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
+  if (mode & broadcast_mode_fast_sync) {
+    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(finality.block_id.shard_full()).first;
+    if (!fast_sync_overlay.empty()) {
+      td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_block_finality_broadcast,
+                              finality.clone());
+    }
+  }
+}
+
 void FullNodeImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                   td::Promise<ReceivedBlock> promise) {
   auto shard = get_shard(id.shard_full());
@@ -625,6 +635,11 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signat
                           });
 }
 
+void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast finality) {
+  td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_finality_broadcast, std::move(finality))
+      .detach();
+}
+
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::uint32 validator_set_hash, td::BufferSlice data) {
   send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
@@ -706,6 +721,9 @@ void FullNodeImpl::start_up() {
     }
     void send_broadcast(BlockBroadcast broadcast, int mode) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), mode);
+    }
+    void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override {
+      td::actor::send_closure(id_, &FullNodeImpl::send_block_finality_broadcast, std::move(finality), mode);
     }
     void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                         td::Promise<ReceivedBlock> promise) override {

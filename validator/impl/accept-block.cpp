@@ -23,6 +23,7 @@
 #include "interfaces/validator-manager.h"
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
+#include "validator/full-node.h"
 #include "validator/invariants.hpp"
 #include "vm/boc.h"
 #include "vm/cells.h"
@@ -880,6 +881,17 @@ void AcceptBlockQuery::send_broadcasts() {
     return;
   }
   VLOG(VALIDATOR_DEBUG) << "send_broadcasts mode=" << send_broadcast_mode_;
+  int finality_mode = send_broadcast_mode_ & fullnode::FullNode::broadcast_mode_fast_sync;
+  if (finality_mode != 0) {
+    td::actor::send_closure_later(manager_, &ValidatorManager::send_block_finality_broadcast,
+                                  BlockFinalityBroadcast{id_, signatures_}, finality_mode);
+  }
+
+  int block_broadcast_mode = send_broadcast_mode_ & ~fullnode::FullNode::broadcast_mode_fast_sync;
+  if (block_broadcast_mode == 0) {
+    return;
+  }
+
   BlockBroadcast b;
   b.data = data_->data();
   b.block_id = id_;
@@ -891,7 +903,8 @@ void AcceptBlockQuery::send_broadcasts() {
   }
 
   // do not wait for answer
-  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), send_broadcast_mode_);
+  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b),
+                                block_broadcast_mode);
 
   // Do this for shard blocks later:
   // td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id_,
