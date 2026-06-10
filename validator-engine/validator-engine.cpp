@@ -4224,6 +4224,11 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_createEle
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
     return;
   }
+  if (!enable_deprecated_control_queries_) {
+    promise.set_value(create_control_query_error(td::Status::Error(
+        ton::ErrorCode::error, "deprecated control query is disabled (use --enable-deprecated-control-queries)")));
+    return;
+  }
   if (!started_) {
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
     return;
@@ -4285,6 +4290,11 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_createPro
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
     return;
   }
+  if (!enable_deprecated_control_queries_) {
+    promise.set_value(create_control_query_error(td::Status::Error(
+        ton::ErrorCode::error, "deprecated control query is disabled (use --enable-deprecated-control-queries)")));
+    return;
+  }
   if (keyring_.empty()) {
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "keyring not started")));
     return;
@@ -4309,6 +4319,11 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_createCom
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_modify)) {
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+  if (!enable_deprecated_control_queries_) {
+    promise.set_value(create_control_query_error(td::Status::Error(
+        ton::ErrorCode::error, "deprecated control query is disabled (use --enable-deprecated-control-queries)")));
     return;
   }
   if (keyring_.empty()) {
@@ -5826,6 +5841,11 @@ int main(int argc, char *argv[]) {
   p.add_option('\0', "nonfinal-ls", "enable special LS queries to non-finalized blocks", [&]() {
     acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_nonfinal_ls_queries_enabled); });
   });
+  p.add_option(
+      '\0', "enable-deprecated-control-queries",
+      "enable deprecated control queries (createElectionBid, createProposalVote, createComplaintVote)", [&]() {
+        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_enable_deprecated_control_queries); });
+      });
   p.add_checked_option(
       '\0', "celldb-cache-size", "block cache size for RocksDb in CellDb, in bytes (default: 1G)",
       [&](td::Slice s) -> td::Status {
