@@ -1522,7 +1522,7 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   if (config->get_libraries_root().not_null()) {
     libraries.push_back(config->get_libraries_root());
   }
-  if (acc_libs.not_null()) {
+  if (acc_libs.not_null() && config->get_global_version() < 15) {
     libraries.push_back(acc_libs);
   }
   vm::GasLimits gas{gas_limit, gas_limit};

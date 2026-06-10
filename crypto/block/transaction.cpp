@@ -1648,11 +1648,10 @@ unsigned output_actions_count(Ref<vm::Cell> list) {
  *
  * @param cfg The configuration for the compute phase.
  * @param lib_only If true, only unpack libraries from the state.
- * @param forbid_public_libs Don't allow public libraries in initstate.
  *
  * @returns True if the unpacking is successful, false otherwise.
  */
-bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only, bool forbid_public_libs) {
+bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only) {
   block::gen::StateInit::Record state;
   if (in_msg_state.is_null() || !tlb::unpack_cell(in_msg_state, state)) {
     LOG(ERROR) << "cannot unpack StateInit from an inbound message";
@@ -1679,12 +1678,19 @@ bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only,
     new_tock = z & 1;
     LOG(DEBUG) << "tick=" << new_tick << ", tock=" << new_tock;
   }
+  // Forbid for deploying, allow for unfreezing
+  if (cfg.global_version >= 15 && acc_status == Account::acc_uninit) {
+    if (state.library->have_refs()) {
+      LOG(DEBUG) << "Cannot unpack msg state: libraries are not null";
+      return false;
+    }
+  }
   td::Ref<vm::Cell> old_code = new_code, old_data = new_data, old_library = new_library;
   new_code = state.code->prefetch_ref();
   new_data = state.data->prefetch_ref();
   new_library = state.library->prefetch_ref();
   auto size_limits = cfg.size_limits;
-  if (forbid_public_libs) {
+  if (acc_status == Account::acc_uninit && account.is_masterchain()) {
     size_limits.max_acc_public_libraries = 0;
   }
   auto S = check_state_limits(size_limits, cfg.global_version, false);
@@ -1707,11 +1713,13 @@ bool Transaction::unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only,
  */
 std::vector<Ref<vm::Cell>> Transaction::compute_vm_libraries(const ComputePhaseConfig& cfg) {
   std::vector<Ref<vm::Cell>> lib_set;
-  if (in_msg_library.not_null()) {
-    lib_set.push_back(in_msg_library);
-  }
-  if (new_library.not_null()) {
-    lib_set.push_back(new_library);
+  if (cfg.global_version < 15) {
+    if (in_msg_library.not_null()) {
+      lib_set.push_back(in_msg_library);
+    }
+    if (new_library.not_null()) {
+      lib_set.push_back(new_library);
+    }
   }
   auto global_libs = cfg.get_lib_root();
   if (global_libs.not_null()) {
@@ -1871,10 +1879,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
       return true;
     }
     use_msg_state = true;
-    bool forbid_public_libs =
-        acc_status == Account::acc_uninit && account.is_masterchain();  // Forbid for deploying, allow for unfreezing
-    if (!(unpack_msg_state(cfg, false, forbid_public_libs) &&
-          account.check_addr_rewrite_length(new_fixed_prefix_length))) {
+    if (!(unpack_msg_state(cfg, false) && account.check_addr_rewrite_length(new_fixed_prefix_length))) {
       LOG(DEBUG) << "cannot unpack in_msg_state, or it has bad fixed_prefix_length; cannot init account state";
       cp.skip_reason = ComputePhase::sk_bad_state;
       return true;
@@ -2344,6 +2349,14 @@ int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, c
   }
   if (rec.mode > 2) {
     return -1;
+  }
+  if (cfg.global_version >= 15) {
+    if (rec.mode == 1) {
+      return 46;
+    }
+    if (!account.is_special) {
+      return 46;
+    }
   }
   Ref<vm::Cell> lib_ref = rec.libref->prefetch_ref();
   ton::Bits256 hash;
