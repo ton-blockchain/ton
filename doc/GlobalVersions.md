@@ -319,3 +319,10 @@ __Enabled in mainnet on 2026-04-03__
 
 ### Transaction changes
 - When the action phase fails with bounce-on-fail, bounce now returns the whole remaining message balance before action phase.
+
+## Version 15
+
+## Transaction changes
+- "Change library" action can only be performed by governance contracts.
+- Private libraries cannot be added and are not used in TVM library context.
+- Account cannot be deployed with non-null libraries dict.
