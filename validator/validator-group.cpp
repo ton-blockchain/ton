@@ -146,7 +146,7 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
 
   std::vector<GroupIdentity> identities;
   for (auto &identity : identities_for(ctx, validator_set)) {
-    if (identity.is_validator() || config.enable_block_observers) {
+    if (identity.is_validator() || config.enable_block_sync()) {
       identities.push_back(identity);
     }
   }

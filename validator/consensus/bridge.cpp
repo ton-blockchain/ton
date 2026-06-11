@@ -296,11 +296,11 @@ class BridgeImpl final : public IValidatorGroup {
       simplex::Pool::register_in(runtime);
       simplex::StateResolver::register_in(runtime);
     } else {
-      CHECK(params_.config.enable_block_observers);
+      CHECK(params_.config.enable_block_sync());
       runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
     }
 
-    if (params_.config.enable_block_observers) {
+    if (params_.config.enable_block_sync()) {
       BlockSyncOverlay::register_in(runtime);
     }
 
