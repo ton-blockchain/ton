@@ -1087,6 +1087,7 @@ engineConsoleClient.config address:string server_public_key:PublicKey client_pri
 
 consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;
 consensus.blockSyncOverlayId session_id:int256 = consensus.BlockOverlayId;
+consensus.dbId session_id:int256 is_validator:Bool validator_key:int256 adnl_id:int256 = consensus.DbId;
 consensus.dataToSign session_id:int256 data:bytes = consensus.DataToSign;
 
 consensus.candidateId slot:int hash:int256 = consensus.CandidateId;

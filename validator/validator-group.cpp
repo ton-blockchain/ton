@@ -97,7 +97,11 @@ std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<bloc
       adnl::AdnlNodeIdShort adnl_id{validator->addr.is_zero() ? key_hash.bits256_value() : validator->addr};
 
       group_validator_adnl_ids.insert(adnl_id);
-      identities.push_back({.adnl_id = adnl_id, .short_id = key_hash});
+      identities.push_back({
+          .adnl_id = adnl_id,
+          .short_id = key_hash,
+          .suffix_db = !identities.empty(),
+      });
     }
   }
 

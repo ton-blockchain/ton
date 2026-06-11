@@ -16,6 +16,12 @@ namespace ton::validator {
 
 namespace consensus {
 
+namespace tl {
+
+using dbId = ton_api::consensus_dbId;
+
+}
+
 namespace {
 
 class ManagerFacadeImpl : public ManagerFacade {
@@ -277,7 +283,7 @@ class BridgeImpl final : public IValidatorGroup {
 
     td::actor::Runtime runtime;
     if (params_.identity.is_validator()) {
-      bus->db = std::make_unique<DbImpl>(db_path() + "/db/");
+      bus->db = std::make_unique<DbImpl>(db_path());
 
       BlockAccepter::register_in(runtime);
       BlockProducer::register_in(runtime);
@@ -313,8 +319,14 @@ class BridgeImpl final : public IValidatorGroup {
       co_await std::move(stop_waiter_.value());
       LOG(INFO) << "Consensus bus stopped";
       if (params_.identity.is_validator()) {
-        auto S = td::RocksDb::destroy(db_path() + "/db/");
-        td::rmrf(db_path()).ignore();
+        auto path = db_path();
+        auto S = td::RocksDb::destroy(path);
+
+        if (!params_.identity.suffix_db) {
+          path = path.substr(0, path.size() - 3);
+        }
+        td::rmrf(path).ignore();
+
         if (S.is_ok()) {
           LOG(INFO) << "Deleting consensus DB : done";
         } else {
@@ -357,9 +369,19 @@ class BridgeImpl final : public IValidatorGroup {
   NewConsensusConfig::NoncriticalParams current_noncritical_params_;
 
   std::string db_path() const {
-    return PSTRING() << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "."
-                     << params_.shard.shard << "." << params_.validator_set->get_catchain_seqno() << "."
-                     << params_.session_id.to_hex() << "/";
+    td::StringBuilder sb;
+    if (!params_.identity.suffix_db) {
+      sb << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "." << params_.shard.shard << "."
+         << params_.validator_set->get_catchain_seqno() << "." << params_.session_id.to_hex() << "/db/";
+    } else {
+      auto hash =
+          create_hash_tl_object<tl::dbId>(params_.session_id, params_.identity.is_validator(),
+                                          params_.identity.short_id.value_or(PublicKeyHash::zero()).bits256_value(),
+                                          params_.identity.adnl_id.bits256_value());
+      sb << params_.db_root << "/consensus/" << params_.shard.workchain << "." << params_.shard.shard << "."
+         << params_.validator_set->get_catchain_seqno() << "." << hash.to_hex();
+    }
+    return sb.as_cslice().str();
   }
 };
 
