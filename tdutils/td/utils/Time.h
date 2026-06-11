@@ -67,6 +67,7 @@ struct UTCClock {
 };
 
 using UTCTime = UTCClock::time_point;
+using UTCSeconds = std::chrono::time_point<UTCClock, std::chrono::seconds>;
 
 inline SteadyTime to_steady_time(UTCTime ts) {
   auto steady_now = SteadyClock::now();
