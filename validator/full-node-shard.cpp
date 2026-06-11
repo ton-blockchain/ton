@@ -1016,10 +1016,7 @@ void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno 
   }
   VLOG(FULL_NODE_DEBUG) << "Sending Plumtree newBlockCandidate: " << block_id;
   auto payload = B.move_as_ok();
-  auto source = get_plumtree_source(static_cast<td::uint32>(payload.size()), true);
-  if (source.is_zero()) {
-    return;
-  }
+  auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec, adnl_id_, overlay_id_, source,
                           overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
 }
@@ -1273,15 +1270,6 @@ PublicKeyHash FullNodeShardImpl::choose_outbound_source(td::uint32 payload_size,
     return adnl_source;
   }
   return local_id_;
-}
-
-PublicKeyHash FullNodeShardImpl::get_plumtree_source(td::uint32 payload_size, bool is_fec) {
-  if (sign_cert_by_.is_zero() || !rules_.is_authorized_key(sign_cert_by_) ||
-      rules_.check_rules(sign_cert_by_, payload_size, is_fec, /* is_any_sender = */ true) !=
-          overlay::BroadcastCheckResult::Allowed) {
-    return PublicKeyHash::zero();
-  }
-  return sign_cert_by_;
 }
 
 void FullNodeShardImpl::sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expire_at, td::uint32 max_size,
