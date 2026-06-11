@@ -87,7 +87,8 @@ struct Context {
   bool should_manage_groups = false;
 };
 
-std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<block::ValidatorSet> &val_set) {
+std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<block::ValidatorSet> &val_set,
+                                          const NewConsensusConfig &config) {
   std::vector<GroupIdentity> identities;
   std::set<adnl::AdnlNodeIdShort> group_validator_adnl_ids;
 
@@ -100,7 +101,7 @@ std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<bloc
       identities.push_back({
           .adnl_id = adnl_id,
           .short_id = key_hash,
-          .suffix_db = !identities.empty(),
+          .suffix_db = !identities.empty() || config.use_new_db_names(),
       });
     }
   }
@@ -145,7 +146,7 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
   config.max_collated_data_size = old_config.max_collated_data_size;
 
   std::vector<GroupIdentity> identities;
-  for (auto &identity : identities_for(ctx, validator_set)) {
+  for (auto &identity : identities_for(ctx, validator_set, config)) {
     if (identity.is_validator() || config.enable_block_sync()) {
       identities.push_back(identity);
     }
