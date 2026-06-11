@@ -95,6 +95,7 @@ set(VALIDATOR_SOURCE
   impl/applied-ext-message-cleanup.cpp
 
   manager.cpp
+  validator-group.cpp
 
   consensus/simplex/bus.cpp
   consensus/simplex/candidate-resolver.cpp

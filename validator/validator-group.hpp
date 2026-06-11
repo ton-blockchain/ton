@@ -18,6 +18,9 @@
 */
 #pragma once
 
+#include <memory>
+#include <optional>
+
 #include "interfaces/validator-manager.h"
 
 #include "collation-manager.hpp"
@@ -32,7 +35,7 @@ struct GroupIdentity {
   adnl::AdnlNodeIdShort adnl_id;
   std::optional<PublicKeyHash> short_id;
 
-  std::strong_ordering operator<=>(const GroupIdentity &) const = default;
+  std::strong_ordering operator<=>(const GroupIdentity&) const = default;
 
   bool is_validator() const {
     return short_id.has_value();
@@ -73,6 +76,34 @@ class IValidatorGroup : public td::actor::Actor {
   virtual void notify_mc_finalized(BlockIdExt block) = 0;
 
   virtual void destroy() = 0;
+};
+
+struct ManagerContext {
+  td::actor::ActorId<ValidatorManager> manager;
+  td::Ref<ValidatorManagerOptions> opts;
+  td::actor::ActorId<keyring::Keyring> keyring;
+  td::actor::ActorId<overlay::Overlays> overlays;
+  td::actor::ActorId<adnl::AdnlSenderEx> quic;
+  std::string db_root;
+
+  std::set<PublicKeyHash> validator_keys;
+};
+
+struct ValidatorGroupCount {
+  size_t masterchain = 0;
+  size_t shard = 0;
+};
+
+class NetworkState {
+ public:
+  virtual ~NetworkState() = default;
+
+  static std::unique_ptr<NetworkState> create(BlockSeqno start_seqno);
+
+  virtual void update(const MasterchainState& state, ManagerContext ctx) = 0;
+  virtual void update_options(td::Ref<ValidatorManagerOptions> opts) = 0;
+
+  virtual ValidatorGroupCount validator_group_count() const = 0;
 };
 
 }  // namespace validator
