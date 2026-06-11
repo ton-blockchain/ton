@@ -145,7 +145,7 @@ std::vector<std::string> parse_recent_neighbours(const td::JsonObject &object, s
   return result;
 }
 
-bool fec_observed(const td::JsonObject &object) {
+bool has_observed_fec(const td::JsonObject &object) {
   auto field = find_field(object, "fec");
   return field != nullptr && field->type() == td::JsonValue::Type::Object;
 }
@@ -188,8 +188,7 @@ void parse_geo_latency_model(const td::JsonObject &object, Graph &graph) {
 
 }  // namespace
 
-td::Result<Graph> load_graph(const std::string &graph_path, std::size_t limit, bool rebroadcasting_only,
-                             std::size_t recent_neighbour_limit) {
+td::Result<Graph> load_graph(const std::string &graph_path, std::size_t limit, std::size_t recent_neighbour_limit) {
   TRY_RESULT(data, td::read_file(graph_path));
   TRY_RESULT(json, td::json_decode(data.as_slice()));
   const td::JsonArray *peers = nullptr;
@@ -220,9 +219,7 @@ td::Result<Graph> load_graph(const std::string &graph_path, std::size_t limit, b
       return td::Status::Error("peer entry must be an object");
     }
     const auto &object = value.get_object();
-    auto has_fec = fec_observed(object);
-    auto has_public_ip = peer_has_public_ip(object);
-    if (rebroadcasting_only && (!has_fec || !has_public_ip)) {
+    if (!has_observed_fec(object) || !peer_has_public_ip(object)) {
       continue;
     }
     if (limit != 0 && graph.nodes.size() >= limit) {
@@ -235,13 +232,7 @@ td::Result<Graph> load_graph(const std::string &graph_path, std::size_t limit, b
     GraphNode node;
     node.graph_id = id;
     node.is_validator = object.get_optional_bool_field("is_validator", false).move_as_ok();
-    node.fec_observed = has_fec;
-    node.public_ip = has_public_ip;
     parse_geo(object, node);
-    auto rtt_seconds = object.get_optional_double_field("median_success_latency", 0.0).move_as_ok();
-    if (rtt_seconds > 0.0) {
-      node.rtt_ms = rtt_seconds * 1000.0;
-    }
     pending_neighbours.push_back(parse_recent_neighbours(object, recent_neighbour_limit));
     id_to_index.emplace(node.graph_id, graph.nodes.size());
     if (node.is_validator) {
@@ -282,12 +273,9 @@ Graph make_smoke_graph(std::size_t nodes_count) {
   for (std::size_t i = 0; i < nodes_count; ++i) {
     graph.nodes[i].graph_id = PSTRING() << "smoke-" << i;
     graph.nodes[i].is_validator = i < graph.validator_count;
-    graph.nodes[i].fec_observed = true;
-    graph.nodes[i].public_ip = true;
     graph.nodes[i].has_geo = true;
     graph.nodes[i].lat = static_cast<double>((i * 17) % 160) - 80.0;
     graph.nodes[i].lon = static_cast<double>((i * 31) % 360) - 180.0;
-    graph.nodes[i].rtt_ms = 40.0 + static_cast<double>((i * 7) % 30);
   }
 
   for (std::size_t validator = 0; validator < graph.validator_count; ++validator) {

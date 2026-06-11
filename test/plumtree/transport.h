@@ -61,14 +61,12 @@ struct DeliveryState {
   std::vector<double> delivery_ms;
   std::size_t remaining = 0;
   std::size_t expected_remaining = 0;
-  double base_time = 0.0;
   double broadcast_start_time = 0.0;
   mutable std::mutex mutex;
 
   void start_broadcast(td::Bits256 hash, std::vector<bool> expected_nodes, double start_time,
                        bool accept_any_hash = false);
   bool mark_delivered(td::Bits256 hash, PublicKeyHash source, std::size_t node_index, double now);
-  std::size_t remaining_count() const;
   std::size_t expected_remaining_count() const;
   std::size_t delivered_count() const;
   std::vector<double> delivery_times() const;
@@ -90,8 +88,6 @@ struct SimNetwork {
   double base_time = 0.0;
   double geo_alpha_ms = 3.554;
   double geo_beta_ms_per_km = 0.008963;
-  double geo_fallback_latency_ms = 75.0;
-  double max_latency_ms = 1000.0;
   double jitter = 0.1;
   double bandwidth_bytes_s = 100000000.0;
   td::actor::ActorId<OverlayManager> overlay_manager;
@@ -100,7 +96,6 @@ struct SimNetwork {
   std::map<std::pair<double, td::uint64>, SimEvent> events;
   td::uint64 next_event_order = 0;
   td::uint32 random_state = 1;
-  td::uint64 sent_messages = 0;
   td::uint64 sent_bytes = 0;
   td::uint64 payload_deliveries = 0;
   td::uint64 prune_messages = 0;
@@ -115,7 +110,6 @@ struct SimNetwork {
   void enqueue(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data);
   td::optional<double> next_event_time() const;
   std::vector<SimEvent> pop_due_events(double time_s);
-  td::uint64 sent_messages_count() const;
   td::uint64 sent_bytes_count() const;
   td::uint64 payload_deliveries_count() const;
   td::uint64 prune_messages_count() const;

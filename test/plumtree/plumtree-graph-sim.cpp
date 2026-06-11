@@ -70,21 +70,19 @@ namespace {
 
 using namespace ton::overlay::plumtree_sim;
 
+constexpr td::uint32 MAX_IDLE_REPAIR_ROUNDS = 20;
+
 enum class BroadcastMode { Fec, Simple };
 
 struct Settings {
   bool smoke = false;
-  bool rebroadcasting_only = false;
   BroadcastMode broadcast_mode = BroadcastMode::Fec;
   std::string graph_path;
   std::size_t limit = 0;
   std::size_t payload_bytes = 32768;
   td::uint32 plumtree_neighbours = 20;
-  double geo_fallback_latency_ms = 75.0;
-  double max_latency_ms = 1000.0;
   double jitter = 0.1;
   double bandwidth_mb_s = 100.0;
-  double max_time_ms = 10000.0;
   td::uint32 broadcast_count = 5;
   td::uint64 seed = 1;
 };
@@ -239,7 +237,7 @@ const char *broadcast_mode_name(BroadcastMode mode) {
 
 void print_table_header() {
   std::cout << std::right << std::setw(4) << "#"
-            << " " << std::setw(5) << "srcs"
+            << " " << std::setw(7) << "senders"
             << " " << std::setw(11) << "delivered"
             << " " << std::setw(8) << "p90"
             << " " << std::setw(8) << "p95"
@@ -256,17 +254,13 @@ void print_table_header() {
 
 void print_usage() {
   std::cout << "Usage: plumtree-graph-sim [--smoke | --graph PATH] [options]\n"
-               "  --limit N                 Use first N graph nodes\n"
-               "  --rebroadcasting-only     Use only public graph peers observed as FEC/rebroadcasting nodes\n"
+               "  --limit N                 Limit loaded graph nodes after filtering\n"
                "  --broadcast-mode MODE     Plumtree mode: fec or simple (default fec)\n"
                "  --payload-bytes N         Broadcast payload size (default 32768)\n"
                "  --plumtree-neighbours N   Plumtree active neighbour target (default 20)\n"
-               "  --geo-fallback-latency-ms N  One-way ms used when a graph node has no geo (default 75)\n"
-               "  --max-latency-ms N        Max geo one-way latency before jitter (default 1000)\n"
                "  --jitter N                Relative latency jitter, same as JS simulator (default 0.1)\n"
                "  --bandwidth-mb N          Per-message bandwidth model in MB/s (default 100)\n"
-               "  --max-time-ms N           Virtual simulation deadline (default 10000)\n"
-               "  --broadcast-count N       Sequential broadcasts to send with same shard set (default 5)\n"
+               "  --broadcast-count N       Sequential broadcasts to send on the same overlay graph (default 5)\n"
                "  --seed N                  Deterministic payload/key seed label (default 1)\n";
 }
 
@@ -286,8 +280,6 @@ td::Result<Settings> parse_args(int argc, char **argv) {
       std::_Exit(0);
     } else if (arg == "--smoke") {
       settings.smoke = true;
-    } else if (arg == "--rebroadcasting-only" || arg == "--good-rebroadcasting-only") {
-      settings.rebroadcasting_only = true;
     } else if (arg == "--graph") {
       TRY_RESULT(value, read_value(arg));
       settings.graph_path = value;
@@ -304,21 +296,12 @@ td::Result<Settings> parse_args(int argc, char **argv) {
     } else if (arg == "--plumtree-neighbours") {
       TRY_RESULT(value, read_value(arg));
       settings.plumtree_neighbours = static_cast<td::uint32>(std::stoul(value));
-    } else if (arg == "--geo-fallback-latency-ms" || arg == "--fixed-latency-ms") {
-      TRY_RESULT(value, read_value(arg));
-      settings.geo_fallback_latency_ms = std::stod(value);
-    } else if (arg == "--max-latency-ms") {
-      TRY_RESULT(value, read_value(arg));
-      settings.max_latency_ms = std::stod(value);
     } else if (arg == "--jitter") {
       TRY_RESULT(value, read_value(arg));
       settings.jitter = std::stod(value);
     } else if (arg == "--bandwidth-mb") {
       TRY_RESULT(value, read_value(arg));
       settings.bandwidth_mb_s = std::stod(value);
-    } else if (arg == "--max-time-ms") {
-      TRY_RESULT(value, read_value(arg));
-      settings.max_time_ms = std::stod(value);
     } else if (arg == "--broadcast-count") {
       TRY_RESULT(value, read_value(arg));
       settings.broadcast_count = static_cast<td::uint32>(std::stoul(value));
@@ -350,15 +333,14 @@ int main(int argc, char **argv) {
   auto settings = settings_r.move_as_ok();
 
   auto graph_r = settings.smoke ? td::Result<Graph>(make_smoke_graph(12))
-                                : load_graph(settings.graph_path, settings.limit, settings.rebroadcasting_only,
-                                             settings.plumtree_neighbours);
+                                : load_graph(settings.graph_path, settings.limit, settings.plumtree_neighbours);
   if (graph_r.is_error()) {
     std::cerr << graph_r.move_as_error().to_string() << "\n";
     return 2;
   }
   auto graph = graph_r.move_as_ok();
   if (graph.nodes.empty()) {
-    std::cerr << "graph has no nodes\n";
+    std::cerr << "graph has no usable nodes\n";
     return 2;
   }
 
@@ -386,8 +368,6 @@ int main(int argc, char **argv) {
   network->base_time = base_time;
   network->geo_alpha_ms = graph.geo_alpha_ms;
   network->geo_beta_ms_per_km = graph.geo_beta_ms_per_km;
-  network->geo_fallback_latency_ms = settings.geo_fallback_latency_ms;
-  network->max_latency_ms = settings.max_latency_ms;
   network->jitter = settings.jitter;
   network->bandwidth_bytes_s = std::max(1.0, settings.bandwidth_mb_s * 1000000.0);
   network->random_state = static_cast<td::uint32>(settings.seed);
@@ -401,12 +381,6 @@ int main(int argc, char **argv) {
   }
 
   auto delivery = std::make_shared<DeliveryState>(graph.nodes.size());
-  {
-    std::lock_guard<std::mutex> lock(delivery->mutex);
-    delivery->remaining = graph.nodes.size();
-  }
-  delivery->base_time = base_time;
-
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::TestLoopbackNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
@@ -513,11 +487,10 @@ int main(int argc, char **argv) {
   });
   pump_scheduler(scheduler, 128);
 
-  const double max_time_s = settings.max_time_ms / 1000.0;
   double sim_time_s = 0.0;
   bool all_expected_delivered = true;
   std::cout << "Plumtree graph simulation: mode=" << broadcast_mode_name(settings.broadcast_mode)
-            << ", all-validator, nodes=" << graph.nodes.size()
+            << ", all-validators-send, nodes=" << graph.nodes.size()
             << ", validators=" << validators.size() << ", senders=" << validators.size()
             << ", tree_slots=" << opts.plumtree_fec_options_.tree_slots_ << ", expected=" << expected_delivered
             << ", unreachable=" << (graph.nodes.size() - expected_delivered);
@@ -530,7 +503,6 @@ int main(int argc, char **argv) {
     fill_payload(payload.as_slice(), settings.seed + static_cast<td::uint64>(broadcast_index) * 0x9e3779b97f4a7c15ULL);
     auto payload_hash = td::sha256_bits256(payload.as_slice());
     auto broadcast_id = payload_hash;
-    auto broadcast_start_s = std::max(0.0, td::Time::now() - base_time);
     delivery->start_broadcast(payload_hash, expected_delivery, td::Time::now(),
                               settings.broadcast_mode == BroadcastMode::Simple);
     auto sent_bytes_before = network->sent_bytes_count();
@@ -565,14 +537,20 @@ int main(int argc, char **argv) {
     });
     pump_scheduler(scheduler, 64);
 
-    auto broadcast_deadline_s = broadcast_start_s + max_time_s;
-    while (delivery->expected_remaining_count() != 0 && sim_time_s < broadcast_deadline_s) {
+    td::uint32 idle_repair_rounds = 0;
+    auto repair_step_s = std::max(0.001, static_cast<double>(opts.plumtree_fec_options_.repair_timeout_ms_) / 1000.0);
+    while (delivery->expected_remaining_count() != 0) {
       auto now_s = std::max(0.0, td::Time::now() - base_time);
-      double next_time_s = broadcast_deadline_s;
+      double next_time_s = now_s;
       if (auto event_time = network->next_event_time()) {
-        next_time_s = std::min(next_time_s, event_time.value());
+        next_time_s = std::max(now_s, event_time.value());
+        idle_repair_rounds = 0;
+      } else {
+        if (++idle_repair_rounds > MAX_IDLE_REPAIR_ROUNDS) {
+          break;
+        }
+        next_time_s = now_s + repair_step_s;
       }
-      next_time_s = std::max(now_s, std::min(next_time_s, broadcast_deadline_s));
       td::Time::jump_in_future(base_time + next_time_s);
       scheduler.run(0);
       sim_time_s = next_time_s;
@@ -611,7 +589,7 @@ int main(int argc, char **argv) {
     auto last_decoded_ms = percentile(std::move(delivery_ms), 1.00);
 
     std::cout << std::right << std::setw(4) << broadcast_index << " ";
-    std::cout << std::setw(5) << validators.size();
+    std::cout << std::setw(7) << validators.size();
     std::cout << " " << std::setw(5) << delivered << "/" << std::left << std::setw(5) << expected_delivered
               << std::right << " " << std::setw(8) << format_ms(p90_ms) << " " << std::setw(8) << format_ms(p95_ms)
               << " " << std::setw(8) << format_ms(p99_ms) << " " << std::setw(8) << format_ms(last_decoded_ms) << " "

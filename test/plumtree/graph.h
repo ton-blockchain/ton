@@ -38,12 +38,9 @@ namespace ton::overlay::plumtree_sim {
 struct GraphNode {
   std::string graph_id;
   bool is_validator = false;
-  bool fec_observed = false;
-  bool public_ip = false;
   bool has_geo = false;
   double lat = 0.0;
   double lon = 0.0;
-  double rtt_ms = 0.0;
   std::vector<std::size_t> recent_neighbours;
 };
 
@@ -54,8 +51,7 @@ struct Graph {
   double geo_beta_ms_per_km = 0.008963;
 };
 
-td::Result<Graph> load_graph(const std::string &graph_path, std::size_t limit, bool rebroadcasting_only,
-                             std::size_t recent_neighbour_limit);
+td::Result<Graph> load_graph(const std::string &graph_path, std::size_t limit, std::size_t recent_neighbour_limit);
 Graph make_smoke_graph(std::size_t nodes_count);
 
 std::vector<std::vector<std::size_t>> build_out_neighbours(const Graph &graph, std::size_t max_neighbours);

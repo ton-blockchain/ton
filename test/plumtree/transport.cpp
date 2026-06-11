@@ -39,6 +39,8 @@
 namespace ton::overlay::plumtree_sim {
 namespace {
 
+constexpr double GEO_FALLBACK_LATENCY_MS = 75.0;
+
 double to_radians(double degrees) {
   return degrees * 3.14159265358979323846 / 180.0;
 }
@@ -127,11 +129,6 @@ bool DeliveryState::mark_delivered(td::Bits256 hash, PublicKeyHash source, std::
   return true;
 }
 
-std::size_t DeliveryState::remaining_count() const {
-  std::lock_guard<std::mutex> lock(mutex);
-  return remaining;
-}
-
 std::size_t DeliveryState::expected_remaining_count() const {
   std::lock_guard<std::mutex> lock(mutex);
   return expected_remaining;
@@ -167,7 +164,7 @@ double SimNetwork::now_s() const {
 }
 
 double SimNetwork::propagation_latency_s(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst) {
-  double latency_ms = geo_fallback_latency_ms;
+  double latency_ms = GEO_FALLBACK_LATENCY_MS;
   auto src_it = node_by_adnl.find(src);
   auto dst_it = node_by_adnl.find(dst);
   if (src_it != node_by_adnl.end() && dst_it != node_by_adnl.end() && src_it->second < geo_by_node.size() &&
@@ -178,7 +175,7 @@ double SimNetwork::propagation_latency_s(adnl::AdnlNodeIdShort src, adnl::AdnlNo
       latency_ms = geo_alpha_ms + geo_beta_ms_per_km * haversine_km(from_geo, to_geo);
     }
   }
-  latency_ms = std::max(0.0, std::min(max_latency_ms, latency_ms));
+  latency_ms = std::max(0.0, latency_ms);
   auto jitter_value = std::max(0.0, jitter);
   if (jitter_value > 0.0) {
     random_state += 0x6d2b79f5u;
@@ -196,7 +193,6 @@ void SimNetwork::enqueue(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, t
   auto bytes = data.size();
   auto type = overlay_payload_constructor_id(data.as_slice());
   auto now = now_s();
-  ++sent_messages;
   sent_bytes += bytes;
   if (type == ton_api::overlay_broadcastPlumtreePrune::ID) {
     ++prune_messages;
@@ -260,11 +256,6 @@ std::vector<SimEvent> SimNetwork::pop_due_events(double time_s) {
     due_events.push_back(std::move(event));
   }
   return due_events;
-}
-
-td::uint64 SimNetwork::sent_messages_count() const {
-  std::lock_guard<std::mutex> lock(mutex);
-  return sent_messages;
 }
 
 td::uint64 SimNetwork::sent_bytes_count() const {
