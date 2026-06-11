@@ -206,6 +206,7 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   virtual void notify_mc_finalized(BlockIdExt block) override {
+    CHECK(params_.shard == block.shard_full());
     if (bus_) {
       bus_.publish<BlockFinalizedInMasterchain>(block);
     }
