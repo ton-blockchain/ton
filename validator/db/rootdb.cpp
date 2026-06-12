@@ -27,6 +27,9 @@
 #include "archiver.hpp"
 #include "rootdb.hpp"
 
+// Defined here (validator-db) so every flavour of the validator library gets it.
+DEFINE_LOG_CATEGORY(validator, VERBOSITY_NAME(INFO))
+
 namespace ton {
 
 namespace validator {

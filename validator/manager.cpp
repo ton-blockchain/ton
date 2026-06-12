@@ -53,8 +53,6 @@
 #include "validate-broadcast.hpp"
 #include "validator-group.hpp"
 
-DEFINE_LOG_CATEGORY(validator, VERBOSITY_NAME(INFO))
-
 namespace ton {
 
 namespace validator {
