@@ -17,7 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <block-auto.h>
+#include <limits>
 
+#include "td/utils/HashMap.h"
 #include "td/utils/Parser.h"
 #include "td/utils/base64.h"
 #include "td/utils/tl_helpers.h"
@@ -28,6 +30,86 @@
 
 namespace vm {
 namespace {
+
+// Bundle record (tag CellStorer::kBundleTag = -2): a slab of cells stored under the
+// root cell's hash, so that one DB read materializes several levels of a (dictionary)
+// subtree at once. Layout (all integers little-endian):
+//   int32  tag = -2
+//   int32  refcnt (> 0)
+//   uint32 count (>= 1) — number of slab cells
+//   count x cell, ordered children-before-parents (the bundle root is the LAST cell):
+//     uint8  d1 = refs_cnt + 8*is_special     (level mask must be 0)
+//     uint8  d2 = floor(bits/8)*2 + (bits%8 ? 1 : 0)
+//     ceil(bits/8) bytes of cell data
+//     refs_cnt x ref:
+//       uint8 kind = 0 (internal): uint32 index of an EARLIER slab cell
+//       uint8 kind = 1 (external): uint8 level_mask, then n x 32-byte hash and
+//             n x 2-byte depth (n = hashes count of the mask) — same encoding as
+//             the child references of a plain record; loaded as an ext cell.
+// Bundle records are written only by offline tooling (benchmark/state-gen.cpp); the
+// validator never produces them, only reads them.
+td::Result<Ref<DataCell>> parse_bundle(td::Slice data, ExtCellCreator &ext_cell_creator) {
+  if (data.size() < 4) {
+    return td::Status::Error("Bundle record is too short");
+  }
+  td::uint32 count = td::as<td::uint32>(data.ubegin());
+  data.remove_prefix(4);
+  if (count == 0 || count > (1u << 20)) {
+    return td::Status::Error("Bundle record has invalid cell count");
+  }
+  std::vector<Ref<DataCell>> cells;
+  cells.reserve(count);
+  for (td::uint32 i = 0; i < count; i++) {
+    CellSerializationInfo info;
+    TRY_STATUS(info.init(data, 0 /*ref_byte_size*/));
+    if (data.size() < info.end_offset) {
+      return td::Status::Error("Not enough data in bundle record");
+    }
+    td::Slice cell_data = data;
+    data = data.substr(info.end_offset);
+    Ref<Cell> refs[Cell::max_refs];
+    for (int r = 0; r < info.refs_cnt; r++) {
+      if (data.size() < 1) {
+        return td::Status::Error("Not enough data in bundle record");
+      }
+      td::uint8 kind = data.ubegin()[0];
+      data = data.substr(1);
+      if (kind == 0) {
+        if (data.size() < 4) {
+          return td::Status::Error("Not enough data in bundle record");
+        }
+        td::uint32 idx = td::as<td::uint32>(data.ubegin());
+        data = data.substr(4);
+        if (idx >= i) {
+          return td::Status::Error("Bundle internal reference must point to an earlier cell");
+        }
+        refs[r] = cells[idx];
+      } else if (kind == 1) {
+        if (data.size() < 1) {
+          return td::Status::Error("Not enough data in bundle record");
+        }
+        Cell::LevelMask level_mask(data.ubegin()[0]);
+        auto n = level_mask.get_hashes_count();
+        auto end_offset = 1 + n * (Cell::hash_bytes + Cell::depth_bytes);
+        if (data.size() < end_offset) {
+          return td::Status::Error("Not enough data in bundle record");
+        }
+        TRY_RESULT(ext_cell, ext_cell_creator.ext_cell(level_mask, data.substr(1, n * Cell::hash_bytes),
+                                                       data.substr(1 + n * Cell::hash_bytes, n * Cell::depth_bytes)));
+        refs[r] = std::move(ext_cell);
+        data = data.substr(end_offset);
+      } else {
+        return td::Status::Error("Bad bundle reference kind");
+      }
+    }
+    TRY_RESULT(data_cell, info.create_data_cell(cell_data, td::Span<Ref<Cell>>(refs, info.refs_cnt), true));
+    cells.push_back(std::move(data_cell));
+  }
+  if (!data.empty()) {
+    return td::Status::Error("Too much data in bundle record");
+  }
+  return cells.back();
+}
 
 class RefcntCellStorer {
  public:
@@ -104,14 +186,19 @@ class RefcntCellParser {
   td::int32 refcnt;
   Ref<DataCell> cell;
   bool stored_boc_;
+  bool stored_bundle_;
 
   template <class ParserT>
   void parse(ParserT &parser, ExtCellCreator &ext_cell_creator) {
     using ::td::parse;
     parse(refcnt, parser);
     stored_boc_ = false;
-    if (refcnt == -1) {
+    stored_bundle_ = false;
+    if (refcnt == CellStorer::kStoredBocTag) {
       stored_boc_ = true;
+      parse(refcnt, parser);
+    } else if (refcnt == CellStorer::kBundleTag) {
+      stored_bundle_ = true;
       parse(refcnt, parser);
     }
     CHECK(refcnt > 0);
@@ -126,6 +213,11 @@ class RefcntCellParser {
         TRY_RESULT(boc, vm::std_boc_deserialize(data, false, true));
         TRY_RESULT(loaded_cell, boc->load_cell());
         cell = std::move(loaded_cell.data_cell);
+        return td::Status::OK();
+      }
+      if (stored_bundle_) {
+        TRY_RESULT(root, parse_bundle(data, ext_cell_creator));
+        cell = std::move(root);
         return td::Status::OK();
       }
       CellSerializationInfo info;
@@ -228,6 +320,7 @@ td::Result<CellLoader::LoadResult> CellLoader::load(td::Slice hash, td::Slice va
   res.refcnt_ = refcnt_cell.refcnt;
   res.cell_ = std::move(refcnt_cell.cell);
   res.stored_boc_ = refcnt_cell.stored_boc_;
+  res.stored_bundle_ = refcnt_cell.stored_bundle_;
   //CHECK(res.cell_->get_hash() == hash);
 
   return res;
@@ -244,7 +337,7 @@ td::Result<CellLoader::LoadResult> CellLoader::load_refcnt(td::Slice hash) {
   res.status = LoadResult::Ok;
   td::TlParser parser(serialized);
   td::parse(res.refcnt_, parser);
-  if (res.refcnt_ == -1) {
+  if (res.refcnt_ == CellStorer::kStoredBocTag || res.refcnt_ == CellStorer::kBundleTag) {
     parse(res.refcnt_, parser);
   }
   CHECK(res.refcnt_ > 0);
@@ -261,6 +354,95 @@ td::Status CellStorer::erase(td::Slice hash) {
 
 std::string CellStorer::serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc, int max_level) {
   return td::serialize(RefcntCellStorer(refcnt, cell, as_boc, max_level));
+}
+
+std::string CellStorer::serialize_value_bundle(td::int32 refcnt, const td::Ref<DataCell> &root,
+                                               const std::function<td::Ref<DataCell>(const CellHash &)> &resolve) {
+  CHECK(refcnt > 0);
+  CHECK(root.not_null());
+
+  // Collect slab cells in children-before-parents order (iterative post-order DFS,
+  // dedup by hash). A child is inlined iff `resolve` returns its body; otherwise it
+  // becomes an external (hash) reference.
+  constexpr td::uint32 kPending = std::numeric_limits<td::uint32>::max();
+  std::vector<Ref<DataCell>> cells;
+  td::HashMap<CellHash, td::uint32> index;
+  struct Frame {
+    Ref<DataCell> cell;
+    unsigned next_ref{0};
+  };
+  std::vector<Frame> stack;
+  stack.push_back({root, 0});
+  index.emplace(root->get_hash(), kPending);
+  while (!stack.empty()) {
+    auto &top = stack.back();
+    if (top.next_ref < top.cell->size_refs()) {
+      auto child_ref = top.cell->get_ref(top.next_ref++);
+      auto child_hash = child_ref->get_hash();
+      if (index.find(child_hash) != index.end()) {
+        continue;
+      }
+      auto child = resolve(child_hash);
+      if (child.is_null()) {
+        continue;  // external reference (cut)
+      }
+      CHECK(child->get_hash() == child_hash);
+      index.emplace(child_hash, kPending);
+      stack.push_back({std::move(child), 0});
+      continue;
+    }
+    auto it = index.find(top.cell->get_hash());
+    CHECK(it != index.end() && it->second == kPending);
+    it->second = td::narrow_cast<td::uint32>(cells.size());
+    cells.push_back(std::move(top.cell));
+    stack.pop_back();
+  }
+
+  std::string res;
+  res.reserve(64 + cells.size() * 64);
+  auto store_i32 = [&res](td::int32 v) {
+    char buf[4];
+    td::as<td::int32>(buf) = v;
+    res.append(buf, 4);
+  };
+  store_i32(kBundleTag);
+  store_i32(refcnt);
+  store_i32(td::narrow_cast<td::int32>(cells.size()));
+  for (const auto &cell : cells) {
+    LOG_CHECK(cell->get_level_mask().get_mask() == 0) << "bundle cells must have level 0";
+    auto d1 = static_cast<char>(cell->get_refs_cnt() + 8 * cell->is_special());
+    auto d2 = static_cast<char>((cell->get_bits() / 8) * 2 + ((cell->get_bits() & 7) != 0 ? 1 : 0));
+    res.push_back(d1);
+    res.push_back(d2);
+    res.append(reinterpret_cast<const char *>(cell->get_data()), (cell->get_bits() + 7) / 8);
+    for (unsigned i = 0; i < cell->size_refs(); i++) {
+      auto child = cell->get_ref(i);
+      auto it = index.find(child->get_hash());
+      if (it != index.end()) {
+        CHECK(it->second != kPending);
+        res.push_back(0);  // internal reference
+        store_i32(static_cast<td::int32>(it->second));
+      } else {
+        res.push_back(1);  // external reference, same encoding as plain-record children
+        auto level_mask = child->get_level_mask();
+        auto level = level_mask.get_level();
+        res.push_back(static_cast<char>(level_mask.get_mask()));
+        for (unsigned level_i = 0; level_i <= level; level_i++) {
+          if (level_mask.is_significant(level_i)) {
+            res.append(child->get_hash(level_i).as_slice().data(), Cell::hash_bytes);
+          }
+        }
+        for (unsigned level_i = 0; level_i <= level; level_i++) {
+          if (level_mask.is_significant(level_i)) {
+            char depth_buf[Cell::depth_bytes];
+            DataCell::store_depth(reinterpret_cast<td::uint8 *>(depth_buf), child->get_depth(level_i));
+            res.append(depth_buf, Cell::depth_bytes);
+          }
+        }
+      }
+    }
+  }
+  return res;
 }
 
 td::Status CellStorer::set(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc) {
@@ -280,7 +462,7 @@ void CellStorer::merge_value_and_refcnt_diff(std::string &left, td::Slice right)
 
   td::int32 left_refcnt = td::as<td::int32>(left.data());
   size_t shift = 0;
-  if (left_refcnt == -1) {
+  if (left_refcnt == kStoredBocTag || left_refcnt == kBundleTag) {
     CHECK(left.size() >= 8);
     left_refcnt = td::as<td::int32>(left.data() + 4);
     shift = 4;

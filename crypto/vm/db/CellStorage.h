@@ -17,6 +17,8 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #pragma once
+#include <functional>
+
 #include "td/db/KeyValue.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
@@ -45,6 +47,9 @@ class CellLoader {
     Ref<DataCell> cell_;
     td::int32 refcnt_{0};
     bool stored_boc_{false};
+    // The record was a bundle: cell_ is the bundle root with several levels of its
+    // subtree already materialized as DataCells (external refs at the cut).
+    bool stored_bundle_{false};
   };
   CellLoader(std::shared_ptr<KeyValueReader> reader, std::function<void(const LoadResult &)> on_load_callback = {});
   td::Result<LoadResult> load(td::Slice hash, bool need_data, ExtCellCreator &ext_cell_creator);
@@ -63,6 +68,10 @@ class CellLoader {
 
 class CellStorer {
  public:
+  // Value-format tags (first int32 of a record; plain records start with refcnt > 0)
+  static constexpr td::int32 kStoredBocTag = -1;
+  static constexpr td::int32 kBundleTag = -2;
+
   CellStorer(KeyValue &kv);
   td::Status erase(td::Slice hash);
   td::Status set(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc);
@@ -74,6 +83,14 @@ class CellStorer {
 
   static std::string serialize_value(td::int32 refcnt, const td::Ref<DataCell> &cell, bool as_boc,
                                      int max_level = vm::Cell::max_level);
+  // Serialize a "bundle" record rooted at `root`: the root plus every descendant
+  // transitively reachable while `resolve(child_hash)` returns the child's body
+  // is stored inline; other children become external (hash) references that load
+  // as ext cells. One DB read of the root's hash then materializes the whole slab.
+  // All inlined cells must be level-0. See parse_bundle() in CellStorage.cpp for
+  // the exact byte layout. Written only by offline tooling, never by the validator.
+  static std::string serialize_value_bundle(td::int32 refcnt, const td::Ref<DataCell> &root,
+                                            const std::function<td::Ref<DataCell>(const CellHash &)> &resolve);
 
   struct Diff {
     enum Type { Set, Erase, Merge } type{Set};
