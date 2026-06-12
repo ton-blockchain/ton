@@ -561,7 +561,7 @@ void AcceptBlockQuery::got_last_mc_block(std::pair<td::Ref<MasterchainState>, Bl
   CHECK(last_mc_state_.not_null());
   if (last_mc_id_.id.seqno < mc_blkid_.id.seqno) {
     VLOG(validator, DEBUG) << "shardchain block refers to newer masterchain block " << mc_blkid_
-                          << ", trying to obtain it";
+                           << ", trying to obtain it";
     td::actor::send_closure_later(manager_, &ValidatorManager::wait_block_state_short, mc_blkid_, priority(), timeout_,
                                   false, [SelfId = actor_id(this)](td::Result<Ref<ShardState>> R) {
                                     check_send_error(SelfId, R) ||
@@ -609,8 +609,8 @@ void AcceptBlockQuery::find_known_ancestors() {
     auto ancestor2 = config->get_shard_hash(ton::shard_child(shard, false));
     if (ancestor.is_null() || ancestor2.is_null()) {
       VLOG(validator, WARNING) << " cannot retrieve information about shard " + shard.to_str() +
-                                     " from masterchain block " + last_mc_id_.to_str() +
-                                     ", skipping ShardTopBlockDescr creation";
+                                      " from masterchain block " + last_mc_id_.to_str() +
+                                      ", skipping ShardTopBlockDescr creation";
       if (last_mc_id_.id.seqno <= mc_blkid_.id.seqno) {
         fatal_error(" cannot retrieve information about shard "s + shard.to_str() + " from masterchain block " +
                     last_mc_id_.to_str());
@@ -634,8 +634,8 @@ void AcceptBlockQuery::find_known_ancestors() {
     ancestors_split_ = true;
   } else {
     VLOG(validator, WARNING) << " cannot retrieve information about shard " + shard.to_str() +
-                                   " from masterchain block " + last_mc_id_.to_str() +
-                                   ", skipping ShardTopBlockDescr creation";
+                                    " from masterchain block " + last_mc_id_.to_str() +
+                                    ", skipping ShardTopBlockDescr creation";
     if (last_mc_id_.id.seqno <= mc_blkid_.id.seqno || ancestor->seqno() <= id_.id.seqno) {
       fatal_error(" cannot retrieve information about shard "s + shard.to_str() + " from masterchain block " +
                   last_mc_id_.to_str());
@@ -646,7 +646,7 @@ void AcceptBlockQuery::find_known_ancestors() {
   }
   if (ancestors_seqno_ >= id_.id.seqno) {
     VLOG(validator, WARNING) << "skipping ShardTopBlockDescr creation for " << id_ << " because a newer block "
-                            << ancestors_.at(0)->blk_ << " is already present in masterchain block " << last_mc_id_;
+                             << ancestors_.at(0)->blk_ << " is already present in masterchain block " << last_mc_id_;
     written_block_next();
     return;
   }
@@ -839,7 +839,7 @@ void AcceptBlockQuery::top_block_descr_validated(td::Result<Ref<ShardTopBlockDes
   VLOG(validator, DEBUG) << "top_block_descr_validated()";
   if (R.is_error()) {
     VLOG(validator, WARNING) << "error validating newly-created ShardTopBlockDescr for " << id_ << ": "
-                            << R.move_as_error().to_string();
+                             << R.move_as_error().to_string();
   } else {
     top_block_descr_ = R.move_as_ok();
     CHECK(top_block_descr_.not_null());
