@@ -30,7 +30,7 @@ namespace td {
 class AsyncFileLog : public LogInterface {
  public:
   static constexpr int64 DEFAULT_ROTATE_THRESHOLD = 10 * (1 << 20);
-  static constexpr uint32 DEFAULT_RING_CAPACITY = 1u << 20;  // 1 MB per thread, LLC-resident
+  static constexpr uint32 DEFAULT_RING_CAPACITY = 1u << 20;  // 1 MB per thread (allocated 2x, see SpscRing)
 
   AsyncFileLog();
   AsyncFileLog(const AsyncFileLog &) = delete;

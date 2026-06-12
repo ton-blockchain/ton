@@ -36,7 +36,7 @@ namespace {
 constexpr size_t kMaxBatchSize = 1u << 18;
 constexpr int kMaxSpinIdle = 64;
 constexpr int kMaxSleepIdle = 1024;
-constexpr double kFatalFlushTimeout = 0.2;
+constexpr double kFatalFlushTimeout = 5;
 constexpr auto kFatalFlushPollDelay = std::chrono::microseconds(100);
 constexpr auto kMaxIdleSleepDelay = std::chrono::microseconds(1000);
 
@@ -87,6 +87,7 @@ struct AsyncFileLog::Impl {
   std::mutex producers_mutex_;
   std::vector<std::shared_ptr<Producer>> producers_;
   uint32 next_producer_id_{0};
+  std::atomic<uint64> producers_version_{1};
 
   std::mutex io_mutex_;
   td::thread writer_;
@@ -94,7 +95,11 @@ struct AsyncFileLog::Impl {
   std::atomic<bool> fatal_flush_request_{false};
   std::atomic<uint64> dropped_{0};
 
+  // Writer-private: the batch under assembly and a cached copy of producers_, refreshed only when
+  // producers_version_ changes, so the steady-state writer loop does not allocate.
   std::string batch_;
+  std::vector<std::shared_ptr<Producer>> producers_snapshot_;
+  uint64 snapshot_version_{0};
 
   ~Impl() {
     stop();
@@ -129,6 +134,7 @@ struct AsyncFileLog::Impl {
     std::lock_guard<std::mutex> guard(producers_mutex_);
     auto producer = std::make_shared<Producer>(ring_capacity_, next_producer_id_++);
     producers_.push_back(producer);
+    producers_version_.fetch_add(1, std::memory_order_relaxed);
     return producer;
   }
 
@@ -155,6 +161,9 @@ struct AsyncFileLog::Impl {
     bool any = false;
     producer.ring.pop_each([&](Slice rec) {
       batch_.append(rec.data(), rec.size());
+      if (batch_.size() >= kMaxBatchSize) {
+        flush();
+      }
       any = true;
     });
     uint64 dropped = producer.ring.dropped();
@@ -180,20 +189,17 @@ struct AsyncFileLog::Impl {
   }
 
   bool drain_all() {
-    std::vector<std::shared_ptr<Producer>> producers;
-    {
+    if (producers_version_.load(std::memory_order_relaxed) != snapshot_version_) {
       std::lock_guard<std::mutex> guard(producers_mutex_);
-      producers = producers_;
+      producers_snapshot_ = producers_;
+      snapshot_version_ = producers_version_.load(std::memory_order_relaxed);
     }
 
     bool any = false;
     bool reap = false;
-    for (auto &producer : producers) {
+    for (auto &producer : producers_snapshot_) {
       any |= drain_producer(*producer);
       reap |= producer->closed.load(std::memory_order_acquire) && producer->ring.empty();
-      if (batch_.size() >= kMaxBatchSize) {
-        flush();
-      }
     }
     if (reap) {
       reap_dead();
@@ -207,6 +213,7 @@ struct AsyncFileLog::Impl {
       return producer->closed.load(std::memory_order_acquire) && producer->ring.empty();
     };
     producers_.erase(std::remove_if(producers_.begin(), producers_.end(), is_dead), producers_.end());
+    producers_version_.fetch_add(1, std::memory_order_relaxed);
   }
 
   void flush() {
@@ -232,6 +239,7 @@ struct AsyncFileLog::Impl {
         backoff(idle++);
       }
     }
+    snapshot_version_ = 0;  // force a refresh: the final drain must see every producer registered before stop()
     drain_all();
     flush();
   }
@@ -264,7 +272,7 @@ struct AsyncFileLog::Impl {
     }
     {
       std::lock_guard<std::mutex> lock(io_mutex_);
-      file_log_.append(slice, VERBOSITY_NAME(FATAL));
+      file_log_.append(slice, -1);  // level FATAL would abort inside FileLog, while io_mutex_ is still held
     }
     process_fatal_error(slice);
   }
