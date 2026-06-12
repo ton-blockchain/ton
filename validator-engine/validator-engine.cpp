@@ -5713,6 +5713,9 @@ int main(int argc, char *argv[]) {
             return td::Status::Error(PSTRING() << "bad --vcategory token (want name=level): " << token);
           }
           TRY_RESULT(level, td::to_integer_safe<int>(kv[1]));
+          if (level < 0 || level > 10) {
+            return td::Status::Error(PSTRING() << "--vcategory level should be in range [0..10]: " << token);
+          }
           if (!td::set_log_category_level(kv[0], VERBOSITY_NAME(FATAL) + level)) {
             return td::Status::Error(PSTRING() << "unknown log category: " << kv[0]);
           }

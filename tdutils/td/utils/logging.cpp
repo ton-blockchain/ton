@@ -318,7 +318,7 @@ const LogCategory *first_log_category() {
 
 LogCategory *find_log_category(Slice name) {
   std::lock_guard<std::mutex> guard(log_category_mutex);
-  for (auto *c = log_category_head; c != nullptr; c = const_cast<LogCategory *>(c->next())) {
+  for (auto *c = log_category_head; c != nullptr; c = c->next()) {
     if (c->name() == name) {
       return c;
     }

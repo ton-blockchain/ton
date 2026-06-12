@@ -207,6 +207,8 @@ class LogCategory {
   LogCategory(const LogCategory &) = delete;
   LogCategory &operator=(const LogCategory &) = delete;
 
+  // Effective level: the override if set; otherwise the category follows the global level but never
+  // exceeds its default — raising the global verbosity alone does not raise a category above its default.
   int get_level() const {
     if (is_log_disabled()) {
       return VERBOSITY_DISABLED;
@@ -231,6 +233,9 @@ class LogCategory {
     return Slice(name_);
   }
   const LogCategory *next() const {
+    return next_;
+  }
+  LogCategory *next() {
     return next_;
   }
 
