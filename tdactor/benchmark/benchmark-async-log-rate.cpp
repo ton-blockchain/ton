@@ -240,7 +240,7 @@ TrialResult run_trial(const Options &options, double target_rate, int trial_id) 
 }
 
 void print_trial(const char *label, int sample, int samples, const TrialResult &result) {
-  auto mib_per_second = result.actual_rate * kLine.size() / 1024 / 1024;
+  auto mib_per_second = result.actual_rate * static_cast<double>(kLine.size()) / 1024 / 1024;
   std::printf("%-8s %2d/%-2d target=%8.3fM/s actual=%8.3fM/s bytes=%8.1fMiB/s attempted=%10llu dropped=%llu\n", label,
               sample, samples, result.target_rate / 1e6, result.actual_rate / 1e6, mib_per_second,
               static_cast<unsigned long long>(result.attempted), static_cast<unsigned long long>(result.dropped));
@@ -271,8 +271,8 @@ bool is_safe(const ProbeResult &probe) {
 }
 
 void print_summary(const Options &options, double low, double high) {
-  auto low_mib = low * kLine.size() / 1024 / 1024;
-  auto high_mib = high * kLine.size() / 1024 / 1024;
+  auto low_mib = low * static_cast<double>(kLine.size()) / 1024 / 1024;
+  auto high_mib = high * static_cast<double>(kLine.size()) / 1024 / 1024;
   std::printf("safe target ~= %.3fM/s (%.1fMiB/s), first unsafe target ~= %.3fM/s (%.1fMiB/s)\n", low / 1e6, low_mib,
               high / 1e6, high_mib);
   std::printf("classification: safe iff all %d fresh-log sample(s) had zero reported drops\n", options.samples);
