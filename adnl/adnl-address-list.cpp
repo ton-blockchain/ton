@@ -24,6 +24,10 @@
 #include "adnl-address-list.hpp"
 #include "adnl-peer-table.h"
 
+// Defined in this light translation unit so that pulling the category definition into a static link
+// does not drag in the peer-table object and, through it, adnl's optional dht dependency.
+DEFINE_LOG_CATEGORY(adnl, VERBOSITY_NAME(WARNING))
+
 namespace ton {
 
 namespace adnl {

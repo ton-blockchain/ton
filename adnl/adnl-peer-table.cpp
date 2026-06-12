@@ -31,8 +31,6 @@
 #include "adnl-tunnel.h"
 #include "utils.hpp"
 
-DEFINE_LOG_CATEGORY(adnl, VERBOSITY_NAME(WARNING))
-
 namespace ton {
 
 namespace adnl {
