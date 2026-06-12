@@ -74,10 +74,10 @@ TEST(SpscRing, Drops) {
   ASSERT_TRUE(ring.push(td::Slice("x")));  // space reclaimed
   ASSERT_EQ(std::vector<std::string>{"x"}, pop_records(ring));
 
-  td::SpscRing small(16);
-  ASSERT_TRUE(!small.push(std::string(16 - kHeader + 1, 'z')));  // record larger than the ring
-  ASSERT_EQ(static_cast<td::uint64>(1), small.dropped());
-  ASSERT_TRUE(small.push(std::string(16 - kHeader, 'z')));  // exactly fits
+  td::SpscRing small_ring(16);  // not `small`: that is a macro in Windows' rpcndr.h
+  ASSERT_TRUE(!small_ring.push(std::string(16 - kHeader + 1, 'z')));  // record larger than the ring
+  ASSERT_EQ(static_cast<td::uint64>(1), small_ring.dropped());
+  ASSERT_TRUE(small_ring.push(std::string(16 - kHeader, 'z')));  // exactly fits
 
   td::SpscRing tiny(8);
   ASSERT_TRUE(tiny.push(td::Slice("")));  // empty payload is a valid record
