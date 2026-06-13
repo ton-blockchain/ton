@@ -275,8 +275,6 @@ class BridgeImpl final : public IValidatorGroup {
     bus->overlays = params_.overlays;
     bus->adnl_sender = params_.adnl_sender;
 
-    bus->populate_collator_schedule();
-
     auto [stop_waiter, stop_promise] = td::actor::StartedTask<>::make_bridge();
     stop_waiter_ = std::move(stop_waiter);
     bus->stop_promise = std::move(stop_promise);
@@ -286,6 +284,8 @@ class BridgeImpl final : public IValidatorGroup {
     bus->db = std::make_unique<DbImpl>(db_path());
     simplex::Db::register_in(runtime);
     simplex::Pool::register_in(runtime);
+
+    simplex::DefaultCollatorSchedule::provide_for(runtime);
 
     if (bus->is_validator()) {
       BlockAccepter::register_in(runtime);

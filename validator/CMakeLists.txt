@@ -100,6 +100,7 @@ set(VALIDATOR_SOURCE
   consensus/simplex/bus.cpp
   consensus/simplex/candidate-resolver.cpp
   consensus/simplex/certificate.cpp
+  consensus/simplex/collator-schedule.cpp
   consensus/simplex/consensus.cpp
   consensus/simplex/db.cpp
   consensus/simplex/pool.cpp

@@ -184,8 +184,6 @@ class Bus : public td::actor::Bus {
     return local_id.has_value();
   }
 
-  virtual void populate_collator_schedule() = 0;
-
   ValidatorSessionId session_id;
 
   ShardIdFull shard;
