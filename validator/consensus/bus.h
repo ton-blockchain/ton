@@ -74,7 +74,8 @@ struct ValidationRequest {
 struct IncomingProtocolMessage {
   using LogToDebug = std::true_type;
 
-  PeerValidatorId source;
+  std::optional<PeerValidatorId> source_validator;
+  adnl::AdnlNodeIdShort source;
   ProtocolMessage message;
 
   std::string contents_to_string() const;

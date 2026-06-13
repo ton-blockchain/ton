@@ -106,7 +106,8 @@ std::string ValidationRequest::response_to_string(const ReturnType& result) {
 }
 
 std::string IncomingProtocolMessage::contents_to_string() const {
-  return PSTRING() << "{source=" << source << ", message=" << message_to_string(message) << "}";
+  return PSTRING() << "{source_validator=" << source << ", source=" << source
+                   << ", message=" << message_to_string(message) << "}";
 }
 
 std::string OutgoingProtocolMessage::contents_to_string() const {

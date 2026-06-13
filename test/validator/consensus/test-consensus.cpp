@@ -235,7 +235,7 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   }
 
   void receive_message(PeerValidator src, td::BufferSlice data) {
-    owning_bus().publish<IncomingProtocolMessage>(src.idx, std::move(data));
+    owning_bus().publish<IncomingProtocolMessage>(src.idx, src.adnl_id, std::move(data));
   }
 
   void receive_candidate(CandidateRef candidate) {

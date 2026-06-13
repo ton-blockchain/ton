@@ -180,8 +180,13 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   }
 
   void on_overlay_message(adnl::AdnlNodeIdShort src_adnl_id, td::BufferSlice data) {
-    auto peer = adnl_id_to_peer_.at(src_adnl_id);
-    owning_bus().publish<IncomingProtocolMessage>(peer.idx, std::move(data));
+    auto peer = adnl_id_to_peer_.find(src_adnl_id);
+    std::optional<PeerValidatorId> source_validator;
+    if (peer != adnl_id_to_peer_.end()) {
+      source_validator = peer->second.idx;
+    }
+
+    owning_bus().publish<IncomingProtocolMessage>(source_validator, src_adnl_id, std::move(data));
   }
 
   void on_overlay_broadcast(PublicKeyHash src, td::BufferSlice data, td::BufferSlice extra) {
