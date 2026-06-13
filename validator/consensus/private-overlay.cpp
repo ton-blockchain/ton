@@ -17,7 +17,6 @@
 #include "ton/ton-io.hpp"
 
 #include "bus.h"
-#include "stats.h"
 
 namespace ton::validator::consensus {
 
