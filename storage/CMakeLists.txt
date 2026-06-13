@@ -38,7 +38,7 @@ target_include_directories(storage PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOUR
 )
 
 add_executable(storage-cli ${STORAGE_CLI_SOURCE})
-target_link_libraries(storage-cli storage overlay tdutils tdactor adnl tl_api dht rldp rldp2 fift-lib memprof terminal git ${JEMALLOC_LIBRARIES})
+target_link_libraries(storage-cli storage overlay tdutils tdactor adnl tl_api dht rldp2 fift-lib memprof terminal git ${JEMALLOC_LIBRARIES})
 
 set(STORAGE_TEST_SOURCE
   ${CMAKE_CURRENT_SOURCE_DIR}/test/storage.cpp

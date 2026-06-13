@@ -782,6 +782,9 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
   st->register_chksgn_call();
   // Starting with TVM 14, reject the canonical Ed25519 identity public key
   // encoding `01 00..00` and zero public key before handing it to the verifier.
+  // The reason for that is to forbid most popular footguns (setting all bytes to 0)
+  // Other 6 torsion points are not planned to be forbidden: they are no worse than
+  // using pubkey with publicly known private key and hard to set by accident
   if (st->get_global_version() >= 14) {
     bool reject = (key[0] == 0x00 || key[0] == 0x01);
     for (unsigned int i = 1; reject && i < 32; ++i) {

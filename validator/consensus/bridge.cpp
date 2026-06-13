@@ -80,8 +80,9 @@ class ManagerFacadeImpl : public ManagerFacade {
   }
 
   void cache_block_candidate(BlockCandidate candidate) override {
-    td::actor::send_closure(manager_, &ValidatorManager::cache_block_candidate, std::move(candidate),
-                            [](td::Result<>) {});
+    td::actor::send_closure(manager_, &ValidatorManager::new_block_candidate_broadcast, candidate.id,
+                            validator_set_->get_catchain_seqno(), candidate.data.clone(),
+                            BroadcastSource::consensus_overlay, [](td::Result<>) {});
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
@@ -321,11 +322,11 @@ class BridgeImpl final : public IValidatorGroup {
       simplex::Pool::register_in(runtime);
       simplex::StateResolver::register_in(runtime);
     } else {
-      CHECK(params_.config.enable_observers);
+      CHECK(params_.config.enable_block_observers);
       runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
     }
 
-    if (params_.config.enable_observers) {
+    if (params_.config.enable_block_observers) {
       BlockSyncOverlay::register_in(runtime);
     }
 
@@ -407,9 +408,9 @@ td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
     td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
     std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager,
-    td::actor::ActorId<CollationManager> collation_manager, bool create_session, bool allow_unsafe_self_blocks_resync,
-    td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard, bool is_validator,
-    adnl::AdnlNodeIdShort local_adnl_id, std::vector<adnl::AdnlNodeIdShort> overlay_members) {
+    td::actor::ActorId<CollationManager> collation_manager, bool create_session, td::Ref<ValidatorManagerOptions> opts,
+    bool monitoring_shard, bool is_validator, adnl::AdnlNodeIdShort local_adnl_id,
+    std::vector<adnl::AdnlNodeIdShort> overlay_members) {
   auto name_with_seqno =
       std::string(name.begin(), name.end()) + "." + std::to_string(validator_set->get_catchain_seqno());
   consensus::BridgeCreationParams params{

@@ -18,6 +18,9 @@ endif()
 add_executable(benchmark-coro benchmark-coro.cpp)
 target_link_libraries(benchmark-coro tdactor tdutils)
 
+add_executable(benchmark-async-log-rate benchmark-async-log-rate.cpp)
+target_link_libraries(benchmark-async-log-rate tdutils)
+
 # Google Benchmark based coroutine benchmarks
 find_package(PkgConfig)
 if(PkgConfig_FOUND)
@@ -32,6 +35,13 @@ if(PkgConfig_FOUND)
     target_compile_options(gbench-coro PRIVATE ${GBENCH_CFLAGS_OTHER})
 
     message(STATUS "Google Benchmark found via pkg-config - gbench-coro target enabled")
+
+    add_executable(gbench-async-log gbench-async-log.cpp)
+    target_link_libraries(gbench-async-log tdactor tdutils)
+    target_link_directories(gbench-async-log PRIVATE ${GBENCH_LIBRARY_DIRS})
+    target_link_libraries(gbench-async-log -lbenchmark)
+    target_include_directories(gbench-async-log PRIVATE ${GBENCH_INCLUDE_DIRS})
+    target_compile_options(gbench-async-log PRIVATE ${GBENCH_CFLAGS_OTHER})
 
     # Check for Folly
     find_package(folly CONFIG QUIET)

@@ -605,10 +605,10 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
   }
 }
 
-void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked) {
+void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source) {
   send_block_broadcast_to_custom_overlays(broadcast);
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
-                          signatures_checked, [](td::Result<td::Unit> R) {
+                          signatures_checked, source, [](td::Result<td::Unit> R) {
                             if (R.is_error()) {
                               if (R.error().code() == ErrorCode::notready) {
                                 LOG(DEBUG) << "dropped broadcast: " << R.move_as_error();
@@ -620,10 +620,11 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signat
 }
 
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                     td::uint32 validator_set_hash, td::BufferSlice data) {
+                                                     td::uint32 validator_set_hash, td::BufferSlice data,
+                                                     BroadcastSource source) {
   send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id, cc_seqno,
-                 std::move(data))
+                 std::move(data), source)
       .detach();
 }
 
@@ -850,9 +851,9 @@ void FullNodeImpl::send_shard_block_info_to_custom_overlays(BlockIdExt block_id,
 
 FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
                            FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
-                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp>,
-                           td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
-                           td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
+                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
+                           td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
+                           td::actor::ActorId<overlay::Overlays> overlays,
                            td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                            td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
                            td::Promise<td::Unit> started_promise)
@@ -876,12 +877,11 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
 td::actor::ActorOwn<FullNode> FullNode::create(
     ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp::Rldp> rldp, td::actor::ActorId<rldp2::Rldp> rldp2,
-    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
+    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
     td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root, td::Promise<td::Unit> started_promise) {
   return td::actor::create_actor<FullNodeImpl>("fullnode", local_id, adnl_id, zero_state_file_hash, opts, keyring, adnl,
-                                               rldp, rldp2, quic, dht, overlays, validator_manager, client, db_root,
+                                               rldp2, quic, dht, overlays, validator_manager, client, db_root,
                                                std::move(started_promise));
 }
 

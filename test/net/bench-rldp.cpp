@@ -24,7 +24,6 @@
 #include "keys/keys.hpp"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
-#include "rldp/rldp.h"
 #include "rldp2/rldp.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
@@ -60,7 +59,7 @@ ton::PublicKey client_public_key(td::uint32 client_id = 0) {
 }  // namespace
 
 enum class Mode { loopback, server, client, both };
-enum class Protocol { rldp1, rldp2, quic };
+enum class Protocol { rldp2, quic };
 
 struct Config {
   Mode mode = Mode::loopback;
@@ -87,8 +86,6 @@ struct Config {
 
 const char* protocol_name(Protocol p) {
   switch (p) {
-    case Protocol::rldp1:
-      return "rldp1";
     case Protocol::rldp2:
       return "rldp2";
     case Protocol::quic:
@@ -317,7 +314,6 @@ void run_loopback(Config config) {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::TestLoopbackNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp::Rldp> rldp1;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
@@ -333,9 +329,6 @@ void run_loopback(Config config) {
     td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
 
     auto max_size = std::max(config.query_size, config.response_size) + 1024;
-
-    rldp1 = ton::rldp::Rldp::create(adnl.get());
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::set_default_mtu, (td::uint64)max_size);
 
     rldp2 = ton::rldp2::Rldp::create(adnl.get());
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::set_default_mtu, (td::uint64)max_size);
@@ -355,8 +348,6 @@ void run_loopback(Config config) {
     td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr, td::uint8(0));
     td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub2}, addr, td::uint8(0));
 
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::add_id, src);
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::add_id, dst);
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, src);
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, dst);
 
@@ -385,9 +376,6 @@ void run_loopback(Config config) {
 
     td::actor::ActorId<ton::adnl::AdnlSenderInterface> sender_id;
     switch (config.protocol) {
-      case Protocol::rldp1:
-        sender_id = rldp1.get();
-        break;
       case Protocol::rldp2:
         sender_id = rldp2.get();
         break;
@@ -412,7 +400,6 @@ void run_server(Config config) {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp::Rldp> rldp1;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<StatsReporter> stats_reporter;
@@ -424,8 +411,6 @@ void run_server(Config config) {
       addr.init_host_port("127.0.0.1:19777").ensure();
       exporter = ton::PrometheusExporter::create();
       td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>,
-                              exporter.get());
     }
     keyring = ton::keyring::Keyring::create(db_root);
     network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
@@ -451,11 +436,7 @@ void run_server(Config config) {
 
     auto max_size = std::max(config.query_size, config.response_size) + 1024;
 
-    // Start RLDP v1 and v2
-    rldp1 = ton::rldp::Rldp::create(adnl.get());
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::set_default_mtu, (td::uint64)max_size);
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::add_id, local_id);
-
+    // Start RLDP v2
     rldp2 = ton::rldp2::Rldp::create(adnl.get());
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::set_default_mtu, (td::uint64)max_size);
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, local_id);
@@ -471,8 +452,8 @@ void run_server(Config config) {
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, local_id);
     if (config.prometheus)
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
-                              quic_sender.get());
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
+                              &ton::quic::QuicSender::collect);
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
@@ -496,7 +477,6 @@ void run_client(Config config) {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp::Rldp> rldp1;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
@@ -512,8 +492,6 @@ void run_client(Config config) {
       addr.init_host_port("127.0.0.1:29777").ensure();
       exporter = ton::PrometheusExporter::create();
       td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::PrometheusExporter>,
-                              exporter.get());
     }
 
     keyring = ton::keyring::Keyring::create(db_root);
@@ -543,10 +521,6 @@ void run_client(Config config) {
 
     auto max_size = std::max(config.query_size, config.response_size) + 1024;
 
-    rldp1 = ton::rldp::Rldp::create(adnl.get());
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::set_default_mtu, (td::uint64)max_size);
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::add_id, src);
-
     rldp2 = ton::rldp2::Rldp::create(adnl.get());
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::set_default_mtu, (td::uint64)max_size);
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, src);
@@ -561,8 +535,8 @@ void run_client(Config config) {
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
     if (config.prometheus)
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::register_collector<ton::quic::QuicSender>,
-                              quic_sender.get());
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
+                              &ton::quic::QuicSender::collect);
 
     stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-client", quic_sender.get(), "client-periodic",
                                                             config.protocol == Protocol::quic, 10.0);
@@ -580,9 +554,6 @@ void run_client(Config config) {
 
     td::actor::ActorId<ton::adnl::AdnlSenderInterface> sender_id;
     switch (config.protocol) {
-      case Protocol::rldp1:
-        sender_id = rldp1.get();
-        break;
       case Protocol::rldp2:
         sender_id = rldp2.get();
         break;
@@ -637,10 +608,6 @@ int main(int argc, char* argv[]) {
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(v);
-  });
-  p.add_checked_option('\0', "rldp1", "use RLDP v1", [&]() {
-    config.protocol = Protocol::rldp1;
-    return td::Status::OK();
   });
   p.add_checked_option('\0', "rldp2", "use RLDP v2 (default)", [&]() {
     config.protocol = Protocol::rldp2;

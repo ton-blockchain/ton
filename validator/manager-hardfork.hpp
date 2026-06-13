@@ -78,13 +78,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
     callback_->initial_read_complete(nullptr);
   }
-  void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
   void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
-  void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
   void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
@@ -105,10 +99,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                 td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
-  void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override {
-    UNREACHABLE();
-  }
-  void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override {
+  void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override {
     UNREACHABLE();
   }
   void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
@@ -321,9 +312,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
-  void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override {
-    UNREACHABLE();
-  }
   void send_get_zero_state_request(BlockIdExt id, td::uint32 priority, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();
   }

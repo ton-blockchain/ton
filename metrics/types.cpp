@@ -1,17 +1,26 @@
+/*
+ * Copyright (c) 2026, TON CORE TECHNOLOGIES CO. L.L.C
+ *
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
+
 #include <unordered_map>
 
 #include "td/utils/logging.h"
 
-#include "metrics-types.h"
+#include "types.h"
 
 namespace ton::metrics {
 
 namespace {
+
 std::string concat_names(std::string name1, std::string name2) {
-  if (!name1.empty() && !name2.empty())
+  if (!name1.empty() && !name2.empty()) {
     return std::move(name1) + '_' + std::move(name2);
+  }
   return std::move(name1) + std::move(name2);
 }
+
 }  // namespace
 
 std::string Label::render() && {
@@ -22,19 +31,22 @@ std::string Label::render() && {
 LabelSet LabelSet::join(LabelSet other) && {
   auto all_labels = std::move(labels);
   all_labels.reserve(all_labels.size() + other.labels.size());
-  for (auto &l : other.labels)
+  for (auto &l : other.labels) {
     all_labels.push_back(std::move(l));
+  }
   other.labels.resize(0);
   return {.labels = std::move(all_labels)};
 }
 
 std::string LabelSet::render() && {
-  if (labels.empty())
+  if (labels.empty()) {
     return "";
+  }
   std::string result = "{";
   for (auto &l : labels) {
-    if (result.size() != 1)
+    if (result.size() != 1) {
       result += ',';
+    }
     result += std::move(l).render();
   }
   labels = {};
@@ -50,8 +62,9 @@ std::string Sample::render(const std::string &metric_name, LabelSet metric_label
 std::string Metric::render(std::string family_name) && {
   auto whole_name = concat_names(std::move(family_name), std::move(suffix));
   std::string result;
-  for (auto &s : samples)
+  for (auto &s : samples) {
     result += std::move(s).render(whole_name, label_set);
+  }
   label_set = {};
   samples = {};
   return result;
@@ -59,36 +72,49 @@ std::string Metric::render(std::string family_name) && {
 
 Metric Metric::label(LabelSet extension) && {
   auto new_label_set = std::move(label_set);
-  for (auto &l : extension.labels)
+  for (auto &l : extension.labels) {
     new_label_set.labels.push_back(std::move(l));
+  }
   return {.suffix = std::move(suffix), .label_set = std::move(new_label_set), .samples = std::move(samples)};
 }
 
 std::string MetricFamily::render() && {
   const auto whole_name = std::move(name);
   std::string result;
-  if (help.has_value())
+  if (help.has_value()) {
     result += PSTRING() << "# HELP " << whole_name << ' ' << *help << '\n';
-  if (type.has_value())
+  }
+  if (type.has_value()) {
     result += PSTRING() << "# TYPE " << whole_name << ' ' << *type << '\n';
-  for (auto &m : metrics)
+  }
+  for (auto &m : metrics) {
     result += std::move(m).render(whole_name);
+  }
   metrics = {};
   return result;
 }
 
 MetricFamily MetricFamily::wrap(std::string prefix) && {
-  return {.name = concat_names(std::move(prefix), std::move(name)),
-          .type = std::move(type),
-          .help = std::move(help),
-          .metrics = std::move(metrics)};
+  return {
+      .name = concat_names(std::move(prefix), std::move(name)),
+      .type = std::move(type),
+      .help = std::move(help),
+      .metrics = std::move(metrics),
+  };
 }
 
 MetricFamily MetricFamily::label(const LabelSet &extension) && {
   auto new_metrics = std::move(metrics);
-  for (auto &m : new_metrics)
+  for (auto &m : new_metrics) {
     m = std::move(m).label(extension);
-  return {.name = std::move(name), .type = std::move(type), .help = std::move(help), .metrics = std::move(new_metrics)};
+  }
+
+  return {
+      .name = std::move(name),
+      .type = std::move(type),
+      .help = std::move(help),
+      .metrics = std::move(new_metrics),
+  };
 }
 
 MetricFamily MetricFamily::make_scalar(std::string name, std::string type, double value,
@@ -97,7 +123,12 @@ MetricFamily MetricFamily::make_scalar(std::string name, std::string type, doubl
       .name = name,
       .type = type,
       .help = help,
-      .metrics = {Metric{.suffix = "", .label_set = {}, .samples = {Sample{.label_set = {}, .value = value}}}}};
+      .metrics = {Metric{
+          .suffix = "",
+          .label_set = {},
+          .samples = {Sample{.label_set = {}, .value = value}},
+      }},
+  };
 }
 
 MetricSet MetricSet::join(MetricSet other) && {
@@ -128,23 +159,26 @@ MetricSet MetricSet::join(MetricSet other) && {
 
 std::string MetricSet::render() && {
   std::string result;
-  for (auto &f : families)
+  for (auto &f : families) {
     result += std::move(f).render();
+  }
   families = {};
   return result;
 }
 
 MetricSet MetricSet::wrap(const std::string &prefix) && {
   auto new_families = std::move(families);
-  for (auto &f : new_families)
+  for (auto &f : new_families) {
     f = std::move(f).wrap(prefix);
+  }
   return {.families = std::move(new_families)};
 }
 
 MetricSet MetricSet::label(const LabelSet &extension) && {
   auto new_families = std::move(families);
-  for (auto &f : new_families)
+  for (auto &f : new_families) {
     f = std::move(f).label(extension);
+  }
   return {.families = std::move(new_families)};
 }
 
