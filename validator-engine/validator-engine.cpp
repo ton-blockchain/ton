@@ -49,6 +49,7 @@
 #include "td/utils/TsFileLog.h"
 #include "td/utils/buffer.h"
 #include "td/utils/filesystem.h"
+#include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/overloaded.h"
 #include "td/utils/port/path.h"
@@ -4190,6 +4191,59 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setVerbos
   promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
 }
 
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_setLogCategoryVerbosity &query,
+                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
+                                        td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+
+  if (query.verbosity_ < -1 || query.verbosity_ > 10) {
+    promise.set_value(create_control_query_error(
+        td::Status::Error(ton::ErrorCode::error, "verbosity should be -1 or in range [0..10]")));
+    return;
+  }
+
+  auto level = query.verbosity_ < 0 ? -1 : VERBOSITY_NAME(FATAL) + query.verbosity_;
+  if (!td::set_log_category_level(query.name_, level)) {
+    promise.set_value(create_control_query_error(
+        td::Status::Error(ton::ErrorCode::error, PSTRING() << "unknown log category: " << query.name_)));
+    return;
+  }
+
+  promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
+}
+
+void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getLogCategories &query, td::BufferSlice data,
+                                        ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
+  if (!(perm & ValidatorEnginePermissions::vep_default)) {
+    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
+    return;
+  }
+
+  std::vector<const td::LogCategory *> categories;
+  for (auto *category = td::first_log_category(); category != nullptr; category = category->next()) {
+    categories.push_back(category);
+  }
+  std::sort(categories.begin(), categories.end(),
+            [](const auto *lhs, const auto *rhs) { return lhs->name() < rhs->name(); });
+
+  std::string text;
+  for (auto *category : categories) {
+    auto override_level = category->override_level();
+    text += PSTRING() << category->name() << "=" << category->get_level() << " default=" << category->default_level()
+                      << " override=";
+    if (override_level < 0) {
+      text += "default";
+    } else {
+      text += PSTRING() << override_level;
+    }
+    text += "\n";
+  }
+  promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_textStats>(std::move(text)));
+}
+
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getStats &query, td::BufferSlice data,
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_default)) {
@@ -5644,6 +5698,30 @@ int main(int argc, char *argv[]) {
     int v = VERBOSITY_NAME(FATAL) + (td::to_integer<int>(arg));
     SET_VERBOSITY_LEVEL(v);
   });
+  p.add_checked_option(
+      '\0', "vcategory", "per-category verbosity, e.g. adnl=5,overlay=2 ('--vcategory list' prints categories)",
+      [&](td::Slice arg) -> td::Status {
+        if (arg == "list") {
+          for (auto *c = td::first_log_category(); c != nullptr; c = c->next()) {
+            std::cout << c->name().str() << "=" << c->get_level() << "\n";
+          }
+          std::exit(0);
+        }
+        for (auto token : td::full_split(arg, ',')) {
+          auto kv = td::full_split(token, '=');
+          if (kv.size() != 2) {
+            return td::Status::Error(PSTRING() << "bad --vcategory token (want name=level): " << token);
+          }
+          TRY_RESULT(level, td::to_integer_safe<int>(kv[1]));
+          if (level < 0 || level > 10) {
+            return td::Status::Error(PSTRING() << "--vcategory level should be in range [0..10]: " << token);
+          }
+          if (!td::set_log_category_level(kv[0], VERBOSITY_NAME(FATAL) + level)) {
+            return td::Status::Error(PSTRING() << "unknown log category: " << kv[0]);
+          }
+        }
+        return td::Status::OK();
+      });
   p.add_option('V', "version", "shows validator-engine build information", [&]() {
     std::cout << "validator-engine build information: [ Commit: " << GitMetadata::CommitSHA1()
               << ", Date: " << GitMetadata::CommitDate() << "]\n";

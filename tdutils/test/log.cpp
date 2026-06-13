@@ -42,6 +42,37 @@
 
 char disable_linker_warning_about_empty_file_tdutils_test_log_cpp TD_UNUSED;
 
+DEFINE_LOG_CATEGORY(test_xyz, VERBOSITY_NAME(INFO))
+DEFINE_LOG_CATEGORY(test_default)
+
+TEST(Log, LogCategory) {
+  auto &cat = td::log_category_test_xyz;
+  auto &default_cat = td::log_category_test_default;
+  auto old_level = td::set_verbosity_level(td::DEFAULT_VERBOSITY_LEVEL);
+  ASSERT_EQ(td::DEFAULT_VERBOSITY_LEVEL, default_cat.default_level());
+  ASSERT_EQ(td::DEFAULT_VERBOSITY_LEVEL, default_cat.get_level());
+  ASSERT_EQ(VERBOSITY_NAME(INFO), cat.default_level());
+  ASSERT_EQ(VERBOSITY_NAME(INFO), cat.get_level());
+  td::set_verbosity_level(VERBOSITY_NAME(WARNING));
+  ASSERT_EQ(VERBOSITY_NAME(WARNING), default_cat.get_level());
+  ASSERT_EQ(VERBOSITY_NAME(WARNING), cat.get_level());
+  td::set_verbosity_level(td::DEFAULT_VERBOSITY_LEVEL + 1);
+  ASSERT_EQ(td::DEFAULT_VERBOSITY_LEVEL, default_cat.get_level());
+  ASSERT_EQ(VERBOSITY_NAME(INFO), cat.get_level());
+  ASSERT_TRUE(td::find_log_category("test_xyz") == &cat);
+  ASSERT_TRUE(td::find_log_category("does_not_exist") == nullptr);
+  ASSERT_TRUE(td::set_log_category_level("test_xyz", VERBOSITY_NAME(DEBUG) + 2));
+  ASSERT_EQ(VERBOSITY_NAME(DEBUG) + 2, cat.get_level());
+  {
+    td::ScopedDisableLog disable_log;
+    ASSERT_TRUE(cat.get_level() < VERBOSITY_NAME(FATAL));
+  }
+  ASSERT_TRUE(!td::set_log_category_level("does_not_exist", 1));
+  cat.set_level(-1);
+  ASSERT_EQ(VERBOSITY_NAME(INFO), cat.get_level());
+  td::set_verbosity_level(old_level);
+}
+
 #if !TD_THREAD_UNSUPPORTED
 template <class Log>
 class LogBenchmark : public td::Benchmark {

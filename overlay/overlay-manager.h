@@ -25,19 +25,16 @@
 #include "dht/dht.h"
 #include "td/actor/actor.h"
 #include "td/db/KeyValueAsync.h"
+#include "td/utils/logging.h"
 
 #include "overlay-id.hpp"
 #include "overlays.h"
 
+DECLARE_LOG_CATEGORY(overlay)
+
 namespace ton {
 
 namespace overlay {
-
-constexpr int VERBOSITY_NAME(OVERLAY_WARNING) = verbosity_WARNING;
-constexpr int VERBOSITY_NAME(OVERLAY_NOTICE) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(OVERLAY_INFO) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(OVERLAY_DEBUG) = verbosity_DEBUG + 1;
-constexpr int VERBOSITY_NAME(OVERLAY_EXTRA_DEBUG) = verbosity_DEBUG + 10;
 
 class Overlay;
 

@@ -75,8 +75,8 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
-                        << "in fast sync overlay from " << src << ": " << B.ok().block_id;
+  VLOG(full_node, DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
+                         << "in fast sync overlay from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false,
                           BroadcastSource::fast_sync_overlay);
 }
@@ -113,7 +113,7 @@ void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash s
     return;
   }
 
-  VLOG(FULL_NODE_DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": " << B.ok().block_id;
+  VLOG(full_node, DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true,
                           BroadcastSource::fast_sync_overlay);
 }
@@ -152,7 +152,7 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
   BlockIdExt block_id = create_block_id(query.block_->block_);
-  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in fast sync overlay from " << src << ": " << block_id;
+  VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast in fast sync overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
                           std::move(query.block_->data_));
 }
@@ -183,14 +183,14 @@ void FullNodeFastSyncOverlay::process_block_candidate_broadcast(PublicKeyHash sr
     return;
   }
   if (data.size() > FullNode::max_block_size()) {
-    VLOG(FULL_NODE_WARNING) << "received block candidate with too big size from " << src;
+    VLOG(full_node, WARNING) << "received block candidate with too big size from " << src;
     return;
   }
   if (td::sha256_bits256(data.as_slice()) != block_id.file_hash) {
-    VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
+    VLOG(full_node, WARNING) << "received block candidate with incorrect file hash from " << src;
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate in fast sync overlay from " << src << ": " << block_id;
+  VLOG(full_node, DEBUG) << "Received newBlockCandidate in fast sync overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
                           validator_set_hash, std::move(data), BroadcastSource::fast_sync_overlay);
 }
@@ -198,27 +198,27 @@ void FullNodeFastSyncOverlay::process_block_candidate_broadcast(PublicKeyHash sr
 void FullNodeFastSyncOverlay::process_telemetry_broadcast(
     adnl::AdnlNodeIdShort src, const tl_object_ptr<ton_api::validator_telemetry> &telemetry) {
   if (telemetry->adnl_id_ != src.bits256_value()) {
-    VLOG(FULL_NODE_WARNING) << "Invalid telemetry broadcast from " << src << ": adnl_id mismatch";
+    VLOG(full_node, WARNING) << "Invalid telemetry broadcast from " << src << ": adnl_id mismatch";
     return;
   }
   auto now = (td::int32)td::Clocks::system();
   if (telemetry->timestamp_ < now - 60) {
-    VLOG(FULL_NODE_WARNING) << "Invalid telemetry broadcast from " << src << ": too old ("
-                            << now - telemetry->timestamp_ << "s ago)";
+    VLOG(full_node, WARNING) << "Invalid telemetry broadcast from " << src << ": too old ("
+                             << now - telemetry->timestamp_ << "s ago)";
     return;
   }
   if (telemetry->timestamp_ > now + 60) {
-    VLOG(FULL_NODE_WARNING) << "Invalid telemetry broadcast from " << src << ": too new ("
-                            << telemetry->timestamp_ - now << "s in the future)";
+    VLOG(full_node, WARNING) << "Invalid telemetry broadcast from " << src << ": too new ("
+                             << telemetry->timestamp_ - now << "s in the future)";
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Got telemetry broadcast from " << src;
+  VLOG(full_node, DEBUG) << "Got telemetry broadcast from " << src;
   auto s = td::json_encode<std::string>(td::ToJson(*telemetry), false);
   std::erase_if(s, [](char c) { return c == '\n' || c == '\r'; });
   telemetry_file_ << s << "\n";
   telemetry_file_.flush();
   if (telemetry_file_.fail()) {
-    VLOG(FULL_NODE_WARNING) << "Failed to write telemetry to file";
+    VLOG(full_node, WARNING) << "Failed to write telemetry to file";
   }
 }
 
@@ -241,7 +241,7 @@ void FullNodeFastSyncOverlay::send_shard_block_info(BlockIdExt block_id, Catchai
   if (!inited_) {
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast in fast sync overlay: " << block_id;
+  VLOG(full_node, DEBUG) << "Sending newShardBlockBroadcast in fast sync overlay: " << block_id;
   auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
@@ -258,10 +258,10 @@ void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
   if (!inited_) {
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast in fast sync overlay (with compression): " << broadcast.block_id;
+  VLOG(full_node, DEBUG) << "Sending block broadcast in fast sync overlay (with compression): " << broadcast.block_id;
   auto B = serialize_block_broadcast(broadcast, k_called_from_fast_sync);
   if (B.is_error()) {
-    VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
+    VLOG(full_node, WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
   }
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
@@ -276,10 +276,10 @@ void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, Catchain
   auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
                                                k_called_from_fast_sync);  // compression enabled
   if (B.is_error()) {
-    VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
+    VLOG(full_node, WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate in fast sync overlay (with compression): " << block_id;
+  VLOG(full_node, DEBUG) << "Sending newBlockCandidate in fast sync overlay (with compression): " << block_id;
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
@@ -303,7 +303,7 @@ void FullNodeFastSyncOverlay::collect_validator_telemetry(std::string filename) 
     telemetry_file_.close();
   }
   collect_telemetry_ = true;
-  LOG(FULL_NODE_WARNING) << "Collecting validator telemetry to " << filename << " (local id: " << local_id_ << ")";
+  VLOG(full_node, WARNING) << "Collecting validator telemetry to " << filename << " (local id: " << local_id_ << ")";
   telemetry_file_.open(filename, std::ios_base::app);
   if (!telemetry_file_.is_open()) {
     LOG(WARNING) << "Cannot open file " << filename << " for validator telemetry";
@@ -321,7 +321,7 @@ void FullNodeFastSyncOverlay::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQ
       create_tl_object<ton_api::tonNode_outMsgQueueProof>(broadcast->queue_proofs.clone(),
                                                           broadcast->block_state_proofs.clone(),
                                                           std::vector<td::int32>(1, broadcast->msg_count)));
-  VLOG(FULL_NODE_DEBUG) << "Sending outMsgQueueProof in fast sync overlay to " << broadcast->dst_shard.to_str()
+  VLOG(full_node, DEBUG) << "Sending outMsgQueueProof in fast sync overlay to " << broadcast->dst_shard.to_str()
                         << " from " << broadcast->block_id.to_str() << ", msgs=" << broadcast->msg_count
                         << " bytes=" << broadcast->queue_proofs.size();
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,

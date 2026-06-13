@@ -807,6 +807,8 @@ engine.validator.getStats = engine.validator.Stats;
 engine.validator.getConfig = engine.validator.JsonConfig;
 
 engine.validator.setVerbosity verbosity:int = engine.validator.Success;
+engine.validator.setLogCategoryVerbosity name:string verbosity:int = engine.validator.Success;
+engine.validator.getLogCategories = engine.validator.TextStats;
 
 engine.validator.createElectionBid election_date:int election_addr:string wallet:string = engine.validator.ElectionBid;
 engine.validator.createProposalVote vote:bytes = engine.validator.ProposalVote;

@@ -34,7 +34,7 @@ void DhtQuery::send_queries() {
   while (pending_queries_.size() > k_ * 2) {
     pending_queries_.erase(--pending_queries_.end());
   }
-  VLOG(DHT_EXTRA_DEBUG) << this << ": sending new queries. active=" << active_queries_ << " max_active=" << a_;
+  VLOG(dht, DEBUG) << this << ": sending new queries. active=" << active_queries_ << " max_active=" << a_;
   while (pending_queries_.size() > 0 && active_queries_ < a_) {
     auto id_xor = *pending_queries_.begin();
     if (result_list_.size() == k_ && *result_list_.rbegin() < id_xor) {
@@ -42,7 +42,7 @@ void DhtQuery::send_queries() {
     }
     active_queries_++;
     auto id = id_xor ^ key_;
-    VLOG(DHT_EXTRA_DEBUG) << this << ": sending " << get_name() << " query to " << id;
+    VLOG(dht, DEBUG) << this << ": sending " << get_name() << " query to " << id;
     pending_queries_.erase(id_xor);
 
     auto it = nodes_.find(id_xor);
@@ -60,21 +60,21 @@ void DhtQuery::send_queries() {
       list.push_back(it->second.node.clone());
     }
     CHECK(list.size() <= k_);
-    VLOG(DHT_EXTRA_DEBUG) << this << ": finalizing " << get_name() << " query. List size=" << list.size();
+    VLOG(dht, DEBUG) << this << ": finalizing " << get_name() << " query. List size=" << list.size();
     finish(std::move(list));
     stop();
   }
 }
 
 void DhtQuery::add_nodes(DhtNodesList list) {
-  VLOG(DHT_EXTRA_DEBUG) << this << ": " << get_name() << " query: received " << list.size() << " new dht nodes";
+  VLOG(dht, DEBUG) << this << ": " << get_name() << " query: received " << list.size() << " new dht nodes";
   for (auto &node : list.list()) {
     auto id = node.get_key();
     auto id_xor = key_ ^ id;
     if (nodes_.find(id_xor) != nodes_.end()) {
       continue;
     }
-    VLOG(DHT_EXTRA_DEBUG) << this << ": " << get_name() << " query: adding " << id << " key";
+    VLOG(dht, DEBUG) << this << ": " << get_name() << " query: adding " << id << " key";
     td::actor::send_closure(node_, &DhtMember::add_full_node, id, node.clone(), false);
     nodes_[id_xor].node = std::move(node);
     pending_queries_.insert(id_xor);
@@ -118,15 +118,15 @@ void DhtQueryFindNodes::send_one_query(adnl::AdnlNodeIdShort id) {
 
 void DhtQueryFindNodes::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst) {
   if (R.is_error()) {
-    VLOG(DHT_INFO) << this << ": failed find nodes query " << get_src() << "->" << dst << ": " << R.move_as_error();
+    VLOG(dht, INFO) << this << ": failed find nodes query " << get_src() << "->" << dst << ": " << R.move_as_error();
     finish_query(dst, false);
     return;
   }
 
   auto Res = fetch_tl_object<ton_api::dht_nodes>(R.move_as_ok(), true);
   if (Res.is_error()) {
-    VLOG(DHT_WARNING) << this << ": incorrect result on dht.findNodes query from " << dst << ": "
-                      << Res.move_as_error();
+    VLOG(dht, WARNING) << this << ": incorrect result on dht.findNodes query from " << dst << ": "
+                       << Res.move_as_error();
   } else {
     add_nodes(DhtNodesList{Res.move_as_ok(), our_network_id()});
   }
@@ -173,14 +173,14 @@ void DhtQueryFindValue::send_one_query_nodes(adnl::AdnlNodeIdShort id) {
 
 void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst) {
   if (R.is_error()) {
-    VLOG(DHT_INFO) << this << ": failed find value query " << get_src() << "->" << dst << ": " << R.move_as_error();
+    VLOG(dht, INFO) << this << ": failed find value query " << get_src() << "->" << dst << ": " << R.move_as_error();
     finish_query(dst, false);
     return;
   }
   auto Res = fetch_tl_object<ton_api::dht_ValueResult>(R.move_as_ok(), true);
   if (Res.is_error()) {
-    VLOG(DHT_WARNING) << this << ": dropping incorrect answer on dht.findValue query from " << dst << ": "
-                      << Res.move_as_error();
+    VLOG(dht, WARNING) << this << ": dropping incorrect answer on dht.findValue query from " << dst << ": "
+                       << Res.move_as_error();
     finish_query(dst, false);
     return;
   }
@@ -194,13 +194,13 @@ void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
               [&](ton_api::dht_valueFound &v) {
                 auto valueR = DhtValue::create(std::move(v.value_), true);
                 if (valueR.is_error()) {
-                  VLOG(DHT_WARNING) << this << ": received incorrect dht answer on find value query from " << dst
-                                    << ": " << valueR.move_as_error();
+                  VLOG(dht, WARNING) << this << ": received incorrect dht answer on find value query from " << dst
+                                     << ": " << valueR.move_as_error();
                   return;
                 }
                 auto value = valueR.move_as_ok();
                 if (value.key_id() != key_) {
-                  VLOG(DHT_WARNING) << this << ": received value for bad key on find value query from " << dst;
+                  VLOG(dht, WARNING) << this << ": received value for bad key on find value query from " << dst;
                   return;
                 }
                 if (value.expired() || !value.check_is_acceptable()) {
@@ -225,14 +225,14 @@ void DhtQueryFindValue::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeI
 
 void DhtQueryFindValue::on_result_nodes(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst) {
   if (R.is_error()) {
-    VLOG(DHT_INFO) << this << ": failed find nodes query " << get_src() << "->" << dst << ": " << R.move_as_error();
+    VLOG(dht, INFO) << this << ": failed find nodes query " << get_src() << "->" << dst << ": " << R.move_as_error();
     finish_query(dst, false);
     return;
   }
   auto Res = fetch_tl_object<ton_api::dht_nodes>(R.move_as_ok(), true);
   if (Res.is_error()) {
-    VLOG(DHT_WARNING) << this << ": dropping incorrect answer on dht.findNodes query from " << dst << ": "
-                      << Res.move_as_error();
+    VLOG(dht, WARNING) << this << ": dropping incorrect answer on dht.findNodes query from " << dst << ": "
+                       << Res.move_as_error();
     finish_query(dst, false);
     return;
   }
@@ -303,7 +303,7 @@ void DhtQueryStore::start_up() {
 void DhtQueryStore::send_stores(td::Result<DhtNodesList> R) {
   if (R.is_error()) {
     auto S = R.move_as_error();
-    VLOG(DHT_NOTICE) << this << ": failed to get nearest nodes to " << value_.key_id() << ": " << S;
+    VLOG(dht, INFO) << this << ": failed to get nearest nodes to " << value_.key_id() << ": " << S;
     promise_.set_error(std::move(S));
     stop();
     return;
@@ -334,12 +334,12 @@ void DhtQueryStore::send_stores(td::Result<DhtNodesList> R) {
 void DhtQueryStore::store_ready(td::Result<td::BufferSlice> R) {
   if (R.is_error()) {
     fail_++;
-    VLOG(DHT_INFO) << this << ": failed store query: " << R.move_as_error();
+    VLOG(dht, INFO) << this << ": failed store query: " << R.move_as_error();
   } else {
     auto R2 = fetch_tl_object<ton_api::dht_stored>(R.move_as_ok(), true);
     if (R2.is_error()) {
       fail_++;
-      VLOG(DHT_WARNING) << this << ": can not parse answer (expected dht.stored): " << R2.move_as_error();
+      VLOG(dht, WARNING) << this << ": can not parse answer (expected dht.stored): " << R2.move_as_error();
     } else {
       success_++;
     }
@@ -390,7 +390,7 @@ void DhtQueryRegisterReverseConnection::start_up() {
 void DhtQueryRegisterReverseConnection::send_queries(td::Result<DhtNodesList> R) {
   if (R.is_error()) {
     auto S = R.move_as_error();
-    VLOG(DHT_NOTICE) << this << ": failed to get nearest nodes to " << key_id_ << ": " << S;
+    VLOG(dht, INFO) << this << ": failed to get nearest nodes to " << key_id_ << ": " << S;
     promise_.set_error(std::move(S));
     stop();
     return;
@@ -399,7 +399,7 @@ void DhtQueryRegisterReverseConnection::send_queries(td::Result<DhtNodesList> R)
 
   remaining_ = static_cast<td::uint32>(list.size());
   if (remaining_ == 0) {
-    VLOG(DHT_NOTICE) << this << ": failed to get nearest nodes to " << key_id_ << ": no nodes";
+    VLOG(dht, INFO) << this << ": failed to get nearest nodes to " << key_id_ << ": no nodes";
     promise_.set_error(td::Status::Error("no dht nodes"));
     stop();
     return;
@@ -417,12 +417,12 @@ void DhtQueryRegisterReverseConnection::send_queries(td::Result<DhtNodesList> R)
 void DhtQueryRegisterReverseConnection::ready(td::Result<td::BufferSlice> R) {
   if (R.is_error()) {
     fail_++;
-    VLOG(DHT_INFO) << this << ": failed register reverse connection query: " << R.move_as_error();
+    VLOG(dht, INFO) << this << ": failed register reverse connection query: " << R.move_as_error();
   } else {
     auto R2 = fetch_tl_object<ton_api::dht_stored>(R.move_as_ok(), true);
     if (R2.is_error()) {
       fail_++;
-      VLOG(DHT_WARNING) << this << ": can not parse answer (expected dht.stored): " << R2.move_as_error();
+      VLOG(dht, WARNING) << this << ": can not parse answer (expected dht.stored): " << R2.move_as_error();
     } else {
       success_++;
     }
@@ -455,14 +455,14 @@ void DhtQueryRequestReversePing::send_one_query(adnl::AdnlNodeIdShort id) {
 
 void DhtQueryRequestReversePing::on_result(td::Result<td::BufferSlice> R, adnl::AdnlNodeIdShort dst) {
   if (R.is_error()) {
-    VLOG(DHT_INFO) << this << ": failed reverse ping query " << get_src() << "->" << dst << ": " << R.move_as_error();
+    VLOG(dht, INFO) << this << ": failed reverse ping query " << get_src() << "->" << dst << ": " << R.move_as_error();
     finish_query(dst, false);
     return;
   }
   auto Res = fetch_tl_object<ton_api::dht_ReversePingResult>(R.move_as_ok(), true);
   if (Res.is_error()) {
-    VLOG(DHT_WARNING) << this << ": dropping incorrect answer on dht.requestReversePing query from " << dst << ": "
-                      << Res.move_as_error();
+    VLOG(dht, WARNING) << this << ": dropping incorrect answer on dht.requestReversePing query from " << dst << ": "
+                       << Res.move_as_error();
     finish_query(dst, false);
     return;
   }

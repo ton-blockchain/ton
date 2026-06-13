@@ -64,20 +64,37 @@
 
 #define LOGGER(interface, options, level, comment) ::td::Logger(interface, options, level, __FILE__, __LINE__, comment)
 
-#define LOG_IMPL_FULL(interface, options, strip_level, runtime_level, condition, comment) \
-  LOG_IS_STRIPPED(strip_level) || runtime_level > options.get_level() || !(condition)     \
-      ? (void)0                                                                           \
+#define LOG_IMPL_FULL(interface, options, strip_level, runtime_level, condition, comment)                        \
+  LOG_IS_STRIPPED(strip_level) || ::td::is_log_disabled() || runtime_level > options.get_level() || !(condition) \
+      ? (void)0                                                                                                  \
       : ::td::detail::Voidify() & LOGGER(interface, options, runtime_level, comment)
 
 #define LOG_IMPL(strip_level, level, condition, comment) \
   LOG_IMPL_FULL(*::td::log_interface, ::td::log_options, strip_level, VERBOSITY_NAME(level), condition, comment)
 
+#define LOG_IMPL_FULL_CAT(interface, options, strip_level, runtime_level, category, condition, comment) \
+  LOG_IS_STRIPPED(strip_level) || runtime_level > (category).get_level() || !(condition)                \
+      ? (void)0                                                                                         \
+      : ::td::detail::Voidify() & LOGGER(interface, options, runtime_level, comment)
+
+#define LOG_IMPL_CAT(category, strip_level, level, condition, comment)                           \
+  LOG_IMPL_FULL_CAT(*::td::log_interface, ::td::log_options, strip_level, VERBOSITY_NAME(level), \
+                    ::td::log_category_##category, condition, comment)
+
 #define LOG(level) LOG_IMPL(level, level, true, ::td::Slice())
 #define LOG_IF(level, condition) LOG_IMPL(level, level, condition, #condition)
 #define FLOG(level) LOG_IMPL(level, level, true, ::td::Slice()) << td::LambdaPrint{} << [&](auto &sb)
 
-#define VLOG(level) LOG_IMPL(DEBUG, level, true, TD_DEFINE_STR(level))
-#define VLOG_IF(level, condition) LOG_IMPL(DEBUG, level, condition, TD_DEFINE_STR(level) " " #condition)
+#define VLOG_GLOBAL_(level) LOG_IMPL(DEBUG, level, true, TD_DEFINE_STR(level))
+#define VLOG_CAT_(category, level) LOG_IMPL_CAT(category, DEBUG, level, true, TD_DEFINE_STR(level))
+#define VLOG_PICK_(_1, _2, NAME, ...) NAME
+#define VLOG(...) VLOG_PICK_(__VA_ARGS__, VLOG_CAT_, VLOG_GLOBAL_)(__VA_ARGS__)
+
+#define VLOG_IF_GLOBAL_(level, condition) LOG_IMPL(DEBUG, level, condition, TD_DEFINE_STR(level) " " #condition)
+#define VLOG_IF_CAT_(category, level, condition) \
+  LOG_IMPL_CAT(category, DEBUG, level, condition, TD_DEFINE_STR(level) " " #condition)
+#define VLOG_IF_PICK_(_1, _2, _3, NAME, ...) NAME
+#define VLOG_IF(...) VLOG_IF_PICK_(__VA_ARGS__, VLOG_IF_CAT_, VLOG_IF_GLOBAL_)(__VA_ARGS__)
 
 #define LOG_ROTATE() ::td::log_interface->rotate()
 
@@ -134,8 +151,10 @@ extern int VERBOSITY_NAME(actor);
 extern int VERBOSITY_NAME(files);
 extern int VERBOSITY_NAME(sqlite);
 
+constexpr int DEFAULT_VERBOSITY_LEVEL = VERBOSITY_NAME(DEBUG) + 1;
+
 struct LogOptions {
-  std::atomic<int> level{VERBOSITY_NAME(DEBUG) + 1};
+  std::atomic<int> level{DEFAULT_VERBOSITY_LEVEL};
   bool fix_newlines{true};
   bool add_info{true};
 
@@ -167,12 +186,87 @@ struct LogOptions {
 };
 
 extern LogOptions log_options;
+extern std::atomic<int> log_disable_count;
+
+constexpr int VERBOSITY_DISABLED = VERBOSITY_NAME(PLAIN) - 1;
+
+inline bool is_log_disabled() {
+  return log_disable_count.load(std::memory_order_relaxed) != 0;
+}
+
 inline int set_verbosity_level(int level) {
   return log_options.set_level(level);
 }
 inline int get_verbosity_level() {
   return log_options.get_level();
 }
+
+class LogCategory {
+ public:
+  explicit LogCategory(const char *name, int default_level = DEFAULT_VERBOSITY_LEVEL);
+  LogCategory(const LogCategory &) = delete;
+  LogCategory &operator=(const LogCategory &) = delete;
+
+  // Effective level: the override if set; otherwise the category follows the global level but never
+  // exceeds its default — raising the global verbosity alone does not raise a category above its default.
+  int get_level() const {
+    if (is_log_disabled()) {
+      return VERBOSITY_DISABLED;
+    }
+    auto override_level = override_level_.load(std::memory_order_relaxed);
+    if (override_level >= 0) {
+      return override_level;
+    }
+    auto global_level = log_options.get_level();
+    return global_level < default_level_ ? global_level : default_level_;
+  }
+  int default_level() const {
+    return default_level_;
+  }
+  int override_level() const {
+    return override_level_.load(std::memory_order_relaxed);
+  }
+  void set_level(int level) {
+    override_level_.store(level, std::memory_order_relaxed);
+  }
+  Slice name() const {
+    return Slice(name_);
+  }
+  const LogCategory *next() const {
+    return next_;
+  }
+  LogCategory *next() {
+    return next_;
+  }
+
+ private:
+  const char *name_;
+  int default_level_;
+  std::atomic<int> override_level_{-1};
+  LogCategory *next_;
+};
+
+// Cold-path category registry helpers (never touched by the logging hot path).
+const LogCategory *first_log_category();
+LogCategory *find_log_category(Slice name);
+// Sets one category override (level < 0 clears override). Returns false if no such category exists.
+bool set_log_category_level(Slice name, int level);
+
+#define DECLARE_LOG_CATEGORY(name)        \
+  namespace td {                          \
+  extern LogCategory log_category_##name; \
+  }
+#define DEFINE_LOG_CATEGORY_DEFAULT_(name) \
+  namespace td {                           \
+  LogCategory log_category_##name{#name};  \
+  }
+#define DEFINE_LOG_CATEGORY_WITH_LEVEL_(name, default_level) \
+  namespace td {                                             \
+  LogCategory log_category_##name{#name, default_level};     \
+  }
+#define DEFINE_LOG_CATEGORY_PICK_(_1, _2, NAME, ...) NAME
+#define DEFINE_LOG_CATEGORY(...) \
+  DEFINE_LOG_CATEGORY_PICK_(__VA_ARGS__, DEFINE_LOG_CATEGORY_WITH_LEVEL_, DEFINE_LOG_CATEGORY_DEFAULT_)(__VA_ARGS__)
 
 class ScopedDisableLog {
  public:

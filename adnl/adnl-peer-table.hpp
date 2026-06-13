@@ -51,8 +51,8 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   }
   void send_message_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data, td::uint32 flags) override {
     if (data.size() > huge_packet_max_size()) {
-      VLOG(ADNL_WARNING) << "dropping too big packet [" << src << "->" << dst << "]: size=" << data.size();
-      VLOG(ADNL_WARNING) << "DUMP: " << td::buffer_to_hex(data.as_slice().truncate(128));
+      VLOG(adnl, WARNING) << "dropping too big packet [" << src << "->" << dst << "]: size=" << data.size();
+      VLOG(adnl, WARNING) << "DUMP: " << td::buffer_to_hex(data.as_slice().truncate(128));
       return;
     }
     send_message_in(src, dst, AdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}}, flags);
