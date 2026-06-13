@@ -147,6 +147,9 @@ struct WithNullableArrayDef {
 const objWithNullableArray: WithNullableArray = { x: [1] }
 const objWithNullableArrayDef: WithNullableArrayDef = {}
 
+const emptyMapNullable: map<int8, int32>? = []
+const emptyMapAsNullableConst = [] as map<int8, int32>?
+
 
 fun iget240(): MInt { return int240; }
 
@@ -318,6 +321,12 @@ fun test125() {
     return (manual.size(), manual.get(0), def.size(), def.get(0));
 }
 
+@method_id(126)
+fun test126() {
+    __expect_type(emptyMapAsNullableConst, "map<int8, int32>?");
+    return (emptyMapAsNullableConst == null, emptyMapAsNullableConst!.isEmpty());
+}
+
 fun main() {
     var i1: int = iget1();
     var i2: int = iget2();
@@ -367,6 +376,7 @@ fun main() {
 @testcase | 123 |   | [ 1 ] [ 1 (null) ] 777 (null) 0
 @testcase | 124 |   | 0 50000000
 @testcase | 125 |   | 1 1 1 2
+@testcase | 126 |   | 0 -1
 
-@code_hash 108440790824773606102294831194495672355462123034127652878583577204193565477401
+@code_hash 69450727578206805235623888457664461735127156131005024409888318254979905151137
 */

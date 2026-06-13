@@ -202,9 +202,11 @@ static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, StructPtr l
 static TypePtr try_pick_instantiated_generic_from_hint(TypePtr hint, AliasDefPtr lookup_ref) {
   // when a generic type alias points to a generic struct actually: `type WrapperAlias<T> = Wrapper<T>`
   if (const TypeDataGenericTypeWithTs* as_instT = lookup_ref->underlying_type->try_as<TypeDataGenericTypeWithTs>()) {
-    return as_instT->struct_ref
-         ? try_pick_instantiated_generic_from_hint(hint, as_instT->struct_ref)
-         : try_pick_instantiated_generic_from_hint(hint, as_instT->alias_ref);
+    TypePtr picked = as_instT->struct_ref
+                   ? try_pick_instantiated_generic_from_hint(hint, as_instT->struct_ref)
+                   : try_pick_instantiated_generic_from_hint(hint, as_instT->alias_ref);
+    const TypeDataAlias* picked_alias = picked ? picked->try_as<TypeDataAlias>() : nullptr;
+    return picked_alias && picked_alias->alias_ref->base_alias_ref == lookup_ref ? picked : nullptr;
   }
   // it's something weird, when a generic alias refs non-generic type
   // example: `type StrangeInt<T> = int`, hint is `StrangeInt<builder>`, lookup `StrangeInt`
@@ -443,7 +445,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
   static ExprFlow infer_local_var_lhs(V<ast_local_var_lhs> v, FlowContext&& flow, bool used_as_condition) {
     // `var v = rhs`, inferring is called for `v`
-    // at the moment of inferring left side of assignment, we don't know type of rhs (since lhs is executed first)
+    // at the moment of inferring left side of assignment, we don't know type of rhs yet
     // so, mark `v` as "not inferred"
     // later, v's inferred_type will be reassigned; see process_assignment_lhs_after_infer_rhs()
     assign_inferred_type(v, v->type_node ? v->type_node->resolved_type : TypeDataNotInferred::create());
@@ -453,8 +455,8 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
   ExprFlow infer_assignment(V<ast_assign> v, FlowContext&& flow, bool used_as_condition) {
     // v is assignment: `x = 5` / `var x = 5` / `var x: slice = 5` / `(cs,_) = f()` / `val (a,[b],_) = (a,t,0)`
-    // execution flow is: lhs first, rhs second (at IR generation, also lhs is evaluated first, unlike FunC)
-    // after inferring lhs, use it for hint when inferring rhs
+    // infer lhs first only to know the assignment target type and use it as a hint when inferring rhs;
+    // at IR generation, rhs is evaluated before lhs;
     // example: `var i: int = t.tupleAt(0)` is ok (hint=int, T=int), but `var i = t.tupleAt(0)` not, since `tupleAt<T>(t,i): T`
     AnyExprV lhs = v->get_lhs();
     AnyExprV rhs = v->get_rhs();

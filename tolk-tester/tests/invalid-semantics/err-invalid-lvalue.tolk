@@ -16,6 +16,13 @@ fun errAsOperatorAsLvalue() {
     return (i, j);
 }
 
+// @stderr can not assign to a temporary expression
+fun errTensorLiteralIndexedAssign() {
+    var (a, b) = (0, 0);
+    (a, b).0 = 10;
+    return (a, b);
+}
+
 // @stderr `_` can't be used as a value; it's a placeholder for a left side of assignment
 // @stderr takeInt(_)
 fun errUnderscoreRValue() {

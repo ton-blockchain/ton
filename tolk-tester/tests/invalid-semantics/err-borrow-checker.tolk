@@ -151,7 +151,7 @@ fun errCantBorrowInVeryComplex() {
     xy5.0.add(([xy5.1] = [xy5.0]).0);                      // ok
 
     var eqVoid = eq<void>;
-    eqVoid(xy5.0.add(([xy5.1, (xy5.0.add(1), xy5.0).1] = [0, 0]).0));
+    eqVoid(xy5.0.add(([xy5.1, xy5.0] = [0, 0]).0));
 }
 
 
@@ -188,7 +188,7 @@ fun (int, int).increment(mutate self) {
     self.1 += 1;
 }
 
-// @stderr can not borrow `x33` for mutation once again, it is already being mutated by `(int, int).increment`
+// @stderr can not mutate a temporary expression
 fun errCantBorrowViaTensorIndex() {
     var x33 = 0;
     ((x33, x33).0, (x33, x33).1).increment();

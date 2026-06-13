@@ -68,6 +68,28 @@ struct LinkedMap {
     tree: map<int32, LinkedMap> = []
 }
 
+global gPackCalled: int;
+
+struct GenericValueInMap<T> {
+    value: T
+}
+
+fun GenericValueInMap<T>.packToBuilder(self, mutate b: builder) {
+    gPackCalled += 1;
+    b.storeUint(255, 8);
+    b.storeAny<T>(self.value);
+}
+
+fun GenericValueInMap<T>.unpackFromSlice(mutate s: slice): GenericValueInMap<T> {
+    gPackCalled += 10;
+    s.skipBits(8);
+    return { value: s.loadAny<T>() };
+}
+
+struct HolderWithGenericValueMap {
+    m: map<int32, GenericValueInMap<int8>>
+}
+
 fun LinkedMap.flattenValuesInto<T>(self, mutate out: array<T>): void {
     var i = 0;
     repeat (self.values.size()) {
@@ -633,6 +655,67 @@ fun test46() {
     return checkMapSetSnapshot(m, m.set(1, 42));
 }
 
+@method_id(147)
+fun test47() {
+    gPackCalled = 0;
+    var m = map<int32, GenericValueInMap<int8>> [];
+    m.set(1, { value: 42 });
+    return (HolderWithGenericValueMap { m }.toCell().beginParse().remainingBitsAndRefsCount(), m.mustGet(1).value, gPackCalled);
+}
+
+fun requireFound(r: MapLookupResult<int32>): void
+    asm "NIP 111 THROWIFNOT"
+
+@method_id(148)
+fun test48() {
+    var m = map<int32, int32> [];
+    try {
+        val r = m.get(7);
+        requireFound(r);
+        return 1;
+    } catch (ex, arg) {
+        return ex;
+    }
+}
+
+fun replaceWithAA(mutate b: builder): void
+    asm "DROP NEWC x{aa} STSLICECONST"
+
+struct MarkerWithCustomSerializer {}
+
+fun MarkerWithCustomSerializer.packToBuilder(self, mutate b: builder) {
+    replaceWithAA(mutate b);
+}
+
+fun MarkerWithCustomSerializer.unpackFromSlice(mutate s: slice): MarkerWithCustomSerializer {
+    s.skipBits(8);
+    return {};
+}
+
+@method_id(149)
+fun test49() {
+    var m = map<uint8, MarkerWithCustomSerializer> [];
+    try {
+        m.set(7, {});
+        return m.exists(7) as int;
+    } catch (errCode) {
+        return errCode;
+    }
+}
+
+@method_id(150)
+fun test50(x: int): int {
+    var d = createEmptyDict();
+    val valueBuilder = beginCell().storeUint(x, 16);
+    val key = 1;
+    val keepBuilder = beginCell().storeUint(0xaaaa, 16);
+    d.uDictSetBuilder(8, key, valueBuilder);
+
+    var (stored, found) = d.uDictGet(8, 1);
+    assert (found) throw 111;
+    var storedSlice = stored!;
+    return keepBuilder.endCell().beginParse().loadUint(16) + storedSlice.loadUint(16);
+}
 
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
@@ -686,6 +769,10 @@ fun main() {
 @testcase | 144 |            | [ 1 2 3 4 5 6 7 ]
 @testcase | 145 |            | -1 1 8 1 3
 @testcase | 146 |            | 0 1
+@testcase | 147 |            | 1 1 42 11
+@testcase | 148 |            | 111
+@testcase | 149 |            | -1
+@testcase | 150 | 4660       | 48350
 
 @fif_codegen
 """

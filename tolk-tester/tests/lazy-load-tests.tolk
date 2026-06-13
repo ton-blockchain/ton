@@ -1594,6 +1594,24 @@ fun demo317() {
     );
 }
 
+struct LazyAssignTrio {
+    a: uint8
+    b: uint8
+    c: uint8
+}
+
+fun LazyAssignTrio.hashInline(self): int {
+    __expect_inline(true);
+    return self.toCell().hash();
+}
+
+@method_id(318)
+fun demo318() {
+    var st = lazy LazyAssignTrio.fromSlice("010203".hexToSlice());
+    var other = lazy LazyAssignTrio.fromSlice("AABBCC".hexToSlice());
+    return (st = other).hashInline() == other.toCell().hash();
+}
+
 
 @method_id(400)
 fun demo400() {
@@ -2045,6 +2063,7 @@ fun main() {
 @testcase | 314 |                 | 11 20 [ 8 [ 8 8 ] ] [ 8 [ 11 20 ] ] 32 [ 8 [ 8 9 ] ]
 @testcase | 315 |                 | 8 8 66 44 [ [ (null) (null) 0 ] ]
 @testcase | 316 |                 | 2 3 99 7 3 99 100 2 100 99
+@testcase | 318 |                 | -1
 
 @testcase | 400 |                             | 5
 @testcase | 401 | x{0110} -1                  | 50

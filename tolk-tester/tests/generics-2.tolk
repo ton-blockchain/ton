@@ -278,7 +278,7 @@ fun test11() {
 fun test12(is1: bool) {
     var c1: Wrapper<int|builder> = { value: 10 };
     var c2: Wrapper<builder|int> = { value: 20 };
-    var c3: Wrapper<int|builder> | WrapperAlias<builder|int> = is1 ? c1 : c2;
+    var c3: Wrapper<int|builder> | Wrapper<int|builder> = is1 ? c1 : c2;
     __expect_type(c3, "Wrapper<int | builder>");
     var m3: Wrapper<int|builder> | Wrapper<builder|int|null> = is1 ? c1 : Wrapper<builder?|int> { value: null };
     __expect_type(m3, "Wrapper<int | builder> | Wrapper<builder | int | null>");
@@ -426,7 +426,7 @@ fun test22(w: int | WrapperAlias<int> | slice) {
     match (w) {
         MyInt => {}
         slice => {}
-        WrapperAlias => {}
+        WrapperAlias<int> => {}
     }
 };
 

@@ -30,9 +30,9 @@ fun test101(getK1: int, getK2: int, getK3: int) {
     var (cur3: slice?, found3) = dict.uDictGet(32, getK3);
     old1 = old1!; old2 = old2!; cur3 = cur3!;
     return (
-        found1 ? (old1, 0).0.loadUint(32) : -1,
-        found2 ? (old2, 0).0.loadUint(32) : -1,
-        found3 ? (cur3, 0).0.loadUint(32) : -1
+        found1 ? old1.loadUint(32) : -1,
+        found2 ? old2.loadUint(32) : -1,
+        found3 ? cur3.loadUint(32) : -1
     );
 }
 
@@ -49,7 +49,7 @@ fun test102() {
         var (kDel, kVal, wasDel) = dict.iDictDeleteLastAndGet(32);
         if (wasDel) {
             kVal = kVal!;
-            deleted.push([kDel, (kVal, 0).0.loadInt(32)]);
+            deleted.push([kDel, kVal.loadInt(32)]);
         } else {
             shouldBreak = true;
         }

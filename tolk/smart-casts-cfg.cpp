@@ -260,7 +260,7 @@ BoolState calculate_bool_lca(BoolState a, BoolState b) {
 // but `var v: HINT = <same>` is okay, if hint is valid;
 // for instance, `var v: int = cond ? someInt32 : someInt64` is ok: no unification
 TypeInferringUnifyStrategy::TypeInferringUnifyStrategy(TypePtr hint) {
-  bool is_valid_hint = hint != nullptr && hint != TypeDataNotInferred::create() && hint != TypeDataUnknown::create() && !hint->has_genericT_inside();
+  bool is_valid_hint = hint != nullptr && hint != TypeDataUnknown::create() && !hint->has_not_inferred_inside() && !hint->has_genericT_inside();
   if (is_valid_hint) {
     dest_hint = hint;
   }
@@ -516,7 +516,7 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
 // Its main property: "safe to be re-evaluated" while transforming AST to IR.
 // Valid: `v` / `v.field` / `v.0!.nested` / `(a, b)`
 //        (all can be used as `lvalue = rhs` / `f(mutate lvalue)` / `lvalue.mutatingMethod()`)
-// Invalid: `v.id().field` / `(v = rhs).field` / `Point{x,y}.x`
+// Invalid: `v.id().field` / `(v = rhs).field` / `Point{x,y}.x` / `(a, b).0`
 //        (none can be used as lvalue, for example `Point{x,y}.x = 100` is denied)
 //
 // It's conceptually similar to extract_sink_expression_from_vertex, but NOT the same:
@@ -554,12 +554,9 @@ bool is_valid_lvalue_path(AnyExprV v, std::vector<SinkExpression>* out_sinks, bo
     int index_at = as_dot->is_target_indexed_access()
         ? std::get<int>(as_dot->target)
         : std::get<StructFieldPtr>(as_dot->target)->field_idx;
-    // for `(a, b).0`, resolve `a`; for `tensorVar.0`, resolve `tensorVar` (just continue forward)
-    if (as_dot->is_target_indexed_access()) {
-      AnyExprV obj = unwrap_not_null_operator(as_dot->get_obj());
-      if (auto as_tensor = obj->try_as<ast_tensor>()) {
-        return is_valid_lvalue_path(as_tensor->get_item(index_at), out_sinks);
-      }
+    // deny `(a, b).0` as lvalue, but allow `tensorVar.0`
+    if (unwrap_not_null_operator(as_dot->get_obj())->try_as<ast_tensor>()) {
+      return false;
     }
     std::vector<SinkExpression> inner_sinks;
     bool inner_valid = is_valid_lvalue_path(as_dot->get_obj(), &inner_sinks, true);

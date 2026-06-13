@@ -48,6 +48,29 @@ fun call_some_calc() {
     return some_calc(-10);
 }
 
+fun escapedAsmComment1(): int asm "1 PUSHINT // \n 10 ADDCONST"
+
+fun escapedAsmComment2(): int asm """
+    2 PUSHINT // \t \n 10 ADDCONST
+"""
+
+@method_id(102)
+fun test102() {
+    return (escapedAsmComment1(), escapedAsmComment2());
+}
+
+fun keepSliceWithAsmComment(s: slice): slice
+    asm """
+        DUP
+        // 8 LDU
+    """
+    "DROP"
+
+@method_id(103)
+fun test103(s: slice): int {
+    return keepSliceWithAsmComment(s).remainingBitsCount();
+}
+
 fun main() {
     var cb = demo_fields_def;
     demo_call_def;
@@ -57,6 +80,8 @@ fun main() {
 /**
 @testcase | 0   |   | 1
 @testcase | 101 |   | 20
+@testcase | 102 |   | 1 2
+@testcase | 103 | x{0102} | 16
 
 @fif_codegen_enable_comments
 @fif_codegen
