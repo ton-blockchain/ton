@@ -615,3 +615,70 @@ TEST(Runtime, ActorCanTakeBusInConstructor) {
 
 }  // namespace
 }  // namespace td::actor::test_actor_constructor
+
+namespace td::actor::test_providers {
+namespace {
+
+bool g_ran = false;
+
+struct RootBus : Bus {
+  ~RootBus() {
+    td::actor::SchedulerContext::get().stop();
+  }
+
+  struct Dummy {};
+
+  using Events = td::TypeList<Dummy>;
+
+  int root_injected = 0;
+};
+
+struct ChildBus : RootBus {
+  using Parent = RootBus;
+  using Events = td::TypeList<>;
+
+  int child_injected = 0;
+  int actor_injected = 0;
+};
+
+void root_injector(RootBus& bus) {
+  bus.root_injected = 42;
+}
+
+void child_injector(ChildBus& bus) {
+  EXPECT_EQ(bus.root_injected, 42);
+  bus.child_injected = 239;
+}
+
+class Actor : public SpawnsWith<ChildBus>, public ConnectsTo<> {
+ public:
+  Actor(ChildBus& bus) {
+    EXPECT_EQ(bus.root_injected, 42);
+    EXPECT_EQ(bus.child_injected, 239);
+    bus.actor_injected = 31;
+  }
+
+  void start_up() override {
+    EXPECT_EQ(owning_bus()->actor_injected, 31);
+    stop();
+
+    g_ran = true;
+  }
+};
+
+TEST(Runtime, ProvidersRunInExpectedOrder) {
+  td::actor::Scheduler scheduler({1});
+
+  Runtime runtime;
+  runtime.register_provider(root_injector);
+  runtime.register_provider(child_injector);
+  runtime.register_actor<Actor>("Actor");
+
+  scheduler.run_in_context([&] { runtime.start(std::make_shared<ChildBus>()); });
+  scheduler.run();
+
+  EXPECT(g_ran);
+}
+
+}  // namespace
+}  // namespace td::actor::test_providers

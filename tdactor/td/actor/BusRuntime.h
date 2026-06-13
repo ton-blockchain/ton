@@ -438,6 +438,18 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   }
 
   template <BusType B>
+  void register_provider(void (*provider)(B& bus)) {
+    BusTypeId spawn_bus_id = get_bus_id<B>();
+    register_bus_parents<B>(spawn_bus_id);
+
+    RunProviderFn run_provider_fn = &Runtime::run_provider<B>;
+    providers_to_run_for_[spawn_bus_id].push_back({
+        .run_provider_fn = run_provider_fn,
+        .provider = reinterpret_cast<void*>(provider),
+    });
+  }
+
+  template <BusType B>
   BusHandle<B> start(std::shared_ptr<B> bus, std::string_view name) {
     LOG_CHECK(!started_) << "Runtime::start must not be called twice";
     started_ = true;
@@ -575,19 +587,43 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
 
   std::map<BusTypeId, std::vector<ActorSpawnInfo>> actors_to_spawn_for_;
 
+  using RunProviderFn = void (*)(std::shared_ptr<BusTreeNode> node, void* provider);
+
+  struct ProviderInfo {
+    RunProviderFn run_provider_fn;
+    void* provider;
+  };
+
+  template <typename B>
+  static void run_provider(std::shared_ptr<BusTreeNode> node, void* provider) {
+    auto typed_provider = reinterpret_cast<void (*)(B&)>(provider);
+    auto bus = std::static_pointer_cast<B>(node->bus);
+    typed_provider(*bus);
+  }
+
+  std::map<BusTypeId, std::vector<ProviderInfo>> providers_to_run_for_;
+
   // ===== Event wiring =====
   void wire_bus(std::shared_ptr<BusTreeNode> node) {
     CHECK(node);
     CHECK(bus_parents_.contains(node->type_id));
 
-    // First, we create all actors that spawn on the added bus.
-    std::vector<std::unique_ptr<BusListeningActor>> spawned_actors;
     std::vector<BusTypeId> bus_inheritance_chain;
-
     for (std::optional bus_type = node->type_id; bus_type; bus_type = bus_parents_[*bus_type]) {
       bus_inheritance_chain.push_back(*bus_type);
+    }
+    std::reverse(bus_inheritance_chain.begin(), bus_inheritance_chain.end());
 
-      for (const auto& [create_instance_fn, base_name] : actors_to_spawn_for_[*bus_type]) {
+    // First, we run all applicable registered providers.
+    for (auto bus_type : bus_inheritance_chain) {
+      for (const auto& [run_provider_fn, provider] : providers_to_run_for_[bus_type]) {
+        run_provider_fn(node, provider);
+      }
+    }
+
+    // Next, we spawn all actors that spawn on this bus.
+    for (auto bus_type : bus_inheritance_chain) {
+      for (const auto& [create_instance_fn, base_name] : actors_to_spawn_for_[bus_type]) {
         auto instance = (this->*create_instance_fn)(node);
         auto installer = instance->installer_;
         std::string name = node->actor_name_prefix + base_name;
@@ -641,6 +677,11 @@ class Runtime {
   template <detail::ActorType A>
   void register_actor(std::string_view name) {
     impl_->template register_actor<A>(name);
+  }
+
+  template <BusType B>
+  void register_provider(void (*provider)(B& bus)) {
+    impl_->template register_provider<B>(provider);
   }
 
   template <BusType B>
