@@ -28,17 +28,12 @@ namespace http {
 
 class HttpInboundConnection : public HttpConnection {
  public:
-  HttpInboundConnection(td::SocketFd fd, std::shared_ptr<HttpServer::Callback> http_callback,
-                        HttpServer::AllMetrics metrics)
-      : HttpConnection(std::move(fd), nullptr, false)
-      , http_callback_(std::move(http_callback))
-      , metrics_(std::move(metrics)) {
-    metrics_.connections->add(1);
-    metrics_.connections_total->add(1);
+  HttpInboundConnection(td::SocketFd fd, std::shared_ptr<HttpServer::Callback> http_callback)
+      : HttpConnection(std::move(fd), nullptr, false), http_callback_(std::move(http_callback)) {
   }
 
   ~HttpInboundConnection() override {
-    metrics_.connections->sub(1);
+    http_callback_->on_connection_close();
   }
 
   td::Status receive_eof() override {
@@ -96,8 +91,6 @@ class HttpInboundConnection : public HttpConnection {
   std::shared_ptr<HttpServer::Callback> http_callback_;
   std::unique_ptr<HttpRequest> cur_request_;
   std::string cur_line_;
-
-  HttpServer::AllMetrics metrics_;
 };
 
 }  // namespace http

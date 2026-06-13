@@ -1,68 +1,92 @@
+/*
+ * Copyright (c) 2026, TON CORE TECHNOLOGIES CO. L.L.C
+ *
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
+
 #pragma once
+
+#include <functional>
+#include <vector>
 
 #include "http/http-server.h"
 #include "td/actor/common.h"
-#include "td/actor/coro_task.h"
+#include "td/actor/coro_utils.h"
 
-#include "metrics-collectors.h"
+#include "collectors.h"
 
 namespace ton {
-class PrometheusExporter final : public td::actor::Actor, public virtual metrics::CollectorWrapper {
+
+class PrometheusExporter final : public td::actor::Actor {
  public:
   static td::actor::ActorOwn<PrometheusExporter> create(std::string prefix = "ton");
 
-  template <std::derived_from<metrics::AsyncCollector> A>
-  void register_collector(td::actor::ActorId<A> collector);
+  explicit PrometheusExporter(std::string prefix);
+
+  // Register an actor whose `collect_fn` coroutine fills the shared Context.
+  template <std::derived_from<td::actor::Actor> A>
+  void add(td::actor::ActorId<A> actor, td::actor::Task<> (A::*collect_fn)(metrics::Context ctx)) {
+    stats_.collectors.add(1);
+    collectors_.push_back([actor, collect_fn](metrics::Context ctx) -> td::actor::Task<> {
+      co_await td::actor::ask(actor, collect_fn, ctx);
+      co_return {};
+    });
+  }
 
   void listen(td::IPAddress addr);
 
-  explicit PrometheusExporter(std::string prefix);
+  td::actor::Task<> collect(metrics::Context ctx) {
+    ctx.collect(stats_, "exporter");
+    {
+      auto server_ctx = ctx.with_label("server", "exporter");
+      co_await td::actor::ask(http_.get(), &http::HttpServer::collect, server_ctx);
+    }
+    co_return {};
+  }
 
  private:
   using RequestPtr = std::unique_ptr<http::HttpRequest>;
-  using ResponsePtr = std::unique_ptr<http::HttpResponse>;
   using PayloadPtr = std::shared_ptr<http::HttpPayload>;
-  using HttpReturn = std::pair<ResponsePtr, PayloadPtr>;
-
-  // To avoid bugs.
-  using CollectorWrapper::add_collector;
 
   class HttpCallback : public http::HttpServer::Callback {
    public:
     explicit HttpCallback(td::actor::ActorId<PrometheusExporter> exporter);
 
-    void receive_request(RequestPtr request, PayloadPtr payload, td::Promise<HttpReturn> promise) override;
+    void receive_request(RequestPtr request, PayloadPtr payload, http::ResponsePromise promise) override;
 
    private:
     td::actor::ActorId<PrometheusExporter> exporter_;
   };
   friend HttpCallback;
 
-  using CollectorLambda = std::function<void(metrics::MetricsPromise)>;
-
   void start_up() override;
 
-  void on_request(RequestPtr request, PayloadPtr payload, td::Promise<HttpReturn> promise);
+  void on_request(RequestPtr request, PayloadPtr payload, http::ResponsePromise promise);
+
+  // Run every registered collector into a single Sink under the top prefix.
+  td::actor::Task<metrics::MetricSet> gather();
+  // Gather + render OpenMetrics text into the response payload.
+  td::actor::Task<> collect_and_respond(PayloadPtr payload, td::UTCTime started_at);
+
+  struct Stats {
+    metrics::Gauge<td::uint64> collectors;
+    metrics::Counter collections;
+    metrics::Gauge<td::UTCClock::duration> last_collection_duration;
+    metrics::Gauge<td::UTCTime> last_collection_timestamp;
+
+    void collect(metrics::Context ctx) const {
+      ctx.collect(collectors, "collectors");
+      ctx.collect(collections, "collections");
+      ctx.collect(last_collection_duration, "last_collection_duration");
+      ctx.collect(last_collection_timestamp, "last_collection_timestamp");
+    }
+  };
+
+  Stats stats_;
+  std::vector<std::function<td::actor::Task<>(metrics::Context)>> collectors_;
 
   std::string prefix_;
   td::actor::ActorOwn<http::HttpServer> http_ = {};
-  td::actor::ActorOwn<metrics::MultiCollector> main_collector_ = metrics::MultiCollector::create(prefix_);
-
-  metrics::MultiCollector::Own collector_ = metrics::MultiCollector::create("exporter");
-  metrics::AtomicGauge<size_t>::Ptr collectors_ =
-      metrics::AtomicGauge<size_t>::make("collectors", "Current number of exporter's added collectors.");
-  metrics::AtomicCounter<size_t>::Ptr collections_total_ =
-      metrics::AtomicCounter<size_t>::make("collections_total", "Total number of collection requests to the exporter.");
-  metrics::AtomicGauge<double>::Ptr last_collection_duration_ = metrics::AtomicGauge<double>::make(
-      "last_collection_duration_seconds", "Duration of the last collection request to the exporter.");
-  metrics::AtomicGauge<double>::Ptr last_collection_timestamp_ = metrics::AtomicGauge<double>::make(
-      "last_collection_timestamp_seconds", "Timestamp of the last collection request to the exporter.");
 };
-
-template <std::derived_from<metrics::AsyncCollector> A>
-void PrometheusExporter::register_collector(td::actor::ActorId<A> collector) {
-  collectors_->add(1);
-  td::actor::send_closure(main_collector_.get(), &metrics::MultiCollector::add_async_collector<A>, collector);
-}
 
 }  // namespace ton

@@ -176,7 +176,7 @@ add_library(validator-common OBJECT
   validator-full-id.cpp
   validator-options.cpp
 )
-target_link_libraries(validator-common PUBLIC validator-db)
+target_link_libraries(validator-common PUBLIC validator-db metrics)
 
 add_library(validator STATIC ${VALIDATOR_SOURCE})
 add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})

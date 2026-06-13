@@ -29,6 +29,7 @@
 #include "impl/ext-message-pool.hpp"
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
+#include "metrics/prometheus-exporter.h"
 #include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
 #include "td/actor/MultiPromise.h"
@@ -75,6 +76,70 @@ class BlockHandleLru : public td::ListNode {
  private:
   BlockHandle handle_;
 };
+
+#define BLOCK_SOURCE_LIST(F)       \
+  F(unknown)                       \
+  F(block_broadcast_public)        \
+  F(block_broadcast_fast_sync)     \
+  F(block_broadcast_custom)        \
+  F(block_download)                \
+  F(candidate_broadcast_public)    \
+  F(candidate_broadcast_fast_sync) \
+  F(candidate_broadcast_consensus) \
+  F(candidate_broadcast_custom)    \
+  F(candidate_stored)              \
+  F(block_accepted)
+TON_METRIC_DEFINE_LABEL(BlockSource, "source", BLOCK_SOURCE_LIST)
+#undef BLOCK_SOURCE_LIST
+
+struct BlockReceiveStats {
+  static constexpr auto n_types = metrics::LabelDomainOf<BlockSource>::size;
+
+  td::Timestamp received_at[n_types];
+  bool applied = false;
+
+  BlockSource get_earliest_type() const {
+    auto result = BlockSource::unknown;
+    td::Timestamp result_ts;
+    for (size_t i = 0; i < n_types; i++) {
+      if (received_at[i] && (!result_ts || received_at[i] < result_ts)) {
+        result = static_cast<BlockSource>(i);
+        result_ts = received_at[i];
+      }
+    }
+    return result;
+  }
+
+  static BlockSource from(BroadcastSource source, bool is_candidate) {
+    switch (source) {
+      case BroadcastSource::public_overlay:
+        return is_candidate ? BlockSource::candidate_broadcast_public : BlockSource::block_broadcast_public;
+      case BroadcastSource::fast_sync_overlay:
+        return is_candidate ? BlockSource::candidate_broadcast_fast_sync : BlockSource::block_broadcast_fast_sync;
+      case BroadcastSource::custom_overlay:
+        return is_candidate ? BlockSource::candidate_broadcast_custom : BlockSource::block_broadcast_custom;
+      case BroadcastSource::consensus_overlay:
+        return BlockSource::candidate_broadcast_consensus;
+    }
+    UNREACHABLE();
+  }
+};
+
+struct WorkchainLabel {
+  int id;
+
+  bool operator==(const WorkchainLabel &) const = default;
+};
+
+constexpr metrics::LabelValues<WorkchainLabel, 2> ton_metric_label(WorkchainLabel) {
+  return {
+      .key = "workchain",
+      .entries = {{
+          {WorkchainLabel{0}, "0"},
+          {WorkchainLabel{-1}, "-1"},
+      }},
+  };
+}
 
 class ValidatorManagerImpl : public ValidatorManager {
  private:
@@ -308,8 +373,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block_proof_link(BlockIdExt block_id, td::BufferSlice proof, td::Promise<td::Unit> promise) override;
   void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                 td::Promise<td::Unit> promise) override;
-  void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
-  void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override;
+  void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
+  td::actor::Task<> new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
+                                        BroadcastSource source) override;
   void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
   td::actor::Task<> validated_accepted_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 
@@ -346,8 +412,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
-  td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                  td::BufferSlice data) override;
+  td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
+                                                  BroadcastSource source) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -451,13 +517,14 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) override;
   void new_block_cont(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise);
+  void on_block_accepted(BlockIdExt block_id) override;
   void get_top_masterchain_state(td::Promise<td::Ref<MasterchainState>> promise) override;
   void get_top_masterchain_block(td::Promise<BlockIdExt> promise) override;
   void get_top_masterchain_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
   void get_last_liteserver_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
   void get_shard_client_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
 
-  void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override;
+  td::actor::Task<ReceivedBlock> send_get_block_request(BlockIdExt id, td::uint32 priority) override;
   void send_get_zero_state_request(BlockIdExt id, td::uint32 priority, td::Promise<td::BufferSlice> promise) override;
   void send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                          td::uint32 priority, td::Promise<td::BufferSlice> promise) override;
@@ -756,6 +823,13 @@ class ValidatorManagerImpl : public ValidatorManager {
   bool is_valid_nonfinal_group(ShardIdFull shard, CatchainSeqno cc_seqno);
   void process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno);
   void cleanup_nonfinal_groups();
+
+  td::LRUCache<BlockIdExt, BlockReceiveStats> block_receive_stats_{1000};
+  metrics::Labeled<metrics::Counter, WorkchainLabel, BlockSource> first_received_;
+  metrics::Labeled<metrics::Counter, WorkchainLabel, BlockSource> received_;
+
+  td::actor::Task<> collect(metrics::Context ctx) override;
+  void update_block_receive_stats(BlockIdExt block_id, BlockSource type);
 };
 
 }  // namespace validator

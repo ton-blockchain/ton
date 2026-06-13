@@ -5,14 +5,14 @@
 #include "adnl/adnl-peer-table.h"
 #include "adnl/adnl-sender-ex.h"
 #include "keyring/keyring.h"
-#include "metrics/metrics-collectors.h"
+#include "metrics/collectors.h"
 #include "td/actor/coro_task.h"
 
 #include "quic-server.h"
 
 namespace ton::quic {
 
-class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncCollector {
+class QuicSender : public adnl::AdnlSenderEx {
  public:
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
 
@@ -40,18 +40,14 @@ class QuicSender : public adnl::AdnlSenderEx, public virtual metrics::AsyncColle
       Entry operator+(const Entry& other) const {
         return {.server_stats = server_stats + other.server_stats};
       }
-
-      [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
     };
 
     Entry summary = {.server_stats = {.total_conns = 0}};
     std::map<AdnlPath, Entry> per_path;
-
-    [[nodiscard]] std::vector<metrics::MetricFamily> dump() const;
   };
 
   td::actor::Task<Stats> collect_stats();
-  void collect(td::Promise<metrics::MetricSet> P) override;
+  td::actor::Task<> collect(metrics::Context ctx);
 
  protected:
   void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
