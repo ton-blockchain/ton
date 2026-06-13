@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
 project(TON VERSION 0.5 LANGUAGES C CXX)
+
+#Compilation database
+set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
+
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Define the two required variables before including the source code for watching a git repository.
@@ -105,6 +109,18 @@ option(TON_WERROR_BUILD "Use -Werror" OFF)
 # don't want to force our warning options on them.
 if (TON_WERROR_BUILD)
   add_compile_options(-Werror)
+endif()
+
+# Configure CCache before any bundled dependencies are configured or built.
+find_program(CCACHE_FOUND ccache)
+if (CCACHE_FOUND)
+  if (NOT DEFINED CMAKE_C_COMPILER_LAUNCHER AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
+    message(STATUS "Using ccache")
+    set(CMAKE_C_COMPILER_LAUNCHER ccache)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
+  endif()
+else()
+  message(STATUS "Could NOT find ccache")
 endif()
 
 # Ensure custom build modules (including OpenSSL/Sodium) are available early for QUIC/crypto checks.
@@ -295,18 +311,6 @@ include(BuildMHD)
 include(BuildZlib)
 
 
-# Configure CCache if available
-find_program(CCACHE_FOUND ccache)
-if (CCACHE_FOUND)
-  if (NOT DEFINED CMAKE_C_COMPILER_LAUNCHER AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
-    message(STATUS "Using ccache")
-    set(CMAKE_C_COMPILER_LAUNCHER ccache)
-    set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
-  endif()
-else()
-  message(STATUS "Could NOT find ccache")
-endif()
-
 include(CheckCXXCompilerFlag)
 
 set(CMAKE_THREAD_PREFER_PTHREAD ON)
@@ -382,6 +386,9 @@ if (MSVC)
   endif()
   add_definitions(-D_SCL_SECURE_NO_WARNINGS -D_CRT_SECURE_NO_WARNINGS)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /W4 /wd4100 /wd4127 /wd4324 /wd4456 /wd4457 /wd4458 /wd4505 /wd4702")
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /clang:-Wno-c++98-compat /clang:-Wno-c++98-compat-pedantic /clang:-Wno-shadow")
+  endif()
 elseif (CLANG OR GCC)
   if (GCC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstrong-eval-order=some")
@@ -500,9 +507,6 @@ endif()
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=leak")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -finstrument-functions")
-
-#Compilation database
-set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
 #BEGIN internal
 option(TON_BUILD_DOCS "Build LaTeX/PDF documentation targets" OFF)
