@@ -3,6 +3,10 @@ from multiprocessing import Process
 from pathlib import Path
 from typing import cast, final
 
+from tonapi import ton_api
+
+from tonlib import TonlibCDLL
+
 from .parser import GroupParser, ParserSessionStats
 from .validator_set_info import ValidatorSetInfoProvider
 from .visualizer import DashApp
@@ -86,6 +90,16 @@ def _main():
         default="",
         help="Path to helper script for reading files via sudo on permission denied",
     )
+    _ = parser.add_argument(
+        "--tonlib-config",
+        default="",
+        help="Path to tonlib liteserver config JSON",
+    )
+    _ = parser.add_argument(
+        "--tonlib-lib",
+        default="build/tonlib/libtonlibjson.so",
+        help="Path to libtonlibjson shared library",
+    )
 
     args = parser.parse_args()
 
@@ -116,8 +130,30 @@ def _main():
             cache_dir=cache_dir or None,
         )
 
+    tonlib_cdll = None
+    tonlib_config = None
+    tonlib_config_path = cast(str, args.tonlib_config)
+    tonlib_lib_path = cast(str, args.tonlib_lib)
+    if tonlib_config_path:
+        if not tonlib_lib_path:
+            parser.error("--tonlib-lib is required when --tonlib-config is specified")
+        if not Path(tonlib_config_path).exists():
+            parser.error(f"tonlib config not found at {tonlib_config_path}")
+        if not Path(tonlib_lib_path).exists():
+            parser.error(f"tonlib library not found at {tonlib_lib_path}")
+
+        with open(tonlib_config_path) as f:
+            tonlib_config = ton_api.Liteclient_config_global.from_json(f.read())
+        tonlib_cdll = TonlibCDLL(Path(tonlib_lib_path))
+
     def run_app(parser: GroupParser):
-        app = DashApp(parser, vset_provider, cast(str, args.web_root))
+        app = DashApp(
+            parser,
+            vset_provider,
+            cast(str, args.web_root),
+            tonlib=tonlib_cdll,
+            tonlib_config=tonlib_config,
+        )
         app.run(debug=True, host=host, port=port)
 
     if stats_dir_str:

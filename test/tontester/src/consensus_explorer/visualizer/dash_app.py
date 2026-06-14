@@ -1,11 +1,17 @@
+import asyncio
+import json
 import threading
 from datetime import datetime, timezone
-from typing import cast, final
+from typing import Callable, cast, final
 from urllib.parse import parse_qs, urlencode
 
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
 from dash.exceptions import PreventUpdate
+from tonapi.ton_api import Liteclient_config_global
+from tonapi.tonlib_api import Ton_blockIdExt
+
+from tonlib import TonlibCDLL, TonlibClient
 
 from ..models import ConsensusData, GroupData, GroupInfo, SlotData, UnnamedGroupInfo
 from ..parser import GroupParser
@@ -20,6 +26,8 @@ class DashApp:
         parser: GroupParser,
         vset_info_provider: ValidatorSetInfoProvider | None = None,
         web_root: str = "/",
+        tonlib: TonlibCDLL | None = None,
+        tonlib_config: Liteclient_config_global | None = None,
     ):
         self._parser = parser
         self._vset_provider = vset_info_provider
@@ -28,6 +36,19 @@ class DashApp:
         self._builder: FigureBuilder | None = None
         self._app: Dash = Dash(__name__, url_base_pathname=web_root)
         self._update_lock = threading.Lock()
+        self._tonlib_factory = self._build_tonlib_factory(tonlib, tonlib_config)
+
+    @staticmethod
+    def _build_tonlib_factory(
+        tonlib: TonlibCDLL | None, config: Liteclient_config_global | None
+    ) -> Callable[[], TonlibClient] | None:
+        if tonlib is None or config is None:
+            return None
+
+        def clone_client() -> TonlibClient:
+            return TonlibClient(config, tonlib)
+
+        return clone_client
 
     def _load_group(self, group: str) -> None:
         with self._update_lock:
@@ -414,18 +435,26 @@ class DashApp:
                 dcc.Graph(id="summary", config={"scrollZoom": True, "displaylogo": False}),
                 html.Hr(),
                 html.Div(
-                    id="detail-slot-meta",
-                    children="detail slot metadata: none",
-                    style={
-                        "margin": "0 16px 8px 16px",
-                        "fontSize": "14px",
-                        "fontFamily": "monospace",
-                        "border": "1px solid #ddd",
-                        "borderRadius": "4px",
-                        "padding": "8px 10px",
-                        "whiteSpace": "pre-wrap",
-                        "wordBreak": "break-all",
-                    },
+                    [
+                        html.Pre(
+                            id="detail-slot-meta",
+                            children="detail slot metadata: none",
+                            style={
+                                "margin": "0",
+                                "fontSize": "14px",
+                                "fontFamily": "monospace",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "4px",
+                                "padding": "8px 10px",
+                                "whiteSpace": "pre-wrap",
+                                "wordBreak": "break-all",
+                                "overflow": "auto",
+                                "height": "200px",
+                                "resize": "vertical",
+                            },
+                        )
+                    ],
+                    style={"margin": "0 16px 8px 16px"},
                 ),
                 html.Div(
                     [
@@ -490,7 +519,38 @@ class DashApp:
         )
 
     @staticmethod
+    def _parse_block_id_ext(block_id_ext: str) -> Ton_blockIdExt:
+        # Format: (workchain,shard_hex,seqno):ROOT_HASH_HEX:FILE_HASH_HEX
+        id_part, root_hash_hex, file_hash_hex = block_id_ext.split(":")
+        id_part = id_part.strip("()")
+        wc_str, shard_hex, seqno_str = id_part.split(",")
+        return Ton_blockIdExt(
+            workchain=int(wc_str),
+            shard=int.from_bytes(bytes.fromhex(shard_hex), byteorder="big", signed=True),
+            seqno=int(seqno_str),
+            root_hash=bytes.fromhex(root_hash_hex),
+            file_hash=bytes.fromhex(file_hash_hex),
+        )
+
+    async def _get_block_data(self, block_id_ext: str) -> dict[str, str | int]:
+        assert self._tonlib_factory is not None
+        block = self._parse_block_id_ext(block_id_ext)
+        tonlib = self._tonlib_factory()
+        try:
+            await tonlib.init()
+            trs = await tonlib.get_block_transactions(block)
+            header = await tonlib.get_block_header(block)
+            h = header.to_dict()
+            _ = h.pop("id")
+            return {
+                "trs_count": len(trs),
+                "header": json.dumps(h, indent=2),
+            }
+        finally:
+            await tonlib.aclose()
+
     def _format_slot_meta(
+        self,
         valgroup_id: str,
         slot: int,
         slot_data: SlotData | None,
@@ -508,12 +568,19 @@ class DashApp:
         ]
         if slot_data.collator is not None:
             parts.append(f"collator = {slot_data.collator}")
-        if slot_data.block_id_ext:
-            parts.append(f"block = {slot_data.block_id_ext}")
         if slot_data.candidate_id:
             parts.append(f"candidate_id = {slot_data.candidate_id}")
         if slot_data.parent_block:
             parts.append(f"parent_block = {slot_data.parent_block}")
+        if slot_data.block_id_ext:
+            parts.append(f"block = {slot_data.block_id_ext}")
+            if self._tonlib_factory is not None and slot_data.block_id_ext != "empty":
+                try:
+                    block_data = asyncio.run(self._get_block_data(slot_data.block_id_ext))
+                    parts.append(f"transactions count = {block_data['trs_count']}")
+                    parts.append(f"header = {block_data['header']}")
+                except Exception as e:
+                    parts.append(f"tonlib error: {e}")
 
         return "\n".join(parts)
 
