@@ -39,6 +39,7 @@ class SlotData:
     candidate_id: str | None
     parent_block: str | None
     collator: int | str | None
+    collate_target_slot: int | None = None
     time_stats: list[tuple[str, float]] | None = None
     validation_time_stats: dict[int, list[tuple[str, float]]] | None = None
 

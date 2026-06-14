@@ -188,7 +188,7 @@ class ParserSessionStats(GroupParser):
     ):
         if not isinstance(event, tuple(TARGET_TO_LABEL.keys())):
             return
-        if isinstance(event, (Consensus_stats_collateStarted, Consensus_stats_collateFinished)):
+        if isinstance(event, Consensus_stats_collateStarted):
             slot = event.target_slot
         else:
             assert event.id is not None, f"id is None for {event}"
@@ -243,6 +243,25 @@ class ParserSessionStats(GroupParser):
 
         if label in ("collate_started", "collate_finished"):
             self._collated.setdefault(slot_id, {})[label] = ev
+
+        # patch collate started slot
+        if isinstance(event, Consensus_stats_collateFinished):
+            slot_data.collate_target_slot = event.target_slot
+        if isinstance(event, Consensus_stats_collateFinished) and event.target_slot != slot:
+            old_slot_id = (v_group, event.target_slot)
+            if old_slot_id in self._slot_events:
+                v_events = self._slot_events[old_slot_id].get(v_id)
+                if v_events and "collate_started" in v_events:
+                    started_ev = v_events.pop("collate_started")
+                    started_ev.slot = slot
+                    self._slot_events.setdefault(slot_id, {}).setdefault(v_id, {})[
+                        "collate_started"
+                    ] = started_ev
+            if old_slot_id in self._collated and "collate_started" in self._collated[old_slot_id]:
+                started_ev = self._collated[old_slot_id].pop("collate_started")
+                started_ev.slot = slot
+                self._collated.setdefault(slot_id, {})["collate_started"] = started_ev
+            slot_data.collator = v_id
 
     def _parse_cert_observed(
         self,
