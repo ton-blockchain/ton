@@ -39,6 +39,7 @@ class SlotData:
     candidate_id: str | None
     parent_block: str | None
     collator: int | str | None
+    time_stats: list[tuple[str, float]] | None = None
 
     def block_id(self) -> str | None:
         return self.block_id_ext.split(":")[0] if self.block_id_ext else None
@@ -51,7 +52,7 @@ class EventData:
     label: str
     kind: str
     t_ms: float
-    validator: int | str | None = None
+    validator: int | None = None
     t1_ms: float | None = None
 
     def get_color(self) -> str | None:

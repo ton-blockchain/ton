@@ -274,6 +274,13 @@ class DetailFigureBuilder:
                 ],
             )
 
+            hover_extra = ""
+            if label == "collation" and self._slot.time_stats:
+                hover_extra = "<br>time_stats:" + "".join(
+                    f"<br>  {name}: {duration * 1000:.3f} ms"
+                    for name, duration in self._slot.time_stats
+                )
+
             if label_events[0].t1_ms:  # event has end time
                 _ = self._fig.add_trace(  # pyright: ignore[reportUnknownMemberType]
                     go.Bar(
@@ -291,7 +298,7 @@ class DetailFigureBuilder:
                                 if self._time_mode == "abs"
                                 else "start=%{base}ms<br>"
                             )
-                            + "dt=%{customdata[5]:.3f}ms<extra></extra>"
+                            + f"dt=%{{customdata[5]:.3f}}ms{hover_extra}<extra></extra>"
                         ),
                         **kwargs,
                     )
