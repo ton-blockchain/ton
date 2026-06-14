@@ -161,6 +161,7 @@ def _main():
             cast(str, args.web_root),
             tonlib=tonlib_cdll,
             tonlib_config=tonlib_config,
+            block_explorer_url=block_explorer_url,
         )
         app.run(debug=True, host=host, port=port)
 

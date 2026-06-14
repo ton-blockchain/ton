@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlencode
 
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
+from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
 from tonapi.ton_api import Liteclient_config_global
 from tonapi.tonlib_api import Ton_blockIdExt
@@ -28,6 +29,7 @@ class DashApp:
         web_root: str = "/",
         tonlib: TonlibCDLL | None = None,
         tonlib_config: Liteclient_config_global | None = None,
+        block_explorer_url: str = "",
     ):
         self._parser = parser
         self._vset_provider = vset_info_provider
@@ -37,6 +39,7 @@ class DashApp:
         self._app: Dash = Dash(__name__, url_base_pathname=web_root)
         self._update_lock = threading.Lock()
         self._tonlib_factory = self._build_tonlib_factory(tonlib, tonlib_config)
+        self._block_explorer_url = block_explorer_url.rstrip("/") if block_explorer_url else ""
 
     @staticmethod
     def _build_tonlib_factory(
@@ -549,40 +552,77 @@ class DashApp:
         finally:
             await tonlib.aclose()
 
+    def _build_explorer_url(self, block_id_ext: str) -> str | None:
+        if not self._block_explorer_url or not block_id_ext or block_id_ext == "empty":
+            return None
+        try:
+            id_part, root_hash_hex, file_hash_hex = block_id_ext.split(":")
+            id_part = id_part.strip("()")
+            wc_str, shard_hex, seqno_str = id_part.split(",")
+        except ValueError:
+            return None
+        params = urlencode(
+            {
+                "workchain": wc_str,
+                "shard": shard_hex,
+                "seqno": seqno_str,
+                "roothash": root_hash_hex,
+                "filehash": file_hash_hex,
+            }
+        )
+        return f"{self._block_explorer_url}/block?{params}"
+
     def _format_slot_meta(
         self,
         valgroup_id: str,
         slot: int,
         slot_data: SlotData | None,
-    ) -> str:
+    ) -> list[str | Component]:
         if not valgroup_id:
-            return "detail slot metadata: none"
+            return ["detail slot metadata: none"]
 
         if slot_data is None:
-            return f"valgroup = {valgroup_id} slot = {slot} not found"
+            return [f"valgroup = {valgroup_id} slot = {slot} not found"]
 
-        parts = [
-            f"valgroup = {slot_data.valgroup_id}",
-            f"slot = {slot_data.slot}",
-            f"empty = {'yes' if slot_data.is_empty else 'no'}",
-        ]
+        children: list[str | Component] = []
+
+        def add_line(*items: str | Component) -> None:
+            if children:
+                children.append("\n")
+            children.extend(items)
+
+        add_line(f"valgroup = {slot_data.valgroup_id}")
+        add_line(f"slot = {slot_data.slot}")
+        add_line(f"empty = {'yes' if slot_data.is_empty else 'no'}")
         if slot_data.collator is not None:
-            parts.append(f"collator = {slot_data.collator}")
+            add_line(f"collator = {slot_data.collator}")
         if slot_data.candidate_id:
-            parts.append(f"candidate_id = {slot_data.candidate_id}")
+            add_line(f"candidate_id = {slot_data.candidate_id}")
         if slot_data.parent_block:
-            parts.append(f"parent_block = {slot_data.parent_block}")
+            add_line(f"parent_block = {slot_data.parent_block}")
         if slot_data.block_id_ext:
-            parts.append(f"block = {slot_data.block_id_ext}")
+            block_url = self._build_explorer_url(slot_data.block_id_ext)
+            if block_url is not None:
+                add_line(
+                    f"block = {slot_data.block_id_ext} ",
+                    html.A(
+                        "(view)",
+                        href=block_url,
+                        target="_blank",
+                        rel="noopener noreferrer",
+                    ),
+                )
+            else:
+                add_line(f"block = {slot_data.block_id_ext}")
             if self._tonlib_factory is not None and slot_data.block_id_ext != "empty":
                 try:
                     block_data = asyncio.run(self._get_block_data(slot_data.block_id_ext))
-                    parts.append(f"transactions count = {block_data['trs_count']}")
-                    parts.append(f"header = {block_data['header']}")
+                    add_line(f"transactions count = {block_data['trs_count']}")
+                    add_line(f"header = {block_data['header']}")
                 except Exception as e:
-                    parts.append(f"tonlib error: {e}")
+                    add_line(f"tonlib error: {e}")
 
-        return "\n".join(parts)
+        return children
 
     def _update_selection_from_click(
         self,
@@ -656,7 +696,7 @@ class DashApp:
         self,
         selected: dict[str, str | int],
         time_mode: str,
-    ) -> tuple[go.Figure, str, str, str | NoUpdate]:
+    ) -> tuple[go.Figure, str, list[str | Component], str | NoUpdate]:
         valgroup_id = selected["valgroup_id"]
         assert isinstance(valgroup_id, str)
         slot = int(selected["slot"])
