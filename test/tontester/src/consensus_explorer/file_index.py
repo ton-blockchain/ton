@@ -498,8 +498,11 @@ class FileIndex:
     def get_crosslink_files_for_group(self, valgroup_hash: bytes) -> list[Path]:
         """Find additional files needed for crosslink events for the given group.
 
-        For shard groups (workchain != -1): returns files containing MC blocks
-        whose shard_configuration references blocks in this group's seqno range.
+        Crosslinks are generated from pairs of consecutive MC blocks
+        (mc_seqno N, mc_seqno N+1) whose shard_configuration for the group's
+        shard yields a finalized range [x+1, y] intersecting the group's shard
+        seqno range. For every such pair, both MC blocks' files must be loaded
+        so the parser has both shard_configuration entries available.
         For MC groups: returns empty list.
         """
 
@@ -511,7 +514,9 @@ class FileIndex:
             seqno_start: int | None
             seqno_end: int
 
-        class FileRow(TypedDict):
+        class RefRow(TypedDict):
+            mc_seqno: int
+            top_seqno: int
             file_name: str
 
         with self._connect() as conn:
@@ -543,19 +548,57 @@ class FileIndex:
             range_row = cast(RangeRow | None, cursor.fetchone())
             if range_row is None or range_row["seqno_start"] is None:
                 return []
+            seqno_start = range_row["seqno_start"]
+            seqno_end = range_row["seqno_end"]
 
-            # Find files with MC blocks referencing this shard range
+            # Fetch all MC shard refs for this shard, with their files,
+            # ordered by mc_seqno so we can scan consecutive pairs.
             _ = cursor.execute(
                 """
-                SELECT DISTINCT f.file_name
-                FROM files f
-                JOIN mc_shard_refs msr ON f.file_id = msr.file_id
+                SELECT msr.mc_seqno, msr.top_seqno, f.file_name
+                FROM mc_shard_refs msr
+                JOIN files f ON f.file_id = msr.file_id
                 WHERE msr.shard_workchain = ? AND msr.shard = ?
-                  AND msr.top_seqno >= ? AND msr.top_seqno <= ?
+                ORDER BY msr.mc_seqno
                 """,
-                (workchain, shard, range_row["seqno_start"], range_row["seqno_end"]),
+                (workchain, shard),
             )
-            return [Path(row["file_name"]) for row in cast(list[FileRow], cursor.fetchall())]
+            refs = cast(list[RefRow], cursor.fetchall())
+            if not refs:
+                return []
+
+            # Group files per mc_seqno and keep a representative top_seqno
+            # (all rows for the same mc_seqno should agree on top_seqno for
+            # a given shard, since there's one MC block per mc_seqno).
+            by_mc_seqno: dict[int, tuple[int, set[str]]] = {}
+            for row in refs:
+                mc_seqno = row["mc_seqno"]
+                top_seqno = row["top_seqno"]
+                file_name = row["file_name"]
+                entry = by_mc_seqno.get(mc_seqno)
+                if entry is None:
+                    by_mc_seqno[mc_seqno] = (top_seqno, {file_name})
+                else:
+                    entry[1].add(file_name)
+
+            sorted_mc_seqnos = sorted(by_mc_seqno.keys())
+            needed_files: set[str] = set()
+            for i in range(1, len(sorted_mc_seqnos)):
+                prev_seqno = sorted_mc_seqnos[i - 1]
+                curr_seqno = sorted_mc_seqnos[i]
+                if curr_seqno != prev_seqno + 1:
+                    continue
+                prev_top, prev_files = by_mc_seqno[prev_seqno]
+                curr_top, curr_files = by_mc_seqno[curr_seqno]
+                if curr_top <= prev_top:
+                    continue
+                # Range finalized by this pair: [prev_top + 1, curr_top]
+                if prev_top + 1 > seqno_end or curr_top < seqno_start:
+                    continue
+                needed_files.update(prev_files)
+                needed_files.update(curr_files)
+
+            return [Path(f) for f in needed_files]
 
     def get_group_hashes_in_files(self, paths: list[Path]) -> set[bytes]:
         """Return valgroup hashes for all groups found in the given files."""

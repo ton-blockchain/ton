@@ -520,7 +520,8 @@ class ParserSessionStats(GroupParser):
 
         # Separate MC and shard slots
         mc_block_to_slot: dict[str, tuple[str, int]] = {}
-        shard_slot_list: list[tuple[int, int, int, tuple[str, int]]] = []
+        # Per (wc, shard): sorted list of (seqno, slot_id)
+        shard_blocks_by_key: dict[tuple[int, int], list[tuple[int, tuple[str, int]]]] = {}
 
         for slot_id, slot_data in self._slots.items():
             if not slot_data.block_id_ext or slot_data.block_id_ext == "empty":
@@ -528,34 +529,33 @@ class ParserSessionStats(GroupParser):
             parsed = self._parse_block_id_parts(slot_data.block_id_ext)
             if parsed is None:
                 continue
-            wc = parsed[0]
+            wc, shard, seqno = parsed
             if wc == -1:
                 mc_block_to_slot[slot_data.block_id_ext] = slot_id
             else:
-                shard_slot_list.append((parsed[0], parsed[1], parsed[2], slot_id))
+                shard_blocks_by_key.setdefault((wc, shard), []).append((seqno, slot_id))
 
-        if not shard_slot_list:
+        if not shard_blocks_by_key:
             return
 
-        # Sort MC shard configs by MC seqno, build per-shard lookup ranges
-        mc_sorted: list[tuple[int, str]] = []
+        for entries in shard_blocks_by_key.values():
+            entries.sort()
+
+        # Precompute per-shard seqno lists for bisect
+        shard_seqnos_by_key: dict[tuple[int, int], list[int]] = {
+            k: [seqno for seqno, _ in v] for k, v in shard_blocks_by_key.items()
+        }
+
+        # Sort MC blocks by seqno
+        mc_by_seqno: list[tuple[int, str]] = []
         for mc_bid in mc_shard_info:
             parsed = self._parse_block_id_parts(mc_bid)
-            if parsed is not None:
-                mc_sorted.append((parsed[2], mc_bid))
-        mc_sorted.sort()
+            if parsed is not None and parsed[0] == -1:
+                mc_by_seqno.append((parsed[2], mc_bid))
+        mc_by_seqno.sort()
 
-        # Per shard: sorted list of (top_seqno, mc_block_id_ext)
-        shard_ranges: dict[tuple[int, int], list[tuple[int, str]]] = {}
-        for _, mc_bid in mc_sorted:
-            config = mc_shard_info[mc_bid][0]
-            for shard_key, shard_seqno in config.items():
-                shard_ranges.setdefault(shard_key, []).append((shard_seqno, mc_bid))
-
-        # Precompute top_seqnos for bisect
-        shard_top_seqnos: dict[tuple[int, int], list[int]] = {
-            k: [r[0] for r in v] for k, v in shard_ranges.items()
-        }
+        if len(mc_by_seqno) < 2:
+            return
 
         # Collect MC finalize_reached and collate start times
         mc_finalize_reached: dict[tuple[str, int], float] = {}
@@ -567,56 +567,75 @@ class ParserSessionStats(GroupParser):
             if ev.label == "collate" and key not in mc_collate_start:
                 mc_collate_start[key] = ev.t_ms
 
-        for wc, shard, seqno, slot_id in shard_slot_list:
-            top_seqnos = shard_top_seqnos.get((wc, shard))
-            if top_seqnos is None:
-                continue
-            idx = bisect.bisect_left(top_seqnos, seqno)
-            if idx >= len(top_seqnos):
-                continue
-            if top_seqnos[idx] != seqno:
+        # Process each pair of consecutive MC blocks. Only strictly consecutive
+        # MC seqnos (N, N+1) are considered, since gaps would make the finalized
+        # range ambiguous.
+        for i in range(1, len(mc_by_seqno)):
+            prev_seqno, prev_bid = mc_by_seqno[i - 1]
+            curr_seqno, curr_bid = mc_by_seqno[i]
+
+            if curr_seqno != prev_seqno + 1:
                 continue
 
-            mc_bid = shard_ranges[(wc, shard)][idx][1]
-            mc_slot_id = mc_block_to_slot.get(mc_bid)
-            if mc_slot_id is None:
+            curr_slot_id = mc_block_to_slot.get(curr_bid)
+            if curr_slot_id is None:
                 continue
 
-            slot_data = self._slots[slot_id]
-            mc_slot_data = self._slots[mc_slot_id]
+            prev_config = mc_shard_info[prev_bid][0]
+            curr_config = mc_shard_info[curr_bid][0]
+
+            mc_slot_data = self._slots[curr_slot_id]
             source_vg = mc_slot_data.valgroup_id
             source_slot_num = mc_slot_data.slot
             source_bid = mc_slot_data.block_id_ext
+            finalize_t = mc_finalize_reached.get(curr_slot_id)
+            collate_t = mc_collate_start.get(curr_slot_id)
 
-            finalize_t = mc_finalize_reached.get(mc_slot_id)
-            if finalize_t is not None:
-                self._events.append(
-                    EventData(
-                        valgroup_id=slot_data.valgroup_id,
-                        slot=slot_data.slot,
-                        label="mc_ref_finalized",
-                        kind="crosslink",
-                        t_ms=finalize_t,
-                        source_valgroup_id=source_vg,
-                        source_slot=source_slot_num,
-                        source_block_id=source_bid,
-                    )
-                )
+            for shard_key, y in curr_config.items():
+                x = prev_config.get(shard_key)
+                if x is None or y <= x:
+                    continue
 
-            collate_t = mc_collate_start.get(mc_slot_id)
-            if collate_t is not None:
-                self._events.append(
-                    EventData(
-                        valgroup_id=slot_data.valgroup_id,
-                        slot=slot_data.slot,
-                        label="mc_ref_collate_started",
-                        kind="crosslink",
-                        t_ms=collate_t,
-                        source_valgroup_id=source_vg,
-                        source_slot=source_slot_num,
-                        source_block_id=source_bid,
-                    )
-                )
+                shard_blocks = shard_blocks_by_key.get(shard_key)
+                if not shard_blocks:
+                    continue
+
+                # Find blocks with seqno in [x + 1, y]
+                seqnos = shard_seqnos_by_key[shard_key]
+                lo = bisect.bisect_left(seqnos, x + 1)
+                hi = bisect.bisect_right(seqnos, y)
+
+                for j in range(lo, hi):
+                    _, slot_id = shard_blocks[j]
+                    slot_data = self._slots[slot_id]
+
+                    if finalize_t is not None:
+                        self._events.append(
+                            EventData(
+                                valgroup_id=slot_data.valgroup_id,
+                                slot=slot_data.slot,
+                                label="mc_ref_finalized",
+                                kind="crosslink",
+                                t_ms=finalize_t,
+                                source_valgroup_id=source_vg,
+                                source_slot=source_slot_num,
+                                source_block_id=source_bid,
+                            )
+                        )
+
+                    if collate_t is not None:
+                        self._events.append(
+                            EventData(
+                                valgroup_id=slot_data.valgroup_id,
+                                slot=slot_data.slot,
+                                label="mc_ref_collate_started",
+                                kind="crosslink",
+                                t_ms=collate_t,
+                                source_valgroup_id=source_vg,
+                                source_slot=source_slot_num,
+                                source_block_id=source_bid,
+                            )
+                        )
 
     @staticmethod
     def _process_vote_threshold(
