@@ -71,13 +71,26 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
 
         t0 = time.monotonic()
         log_paths: list[Path] = self._file_index.get_files_for_group(valgroup_hash)
-        logger.info("parse_group %s: %d files to parse", valgroup_name, len(log_paths))
+        crosslink_paths = self._file_index.get_crosslink_files_for_group(valgroup_hash)
+        existing = set(log_paths)
+        for p in crosslink_paths:
+            if p not in existing:
+                log_paths.append(p)
+        target_hashes = {valgroup_hash}
+        if crosslink_paths:
+            target_hashes |= self._file_index.get_group_hashes_in_files(crosslink_paths)
+        logger.info(
+            "parse_group %s: %d files to parse (%d crosslink)",
+            valgroup_name,
+            len(log_paths),
+            len(crosslink_paths),
+        )
 
         parser = ParserSessionStats(
             log_paths,
             self._hostname_regex,
             with_cache=False,
-            target_group_hash=valgroup_hash,
+            target_group_hashes=target_hashes,
             sudo_helper=self._sudo_helper,
         )
         data = parser.parse()

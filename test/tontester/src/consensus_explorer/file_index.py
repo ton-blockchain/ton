@@ -2,10 +2,16 @@ import json
 import logging
 import sqlite3
 import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, TypedDict, cast, final
 
-from tonapi.ton_api import Consensus_stats_events, Consensus_stats_id
+from tonapi.ton_api import (
+    Consensus_stats_events,
+    Consensus_stats_id,
+    ValidatorStats_collatedBlock,
+    ValidatorStats_validatedBlock,
+)
 from watchfiles._rust_notify import RustNotify
 
 from tl import ModelError
@@ -14,6 +20,23 @@ from .models import GroupData, GroupInfo, UnnamedGroupInfo
 from .parser.parser_session_stats import open_stats_file
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class McShardRef:
+    mc_seqno: int
+    shard_workchain: int
+    shard: int
+    top_seqno: int
+    collate_start_ms: float
+
+
+@dataclass
+class FileScanResult:
+    groups: set[GroupData] = field(default_factory=set)
+    # (workchain, shard) -> (seqno_min, seqno_max)
+    block_ranges: dict[tuple[int, int], tuple[int, int]] = field(default_factory=dict)
+    mc_shard_refs: list[McShardRef] = field(default_factory=list)
 
 
 class FileIndexCallback(Protocol):
@@ -60,6 +83,26 @@ class FileIndex:
                 file_id INTEGER NOT NULL REFERENCES files(file_id),
                 PRIMARY KEY (group_id, file_id)
             );
+            CREATE TABLE IF NOT EXISTS block_ranges (
+                file_id INTEGER NOT NULL REFERENCES files(file_id),
+                workchain INTEGER NOT NULL,
+                shard INTEGER NOT NULL,
+                seqno_start INTEGER NOT NULL,
+                seqno_end INTEGER NOT NULL,
+                PRIMARY KEY (file_id, workchain, shard)
+            );
+            CREATE TABLE IF NOT EXISTS mc_shard_refs (
+                file_id INTEGER NOT NULL REFERENCES files(file_id),
+                mc_seqno INTEGER NOT NULL,
+                shard_workchain INTEGER NOT NULL,
+                shard INTEGER NOT NULL,
+                top_seqno INTEGER NOT NULL,
+                collate_start_ms REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_mc_shard_refs_shard
+                ON mc_shard_refs(shard_workchain, shard);
+            CREATE INDEX IF NOT EXISTS idx_block_ranges_shard
+                ON block_ranges(workchain, shard);
         """)
 
     def install_callback(self, callback: FileIndexCallback) -> None:
@@ -79,8 +122,8 @@ class FileIndex:
             self._thread.join()
             self._thread = None
 
-    def _scan_file_for_groups(self, path: Path) -> set[GroupData]:
-        groups: set[GroupData] = set()
+    def _scan_file(self, path: Path) -> FileScanResult:
+        result = FileScanResult()
         try:
             f = open_stats_file(path)
         except PermissionError:
@@ -90,38 +133,91 @@ class FileIndex:
             f = open_stats_file(path, sudo_helper=self._sudo_helper)
         with f:
             for line in f:
-                if not line.startswith('{"@type":"consensus.stats.events"'):
-                    continue
-                try:
-                    parsed = Consensus_stats_events.from_json(line)
-                except (json.decoder.JSONDecodeError, ModelError) as exc:
-                    logger.debug("Failed to parse consensus stats line in %s: %s", path, exc)
-                    continue
-                valgroup_hash = parsed.id
-                found_id = False
-                min_ts = float("inf")
-                for te in parsed.events:
-                    min_ts = min(min_ts, te.ts)
-                    if isinstance(te.event, Consensus_stats_id):
-                        groups.add(
-                            GroupInfo(
+                if line.startswith('{"@type":"consensus.stats.events"'):
+                    try:
+                        parsed = Consensus_stats_events.from_json(line)
+                    except (json.decoder.JSONDecodeError, ModelError) as exc:
+                        logger.debug("Failed to parse consensus stats line in %s: %s", path, exc)
+                        continue
+                    valgroup_hash = parsed.id
+                    found_id = False
+                    min_ts = float("inf")
+                    for te in parsed.events:
+                        min_ts = min(min_ts, te.ts)
+                        if isinstance(te.event, Consensus_stats_id):
+                            result.groups.add(
+                                GroupInfo(
+                                    valgroup_hash=valgroup_hash,
+                                    catchain_seqno=te.event.cc_seqno,
+                                    workchain=te.event.workchain,
+                                    shard=te.event.shard,
+                                    group_start_est=min_ts,
+                                )
+                            )
+                            found_id = True
+                            break
+                    if not found_id:
+                        result.groups.add(
+                            UnnamedGroupInfo(
                                 valgroup_hash=valgroup_hash,
-                                catchain_seqno=te.event.cc_seqno,
-                                workchain=te.event.workchain,
-                                shard=te.event.shard,
                                 group_start_est=min_ts,
                             )
                         )
-                        found_id = True
-                        break
-                if not found_id:
-                    groups.add(
-                        UnnamedGroupInfo(
-                            valgroup_hash=valgroup_hash,
-                            group_start_est=min_ts,
-                        )
+                elif line.startswith('{"@type":"validatorStats.collatedBlock"'):
+                    try:
+                        collated = ValidatorStats_collatedBlock.from_json(line)
+                    except (json.decoder.JSONDecodeError, ModelError) as exc:
+                        logger.debug("Failed to parse collatedBlock in %s: %s", path, exc)
+                        continue
+                    if collated.block_id is None:
+                        continue
+                    bid = collated.block_id
+                    wc = bid.workchain
+                    shard = bid.shard
+                    seqno = bid.seqno
+                    self._update_block_range(result, wc, shard, seqno)
+                    # Extract MC shard configuration for crosslinks
+                    if (
+                        wc == -1
+                        and collated.block_stats is not None
+                        and collated.block_stats.shard_configuration
+                    ):
+                        collate_start_ms = (collated.collated_at - collated.total_time) * 1000
+                        for sb in collated.block_stats.shard_configuration:
+                            result.mc_shard_refs.append(
+                                McShardRef(
+                                    mc_seqno=seqno,
+                                    shard_workchain=sb.workchain,
+                                    shard=sb.shard,
+                                    top_seqno=sb.seqno,
+                                    collate_start_ms=collate_start_ms,
+                                )
+                            )
+                elif line.startswith('{"@type":"validatorStats.validatedBlock"'):
+                    try:
+                        validated = ValidatorStats_validatedBlock.from_json(line)
+                    except (json.decoder.JSONDecodeError, ModelError) as exc:
+                        logger.debug("Failed to parse validatedBlock in %s: %s", path, exc)
+                        continue
+                    if validated.block_id is None:
+                        continue
+                    bid = validated.block_id
+                    self._update_block_range(
+                        result,
+                        bid.workchain,
+                        bid.shard,
+                        bid.seqno,
                     )
-        return groups
+        return result
+
+    @staticmethod
+    def _update_block_range(result: FileScanResult, workchain: int, shard: int, seqno: int) -> None:
+        key = (workchain, shard)
+        if key in result.block_ranges:
+            old_start, old_end = result.block_ranges[key]
+            result.block_ranges[key] = (min(old_start, seqno), max(old_end, seqno))
+        else:
+            result.block_ranges[key] = (seqno, seqno)
 
     def _index_file(
         self, path: Path, conn: sqlite3.Connection, file_idx: int, file_count: int
@@ -156,7 +252,7 @@ class FileIndex:
 
         print(f"Indexing file {path} ({file_idx} out of {file_count})", flush=True)
         try:
-            groups = self._scan_file_for_groups(path)
+            scan = self._scan_file(path)
         except Exception as exc:
             logger.warning("Failed to index %s, will retry on restart: %s", path, exc)
             return set()
@@ -170,6 +266,14 @@ class FileIndex:
                 "DELETE FROM group_files WHERE file_id = ?",
                 (file_id,),
             )
+            _ = cursor.execute(
+                "DELETE FROM block_ranges WHERE file_id = ?",
+                (file_id,),
+            )
+            _ = cursor.execute(
+                "DELETE FROM mc_shard_refs WHERE file_id = ?",
+                (file_id,),
+            )
         else:
             _ = cursor.execute(
                 "INSERT INTO files (file_name, mtime) VALUES (?, ?)",
@@ -178,8 +282,29 @@ class FileIndex:
             file_id = cursor.lastrowid
             assert file_id is not None
 
+        # Store block ranges
+        for (wc, shard), (seqno_start, seqno_end) in scan.block_ranges.items():
+            _ = cursor.execute(
+                "INSERT INTO block_ranges (file_id, workchain, shard, seqno_start, seqno_end) VALUES (?, ?, ?, ?, ?)",
+                (file_id, wc, shard, seqno_start, seqno_end),
+            )
+
+        # Store MC shard refs
+        for ref in scan.mc_shard_refs:
+            _ = cursor.execute(
+                "INSERT INTO mc_shard_refs (file_id, mc_seqno, shard_workchain, shard, top_seqno, collate_start_ms) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    file_id,
+                    ref.mc_seqno,
+                    ref.shard_workchain,
+                    ref.shard,
+                    ref.top_seqno,
+                    ref.collate_start_ms,
+                ),
+            )
+
         changed_hashes: set[bytes] = set()
-        for group_id_val in groups:
+        for group_id_val in scan.groups:
             if isinstance(group_id_val, GroupInfo):
                 valgroup_hash = group_id_val.valgroup_hash
                 _ = cursor.execute(
@@ -260,6 +385,8 @@ class FileIndex:
         changed_hashes = {row["valgroup_hash"] for row in cast(list[HashRow], cursor.fetchall())}
 
         _ = cursor.execute("DELETE FROM group_files WHERE file_id = ?", (file_id,))
+        _ = cursor.execute("DELETE FROM block_ranges WHERE file_id = ?", (file_id,))
+        _ = cursor.execute("DELETE FROM mc_shard_refs WHERE file_id = ?", (file_id,))
         _ = cursor.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
         _ = cursor.execute(
             """
@@ -367,6 +494,91 @@ class FileIndex:
                 (valgroup_hash,),
             )
             return [Path(row["file_name"]) for row in cast(list[Row], cursor.fetchall())]
+
+    def get_crosslink_files_for_group(self, valgroup_hash: bytes) -> list[Path]:
+        """Find additional files needed for crosslink events for the given group.
+
+        For shard groups (workchain != -1): returns files containing MC blocks
+        whose shard_configuration references blocks in this group's seqno range.
+        For MC groups: returns empty list.
+        """
+
+        class GroupRow(TypedDict):
+            workchain: int | None
+            shard: int | None
+
+        class RangeRow(TypedDict):
+            seqno_start: int | None
+            seqno_end: int
+
+        class FileRow(TypedDict):
+            file_name: str
+
+        with self._connect() as conn:
+            cursor = conn.cursor()
+
+            _ = cursor.execute(
+                "SELECT workchain, shard FROM groups WHERE valgroup_hash = ?",
+                (valgroup_hash,),
+            )
+            group_row = cast(GroupRow | None, cursor.fetchone())
+            if group_row is None or group_row["workchain"] is None or group_row["shard"] is None:
+                return []
+            workchain = group_row["workchain"]
+            shard = group_row["shard"]
+            if workchain == -1:
+                return []
+
+            # Get seqno range across all files for this group's shard
+            _ = cursor.execute(
+                """
+                SELECT MIN(br.seqno_start) AS seqno_start, MAX(br.seqno_end) AS seqno_end
+                FROM block_ranges br
+                JOIN group_files gf ON br.file_id = gf.file_id
+                JOIN groups g ON g.group_id = gf.group_id
+                WHERE g.valgroup_hash = ? AND br.workchain = ? AND br.shard = ?
+                """,
+                (valgroup_hash, workchain, shard),
+            )
+            range_row = cast(RangeRow | None, cursor.fetchone())
+            if range_row is None or range_row["seqno_start"] is None:
+                return []
+
+            # Find files with MC blocks referencing this shard range
+            _ = cursor.execute(
+                """
+                SELECT DISTINCT f.file_name
+                FROM files f
+                JOIN mc_shard_refs msr ON f.file_id = msr.file_id
+                WHERE msr.shard_workchain = ? AND msr.shard = ?
+                  AND msr.top_seqno >= ? AND msr.top_seqno <= ?
+                """,
+                (workchain, shard, range_row["seqno_start"], range_row["seqno_end"]),
+            )
+            return [Path(row["file_name"]) for row in cast(list[FileRow], cursor.fetchall())]
+
+    def get_group_hashes_in_files(self, paths: list[Path]) -> set[bytes]:
+        """Return valgroup hashes for all groups found in the given files."""
+        if not paths:
+            return set()
+
+        class Row(TypedDict):
+            valgroup_hash: bytes
+
+        with self._connect() as conn:
+            cursor = conn.cursor()
+            placeholders = ",".join("?" * len(paths))
+            _ = cursor.execute(
+                f"""
+                SELECT DISTINCT g.valgroup_hash
+                FROM groups g
+                JOIN group_files gf ON g.group_id = gf.group_id
+                JOIN files f ON f.file_id = gf.file_id
+                WHERE f.file_name IN ({placeholders})
+                """,
+                [str(p) for p in paths],
+            )
+            return {row["valgroup_hash"] for row in cast(list[Row], cursor.fetchall())}
 
     def get_all_groups(self) -> list[GroupData]:
         class Row(TypedDict):

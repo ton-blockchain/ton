@@ -116,11 +116,11 @@ class ParserSessionStats(GroupParser):
         logs_path: list[Path],
         hostname_regex: str,
         with_cache: bool = True,
-        target_group_hash: bytes | None = None,
+        target_group_hashes: set[bytes] | None = None,
         sudo_helper: str | None = None,
     ):
         self._logs_path = logs_path
-        self._target_group_hash = target_group_hash
+        self._target_group_hashes = target_group_hashes
         self._sudo_helper = sudo_helper
         self._hostname_regex = re.compile(hostname_regex)
         self._slots: dict[slot_id_type, SlotData] = {}
@@ -742,8 +742,8 @@ class ParserSessionStats(GroupParser):
                             events = Consensus_stats_events.from_json(line)
 
                             if (
-                                self._target_group_hash is not None
-                                and events.id != self._target_group_hash
+                                self._target_group_hashes is not None
+                                and events.id not in self._target_group_hashes
                             ):
                                 continue
 
@@ -888,8 +888,9 @@ class ParserSessionStats(GroupParser):
     @override
     def parse_group(self, valgroup_name: str) -> ConsensusData:
         data = self.parse()
-        if self._target_group_hash is not None:
+        if self._target_group_hashes is not None and len(self._target_group_hashes) == 1:
             return data
+        # Filter to target group; crosslink events already have the shard group's valgroup_id
         return ConsensusData(
             groups=[g for g in data.groups if g.valgroup_name == valgroup_name],
             slots=[s for s in data.slots if s.valgroup_id == valgroup_name],
