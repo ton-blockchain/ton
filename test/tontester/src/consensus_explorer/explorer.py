@@ -74,6 +74,11 @@ def _main():
         help='Path to json map {"adnl": "name"} used for validator names',
     )
     _ = parser.add_argument(
+        "--cache-dir",
+        default=os.getenv("CONSENSUS_EXPLORER_CACHE_DIR", ""),
+        help="Directory to cache downloaded key blocks",
+    )
+    _ = parser.add_argument(
         "--web-root", default="/", help="Web root for the Dash app (default: /)"
     )
 
@@ -98,8 +103,12 @@ def _main():
             if not Path(validator_names_json).exists():
                 parser.error(f"Validator names json not found at {validator_names_json}")
 
+        cache_dir = cast(str, args.cache_dir)
         vset_provider = ValidatorSetInfoProvider(
-            block_explorer_url, show_validator_set_bin, validator_names_json
+            block_explorer_url,
+            show_validator_set_bin,
+            validator_names_json,
+            cache_dir=cache_dir or None,
         )
 
     def run_app(parser: GroupParser):
