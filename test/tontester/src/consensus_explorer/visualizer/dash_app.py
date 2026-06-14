@@ -7,7 +7,7 @@ import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
-from ..models import ConsensusData, GroupData, SlotData
+from ..models import ConsensusData, GroupData, GroupInfo, SlotData, UnnamedGroupInfo
 from ..parser import GroupParser
 from ..validator_set_info import ValidatorSetInfoProvider
 from .figure_builder import FigureBuilder
@@ -89,7 +89,21 @@ class DashApp:
         valgroups = self._parser.list_groups()
         if time_from is not None or time_until is not None:
             valgroups = self._filter_groups_by_time(valgroups, time_from, time_until)
-        valgroups_names = sorted([g.valgroup_name for g in valgroups])
+
+        def _group_sort_key(group: GroupData) -> tuple[int, int, int, int, str]:
+            if isinstance(group, UnnamedGroupInfo):
+                return 0, 0, 0, 0, group.valgroup_name
+
+            assert isinstance(group, GroupInfo)
+            return (
+                1,
+                group.workchain,
+                group.catchain_seqno,
+                group.shard,
+                group.valgroup_name,
+            )
+
+        valgroups_names = [g.valgroup_name for g in sorted(valgroups, key=_group_sort_key)]
         options = [{"label": g, "value": g} for g in valgroups_names]
 
         url_params = self._parse_url_params(href)
