@@ -58,10 +58,25 @@ TARGET_TO_LABEL = {
 }
 
 
-def open_stats_file(path: Path) -> io.TextIOWrapper:
+def open_stats_file(path: Path, sudo_helper: str | None = None) -> io.TextIOWrapper:
+    if sudo_helper is None:
+        if path.suffix == ".gz":
+            return gzip.open(path, "rt", encoding="utf-8", errors="ignore")
+        return open(path, "r", encoding="utf-8", errors="ignore")
+
+    import subprocess
+
+    proc = subprocess.Popen(
+        ["sudo", "--non-interactive", sudo_helper, str(path)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert proc.stdout is not None
     if path.suffix == ".gz":
-        return gzip.open(path, "rt", encoding="utf-8", errors="ignore")
-    return open(path, "r", encoding="utf-8", errors="ignore")
+        return io.TextIOWrapper(
+            gzip.GzipFile(fileobj=proc.stdout), encoding="utf-8", errors="ignore"
+        )
+    return io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="ignore")
 
 
 def _shard_to_hex(sh: int) -> str:
@@ -101,9 +116,11 @@ class ParserSessionStats(GroupParser):
         hostname_regex: str,
         with_cache: bool = True,
         target_group_hash: bytes | None = None,
+        sudo_helper: str | None = None,
     ):
         self._logs_path = logs_path
         self._target_group_hash = target_group_hash
+        self._sudo_helper = sudo_helper
         self._hostname_regex = re.compile(hostname_regex)
         self._slots: dict[slot_id_type, SlotData] = {}
         self._collated: dict[slot_id_type, dict[str, EventData]] = {}
@@ -578,7 +595,7 @@ class ParserSessionStats(GroupParser):
         for log_file in self._logs_path:
             hostname = self._extract_hostname(log_file)
             try:
-                with open_stats_file(log_file) as f:
+                with open_stats_file(log_file, sudo_helper=self._sudo_helper) as f:
                     events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
                     time_stats_by_block: dict[str, list[tuple[str, float]]] = {}
                     validation_ts_raw: dict[tuple[str, int, int], list[tuple[str, float]]] = {}

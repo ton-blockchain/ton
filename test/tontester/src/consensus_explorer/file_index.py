@@ -1,4 +1,3 @@
-import gzip
 import json
 import logging
 import sqlite3
@@ -23,9 +22,10 @@ class FileIndexCallback(Protocol):
 
 @final
 class FileIndex:
-    def __init__(self, stats_dir: Path, db_path: Path):
+    def __init__(self, stats_dir: Path, db_path: Path, sudo_helper: str | None = None):
         self._stats_dir = stats_dir
         self._db_path = db_path
+        self._sudo_helper = sudo_helper
         self._callback: FileIndexCallback | None = None
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -79,45 +79,48 @@ class FileIndex:
             self._thread.join()
             self._thread = None
 
-    @staticmethod
-    def _scan_file_for_groups(path: Path) -> set[GroupData]:
+    def _scan_file_for_groups(self, path: Path) -> set[GroupData]:
         groups: set[GroupData] = set()
         try:
-            with open_stats_file(path) as f:
-                for line in f:
-                    if not line.startswith('{"@type":"consensus.stats.events"'):
-                        continue
-                    try:
-                        parsed = Consensus_stats_events.from_json(line)
-                    except (json.decoder.JSONDecodeError, ModelError) as exc:
-                        logger.debug("Failed to parse consensus stats line in %s: %s", path, exc)
-                        continue
-                    valgroup_hash = parsed.id
-                    found_id = False
-                    min_ts = float("inf")
-                    for te in parsed.events:
-                        min_ts = min(min_ts, te.ts)
-                        if isinstance(te.event, Consensus_stats_id):
-                            groups.add(
-                                GroupInfo(
-                                    valgroup_hash=valgroup_hash,
-                                    catchain_seqno=te.event.cc_seqno,
-                                    workchain=te.event.workchain,
-                                    shard=te.event.shard,
-                                    group_start_est=min_ts,
-                                )
-                            )
-                            found_id = True
-                            break
-                    if not found_id:
+            f = open_stats_file(path)
+        except PermissionError:
+            if self._sudo_helper is None:
+                raise
+            logger.info("Permission denied for %s, retrying with sudo helper", path)
+            f = open_stats_file(path, sudo_helper=self._sudo_helper)
+        with f:
+            for line in f:
+                if not line.startswith('{"@type":"consensus.stats.events"'):
+                    continue
+                try:
+                    parsed = Consensus_stats_events.from_json(line)
+                except (json.decoder.JSONDecodeError, ModelError) as exc:
+                    logger.debug("Failed to parse consensus stats line in %s: %s", path, exc)
+                    continue
+                valgroup_hash = parsed.id
+                found_id = False
+                min_ts = float("inf")
+                for te in parsed.events:
+                    min_ts = min(min_ts, te.ts)
+                    if isinstance(te.event, Consensus_stats_id):
                         groups.add(
-                            UnnamedGroupInfo(
+                            GroupInfo(
                                 valgroup_hash=valgroup_hash,
+                                catchain_seqno=te.event.cc_seqno,
+                                workchain=te.event.workchain,
+                                shard=te.event.shard,
                                 group_start_est=min_ts,
                             )
                         )
-        except (OSError, gzip.BadGzipFile) as exc:
-            logger.warning("Failed to scan file for groups %s: %s", path, exc)
+                        found_id = True
+                        break
+                if not found_id:
+                    groups.add(
+                        UnnamedGroupInfo(
+                            valgroup_hash=valgroup_hash,
+                            group_start_est=min_ts,
+                        )
+                    )
         return groups
 
     def _index_file(
@@ -152,7 +155,11 @@ class FileIndex:
             return set()
 
         print(f"Indexing file {path} ({file_idx} out of {file_count})", flush=True)
-        groups = self._scan_file_for_groups(path)
+        try:
+            groups = self._scan_file_for_groups(path)
+        except Exception as exc:
+            logger.warning("Failed to index %s, will retry on restart: %s", path, exc)
+            return set()
 
         if existing:
             _ = cursor.execute(

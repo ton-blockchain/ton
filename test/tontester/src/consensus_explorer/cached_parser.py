@@ -12,9 +12,16 @@ from .parser.parser_session_stats import ParserSessionStats
 
 @final
 class CachedGroupParser(GroupParser, FileIndexCallback):
-    def __init__(self, file_index: FileIndex, hostname_regex: str, cache_size: int = 32):
+    def __init__(
+        self,
+        file_index: FileIndex,
+        hostname_regex: str,
+        cache_size: int = 32,
+        sudo_helper: str | None = None,
+    ):
         self._file_index = file_index
         self._hostname_regex = hostname_regex
+        self._sudo_helper = sudo_helper
         self._cache_size = cache_size
         self._cache: OrderedDict[bytes, ConsensusData] = OrderedDict()
         self._dirty_groups: set[bytes] = set()
@@ -55,6 +62,7 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
             self._hostname_regex,
             with_cache=False,
             target_group_hash=valgroup_hash,
+            sudo_helper=self._sudo_helper,
         )
         data = parser.parse()
 
