@@ -43,6 +43,14 @@ class ConsensusExplorer:
 
 def _main():
     import argparse
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        force=True,
+    )
+    logging.getLogger("consensus_explorer").setLevel(logging.INFO)
 
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)

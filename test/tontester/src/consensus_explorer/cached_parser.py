@@ -1,4 +1,5 @@
 import base64
+import logging
 import threading
 from collections import OrderedDict
 from pathlib import Path
@@ -8,6 +9,8 @@ from .file_index import FileIndex, FileIndexCallback
 from .models import ConsensusData, GroupData
 from .parser import GroupParser
 from .parser.parser_session_stats import ParserSessionStats
+
+logger = logging.getLogger(__name__)
 
 
 @final
@@ -31,6 +34,7 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
     def on_files_changed(self, changed_groups: set[bytes]) -> None:
         with self._lock:
             self._dirty_groups |= changed_groups
+        logger.info("on_files_changed: %d groups invalidated", len(changed_groups))
 
     def _resolve_name(self, valgroup_name: str) -> bytes:
         for info in self._file_index.get_all_groups():
@@ -44,6 +48,8 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
 
     @override
     def parse_group(self, valgroup_name: str) -> ConsensusData:
+        import time
+
         valgroup_hash = self._resolve_name(valgroup_name)
 
         with self._lock:
@@ -53,9 +59,19 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
             if not dirty and valgroup_hash in self._cache:
                 entry = self._cache[valgroup_hash]
                 self._cache.move_to_end(valgroup_hash)
+                logger.debug("parse_group %s: cache hit", valgroup_name)
                 return entry
 
+        logger.info(
+            "parse_group %s: cache miss (dirty=%s, cached=%s)",
+            valgroup_name,
+            dirty,
+            valgroup_hash in self._cache,
+        )
+
+        t0 = time.monotonic()
         log_paths: list[Path] = self._file_index.get_files_for_group(valgroup_hash)
+        logger.info("parse_group %s: %d files to parse", valgroup_name, len(log_paths))
 
         parser = ParserSessionStats(
             log_paths,
@@ -65,6 +81,14 @@ class CachedGroupParser(GroupParser, FileIndexCallback):
             sudo_helper=self._sudo_helper,
         )
         data = parser.parse()
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "parse_group %s: parsed in %.2fs (%d slots, %d events)",
+            valgroup_name,
+            elapsed,
+            len(data.slots),
+            len(data.events),
+        )
 
         with self._lock:
             self._cache[valgroup_hash] = data
