@@ -126,6 +126,10 @@ class FileIndex:
         path = path.resolve()
         file_name = str(path)
 
+        if path.exists() and not path.is_file():
+            logger.info("Skipping non-file path in stats dir %s", path)
+            return self._remove_file(path, conn)
+
         try:
             mtime = path.stat().st_mtime
         except FileNotFoundError as exc:
@@ -220,6 +224,7 @@ class FileIndex:
         return changed_hashes
 
     def _remove_file(self, path: Path, conn: sqlite3.Connection) -> set[bytes]:
+        print(f"Removing file {path}", flush=True)
         path = path.resolve()
         file_name = str(path)
         cursor = conn.cursor()
@@ -316,6 +321,9 @@ class FileIndex:
         changed_hashes: set[bytes] = set()
         paths = list(self._stats_dir.iterdir())
         for i, path in enumerate(paths):
+            if not path.is_file():
+                logger.info("Skipping non-file path during initial scan %s", path)
+                continue
             disk_files.add(str(path.resolve()))
             try:
                 changed_hashes |= self._index_file(path, conn, i, len(paths))
