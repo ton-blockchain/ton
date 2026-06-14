@@ -262,11 +262,14 @@ class DetailFigureBuilder:
         regular: list[tuple[str, float]] = []
         wt_real: dict[str, float] = {}
         wt_cpu: dict[str, float] = {}
+        ssc: dict[str, int] = {}
         for name, value in entries:
             if name.startswith("wt_real:"):
                 wt_real[name[8:]] = value
             elif name.startswith("wt_cpu:"):
                 wt_cpu[name[7:]] = value
+            elif name.startswith("ssc:"):
+                ssc[name[4:]] = int(value)
             else:
                 regular.append((name, value))
 
@@ -288,11 +291,24 @@ class DetailFigureBuilder:
                     assert cpu is not None
                     parts += f"<br>  {key}: -/{cpu * 1000:.3f} ms"
 
+        if ssc:
+            parts += "<br>storage_stat_cache (cnt/cells):"
+            for label in ("small", "hit", "miss"):
+                cnt = ssc.get(label)
+                cells = ssc.get(f"{label}_cells")
+                if cnt is not None and cells is not None:
+                    parts += f"<br>  {label}: {cnt}/{cells}"
+
         return parts
 
     def _event_hover_text(self, label: str, validator: int | None) -> str:
-        if label == "collation" and self._slot.time_stats:
-            return self._format_time_stats(self._slot.time_stats)
+        if label == "collation":
+            parts = ""
+            if self._slot.collate_target_slot is not None:
+                parts += f"<br>target_slot={self._slot.collate_target_slot}"
+            if self._slot.time_stats:
+                parts += self._format_time_stats(self._slot.time_stats)
+            return parts
         if (
             label == "block_validation"
             and self._slot.validation_time_stats

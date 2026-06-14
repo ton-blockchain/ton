@@ -791,6 +791,17 @@ class ParserSessionStats(GroupParser):
                                 collated = ValidatorStats_collatedBlock.from_json(line)
                                 if collated.block_id is not None:
                                     block_id_str = format_block_id(collated.block_id)
+                                    ssc_entries: list[tuple[str, float]] = []
+                                    if collated.storage_stat_cache is not None:
+                                        ssc = collated.storage_stat_cache
+                                        ssc_entries = [
+                                            ("ssc:small", float(ssc.small_cnt)),
+                                            ("ssc:small_cells", float(ssc.small_cells)),
+                                            ("ssc:hit", float(ssc.hit_cnt)),
+                                            ("ssc:hit_cells", float(ssc.hit_cells)),
+                                            ("ssc:miss", float(ssc.miss_cnt)),
+                                            ("ssc:miss_cells", float(ssc.miss_cells)),
+                                        ]
                                     time_stats_by_block[block_id_str] = (
                                         [
                                             ("total_time", collated.total_time),
@@ -800,6 +811,7 @@ class ParserSessionStats(GroupParser):
                                         + _parse_time_stats(collated.time_stats)
                                         + _parse_kv_stats(collated.work_time_real_stats, "wt_real:")
                                         + _parse_kv_stats(collated.work_time_cpu_stats, "wt_cpu:")
+                                        + ssc_entries
                                     )
                                     if (
                                         collated.block_id.workchain == -1
@@ -827,6 +839,17 @@ class ParserSessionStats(GroupParser):
                                         validated.block_id.workchain,
                                         validated.block_id.shard,
                                     )
+                                    v_ssc_entries: list[tuple[str, float]] = []
+                                    if validated.storage_stat_cache is not None:
+                                        ssc = validated.storage_stat_cache
+                                        v_ssc_entries = [
+                                            ("ssc:small", float(ssc.small_cnt)),
+                                            ("ssc:small_cells", float(ssc.small_cells)),
+                                            ("ssc:hit", float(ssc.hit_cnt)),
+                                            ("ssc:hit_cells", float(ssc.hit_cells)),
+                                            ("ssc:miss", float(ssc.miss_cnt)),
+                                            ("ssc:miss_cells", float(ssc.miss_cells)),
+                                        ]
                                     validation_ts_raw[key] = (
                                         [
                                             ("total_time", validated.total_time),
@@ -839,6 +862,7 @@ class ParserSessionStats(GroupParser):
                                             validated.work_time_real_stats, "wt_real:"
                                         )
                                         + _parse_kv_stats(validated.work_time_cpu_stats, "wt_cpu:")
+                                        + v_ssc_entries
                                     )
                             except Exception:
                                 pass
