@@ -31,9 +31,10 @@ class DashApp:
 
     def _load_group(self, group: str) -> None:
         with self._update_lock:
-            if self._current_group != group or self._builder is None:
+            data = self._parser.parse_group(group)
+            if self._current_group != group or self._builder is None or data is not self._data:
                 self._current_group = group
-                self._data = self._parser.parse_group(group)
+                self._data = data
                 self._builder = FigureBuilder(self._data)
 
     @classmethod
