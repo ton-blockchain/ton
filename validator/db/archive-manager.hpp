@@ -21,6 +21,7 @@
 #include "interfaces/persistent-state.h"
 
 #include "archive-slice.hpp"
+#include "temp-archive.hpp"
 
 namespace ton {
 
@@ -39,12 +40,12 @@ class ArchiveManager : public td::actor::Actor {
   void add_file(BlockHandle handle, FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void add_key_block_proof(BlockSeqno seqno, UnixTime ts, LogicalTime lt, FileReference ref_id, td::BufferSlice data,
                            td::Promise<td::Unit> promise);
-  void add_temp_file_short(FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise);
-  void get_handle(BlockIdExt block_id, td::Promise<BlockHandle> promise);
+  void add_temp_file_short(FileReference ref_id, td::BufferSlice data, td::Promise<> promise);
+  td::actor::Task<BlockHandle> get_handle(BlockIdExt block_id);
   void get_key_block_proof(FileReference ref_id, td::Promise<td::BufferSlice> promise);
-  void get_temp_file_short(FileReference ref_id, td::Promise<td::BufferSlice> promise);
-  void get_file_short(FileReference ref_id, td::Promise<td::BufferSlice> promise);
-  void get_file(ConstBlockHandle handle, FileReference ref_id, td::Promise<td::BufferSlice> promise);
+  td::actor::Task<td::BufferSlice> get_temp_file_short(FileReference ref_id);
+  td::actor::Task<td::BufferSlice> get_file_short(FileReference ref_id);
+  td::actor::Task<td::BufferSlice> get_file(ConstBlockHandle handle, FileReference ref_id);
 
   void add_zero_state(BlockIdExt block_id, td::BufferSlice data, td::Promise<td::Unit> promise);
   void add_persistent_state(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
@@ -183,9 +184,9 @@ class ArchiveManager : public td::actor::Actor {
   };
   FileMap files_, key_files_, temp_files_;
   td::actor::ActorOwn<ArchiveLru> archive_lru_;
-  BlockSeqno finalized_up_to_{0};
   bool async_mode_ = true;
   td::uint32 cur_shard_split_depth_ = 0;
+  td::actor::ActorOwn<TempArchive> temp_archive_;
 
   DbStatistics statistics_;
 
@@ -203,9 +204,6 @@ class ArchiveManager : public td::actor::Actor {
   td::actor::ActorOwn<ArchiveSlice> create_archive_slice(const PackageId &id, td::uint32 shard_split_depth);
   void delete_package(PackageId seqno, td::Promise<td::Unit> promise);
   void deleted_package(PackageId seqno, td::Promise<td::Unit> promise);
-  void get_handle_cont(BlockIdExt block_id, PackageId id, td::Promise<BlockHandle> promise);
-  void get_handle_finish(BlockHandle handle, td::Promise<BlockHandle> promise);
-  void get_temp_file_short_cont(FileReference ref_id, PackageId idx, td::Promise<td::BufferSlice> promise);
 
   td::Result<const FileDescription *> get_file_desc(ShardIdFull shard, PackageId id, BlockSeqno seqno, UnixTime ts,
                                                     LogicalTime lt, bool force);
@@ -250,6 +248,7 @@ class ArchiveManager : public td::actor::Actor {
   static constexpr td::uint32 TEMP_PACKAGES_PERIOD = 3600;
   static constexpr td::uint32 TEMP_PACKAGES_TTL = 3600;
   static constexpr td::uint32 TEMP_PACKAGES_HARD_TTL = 3600 * 4;
+  static constexpr td::uint32 DB_VERSION = 1;
 };
 
 }  // namespace validator

@@ -93,11 +93,10 @@ void ArchiveManager::update_handle(BlockHandle handle, td::Promise<td::Unit> pro
       return;
     }
     f = F.move_as_ok();
+    td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::update_handle, std::move(handle), std::move(promise));
   } else {
-    TRY_RESULT_PROMISE_ASSIGN(promise, f,
-                              get_file_desc(handle->id().shard_full(), get_temp_package_id(), 0, 0, 0, true));
+    td::actor::send_closure(temp_archive_, &TempArchive::update_handle, std::move(handle), std::move(promise));
   }
-  td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::update_handle, std::move(handle), std::move(promise));
 }
 
 td::actor::Task<> ArchiveManager::move_block_to_archive(BlockHandle handle,
@@ -127,8 +126,18 @@ td::actor::Task<> ArchiveManager::move_block_to_archive(BlockHandle handle,
     }
   }
 
+  std::vector<FileReference> file_refs;
+  file_refs.reserve(files.size());
+  for (auto &[file_ref, _] : files) {
+    file_refs.push_back(file_ref);
+  }
   tasks.push_back(td::actor::ask(f->file_actor_id(), &ArchiveSlice::add_block, handle, std::move(files)));
   co_await td::actor::all(std::move(tasks));
+
+  td::actor::send_closure(temp_archive_, &TempArchive::remove_handle, handle->id());
+  for (auto &file_ref : file_refs) {
+    td::actor::send_closure(temp_archive_, &TempArchive::remove_file, std::move(file_ref));
+  }
   co_return {};
 }
 
@@ -144,11 +153,7 @@ void ArchiveManager::add_file(BlockHandle handle, FileReference ref_id, td::Buff
     td::MultiPromise mp;
     auto ig = mp.init_guard();
     ig.add_promise(std::move(promise));
-    auto f1 = get_file_desc(handle->id().shard_full(), get_temp_package_id(), 0, 0, 0, true);
-    if (f1.is_ok()) {
-      td::actor::send_closure(f1.ok()->file_actor_id(), &ArchiveSlice::add_file, nullptr, std::move(ref_id),
-                              data.clone(), ig.get_promise());
-    }
+    td::actor::send_closure(temp_archive_, &TempArchive::add_file, ref_id, data.clone(), ig.get_promise());
     if (copy_to_key) {
       auto f2 = get_file_desc(handle->id().shard_full(), get_key_package_id(handle->masterchain_ref_block()),
                               handle->id().seqno(), handle->unix_time(), handle->logical_time(), true);
@@ -189,67 +194,54 @@ void ArchiveManager::add_key_block_proof(UnixTime ts, BlockSeqno seqno, LogicalT
                           std::move(promise));
 }
 
-void ArchiveManager::add_temp_file_short(FileReference ref_id, td::BufferSlice data, td::Promise<td::Unit> promise) {
-  TRY_RESULT_PROMISE(promise, f, get_file_desc(ref_id.shard(), get_temp_package_id(), 0, 0, 0, true));
-  td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::add_file, nullptr, std::move(ref_id), std::move(data),
-                          std::move(promise));
+void ArchiveManager::add_temp_file_short(FileReference ref_id, td::BufferSlice data, td::Promise<> promise) {
+  td::actor::send_closure(temp_archive_, &TempArchive::add_file, std::move(ref_id), std::move(data));
+  promise.set_value(td::Unit{});
 }
 
-void ArchiveManager::get_handle(BlockIdExt block_id, td::Promise<BlockHandle> promise) {
+td::actor::Task<BlockHandle> ArchiveManager::get_handle(BlockIdExt block_id) {
   auto f = get_file_desc_by_seqno(block_id.shard_full(), block_id.seqno(), false);
   if (f) {
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), block_id, idx = get_max_temp_file_desc_idx(),
-                                         promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
-      if (R.is_ok()) {
-        promise.set_value(R.move_as_ok());
-      } else {
-        td::actor::send_closure(SelfId, &ArchiveManager::get_handle_cont, block_id, idx, std::move(promise));
-      }
-    });
-    td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_handle, block_id, std::move(P));
+    auto result = co_await td::actor::ask(f->file_actor_id(), &ArchiveSlice::get_handle, block_id).wrap();
+    if (result.is_ok()) {
+      co_return result.move_as_ok();
+    }
+  }
+  BlockHandle handle;
+  auto result = co_await td::actor::ask(temp_archive_, &TempArchive::get_handle, block_id).wrap();
+  if (result.is_ok()) {
+    handle = result.move_as_ok();
   } else {
-    get_handle_cont(block_id, get_max_temp_file_desc_idx(), std::move(promise));
-  }
-}
-
-void ArchiveManager::get_handle_cont(BlockIdExt block_id, PackageId idx, td::Promise<BlockHandle> promise) {
-  if (idx.is_empty()) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "block handle not in db"));
-    return;
-  }
-  auto f = get_temp_file_desc_by_idx(idx);
-  if (!f) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "block handle not in db"));
-    return;
-  }
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), block_id, idx = get_prev_temp_file_desc_idx(idx),
-                                       promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
-    if (R.is_ok()) {
-      td::actor::send_closure(SelfId, &ArchiveManager::get_handle_finish, R.move_as_ok(), std::move(promise));
-    } else {
-      td::actor::send_closure(SelfId, &ArchiveManager::get_handle_cont, block_id, idx, std::move(promise));
+    PackageId idx = get_max_temp_file_desc_idx();
+    while (true) {
+      if (idx.is_empty()) {
+        co_return td::Status::Error(ErrorCode::notready, "block handle not in db");
+      }
+      auto f = get_temp_file_desc_by_idx(idx);
+      if (!f) {
+        co_return td::Status::Error(ErrorCode::notready, "block handle not in db");
+      }
+      auto result = co_await td::actor::ask(f->file_actor_id(), &ArchiveSlice::get_handle, block_id).wrap();
+      if (result.is_ok()) {
+        handle = result.move_as_ok();
+        break;
+      }
+      idx = get_prev_temp_file_desc_idx(idx);
     }
-  });
-  td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_handle, block_id, std::move(P));
-}
-
-void ArchiveManager::get_handle_finish(BlockHandle handle, td::Promise<BlockHandle> promise) {
-  auto f = get_file_desc_by_seqno(handle->id().shard_full(), handle->id().seqno(), false);
-  if (!f) {
-    promise.set_value(std::move(handle));
-    return;
   }
-  auto P = td::PromiseCreator::lambda([handle, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
-    if (R.is_ok()) {
-      promise.set_value(R.move_as_ok());
-    } else {
-      promise.set_value(std::move(handle));
-    }
-  });
-  td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_handle, handle->id(), std::move(P));
+
+  f = get_file_desc_by_seqno(handle->id().shard_full(), handle->id().seqno(), false);
+  if (!f) {
+    co_return handle;
+  }
+  result = co_await td::actor::ask(f->file_actor_id(), &ArchiveSlice::get_handle, handle->id()).wrap();
+  if (result.is_ok()) {
+    co_return result.move_as_ok();
+  }
+  co_return handle;
 }
 
-void ArchiveManager::get_file_short(FileReference ref_id, td::Promise<td::BufferSlice> promise) {
+td::actor::Task<td::BufferSlice> ArchiveManager::get_file_short(FileReference ref_id) {
   bool search_in_key = false;
   BlockIdExt block_id;
   ref_id.ref().visit(td::overloaded(
@@ -265,19 +257,13 @@ void ArchiveManager::get_file_short(FileReference ref_id, td::Promise<td::Buffer
   if (search_in_key) {
     auto f = get_file_desc_by_seqno(block_id.shard_full(), block_id.seqno(), true);
     if (f) {
-      auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), ref_id,
-                                           promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-        if (R.is_ok()) {
-          promise.set_value(R.move_as_ok());
-        } else {
-          td::actor::send_closure(SelfId, &ArchiveManager::get_temp_file_short, std::move(ref_id), std::move(promise));
-        }
-      });
-      td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_file, nullptr, ref_id, std::move(P));
-      return;
+      auto result = co_await td::actor::ask(f->file_actor_id(), &ArchiveSlice::get_file, nullptr, ref_id).wrap();
+      if (result.is_ok()) {
+        co_return result.move_as_ok();
+      }
     }
   }
-  get_temp_file_short(std::move(ref_id), std::move(promise));
+  co_return co_await get_temp_file_short(std::move(ref_id));
 }
 
 void ArchiveManager::get_key_block_proof(FileReference ref_id, td::Promise<td::BufferSlice> promise) {
@@ -306,53 +292,42 @@ void ArchiveManager::get_key_block_proof(FileReference ref_id, td::Promise<td::B
   }
 }
 
-void ArchiveManager::get_temp_file_short(FileReference ref_id, td::Promise<td::BufferSlice> promise) {
-  get_temp_file_short_cont(std::move(ref_id), get_max_temp_file_desc_idx(), std::move(promise));
-}
-
-void ArchiveManager::get_temp_file_short_cont(FileReference ref_id, PackageId idx,
-                                              td::Promise<td::BufferSlice> promise) {
-  auto f = get_temp_file_desc_by_idx(idx);
-  if (!f) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, PSTRING() << "file not in db: " << ref_id.filename()));
-    return;
+td::actor::Task<td::BufferSlice> ArchiveManager::get_temp_file_short(FileReference ref_id) {
+  auto result = co_await td::actor::ask(temp_archive_, &TempArchive::get_file, ref_id).wrap();
+  if (result.is_ok()) {
+    co_return result.move_as_ok();
   }
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), ref_id, idx = get_prev_temp_file_desc_idx(idx),
-                                       promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-    if (R.is_ok()) {
-      promise.set_value(R.move_as_ok());
-    } else {
-      td::actor::send_closure(SelfId, &ArchiveManager::get_temp_file_short_cont, std::move(ref_id), idx,
-                              std::move(promise));
+  PackageId idx = get_max_temp_file_desc_idx();
+  while (true) {
+    auto f = get_temp_file_desc_by_idx(idx);
+    if (!f) {
+      co_return td::Status::Error(ErrorCode::notready, PSTRING() << "file not in db: " << ref_id.filename());
     }
-  });
-  td::actor::send_closure(f->file_actor_id(), &ArchiveSlice::get_file, nullptr, std::move(ref_id), std::move(P));
+    auto result = co_await td::actor::ask(f->file_actor_id(), &ArchiveSlice::get_file, nullptr, ref_id).wrap();
+    if (result.is_ok()) {
+      co_return result.move_as_ok();
+    }
+    idx = get_prev_temp_file_desc_idx(idx);
+  }
 }
 
-void ArchiveManager::get_file(ConstBlockHandle handle, FileReference ref_id, td::Promise<td::BufferSlice> promise) {
+td::actor::Task<td::BufferSlice> ArchiveManager::get_file(ConstBlockHandle handle, FileReference ref_id) {
   if (handle->moved_to_archive()) {
     auto f = get_file_desc(handle->id().shard_full(), get_package_id(handle->masterchain_ref_block()), 0, 0, 0, false);
     if (f.is_ok()) {
-      td::actor::send_closure(f.ok()->file_actor_id(), &ArchiveSlice::get_file, std::move(handle), std::move(ref_id),
-                              std::move(promise));
-      return;
+      co_return co_await td::actor::ask(f.ok()->file_actor_id(), &ArchiveSlice::get_file, std::move(handle),
+                                        std::move(ref_id));
     }
   }
-  if (handle->handle_moved_to_archive()) {
+  auto R = co_await get_temp_file_short(ref_id).wrap();
+  if (R.is_error() && handle->handle_moved_to_archive()) {
     auto f = get_file_desc(handle->id().shard_full(), get_package_id(handle->masterchain_ref_block()), 0, 0, 0, false);
     if (f.is_ok()) {
-      promise = [=, promise = std::move(promise),
-                 file_actor = f.ok()->file_actor_id()](td::Result<td::BufferSlice> R) mutable {
-        if (R.is_ok()) {
-          promise.set_value(R.move_as_ok());
-          return;
-        }
-        td::actor::send_closure(file_actor, &ArchiveSlice::get_file, std::move(handle), std::move(ref_id),
-                                std::move(promise));
-      };
+      co_return co_await td::actor::ask(f.ok()->file_actor_id(), &ArchiveSlice::get_file, std::move(handle),
+                                        std::move(ref_id));
     }
   }
-  get_temp_file_short(std::move(ref_id), std::move(promise));
+  co_return std::move(R);
 }
 
 void ArchiveManager::register_perm_state(FileReferenceShort id) {
@@ -941,7 +916,29 @@ void ArchiveManager::start_up() {
   index_ = std::make_shared<td::RocksDb>(
       td::RocksDb::open(db_root_ + "/files/globalindex", std::move(db_options)).move_as_ok());
   std::string value;
-  auto v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
+
+  td::uint32 stored_version;
+  auto v = index_->get("db_version", value);
+  v.ensure();
+  if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+    stored_version = td::to_integer_safe<td::uint32>(value).ensure().move_as_ok();
+  } else {
+    stored_version = 0;
+  }
+  LOG_CHECK(stored_version <= DB_VERSION) << "Outdated node software: stored archive db version is " << stored_version
+                                          << ", supported version is " << DB_VERSION;
+  if (stored_version != DB_VERSION) {
+    index_->begin_transaction().ensure();
+    if (stored_version == 0) {
+      // Make sure that node cannot start after downgrade to an older version
+      index_->set("finalizedupto", "X").ensure();
+    }
+    index_->set("db_version", td::to_string(DB_VERSION)).ensure();
+    index_->commit_transaction().ensure();
+  }
+
+  temp_archive_ = td::actor::create_actor<TempArchive>("temp-archive", db_root_ + "/files/temp-archive/", statistics_);
+  v = index_->get(create_serialize_tl_object<ton_api::db_files_index_key>().as_slice(), value);
   v.ensure();
   if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
     auto R = fetch_tl_object<ton_api::db_files_index_value>(value, true);
@@ -957,14 +954,6 @@ void ArchiveManager::start_up() {
     for (auto &d : x->temp_packages_) {
       load_package(PackageId{static_cast<td::uint32>(d), false, true});
     }
-  }
-
-  v = index_->get("finalizedupto", value);
-  v.ensure();
-  if (v.move_as_ok() == td::KeyValue::GetStatus::Ok) {
-    auto R = td::to_integer_safe<td::uint32>(value);
-    R.ensure();
-    finalized_up_to_ = R.move_as_ok();
   }
 
   td::WalkPath::run(db_root_ + "/archive/states/", [&](td::CSlice fname, td::WalkPath::Type t) -> void {
@@ -1060,6 +1049,7 @@ void ArchiveManager::run_gc(td::Ref<MasterchainState> shard_client_state, UnixTi
           });
     }
   }
+  td::actor::send_closure(temp_archive_, &TempArchive::gc, shard_client_state->get_unix_time() - TEMP_PACKAGES_TTL);
   if (to_delete.size() > 1) {
     to_delete.pop_back();
     for (auto &x : to_delete) {
@@ -1318,6 +1308,7 @@ void ArchiveManager::iterate_temp_block_handles(std::function<void(const BlockHa
     }
     td::actor::send_closure(file.file_actor_id(), &ArchiveSlice::iterate_block_handles, f);
   }
+  td::actor::send_closure(temp_archive_, &TempArchive::iterate_block_handles, f);
 }
 
 void ArchiveManager::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {

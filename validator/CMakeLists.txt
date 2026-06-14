@@ -28,6 +28,8 @@ set(VALIDATOR_DB_SOURCE
 
   db/package.hpp
   db/package.cpp
+  db/temp-archive.cpp
+  db/temp-archive.hpp
 )
 
 set(VALIDATOR_HEADERS
