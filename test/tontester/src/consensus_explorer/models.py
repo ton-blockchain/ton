@@ -55,6 +55,9 @@ class EventData:
     t_ms: float
     validator: int | None = None
     t1_ms: float | None = None
+    source_valgroup_id: str | None = None
+    source_slot: int | None = None
+    source_block_id: str | None = None
 
     def get_color(self) -> str | None:
         from .visualizer.style import COLOR_MAP

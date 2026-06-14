@@ -2,6 +2,7 @@ SYMBOL_MAP = {
     "estimate": "circle",
     "reached": "x",
     "observed": "diamond",
+    "crosslink": "triangle-right",
 }
 
 COLOR_MAP = {
@@ -25,4 +26,6 @@ COLOR_MAP = {
     "notarize_vote": "#d62728",
     "finalize_vote": "#B3BD44",
     "skip_vote": "#26C485",
+    "mc_ref_finalized": "#9467bd",
+    "mc_ref_collate_started": "#e377c2",
 }

@@ -1,4 +1,5 @@
 import base64
+import bisect
 import dataclasses
 import gzip
 import io
@@ -141,6 +142,9 @@ class ParserSessionStats(GroupParser):
         self._cache_result: ConsensusData | None = None
         self._cache_lines: dict[Path, int] = {}
         self._cache_mtime: dict[Path, float] = {}
+        self._raw_mc_shard_info: dict[
+            Path, dict[str, tuple[dict[tuple[int, int], int], float]]
+        ] = {}
 
     def _get_create_slot(self, slot: int, v_group: str) -> SlotData:
         slot_id = (v_group, slot)
@@ -499,6 +503,122 @@ class ParserSessionStats(GroupParser):
                     )
 
     @staticmethod
+    def _parse_block_id_parts(block_id_ext: str) -> tuple[int, int, int] | None:
+        try:
+            id_part = block_id_ext.split(":")[0].strip("()")
+            wc_str, shard_hex, seqno_str = id_part.split(",")
+            return int(wc_str), int(shard_hex, 16), int(seqno_str)
+        except ValueError, IndexError:
+            return None
+
+    def _add_cross_shard_markers(
+        self,
+        mc_shard_info: dict[str, tuple[dict[tuple[int, int], int], float]],
+    ) -> None:
+        if not mc_shard_info:
+            return
+
+        # Separate MC and shard slots
+        mc_block_to_slot: dict[str, tuple[str, int]] = {}
+        shard_slot_list: list[tuple[int, int, int, tuple[str, int]]] = []
+
+        for slot_id, slot_data in self._slots.items():
+            if not slot_data.block_id_ext or slot_data.block_id_ext == "empty":
+                continue
+            parsed = self._parse_block_id_parts(slot_data.block_id_ext)
+            if parsed is None:
+                continue
+            wc = parsed[0]
+            if wc == -1:
+                mc_block_to_slot[slot_data.block_id_ext] = slot_id
+            else:
+                shard_slot_list.append((parsed[0], parsed[1], parsed[2], slot_id))
+
+        if not shard_slot_list:
+            return
+
+        # Sort MC shard configs by MC seqno, build per-shard lookup ranges
+        mc_sorted: list[tuple[int, str]] = []
+        for mc_bid in mc_shard_info:
+            parsed = self._parse_block_id_parts(mc_bid)
+            if parsed is not None:
+                mc_sorted.append((parsed[2], mc_bid))
+        mc_sorted.sort()
+
+        # Per shard: sorted list of (top_seqno, mc_block_id_ext)
+        shard_ranges: dict[tuple[int, int], list[tuple[int, str]]] = {}
+        for _, mc_bid in mc_sorted:
+            config = mc_shard_info[mc_bid][0]
+            for shard_key, shard_seqno in config.items():
+                shard_ranges.setdefault(shard_key, []).append((shard_seqno, mc_bid))
+
+        # Precompute top_seqnos for bisect
+        shard_top_seqnos: dict[tuple[int, int], list[int]] = {
+            k: [r[0] for r in v] for k, v in shard_ranges.items()
+        }
+
+        # Collect MC finalize_reached and collate start times
+        mc_finalize_reached: dict[tuple[str, int], float] = {}
+        mc_collate_start: dict[tuple[str, int], float] = {}
+        for ev in self._events:
+            key = (ev.valgroup_id, ev.slot)
+            if ev.label == "finalize_reached" and key not in mc_finalize_reached:
+                mc_finalize_reached[key] = ev.t_ms
+            if ev.label == "collate" and key not in mc_collate_start:
+                mc_collate_start[key] = ev.t_ms
+
+        for wc, shard, seqno, slot_id in shard_slot_list:
+            top_seqnos = shard_top_seqnos.get((wc, shard))
+            if top_seqnos is None:
+                continue
+            idx = bisect.bisect_left(top_seqnos, seqno)
+            if idx >= len(top_seqnos):
+                continue
+            if top_seqnos[idx] != seqno:
+                continue
+
+            mc_bid = shard_ranges[(wc, shard)][idx][1]
+            mc_slot_id = mc_block_to_slot.get(mc_bid)
+            if mc_slot_id is None:
+                continue
+
+            slot_data = self._slots[slot_id]
+            mc_slot_data = self._slots[mc_slot_id]
+            source_vg = mc_slot_data.valgroup_id
+            source_slot_num = mc_slot_data.slot
+            source_bid = mc_slot_data.block_id_ext
+
+            finalize_t = mc_finalize_reached.get(mc_slot_id)
+            if finalize_t is not None:
+                self._events.append(
+                    EventData(
+                        valgroup_id=slot_data.valgroup_id,
+                        slot=slot_data.slot,
+                        label="mc_ref_finalized",
+                        kind="crosslink",
+                        t_ms=finalize_t,
+                        source_valgroup_id=source_vg,
+                        source_slot=source_slot_num,
+                        source_block_id=source_bid,
+                    )
+                )
+
+            collate_t = mc_collate_start.get(mc_slot_id)
+            if collate_t is not None:
+                self._events.append(
+                    EventData(
+                        valgroup_id=slot_data.valgroup_id,
+                        slot=slot_data.slot,
+                        label="mc_ref_collate_started",
+                        kind="crosslink",
+                        t_ms=collate_t,
+                        source_valgroup_id=source_vg,
+                        source_slot=source_slot_num,
+                        source_block_id=source_bid,
+                    )
+                )
+
+    @staticmethod
     def _process_vote_threshold(
         votes: list[VoteData],
         weight_threshold: int,
@@ -602,6 +722,7 @@ class ParserSessionStats(GroupParser):
         all_time_stats: dict[str, list[tuple[str, float]]] = {}
         # hostname -> { (block_id_str, workchain, shard): time_stats }
         host_validation_ts: dict[str, dict[tuple[str, int, int], list[tuple[str, float]]]] = {}
+        all_mc_shard_info: dict[str, tuple[dict[tuple[int, int], int], float]] = {}
 
         for log_file in self._logs_path:
             hostname = self._extract_hostname(log_file)
@@ -610,6 +731,7 @@ class ParserSessionStats(GroupParser):
                     events_by_groups: dict[bytes, list[Consensus_stats_timestampedEvent]] = {}
                     time_stats_by_block: dict[str, list[tuple[str, float]]] = {}
                     validation_ts_raw: dict[tuple[str, int, int], list[tuple[str, float]]] = {}
+                    mc_shard_info: dict[str, tuple[dict[tuple[int, int], int], float]] = {}
                     start_line = 0
                     if self.with_cache and log_file in self._cache_lines:
                         start_line = self._cache_lines[log_file]
@@ -641,6 +763,20 @@ class ParserSessionStats(GroupParser):
                                         + _parse_kv_stats(collated.work_time_real_stats, "wt_real:")
                                         + _parse_kv_stats(collated.work_time_cpu_stats, "wt_cpu:")
                                     )
+                                    if (
+                                        collated.block_id.workchain == -1
+                                        and collated.block_stats is not None
+                                        and collated.block_stats.shard_configuration
+                                    ):
+                                        sc: dict[tuple[int, int], int] = {}
+                                        for sb in collated.block_stats.shard_configuration:
+                                            sc[(sb.workchain, sb.shard & 0xFFFFFFFFFFFFFFFF)] = (
+                                                sb.seqno
+                                            )
+                                        mc_shard_info[block_id_str] = (
+                                            sc,
+                                            (collated.collated_at - collated.total_time) * 1000,
+                                        )
                             except Exception:
                                 pass
                         elif line.startswith('{"@type":"validatorStats.validatedBlock"'):
@@ -686,8 +822,13 @@ class ParserSessionStats(GroupParser):
                         old_val_ts = self._raw_validation_time_stats.get(log_file, {})
                         validation_ts_raw = {**old_val_ts, **validation_ts_raw}
                         self._raw_validation_time_stats[log_file] = validation_ts_raw
+                        # merge old mc shard info with new ones
+                        old_mc_info = self._raw_mc_shard_info.get(log_file, {})
+                        mc_shard_info = {**old_mc_info, **mc_shard_info}
+                        self._raw_mc_shard_info[log_file] = mc_shard_info
 
                     all_time_stats.update(time_stats_by_block)
+                    all_mc_shard_info.update(mc_shard_info)
                     host_val = host_validation_ts.setdefault(hostname, {})
                     host_val.update(validation_ts_raw)
                     host_groups = merged.setdefault(hostname, {})
@@ -726,6 +867,7 @@ class ParserSessionStats(GroupParser):
 
         self._infer_slot_phases()
         self._infer_slot_events()
+        self._add_cross_shard_markers(all_mc_shard_info)
 
         result = ConsensusData(
             groups=list(groups.values()), slots=list(self._slots.values()), events=self._events

@@ -72,6 +72,18 @@ class DataFilter:
         return result
 
 
+def _format_source(e: EventData) -> str:
+    if e.source_valgroup_id is None:
+        return ""
+    parts = f"<br>source_valgroup={e.source_valgroup_id}"
+    if e.source_slot is not None:
+        parts += f"<br>source_slot={e.source_slot}"
+    if e.source_block_id is not None:
+        bid = e.source_block_id.split(":")[0] if e.source_block_id else None
+        parts += f"<br>source_block={bid}"
+    return parts
+
+
 @final
 class SummaryFigureBuilder:
     def __init__(self, valgroup_id: str, slot_dict: dict[int, SlotData]):
@@ -145,10 +157,11 @@ class SummaryFigureBuilder:
                             e.slot,
                             to_datetime(e.t_ms).strftime("%H:%M:%S.%f"),
                             self._slot_dict[e.slot].block_id(),
+                            _format_source(e),
                         ]
                         for e in events
                     ],
-                    hovertemplate=f"valgroup={self._valgroup_id}<br>slot=%{{customdata[1]}}<br>marker={label}<br>t=%{{customdata[2]}}<br>block_id=%{{customdata[3]}}<extra></extra>",
+                    hovertemplate=f"valgroup={self._valgroup_id}<br>slot=%{{customdata[1]}}<br>marker={label}<br>t=%{{customdata[2]}}<br>block_id=%{{customdata[3]}}%{{customdata[4]}}<extra></extra>",
                 )
             )
 
@@ -435,7 +448,7 @@ class FigureBuilder:
             valgroup_id=valgroup_id,
             slots=slot_set,
             has_validator=False,
-            kinds={"estimate", "observed"},
+            kinds={"estimate", "observed", "crosslink"},
         )
 
         builder = SummaryFigureBuilder(valgroup_id, slot_dict)
