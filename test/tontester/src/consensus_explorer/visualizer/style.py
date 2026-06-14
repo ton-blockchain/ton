@@ -12,6 +12,8 @@ COLOR_MAP = {
     "notarize_reached": "#d62728",
     "finalize_reached": "#B3BD44",
     "collate": "lightblue",
+    "finalize": "#DD6046",
+    "collation_total_time": "rgba(25, 25, 112, 0.6)",
     "collation": "lightblue",
     "notarize": "cornflowerblue",
     "block_validation": "cornflowerblue",

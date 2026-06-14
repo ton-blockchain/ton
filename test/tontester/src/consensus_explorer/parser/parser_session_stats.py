@@ -410,6 +410,17 @@ class ParserSessionStats(GroupParser):
                         t1_ms=collate_end,
                     )
                 )
+                if slot_data.time_stats:
+                    self._events.append(
+                        EventData(
+                            valgroup_id=slot_data.valgroup_id,
+                            slot=slot_data.slot,
+                            label="collation_total_time",
+                            kind="phase",
+                            t_ms=collate_start,
+                            t1_ms=collate_start + slot_data.time_stats[0][1] * 1000,
+                        )
+                    )
             val_total = self._total_validators.get(slot_id[0])
             val_has = len(self._seen_validators.get(slot_id[0], set()))
             events_min_observed: dict[str, float | None] = {
@@ -707,14 +718,14 @@ class ParserSessionStats(GroupParser):
                         if blk_wc == wc and blk_shard == shard:
                             all_validation_time_stats.setdefault(bid, {})[v_id] = ts
 
-        self._infer_slot_phases()
-        self._infer_slot_events()
-
         for slot_data in self._slots.values():
             if slot_data.block_id_ext and slot_data.block_id_ext in all_time_stats:
                 slot_data.time_stats = all_time_stats[slot_data.block_id_ext]
             if slot_data.block_id_ext and slot_data.block_id_ext in all_validation_time_stats:
                 slot_data.validation_time_stats = all_validation_time_stats[slot_data.block_id_ext]
+
+        self._infer_slot_phases()
+        self._infer_slot_events()
 
         result = ConsensusData(
             groups=list(groups.values()), slots=list(self._slots.values()), events=self._events
