@@ -40,6 +40,7 @@ class SlotData:
     parent_block: str | None
     collator: int | str | None
     time_stats: list[tuple[str, float]] | None = None
+    validation_time_stats: dict[int, list[tuple[str, float]]] | None = None
 
     def block_id(self) -> str | None:
         return self.block_id_ext.split(":")[0] if self.block_id_ext else None
