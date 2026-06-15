@@ -349,7 +349,8 @@ td::Status MasterchainStateQ::mc_reinit() {
   auto res = block::ConfigInfo::extract_config(
       root_cell(), blkid,
       block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet | block::ConfigInfo::needShardHashes |
-          block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needWorkchainInfo);
+          block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needWorkchainInfo |
+          block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc);
   cur_validators_.reset();
   next_validators_.reset();
   if (res.is_error()) {
