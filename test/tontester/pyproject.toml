@@ -4,11 +4,13 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [
     "dash",
+    "flask",
     "plotly",
     "pytoniq-core",
-    "watchfiles",
     "requests",
+    "watchfiles",
 ]
 
 [project.scripts]
 consensus_explorer = "consensus_explorer.explorer:_main"
+leader_stats = "consensus_explorer.leader_stats:_main"
