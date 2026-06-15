@@ -338,7 +338,7 @@ void FullNodeShardImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::tonNod
                                       td::Promise<td::BufferSlice> promise) {
   BlockIdExt block_id = create_block_id(query.prev_block_);
   VLOG(full_node, DEBUG) << "Got query downloadNextBlocksFull " << block_id << ", max_blocks=" << query.max_blocks_
-                        << " from " << src;
+                         << " from " << src;
   td::actor::create_actor<NextBlocksFullSender>(PSTRING() << "sender.nexts" << block_id.id, block_id, query.max_blocks_,
                                                 validator_manager_, std::move(promise))
       .release();
