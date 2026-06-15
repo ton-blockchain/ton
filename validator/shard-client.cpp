@@ -85,7 +85,6 @@ td::actor::Task<> ShardClient::run() {
 
   while (true) {
     if (!masterchain_block_handle_->inited_next_left()) {
-      auto [task, promise] = td::actor::StartedTask<>::make_bridge();
       co_await wait();
       continue;
     }

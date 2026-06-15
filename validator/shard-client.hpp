@@ -50,10 +50,10 @@ class ShardClient : public td::actor::Actor {
   td::actor::ActorId<ValidatorManager> manager_;
   td::Promise<> initialize_promise_;
 
-  td::actor::Task<> wait() {
+  td::actor::StartedTask<> wait() {
     auto [task, promise] = td::actor::StartedTask<>::make_bridge();
     waiters_.push_back(std::move(promise));
-    co_return co_await std::move(task);
+    return std::move(task);
   }
 
   void notify() {
