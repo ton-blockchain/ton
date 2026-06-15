@@ -5252,8 +5252,8 @@ td::Status TonlibClient::do_request(const tonlib_api::smc_getLibrariesExt& reque
         });
   }
 
-  ig.add_promise(promise.wrap([self = this, libs = std::move(request_libs)](td::Unit&&)
-                                  -> td::Result<object_ptr<tonlib_api::smc_libraryResultExt>> {
+  ig.add_promise(promise.wrap([self = this, libs = std::move(request_libs)](
+                                  td::Unit&&) -> td::Result<object_ptr<tonlib_api::smc_libraryResultExt>> {
     vm::Dictionary dict{256};
     std::vector<td::Bits256> libs_ok, libs_not_found;
     for (const auto& h : libs) {
