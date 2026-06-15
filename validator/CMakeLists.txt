@@ -70,6 +70,7 @@ set(VALIDATOR_HEADERS
   validate-broadcast.hpp
   validator-group.hpp
   validator-options.hpp
+  validator-registry-watcher.hpp
   validator.h
 )
 set(VALIDATOR_SOURCE
@@ -84,6 +85,7 @@ set(VALIDATOR_SOURCE
   storage-stat-cache.cpp
   shard-block-verifier.cpp
   shard-block-retainer.cpp
+  validator-registry-watcher.cpp
   impl/applied-ext-message-cleanup.cpp
 
   manager.cpp

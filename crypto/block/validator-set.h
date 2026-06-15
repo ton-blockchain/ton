@@ -27,6 +27,7 @@ struct TotalValidatorSet;
 class ValidatorSet : public td::CntObject {
  public:
   const ton::ValidatorDescr* get_validator(const ton::NodeIdShort& id) const;
+  std::pair<const ton::ValidatorDescr*, td::uint32> get_validator_with_idx(const ton::NodeIdShort& id) const;
   bool is_validator(ton::NodeIdShort id) const;
   ton::CatchainSeqno get_catchain_seqno() const {
     return cc_seqno_;
@@ -39,6 +40,9 @@ class ValidatorSet : public td::CntObject {
   }
   ton::ValidatorWeight get_total_weight() const {
     return total_weight_;
+  }
+  size_t size() const {
+    return ids_.size();
   }
   std::vector<ton::ValidatorDescr> export_vector() const;
   ValidatorSet* make_copy() const override;
