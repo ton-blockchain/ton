@@ -1,13 +1,20 @@
+import asyncio
+import json
 import threading
 from datetime import datetime, timezone
-from typing import cast, final
+from typing import Callable, cast, final
 from urllib.parse import parse_qs, urlencode
 
 import plotly.graph_objects as go  # pyright: ignore[reportMissingTypeStubs]
 from dash import Dash, Input, NoUpdate, Output, State, callback_context, dcc, html, no_update
+from dash.development.base_component import Component
 from dash.exceptions import PreventUpdate
+from tonapi.ton_api import Liteclient_config_global
+from tonapi.tonlib_api import Ton_blockIdExt
 
-from ..models import ConsensusData, GroupData, SlotData
+from tonlib import TonlibCDLL, TonlibClient
+
+from ..models import ConsensusData, GroupData, GroupInfo, SlotData, UnnamedGroupInfo
 from ..parser import GroupParser
 from ..validator_set_info import ValidatorSetInfoProvider
 from .figure_builder import FigureBuilder
@@ -20,6 +27,9 @@ class DashApp:
         parser: GroupParser,
         vset_info_provider: ValidatorSetInfoProvider | None = None,
         web_root: str = "/",
+        tonlib: TonlibCDLL | None = None,
+        tonlib_config: Liteclient_config_global | None = None,
+        block_explorer_url: str = "",
     ):
         self._parser = parser
         self._vset_provider = vset_info_provider
@@ -28,12 +38,27 @@ class DashApp:
         self._builder: FigureBuilder | None = None
         self._app: Dash = Dash(__name__, url_base_pathname=web_root)
         self._update_lock = threading.Lock()
+        self._tonlib_factory = self._build_tonlib_factory(tonlib, tonlib_config)
+        self._block_explorer_url = block_explorer_url.rstrip("/") if block_explorer_url else ""
+
+    @staticmethod
+    def _build_tonlib_factory(
+        tonlib: TonlibCDLL | None, config: Liteclient_config_global | None
+    ) -> Callable[[], TonlibClient] | None:
+        if tonlib is None or config is None:
+            return None
+
+        def clone_client() -> TonlibClient:
+            return TonlibClient(config, tonlib)
+
+        return clone_client
 
     def _load_group(self, group: str) -> None:
         with self._update_lock:
-            if self._current_group != group or self._builder is None:
+            data = self._parser.parse_group(group)
+            if self._current_group != group or self._builder is None or data is not self._data:
                 self._current_group = group
-                self._data = self._parser.parse_group(group)
+                self._data = data
                 self._builder = FigureBuilder(self._data)
 
     @classmethod
@@ -89,7 +114,21 @@ class DashApp:
         valgroups = self._parser.list_groups()
         if time_from is not None or time_until is not None:
             valgroups = self._filter_groups_by_time(valgroups, time_from, time_until)
-        valgroups_names = sorted([g.valgroup_name for g in valgroups])
+
+        def _group_sort_key(group: GroupData) -> tuple[int, int, int, int, str]:
+            if isinstance(group, UnnamedGroupInfo):
+                return 0, 0, 0, 0, group.valgroup_name
+
+            assert isinstance(group, GroupInfo)
+            return (
+                1,
+                group.workchain,
+                group.catchain_seqno,
+                group.shard,
+                group.valgroup_name,
+            )
+
+        valgroups_names = [g.valgroup_name for g in sorted(valgroups, key=_group_sort_key)]
         options = [{"label": g, "value": g} for g in valgroups_names]
 
         url_params = self._parse_url_params(href)
@@ -168,6 +207,17 @@ class DashApp:
 
         self._load_group(group)
         assert self._data is not None
+        group_info = next((g for g in self._data.groups if g.valgroup_name == group), None)
+        group_start_est = "n/a"
+        if group_info is not None:
+            group_start_est = str(group_info.group_start_est)
+            try:
+                group_start_est = (
+                    f"{group_info.group_start_est} "
+                    f"({datetime.fromtimestamp(group_info.group_start_est, timezone.utc).isoformat()})"
+                )
+            except Exception:
+                pass
 
         group_events = [e for e in self._data.events if e.valgroup_id == group]
         group_slots = {s.slot: s for s in self._data.slots if s.valgroup_id == group}
@@ -220,6 +270,7 @@ class DashApp:
         return "\n".join(
             [
                 f"valgroup = {group}",
+                f"group start estimate = {group_start_est}",
                 f"slots with skip_observed ({len(skip_slots)}) = {skip_slots}",
                 f"slots with empty blocks ({len(empty_block_slots)}) = {empty_block_slots}",
                 "delta between minimum candidate_received for neighboring finalized blocks:",
@@ -387,18 +438,26 @@ class DashApp:
                 dcc.Graph(id="summary", config={"scrollZoom": True, "displaylogo": False}),
                 html.Hr(),
                 html.Div(
-                    id="detail-slot-meta",
-                    children="detail slot metadata: none",
-                    style={
-                        "margin": "0 16px 8px 16px",
-                        "fontSize": "14px",
-                        "fontFamily": "monospace",
-                        "border": "1px solid #ddd",
-                        "borderRadius": "4px",
-                        "padding": "8px 10px",
-                        "whiteSpace": "pre-wrap",
-                        "wordBreak": "break-all",
-                    },
+                    [
+                        html.Pre(
+                            id="detail-slot-meta",
+                            children="detail slot metadata: none",
+                            style={
+                                "margin": "0",
+                                "fontSize": "14px",
+                                "fontFamily": "monospace",
+                                "border": "1px solid #ddd",
+                                "borderRadius": "4px",
+                                "padding": "8px 10px",
+                                "whiteSpace": "pre-wrap",
+                                "wordBreak": "break-all",
+                                "overflow": "auto",
+                                "height": "200px",
+                                "resize": "vertical",
+                            },
+                        )
+                    ],
+                    style={"margin": "0 16px 8px 16px"},
                 ),
                 html.Div(
                     [
@@ -463,32 +522,107 @@ class DashApp:
         )
 
     @staticmethod
+    def _parse_block_id_ext(block_id_ext: str) -> Ton_blockIdExt:
+        # Format: (workchain,shard_hex,seqno):ROOT_HASH_HEX:FILE_HASH_HEX
+        id_part, root_hash_hex, file_hash_hex = block_id_ext.split(":")
+        id_part = id_part.strip("()")
+        wc_str, shard_hex, seqno_str = id_part.split(",")
+        return Ton_blockIdExt(
+            workchain=int(wc_str),
+            shard=int.from_bytes(bytes.fromhex(shard_hex), byteorder="big", signed=True),
+            seqno=int(seqno_str),
+            root_hash=bytes.fromhex(root_hash_hex),
+            file_hash=bytes.fromhex(file_hash_hex),
+        )
+
+    async def _get_block_data(self, block_id_ext: str) -> dict[str, str | int]:
+        assert self._tonlib_factory is not None
+        block = self._parse_block_id_ext(block_id_ext)
+        tonlib = self._tonlib_factory()
+        try:
+            await tonlib.init()
+            trs = await tonlib.get_block_transactions(block)
+            header = await tonlib.get_block_header(block)
+            h = header.to_dict()
+            _ = h.pop("id")
+            return {
+                "trs_count": len(trs),
+                "header": json.dumps(h, indent=2),
+            }
+        finally:
+            await tonlib.aclose()
+
+    def _build_explorer_url(self, block_id_ext: str) -> str | None:
+        if not self._block_explorer_url or not block_id_ext or block_id_ext == "empty":
+            return None
+        try:
+            id_part, root_hash_hex, file_hash_hex = block_id_ext.split(":")
+            id_part = id_part.strip("()")
+            wc_str, shard_hex, seqno_str = id_part.split(",")
+        except ValueError:
+            return None
+        params = urlencode(
+            {
+                "workchain": wc_str,
+                "shard": shard_hex,
+                "seqno": seqno_str,
+                "roothash": root_hash_hex,
+                "filehash": file_hash_hex,
+            }
+        )
+        return f"{self._block_explorer_url}/block?{params}"
+
     def _format_slot_meta(
+        self,
         valgroup_id: str,
         slot: int,
         slot_data: SlotData | None,
-    ) -> str:
+    ) -> list[str | Component]:
         if not valgroup_id:
-            return "detail slot metadata: none"
+            return ["detail slot metadata: none"]
 
         if slot_data is None:
-            return f"valgroup = {valgroup_id} slot = {slot} not found"
+            return [f"valgroup = {valgroup_id} slot = {slot} not found"]
 
-        parts = [
-            f"valgroup = {slot_data.valgroup_id}",
-            f"slot = {slot_data.slot}",
-            f"empty = {'yes' if slot_data.is_empty else 'no'}",
-        ]
+        children: list[str | Component] = []
+
+        def add_line(*items: str | Component) -> None:
+            if children:
+                children.append("\n")
+            children.extend(items)
+
+        add_line(f"valgroup = {slot_data.valgroup_id}")
+        add_line(f"slot = {slot_data.slot}")
+        add_line(f"empty = {'yes' if slot_data.is_empty else 'no'}")
         if slot_data.collator is not None:
-            parts.append(f"collator = {slot_data.collator}")
-        if slot_data.block_id_ext:
-            parts.append(f"block = {slot_data.block_id_ext}")
+            add_line(f"collator = {slot_data.collator}")
         if slot_data.candidate_id:
-            parts.append(f"candidate_id = {slot_data.candidate_id}")
+            add_line(f"candidate_id = {slot_data.candidate_id}")
         if slot_data.parent_block:
-            parts.append(f"parent_block = {slot_data.parent_block}")
+            add_line(f"parent_block = {slot_data.parent_block}")
+        if slot_data.block_id_ext:
+            block_url = self._build_explorer_url(slot_data.block_id_ext)
+            if block_url is not None:
+                add_line(
+                    f"block = {slot_data.block_id_ext} ",
+                    html.A(
+                        "(view)",
+                        href=block_url,
+                        target="_blank",
+                        rel="noopener noreferrer",
+                    ),
+                )
+            else:
+                add_line(f"block = {slot_data.block_id_ext}")
+            if self._tonlib_factory is not None and slot_data.block_id_ext != "empty":
+                try:
+                    block_data = asyncio.run(self._get_block_data(slot_data.block_id_ext))
+                    add_line(f"transactions count = {block_data['trs_count']}")
+                    add_line(f"header = {block_data['header']}")
+                except Exception as e:
+                    add_line(f"tonlib error: {e}")
 
-        return "\n".join(parts)
+        return children
 
     def _update_selection_from_click(
         self,
@@ -562,7 +696,7 @@ class DashApp:
         self,
         selected: dict[str, str | int],
         time_mode: str,
-    ) -> tuple[go.Figure, str, str, str | NoUpdate]:
+    ) -> tuple[go.Figure, str, list[str | Component], str | NoUpdate]:
         valgroup_id = selected["valgroup_id"]
         assert isinstance(valgroup_id, str)
         slot = int(selected["slot"])
