@@ -95,6 +95,7 @@ class MasterchainState : virtual public ShardState {
   }
   virtual block::SizeLimitsConfig::ExtMsgLimits get_ext_msg_limits() const = 0;
   virtual block::ImportedMsgQueueLimits get_imported_msg_queue_limits(bool is_masterchain) const = 0;
+  virtual td::Result<block::ValidatorRegistryConfig> get_validator_registry_config() const = 0;
 };
 
 }  // namespace validator

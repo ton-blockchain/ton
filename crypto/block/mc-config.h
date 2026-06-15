@@ -412,6 +412,11 @@ struct SizeLimitsConfig {
   td::optional<td::uint32> max_transaction_library_loads;  // default - unlimited
 };
 
+struct ValidatorRegistryConfig {
+  ton::StdSmcAddress contract_address;
+  td::uint32 max_collators_per_validator;
+};
+
 struct CatchainValidatorsConfig {
   td::uint32 mc_cc_lifetime, shard_cc_lifetime, shard_val_lifetime, shard_val_num;
   bool shuffle_mc_val;
@@ -679,6 +684,7 @@ class Config {
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
   td::Result<SizeLimitsConfig> get_size_limits_config() const;
   static td::Result<SizeLimitsConfig> do_get_size_limits_config(td::Ref<vm::CellSlice> cs);
+  td::Result<ValidatorRegistryConfig> get_validator_registry_config() const;
   std::unique_ptr<vm::Dictionary> get_suspended_addresses(ton::UnixTime now) const;
   BurningConfig get_burning_config() const;
   td::Ref<vm::Tuple> get_unpacked_config_tuple(ton::UnixTime now) const;
