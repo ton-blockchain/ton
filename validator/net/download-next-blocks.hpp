@@ -64,7 +64,7 @@ class DownloadNextBlocks : public td::actor::Actor {
   std::unique_ptr<ActionToken> token_;
 
   static constexpr td::uint32 MAX_BLOCKS = 10;
-  static constexpr size_t MAX_SIZE_MANY = (8 << 20) + 1024;
+  static constexpr size_t MAX_SIZE_MANY = (1 << 20) + 128;
 };
 
 }  // namespace fullnode

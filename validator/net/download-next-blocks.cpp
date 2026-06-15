@@ -123,7 +123,7 @@ td::actor::Task<> DownloadNextBlocks::run() {
   if (allow_many_) {
     query = create_serialize_tl_object<ton_api::tonNode_downloadNextBlocksFull>(create_tl_block_id(start_prev_id_),
                                                                                 MAX_BLOCKS);
-    max_size = MAX_SIZE_MANY;
+    max_size = std::max<size_t>(MAX_SIZE_MANY, FullNode::max_proof_size() + FullNode::max_block_size() + 128);
   } else {
     query = create_serialize_tl_object<ton_api::tonNode_downloadNextBlockFull>(create_tl_block_id(start_prev_id_));
     max_size = FullNode::max_proof_size() + FullNode::max_block_size() + 128;

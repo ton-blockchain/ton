@@ -171,11 +171,14 @@ class NextBlocksFullSender : public td::actor::Actor {
       auto obj = CO_TRY(serialize_block_full_obj(block->block_id(), proof->data(), block->data(), false,
                                                  /* compression_enabled = */ true));
       size_t serialized_size = td::tl_calc_length(*obj);
-      if (total_size + serialized_size > MAX_TOTAL_SIZE) {
+      if (total_size + serialized_size > MAX_TOTAL_SIZE && !result_.empty()) {
         break;
       }
       total_size += serialized_size;
       result_.push_back(std::move(obj));
+      if (total_size > MAX_TOTAL_SIZE) {
+        break;
+      }
     }
     co_return {};
   }
@@ -188,7 +191,7 @@ class NextBlocksFullSender : public td::actor::Actor {
   std::vector<tl_object_ptr<ton_api::tonNode_DataFull>> result_;
 
   static constexpr td::uint32 MAX_BLOCKS = 10;
-  static constexpr size_t MAX_TOTAL_SIZE = 8 << 20;
+  static constexpr size_t MAX_TOTAL_SIZE = 1 << 20;
 };
 
 }  // namespace fullnode
