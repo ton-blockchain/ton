@@ -218,7 +218,7 @@ void ValidatorManagerImpl::got_next_masterchain_block(ReceivedBlock block, td::P
 
 td::actor::Task<> ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
                                                             BroadcastSource source) {
-  if (last_masterchain_state_.is_null()) {
+  if (last_masterchain_state_.is_null() || !last_masterchain_block_handle_) {
     co_return td::Status::Error(ErrorCode::notready, "node not started");
   }
   if (!need_monitor(broadcast.block_id.shard_full())) {
@@ -243,7 +243,7 @@ td::actor::Task<> ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broad
 
 void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
                                                                td::Promise<td::Unit> promise) {
-  if (last_masterchain_state_.is_null()) {
+  if (last_masterchain_state_.is_null() || !last_masterchain_block_handle_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "node not started"));
     return;
   }

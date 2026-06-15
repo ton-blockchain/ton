@@ -172,7 +172,7 @@ td::actor::Task<> DownloadNextBlocks::process_block(tl_object_ptr<ton_api::tonNo
   Ref<vm::Cell> prev_state_root;
   if (requires_state) {
     CHECK(obj->get_id() == ton_api::tonNode_dataFullCompressedV2::ID);
-    auto compressed_v2 = move_tl_object_as<ton_api::tonNode_dataFullCompressedV2>(std::move(obj));
+    auto compressed_v2 = static_cast<const ton_api::tonNode_dataFullCompressedV2 *>(obj.get());
     BlockIdExt id = create_block_id(compressed_v2->id_);
     auto prev_blocks =
         CO_TRY(extract_prev_blocks_from_proof(compressed_v2->proof_.as_slice(), id).trace("extract prev blocks"));
