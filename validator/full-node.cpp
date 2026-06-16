@@ -923,7 +923,8 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
     , db_root_(db_root)
     , started_promise_(std::move(started_promise))
     , opts_(opts)
-    , limiter_(make_limiter(opts)) {
+    , limiter_(make_limiter(opts))
+    , query_handler_(validator_manager) {
 }
 
 td::actor::ActorOwn<FullNode> FullNode::create(

@@ -32,6 +32,7 @@
 
 #include "full-node-custom-overlays.hpp"
 #include "full-node-fast-sync-overlays.hpp"
+#include "full-node-queries.hpp"
 #include "rate-limiter.h"
 
 namespace ton {
@@ -110,6 +111,11 @@ class FullNodeImpl : public FullNode {
                            << cert.issued_by().compute_short_id() << " expires in "
                            << (double)cert.expire_at() - td::Clocks::system();
     fast_sync_overlays_.add_member_certificate(local_id, std::move(cert));
+  }
+
+  td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
+                                                QuerySource source) override {
+    return query_handler_.handle_query(std::move(query), src, source);
   }
 
   void start_up() override;
@@ -193,6 +199,8 @@ class FullNodeImpl : public FullNode {
   std::shared_ptr<RateLimiter<>> limiter_;
 
   decltype(limiter_) make_limiter(const FullNodeOptions& opts);
+
+  FullNodeQueryHandler query_handler_;
 };
 
 }  // namespace fullnode

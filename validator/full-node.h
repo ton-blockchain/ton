@@ -74,6 +74,27 @@ struct CustomOverlayParams {
   static CustomOverlayParams fetch(const ton_api::engine_validator_customOverlay& f);
 };
 
+enum class QuerySource {
+  public_overlay,
+  fast_sync_overlay,
+  custom_overlay,
+  full_node_master,
+};
+
+inline td::StringBuilder& operator<<(td::StringBuilder& sb, const QuerySource& source) {
+  switch (source) {
+    case QuerySource::public_overlay:
+      return sb << "public overlay";
+    case QuerySource::fast_sync_overlay:
+      return sb << "fast-sync overlay";
+    case QuerySource::custom_overlay:
+      return sb << "custom overlay";
+    case QuerySource::full_node_master:
+      return sb << "full-node master";
+  }
+  return sb << "unknown";
+}
+
 class FullNode : public td::actor::Actor {
  public:
   virtual ~FullNode() = default;
@@ -111,6 +132,9 @@ class FullNode : public td::actor::Actor {
   virtual void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
                                                    overlay::OverlayMemberCertificate cert) = 0;
 
+  virtual td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
+                                                        QuerySource source) = 0;
+
   static constexpr td::uint32 max_block_size() {
     return 4 << 20;
   }
@@ -123,6 +147,8 @@ class FullNode : public td::actor::Actor {
   enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4 };
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
+  static constexpr td::uint32 PROTO_VERSION_MAJOR = 3;
+  static constexpr td::uint32 PROTO_VERSION_MINOR = 2;
 
   static td::actor::ActorOwn<FullNode> create(
       ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
