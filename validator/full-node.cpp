@@ -516,6 +516,19 @@ td::actor::Task<QuerySender> FullNodeImpl::get_query_sender(ShardIdFull shard_id
     co_return client_query_sender_;
   }
 
+  {
+    for (auto &[_, overlay] : custom_overlays_) {
+      if (overlay.params_.send_queries_) {
+        for (auto &[_, actor] : overlay.actors_) {
+          auto R = co_await td::actor::ask(actor, &FullNodeCustomOverlay::get_query_sender).wrap();
+          if (R.is_ok()) {
+            co_return R.move_as_ok();
+          }
+        }
+      }
+    }
+  }
+
   auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(shard_id).first;
   if (!fast_sync_overlay.empty()) {
     auto R = co_await td::actor::ask(fast_sync_overlay, &FullNodeFastSyncOverlay::get_query_sender).wrap();
@@ -1103,12 +1116,16 @@ CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_c
     if (node->block_sender_) {
       c.block_senders_.emplace(node->adnl_id_);
     }
+    if (node->accept_queries_) {
+      c.accept_queries_.emplace(node->adnl_id_);
+    }
   }
   for (const auto &shard : f.sender_shards_) {
     c.sender_shards_.push_back(create_shard_id(shard));
   }
   c.skip_public_msg_send_ = f.skip_public_msg_send_;
   c.use_quic_ = f.use_quic_;
+  c.send_queries_ = f.send_queries_;
   return c;
 }
 
