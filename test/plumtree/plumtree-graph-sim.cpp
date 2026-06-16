@@ -425,12 +425,6 @@ int main(int argc, char **argv) {
   opts.enable_plumtree_broadcast_ = true;
   opts.plumtree_broadcast_sender_ = plumtree_sender.get();
   opts.max_neighbours_ = 5;
-  opts.plumtree_fec_options_.k_ = 30;
-  opts.plumtree_fec_options_.parts_ = 60;
-  opts.plumtree_fec_options_.eager_limit_ = 6;
-  opts.plumtree_fec_options_.active_neighbours_ = settings.plumtree_neighbours;
-  opts.plumtree_fec_options_.repair_timeout_ms_ = 100;
-  opts.plumtree_fec_options_.max_repair_targets_ = 5;
 
   scheduler.run_in_context([&] {
     auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
