@@ -464,6 +464,7 @@ void FullNodeFastSyncOverlay::init() {
     telemetry_sender_ = td::actor::create_actor<ValidatorTelemetry>(
         "telemetry", local_id_, std::make_unique<TelemetryCallback>(actor_id(this)));
   }
+  alarm();
 }
 
 void FullNodeFastSyncOverlay::tear_down() {
@@ -476,6 +477,16 @@ void FullNodeFastSyncOverlay::set_validators(std::vector<PublicKeyHash> root_pub
                                              std::vector<adnl::AdnlNodeIdShort> current_validators_adnl) {
   root_public_keys_ = std::move(root_public_keys);
   current_validators_adnl_ = std::move(current_validators_adnl);
+  for (auto it = peers_info_.begin(); it != peers_info_.end();) {
+    if (is_validator_adnl(it->first)) {
+      ++it;
+      continue;
+    }
+    if (it->second.alive) {
+      alive_peers_.remove(it->first);
+    }
+    it = peers_info_.erase(it);
+  }
   if (inited_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
@@ -507,6 +518,63 @@ void FullNodeFastSyncOverlay::set_params(bool receive_broadcasts, bool send_twos
   }
 }
 
+td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
+  class QuerySenderImpl : public QuerySenderInterface {
+   public:
+    QuerySenderImpl(adnl::AdnlNodeIdShort peer_id, adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
+                    td::actor::ActorId<overlay::Overlays> overlays,
+                    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender,
+                    td::actor::ActorId<FullNodeFastSyncOverlay> parent, std::pair<td::uint32, td::uint32> proto_version)
+        : peer_id_(peer_id)
+        , local_id_(local_id)
+        , overlay_id_(overlay_id)
+        , overlays_(std::move(overlays))
+        , adnl_sender_(std::move(adnl_sender))
+        , parent_(std::move(parent))
+        , proto_version_(proto_version) {
+    }
+
+    void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
+                    td::Promise<td::BufferSlice> promise) const override {
+      td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id_, local_id_, overlay_id_, "q",
+                              std::move(promise), timeout, std::move(query), max_answer_size, adnl_sender_);
+    }
+
+    void query_finished(bool success) const override {
+      if (!success) {
+        td::actor::ask(parent_, &FullNodeFastSyncOverlay::ping_peer, peer_id_).detach_silent();
+      }
+    }
+
+    std::string to_str() const override {
+      return PSTRING() << "peer " << peer_id_ << " in fast-sync overlay";
+    }
+
+    std::pair<td::uint32, td::uint32> get_proto_version() const override {
+      return proto_version_;
+    }
+
+   private:
+    adnl::AdnlNodeIdShort peer_id_;
+    adnl::AdnlNodeIdShort local_id_;
+    overlay::OverlayIdShort overlay_id_;
+    td::actor::ActorId<overlay::Overlays> overlays_;
+    td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender_;
+    td::actor::ActorId<FullNodeFastSyncOverlay> parent_;
+    std::pair<td::uint32, td::uint32> proto_version_;
+  };
+  if (!inited_) {
+    co_return td::Status::Error(ErrorCode::notready, "not inited");
+  }
+  auto peer = alive_peers_.get_random();
+  if (peer == nullptr) {
+    co_return td::Status::Error(ErrorCode::notready, "no nodes");
+  }
+  auto proto_version = peers_info_[*peer].proto_version;
+  co_return std::make_shared<QuerySenderImpl>(*peer, local_id_, overlay_id_, overlays_, adnl_sender_, actor_id(this),
+                                              proto_version);
+}
+
 void FullNodeFastSyncOverlay::get_stats_extra(td::Promise<std::string> promise) {
   auto res = create_tl_object<ton_api::engine_validator_fastSyncOverlayStats>();
   res->shard_ = shard_.to_str();
@@ -521,6 +589,60 @@ void FullNodeFastSyncOverlay::get_stats_extra(td::Promise<std::string> promise) 
   }
   res->receive_broadcasts_ = receive_broadcasts_;
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
+}
+
+void FullNodeFastSyncOverlay::alarm() {
+  CHECK(inited_);
+  alarm_timestamp() = td::Timestamp::in(td::Random::fast(1.0, 2.0));
+  if (current_validators_adnl_.empty()) {
+    return;
+  }
+  for (int iter = 0; iter < 5; ++iter) {
+    adnl::AdnlNodeIdShort peer_id =
+        current_validators_adnl_[td::Random::fast(0, (int)current_validators_adnl_.size() - 1)];
+    if (peer_id == local_id_) {
+      continue;
+    }
+    ping_peer(peer_id).start().detach_silent();
+  }
+}
+
+td::actor::Task<> FullNodeFastSyncOverlay::ping_peer(adnl::AdnlNodeIdShort peer_id) {
+  CHECK(inited_);
+  td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
+  auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, peer_id, local_id_, overlay_id_, "q",
+                          std::move(promise), td::Timestamp::in(1.0), std::move(query), 1024, adnl_sender_);
+  auto r_response = co_await std::move(task).wrap();
+  if (!is_validator_adnl(peer_id)) {
+    co_return {};
+  }
+  PeerInfo &peer_info = peers_info_[peer_id];
+  if (r_response.is_error()) {
+    VLOG(full_node, DEBUG) << "Failed to ping peer " << peer_id << ": " << r_response.move_as_error();
+    if (peer_info.alive) {
+      alive_peers_.remove(peer_id);
+      peer_info.alive = false;
+    }
+    co_return {};
+  }
+  auto r_capabilities = fetch_tl_object<ton_api::tonNode_capabilities>(r_response.move_as_ok(), true);
+  if (r_capabilities.is_error()) {
+    VLOG(full_node, DEBUG) << "Failed to ping peer " << peer_id << ": " << r_capabilities.move_as_error();
+    if (peer_info.alive) {
+      alive_peers_.remove(peer_id);
+      peer_info.alive = false;
+    }
+    co_return {};
+  }
+  auto capabilities = r_capabilities.move_as_ok();
+  peer_info.proto_version =
+      std::make_pair<td::uint32, td::uint32>(capabilities->version_major_, capabilities->version_minor_);
+  if (!peer_info.alive) {
+    alive_peers_.insert(peer_id, peer_id);
+    peer_info.alive = true;
+  }
+  co_return {};
 }
 
 std::pair<td::actor::ActorId<FullNodeFastSyncOverlay>, adnl::AdnlNodeIdShort> FullNodeFastSyncOverlays::choose_overlay(

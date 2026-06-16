@@ -18,6 +18,8 @@
 
 #include <fstream>
 
+#include "td/utils/DecTree.h"
+
 #include "full-node.h"
 #include "validator-telemetry.hpp"
 
@@ -65,12 +67,15 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   void start_up() override;
   void tear_down() override;
+  void alarm() override;
 
   void set_validators(std::vector<PublicKeyHash> root_public_keys,
                       std::vector<adnl::AdnlNodeIdShort> current_validators_adnl);
   void set_member_certificate(overlay::OverlayMemberCertificate member_certificate);
   void set_params(bool receive_broadcasts, bool send_twostep_broadcasts, bool enable_plumtree_broadcast,
                   td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender);
+
+  td::actor::Task<QuerySender> get_query_sender();
 
   FullNodeFastSyncOverlay(adnl::AdnlNodeIdShort local_id, ShardIdFull shard, FileHash zero_state_file_hash,
                           std::vector<PublicKeyHash> root_public_keys,
@@ -133,6 +138,20 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   td::actor::ActorOwn<ValidatorTelemetry> telemetry_sender_;
   bool collect_telemetry_ = false;
   std::ofstream telemetry_file_;
+
+  struct PeerInfo {
+    std::pair<td::uint32, td::uint32> proto_version{0, 0};
+    bool alive = false;
+  };
+  std::map<adnl::AdnlNodeIdShort, PeerInfo> peers_info_;
+  td::DecTree<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort> alive_peers_;
+
+  bool is_validator_adnl(adnl::AdnlNodeIdShort id) const {
+    // Sorted in FullNodeFastSyncOverlays::update_overlays
+    return std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), id);
+  }
+
+  td::actor::Task<> ping_peer(adnl::AdnlNodeIdShort peer_id);
 };
 
 class FullNodeFastSyncOverlays {

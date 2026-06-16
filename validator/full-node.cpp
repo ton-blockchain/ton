@@ -516,6 +516,14 @@ td::actor::Task<QuerySender> FullNodeImpl::get_query_sender(ShardIdFull shard_id
     co_return client_query_sender_;
   }
 
+  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(shard_id).first;
+  if (!fast_sync_overlay.empty()) {
+    auto R = co_await td::actor::ask(fast_sync_overlay, &FullNodeFastSyncOverlay::get_query_sender).wrap();
+    if (R.is_ok()) {
+      co_return R.move_as_ok();
+    }
+  }
+
   auto shard = get_shard_overlay_actor(shard_id, historical);
   if (shard.empty()) {
     co_return get_empty_query_sender();
