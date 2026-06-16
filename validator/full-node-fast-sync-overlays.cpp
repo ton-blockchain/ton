@@ -251,6 +251,12 @@ void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSli
   ton_api::downcast_call(*B.move_as_ok(), [src, Self = this](auto &obj) { Self->process_broadcast(src, obj); });
 }
 
+void FullNodeFastSyncOverlay::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
+                                            td::Promise<td::BufferSlice> promise) {
+  td::actor::send_closure(full_node_, &FullNode::handle_query, std::move(query), src, QuerySource::fast_sync_overlay,
+                          std::move(promise));
+}
+
 void FullNodeFastSyncOverlay::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
   if (!inited_) {
     return;
@@ -392,6 +398,7 @@ void FullNodeFastSyncOverlay::init() {
     }
     void receive_query(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
                        td::Promise<td::BufferSlice> promise) override {
+      td::actor::send_closure(node_, &FullNodeFastSyncOverlay::receive_query, src, std::move(data), std::move(promise));
     }
     void receive_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
       td::actor::send_closure(node_, &FullNodeFastSyncOverlay::receive_broadcast, src, std::move(data));

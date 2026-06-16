@@ -51,6 +51,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
     VLOG(full_node, WARNING) << "dropping unknown broadcast";
   }
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
+  void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
 
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
