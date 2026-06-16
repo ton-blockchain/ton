@@ -150,6 +150,8 @@ set(FULL_NODE_SOURCE
 
   net/download-block-new.hpp
   net/download-block-new.cpp
+  net/download-next-blocks.hpp
+  net/download-next-blocks.cpp
   net/download-archive-slice.hpp
   net/download-archive-slice.cpp
   net/download-state.hpp
@@ -192,11 +194,11 @@ if (MSVC)
     set(TON_MSVC_CONSENSUS_OPTS "/Od" "/GL-")
     if (TON_MSVC_HAS_D2SSAOPT)
       list(APPEND TON_MSVC_CONSENSUS_OPTS "/d2ssaoptimizer-")
-    endif()
+    endif ()
     set_source_files_properties(consensus/simplex/consensus.cpp PROPERTIES
       COMPILE_OPTIONS "${TON_MSVC_CONSENSUS_OPTS}")
-  endif()
-endif()
+  endif ()
+endif ()
 
 target_include_directories(validator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
@@ -210,21 +212,21 @@ target_include_directories(validator-disk PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
-  )
+)
 
 target_include_directories(validator-hardfork PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
-  )
+)
 
 target_include_directories(full-node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/../crypto
   ${OPENSSL_INCLUDE_DIR}
-  )
+)
 
 target_link_libraries(validator PRIVATE validator-common validator-db ton_validator)
 

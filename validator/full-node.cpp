@@ -935,6 +935,7 @@ decltype(FullNodeImpl::limiter_) FullNodeImpl::make_limiter(const FullNodeOption
                                    {ton_api::tonNode_downloadBlock::ID, {w_size, m_limit}},
                                    {ton_api::tonNode_downloadBlockFull::ID, {w_size, m_limit}},
                                    {ton_api::tonNode_downloadNextBlockFull::ID, {w_size, m_limit}},
+                                   {ton_api::tonNode_downloadNextBlocksFull::ID, {w_size, m_limit}},
                                    {ton_api::tonNode_downloadBlockProof::ID, {w_size, m_limit}},
                                    {ton_api::tonNode_downloadBlockProofLink::ID, {w_size, m_limit}},
                                    {ton_api::tonNode_downloadKeyBlockProof::ID, {w_size, m_limit}},

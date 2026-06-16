@@ -218,7 +218,7 @@ void ValidatorManagerImpl::got_next_masterchain_block(ReceivedBlock block, td::P
 
 td::actor::Task<> ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
                                                             BroadcastSource source) {
-  if (!started_) {
+  if (last_masterchain_state_.is_null() || !last_masterchain_block_handle_) {
     co_return td::Status::Error(ErrorCode::notready, "node not started");
   }
   if (!need_monitor(broadcast.block_id.shard_full())) {
@@ -243,7 +243,7 @@ td::actor::Task<> ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broad
 
 void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
                                                                td::Promise<td::Unit> promise) {
-  if (!started_) {
+  if (last_masterchain_state_.is_null() || !last_masterchain_block_handle_) {
     promise.set_error(td::Status::Error(ErrorCode::notready, "node not started"));
     return;
   }
@@ -511,7 +511,7 @@ void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt bloc
 
 td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                                       td::BufferSlice data, BroadcastSource source) {
-  if (!last_masterchain_block_handle_ || !started_) {
+  if (!last_masterchain_block_handle_) {
     VLOG(validator, DEBUG) << "dropping top shard block broadcast: not inited";
     co_return td::Unit{};
   }
@@ -2292,8 +2292,7 @@ void ValidatorManagerImpl::new_masterchain_block() {
   update_shard_blocks();
 
   if (!shard_client_.empty()) {
-    td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification,
-                            last_masterchain_block_handle_, last_masterchain_state_);
+    td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification);
   }
 
   for (const auto &[_, validator_group] : validator_groups_) {
