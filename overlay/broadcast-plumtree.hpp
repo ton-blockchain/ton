@@ -63,7 +63,7 @@ struct PlumtreeOutboundSimplePayload {
 
 class BroadcastsPlumtree {
  public:
-  explicit BroadcastsPlumtree(PlumtreeFecOptions options = {});
+  explicit BroadcastsPlumtree(PlumtreeFecOptions options = {}, bool is_original_sender = false);
   ~BroadcastsPlumtree();
 
   void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender);

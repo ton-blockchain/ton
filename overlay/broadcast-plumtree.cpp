@@ -181,14 +181,16 @@ td::actor::Task<> check_and_deliver(OverlayImpl *overlay, PublicKeyHash source, 
     co_await std::move(task);
   }
   overlay->deliver_broadcast(source, std::move(data), {});
-  co_return {};
+  co_return td::Unit{};
 }
 
 }  // namespace
 
 class BroadcastsPlumtree::Impl {
  public:
-  explicit Impl(PlumtreeFecOptions options) : options_(options) {
+  explicit Impl(PlumtreeFecOptions options, bool is_original_sender)
+      : options_(options)
+      , local_eager_limit_(is_original_sender ? options_.validator_eager_limit_ : options_.eager_limit_) {
     slots_.resize(options_.tree_slots_);
   }
 
@@ -224,6 +226,7 @@ class BroadcastsPlumtree::Impl {
  private:
   td::actor::ActorId<adnl::AdnlSenderInterface> sender_;
   PlumtreeFecOptions options_;
+  td::uint32 local_eager_limit_ = 0;
 
   std::vector<PlumtreeSlot> slots_;
   std::map<td::Bits256, std::unique_ptr<PlumtreeFecBroadcastState>> broadcasts_;
@@ -346,7 +349,7 @@ bool BroadcastsPlumtree::Impl::can_reserve_eager_feedback(PlumtreeSlot &slot,
   if (slot.eager.contains(peer) || slot.pending_feedback.contains(peer)) {
     return true;
   }
-  return slot_load(slot) < options_.eager_limit_;
+  return slot_load(slot) < local_eager_limit_;
 }
 
 void BroadcastsPlumtree::Impl::promote_eager(PlumtreeSlot &slot, adnl::AdnlNodeIdShort peer, bool force) {
@@ -358,14 +361,13 @@ void BroadcastsPlumtree::Impl::promote_eager(PlumtreeSlot &slot, adnl::AdnlNodeI
   if (slot.eager.contains(peer)) {
     return;
   }
-  auto capacity = options_.eager_limit_;
-  if (capacity == 0) {
+  if (local_eager_limit_ == 0) {
     return;
   }
-  if (!force && slot.eager.size() >= capacity) {
+  if (!force && slot.eager.size() >= local_eager_limit_) {
     return;
   }
-  if (force && slot.eager.size() >= capacity) {
+  if (force && slot.eager.size() >= local_eager_limit_) {
     auto it = slot.eager.begin();
     std::advance(it, td::Random::fast(0, static_cast<td::int32>(slot.eager.size()) - 1));
     slot.eager.erase(it);
@@ -375,8 +377,7 @@ void BroadcastsPlumtree::Impl::promote_eager(PlumtreeSlot &slot, adnl::AdnlNodeI
 
 void BroadcastsPlumtree::Impl::trim_eager_to_capacity(PlumtreeSlot &slot) {
   expire_pending_feedback(slot);
-  auto capacity = options_.eager_limit_;
-  while (slot.eager.size() > capacity) {
+  while (slot.eager.size() > local_eager_limit_) {
     auto it = slot.eager.begin();
     std::advance(it, td::Random::fast(0, static_cast<td::int32>(slot.eager.size()) - 1));
     slot.pending_feedback.erase(*it);
@@ -537,7 +538,7 @@ bool BroadcastsPlumtree::Impl::send_fec_payload_to(OverlayImpl *overlay, Plumtre
   if (!s || !can_reserve_eager_feedback(*s, dst)) {
     return false;
   }
-  if (part.full_sends >= options_.eager_limit_ || part.full_sent_to.contains(dst)) {
+  if (part.full_sends >= local_eager_limit_ || part.full_sent_to.contains(dst)) {
     return false;
   }
   auto part_data = broadcast.parts_by_index.find(part.part_index);
@@ -569,7 +570,7 @@ bool BroadcastsPlumtree::Impl::send_simple_payload_to(OverlayImpl *overlay, Plum
   if (!s || !can_reserve_eager_feedback(*s, dst)) {
     return false;
   }
-  if (part.full_sends >= options_.eager_limit_ || part.full_sent_to.contains(dst)) {
+  if (part.full_sends >= local_eager_limit_ || part.full_sent_to.contains(dst)) {
     return false;
   }
   auto wire = create_serialize_tl_object<ton_api::overlay_broadcastPlumtreeSimple>(
@@ -606,7 +607,7 @@ void BroadcastsPlumtree::Impl::send_ihave_to(OverlayImpl *overlay, PlumtreePartS
   if (!s || !can_reserve_eager_feedback(*s, dst)) {
     return;
   }
-  if (part.full_sends >= options_.eager_limit_) {
+  if (part.full_sends >= local_eager_limit_) {
     return;
   }
   if (send_control(overlay, dst,
@@ -655,7 +656,7 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, const td::B
   } else {
     for (const auto &peer : active) {
       expire_pending_feedback(*s);
-      if (slot_load(*s) >= options_.eager_limit_) {
+      if (slot_load(*s) >= local_eager_limit_) {
         break;
       }
       if (send_payload_to(overlay, broadcast_id, part, peer)) {
@@ -1243,7 +1244,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_repair(
   if (!part || !s || !part->advertised_to.contains(from) || part->full_sent_to.contains(from)) {
     co_return td::Unit{};
   }
-  if (!can_reserve_eager_feedback(*s, from) || part->full_sends >= options_.eager_limit_) {
+  if (!can_reserve_eager_feedback(*s, from) || part->full_sends >= local_eager_limit_) {
     co_return td::Status::Error(ErrorCode::notready, "Plumtree REPAIR cannot be served");
   }
   send_payload_to(overlay, control.broadcast_id, *part, from);
@@ -1390,7 +1391,8 @@ void BroadcastsPlumtree::Impl::gc(OverlayImpl *overlay) {
   }
 }
 
-BroadcastsPlumtree::BroadcastsPlumtree(PlumtreeFecOptions options) : impl_(std::make_unique<Impl>(options)) {
+BroadcastsPlumtree::BroadcastsPlumtree(PlumtreeFecOptions options, bool is_original_sender)
+    : impl_(std::make_unique<Impl>(options, is_original_sender)) {
 }
 
 BroadcastsPlumtree::~BroadcastsPlumtree() = default;
