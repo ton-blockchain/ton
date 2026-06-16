@@ -30,7 +30,6 @@
 
 #include "block.h"
 #include "external-message.h"
-#include "ihr-message.h"
 #include "liteserver.h"
 #include "message-queue.h"
 #include "proof.h"
@@ -334,14 +333,11 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                               td::Promise<td::Ref<MessageQueue>> promise) = 0;
   virtual void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) = 0;
-  virtual void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) = 0;
   virtual void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                              td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) = 0;
   virtual void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                           std::vector<ExtMessage::Hash> to_delete) = 0;
   virtual void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) = 0;
-  virtual void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
-                                     std::vector<IhrMessage::Hash> to_delete) = 0;
 
   //virtual void set_first_block(ZeroStateIdExt state, BlockIdExt block, td::Promise<td::Unit> promise) = 0;
   virtual void set_next_block(BlockIdExt prev, BlockIdExt next, td::Promise<td::Unit> promise) = 0;
@@ -364,7 +360,6 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                  td::Promise<td::BufferSlice> promise) = 0;
   virtual void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                                 td::Promise<std::vector<BlockIdExt>> promise) = 0;
-  virtual void send_ihr_message(td::Ref<IhrMessage> message) = 0;
   virtual void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) = 0;
   virtual void send_block_broadcast(BlockBroadcast broadcast, int mode) = 0;
   virtual void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) = 0;

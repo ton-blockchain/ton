@@ -412,7 +412,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::Task<> new_external_message_query_cont(td::Ref<ExtMessage> message,
                                                     td::actor::StartedTask<> wait_allow_broadcast);
 
-  void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
   td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
@@ -489,13 +488,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                       td::Promise<td::Ref<MessageQueue>> promise) override;
   void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) override;
-  void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) override;
   void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                      td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                   std::vector<ExtMessage::Hash> to_delete) override;
   void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) override;
-  void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay, std::vector<IhrMessage::Hash> to_delete) override;
 
   void set_next_block(BlockIdExt prev, BlockIdExt next, td::Promise<td::Unit> promise) override;
 
@@ -538,7 +535,6 @@ class ValidatorManagerImpl : public ValidatorManager {
                                          td::Promise<td::BufferSlice> promise) override;
   void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                         td::Promise<std::vector<BlockIdExt>> promise) override;
-  void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override;
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override;

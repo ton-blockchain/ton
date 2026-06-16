@@ -95,6 +95,31 @@ inline td::StringBuilder& operator<<(td::StringBuilder& sb, const QuerySource& s
   return sb << "unknown";
 }
 
+class QuerySenderInterface {
+ public:
+  virtual ~QuerySenderInterface() = default;
+
+  virtual void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
+                          td::Promise<td::BufferSlice> promise) const = 0;
+
+  td::actor::StartedTask<td::BufferSlice> send_query(td::BufferSlice query, td::Timestamp timeout,
+                                                     td::uint64 max_answer_size) const {
+    auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+    send_query(std::move(query), timeout, max_answer_size, std::move(promise));
+    return std::move(task);
+  }
+
+  virtual void query_finished(bool success) const {
+  }
+
+  virtual std::string to_str() const = 0;
+
+  virtual std::pair<td::uint32, td::uint32> get_proto_version() const {
+    return {0, 0};
+  }
+};
+using QuerySender = std::shared_ptr<QuerySenderInterface>;
+
 class FullNode : public td::actor::Actor {
  public:
   virtual ~FullNode() = default;

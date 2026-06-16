@@ -176,13 +176,6 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::Buffe
   co_return td::Unit{};
 }
 
-void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
-  auto R = create_ihr_message(std::move(data));
-  if (R.is_ok()) {
-    ihr_messages_.emplace_back(R.move_as_ok());
-  }
-}
-
 void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                                             bool wait_store, td::Promise<td::Ref<ShardState>> promise) {
   auto it = wait_state_.find(handle->id());
@@ -389,10 +382,6 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_
     };
     task(ext_messages_, std::move(callback)).start().detach();
   }
-}
-
-void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) {
-  promise.set_result(ihr_messages_);
 }
 
 void ValidatorManagerImpl::get_shard_blocks_for_collator(

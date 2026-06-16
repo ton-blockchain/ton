@@ -348,7 +348,6 @@ tonNode.data data:bytes = tonNode.Data;
 //tonNode.preparedKeyBlockProofEmpty = tonNode.PreparedKeyBlockProof;
 //tonNode.preparedKeyBlockProof block_id:tonNode.blockIdExt = tonNode.PreparedKeyBlockProof;
 
-tonNode.ihrMessage data:bytes = tonNode.IhrMessage;
 tonNode.externalMessage data:bytes = tonNode.ExternalMessage;
 
 tonNode.newShardBlock block:tonNode.blockIdExt cc_seqno:int data:bytes = tonNode.NewShardBlock;
@@ -363,7 +362,6 @@ tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int valida
 tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.SignatureSet flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
 tonNode.finalityBroadcastId id:tonNode.blockIdExt = tonNode.FinalityBroadcastId;
 tonNode.blockFinalityBroadcast id:tonNode.blockIdExt signature_set:tonNode.SignatureSet = tonNode.Broadcast;
-tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
 // signature may be empty, at least for now

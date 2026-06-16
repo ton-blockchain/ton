@@ -23,6 +23,8 @@
 #include "ton/ton-types.h"
 #include "validator/validator.h"
 
+#include "full-node.h"
+
 namespace ton {
 
 namespace validator {
@@ -31,27 +33,20 @@ namespace fullnode {
 
 class DownloadNextBlocks : public td::actor::Actor {
  public:
-  DownloadNextBlocks(adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id, BlockHandle handle,
-                     adnl::AdnlNodeIdShort download_from, td::uint32 priority, bool allow_many,
-                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                     td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                     td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<BlockHandle> promise);
+  DownloadNextBlocks(BlockHandle handle, QuerySender query_sender, td::uint32 priority,
+                     td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::Promise<BlockHandle> promise);
 
   void start_up() override;
   td::actor::Task<> run();
   td::actor::Task<> process_block(tl_object_ptr<ton_api::tonNode_DataFull> obj);
 
  private:
-  adnl::AdnlNodeIdShort local_id_;
-  overlay::OverlayIdShort overlay_id_;
   BlockHandle handle_;
   BlockIdExt start_prev_id_;
 
-  adnl::AdnlNodeIdShort download_from_ = adnl::AdnlNodeIdShort::zero();
-
+  QuerySender query_sender_;
   td::uint32 priority_;
 
-  bool allow_many_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
   td::actor::ActorId<overlay::Overlays> overlays_;

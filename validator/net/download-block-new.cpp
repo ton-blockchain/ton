@@ -32,24 +32,15 @@ namespace validator {
 
 namespace fullnode {
 
-DownloadBlockNew::DownloadBlockNew(BlockIdExt block_id, adnl::AdnlNodeIdShort local_id,
-                                   overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from,
-                                   td::uint32 priority, td::Timestamp timeout,
+DownloadBlockNew::DownloadBlockNew(BlockIdExt block_id, QuerySender query_sender, td::uint32 priority,
+                                   td::Timestamp timeout,
                                    td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
-                                   td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
-                                   td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise)
+                                   td::Promise<ReceivedBlock> promise)
     : block_id_(block_id)
-    , local_id_(local_id)
-    , overlay_id_(overlay_id)
-    , download_from_(download_from)
+    , query_sender_(std::move(query_sender))
     , priority_(priority)
     , timeout_(timeout)
     , validator_manager_(validator_manager)
-    , rldp_(rldp)
-    , overlays_(overlays)
-    , adnl_(adnl)
-    , client_(client)
     , promise_(std::move(promise))
     , block_{block_id_, td::BufferSlice()}
     , allow_partial_proof_{!block_id_.is_masterchain()} {
@@ -58,9 +49,11 @@ DownloadBlockNew::DownloadBlockNew(BlockIdExt block_id, adnl::AdnlNodeIdShort lo
 void DownloadBlockNew::abort_query(td::Status reason) {
   if (promise_) {
     if (reason.code() == ErrorCode::notready || reason.code() == ErrorCode::timeout) {
-      VLOG(full_node, DEBUG) << "failed to download block " << block_id_ << "from " << download_from_ << ": " << reason;
+      VLOG(full_node, DEBUG) << "failed to download block " << block_id_ << " from " << query_sender_->to_str() << ": "
+                             << reason;
     } else {
-      VLOG(full_node, INFO) << "failed to download block " << block_id_ << " from " << download_from_ << ": " << reason;
+      VLOG(full_node, INFO) << "failed to download block " << block_id_ << " from " << query_sender_->to_str() << ": "
+                            << reason;
     }
     promise_.set_error(std::move(reason));
   }
@@ -73,6 +66,7 @@ void DownloadBlockNew::alarm() {
 
 void DownloadBlockNew::finish_query() {
   if (promise_) {
+    VLOG(full_node, DEBUG) << "downloaded block " << block_id_ << " from " << query_sender_->to_str();
     promise_.set_value(std::move(block_));
   }
   stop();
@@ -127,33 +121,6 @@ void DownloadBlockNew::got_block_handle(BlockHandle handle) {
 }
 
 void DownloadBlockNew::got_download_token(std::unique_ptr<ActionToken> token) {
-  token_ = std::move(token);
-
-  if (download_from_.is_zero() && client_.empty()) {
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::vector<adnl::AdnlNodeIdShort>> R) {
-      if (R.is_error()) {
-        td::actor::send_closure(SelfId, &DownloadBlockNew::abort_query, R.move_as_error());
-      } else {
-        auto vec = R.move_as_ok();
-        if (vec.size() == 0) {
-          td::actor::send_closure(SelfId, &DownloadBlockNew::abort_query,
-                                  td::Status::Error(ErrorCode::notready, "no nodes"));
-        } else {
-          td::actor::send_closure(SelfId, &DownloadBlockNew::got_node_to_download, vec[0]);
-        }
-      }
-    });
-
-    td::actor::send_closure(overlays_, &overlay::Overlays::get_overlay_random_peers, local_id_, overlay_id_, 1,
-                            std::move(P));
-  } else {
-    got_node_to_download(download_from_);
-  }
-}
-
-void DownloadBlockNew::got_node_to_download(adnl::AdnlNodeIdShort node) {
-  download_from_ = node;
-
   VLOG(full_node, DEBUG) << "downloading proof for " << block_id_;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
@@ -164,16 +131,9 @@ void DownloadBlockNew::got_node_to_download(adnl::AdnlNodeIdShort node) {
     }
   });
 
-  td::BufferSlice q = create_serialize_tl_object<ton_api::tonNode_downloadBlockFull>(create_tl_block_id(block_id_));
-  if (client_.empty()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "get_block_full", std::move(P), td::Timestamp::in(15.0), std::move(q),
-                            FullNode::max_proof_size() + FullNode::max_block_size() + 128, rldp_);
-  } else {
-    td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "get_block_full",
-                            create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(q)),
-                            td::Timestamp::in(15.0), std::move(P));
-  }
+  query_sender_->send_query(
+      create_serialize_tl_object<ton_api::tonNode_downloadBlockFull>(create_tl_block_id(block_id_)), timeout_,
+      FullNode::max_proof_size() + FullNode::max_block_size() + 128, std::move(P));
 }
 
 void DownloadBlockNew::got_data(td::BufferSlice data) {

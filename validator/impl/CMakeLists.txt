@@ -7,7 +7,6 @@ set(TON_VALIDATOR_SOURCE
   external-message.cpp
   ext-message-pool.cpp
   fabric.cpp
-  ihr-message.cpp
   liteserver.cpp
   message-queue.cpp
   out-msg-queue-proof.cpp
@@ -23,7 +22,6 @@ set(TON_VALIDATOR_SOURCE
   config.hpp
   external-message.hpp
   ext-message-pool.hpp
-  ihr-message.hpp
   liteserver.hpp
   liteserver-cache.hpp
   message-queue.hpp

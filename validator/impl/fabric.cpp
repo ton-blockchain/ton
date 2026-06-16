@@ -29,7 +29,6 @@
 #include "collator-impl.h"
 #include "external-message.hpp"
 #include "fabric.h"
-#include "ihr-message.hpp"
 #include "liteserver-cache.hpp"
 #include "liteserver.hpp"
 #include "proof.hpp"
@@ -108,11 +107,6 @@ BlockHandle create_empty_block_handle(BlockIdExt id) {
 
 td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits) {
   TRY_RESULT(res, ExtMessageQ::create_ext_message(std::move(data), limits));
-  return std::move(res);
-}
-
-td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
-  TRY_RESULT(res, IhrMessageQ::create_ihr_message(std::move(data)));
   return std::move(res);
 }
 

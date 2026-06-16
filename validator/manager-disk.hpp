@@ -41,7 +41,6 @@ class WaitBlockDataDisk;
 class ValidatorManagerImpl : public ValidatorManager {
  private:
   std::vector<td::Ref<ExtMessage>> ext_messages_;
-  std::vector<td::Ref<IhrMessage>> ihr_messages_;
   struct Compare {
     bool operator()(const td::Ref<ShardTopBlockDescription> &l, const td::Ref<ShardTopBlockDescription> &r) const {
       return l->block_id() < r->block_id();
@@ -133,7 +132,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   //void get_block_description(BlockIdExt block_id, td::Promise<BlockDescription> promise) override;
 
   td::actor::Task<> new_external_message_broadcast(td::BufferSlice data, int priority) override;
-  void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
 
@@ -205,13 +203,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                       td::Promise<td::Ref<MessageQueue>> promise) override;
   void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) override;
-  void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) override;
   void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                      td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                   std::vector<ExtMessage::Hash> to_delete) override;
   void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) override;
-  void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay, std::vector<IhrMessage::Hash> to_delete) override;
 
   //void set_first_block(ZeroStateIdExt state, BlockIdExt block, td::Promise<td::Unit> promise) override;
   void set_next_block(BlockIdExt prev, BlockIdExt next, td::Promise<td::Unit> promise) override;
@@ -257,9 +253,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                         td::Promise<std::vector<BlockIdExt>> promise) override {
     UNREACHABLE();
-  }
-  void send_ihr_message(td::Ref<IhrMessage> message) override {
-    new_ihr_message(message->serialize());
   }
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override {
