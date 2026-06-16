@@ -307,12 +307,12 @@ struct OverlayOptions {
 
   struct PlumtreeFecOptions {
     td::uint32 k_ = 30;
-    td::uint32 parts_ = 60;
+    td::uint32 parts_ = 45;
     td::uint32 tree_slots_ = parts_ + 1;
     td::uint32 validator_eager_limit_ = 1;
-    td::uint32 eager_limit_ = 4;
+    td::uint32 eager_limit_ = 4;  // 1 incoming, so fanout is practically 3
     td::uint32 active_neighbours_ = 20;
-    td::uint32 repair_timeout_ms_ = 100;
+    td::uint32 repair_timeout_ms_ = 200;
     td::uint32 max_repair_targets_ = 5;
   };
 
