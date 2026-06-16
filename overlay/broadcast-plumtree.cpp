@@ -60,7 +60,6 @@ constexpr td::uint32 PLUMTREE_SIMPLE_TREE_INDEX = 0;
 constexpr td::uint32 PLUMTREE_FEC_TREE_OFFSET = 1;
 
 struct PlumtreeSlot {
-  bool initialized = false;
   std::set<adnl::AdnlNodeIdShort> eager;
   std::map<adnl::AdnlNodeIdShort, td::Timestamp> pending_feedback;
 };
@@ -109,9 +108,9 @@ struct PlumtreeSimpleBroadcastState : td::ListNode {
 
 struct PlumtreeMissingPart {
   std::vector<adnl::AdnlNodeIdShort> repair_targets;
+  std::size_t sent_repair_targets = 0;
   td::Timestamp repair_at = td::Timestamp::never();
   td::Timestamp created_at = td::Timestamp::now();
-  bool repair_sent = false;
 };
 
 struct PlumtreeControlFields {
@@ -267,6 +266,7 @@ class BroadcastsPlumtree::Impl {
 
   bool send_control(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
                     tl_object_ptr<ton_api::overlay_Broadcast> control);
+  void send_repair_requests(OverlayImpl *overlay, const MissingPartKey &key, PlumtreeMissingPart &missing);
   bool send_fec_payload_to(OverlayImpl *overlay, PlumtreeFecBroadcastState &broadcast, PlumtreePartState &part,
                            const adnl::AdnlNodeIdShort &dst);
   bool send_simple_payload_to(OverlayImpl *overlay, PlumtreeSimpleBroadcastState &payload, PlumtreePartState &part,
@@ -528,6 +528,19 @@ bool BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::Ad
   return true;
 }
 
+void BroadcastsPlumtree::Impl::send_repair_requests(OverlayImpl *overlay, const MissingPartKey &key,
+                                                    PlumtreeMissingPart &missing) {
+  const auto &[broadcast_id, part_index, tree_index] = key;
+  while (missing.sent_repair_targets < missing.repair_targets.size()) {
+    const auto &dst = missing.repair_targets[missing.sent_repair_targets++];
+    send_control(overlay, dst,
+                 create_tl_object<ton_api::overlay_broadcastPlumtreeRepair>(
+                     broadcast_id, td::Clocks::system(), static_cast<std::int32_t>(part_index),
+                     static_cast<std::int32_t>(tree_index)));
+  }
+  missing.repair_at = td::Timestamp::never();
+}
+
 bool BroadcastsPlumtree::Impl::send_fec_payload_to(OverlayImpl *overlay, PlumtreeFecBroadcastState &broadcast,
                                                    PlumtreePartState &part,
                                                    const adnl::AdnlNodeIdShort &dst) {
@@ -646,24 +659,11 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, const td::B
                               [&](const auto &peer) { return peer == overlay->local_id() || peer == from; }),
                active.end());
   std::set<adnl::AdnlNodeIdShort> full_sent;
-  if (s->initialized) {
-    trim_eager_to_capacity(*s);
-    for (const auto &peer : s->eager) {
-      if (peer != from && send_payload_to(overlay, broadcast_id, part, peer)) {
-        full_sent.insert(peer);
-      }
+  trim_eager_to_capacity(*s);
+  for (const auto &peer : s->eager) {
+    if (peer != from && send_payload_to(overlay, broadcast_id, part, peer)) {
+      full_sent.insert(peer);
     }
-  } else {
-    for (const auto &peer : active) {
-      expire_pending_feedback(*s);
-      if (slot_load(*s) >= local_eager_limit_) {
-        break;
-      }
-      if (send_payload_to(overlay, broadcast_id, part, peer)) {
-        full_sent.insert(peer);
-      }
-    }
-    s->initialized = true;
   }
 
   for (const auto &peer : active) {
@@ -1209,15 +1209,22 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   if (get_part(control.broadcast_id, part_index, tree_index)) {
     co_return td::Unit{};
   }
-  auto &missing = missing_parts_[MissingPartKey{control.broadcast_id, part_index, tree_index}];
-  if (missing.repair_sent) {
-    co_return td::Unit{};
-  }
+  MissingPartKey key{control.broadcast_id, part_index, tree_index};
+  auto &missing = missing_parts_[key];
   if (std::find(missing.repair_targets.begin(), missing.repair_targets.end(), from) == missing.repair_targets.end() &&
       missing.repair_targets.size() < options_.max_repair_targets_) {
     missing.repair_targets.push_back(from);
   }
-  if (!missing.repair_at) {
+  auto *s = slot(tree_index);
+  if (!s) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree slot");
+  }
+  if (local_eager_limit_ == 0 || s->eager.empty()) {
+    send_repair_requests(overlay, key, missing);
+    trim_missing_parts();
+    co_return td::Unit{};
+  }
+  if (missing.sent_repair_targets < missing.repair_targets.size() && !missing.repair_at) {
     missing.repair_at = td::Timestamp::in(options_.repair_timeout_ms_ / 1000.0);
     overlay->relax_plumtree_alarm(missing.repair_at);
   }
@@ -1320,15 +1327,9 @@ void BroadcastsPlumtree::Impl::alarm(OverlayImpl *overlay) {
       erase.push_back(key);
       continue;
     }
-    if (!missing.repair_sent && missing.repair_at && missing.repair_at.is_in_past(now)) {
-      for (const auto &dst : missing.repair_targets) {
-        send_control(overlay, dst,
-                     create_tl_object<ton_api::overlay_broadcastPlumtreeRepair>(broadcast_id, td::Clocks::system(),
-                                                                                static_cast<std::int32_t>(part_index),
-                                                                                static_cast<std::int32_t>(tree_index)));
-      }
-      missing.repair_targets.clear();
-      missing.repair_sent = true;
+    if (missing.sent_repair_targets < missing.repair_targets.size() && missing.repair_at &&
+        missing.repair_at.is_in_past(now)) {
+      send_repair_requests(overlay, key, missing);
     }
   }
   for (const auto &key : erase) {
@@ -1339,7 +1340,7 @@ void BroadcastsPlumtree::Impl::alarm(OverlayImpl *overlay) {
 td::Timestamp BroadcastsPlumtree::Impl::next_alarm_at() const {
   auto result = td::Timestamp::never();
   for (const auto &[_, missing] : missing_parts_) {
-    if (!missing.repair_sent && missing.repair_at) {
+    if (missing.sent_repair_targets < missing.repair_targets.size() && missing.repair_at) {
       result.relax(missing.repair_at);
     }
   }
