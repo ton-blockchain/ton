@@ -317,18 +317,13 @@ void FullNodeImpl::sync_completed() {
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::sync_complete, [](td::Result<>) {});
 }
 
-void FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
+td::actor::Task<> FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
   if (!client_.empty()) {
-    td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "send_ext_query",
-                            create_serialize_tl_object_suffix<ton_api::tonNode_query>(
-                                create_serialize_tl_object<ton_api::tonNode_slave_sendExtMessage>(
-                                    create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)))),
-                            td::Timestamp::in(1.0), [](td::Result<td::BufferSlice> R) {
-                              if (R.is_error()) {
-                                VLOG(full_node, WARNING) << "failed to send ext message: " << R.move_as_error();
-                              }
-                            });
-    return;
+    auto query_sender = co_await get_query_sender(dst.as_leaf_shard());
+    co_await query_sender->send_query(create_serialize_tl_object<ton_api::tonNode_slave_sendExtMessage>(
+                                          create_tl_object<ton_api::tonNode_externalMessage>(std::move(data))),
+                                      td::Timestamp::in(1.0), 1024);
+    co_return {};
   }
   bool skip_public = false;
   for (auto &[_, private_overlay] : custom_overlays_) {
@@ -344,14 +339,15 @@ void FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice dat
     }
   }
   if (skip_public || opts_.config_.ext_messages_broadcast_disabled_) {
-    return;
+    co_return {};
   }
   auto shard = get_shard_overlay_actor(dst);
   if (shard.empty()) {
     VLOG(full_node, WARNING) << "dropping OUT ext message to unknown shard";
-    return;
+    co_return {};
   }
   td::actor::send_closure(shard, &FullNodeShard::send_external_message, std::move(data));
+  co_return {};
 }
 
 void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
@@ -566,7 +562,9 @@ td::actor::Task<td::BufferSlice> FullNodeImpl::download_zero_state(BlockIdExt id
   td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id, id, BlockIdExt{}, UnsplitStateType{},
                                          query_sender, priority, timeout, validator_manager_, std::move(promise))
       .release();
-  co_return co_await std::move(task);
+  auto R = co_await std::move(task).wrap();
+  query_sender->query_finished(R.is_ok());
+  co_return std::move(R);
 }
 
 td::actor::Task<td::BufferSlice> FullNodeImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id,
@@ -577,7 +575,9 @@ td::actor::Task<td::BufferSlice> FullNodeImpl::download_persistent_state(BlockId
   td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id, id, masterchain_block_id, type,
                                          query_sender, priority, timeout, validator_manager_, std::move(promise))
       .release();
-  co_return co_await std::move(task);
+  auto R = co_await std::move(task).wrap();
+  query_sender->query_finished(R.is_ok());
+  co_return std::move(R);
 }
 
 td::actor::Task<td::BufferSlice> FullNodeImpl::download_block_proof(BlockIdExt block_id, td::uint32 priority,
@@ -877,7 +877,7 @@ void FullNodeImpl::start_up() {
                               std::move(shards_to_monitor));
     }
     void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_ext_message, dst, std::move(data));
+      td::actor::ask(id_, &FullNodeImpl::send_ext_message, dst, std::move(data)).detach("send_ext_message");
     }
     void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_shard_block_info, block_id, cc_seqno, std::move(data));

@@ -68,7 +68,7 @@ class FullNodeImpl : public FullNode {
   void sync_completed();
 
   void initial_read_complete(BlockHandle top_block);
-  void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
+  td::actor::Task<> send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data, int mode);
