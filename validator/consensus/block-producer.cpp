@@ -20,9 +20,11 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  void start_up() {
-    CHECK(owning_bus()->is_validator());
+  static bool should_be_spawned(const Bus& bus) {
+    return bus.is_validator();
+  }
 
+  void start_up() {
     target_rate_ = owning_bus()->config.noncritical_params.target_rate;
     no_empty_blocks_on_error_timeout_ = owning_bus()->config.noncritical_params.no_empty_blocks_on_error_timeout;
   }

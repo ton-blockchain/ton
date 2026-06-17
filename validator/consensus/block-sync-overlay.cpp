@@ -30,9 +30,12 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  static bool should_be_spawned(const Bus& bus) {
+    return bus.config.enable_block_sync();
+  }
+
   void start_up() override {
     auto& bus = *owning_bus();
-    CHECK(bus.config.enable_block_sync());
     overlays_ = bus.overlays;
     local_adnl_id_ = bus.local_adnl_id;
     adnl_sender_ = bus.adnl_sender;

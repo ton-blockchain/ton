@@ -32,11 +32,14 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  static bool should_be_spawned(const Bus& bus) {
+    return bus.is_validator();
+  }
+
   void start_up() override {
     auto [awaiter, promise] = td::actor::StartedTask<StartEvent>::make_bridge();
 
     auto& bus = *owning_bus();
-    CHECK(bus.is_validator());
 
     slots_per_leader_window_ = bus.config.slots_per_leader_window;
     params_ = bus.config.noncritical_params;

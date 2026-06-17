@@ -159,6 +159,10 @@ class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::C
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  static bool should_be_spawned(const Bus& bus) {
+    return !bus.is_validator() && bus.config.enable_block_sync();
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
@@ -282,31 +286,21 @@ class BridgeImpl final : public IValidatorGroup {
     td::actor::Runtime runtime;
 
     bus->db = std::make_unique<DbImpl>(db_path());
+
+    BlockAccepter::register_in(runtime);
+    BlockProducer::register_in(runtime);
+    runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
+    BlockSyncOverlay::register_in(runtime);
+    BlockValidator::register_in(runtime);
+    PrivateOverlay::register_in(runtime);
+    TraceCollector::register_in(runtime);
+    simplex::CandidateResolver::register_in(runtime);
+    simplex::Consensus::register_in(runtime);
     simplex::Db::register_in(runtime);
     simplex::Pool::register_in(runtime);
+    simplex::StateResolver::register_in(runtime);
 
     simplex::DefaultCollatorSchedule::provide_for(runtime);
-
-    if (bus->is_validator()) {
-      BlockAccepter::register_in(runtime);
-      BlockProducer::register_in(runtime);
-      BlockValidator::register_in(runtime);
-      TraceCollector::register_in(runtime);
-      simplex::CandidateResolver::register_in(runtime);
-      simplex::Consensus::register_in(runtime);
-      simplex::StateResolver::register_in(runtime);
-    }
-
-    if (bus->is_validator() || bus->config.observers_in_private_overlay()) {
-      PrivateOverlay::register_in(runtime);
-    }
-
-    if (params_.config.enable_block_sync()) {
-      BlockSyncOverlay::register_in(runtime);
-      if (!bus->is_validator()) {
-        runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
-      }
-    }
 
     bus_ = runtime.start(bus, name_);
   }

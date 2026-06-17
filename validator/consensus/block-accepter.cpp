@@ -17,8 +17,8 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  void start_up() override {
-    CHECK(owning_bus()->is_validator());
+  static bool should_be_spawned(const Bus& bus) {
+    return bus.is_validator();
   }
 
   template <>

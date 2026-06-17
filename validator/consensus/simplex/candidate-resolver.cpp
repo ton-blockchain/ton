@@ -108,9 +108,11 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  void start_up() override {
-    CHECK(owning_bus()->is_validator());
+  static bool should_be_spawned(const Bus &bus) {
+    return bus.is_validator();
+  }
 
+  void start_up() override {
     params_ = owning_bus()->config.noncritical_params;
     load_from_db();
   }

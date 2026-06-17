@@ -562,7 +562,8 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     }
   };
 
-  using CreateInstanceFn = std::unique_ptr<BusListeningActor> (Runtime::*)(std::shared_ptr<BusTreeNode> node);
+  using CreateInstanceFn =
+      std::optional<std::unique_ptr<BusListeningActor>> (Runtime::*)(std::shared_ptr<BusTreeNode> node);
 
   struct ActorSpawnInfo {
     CreateInstanceFn create_instance_fn;
@@ -570,10 +571,15 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
   };
 
   template <typename A, typename B>
-  std::unique_ptr<BusListeningActor> create_actor_instance(std::shared_ptr<BusTreeNode> node) {
+  std::optional<std::unique_ptr<BusListeningActor>> create_actor_instance(std::shared_ptr<BusTreeNode> node) {
     auto installer = std::make_shared<ListenerInstallerImpl<A>>();
     auto bus = std::static_pointer_cast<B>(node->bus);
     std::unique_ptr<A> instance;
+    if constexpr (requires { A::should_be_spawned(static_cast<const B&>(*bus)); }) {
+      if (!A::should_be_spawned(static_cast<const B&>(*bus))) {
+        return std::nullopt;
+      }
+    }
     if constexpr (std::constructible_from<A>) {
       instance = std::make_unique<A>();
     } else {
@@ -625,10 +631,13 @@ class Runtime : public std::enable_shared_from_this<Runtime> {
     for (auto bus_type : bus_inheritance_chain) {
       for (const auto& [create_instance_fn, base_name] : actors_to_spawn_for_[bus_type]) {
         auto instance = (this->*create_instance_fn)(node);
-        auto installer = instance->installer_;
+        if (!instance) {
+          continue;
+        }
+        auto installer = (*instance)->installer_;
         std::string name = node->actor_name_prefix + base_name;
         auto actor_info =
-            td::actor::detail::create_actor_info(td::actor::ActorOptions{}.with_name(name), std::move(instance));
+            td::actor::detail::create_actor_info(td::actor::ActorOptions{}.with_name(name), std::move(*instance));
         node->owned_actors.push_back({
             .id = td::actor::ActorId<BusListeningActor>::unsafe_create_from_info(actor_info),
             .installer = installer,
