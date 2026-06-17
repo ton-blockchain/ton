@@ -101,7 +101,8 @@ struct IncomingOverlayRequest {
   using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
-  PeerValidatorId source;
+  std::optional<PeerValidatorId> source_validator;
+  adnl::AdnlNodeIdShort source;
   ProtocolMessage request;
 
   std::string contents_to_string() const;
@@ -112,7 +113,7 @@ struct OutgoingOverlayRequest {
   using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
-  PeerValidatorId destination;
+  std::optional<adnl::AdnlNodeIdShort> destination;
   td::Timestamp timeout;
   ProtocolMessage request;
 

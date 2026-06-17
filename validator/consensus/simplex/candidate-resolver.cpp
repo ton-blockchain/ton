@@ -109,7 +109,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   static bool should_be_spawned(const Bus &bus) {
-    return bus.is_validator();
+    return bus.is_validator() || bus.config.observers_in_private_overlay();
   }
 
   void start_up() override {
@@ -223,9 +223,9 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
 
   NewConsensusConfig::NoncriticalParams params_;
   std::map<CandidateId, CandidateState> state_;
-  std::map<PeerValidatorId, td::RateLimiterWindow> rate_limiter_;
+  std::map<adnl::AdnlNodeIdShort, td::RateLimiterWindow> rate_limiter_;
 
-  td::Status check_rate_limit(PeerValidatorId src) {
+  td::Status check_rate_limit(adnl::AdnlNodeIdShort src) {
     if (!rate_limiter_.contains(src)) {
       rate_limiter_[src] = td::RateLimiterWindow{1.0, params_.candidate_resolve_rate_limit};
     }
@@ -318,7 +318,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
 
     co_await try_load_candidate_data_from_db(id, state);
 
-    if (bus.validator_set.size() == 1) {
+    if (bus.all_validators.size() == 1) {
       CHECK(state.candidate_and_cert.is_complete());
       co_return {};
     }
@@ -331,15 +331,9 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       auto request_tl = state.candidate_and_cert.make_request(id);
       ProtocolMessage request{serialize_tl_object(request_tl, true)};
 
-      size_t peer_idx = td::Random::fast(0, static_cast<int>(bus.validator_set.size()) - 2);
-      if (peer_idx >= bus.local_id->idx.value()) {
-        peer_idx += 1;
-      }
-      PeerValidatorId peer{peer_idx};
-
       auto timeout_ts = td::Timestamp::in(std::chrono::round<std::chrono::nanoseconds>(timeout));
       auto maybe_response =
-          co_await owning_bus().publish<OutgoingOverlayRequest>(peer, timeout_ts, std::move(request)).wrap();
+          co_await owning_bus().publish<OutgoingOverlayRequest>(std::nullopt, timeout_ts, std::move(request)).wrap();
 
       if (maybe_response.is_ok()) {
         auto response = maybe_response.move_as_ok();

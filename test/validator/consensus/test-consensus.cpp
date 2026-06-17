@@ -218,12 +218,30 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
 
   template <>
   td::actor::Task<ProtocolMessage> process(BusHandle bus, std::shared_ptr<OutgoingOverlayRequest> message) {
+    size_t dst_idx;
+    if (message->destination) {
+      dst_idx = SIZE_MAX;
+      for (const auto &peer : bus->validator_set) {
+        if (peer.adnl_id == *message->destination) {
+          dst_idx = peer.idx.value();
+          break;
+        }
+      }
+      CHECK(dst_idx != SIZE_MAX);
+    } else {
+      size_t peer_idx = td::Random::fast(0, static_cast<int>(bus->validator_set.size()) - 2);
+      if (peer_idx >= bus->local_id->idx.value()) {
+        peer_idx += 1;
+      }
+      dst_idx = peer_idx;
+    }
+
     auto [task, promise] = td::actor::StartedTask<ProtocolMessage>::make_bridge();
     auto query = td::actor::create_actor<Query>("q", std::move(promise), message->timeout).release();
     size_t idx = next_query_idx_++;
     active_queries_[idx] = query;
-    td::actor::send_closure(test_overlay, &TestOverlay::send_query, *bus->local_id, instance_idx_,
-                            message->destination.value(), message->request.data.clone(),
+    td::actor::send_closure(test_overlay, &TestOverlay::send_query, *bus->local_id, instance_idx_, dst_idx,
+                            message->request.data.clone(),
                             td::PromiseCreator::lambda([query](td::Result<td::BufferSlice> R) {
                               if (R.is_ok()) {
                                 td::actor::send_closure(query, &Query::set_result, ProtocolMessage{R.move_as_ok()});
@@ -243,7 +261,7 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   }
 
   td::actor::Task<td::BufferSlice> receive_query(PeerValidator src, td::BufferSlice query) {
-    auto request = std::make_shared<IncomingOverlayRequest>(src.idx, std::move(query));
+    auto request = std::make_shared<IncomingOverlayRequest>(src.idx, src.adnl_id, std::move(query));
     auto response = co_await owning_bus().publish(std::move(request)).wrap();
     if (response.is_ok()) {
       co_return std::move(response.move_as_ok().data);

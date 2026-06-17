@@ -122,15 +122,18 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   template <>
   td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<OutgoingOverlayRequest> message) {
-    auto& bus = *owning_bus();
-    CHECK(bus.is_validator());
+    auto destination = message->destination;
+    if (!destination) {
+      CHECK(!other_overlay_nodes_.empty());
+      size_t node_idx = td::Random::fast(0, static_cast<int>(other_overlay_nodes_.size()) - 1);
+      destination = other_overlay_nodes_[node_idx];
+    }
 
     auto [awaiter, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
-    auto dst = message->destination.get_using(bus).adnl_id;
     // FIXME: Pass max response size from the caller.
     td::actor::send_closure(
-        overlays_, &overlay::Overlays::send_query_via, dst, local_adnl_id_, overlay_id_, "", std::move(promise),
-        message->timeout, std::move(message->request.data),
+        overlays_, &overlay::Overlays::send_query_via, *destination, local_adnl_id_, overlay_id_, "",
+        std::move(promise), message->timeout, std::move(message->request.data),
         owning_bus()->config.max_block_size + owning_bus()->config.max_collated_data_size + (1 << 20), adnl_sender_);
     auto response = co_await std::move(awaiter);
     if (fetch_tl_object<tl::requestError>(response, true).is_ok()) {
@@ -254,12 +257,9 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   void on_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
     auto peer = adnl_id_to_peer_.find(src);
-    if (peer == adnl_id_to_peer_.end()) {
-      LOG(WARNING) << "Dropping overlay request from " << src << ": Observers are not allowed to issue queries";
-      return;
-    }
+    auto peer_idx = peer != adnl_id_to_peer_.end() ? std::optional{peer->second.idx} : std::nullopt;
 
-    auto request = std::make_shared<IncomingOverlayRequest>(peer->second.idx, std::move(data));
+    auto request = std::make_shared<IncomingOverlayRequest>(peer_idx, src, std::move(data));
 
     auto task = [](BusHandle bus, auto message, auto promise) -> td::actor::Task<> {
       auto response = co_await bus.publish(message).wrap();
