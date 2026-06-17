@@ -851,8 +851,8 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
-  VLOG(FULL_NODE_WARNING) << "received blockFinalityBroadcast in public overlay from " << src << ": "
-                          << create_block_id(query.id_) << " (not implemented)";
+  VLOG(full_node, WARNING) << "received blockFinalityBroadcast in public overlay from " << src << ": "
+                           << create_block_id(query.id_) << " (not implemented)";
 }
 
 void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {

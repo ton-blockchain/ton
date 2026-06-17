@@ -90,7 +90,7 @@ void FullNodeFastSyncOverlay::process_block_finality_broadcast(PublicKeyHash src
   auto block_id = create_block_id(query.id_);
   BlockFinalityBroadcast finality{block_id, block::BlockSignatureSet::fetch(query.signature_set_)};
 
-  VLOG(FULL_NODE_DEBUG) << "Received blockFinalityBroadcast in fast sync overlay from " << src << ": " << block_id;
+  VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in fast sync overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality));
 }
 
@@ -285,7 +285,7 @@ void FullNodeFastSyncOverlay::send_block_finality_broadcast(BlockFinalityBroadca
   if (!inited_) {
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending Plumtree blockFinalityBroadcast in fast sync overlay: " << finality.block_id;
+  VLOG(full_node, DEBUG) << "Sending Plumtree blockFinalityBroadcast in fast sync overlay: " << finality.block_id;
   auto broadcast_id = get_tl_object_sha_bits256(create_tl_block_id(finality.block_id));
   auto B = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(create_tl_block_id(finality.block_id),
                                                                                finality.sig_set->tl());

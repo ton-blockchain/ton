@@ -549,20 +549,20 @@ td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt
 
 td::actor::Task<> ValidatorManagerImpl::new_block_finality_broadcast(BlockFinalityBroadcast finality) {
   if (!last_masterchain_block_handle_ || !started_) {
-    VLOG(VALIDATOR_DEBUG) << "dropping block finality broadcast: not inited";
+    VLOG(validator, DEBUG) << "dropping block finality broadcast: not inited";
     co_return td::Unit{};
   }
   if (!need_monitor(finality.block_id.shard_full())) {
-    VLOG(VALIDATOR_DEBUG) << "dropping block finality broadcast: not monitoring shard";
+    VLOG(validator, DEBUG) << "dropping block finality broadcast: not monitoring shard";
     co_return td::Unit{};
   }
   if (finality.sig_set.is_null()) {
-    VLOG(VALIDATOR_WARNING) << "dropping block finality broadcast without signatures: " << finality.block_id;
+    VLOG(validator, WARNING) << "dropping block finality broadcast without signatures: " << finality.block_id;
     co_return td::Unit{};
   }
   if (finality.block_id.is_masterchain() && !finality.sig_set->is_final()) {
-    VLOG(VALIDATOR_WARNING) << "dropping masterchain block finality broadcast with non-final signatures: "
-                            << finality.block_id;
+    VLOG(validator, WARNING) << "dropping masterchain block finality broadcast with non-final signatures: "
+                             << finality.block_id;
     co_return td::Unit{};
   }
 
@@ -765,8 +765,8 @@ void ValidatorManagerImpl::try_process_pending_block_finality(BlockIdExt block_i
   auto data = candidate->clone();
   auto block = create_block(block_id, data.clone());
   if (block.is_error()) {
-    VLOG(VALIDATOR_WARNING) << "failed to parse pending block candidate " << block_id << ": "
-                            << block.move_as_error();
+    VLOG(validator, WARNING) << "failed to parse pending block candidate " << block_id << ": "
+                             << block.move_as_error();
     if (block_id.is_masterchain()) {
       cached_masterchain_block_candidates_.erase(block_id);
     } else {
@@ -782,9 +782,9 @@ void ValidatorManagerImpl::try_process_pending_block_finality(BlockIdExt block_i
   if (proof.is_error()) {
     auto error = proof.move_as_error();
     if (error.code() == ErrorCode::notready) {
-      VLOG(VALIDATOR_DEBUG) << "failed to create pending block proof for " << block_id << ": " << error;
+      VLOG(validator, DEBUG) << "failed to create pending block proof for " << block_id << ": " << error;
     } else {
-      VLOG(VALIDATOR_WARNING) << "failed to create pending block proof for " << block_id << ": " << error;
+      VLOG(validator, WARNING) << "failed to create pending block proof for " << block_id << ": " << error;
       if (block_id.is_masterchain()) {
         cached_masterchain_block_candidates_.erase(block_id);
       } else {
@@ -800,19 +800,18 @@ void ValidatorManagerImpl::try_process_pending_block_finality(BlockIdExt block_i
   }
   pending_block_finality_.erase(block_id);
   BlockBroadcast broadcast{block_id, std::move(sig_set), std::move(data), proof.move_as_ok()};
-  new_block_broadcast(std::move(broadcast), false,
-                      td::PromiseCreator::lambda([block_id](td::Result<td::Unit> R) mutable {
-                        if (R.is_error()) {
-                          auto error = R.move_as_error();
-                          if (error.code() == ErrorCode::notready || error.code() == ErrorCode::timeout) {
-                            VLOG(VALIDATOR_DEBUG)
-                                << "dropped pending block finality broadcast for " << block_id << ": " << error;
-                          } else {
-                            VLOG(VALIDATOR_NOTICE)
-                                << "dropped pending block finality broadcast for " << block_id << ": " << error;
-                          }
-                        }
-                      }));
+  td::actor::send_closure(
+      actor_id(this), &ValidatorManagerImpl::new_block_broadcast, std::move(broadcast), false,
+      BroadcastSource::fast_sync_overlay, [block_id](td::Result<td::Unit> R) mutable {
+        if (R.is_error()) {
+          auto error = R.move_as_error();
+          if (error.code() == ErrorCode::notready || error.code() == ErrorCode::timeout) {
+            VLOG(validator, DEBUG) << "dropped pending block finality broadcast for " << block_id << ": " << error;
+          } else {
+            VLOG(validator, INFO) << "dropped pending block finality broadcast for " << block_id << ": " << error;
+          }
+        }
+      });
 }
 
 void ValidatorManagerImpl::add_ext_server_id(adnl::AdnlNodeIdShort id) {
