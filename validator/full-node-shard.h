@@ -19,7 +19,6 @@
 #pragma once
 
 #include "full-node.h"
-#include "rate-limiter.h"
 
 namespace ton {
 
@@ -57,11 +56,10 @@ class FullNodeShard : public td::actor::Actor {
 
   static td::actor::ActorOwn<FullNodeShard> create(
       ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-      FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter, td::actor::ActorId<keyring::Keyring> keyring,
-      td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
-      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
-      td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<FullNode> full_node,
-      bool active, bool enable_plumtree_broadcast);
+      FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+      td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
+      td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+      td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast);
 };
 
 }  // namespace fullnode

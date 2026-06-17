@@ -52,30 +52,7 @@ namespace fullnode {
 namespace {
 
 constexpr const char *k_called_from_public = "public";
-constexpr td::uint32 k_heavy_request_cost_unit = 1 << 21;
 constexpr size_t k_ed25519_signature_size = 64;
-
-size_t heavy_request_cost(td::uint64 requested_max_size) {
-  size_t cost = static_cast<size_t>((requested_max_size + k_heavy_request_cost_unit - 1) / k_heavy_request_cost_unit);
-  return cost == 0 ? 1 : cost;
-}
-
-size_t request_cost_for_limiter(ton_api::Function &function) {
-  size_t cost = 1;
-  ton_api::downcast_call(
-      function, td::overloaded(
-                    [&](const ton_api::tonNode_getArchiveSlice &query) {
-                      cost = heavy_request_cost(query.max_size_ > 0 ? static_cast<td::uint64>(query.max_size_) : 0);
-                    },
-                    [&](const ton_api::tonNode_downloadPersistentStateSliceV2 &query) {
-                      cost = heavy_request_cost(query.max_size_ > 0 ? static_cast<td::uint64>(query.max_size_) : 0);
-                    },
-                    [&](const ton_api::tonNode_downloadZeroState &) {
-                      cost = heavy_request_cost(FullNode::max_zerostate_size());
-                    },
-                    [&](const auto &) {}));
-  return cost;
-}
 
 }  // namespace
 
@@ -223,16 +200,6 @@ void FullNodeShardImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice
     td::actor::send_closure(overlays_, &overlay::Overlays::send_message, src, adnl_id_, overlay_id_,
                             create_serialize_tl_object<ton_api::tonNode_forgetPeer>());
     promise.set_error(td::Status::Error("shard is inactive"));
-    return;
-  }
-  auto B = fetch_tl_object<ton_api::Function>(query, true);
-  if (B.is_error()) {
-    promise.set_error(td::Status::Error(ErrorCode::protoviolation, "cannot parse tonnode query"));
-    return;
-  }
-  auto fun_ptr = B.move_as_ok();
-  if (!limiter_->check_in(fun_ptr->get_id(), request_cost_for_limiter(*fun_ptr))) {
-    promise.set_error(td::Status::Error(ErrorCode::failure, "too many requests"));
     return;
   }
   td::actor::send_closure(full_node_, &FullNode::handle_query, std::move(query), src, QuerySource::public_overlay,
@@ -937,7 +904,6 @@ void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
 
 FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
                                      FileHash zero_state_file_hash, FullNodeOptions opts,
-                                     std::shared_ptr<RateLimiter<>> limiter,
                                      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                                      td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
                                      td::actor::ActorId<overlay::Overlays> overlays,
@@ -957,20 +923,18 @@ FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, 
     , full_node_(full_node)
     , active_(active)
     , enable_plumtree_broadcast_(enable_plumtree_broadcast)
-    , opts_(opts)
-    , limiter_(std::move(limiter)) {
+    , opts_(opts) {
 }
 
 td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-    FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
-    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
-    td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<FullNode> full_node,
-    bool active, bool enable_plumtree_broadcast) {
-  return td::actor::create_actor<FullNodeShardImpl>(
-      PSTRING() << "tonnode" << shard, shard, local_id, adnl_id, zero_state_file_hash, opts, std::move(limiter),
-      keyring, adnl, rldp2, quic, overlays, validator_manager, full_node, active, enable_plumtree_broadcast);
+    FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
+    td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+    td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast) {
+  return td::actor::create_actor<FullNodeShardImpl>(PSTRING() << "tonnode" << shard, shard, local_id, adnl_id,
+                                                    zero_state_file_hash, opts, keyring, adnl, rldp2, quic, overlays,
+                                                    validator_manager, full_node, active, enable_plumtree_broadcast);
 }
 
 }  // namespace fullnode

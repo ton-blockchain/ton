@@ -18,9 +18,6 @@
 */
 #pragma once
 
-#include "full-node-shard.h"
-#include "full-node.h"
-//#include "ton-node-slave.h"
 #include <map>
 #include <queue>
 #include <set>
@@ -33,6 +30,8 @@
 #include "full-node-custom-overlays.hpp"
 #include "full-node-fast-sync-overlays.hpp"
 #include "full-node-queries.hpp"
+#include "full-node-shard.h"
+#include "full-node.h"
 #include "rate-limiter.h"
 
 namespace ton {
@@ -115,9 +114,7 @@ class FullNodeImpl : public FullNode {
   }
 
   td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
-                                                QuerySource source) override {
-    return query_handler_.handle_query(std::move(query), src, source);
-  }
+                                                QuerySource source) override;
 
   void start_up() override;
   void alarm() override;
@@ -204,11 +201,12 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
 
-  std::shared_ptr<RateLimiter<>> limiter_;
+  // Separate handlers for separate rate limiters
+  FullNodeQueryHandler query_handler_public_;
+  FullNodeQueryHandler query_handler_fast_sync_;
+  FullNodeQueryHandler query_handler_custom_;
 
-  decltype(limiter_) make_limiter(const FullNodeOptions& opts);
-
-  FullNodeQueryHandler query_handler_;
+  static std::shared_ptr<RateLimiter<>> make_rate_limiter(const FullNodeOptions::RateLimiterParams& params);
 };
 
 }  // namespace fullnode

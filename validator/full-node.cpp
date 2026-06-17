@@ -299,9 +299,9 @@ void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active, bool enabl
   CHECK(client_.empty());
   ShardInfo &info = shards_[shard];
   if (info.actor.empty()) {
-    info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, limiter_, keyring_,
-                                       adnl_, rldp2_, quic_, overlays_, validator_manager_, actor_id(this),
-                                       active, enable_plumtree_broadcast);
+    info.actor =
+        FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, keyring_, adnl_, rldp2_, quic_,
+                              overlays_, validator_manager_, actor_id(this), active, enable_plumtree_broadcast);
     if (!all_validators_.empty()) {
       td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
     }
@@ -839,6 +839,20 @@ void FullNodeImpl::update_validator_telemetry_collector() {
   }
 }
 
+td::actor::Task<td::BufferSlice> FullNodeImpl::handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
+                                                            QuerySource source) {
+  switch (source) {
+    case QuerySource::public_overlay:
+      return query_handler_public_.handle_query(std::move(query), src, source);
+    case QuerySource::fast_sync_overlay:
+      return query_handler_fast_sync_.handle_query(std::move(query), src, source);
+    case QuerySource::custom_overlay:
+      return query_handler_custom_.handle_query(std::move(query), src, source);
+    default:
+      UNREACHABLE();  // full-node master queries are processed in FullNodeMaster actor
+  }
+}
+
 void FullNodeImpl::start_up() {
   if (client_.empty()) {
     update_shard_actor(ShardIdFull{masterchainId}, true, false);
@@ -1076,8 +1090,9 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
     , db_root_(db_root)
     , started_promise_(std::move(started_promise))
     , opts_(opts)
-    , limiter_(make_limiter(opts))
-    , query_handler_(validator_manager) {
+    , query_handler_public_(validator_manager, make_rate_limiter(opts.rate_limit_public_))
+    , query_handler_fast_sync_(validator_manager, make_rate_limiter(opts.rate_limit_fast_sync_))
+    , query_handler_custom_(validator_manager, make_rate_limiter(opts.rate_limit_custom_)) {
 }
 
 td::actor::ActorOwn<FullNode> FullNode::create(
@@ -1129,26 +1144,25 @@ CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_c
   return c;
 }
 
-decltype(FullNodeImpl::limiter_) FullNodeImpl::make_limiter(const FullNodeOptions &opts) {
-  double w_size = opts.ratelimit_window_size_;
-  size_t h_limit = opts.ratelimit_heavy_;
-  size_t m_limit = opts.ratelimit_medium_;
-  size_t g_limit = opts.ratelimit_global_;
+std::shared_ptr<RateLimiter<>> FullNodeImpl::make_rate_limiter(const FullNodeOptions::RateLimiterParams &params) {
+  double w_size = params.window_size_;
   return std::make_shared<RateLimiter<>>(
-      RateLimit{w_size, g_limit},
-      std::map<int32_t, RateLimit>{{ton_api::tonNode_getArchiveSlice::ID, {w_size, h_limit}},
-                                   {ton_api::tonNode_downloadPersistentStateSliceV2::ID, {w_size, h_limit}},
-                                   {ton_api::tonNode_downloadZeroState::ID, {w_size, h_limit}},
-
-                                   {ton_api::tonNode_downloadBlock::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadBlockFull::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadNextBlockFull::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadNextBlocksFull::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadBlockProof::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadBlockProofLink::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadKeyBlockProof::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadKeyBlockProofLink::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_getOutMsgQueueProof::ID, {w_size, m_limit}}});
+      RateLimit{w_size, params.limit_global_}, RateLimit{w_size, params.limit_heavy_},
+      std::set{ton_api::tonNode_getArchiveSlice::ID, ton_api::tonNode_downloadPersistentStateSliceV2::ID,
+               ton_api::tonNode_downloadZeroState::ID},
+      RateLimit{w_size, params.limit_medium_},
+      std::set{ton_api::tonNode_downloadBlock::ID, ton_api::tonNode_downloadBlockFull::ID,
+               ton_api::tonNode_downloadNextBlockFull::ID, ton_api::tonNode_downloadNextBlocksFull::ID,
+               ton_api::tonNode_downloadBlockProof::ID, ton_api::tonNode_downloadBlockProofLink::ID,
+               ton_api::tonNode_downloadKeyBlockProof::ID, ton_api::tonNode_downloadKeyBlockProofLink::ID,
+               ton_api::tonNode_getOutMsgQueueProof::ID},
+      RateLimit{w_size, params.limit_small_},
+      std::set{ton_api::tonNode_getNextBlockDescription::ID, ton_api::tonNode_getNextBlocksDescription::ID,
+               ton_api::tonNode_prepareBlockProof::ID, ton_api::tonNode_prepareKeyBlockProof::ID,
+               ton_api::tonNode_prepareBlock::ID, ton_api::tonNode_prepareZeroState::ID,
+               ton_api::tonNode_getNextKeyBlockIds::ID, ton_api::tonNode_getArchiveInfo::ID,
+               ton_api::tonNode_getShardArchiveInfo::ID, ton_api::tonNode_preparePersistentState::ID,
+               ton_api::tonNode_getPersistentStateSizeV2::ID});
 }
 
 }  // namespace fullnode

@@ -413,17 +413,8 @@ class ValidatorEngine : public td::actor::Actor {
   void set_initial_sync_delay(double value) {
     full_node_options_.initial_sync_delay_ = value;
   }
-  void set_ratelimit_window_size(double seconds) {
-    full_node_options_.ratelimit_window_size_ = seconds;
-  }
-  void set_ratelimit_global(size_t count) {
-    full_node_options_.ratelimit_global_ = count;
-  }
-  void set_ratelimit_heavy(size_t count) {
-    full_node_options_.ratelimit_heavy_ = count;
-  }
-  void set_ratelimit_medium(size_t count) {
-    full_node_options_.ratelimit_medium_ = count;
+  void with_full_node_options(std::function<void(ton::validator::fullnode::FullNodeOptions &)> f) {
+    f(full_node_options_);
   }
   void add_auto_sign_adnl(ton::adnl::AdnlNodeIdShort id) {
     LOG(INFO) << "configured auto-sign shard overlay certificates for adnl=" << id;

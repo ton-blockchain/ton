@@ -28,6 +28,7 @@
 
 #include "full-node-serializer.hpp"
 #include "full-node.h"
+#include "rate-limiter.h"
 
 namespace ton {
 
@@ -201,17 +202,22 @@ class NextBlocksFullSender : public td::actor::Actor {
 
 class FullNodeQueryHandler {
  public:
-  explicit FullNodeQueryHandler(td::actor::ActorId<ValidatorManagerInterface> manager) : manager_(manager) {
+  explicit FullNodeQueryHandler(td::actor::ActorId<ValidatorManagerInterface> manager,
+                                std::shared_ptr<RateLimiter<>> rate_limiter = {})
+      : manager_(manager), rate_limiter_(std::move(rate_limiter)) {
   }
 
   td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src, QuerySource source) {
     auto f = CO_TRY(fetch_tl_object<ton_api::Function>(std::move(query), true));
     td::actor::StartedTask<td::BufferSlice> task;
-    int tag = f->get_id();
+    int id = f->get_id();
+    if (rate_limiter_ && !rate_limiter_->check_in(id, request_cost_for_limiter(*f))) {
+      co_return td::Status::Error("rate limit exceeded");
+    }
     ton_api::downcast_call(*f.get(), [&](auto &obj) { task = process_query(std::move(obj), src, source).start(); });
     auto R = co_await std::move(task).wrap();
     auto name = [&]() -> const char * {
-      auto s = ton_api_id_name(tag);
+      auto s = ton_api_id_name(id);
       return s ? s : "unknown";
     };
     if (R.is_ok()) {
@@ -226,6 +232,7 @@ class FullNodeQueryHandler {
 
  private:
   td::actor::ActorId<ValidatorManagerInterface> manager_;
+  std::shared_ptr<RateLimiter<>> rate_limiter_;
 
   template <class T>
   td::actor::Task<td::BufferSlice> process_query(T, adnl::AdnlNodeIdShort, QuerySource) {
