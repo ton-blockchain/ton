@@ -2,6 +2,7 @@ SYMBOL_MAP = {
     "estimate": "circle",
     "reached": "x",
     "observed": "diamond",
+    "crosslink": "triangle-right",
 }
 
 COLOR_MAP = {
@@ -12,6 +13,8 @@ COLOR_MAP = {
     "notarize_reached": "#d62728",
     "finalize_reached": "#B3BD44",
     "collate": "lightblue",
+    "finalize": "#DD6046",
+    "collation_total_time": "rgba(25, 25, 112, 0.6)",
     "collation": "lightblue",
     "notarize": "cornflowerblue",
     "block_validation": "cornflowerblue",
@@ -23,4 +26,6 @@ COLOR_MAP = {
     "notarize_vote": "#d62728",
     "finalize_vote": "#B3BD44",
     "skip_vote": "#26C485",
+    "mc_ref_finalized": "#9467bd",
+    "mc_ref_collate_started": "#e377c2",
 }

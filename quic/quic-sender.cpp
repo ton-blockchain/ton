@@ -311,31 +311,6 @@ void QuicSender::log_stats(std::string reason) {
   }
 }
 
-std::vector<metrics::MetricFamily> QuicSender::Stats::Entry::dump() const {
-  return {
-      metrics::MetricFamily::make_scalar("conns", "gauge", server_stats.total_conns),
-      metrics::MetricFamily::make_scalar("rx_bytes_total", "counter", server_stats.impl_stats.bytes_rx),
-      metrics::MetricFamily::make_scalar("tx_bytes_total", "counter", server_stats.impl_stats.bytes_tx),
-      metrics::MetricFamily::make_scalar("lost_bytes_total", "counter", server_stats.impl_stats.bytes_lost),
-      metrics::MetricFamily::make_scalar("unacked_bytes", "gauge", server_stats.impl_stats.bytes_unacked),
-      metrics::MetricFamily::make_scalar("unsent_bytes", "gauge", server_stats.impl_stats.bytes_unsent),
-      metrics::MetricFamily::make_scalar("open_sids", "gauge", server_stats.impl_stats.open_sids),
-      metrics::MetricFamily::make_scalar("mean_rtt", "gauge", server_stats.impl_stats.mean_rtt),
-  };
-}
-
-std::vector<metrics::MetricFamily> QuicSender::Stats::dump() const {
-  auto summary_set = metrics::MetricSet{.families = summary.dump()};
-  auto whole_per_path_set = metrics::MetricSet{};
-  for (const auto &[path, entry] : per_path) {
-    auto path_set = metrics::MetricSet{.families = entry.dump()};
-    auto src_v = PSTRING() << path.first, dst_v = PSTRING() << path.second;
-    auto label_set = metrics::LabelSet{.labels = {{"src", src_v}, {"dst", dst_v}}};
-    whole_per_path_set = std::move(whole_per_path_set).join(std::move(path_set).label(label_set));
-  }
-  return std::move(summary_set).wrap("summary").join(std::move(whole_per_path_set).wrap("per_path")).families;
-}
-
 td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
   Stats stats;
   for (auto &[_, server] : servers_by_port_) {
@@ -350,12 +325,9 @@ td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
   co_return stats;
 }
 
-// TODO(avevad): remove obsolete Stats and collect metrics directly
-void QuicSender::collect(td::Promise<metrics::MetricSet> P) {
-  td::actor::send_closure(actor_id(this), &QuicSender::collect_stats,
-                          td::make_promise([P = std::move(P)](td::Result<Stats> R) mutable {
-                            P.set_value(metrics::MetricSet{.families = R.move_as_ok().dump()}.wrap("quic"));
-                          }));
+td::actor::Task<> QuicSender::collect(metrics::Context ctx) {
+  // TODO
+  co_return {};
 }
 
 void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,

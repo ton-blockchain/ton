@@ -43,8 +43,8 @@ static void apply_platform_pmtu_policy(ngtcp2_settings& settings) {
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
     td::Slice alpn, td::Slice sni, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
-  auto p_impl =
-      std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
+  auto p_impl = std::make_unique<QuicConnectionPImpl>(td::Badge<QuicConnectionPImpl>{}, local_address, remote_address,
+                                                      std::move(callback), options);
 
   TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn, sni));
   TRY_STATUS(p_impl->init_quic_client());
@@ -61,8 +61,8 @@ td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_ser
   CHECK(identities.not_null());
   CHECK(identities->has_default());
 
-  auto p_impl =
-      std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
+  auto p_impl = std::make_unique<QuicConnectionPImpl>(td::Badge<QuicConnectionPImpl>{}, local_address, remote_address,
+                                                      std::move(callback), options);
 
   TRY_STATUS(p_impl->init_tls_server_rpk(std::move(identities), alpn));
   TRY_STATUS(p_impl->init_quic_server(initial));
@@ -708,13 +708,13 @@ QuicConnectionStats QuicConnectionPImpl::get_stats() {
     bytes_unsent += stream.reader_.size();
   }
   return {
-      .bytes_rx = static_cast<int64_t>(info.bytes_recv),
-      .bytes_tx = static_cast<int64_t>(info.bytes_sent),
-      .bytes_lost = static_cast<int64_t>(info.bytes_lost),
-      .bytes_unacked = static_cast<int64_t>(bytes_unacked),
-      .bytes_unsent = static_cast<int64_t>(bytes_unsent),
-      .total_sids = static_cast<int64_t>(sids_encountered),
-      .open_sids = static_cast<int64_t>(streams_.size()),
+      .bytes_rx = info.bytes_recv,
+      .bytes_tx = info.bytes_sent,
+      .bytes_lost = info.bytes_lost,
+      .bytes_unacked = bytes_unacked,
+      .bytes_unsent = bytes_unsent,
+      .total_sids = sids_encountered,
+      .open_sids = streams_.size(),
       .mean_rtt = static_cast<double>(info.smoothed_rtt),
   };
 }

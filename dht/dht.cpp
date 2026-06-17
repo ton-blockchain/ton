@@ -30,6 +30,8 @@
 #include "dht.h"
 #include "dht.hpp"
 
+DEFINE_LOG_CATEGORY(dht, VERBOSITY_NAME(WARNING))
+
 namespace ton {
 
 namespace dht {
@@ -242,7 +244,7 @@ td::Status DhtMemberImpl::store_in(DhtValue value) {
     return td::Status::Error("ttl is too big");
   }
   if (value.expired()) {
-    VLOG(DHT_INFO) << this << ": dropping expired value: " << value.key_id() << " expire_at = " << value.ttl();
+    VLOG(dht, INFO) << this << ": dropping expired value: " << value.key_id() << " expire_at = " << value.ttl();
     return td::Status::OK();
   }
   TRY_STATUS(value.check());
@@ -260,7 +262,7 @@ td::Status DhtMemberImpl::store_in(DhtValue value) {
     }
     CHECK(values_ttl_order_.insert({it->second.ttl(), it->first}).second);
   } else {
-    VLOG(DHT_INFO) << this << ": dropping too remote value: " << value.key_id() << " distance = " << dist;
+    VLOG(dht, INFO) << this << ": dropping too remote value: " << value.key_id() << " distance = " << dist;
   }
   return td::Status::OK();
 }
@@ -272,7 +274,7 @@ void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_store 
   if (V.is_error()) {
     promise.set_error(td::Status::Error(ErrorCode::protoviolation,
                                         PSTRING() << "dropping invalid dht_store() value: " << V.error().to_string()));
-    VLOG(DHT_INFO) << this << ": dropping invalid value: " << V.move_as_error();
+    VLOG(dht, INFO) << this << ": dropping invalid value: " << V.move_as_error();
     return;
   }
   auto b = store_in(V.move_as_ok());
@@ -280,7 +282,7 @@ void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_store 
   if (b.is_ok()) {
     promise.set_value(create_serialize_tl_object<ton_api::dht_stored>());
   } else {
-    VLOG(DHT_INFO) << this << ": dropping store() query from " << src << ": " << b.move_as_error();
+    VLOG(dht, INFO) << this << ": dropping store() query from " << src << ": " << b.move_as_error();
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "dropping dht_store() query"));
   }
 }
@@ -367,36 +369,36 @@ void DhtMemberImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice dat
           auto key = node.get_key();
           add_full_node(key, std::move(node), true);
         } else {
-          VLOG(DHT_WARNING) << this << ": dropping bad node: unexpected adnl id";
+          VLOG(dht, WARNING) << this << ": dropping bad node: unexpected adnl id";
         }
       } else {
-        VLOG(DHT_WARNING) << this << ": dropping bad node " << N.move_as_error();
+        VLOG(dht, WARNING) << this << ": dropping bad node " << N.move_as_error();
       }
     }
   }
   auto R = fetch_tl_object<ton_api::Function>(std::move(data), true);
 
   if (R.is_error()) {
-    VLOG(DHT_WARNING) << this << ": dropping unknown query to DHT node: " << R.move_as_error();
+    VLOG(dht, WARNING) << this << ": dropping unknown query to DHT node: " << R.move_as_error();
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "failed to parse dht query"));
     return;
   }
 
   auto Q = R.move_as_ok();
   if (td::Random::fast(0, 127) == 0) {
-    VLOG(DHT_DEBUG) << this << ": ping=" << ping_queries_ << " fnode=" << find_node_queries_
-                    << " fvalue=" << find_value_queries_ << " store=" << store_queries_
-                    << " addrlist=" << get_addr_list_queries_;
-    VLOG(DHT_DEBUG) << this << ": query to DHT from " << src << ": " << ton_api::to_string(Q);
+    VLOG(dht, DEBUG) << this << ": ping=" << ping_queries_ << " fnode=" << find_node_queries_
+                     << " fvalue=" << find_value_queries_ << " store=" << store_queries_
+                     << " addrlist=" << get_addr_list_queries_;
+    VLOG(dht, DEBUG) << this << ": query to DHT from " << src << ": " << ton_api::to_string(Q);
   }
 
-  VLOG(DHT_EXTRA_DEBUG) << this << ": query to DHT from " << src << ": " << ton_api::to_string(Q);
+  VLOG(dht, DEBUG) << this << ": query to DHT from " << src << ": " << ton_api::to_string(Q);
 
   ton_api::downcast_call(*Q, [&](auto &object) { this->process_query(src, object, std::move(promise)); });
 }
 
 void DhtMemberImpl::add_full_node(DhtKeyId key, DhtNode node, bool set_active) {
-  VLOG(DHT_EXTRA_DEBUG) << this << ": adding full node " << key;
+  VLOG(dht, DEBUG) << this << ": adding full node " << key;
 
   auto eid = key ^ key_;
   auto bit = eid.count_leading_zeroes();
@@ -414,7 +416,7 @@ void DhtMemberImpl::add_full_node(DhtKeyId key, DhtNode node, bool set_active) {
 }
 
 void DhtMemberImpl::receive_ping(DhtKeyId key, DhtNode result) {
-  VLOG(DHT_EXTRA_DEBUG) << this << ": received ping from " << key;
+  VLOG(dht, DEBUG) << this << ": received ping from " << key;
 
   auto eid = key ^ key_;
   auto bit = eid.count_leading_zeroes();
@@ -438,13 +440,13 @@ void DhtMemberImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice d
       TRY_RESULT_PREFIX(encryptor, node.pub_id().pubkey().create_encryptor(), "failed to create encryptor: ");
       TRY_STATUS_PREFIX(encryptor->check_signature(serialize_tl_object(f->target_, true), f->signature_),
                         "invalid signature: ");
-      VLOG(DHT_INFO) << this << ": sending reverse ping to " << node.compute_short_id();
+      VLOG(dht, INFO) << this << ": sending reverse ping to " << node.compute_short_id();
       td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, client, node.pub_id(), node.addr_list());
       td::actor::send_closure(adnl_, &adnl::Adnl::send_message, client, node.compute_short_id(), td::BufferSlice());
       return td::Status::OK();
     }();
     if (S.is_error()) {
-      VLOG(DHT_INFO) << this << ": " << S;
+      VLOG(dht, INFO) << this << ": " << S;
     }
   }
 }
@@ -554,12 +556,12 @@ void DhtMemberImpl::request_reverse_ping_cont(adnl::AdnlNode target, td::BufferS
 }
 
 void DhtMemberImpl::check() {
-  VLOG(DHT_INFO) << this << ": ping=" << ping_queries_ << " fnode=" << find_node_queries_
-                 << " fvalue=" << find_value_queries_ << " store=" << store_queries_
-                 << " addrlist=" << get_addr_list_queries_;
-  VLOG(DHT_INFO) << this << ": values=" << values_.size() << " our_values=" << our_values_.size();
-  VLOG(DHT_INFO) << this << ": reverse_conns=" << reverse_connections_.size()
-                 << " our_reverse_conns=" << our_reverse_connections_.size();
+  VLOG(dht, INFO) << this << ": ping=" << ping_queries_ << " fnode=" << find_node_queries_
+                  << " fvalue=" << find_value_queries_ << " store=" << store_queries_
+                  << " addrlist=" << get_addr_list_queries_;
+  VLOG(dht, INFO) << this << ": values=" << values_.size() << " our_values=" << our_values_.size();
+  VLOG(dht, INFO) << this << ": reverse_conns=" << reverse_connections_.size()
+                  << " our_reverse_conns=" << our_reverse_connections_.size();
   for (auto &bucket : buckets_) {
     bucket.check(client_only_, adnl_, actor_id(this), id_);
   }
@@ -593,7 +595,7 @@ void DhtMemberImpl::check() {
           if (it->second.key().update_rule()->need_republish()) {
             auto P = td::PromiseCreator::lambda([print_id = print_id()](td::Result<td::Unit> R) {
               if (R.is_error()) {
-                VLOG(DHT_INFO) << print_id << ": failed to store: " << R.move_as_error();
+                VLOG(dht, INFO) << print_id << ": failed to store: " << R.move_as_error();
               }
             });
             send_store(it->second.clone(), std::move(P));
@@ -635,7 +637,7 @@ void DhtMemberImpl::check() {
       if (it->second.ttl() > td::Clocks::system() + 60) {
         auto P = td::PromiseCreator::lambda([print_id = print_id()](td::Result<td::Unit> R) {
           if (R.is_error()) {
-            VLOG(DHT_INFO) << print_id << ": failed to store: " << R.move_as_error();
+            VLOG(dht, INFO) << print_id << ": failed to store: " << R.move_as_error();
           }
         });
         send_store(it->second.clone(), std::move(P));
@@ -648,7 +650,7 @@ void DhtMemberImpl::check() {
   if (fill_att_.is_in_past()) {
     auto promise = td::PromiseCreator::lambda([](td::Result<DhtNodesList> R) {
       if (R.is_error()) {
-        VLOG(DHT_WARNING) << "failed find self query: " << R.move_as_error();
+        VLOG(dht, WARNING) << "failed find self query: " << R.move_as_error();
       }
     });
 

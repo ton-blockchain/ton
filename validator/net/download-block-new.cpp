@@ -55,35 +55,12 @@ DownloadBlockNew::DownloadBlockNew(BlockIdExt block_id, adnl::AdnlNodeIdShort lo
     , allow_partial_proof_{!block_id_.is_masterchain()} {
 }
 
-DownloadBlockNew::DownloadBlockNew(adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
-                                   BlockIdExt prev_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
-                                   td::Timestamp timeout,
-                                   td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
-                                   td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
-                                   td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<ReceivedBlock> promise)
-    : local_id_(local_id)
-    , overlay_id_(overlay_id)
-    , prev_id_(prev_id)
-    , download_from_(download_from)
-    , priority_(priority)
-    , timeout_(timeout)
-    , validator_manager_(validator_manager)
-    , rldp_(rldp)
-    , overlays_(overlays)
-    , adnl_(adnl)
-    , client_(client)
-    , promise_(std::move(promise))
-    , block_{BlockIdExt{}, td::BufferSlice()} {
-}
-
 void DownloadBlockNew::abort_query(td::Status reason) {
   if (promise_) {
     if (reason.code() == ErrorCode::notready || reason.code() == ErrorCode::timeout) {
-      VLOG(FULL_NODE_DEBUG) << "failed to download block " << block_id_ << "from " << download_from_ << ": " << reason;
+      VLOG(full_node, DEBUG) << "failed to download block " << block_id_ << "from " << download_from_ << ": " << reason;
     } else {
-      VLOG(FULL_NODE_NOTICE) << "failed to download block " << block_id_ << " from " << download_from_ << ": "
-                             << reason;
+      VLOG(full_node, INFO) << "failed to download block " << block_id_ << " from " << download_from_ << ": " << reason;
     }
     promise_.set_error(std::move(reason));
   }
@@ -102,6 +79,10 @@ void DownloadBlockNew::finish_query() {
 }
 
 void DownloadBlockNew::start_up() {
+  if (!block_id_.is_valid()) {
+    abort_query(td::Status::Error("invalid block id"));
+    return;
+  }
   alarm_timestamp() = timeout_;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<BlockHandle> R) {
@@ -109,26 +90,14 @@ void DownloadBlockNew::start_up() {
     td::actor::send_closure(SelfId, &DownloadBlockNew::got_block_handle, R.move_as_ok());
   });
 
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle,
-                          block_id_.is_valid() ? block_id_ : prev_id_, true, std::move(P));
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::get_block_handle, block_id_, true,
+                          std::move(P));
 }
 
 void DownloadBlockNew::got_block_handle(BlockHandle handle) {
   handle_ = std::move(handle);
 
-  if (!block_id_.is_valid()) {
-    CHECK(prev_id_.is_valid());
-    if (handle_->inited_next_left()) {
-      block_id_ = handle_->one_next(true);
-      block_.id = block_id_;
-      handle_ = nullptr;
-      start_up();
-      return;
-    }
-  }
-
-  if (block_id_.is_valid() &&
-      (handle_->inited_proof() || (handle_->inited_proof_link() && allow_partial_proof_) || skip_proof_) &&
+  if ((handle_->inited_proof() || (handle_->inited_proof_link() && allow_partial_proof_) || skip_proof_) &&
       handle_->received()) {
     CHECK(block_.id == block_id_);
     CHECK(handle_->id() == block_id_);
@@ -185,7 +154,7 @@ void DownloadBlockNew::got_download_token(std::unique_ptr<ActionToken> token) {
 void DownloadBlockNew::got_node_to_download(adnl::AdnlNodeIdShort node) {
   download_from_ = node;
 
-  VLOG(FULL_NODE_DEBUG) << "downloading proof for " << block_id_;
+  VLOG(full_node, DEBUG) << "downloading proof for " << block_id_;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
     if (R.is_error()) {
@@ -195,12 +164,7 @@ void DownloadBlockNew::got_node_to_download(adnl::AdnlNodeIdShort node) {
     }
   });
 
-  td::BufferSlice q;
-  if (block_id_.is_valid()) {
-    q = create_serialize_tl_object<ton_api::tonNode_downloadBlockFull>(create_tl_block_id(block_id_));
-  } else {
-    q = create_serialize_tl_object<ton_api::tonNode_downloadNextBlockFull>(create_tl_block_id(prev_id_));
-  }
+  td::BufferSlice q = create_serialize_tl_object<ton_api::tonNode_downloadBlockFull>(create_tl_block_id(block_id_));
   if (client_.empty()) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
                             "get_block_full", std::move(P), td::Timestamp::in(15.0), std::move(q),
@@ -246,16 +210,9 @@ void DownloadBlockNew::got_data(td::BufferSlice data) {
                     return;
                   }
                   auto prev_blocks = R_prev_blocks.move_as_ok();
-                  if (block_id_.is_valid()) {
-                    if (id != block_id_) {
-                      abort_query(td::Status::Error("block id mismatch"));
-                      return;
-                    }
-                  } else {
-                    if (prev_blocks != std::vector{prev_id_}) {
-                      abort_query(td::Status::Error("prev block id mismatch"));
-                      return;
-                    }
+                  if (id != block_id_) {
+                    abort_query(td::Status::Error("block id mismatch"));
+                    return;
                   }
                   auto P_state = td::PromiseCreator::lambda([SelfId = actor_id(this), data_full = std::move(f)](
                                                                 td::Result<td::Ref<ShardState>> R_state) mutable {
@@ -300,7 +257,7 @@ void DownloadBlockNew::got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_D
     abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have proof for this block"));
     return;
   }
-  if (block_id_.is_valid() && id != block_id_) {
+  if (id != block_id_) {
     abort_query(td::Status::Error(ErrorCode::notready, "received data for wrong block"));
     return;
   }
@@ -318,17 +275,11 @@ void DownloadBlockNew::got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_D
       td::actor::send_closure(SelfId, &DownloadBlockNew::checked_block_proof);
     }
   });
-  if (block_id_.is_valid()) {
-    if (is_link) {
-      td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_proof_link, block_id_,
-                              std::move(proof), std::move(P));
-    } else {
-      td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_proof, block_id_,
-                              std::move(proof), std::move(P));
-    }
+  if (is_link) {
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_proof_link, block_id_,
+                            std::move(proof), std::move(P));
   } else {
-    CHECK(!is_link);
-    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_is_next_proof, prev_id_, id,
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_proof, block_id_,
                             std::move(proof), std::move(P));
   }
 }

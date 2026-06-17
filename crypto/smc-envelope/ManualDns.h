@@ -143,18 +143,21 @@ class DnsInterface {
     td::optional<td::Ref<vm::Cell>> data;
 
     bool does_create_category() const {
-      CHECK(!name.empty());
-      CHECK(!category.is_zero());
+      if (name.empty() || category.is_zero()) {
+        return false;
+      }
       return static_cast<bool>(data);
     }
     bool does_change_empty() const {
-      CHECK(!name.empty());
-      CHECK(!category.is_zero());
+      if (name.empty() || category.is_zero()) {
+        return false;
+      }
       return static_cast<bool>(data) && data.value().not_null();
     }
     void make_non_empty() {
-      CHECK(!name.empty());
-      CHECK(!category.is_zero());
+      if (name.empty() || category.is_zero()) {
+        return;
+      }
       if (!data) {
         data = td::Ref<vm::Cell>();
       }

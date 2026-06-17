@@ -51,6 +51,7 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
     auto v_bool = createV<ast_bool_const>(range, bool_val);
     v_bool->assign_inferred_type(TypeDataBool::create());
     v_bool->assign_rvalue_true();
+    v_bool->mutate()->assign_always_true_or_false(bool_val ? 1 : 2);
     return v_bool;
   }
 
@@ -82,6 +83,7 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
     if (v->tok == tok_logical_not) {
       // `!!boolVar` => `boolVar` (the inner operand is always bool, integers disallowed by type checker)
       if (auto inner_not = v->get_rhs()->try_as<ast_unary_operator>(); inner_not && inner_not->tok == tok_logical_not) {
+        inner_not->get_rhs()->mutate()->assign_inferred_type(TypeDataBool::create());   // in case it was alias to bool
         return inner_not->get_rhs();
       }
       // `!true` / `!false`
@@ -102,6 +104,7 @@ class OptimizerBooleanExpressionsReplacer final : public ASTReplacerInFunctionBo
       if (expect_boolean(lhs->inferred_type) && rhs->kind == ast_bool_const) {
         // `boolVar == true` / `boolVar != false`
         if (rhs->as<ast_bool_const>()->bool_val ^ (v->tok == tok_neq)) {
+          lhs->mutate()->assign_inferred_type(TypeDataBool::create());    // in case it was alias to bool
           return lhs;
         }
         // `boolVar != true` / `boolVar == false`

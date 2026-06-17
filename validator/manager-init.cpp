@@ -152,18 +152,18 @@ void ValidatorManagerMasterchainReiniter::try_download_key_blocks(bool try_start
       download_new_key_blocks_until_ = td::Timestamp::in(600.0);
     }
   }
-  if (key_blocks_.size() > 0 && try_start) {
+  if (key_blocks_.size() > 0) {
     auto h = *key_blocks_.rbegin();
     CHECK(h->inited_unix_time());
     if (h->unix_time() + opts_->sync_blocks_before() > td::Clocks::system()) {
       choose_masterchain_state();
       return;
     }
-    if (h->unix_time() + 2 * opts_->key_block_utime_step() > td::Clocks::system()) {
+    if (try_start && h->unix_time() + 2 * opts_->key_block_utime_step() > td::Clocks::system()) {
       choose_masterchain_state();
       return;
     }
-    if (opts_->allow_blockchain_init() && download_new_key_blocks_until_.is_in_past()) {
+    if (try_start && opts_->allow_blockchain_init() && download_new_key_blocks_until_.is_in_past()) {
       choose_masterchain_state();
       return;
     }

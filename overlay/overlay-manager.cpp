@@ -33,6 +33,8 @@
 #include "overlay-manager.h"
 #include "overlay.h"
 
+DEFINE_LOG_CATEGORY(overlay, VERBOSITY_NAME(WARNING))
+
 namespace ton {
 
 namespace overlay {
@@ -136,7 +138,7 @@ void OverlayManager::update_dht_node(td::actor::ActorId<dht::Dht> dht) {
 void OverlayManager::register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                       OverlayMemberCertificate cert, td::actor::ActorOwn<Overlay> overlay) {
   auto it = overlays_.find(local_id);
-  VLOG(OVERLAY_INFO) << this << ": registering overlay " << overlay_id << "@" << local_id;
+  VLOG(overlay, INFO) << this << ": registering overlay " << overlay_id << "@" << local_id;
   if (it == overlays_.end()) {
     td::actor::send_closure(adnl_, &adnl::Adnl::subscribe, local_id,
                             adnl::Adnl::int_to_bytestring(ton_api::overlay_message::ID),
@@ -155,8 +157,8 @@ void OverlayManager::register_overlay(adnl::AdnlNodeIdShort local_id, OverlayIdS
 
   auto buffered = buffered_requests_.extract_for_overlay(local_id, overlay_id);
   if (!buffered.empty()) {
-    VLOG(OVERLAY_INFO) << this << ": flushing " << buffered.size() << " buffered requests for " << overlay_id << "@"
-                       << local_id;
+    VLOG(overlay, INFO) << this << ": flushing " << buffered.size() << " buffered requests for " << overlay_id << "@"
+                        << local_id;
     for (auto &req : buffered) {
       if (req.promise.has_value()) {
         receive_query(req.src, req.dst, std::move(req.data), std::move(req.promise.value()));
@@ -273,20 +275,20 @@ void OverlayManager::receive_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeId
     if (R2.is_ok()) {
       overlay_id = OverlayIdShort{R2.ok()->overlay_};
     } else {
-      VLOG(OVERLAY_WARNING) << this << ": can not parse overlay message [" << src << "->" << dst
-                            << "]: " << R2.move_as_error();
+      VLOG(overlay, WARNING) << this << ": can not parse overlay message [" << src << "->" << dst
+                             << "]: " << R2.move_as_error();
       return;
     }
   }
 
   auto it = overlays_.find(dst);
   if (it == overlays_.end()) {
-    VLOG(OVERLAY_NOTICE) << this << ": message to unknown overlay " << overlay_id << "@" << dst;
+    VLOG(overlay, INFO) << this << ": message to unknown overlay " << overlay_id << "@" << dst;
     return;
   }
   auto it2 = it->second.find(overlay_id);
   if (it2 == it->second.end()) {
-    VLOG(OVERLAY_NOTICE) << this << ": message to localid is not in overlay " << overlay_id << "@" << dst;
+    VLOG(overlay, INFO) << this << ": message to localid is not in overlay " << overlay_id << "@" << dst;
 
     if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size >= data.size()) {
       while (buffered_requests_.total_packets >= buffer_limits_.max_packets ||
@@ -318,8 +320,8 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
     if (R2.is_ok()) {
       overlay_id = OverlayIdShort{R2.ok()->overlay_};
     } else {
-      VLOG(OVERLAY_WARNING) << this << ": can not parse overlay query [" << src << "->" << dst
-                            << "]: " << R2.move_as_error();
+      VLOG(overlay, WARNING) << this << ": can not parse overlay query [" << src << "->" << dst
+                             << "]: " << R2.move_as_error();
       promise.set_error(td::Status::Error(ErrorCode::protoviolation, "bad overlay query header"));
       return;
     }
@@ -327,13 +329,13 @@ void OverlayManager::receive_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
 
   auto it = overlays_.find(dst);
   if (it == overlays_.end()) {
-    VLOG(OVERLAY_NOTICE) << this << ": query to unknown overlay " << overlay_id << "@" << dst << " from " << src;
+    VLOG(overlay, INFO) << this << ": query to unknown overlay " << overlay_id << "@" << dst << " from " << src;
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, PSTRING() << "bad local_id " << dst));
     return;
   }
   auto it2 = it->second.find(overlay_id);
   if (it2 == it->second.end()) {
-    VLOG(OVERLAY_NOTICE) << this << ": query to localid not in overlay " << overlay_id << "@" << dst << " from " << src;
+    VLOG(overlay, INFO) << this << ": query to localid not in overlay " << overlay_id << "@" << dst << " from " << src;
 
     if (buffer_limits_.max_packets != 0 && buffer_limits_.max_data_size >= data.size()) {
       while (buffered_requests_.total_packets >= buffer_limits_.max_packets ||

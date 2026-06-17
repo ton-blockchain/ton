@@ -43,8 +43,8 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
   if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
-    VLOG(FULL_NODE_DEBUG) << "Dropping block broadcast in private overlay \"" << name_ << "\" from unauthorized sender "
-                          << src;
+    VLOG(full_node, DEBUG) << "Dropping block broadcast in private overlay \"" << name_
+                           << "\" from unauthorized sender " << src;
     return;
   }
 
@@ -75,8 +75,8 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
 
 void FullNodeCustomOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
-    VLOG(FULL_NODE_DEBUG) << "Dropping block broadcast in private overlay \"" << name_ << "\" from unauthorized sender "
-                          << src;
+    VLOG(full_node, DEBUG) << "Dropping block broadcast in private overlay \"" << name_
+                           << "\" from unauthorized sender " << src;
     return;
   }
   auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_custom);
@@ -84,9 +84,10 @@ void FullNodeCustomOverlay::process_block_broadcast(PublicKeyHash src, ton_api::
     LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
-                        << "in custom overlay \"" << name_ << "\" from " << src << ": " << B.ok().block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false);
+  VLOG(full_node, DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
+                         << "in custom overlay \"" << name_ << "\" from " << src << ": " << B.ok().block_id;
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false,
+                          BroadcastSource::custom_overlay);
 }
 
 void FullNodeCustomOverlay::obtain_state_for_decompression(PublicKeyHash src,
@@ -121,20 +122,21 @@ void FullNodeCustomOverlay::process_block_broadcast_with_state(PublicKeyHash src
     LOG(DEBUG) << "Failed to deserialize block broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received block broadcast in custom overlay \"" << name_ << "\" from " << src << ": "
-                        << B.ok().block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true);
+  VLOG(full_node, DEBUG) << "Received block broadcast in custom overlay \"" << name_ << "\" from " << src << ": "
+                         << B.ok().block_id;
+  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true,
+                          BroadcastSource::custom_overlay);
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query) {
   auto it = msg_senders_.find(adnl::AdnlNodeIdShort{src});
   if (it == msg_senders_.end()) {
-    VLOG(FULL_NODE_DEBUG) << "Dropping external message broadcast in custom overlay \"" << name_
-                          << "\" from unauthorized sender " << src;
+    VLOG(full_node, DEBUG) << "Dropping external message broadcast in custom overlay \"" << name_
+                           << "\" from unauthorized sender " << src;
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Got external message in custom overlay \"" << name_ << "\" from " << src
-                        << " (priority=" << it->second << ")";
+  VLOG(full_node, DEBUG) << "Got external message in custom overlay \"" << name_ << "\" from " << src
+                         << " (priority=" << it->second << ")";
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
                  std::move(query.message_->data_), it->second)
       .detach();
@@ -156,8 +158,8 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src,
 
 void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
   if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
-    VLOG(FULL_NODE_DEBUG) << "Dropping block candidate broadcast in private overlay \"" << name_
-                          << "\" from unauthorized sender " << src;
+    VLOG(full_node, DEBUG) << "Dropping block candidate broadcast in private overlay \"" << name_
+                           << "\" from unauthorized sender " << src;
     return;
   }
   BlockIdExt block_id;
@@ -171,28 +173,28 @@ void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src,
     return;
   }
   if (data.size() > FullNode::max_block_size()) {
-    VLOG(FULL_NODE_WARNING) << "received block candidate with too big size from " << src;
+    VLOG(full_node, WARNING) << "received block candidate with too big size from " << src;
     return;
   }
   if (td::sha256_bits256(data.as_slice()) != block_id.file_hash) {
-    VLOG(FULL_NODE_WARNING) << "received block candidate with incorrect file hash from " << src;
+    VLOG(full_node, WARNING) << "received block candidate with incorrect file hash from " << src;
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Received newBlockCandidate in custom overlay \"" << name_ << "\" from " << src << ": "
-                        << block_id;
+  VLOG(full_node, DEBUG) << "Received newBlockCandidate in custom overlay \"" << name_ << "\" from " << src << ": "
+                         << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
-                          validator_set_hash, std::move(data));
+                          validator_set_hash, std::move(data), BroadcastSource::custom_overlay);
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
   if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
-    VLOG(FULL_NODE_DEBUG) << "Dropping shard block description broadcast in private overlay \"" << name_
-                          << "\" from unauthorized sender " << src;
+    VLOG(full_node, DEBUG) << "Dropping shard block description broadcast in private overlay \"" << name_
+                           << "\" from unauthorized sender " << src;
     return;
   }
   BlockIdExt block_id = create_block_id(query.block_->block_);
-  VLOG(FULL_NODE_DEBUG) << "Received newShardBlockBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
-                        << block_id;
+  VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
+                         << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
                           std::move(query.block_->data_));
 }
@@ -212,7 +214,7 @@ void FullNodeCustomOverlay::send_external_message(td::BufferSlice data) {
   if (!inited_ || opts_.config_.ext_messages_broadcast_disabled_) {
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending external message to custom overlay \"" << name_ << "\"";
+  VLOG(full_node, DEBUG) << "Sending external message to custom overlay \"" << name_ << "\"";
   auto B = create_serialize_tl_object<ton_api::tonNode_externalMessageBroadcast>(
       create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)));
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
@@ -223,10 +225,10 @@ void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
   if (!inited_) {
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending block broadcast to custom overlay \"" << name_ << "\": " << broadcast.block_id;
+  VLOG(full_node, DEBUG) << "Sending block broadcast to custom overlay \"" << name_ << "\": " << broadcast.block_id;
   auto B = serialize_block_broadcast(broadcast, k_called_from_custom);
   if (B.is_error()) {
-    VLOG(FULL_NODE_WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
+    VLOG(full_node, WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
     return;
   }
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
@@ -241,16 +243,16 @@ void FullNodeCustomOverlay::send_block_candidate(BlockIdExt block_id, CatchainSe
   auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,
                                                k_called_from_custom);  // compression enabled
   if (B.is_error()) {
-    VLOG(FULL_NODE_WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
+    VLOG(full_node, WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  VLOG(FULL_NODE_DEBUG) << "Sending newBlockCandidate in custom overlay \"" << name_ << "\": " << block_id;
+  VLOG(full_node, DEBUG) << "Sending newBlockCandidate in custom overlay \"" << name_ << "\": " << block_id;
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
 void FullNodeCustomOverlay::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  VLOG(FULL_NODE_DEBUG) << "Sending newShardBlockBroadcast in custom overlay \"" << name_ << "\": " << block_id;
+  VLOG(full_node, DEBUG) << "Sending newShardBlockBroadcast in custom overlay \"" << name_ << "\": " << block_id;
   auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
       create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
   if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
@@ -293,9 +295,9 @@ void FullNodeCustomOverlay::try_init() {
 void FullNodeCustomOverlay::init() {
   td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
 
-  LOG(FULL_NODE_WARNING) << "Creating custom overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
-                         << nodes_.size() << " nodes, " << msg_senders_.size() << " msg senders, "
-                         << block_senders_.size() << " block senders, overlay_id=" << overlay_id_;
+  VLOG(full_node, WARNING) << "Creating custom overlay \"" << name_ << "\" for adnl id " << local_id_ << " : "
+                           << nodes_.size() << " nodes, " << msg_senders_.size() << " msg senders, "
+                           << block_senders_.size() << " block senders, overlay_id=" << overlay_id_;
   class Callback : public overlay::Overlays::Callback {
    public:
     void receive_message(adnl::AdnlNodeIdShort src, overlay::OverlayIdShort overlay_id, td::BufferSlice data) override {
@@ -339,7 +341,7 @@ void FullNodeCustomOverlay::init() {
 }
 
 void FullNodeCustomOverlay::tear_down() {
-  LOG(FULL_NODE_WARNING) << "Destroying custom overlay \"" << name_ << "\" for adnl id " << local_id_;
+  VLOG(full_node, WARNING) << "Destroying custom overlay \"" << name_ << "\" for adnl id " << local_id_;
   td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, local_id_, overlay_id_);
 }
 

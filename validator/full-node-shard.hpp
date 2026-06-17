@@ -50,6 +50,10 @@ struct Neighbour {
   void query_failed();
   void update_roundtrip(double t);
 
+  std::pair<td::uint32, td::uint32> version() const {
+    return {version_major, version_minor};
+  }
+
   static Neighbour zero;
 };
 
@@ -72,7 +76,7 @@ class FullNodeShardImpl : public FullNodeShard {
     return 3;
   }
   static constexpr td::uint32 proto_version_minor() {
-    return 1;
+    return 2;
   }
   static constexpr td::uint32 max_neighbours() {
     return 16;
@@ -92,9 +96,7 @@ class FullNodeShardImpl : public FullNodeShard {
     opts_.config_ = config;
   }
 
-  void try_get_next_block(td::Timestamp timestamp, td::Promise<ReceivedBlock> promise);
-  void got_next_block(td::Result<BlockHandle> block);
-  void get_next_block();
+  td::actor::Task<> get_next_blocks_loop();
 
   template <class T>
   void process_query(adnl::AdnlNodeIdShort src, T &query, td::Promise<td::BufferSlice> promise) {
@@ -121,6 +123,8 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadBlockFull &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadNextBlockFull &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_downloadNextBlocksFull &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::tonNode_prepareZeroState &query,
                      td::Promise<td::BufferSlice> promise);
@@ -259,7 +263,7 @@ class FullNodeShardImpl : public FullNodeShard {
 
   ShardIdFull shard_;
   BlockHandle handle_;
-  td::Promise<td::Unit> promise_;
+  td::Promise<td::Unit> sync_promise_;
 
   PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;
@@ -273,8 +277,6 @@ class FullNodeShardImpl : public FullNodeShard {
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::actor::ActorId<FullNode> full_node_;
-
-  td::uint32 attempt_ = 0;
 
   overlay::OverlayIdFull overlay_id_full_;
   overlay::OverlayIdShort overlay_id_;

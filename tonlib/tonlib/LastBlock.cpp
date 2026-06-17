@@ -204,7 +204,11 @@ void LastBlock::on_block_proof(
   }
 
   auto chain = r_chain.move_as_ok();
-  CHECK(chain);
+  if (!chain) {
+    get_last_block_state_ = QueryState::Empty;
+    on_sync_error(TonlibError::ValidateBlockProof().move_as_error_suffix("empty proof chain"));
+    return;
+  }
   update_state(*chain);
   if (chain->complete) {
     if (chain->to.seqno() + 100 < max_seqno_ && max_seqno_ != 0) {
@@ -236,7 +240,12 @@ void LastBlock::on_init_block_proof(
     return;
   }
   auto chain = r_chain.move_as_ok();
-  CHECK(chain);
+  if (!chain) {
+    check_init_block_state_ = QueryState::Empty;
+    on_sync_error(TonlibError::ValidateBlockProof().move_as_error_suffix("empty proof chain"));
+    sync_loop();
+    return;
+  }
   if (chain->complete && chain->to != to) {
     check_init_block_state_ = QueryState::Empty;
     on_sync_error(TonlibError::ValidateBlockProof().move_as_error_suffix(

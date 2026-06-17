@@ -387,6 +387,7 @@ fun test123() {
 
 const list1: lisp_list<int> = []
 const list2: lisp_list<int> = [1, 2]
+const nestedListUnion: lisp_list<lisp_list<int8> | int8> = [[1]]
 const list1Unknown: unknown = list1
 const list2Unknown: unknown = list2
 
@@ -400,6 +401,16 @@ fun test124() {
         list2Unknown,
         (list1 as unknown) == null,
     )
+}
+
+@method_id(125)
+fun test125() {
+    __expect_type(nestedListUnion, "lisp_list<lisp_list<int8> | int8>");
+    val head = nestedListUnion.getHead();
+    if (head is lisp_list<int8>) {
+        return (nestedListUnion.isEmpty(), head.getHead(), nestedListUnion.getTail().isEmpty());
+    }
+    throw 123;
 }
 
 
@@ -437,4 +448,5 @@ fun main() {
 @testcase | 122 |       | -1
 @testcase | 123 |       | -1 100 200 100 -1
 @testcase | 124 |       | (null) [ 1 [ 2 (null) ] ] (null) [ 1 [ 2 (null) ] ] -1
+@testcase | 125 |       | 0 1 -1
  */

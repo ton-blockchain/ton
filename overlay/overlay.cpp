@@ -114,7 +114,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
   peer_list_.local_member_flags_ = opts_.local_overlay_member_flags_;
   opts_.broadcast_speed_multiplier_ = std::max(opts_.broadcast_speed_multiplier_, 1e-9);
 
-  VLOG(OVERLAY_INFO) << this << ": creating";
+  VLOG(overlay, INFO) << this << ": creating";
 
   auto nodes_size = static_cast<td::uint32>(nodes.size());
   OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
@@ -122,7 +122,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
 
   if (overlay_type_ == OverlayType::Public &&
       (!opts_.twostep_broadcast_sender_.empty() || opts_.send_twostep_broadcast_)) {
-    VLOG(OVERLAY_WARNING) << "Cannot enable twostep broadcasts in public overlay";
+    VLOG(overlay, WARNING) << "Cannot enable twostep broadcasts in public overlay";
     opts_.twostep_broadcast_sender_ = {};
     opts_.send_twostep_broadcast_ = false;
   }
@@ -130,11 +130,11 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     opts_.plumtree_broadcast_sender_ = {};
   }
   if (opts_.enable_plumtree_broadcast_ && opts_.plumtree_broadcast_sender_.empty()) {
-    VLOG(OVERLAY_WARNING) << "Plumtree broadcast sender is not set";
+    VLOG(overlay, WARNING) << "Plumtree broadcast sender is not set";
     opts_.enable_plumtree_broadcast_ = false;
   }
   if (opts_.send_twostep_broadcast_ && opts_.twostep_broadcast_sender_.empty()) {
-    VLOG(OVERLAY_WARNING) << "Twostep broadcast sender is not set";
+    VLOG(overlay, WARNING) << "Twostep broadcast sender is not set";
     opts_.send_twostep_broadcast_ = false;
   }
   if (!opts_.twostep_broadcast_sender_.empty()) {
@@ -153,12 +153,12 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getRandomPeers &query,
                                 td::Promise<td::BufferSlice> promise) {
   if (overlay_type_ != OverlayType::FixedMemberList) {
-    VLOG(OVERLAY_DEBUG) << this << ": received " << query.peers_->nodes_.size() << " nodes from " << src
-                        << " in getRandomPeers query";
+    VLOG(overlay, DEBUG) << this << ": received " << query.peers_->nodes_.size() << " nodes from " << src
+                         << " in getRandomPeers query";
     add_peers(query.peers_, /* verified = */ false);
     send_random_peers(src, std::move(promise));
   } else {
-    VLOG(OVERLAY_WARNING) << this << ": DROPPING getRandomPeers query from " << src << " in private overlay";
+    VLOG(overlay, WARNING) << this << ": DROPPING getRandomPeers query from " << src << " in private overlay";
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "overlay is private"));
   }
 }
@@ -166,12 +166,12 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getR
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getRandomPeersV2 &query,
                                 td::Promise<td::BufferSlice> promise) {
   if (overlay_type_ != OverlayType::FixedMemberList) {
-    VLOG(OVERLAY_DEBUG) << this << ": received " << query.peers_->nodes_.size() << " nodes from " << src
-                        << " in getRandomPeers query";
+    VLOG(overlay, DEBUG) << this << ": received " << query.peers_->nodes_.size() << " nodes from " << src
+                         << " in getRandomPeers query";
     add_peers(query.peers_, /* verified = */ false);
     send_random_peers_v2(src, std::move(promise));
   } else {
-    VLOG(OVERLAY_WARNING) << this << ": DROPPING getRandomPeers query from " << src << " in private overlay";
+    VLOG(overlay, WARNING) << this << ": DROPPING getRandomPeers query from " << src << " in private overlay";
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "overlay is private"));
   }
 }
@@ -188,7 +188,7 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getB
 
 void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getBroadcastList &query,
                                 td::Promise<td::BufferSlice> promise) {
-  VLOG(OVERLAY_WARNING) << this << ": DROPPING getBroadcastList query";
+  VLOG(overlay, WARNING) << this << ": DROPPING getBroadcastList query";
   promise.set_error(td::Status::Error(ErrorCode::protoviolation, "dropping get broadcast list query"));
 }
 
@@ -200,7 +200,7 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getB
 void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::overlay_messageExtra> extra,
                                 td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
   if (!check_src_peer(src, extra ? extra->certificate_.get() : nullptr)) {
-    VLOG(OVERLAY_WARNING) << this << ": received query in private overlay from unknown source " << src;
+    VLOG(overlay, WARNING) << this << ": received query in private overlay from unknown source " << src;
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "overlay is not public"));
     return;
   }
@@ -215,7 +215,7 @@ void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api
 
   auto Q = R.move_as_ok();
 
-  VLOG(OVERLAY_EXTRA_DEBUG) << this << "query from " << src << ": " << ton_api::to_string(Q);
+  VLOG(overlay, DEBUG) << this << "query from " << src << ": " << ton_api::to_string(Q);
 
   ton_api::downcast_call(*Q.get(), [&](auto &object) { this->process_query(src, object, std::move(promise)); });
 }
@@ -274,7 +274,7 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
 
 td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                                  tl_object_ptr<ton_api::overlay_unicast> msg) {
-  VLOG(OVERLAY_DEBUG) << this << ": received unicast from " << message_from;
+  VLOG(overlay, DEBUG) << this << ": received unicast from " << message_from;
   callback_->receive_message(message_from, overlay_id_, std::move(msg->data_));
   co_return {};
 }
@@ -372,13 +372,13 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
 void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::overlay_messageExtra> extra,
                                   td::BufferSlice data) {
   if (!check_src_peer(src, extra ? extra->certificate_.get() : nullptr)) {
-    VLOG(OVERLAY_WARNING) << this << ": received message in private overlay from unknown source " << src;
+    VLOG(overlay, WARNING) << this << ": received message in private overlay from unknown source " << src;
     return;
   }
 
   auto X = fetch_tl_object<ton_api::overlay_Broadcast>(data.clone(), true);
   if (X.is_error()) {
-    VLOG(OVERLAY_DEBUG) << this << ": received custom message";
+    VLOG(overlay, DEBUG) << this << ": received custom message";
     callback_->receive_message(src, overlay_id_, std::move(data));
     return;
   }
@@ -404,14 +404,14 @@ void OverlayImpl::alarm() {
     double t_elapsed = td::Time::now() - last_throughput_update_.at();
     const auto &overlay_name = opts_.name_.empty() ? "unknown" : opts_.name_;
 
-    VLOG(OVERLAY_BENCHMARK) << "Overlay_traffic"
-                            << " overlay_name=" << overlay_name
-                            << " overlay_id=" << overlay_id_.bits256_value().to_hex()
-                            << " duration_sec=" << t_elapsed
-                            << " out_bytes=" << total_traffic_ctr.out_bytes
-                            << " in_bytes=" << total_traffic_ctr.in_bytes
-                            << " out_pckts=" << total_traffic_ctr.out_packets
-                            << " in_pckts=" << total_traffic_ctr.in_packets;
+    VLOG(overlay, WARNING) << "Overlay_traffic"
+                           << " overlay_name=" << overlay_name
+                           << " overlay_id=" << overlay_id_.bits256_value().to_hex()
+                           << " duration_sec=" << t_elapsed
+                           << " out_bytes=" << total_traffic_ctr.out_bytes
+                           << " in_bytes=" << total_traffic_ctr.in_bytes
+                           << " out_pckts=" << total_traffic_ctr.out_packets
+                           << " in_pckts=" << total_traffic_ctr.in_packets;
 
     auto SelfId = actor_id(this);
     iterate_all_peers([&](const adnl::AdnlNodeIdShort &key, OverlayPeer &peer) {
@@ -451,8 +451,8 @@ void OverlayImpl::alarm() {
         }
       }
     } else {
-      VLOG(OVERLAY_WARNING) << "member certificate ist invalid, valid_until="
-                            << peer_list_.local_cert_is_valid_until_.at_unix();
+      VLOG(overlay, WARNING) << "member certificate ist invalid, valid_until="
+                             << peer_list_.local_cert_is_valid_until_.at_unix();
     }
     if (next_dht_query_ && next_dht_query_.is_in_past() && overlay_type_ == OverlayType::Public) {
       next_dht_query_ = td::Timestamp::never();
@@ -556,7 +556,7 @@ void OverlayImpl::set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort
     }
     auto *peer = peer_list_.peers_.get(peer_id);
     if (!peer) {
-      VLOG(OVERLAY_WARNING) << this << ": test Plumtree neighbour " << peer_id << " is not in peer list";
+      VLOG(overlay, WARNING) << this << ": test Plumtree neighbour " << peer_id << " is not in peer list";
       continue;
     }
     peer_list_.plumtree_neighbours_.push_back(peer_id);
@@ -574,8 +574,8 @@ void OverlayImpl::receive_dht_nodes(dht::DhtValue v) {
   auto R = fetch_tl_object<ton_api::overlay_nodes>(v.value().clone(), true);
   if (R.is_ok()) {
     auto r = R.move_as_ok();
-    VLOG(OVERLAY_INFO) << this << ": received " << r->nodes_.size() << " nodes from overlay";
-    VLOG(OVERLAY_EXTRA_DEBUG) << this << ": nodes: " << ton_api::to_string(r);
+    VLOG(overlay, INFO) << this << ": received " << r->nodes_.size() << " nodes from overlay";
+    VLOG(overlay, DEBUG) << this << ": nodes: " << ton_api::to_string(r);
     std::vector<OverlayNode> nodes;
     for (auto &n : r->nodes_) {
       auto N = OverlayNode::create(n);
@@ -585,13 +585,13 @@ void OverlayImpl::receive_dht_nodes(dht::DhtValue v) {
     }
     add_peers(std::move(nodes), /* verified = */ false);
   } else {
-    VLOG(OVERLAY_WARNING) << this << ": incorrect value in DHT for overlay nodes: " << R.move_as_error();
+    VLOG(overlay, WARNING) << this << ": incorrect value in DHT for overlay nodes: " << R.move_as_error();
   }
 }
 
 void OverlayImpl::dht_lookup_finished(td::Status S) {
   if (S.is_error()) {
-    VLOG(OVERLAY_NOTICE) << this << ": can not get value from DHT: " << S;
+    VLOG(overlay, INFO) << this << ": can not get value from DHT: " << S;
   }
   if (!(next_dht_store_query_ && next_dht_store_query_.is_in_past())) {
     finish_dht_query();
@@ -603,7 +603,7 @@ void OverlayImpl::dht_lookup_finished(td::Status S) {
     return;
   }
 
-  VLOG(OVERLAY_INFO) << this << ": adding self node to DHT overlay's nodes";
+  VLOG(overlay, INFO) << this << ": adding self node to DHT overlay's nodes";
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), oid = print_id()](td::Result<OverlayNode> R) {
     if (R.is_error()) {
       LOG(ERROR) << oid << "cannot get self node";
@@ -634,7 +634,7 @@ void OverlayImpl::update_dht_nodes(OverlayNode node) {
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), oid = print_id()](td::Result<td::Unit> res) {
     if (res.is_error()) {
-      VLOG(OVERLAY_NOTICE) << oid << ": error storing to DHT: " << res.move_as_error();
+      VLOG(overlay, INFO) << oid << ": error storing to DHT: " << res.move_as_error();
     }
     td::actor::send_closure(SelfId, &OverlayImpl::finish_dht_query);
   });
@@ -657,13 +657,13 @@ void OverlayImpl::bcast_gc() {
 
 void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) {
   if (!has_valid_membership_certificate()) {
-    VLOG(OVERLAY_WARNING) << "member certificate is invalid, valid_until="
-                          << peer_list_.local_cert_is_valid_until_.at_unix();
+    VLOG(overlay, WARNING) << "member certificate is invalid, valid_until="
+                           << peer_list_.local_cert_is_valid_until_.at_unix();
     return;
   }
   if (!has_valid_broadcast_certificate(send_as, data.size(), /* is_fec = */ false,
                                        /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender())) {
-    VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
+    VLOG(overlay, WARNING) << "broadcast source certificate is invalid";
     return;
   }
   flags &= ~Overlays::BroadcastFlagNoTwostep();
@@ -673,8 +673,8 @@ void OverlayImpl::send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::Bu
 void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                                      td::BufferSlice extra) {
   if (!has_valid_membership_certificate()) {
-    VLOG(OVERLAY_WARNING) << "member certificate is invalid, valid_until="
-                          << peer_list_.local_cert_is_valid_until_.at_unix();
+    VLOG(overlay, WARNING) << "member certificate is invalid, valid_until="
+                           << peer_list_.local_cert_is_valid_until_.at_unix();
     return;
   }
   bool twostep = opts_.send_twostep_broadcast_ && !(flags & Overlays::BroadcastFlagNoTwostep());
@@ -682,7 +682,7 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
   if (!has_valid_broadcast_certificate(
           send_as, data.size(), /* is_fec = */ true,
           /* is_any_sender = */ (flags & Overlays::BroadcastFlagAnySender()) && !twostep)) {
-    VLOG(OVERLAY_WARNING) << "broadcast source certificate is invalid";
+    VLOG(overlay, WARNING) << "broadcast source certificate is invalid";
     return;
   }
   if (twostep) {
@@ -697,24 +697,24 @@ void OverlayImpl::send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td
 
 bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size, td::uint32 flags) {
   if (!has_valid_membership_certificate()) {
-    VLOG(OVERLAY_WARNING) << "member certificate is invalid, valid_until="
-                          << peer_list_.local_cert_is_valid_until_.at_unix();
+    VLOG(overlay, WARNING) << "member certificate is invalid, valid_until="
+                           << peer_list_.local_cert_is_valid_until_.at_unix();
     return false;
   }
   if (!opts_.enable_plumtree_broadcast_) {
     return false;
   }
   if (opts_.plumtree_broadcast_sender_.empty()) {
-    VLOG(OVERLAY_WARNING) << "Plumtree broadcast sender is not set";
+    VLOG(overlay, WARNING) << "Plumtree broadcast sender is not set";
     return false;
   }
   if (data_size > Overlays::max_fec_broadcast_size()) {
-    VLOG(OVERLAY_WARNING) << "Plumtree broadcast payload is too large";
+    VLOG(overlay, WARNING) << "Plumtree broadcast payload is too large";
     return false;
   }
   if (!has_valid_broadcast_certificate(send_as, data_size, /* is_fec = */ true,
                                        /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender())) {
-    VLOG(OVERLAY_WARNING) << "Plumtree broadcast source certificate is invalid";
+    VLOG(overlay, WARNING) << "Plumtree broadcast source certificate is invalid";
     return false;
   }
   return true;
@@ -775,7 +775,7 @@ BroadcastCheckResult OverlayImpl::check_source_eligible(const PublicKeyHash &sou
   if (r2 != BroadcastCheckResult::Forbidden && !cached) {
     td::Timestamp now = td::Timestamp::now();
     if (!limiter.certificate_check_rate_limiter_.check(now)) {
-      VLOG(OVERLAY_NOTICE) << "dropping certificate from " << cert->issuer_hash() << " : rate limit exceeded";
+      VLOG(overlay, INFO) << "dropping certificate from " << cert->issuer_hash() << " : rate limit exceeded";
       r2 = BroadcastCheckResult::Forbidden;
     } else {
       td::Status check_result;
@@ -786,7 +786,7 @@ BroadcastCheckResult OverlayImpl::check_source_eligible(const PublicKeyHash &sou
       }
       if (check_result.is_error()) {
         r2 = BroadcastCheckResult::Forbidden;
-        VLOG(OVERLAY_NOTICE) << "dropping certificate from " << cert->issuer_hash() << " : " << check_result;
+        VLOG(overlay, INFO) << "dropping certificate from " << cert->issuer_hash() << " : " << check_result;
       } else {
         limiter.certificate_check_rate_limiter_.insert(now);
         limiter.checked_certificates_lru_.put(cache_key, td::Unit{});

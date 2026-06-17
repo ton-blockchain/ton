@@ -189,9 +189,11 @@ static std::string parse_tok_string_const(std::string_view text, SrcRange cur_ra
   std::string unescaped;
   unescaped.reserve(text.size());
   for (size_t i = 0; i < text.size(); ++i) {
-    if (text[i] == '\r' && text[i + 1] == '\n') {   // normalize CRLF line endings to LF
+    if (text[i] == '\r') {   // normalize CR/CRLF line endings to LF
       unescaped += '\n';
-      ++i;
+      if (i + 1 < text.size() && text[i + 1] == '\n') {
+        i++;
+      }
       continue;
     }
     if (text[i] != '\\') {
@@ -210,6 +212,35 @@ static std::string parse_tok_string_const(std::string_view text, SrcRange cur_ra
     }
   }
   return unescaped;
+}
+
+// parse asm "HERE"; unlike regular strings, keep \n, \t, and other backslash sequences original
+static std::string parse_tok_asm_instruction(std::string_view text) {
+  int trim_n = text.starts_with(R"(""")") ? 3 : 1;
+  text = text.substr(trim_n, text.size() - 2 * trim_n);
+
+  std::string asm_str;
+  asm_str.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] == '\r') {   // normalize CR/CRLF line endings to LF
+      asm_str += '\n';
+      if (i + 1 < text.size() && text[i + 1] == '\n') {
+        i++;
+      }
+      continue;
+    }
+    if (text[i] != '\\') {
+      asm_str += text[i];
+      continue;
+    }
+    char after_slash = text[++i];
+    switch (after_slash) {
+      case '\'':
+      case '"':   asm_str += after_slash; break;
+      default:    asm_str += '\\'; asm_str += after_slash; break;
+    }
+  }
+  return asm_str;
 }
 
 // when we meet `(expr)` in parentheses, we keep `expr` in AST,
@@ -544,6 +575,9 @@ static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type, bool in_lambda) {
   V<ast_identifier> v_ident = nullptr;
   bool is_self = false;
   if (lex.tok() == tok_identifier) {
+    if (lex.cur_str() == "self") {    // smb cheated "fun f(`self`: T)" in backticks
+      lex.error("`self` can not be used as a parameter name");
+    }
     v_ident = parse_identifier(lex, "parameter name");
   } else if (lex.tok() == tok_self) {
     if (!self_type) {
@@ -1294,19 +1328,14 @@ static AnyExprV parse_expr75(Lexer& lex) {
 static AnyExprV parse_expr40(Lexer& lex) {
   AnyExprV lhs = parse_expr75(lex);
   TokenType t = lex.tok();
-  while (t == tok_as || t == tok_is) {
+  while (t == tok_as || t == tok_is || t == tok_not_is) {
     lex.next();
     AnyTypeV rhs_type = parse_type_from_tokens(lex);
     SrcRange range = SrcRange::overlap(lhs->range, rhs_type->range);
     if (t == tok_as) {
       lhs = createV<ast_cast_as_operator>(range, lhs, rhs_type);
     } else {
-      // detect `a !is T`, which is parsed as `a! is T` (lhs = `a!`), don't confuse with `(a!) is T`
-      bool is_negated = lhs->kind == ast_not_null_operator && !lhs->was_parenthesized;
-      if (is_negated) {
-        lhs = lhs->as<ast_not_null_operator>()->get_expr();
-      }
-      lhs = createV<ast_is_type_operator>(range, lhs, rhs_type, is_negated);
+      lhs = createV<ast_is_type_operator>(range, lhs, rhs_type, t == tok_not_is);
     }
     t = lex.tok();
   }
@@ -1675,7 +1704,8 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
   std::vector<AnyV> asm_commands;
   lex.check(tok_string_const, "\"ASM COMMAND\"");
   while (lex.tok() == tok_string_const) {
-    auto v_asm_str = parse_expr100(lex)->as<ast_string_const>();
+    auto v_asm_str = createV<ast_string_const>(lex.cur_range(), parse_tok_asm_instruction(lex.cur_str()));
+    lex.next();
     if (v_asm_str->str_val.empty()) {
       err("invalid asm instruction").fire(v_asm_str);
     }

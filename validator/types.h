@@ -49,4 +49,11 @@ struct BlockFinalityBroadcast {
   }
 };
 
+enum class BroadcastSource {
+  public_overlay,
+  fast_sync_overlay,
+  consensus_overlay,
+  custom_overlay,
+};
+
 }  // namespace ton::validator

@@ -51,7 +51,6 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
 
     overlay::OverlayOptions options;
     options.name_ = PSTRING() << "blocksync" << bus.shard << "." << bus.cc_seqno;
-    options.broadcast_speed_multiplier_ = bus.validator_opts->get_catchain_broadcast_speed_multiplier();
     options.private_ping_peers_ = true;
     options.twostep_broadcast_sender_ = adnl_sender_;
     options.send_twostep_broadcast_ = true;

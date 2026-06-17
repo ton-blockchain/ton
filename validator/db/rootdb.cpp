@@ -27,6 +27,9 @@
 #include "archiver.hpp"
 #include "rootdb.hpp"
 
+// Defined here (validator-db) so every flavour of the validator library gets it.
+DEFINE_LOG_CATEGORY(validator, VERBOSITY_NAME(INFO))
+
 namespace ton {
 
 namespace validator {
@@ -431,7 +434,7 @@ void RootDb::archive(BlockHandle handle, td::Promise<td::Unit> promise) {
   auto [it, inserted] = archive_block_waiters_.emplace(handle->id(), std::vector<td::Promise<td::Unit>>{});
   it->second.push_back(std::move(promise));
   if (!inserted) {
-    VLOG(VALIDATOR_DEBUG) << "archive block " << handle->id().id << " : already in progress";
+    VLOG(validator, DEBUG) << "archive block " << handle->id().id << " : already in progress";
     return;
   }
   td::actor::create_actor<BlockArchiver>(

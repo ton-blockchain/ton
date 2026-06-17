@@ -48,7 +48,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   template <class T>
   void process_broadcast(PublicKeyHash, T&) {
-    VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
+    VLOG(full_node, WARNING) << "dropping unknown broadcast";
   }
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
 

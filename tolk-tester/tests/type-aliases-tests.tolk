@@ -10,6 +10,8 @@ type MBool = | bool
 type Tuple2Int = [int, int]
 type UserId = int
 type OwnerId = int
+type FlagA = bool
+type FlagB = bool
 
 struct Point { x: int; y: int }
 type PointAlias = Point;
@@ -39,12 +41,12 @@ fun test1(x: MInt): MVoid {
     __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
     __expect_type(rand() != 0 ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
 
-    // since `Pair2_v1` and `Pair2_v2` underlying type is equal, a union of them can't be created
-    var d1 = (1, 2) as Pair2_v1 | Pair2_v2;
-    var d2 = (1, 2) as Pair2_v2 | Pair2_v1;
+    // exact duplicates collapsed
+    var d1 = (1, 2) as Pair2_v1 | Pair2_v1;
+    var d2 = (1, 2) as Pair2_v2 | Pair2_v2;
     __expect_type(d1, "Pair2_v1");
     __expect_type(d2, "Pair2_v2");
-    __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2, "Pair2_v1");
+    __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : ((1, 2) as Pair2_v2) as Pair2_v1, "Pair2_v1");
 
     __expect_type(x == 0, "bool");
 
@@ -334,43 +336,6 @@ fun test15() {
     )
 }
 
-type StrangeUnionInt = int | UserId
-type StrangeUnionInt2 = UserId | OwnerId
-
-struct ManyUnionFields {
-    f1: int | UserId
-    f2: StrangeUnionInt
-    f3: UserId | OwnerId
-    f4: OwnerId | UserId
-    f5: int | StrangeUnionInt2
-    f6: StrangeUnionInt2
-
-    f10: slice | int | UserId
-    f11: slice | UserId | int
-    f12: OwnerId | () | int | UserId | slice
-    f13: OwnerId | cell | StrangeUnionInt2?
-}
-
-fun test16(a: ManyUnionFields) {
-    __expect_type(a.f1, "int");
-    __expect_type(a.f2, "StrangeUnionInt");
-    __expect_type(a.f3, "UserId");
-    __expect_type(a.f5, "int");
-    __expect_type(a.f6, "StrangeUnionInt2");
-    a.f1 + a.f2 + a.f3 + a.f4 + a.f5 + a.f6;
-
-    __expect_type(a.f10, "slice | int");
-    __expect_type(a.f11, "slice | UserId");
-    __expect_type(a.f12, "OwnerId | () | slice");
-    __expect_type(a.f13, "OwnerId | cell | null");
-
-    match (a.f13) {
-        int => {}
-        cell => {}
-        null => {}
-    }
-}
-
 type SnakedCell<T> = cell
 
 fun test17(a: SnakedCell<int>, b: SnakedCell<MInt>, c: SnakedCell<MInt_v2>) {
@@ -502,6 +467,110 @@ get fun myAddress(): MyAddress? {
     return null
 }
 
+struct Raw {
+    x: int
+}
+
+type AliasRawOverrides = Raw
+
+fun AliasRawOverrides.packToBuilder(self, mutate b: builder) {
+    b.storeInt(self.x, 8);
+}
+
+fun AliasRawOverrides.unpackFromSlice(mutate s: slice): AliasRawOverrides {
+    return {x: s.loadInt(8)};
+}
+
+type AliasAliasRaw = AliasRawOverrides
+
+@method_id(122)
+fun test22() {
+    val w: AliasAliasRaw = {x: -7};
+    val c = w.toCell();
+    val decoded = AliasAliasRaw.fromSlice(c.beginParse());
+    return (c.beginParse().remainingBitsCount(), decoded.x);
+}
+
+type AliasAliasRawOverrides = AliasRawOverrides
+
+fun AliasAliasRawOverrides.packToBuilder(self, mutate b: builder) {
+    b.storeInt(self.x, 16);
+}
+
+fun AliasAliasRawOverrides.unpackFromSlice(mutate s: slice): AliasAliasRawOverrides {
+    return {x: s.loadInt(16)};
+}
+
+@method_id(123)
+fun test23() {
+    val e: AliasRawOverrides = {x: 7};
+    val ec = e.toCell();
+    val w: AliasAliasRawOverrides = {x: 4660};
+    val wc = w.toCell();
+    return (
+        ec.beginParse().remainingBitsCount(), AliasRawOverrides.fromSlice(ec.beginParse()).x,
+        wc.beginParse().remainingBitsCount(), AliasAliasRawOverrides.fromSlice(wc.beginParse()).x,
+    );
+}
+
+struct (0xAA) RawPrefixedA {
+    x: uint8
+}
+
+struct (0xBB) RawPrefixedB {
+    y: uint8
+}
+
+type WireA = RawPrefixedA
+type WireB = RawPrefixedB
+type WireUnion = WireA | WireB      // encoded as 0+packA / 1+packB (not struct prefixes)
+
+fun WireA.packToBuilder(self, mutate b: builder) {
+    b.storeUint(self.x, 8);
+}
+
+fun WireA.unpackFromSlice(mutate s: slice): WireA {
+    return RawPrefixedA {x: s.loadUint(8)};
+}
+
+fun WireB.packToBuilder(self, mutate b: builder) {
+    b.storeUint(self.y, 8);
+}
+
+fun WireB.unpackFromSlice(mutate s: slice): WireB {
+    return RawPrefixedB {y: s.loadUint(8)};
+}
+
+@method_id(124)
+fun test24() {
+    val a: WireA = RawPrefixedA {x: 7};
+    val u: WireUnion = a as WireUnion;
+    val unionSlice = u.toCell().beginParse();
+    val expected = beginCell().storeUint(0, 1).storeUint(7, 8).endCell();
+    val decodedUnion = WireUnion.fromCell(expected);
+    return (
+        a.toCell().beginParse().remainingBitsCount(),
+        unionSlice.remainingBitsCount(),
+        unionSlice.preloadUint(8),
+        unionSlice.bitsEqual(expected.beginParse()),
+        match (decodedUnion) {
+            WireA => decodedUnion.x as int,
+            WireB => decodedUnion.y + 100,
+        },
+    );
+}
+
+@method_id(125)
+fun test25(x: FlagA) {
+    return (
+        ((!!x) is FlagB) as int,
+        ((x == true) is FlagB) as int,
+        ((x == false) is FlagB) as int,
+        ((x != false) is FlagB) as int,
+        ((!!x) is FlagA) == ((!!x) is FlagB),
+    );
+}
+
 fun main(x: MInt, y: MInt?) {
     return y == null ? x : x + y;
 }
@@ -517,6 +586,10 @@ fun main(x: MInt, y: MInt?) {
 @testcase | 119 |     | 8 8 9
 @testcase | 120 |     | 16 8 10 10
 @testcase | 121 |     | 65535 0
+@testcase | 122 |     | 8 -7
+@testcase | 123 |     | 8 7 16 4660
+@testcase | 124 |     | 8 9 3 -1 7
+@testcase | 125 | 0   | -1 -1 -1 -1 -1
 
 @fif_codegen
 """

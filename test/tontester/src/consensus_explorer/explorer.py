@@ -3,6 +3,10 @@ from multiprocessing import Process
 from pathlib import Path
 from typing import cast, final
 
+from tonapi import ton_api
+
+from tonlib import TonlibCDLL
+
 from .parser import GroupParser, ParserSessionStats
 from .validator_set_info import ValidatorSetInfoProvider
 from .visualizer import DashApp
@@ -39,6 +43,14 @@ class ConsensusExplorer:
 
 def _main():
     import argparse
+    import logging
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        force=True,
+    )
+    logging.getLogger("consensus_explorer").setLevel(logging.INFO)
 
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)
@@ -74,7 +86,27 @@ def _main():
         help='Path to json map {"adnl": "name"} used for validator names',
     )
     _ = parser.add_argument(
+        "--cache-dir",
+        default=os.getenv("CONSENSUS_EXPLORER_CACHE_DIR", ""),
+        help="Directory to cache downloaded key blocks",
+    )
+    _ = parser.add_argument(
         "--web-root", default="/", help="Web root for the Dash app (default: /)"
+    )
+    _ = parser.add_argument(
+        "--sudo-helper",
+        default="",
+        help="Path to helper script for reading files via sudo on permission denied",
+    )
+    _ = parser.add_argument(
+        "--tonlib-config",
+        default="",
+        help="Path to tonlib liteserver config JSON",
+    )
+    _ = parser.add_argument(
+        "--tonlib-lib",
+        default="build/tonlib/libtonlibjson.so",
+        help="Path to libtonlibjson shared library",
     )
 
     args = parser.parse_args()
@@ -98,12 +130,39 @@ def _main():
             if not Path(validator_names_json).exists():
                 parser.error(f"Validator names json not found at {validator_names_json}")
 
+        cache_dir = cast(str, args.cache_dir)
         vset_provider = ValidatorSetInfoProvider(
-            block_explorer_url, show_validator_set_bin, validator_names_json
+            block_explorer_url,
+            show_validator_set_bin,
+            validator_names_json,
+            cache_dir=cache_dir or None,
         )
 
+    tonlib_cdll = None
+    tonlib_config = None
+    tonlib_config_path = cast(str, args.tonlib_config)
+    tonlib_lib_path = cast(str, args.tonlib_lib)
+    if tonlib_config_path:
+        if not tonlib_lib_path:
+            parser.error("--tonlib-lib is required when --tonlib-config is specified")
+        if not Path(tonlib_config_path).exists():
+            parser.error(f"tonlib config not found at {tonlib_config_path}")
+        if not Path(tonlib_lib_path).exists():
+            parser.error(f"tonlib library not found at {tonlib_lib_path}")
+
+        with open(tonlib_config_path) as f:
+            tonlib_config = ton_api.Liteclient_config_global.from_json(f.read())
+        tonlib_cdll = TonlibCDLL(Path(tonlib_lib_path))
+
     def run_app(parser: GroupParser):
-        app = DashApp(parser, vset_provider, cast(str, args.web_root))
+        app = DashApp(
+            parser,
+            vset_provider,
+            cast(str, args.web_root),
+            tonlib=tonlib_cdll,
+            tonlib_config=tonlib_config,
+            block_explorer_url=block_explorer_url,
+        )
         app.run(debug=True, host=host, port=port)
 
     if stats_dir_str:
@@ -115,8 +174,11 @@ def _main():
         stats_dir = Path(stats_dir_str)
         db_path = Path(db_path_str) if db_path_str else stats_dir / "index.db"
 
-        file_index = FileIndex(stats_dir, db_path)
-        cached_parser = CachedGroupParser(file_index, hostname_regex)
+        sudo_helper = cast(str, args.sudo_helper)
+        file_index = FileIndex(stats_dir, db_path, sudo_helper=sudo_helper or None)
+        cached_parser = CachedGroupParser(
+            file_index, hostname_regex, sudo_helper=sudo_helper or None
+        )
         file_index.install_callback(cached_parser)
 
         with file_index:

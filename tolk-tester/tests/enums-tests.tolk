@@ -283,6 +283,11 @@ fun test16() {
     return (p1.exitCode is int32, p2.exitCode is int32, p2.exitCode is (int32 -> bool), x);
 }
 
+@method_id(117)
+fun test27() {
+    return [[Color.Red]].toCell().beginParse().remainingBitsAndRefsCount()
+}
+
 
 fun main(c: Color) {
     __expect_type(c, "Color");
@@ -319,6 +324,7 @@ fun main(c: Color) {
 @testcase | 114 | 2   | 2 1 0 1000000000 -1 
 @testcase | 115 |     | 0 2
 @testcase | 116 |     | -1 0 -1 258
+@testcase | 117 |     | 9 1
 
 @fif_codegen
 """

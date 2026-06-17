@@ -19,19 +19,23 @@ class ValidatorSetInfoProvider:
     _MASTERCHAIN_WORKCHAIN = -1
     _MASTERCHAIN_SHARD_HEX = "8000000000000000"
     _VALGROUP_RE = re.compile(r"^(?P<workchain>-?\d+),(?P<shard>[0-9a-fA-F]+)\.(?P<cc_seqno>\d+)$")
-    _ROW_RE = re.compile(r"^\s*(\d+)\s+\S+\s+([0-9a-fA-F]{64})\s+\d+\s*$")
+    _ROW_RE = re.compile(r"^\s*(\d+)\s+(\S+)\s+([0-9a-fA-F]{64})\s+\d+\s*$")
 
     def __init__(
         self,
         explorer_url: str | None = None,
         show_validator_set_bin: str | Path | None = None,
         validator_names_json: str | Path | None = None,
+        cache_dir: str | Path | None = None,
     ):
         self._explorer_url: str | None = explorer_url.rstrip("/") if explorer_url else ""
         self._show_validator_set_bin: Path | None = self._resolve_show_validator_set_bin(
             show_validator_set_bin
         )
         self._validator_names: dict[str, str] = self._load_validator_names(validator_names_json)
+        self._cache_dir: Path | None = Path(cache_dir) if cache_dir else None
+        if self._cache_dir is not None:
+            self._cache_dir.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def _resolve_show_validator_set_bin(path: str | Path | None) -> Path | None:
@@ -181,12 +185,12 @@ class ValidatorSetInfoProvider:
         return output
 
     @classmethod
-    def _parse_validator_rows(cls, output: str) -> list[tuple[int, str]]:
-        rows: list[tuple[int, str]] = []
+    def _parse_validator_rows(cls, output: str) -> list[tuple[int, str, str]]:
+        rows: list[tuple[int, str, str]] = []
         for line in output.splitlines():
             match = cls._ROW_RE.match(line)
             if match is not None:
-                rows.append((int(match.group(1)), match.group(2)))
+                rows.append((int(match.group(1)), match.group(2), match.group(3)))
                 continue
         return rows
 
@@ -195,10 +199,84 @@ class ValidatorSetInfoProvider:
         if not rows:
             raise RuntimeError("failed to parse validator rows from show-validator-set output")
 
-        table_lines = ["idx | adnl | name"]
-        for idx, adnl in rows:
-            table_lines.append(f"{idx} | {adnl} | {self._validator_names.get(adnl, '')}")
+        table_lines = ["idx | adnl | pub_key_hash | name"]
+        for idx, pub_key_hash, adnl in rows:
+            table_lines.append(
+                f"{idx} | {adnl} | {pub_key_hash} | {self._validator_names.get(adnl, '')}"
+            )
         return "\n".join(table_lines)
+
+    def _get_validator_set_output(
+        self,
+        key_block_seqno: int,
+        root_hash: str,
+        file_hash: str,
+        group_workchain: int,
+        group_shard_hex: str,
+        cc_seqno: int,
+    ) -> str:
+        """Get show-validator-set output, using cache if available."""
+        cache_key = f"kb{key_block_seqno}_w{group_workchain}_s{group_shard_hex}_cc{cc_seqno}"
+
+        # Check for cached output
+        if self._cache_dir is not None:
+            cached_output_path = self._cache_dir / f"{cache_key}.txt"
+            if cached_output_path.exists():
+                return cached_output_path.read_text(encoding="utf-8")
+
+        # Get the key block BOC (from cache or download)
+        block_data = self._get_key_block_boc(key_block_seqno, root_hash, file_hash)
+
+        # Run show-validator-set
+        if self._cache_dir is not None:
+            key_block_path = self._cache_dir / f"key_block_{key_block_seqno}.boc"
+            _ = key_block_path.write_bytes(block_data)
+        else:
+            key_block_path = (
+                Path(tempfile.mkdtemp(prefix="validator_set_")) / f"key_block_{key_block_seqno}.boc"
+            )
+            _ = key_block_path.write_bytes(block_data)
+
+        output = self._run_show_validator_set(
+            key_block_path,
+            group_workchain=group_workchain,
+            group_shard_hex=group_shard_hex,
+            cc_seqno=cc_seqno,
+        )
+
+        # Cache the output
+        if self._cache_dir is not None:
+            cached_output_path = self._cache_dir / f"{cache_key}.txt"
+            _ = cached_output_path.write_text(output, encoding="utf-8")
+
+        return output
+
+    def _get_key_block_boc(
+        self,
+        key_block_seqno: int,
+        root_hash: str,
+        file_hash: str,
+    ) -> bytes:
+        """Get key block BOC data, using cache if available."""
+        if self._cache_dir is not None:
+            cached_boc = self._cache_dir / f"key_block_{key_block_seqno}.boc"
+            if cached_boc.exists():
+                return cached_boc.read_bytes()
+
+        download_query = urlencode(
+            {
+                "workchain": self._MASTERCHAIN_WORKCHAIN,
+                "shard": self._MASTERCHAIN_SHARD_HEX,
+                "seqno": key_block_seqno,
+                "roothash": root_hash,
+                "filehash": file_hash,
+            }
+        )
+        download_url = f"{self._explorer_url}/download?{download_query}"
+        block_data = self._fetch_bytes(download_url, timeout=40)
+        if not block_data:
+            raise RuntimeError("downloaded key block is empty")
+        return block_data
 
     def _fetch_validator_set_info(
         self,
@@ -240,29 +318,14 @@ class ValidatorSetInfoProvider:
         if not root_hash or not file_hash:
             raise RuntimeError("key block roothash/filehash were not found")
 
-        download_query = urlencode(
-            {
-                "workchain": self._MASTERCHAIN_WORKCHAIN,
-                "shard": self._MASTERCHAIN_SHARD_HEX,
-                "seqno": key_block_seqno,
-                "roothash": root_hash,
-                "filehash": file_hash,
-            }
+        validator_set_output = self._get_validator_set_output(
+            key_block_seqno,
+            root_hash,
+            file_hash,
+            group_workchain,
+            group_shard_hex,
+            cc_seqno,
         )
-        download_url = f"{self._explorer_url}/download?{download_query}"
-        block_data = self._fetch_bytes(download_url, timeout=40)
-        if not block_data:
-            raise RuntimeError("downloaded key block is empty")
-
-        with tempfile.TemporaryDirectory(prefix="validator_set_") as tmp_dir:
-            key_block_path = Path(tmp_dir) / f"key_block_{key_block_seqno}.boc"
-            _ = key_block_path.write_bytes(block_data)
-            validator_set_output = self._run_show_validator_set(
-                key_block_path,
-                group_workchain=group_workchain,
-                group_shard_hex=group_shard_hex,
-                cc_seqno=cc_seqno,
-            )
         validator_set_table = self._build_table(validator_set_output)
 
         return "\n".join(

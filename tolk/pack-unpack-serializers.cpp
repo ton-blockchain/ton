@@ -66,8 +66,10 @@ static bool is_same_custom_serialization_receiver(TypePtr receiver_type, TypePtr
 static std::vector<MethodCallCandidate> filter_pack_candidates(TypePtr receiver_type, const std::vector<MethodCallCandidate>& candidates) {
   int min_generics = 100;
   for (const MethodCallCandidate& c : candidates) {
-    int n_generics = c.is_generic() ? c.substitutedTs.size() : 0;
-    min_generics = std::min(min_generics, n_generics);
+    if (is_same_custom_serialization_receiver(receiver_type, c.instantiated_receiver)) {
+      int n_generics = c.is_generic() ? c.substitutedTs.size() : 0;
+      min_generics = std::min(min_generics, n_generics);
+    }
   }
 
   std::vector<MethodCallCandidate> filtered;
@@ -114,6 +116,13 @@ CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::ve
   }
   if (!c_unpack.empty()) {
     f.f_unpack = c_unpack[0].method_ref;
+  }
+
+  // for `type A = B`, if `A` does not declare its own serializers, take them from B
+  if (!f) {
+    if (const TypeDataAlias* t_alias = receiver_type->try_as<TypeDataAlias>()) {
+      f = get_custom_pack_unpack_function(t_alias->underlying_type, out_candidates);
+    }
   }
 
   if (out_candidates) {
@@ -1513,6 +1522,16 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
 // Special case: a `void` variant doesn't participate in the prefix tree —
 // it's matched at runtime by `slice.isEmpty()`, not by reading any prefix bits.
 
+static StructPtr get_struct_with_union_opcode(TypePtr variant) {
+  if (get_custom_pack_unpack_function(variant)) {
+    return nullptr;
+  }
+  if (const TypeDataStruct* variant_struct = variant->unwrap_alias()->try_as<TypeDataStruct>()) {
+    return variant_struct->struct_ref;
+  }
+  return nullptr;
+}
+
 // Check opcodes within a union are not equal to each other, e.g.
 // > struct (0x1234) A
 // > struct (0x1234) B
@@ -1521,9 +1540,9 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
 static void check_opcodes_are_not_equal(const std::vector<TypePtr>& variants, std::string& because_msg) {
   int n = static_cast<int>(variants.size()) - (variants.back() == TypeDataVoid::create());
   for (int i = 0; i < n; ++i) {
-    StructPtr lhs_struct = variants[i]->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
+    StructPtr lhs_struct = get_struct_with_union_opcode(variants[i]);
     for (int j = i + 1; j < n; ++j) {
-      StructPtr rhs_struct = variants[j]->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
+      StructPtr rhs_struct = get_struct_with_union_opcode(variants[j]);
       if (lhs_struct->opcode == rhs_struct->opcode) {
         because_msg = "because both structs `" + lhs_struct->as_human_readable() + "` and `" + rhs_struct->as_human_readable() + "` have serialization prefix " + lhs_struct->opcode.format_as_string(false);
         return;
@@ -1545,12 +1564,12 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
   StructPtr last_struct_no_opcode = nullptr;
   for (int i = 0; i < t_union->size(); ++i) {
     TypePtr variant = t_union->variants[i];
-    if (const TypeDataStruct* variant_struct = variant->unwrap_alias()->try_as<TypeDataStruct>()) {
-      if (variant_struct->struct_ref->opcode.exists()) {
+    if (StructPtr variant_struct = get_struct_with_union_opcode(variant)) {
+      if (variant_struct->opcode.exists()) {
         n_have_opcode++;
-        last_struct_with_opcode = variant_struct->struct_ref;
+        last_struct_with_opcode = variant_struct;
       } else {
-        last_struct_no_opcode = variant_struct->struct_ref;
+        last_struct_no_opcode = variant_struct;
       }
     } else if (variant == TypeDataNullLiteral::create()) {
       has_null = true;
@@ -1574,7 +1593,7 @@ std::vector<PackOpcode> auto_generate_opcodes_for_union(TypePtr union_type, std:
     }
     for (TypePtr variant : t_union->variants) {
       if (variant != TypeDataVoid::create()) {
-        result.push_back(variant->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref->opcode);
+        result.push_back(get_struct_with_union_opcode(variant)->opcode);
       } else {
         result.emplace_back(0, 0);
       }
@@ -1766,8 +1785,8 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
     bool all_have_opcode = true;
     bool has_void = false;
     for (TypePtr variant : t_union->variants) {
-      const TypeDataStruct* variant_struct = variant->unwrap_alias()->try_as<TypeDataStruct>();
-      all_have_opcode &= variant_struct && variant_struct->struct_ref->opcode.exists();
+      StructPtr variant_struct = get_struct_with_union_opcode(variant);
+      all_have_opcode &= variant_struct && variant_struct->opcode.exists();
       has_void |= variant == TypeDataVoid::create();
     }
     if (t_union->size() == 2 && !all_have_opcode && !has_void) {

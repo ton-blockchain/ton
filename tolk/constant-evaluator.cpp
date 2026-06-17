@@ -195,6 +195,10 @@ static ConstValExpression create_const_cast(ConstValExpression&& inner, TypePtr 
   if (already_int && cast_to == TypeDataInt::create()) {
     return inner;
   }
+  const ConstValAddress* already_address = std::get_if<ConstValAddress>(&inner);
+  if (already_address && cast_to == TypeDataAddress::internal()) {
+    return inner;
+  }
 
   // to store ConstValExpression inside (recursively), we need to place it into the heap;
   // the best way I've found is to create std::vector with a single element (std::unique_ptr doesn't work)
@@ -518,7 +522,7 @@ class ConstExpressionEvaluator {
     if (cast_to == TypeDataUnknown::create()) {   // `unknown` is forbidden in constants
       err("not a constant expression").fire(v);
     }
-    return create_const_cast(std::move(val), cast_to);
+    return create_const_cast_for_declared(std::move(val), v->get_expr()->inferred_type, cast_to);
   }
 
   // `ton("0.05")` and other compile-time functions
@@ -613,7 +617,7 @@ public:
       for (int i = 0; i < v_square->size(); ++i) {
         items.push_back(eval_any_v_or_fire(v_square->get_item(i)));
       }
-      return ConstValShapedTuple{std::move(items)};
+      return create_const_cast(ConstValShapedTuple{std::move(items)}, v_square->inferred_type);
     }
     if (auto v_object = v->try_as<ast_object_literal>()) {
       // we also support `const obj: SomeObject = { field: value, ... }`

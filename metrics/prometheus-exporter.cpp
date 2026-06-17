@@ -1,6 +1,11 @@
+/*
+ * Copyright (c) 2026, TON CORE TECHNOLOGIES CO. L.L.C
+ *
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
+
 #include "td/actor/coro_utils.h"
 
-#include "metrics-types.h"
 #include "prometheus-exporter.h"
 
 namespace ton {
@@ -10,7 +15,6 @@ td::actor::ActorOwn<PrometheusExporter> PrometheusExporter::create(std::string p
 }
 
 PrometheusExporter::PrometheusExporter(std::string prefix) : prefix_(std::move(prefix)) {
-  add_collector(collector_.get());
 }
 
 PrometheusExporter::HttpCallback::HttpCallback(td::actor::ActorId<PrometheusExporter> exporter)
@@ -18,7 +22,7 @@ PrometheusExporter::HttpCallback::HttpCallback(td::actor::ActorId<PrometheusExpo
 }
 
 void PrometheusExporter::HttpCallback::receive_request(RequestPtr request, PayloadPtr payload,
-                                                       td::Promise<HttpReturn> promise) {
+                                                       http::ResponsePromise promise) {
   td::actor::send_closure(exporter_, &PrometheusExporter::on_request, std::move(request), std::move(payload),
                           std::move(promise));
 }
@@ -27,27 +31,38 @@ void PrometheusExporter::listen(td::IPAddress addr) {
   CHECK(http_.empty());
   auto callback = std::make_unique<HttpCallback>(actor_id(this));
   http_ = td::actor::create_actor<http::HttpServer>(PSTRING() << "HTTP@" << addr, addr, std::move(callback));
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_async_collector<http::HttpServer>,
-                          http_.get());
 }
 
 void PrometheusExporter::start_up() {
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, collectors_);
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, collections_total_);
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, last_collection_duration_);
-  td::actor::send_closure(collector_.get(), &metrics::MultiCollector::add_sync_collector, last_collection_timestamp_);
+  add(actor_id(this), &PrometheusExporter::collect);
 }
 
-void PrometheusExporter::on_request(RequestPtr request, PayloadPtr, td::Promise<HttpReturn> promise) {
+td::actor::Task<metrics::MetricSet> PrometheusExporter::gather() {
+  metrics::Sink sink;
+  auto root = metrics::Context{sink}.with_name(prefix_);  // every metric gets the top prefix (e.g. ton_)
+  for (auto &collector : collectors_) {
+    co_await collector(root);
+  }
+  co_return std::move(sink).build();
+}
+
+td::actor::Task<> PrometheusExporter::collect_and_respond(PayloadPtr payload, td::UTCTime started_at) {
+  metrics::MetricSet set = co_await gather();
+  payload->add_chunk(td::BufferSlice{metrics::Exposition{.main_set = std::move(set)}.render()});
+  payload->complete_parse();
+  stats_.last_collection_duration.set(td::UTCClock::now() - started_at);
+  co_return {};
+}
+
+void PrometheusExporter::on_request(RequestPtr request, PayloadPtr payload, http::ResponsePromise promise) {
   std::unique_ptr<http::HttpResponse> response;
 
-  bool ok = true;
   if (request->url() != "/metrics") {
-    ok = false;
-    response = http::HttpResponse::create("HTTP/1.1", 404, "Not Found", false, false).move_as_ok();
+    http::answer_error(http::status_not_found, "", std::move(promise));
+    return;
   } else if (request->method() != "GET") {
-    ok = false;
-    response = http::HttpResponse::create("HTTP/1.1", 405, "Method Not Allowed", false, false).move_as_ok();
+    http::answer_error(http::status_method_not_allowed, "", std::move(promise));
+    return;
   } else {
     response = http::HttpResponse::create("HTTP/1.1", 200, "OK", false, false).move_as_ok();
   }
@@ -56,25 +71,13 @@ void PrometheusExporter::on_request(RequestPtr request, PayloadPtr, td::Promise<
   response->add_header({"Content-Type", "application/openmetrics-text; version=1.0.0; charset=utf-8"});
   response->complete_parse_header();
 
-  auto payload = response->create_empty_payload().move_as_ok();
-  promise.set_value(std::pair{std::move(response), payload});
+  auto payload_out = response->create_empty_payload().move_as_ok();
+  promise.set_value(std::pair{std::move(response), payload_out});
 
-  if (!ok) {
-    payload->complete_parse();
-    return;
-  }
-
-  auto now = td::Timestamp::now().at_unix();
-  collections_total_->add(1);
-  last_collection_timestamp_->set(now);
-  td::actor::send_closure(main_collector_.get(), &metrics::MultiCollector::collect,
-                          td::make_promise([this, payload, then = now](td::Result<metrics::MetricSet> R) {
-                            metrics::MetricSet whole_set = R.move_as_ok();
-                            auto exposition = metrics::Exposition{.main_set = std::move(whole_set)};
-                            payload->add_chunk(td::BufferSlice{std::move(exposition).render()});
-                            payload->complete_parse();
-                            last_collection_duration_->set(td::Timestamp::now().at_unix() - then);
-                          }));
+  stats_.collections.inc();
+  auto now = td::UTCClock::now();
+  stats_.last_collection_timestamp.set(now);
+  collect_and_respond(std::move(payload_out), now).start().detach("prometheus collect");
 }
 
 }  // namespace ton

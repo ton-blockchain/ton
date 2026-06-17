@@ -32,21 +32,30 @@ td::Result<td::Ref<vm::Cell>> HighloadWalletV2::get_init_message(const td::Ed255
                                                                  td::uint32 valid_until) const noexcept {
   TRY_RESULT(wallet_id, get_wallet_id());
   td::uint32 id = -1;
-  auto append_message = [&](auto&& cb) -> vm::CellBuilder& {
-    cb.store_long(wallet_id, 32).store_long(valid_until, 32).store_long(id, 32);
-    CHECK(cb.store_maybe_ref({}));
-    return cb;
+  auto make_message = [&](td::Slice signature) -> td::Result<td::Ref<vm::Cell>> {
+    vm::CellBuilder cb;
+    if (!signature.empty()) {
+      cb.store_bytes(signature);
+    }
+    if (!(cb.store_long_bool(wallet_id, 32) && cb.store_long_bool(valid_until, 32) && cb.store_long_bool(id, 32) &&
+          cb.store_maybe_ref({}))) {
+      return td::Status::Error("Failed to store highload wallet init message");
+    }
+    return cb.finalize();
   };
-  auto signature = private_key.sign(append_message(vm::CellBuilder()).finalize()->get_hash().as_slice()).move_as_ok();
+  TRY_RESULT(unsigned_message, make_message({}));
+  TRY_RESULT(signature, private_key.sign(unsigned_message->get_hash().as_slice()));
 
-  return append_message(vm::CellBuilder().store_bytes(signature)).finalize();
+  return make_message(signature.as_slice());
 }
 
 td::Result<td::Ref<vm::Cell>> HighloadWalletV2::make_a_gift_message(const td::Ed25519::PrivateKey& private_key,
                                                                     td::uint32 valid_until,
                                                                     td::Span<Gift> gifts) const {
   TRY_RESULT(wallet_id, get_wallet_id());
-  CHECK(gifts.size() <= get_max_gifts_size());
+  if (gifts.size() > get_max_gifts_size()) {
+    return td::Status::Error("Too many messages");
+  }
   vm::Dictionary messages(16);
   for (size_t i = 0; i < gifts.size(); i++) {
     auto& gift = gifts[i];
@@ -54,30 +63,37 @@ td::Result<td::Ref<vm::Cell>> HighloadWalletV2::make_a_gift_message(const td::Ed
     if (gift.gramms == -1) {
       send_mode += 128;
     }
+    TRY_RESULT(message, try_create_int_message(gift));
     vm::CellBuilder cb;
-    cb.store_long(send_mode, 8).store_ref(create_int_message(gift));
+    cb.store_long(send_mode, 8).store_ref(std::move(message));
     auto key = messages.integer_key(td::make_refint(i), 16, false);
     messages.set_builder(key.bits(), 16, cb);
   }
   std::string hash;
   {
     vm::CellBuilder cb;
-    CHECK(cb.store_maybe_ref(messages.get_root_cell()));
+    if (!cb.store_maybe_ref(messages.get_root_cell())) {
+      return td::Status::Error("Failed to store highload wallet messages hash");
+    }
     hash = cb.finalize()->get_hash().as_slice().substr(28, 4).str();
   }
 
   vm::CellBuilder cb;
   cb.store_long(wallet_id, 32).store_long(valid_until, 32).store_bytes(hash);
-  CHECK(cb.store_maybe_ref(messages.get_root_cell()));
+  if (!cb.store_maybe_ref(messages.get_root_cell())) {
+    return td::Status::Error("Failed to store highload wallet messages");
+  }
   auto message_outer = cb.finalize();
-  auto signature = private_key.sign(message_outer->get_hash().as_slice()).move_as_ok();
+  TRY_RESULT(signature, private_key.sign(message_outer->get_hash().as_slice()));
   return vm::CellBuilder().store_bytes(signature).append_cellslice(vm::load_cell_slice(message_outer)).finalize();
 }
 
 td::Ref<vm::Cell> HighloadWalletV2::get_init_data(const InitData& init_data) noexcept {
   vm::CellBuilder cb;
   cb.store_long(init_data.wallet_id, 32).store_long(init_data.seqno, 64).store_bytes(init_data.public_key);
-  CHECK(cb.store_maybe_ref({}));
+  if (!cb.store_maybe_ref({})) {
+    return {};
+  }
   return cb.finalize();
 }
 

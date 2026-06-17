@@ -39,6 +39,9 @@ class SlotData:
     candidate_id: str | None
     parent_block: str | None
     collator: int | str | None
+    collate_target_slot: int | None = None
+    time_stats: list[tuple[str, float]] | None = None
+    validation_time_stats: dict[int, list[tuple[str, float]]] | None = None
 
     def block_id(self) -> str | None:
         return self.block_id_ext.split(":")[0] if self.block_id_ext else None
@@ -51,8 +54,11 @@ class EventData:
     label: str
     kind: str
     t_ms: float
-    validator: int | str | None = None
+    validator: int | None = None
     t1_ms: float | None = None
+    source_valgroup_id: str | None = None
+    source_slot: int | None = None
+    source_block_id: str | None = None
 
     def get_color(self) -> str | None:
         from .visualizer.style import COLOR_MAP

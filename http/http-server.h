@@ -18,8 +18,9 @@
 */
 #pragma once
 
-#include "metrics/metrics-collectors.h"
+#include "metrics/collectors.h"
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/net/TcpListener.h"
 
 #include "http.h"
@@ -30,14 +31,17 @@ namespace http {
 
 class HttpInboundConnection;
 
-class HttpServer : public td::actor::Actor, public virtual metrics::CollectorWrapper {
+class HttpServer : public td::actor::Actor {
  public:
   class Callback {
    public:
     virtual ~Callback() = default;
-    virtual void receive_request(
-        std::unique_ptr<HttpRequest> request, std::shared_ptr<HttpPayload> payload,
-        td::Promise<std::pair<std::unique_ptr<HttpResponse>, std::shared_ptr<HttpPayload>>> promise) = 0;
+
+    virtual void receive_request(std::unique_ptr<HttpRequest> request, std::shared_ptr<HttpPayload> payload,
+                                 ResponsePromise promise) = 0;
+
+    virtual void on_connection_close() {
+    }
   };
 
   HttpServer(td::IPAddress address, std::shared_ptr<Callback> callback);
@@ -53,26 +57,38 @@ class HttpServer : public td::actor::Actor, public virtual metrics::CollectorWra
     return td::actor::create_actor<HttpServer>("httpserver", port, std::move(callback));
   }
 
-  struct AllMetrics {
-    metrics::AtomicGauge<size_t>::Ptr connections =
-        std::make_shared<metrics::AtomicGauge<size_t>>("connections", "Current number of HTTP connections.");
-    metrics::AtomicCounter<size_t>::Ptr connections_total = std::make_shared<metrics::AtomicCounter<size_t>>(
-        "connections_total", "Total number of HTTP connections encountered.");
-    metrics::AtomicCounter<size_t>::Ptr requests_total =
-        std::make_shared<metrics::AtomicCounter<size_t>>("requests_total", "Total number of HTTP requests received.");
-    metrics::Labeled<td::uint32, metrics::AtomicCounter<size_t>>::Ptr responses_total =
-        metrics::Labeled<td::uint32, metrics::AtomicCounter<size_t>>::make("code", "responses_total",
-                                                                           "Total number of HTTP responses sent.");
+  td::actor::Task<> collect(metrics::Context ctx) {
+    ctx.collect(stats_, "http_server");
+    co_return {};
+  }
+
+  struct Stats {
+    metrics::Gauge<td::uint64> connections_active;
+    metrics::Counter connections;
+    metrics::Counter requests;
+    metrics::DynLabel<"code", td::int32, metrics::Counter> responses;
+
+    void collect(metrics::Context ctx) const {
+      ctx.collect(connections_active, "connections_active");
+      ctx.collect(connections, "connections");
+      ctx.collect(requests, "requests");
+      ctx.collect(responses, "responses");
+    }
   };
 
  private:
+  class StatsCountingCallback;
+
+  void update_stats_on_new_request();
+  void update_stats_on_response(std::optional<td::int32> code);
+  void update_stats_on_connection_close();
+
   td::IPAddress address_;
   std::shared_ptr<Callback> callback_;
 
   td::actor::ActorOwn<td::TcpInfiniteListener> listener_;
 
-  td::actor::ActorOwn<metrics::MultiCollector> collector_ = metrics::MultiCollector::create("http_server");
-  AllMetrics metrics_{};
+  Stats stats_;
 
   static td::IPAddress make_any_address(td::uint16 port);
 };

@@ -16,6 +16,7 @@
 */
 #include "lexer.h"
 #include "compilation-errors.h"
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 
@@ -38,6 +39,10 @@ template <class T>
 static T* singleton() {
   static T obj;
   return &obj;
+}
+
+static bool is_identifier_char(char c) {
+  return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$';
 }
 
 // LexingTrie is a prefix tree storing all available Tolk language constructs.
@@ -357,6 +362,20 @@ struct ChunkSimpleToken final : ChunkLexerBase {
   }
 };
 
+// `!is` is a separate operator, but `!isSomething()` must remain `! isSomething()`.
+struct ChunkLogicalNotOrNotIs final : ChunkLexerBase {
+  bool parse(Lexer* lex) const override {
+    if (lex->char_at(1) == 'i' && lex->char_at(2) == 's' && !is_identifier_char(lex->char_at(3))) {
+      lex->add_token(tok_not_is, std::string_view(lex->c_str(), 3));
+      lex->skip_chars(3);
+    } else {
+      lex->add_token(tok_logical_not, std::string_view(lex->c_str(), 1));
+      lex->skip_chars(1);
+    }
+    return true;
+  }
+};
+
 // Spaces and other space-like symbols are just skipped.
 struct ChunkSkipWhitespace final : ChunkLexerBase {
   bool parse(Lexer* lex) const override {
@@ -459,8 +478,7 @@ struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
     lex->skip_chars(1);
     while (!lex->is_eof()) {
       char c = lex->char_at();
-      bool allowed_in_identifier = std::isalnum(c) || c == '_' || c == '$';
-      if (!allowed_in_identifier) {
+      if (!is_identifier_char(c)) {
         break;
       }
       lex->skip_chars(1);
@@ -540,6 +558,7 @@ struct TolkLanguageGrammar {
     trie.add_pattern("[0-9]", singleton<ChunkNumber>());
     trie.add_pattern("[a-zA-Z_$]", singleton<ChunkIdentifierOrKeyword>());
     trie.add_prefix("`", singleton<ChunkIdentifierInBackticks>());
+    trie.add_prefix("!", singleton<ChunkLogicalNotOrNotIs>());
 
     register_token("+", 1, tok_plus);
     register_token("-", 1, tok_minus);
@@ -559,7 +578,6 @@ struct TolkLanguageGrammar {
     register_token("=", 1, tok_assign);
     register_token("<", 1, tok_lt);
     register_token(">", 1, tok_gt);
-    register_token("!", 1, tok_logical_not);
     register_token("&", 1, tok_bitwise_and);
     register_token("|", 1, tok_bitwise_or);
     register_token("^", 1, tok_bitwise_xor);

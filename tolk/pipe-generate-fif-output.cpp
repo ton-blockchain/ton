@@ -305,6 +305,8 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
       code->print(std::cerr, 6);
     }
   }
+  code->compute_used_code_vars();
+  code->fwd_analyze();
   code->mark_noreturn();
   if (G_settings.verbosity >= 3) {
     // code->print(std::cerr, 15);
@@ -320,18 +322,25 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
     mode |= Stack::_InlineAny;
   }
 
-  std::vector<AsmOp> asm_code = code->generate_asm_code(mode);
-  if (G_settings.optimization_level >= 2) {
-    asm_code = optimize_asm_code(std::move(asm_code));
+  try {
+    std::vector<AsmOp> asm_code = code->generate_asm_code(mode);
+    if (G_settings.optimization_level >= 2) {
+      asm_code = optimize_asm_code(std::move(asm_code));
+    }
+    output_asm_code_for_fun(
+      os,
+      fun_ref,
+      std::move(asm_code),
+      G_settings.stack_layout_comments,
+      G_settings.tolk_src_as_line_comments,
+      G_settings.emit_debug_marks
+    );
+  } catch (const TooDeepStackFatal&) {
+    err("generated TVM stack is too deep while compiling function `{}`.\n"
+        "TVM can not store more than 255 elements on the stack.\n"
+        "hint: try splitting very wide tensors/structs, storing parts in cells/tuples",
+        fun_ref).fire(fun_ref->ident_anchor, fun_ref);
   }
-  output_asm_code_for_fun(
-    os,
-    fun_ref,
-    std::move(asm_code),
-    G_settings.stack_layout_comments,
-    G_settings.tolk_src_as_line_comments,
-    G_settings.emit_debug_marks
-  );
 
   if (G_settings.verbosity >= 2) {
     std::cerr << "--------------\n";

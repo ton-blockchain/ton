@@ -105,6 +105,12 @@ struct Fatal final : std::exception {
   }
 };
 
+struct TooDeepStackFatal final : std::exception {
+  const char* what() const noexcept override {
+    return "too deep stack";
+  }
+};
+
 struct ThrownParseError final : std::exception {
   std::string in_function;
   SrcRange range;
