@@ -13,6 +13,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04-arm
@@ -44,11 +48,12 @@ jobs:
         sudo apt-get install -y clang-22
 
     - name: Restore cache TON
+      id: cache-ton
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
-        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-clang-22-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-clang-22-portable-ccache
 
     - name: Build TON
       run: |
@@ -57,13 +62,28 @@ jobs:
         cp assembly/native/build-ubuntu-appimages.sh .
         chmod +x build-ubuntu-appimages.sh
         ./build-ubuntu-appimages.sh -a -c
+
+    - name: Print ccache stats after TON build
+      if: ${{ always() }}
+      run: |
         ccache -sp
+        ccache -z
 
     - name: Save cache TON
+      if: ${{ success() }}
       uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        key: ${{ steps.cache-ton.outputs.cache-primary-key }}
+
+    - name: Delete restored cache TON
+      if: ${{ success() && steps.cache-ton.outputs.cache-matched-key != '' && steps.cache-ton.outputs.cache-matched-key != steps.cache-ton.outputs.cache-primary-key }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CACHE_KEY: ${{ steps.cache-ton.outputs.cache-matched-key }}
+      run: |
+        echo "Deleting restored cache: ${CACHE_KEY} for ${GITHUB_REF}"
+        gh cache delete "${CACHE_KEY}" --repo "${GITHUB_REPOSITORY}" --ref "${GITHUB_REF}" || true
 
     - name: Make AppImages
       run: |
@@ -74,12 +94,13 @@ jobs:
         ./create-appimages.sh aarch64
         rm -rf artifacts
 
-    - name: Save/Restore cache TON libs
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+    - name: Restore cache TON libs
+      id: cache-ton-libs
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: ~/.ccache
-        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-libs-ccache-${{ steps.date-stamp.outputs.timestamp }}
-        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-portable-libs-ccache
+        key: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-clang-22-portable-libs-ccache-${{ steps.date-stamp.outputs.timestamp }}
+        restore-keys: ${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04-arm-clang-22-portable-libs-ccache
 
     - name: Build TON libs
       run: |
@@ -88,6 +109,28 @@ jobs:
         ./build-ubuntu-portable-libs.sh -a -c
         cp ./artifacts/libtonlibjson.so appimages/artifacts/
         cp ./artifacts/libemulator.so appimages/artifacts/
+
+    - name: Print ccache stats after TON libs build
+      if: ${{ always() }}
+      run: |
+        ccache -sp
+        ccache -z
+
+    - name: Save cache TON libs
+      if: ${{ success() }}
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/.ccache
+        key: ${{ steps.cache-ton-libs.outputs.cache-primary-key }}
+
+    - name: Delete restored cache TON libs
+      if: ${{ success() && steps.cache-ton-libs.outputs.cache-matched-key != '' && steps.cache-ton-libs.outputs.cache-matched-key != steps.cache-ton-libs.outputs.cache-primary-key }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        CACHE_KEY: ${{ steps.cache-ton-libs.outputs.cache-matched-key }}
+      run: |
+        echo "Deleting restored cache: ${CACHE_KEY} for ${GITHUB_REF}"
+        gh cache delete "${CACHE_KEY}" --repo "${GITHUB_REPOSITORY}" --ref "${GITHUB_REF}" || true
 
     - name: Upload artifacts
       uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
