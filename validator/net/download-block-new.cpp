@@ -121,6 +121,7 @@ void DownloadBlockNew::got_block_handle(BlockHandle handle) {
 }
 
 void DownloadBlockNew::got_download_token(std::unique_ptr<ActionToken> token) {
+  token_ = std::move(token);
   VLOG(full_node, DEBUG) << "downloading proof for " << block_id_;
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) mutable {
