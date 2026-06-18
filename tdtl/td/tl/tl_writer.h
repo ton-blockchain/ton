@@ -136,6 +136,9 @@ class TL_writer {
   virtual std::string gen_fetch_function_end(bool has_parent, int field_num, const std::vector<var_description> &vars,
                                              int parser_type) const = 0;
 
+  virtual std::string gen_nameof_function_begin(const std::string & class_name) const { return ""; }
+  virtual std::string gen_nameof_function_end(const std::string & class_name) const { return ""; }
+
   virtual std::string gen_fetch_function_result_begin(const std::string &parser_name, const std::string &class_name,
                                                       const tl_tree *result) const = 0;
   virtual std::string gen_fetch_function_result_end() const = 0;
@@ -150,6 +153,8 @@ class TL_writer {
   virtual std::string gen_fetch_switch_begin() const = 0;
   virtual std::string gen_fetch_switch_case(const tl_combinator *t, int arity) const = 0;
   virtual std::string gen_fetch_switch_end() const = 0;
+
+  virtual std::string gen_nameof_case(const tl::tl_combinator *t) const { return ""; }
 
   virtual std::string gen_constructor_begin(int fields_num, const std::string &class_name, bool is_default) const = 0;
   virtual std::string gen_constructor_parameter(int field_num, const std::string &class_name, const arg &a,

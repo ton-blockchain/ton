@@ -19,7 +19,6 @@
 #pragma once
 
 #include "auto/tl/lite_api.h"
-#include "auto/tl/ton_api_id_names.h"
 #include "td/utils/tl_helpers.h"
 #include "tl-utils/lite-utils.hpp"
 #include "ton/ton-io.hpp"
@@ -216,9 +215,9 @@ class FullNodeQueryHandler {
     }
     ton_api::downcast_call(*f.get(), [&](auto &obj) { task = process_query(std::move(obj), src, source).start(); });
     auto R = co_await std::move(task).wrap();
-    auto name = [&]() -> const char * {
-      auto s = ton_api_id_name(id);
-      return s ? s : "unknown";
+    auto name = [&]() -> std::string {
+      auto s = ton_api::Function::nameof(id);
+      return s ? *s : "unknown";
     };
     if (R.is_ok()) {
       VLOG(full_node, DEBUG) << "Processed query (" << name() << ") in " << source << " from " << src << " : OK, "

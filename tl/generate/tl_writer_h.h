@@ -89,6 +89,9 @@ class TD_TL_writer_h : public TD_TL_writer {
                                                   bool is_proxy) const override;
   std::string gen_fetch_function_result_any_end(bool is_proxy) const override;
 
+  std::string gen_nameof_function_begin(const std::string& class_name) const override;
+  std::string gen_nameof_function_end(const std::string& class_name) const override;
+
   std::string gen_store_function_begin(const std::string &storer_name, const std::string &class_name, int arity,
                                        std::vector<tl::var_description> &vars, int storer_type) const override;
   std::string gen_store_function_end(const std::vector<tl::var_description> &vars, int storer_type) const override;
@@ -96,6 +99,8 @@ class TD_TL_writer_h : public TD_TL_writer {
   std::string gen_fetch_switch_begin() const override;
   std::string gen_fetch_switch_case(const tl::tl_combinator *t, int arity) const override;
   std::string gen_fetch_switch_end() const override;
+
+  std::string gen_nameof_case(const tl::tl_combinator* t) const override;
 
   std::string gen_constructor_begin(int fields_num, const std::string &class_name, bool is_default) const override;
   std::string gen_constructor_field_init(int field_num, const std::string &class_name, const tl::arg &a,
