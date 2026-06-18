@@ -352,7 +352,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                                           td::BufferSlice data, BroadcastSource source) {
     co_return td::Unit{};
   }
-  virtual td::actor::Task<> new_block_finality_broadcast(BlockFinalityBroadcast finality) {
+  virtual td::actor::Task<> new_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) {
     co_return td::Unit{};
   }
 

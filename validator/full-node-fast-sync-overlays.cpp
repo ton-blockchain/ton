@@ -91,7 +91,8 @@ void FullNodeFastSyncOverlay::process_block_finality_broadcast(PublicKeyHash src
   BlockFinalityBroadcast finality{block_id, block::BlockSignatureSet::fetch(query.signature_set_)};
 
   VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in fast sync overlay from " << src << ": " << block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality));
+  td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
+                          BroadcastSource::fast_sync_overlay);
 }
 
 void FullNodeFastSyncOverlay::obtain_state_for_decompression(PublicKeyHash src,

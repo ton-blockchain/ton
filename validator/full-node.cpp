@@ -637,8 +637,9 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signat
                           });
 }
 
-void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast finality) {
-  td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_finality_broadcast, std::move(finality))
+void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) {
+  td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_finality_broadcast, std::move(finality),
+                 source)
       .detach();
 }
 

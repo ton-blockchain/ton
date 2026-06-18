@@ -87,6 +87,9 @@ class BlockHandleLru : public td::ListNode {
   F(candidate_broadcast_fast_sync) \
   F(candidate_broadcast_consensus) \
   F(candidate_broadcast_custom)    \
+  F(candidate_finality_public)     \
+  F(candidate_finality_fast_sync)  \
+  F(candidate_finality_custom)     \
   F(candidate_stored)              \
   F(block_accepted)
 TON_METRIC_DEFINE_LABEL(BlockSource, "source", BLOCK_SOURCE_LIST)
@@ -123,6 +126,25 @@ struct BlockReceiveStats {
     }
     UNREACHABLE();
   }
+
+  static BlockSource from_candidate_finality(BroadcastSource source) {
+    switch (source) {
+      case BroadcastSource::public_overlay:
+        return BlockSource::candidate_finality_public;
+      case BroadcastSource::fast_sync_overlay:
+        return BlockSource::candidate_finality_fast_sync;
+      case BroadcastSource::custom_overlay:
+        return BlockSource::candidate_finality_custom;
+      case BroadcastSource::consensus_overlay:
+        break;
+    }
+    UNREACHABLE();
+  }
+};
+
+struct PendingBlockFinality {
+  td::Ref<block::BlockSignatureSet> sig_set;
+  BroadcastSource source;
 };
 
 struct WorkchainLabel {
@@ -274,7 +296,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::LRUCache<BlockIdExt, td::BufferSlice> cached_masterchain_block_candidates_{/* max_size = */ 128};
   td::LRUCache<BlockIdExt, td::Unit> cached_checked_shard_block_descriptions_{/* max_size = */ 1024};
 
-  td::LRUCache<BlockIdExt, td::Ref<block::BlockSignatureSet>> pending_block_finality_{/* max_size = */ 256};
+  td::LRUCache<BlockIdExt, PendingBlockFinality> pending_block_finality_{/* max_size = */ 256};
 
   td::actor::ActorOwn<ExtMessagePool> ext_message_pool_;
   td::actor::ActorOwn<AppliedExtMessageCleanupActor> applied_ext_message_cleanup_actor_;
@@ -379,6 +401,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
   td::actor::Task<> new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
                                         BroadcastSource source) override;
+  td::actor::Task<> validate_block_broadcast(BlockBroadcast broadcast, bool signatures_checked);
   void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
   td::actor::Task<> validated_accepted_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 
@@ -417,7 +440,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                              td::BufferSlice data) override;
   td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
                                                   BroadcastSource source) override;
-  td::actor::Task<> new_block_finality_broadcast(BlockFinalityBroadcast finality) override;
+  td::actor::Task<> new_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;

@@ -96,7 +96,7 @@ class FullNodeImpl : public FullNode {
   void new_key_block(BlockHandle handle);
 
   void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source) override;
-  void process_block_finality_broadcast(BlockFinalityBroadcast finality) override;
+  void process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                          td::BufferSlice data, BroadcastSource source) override;
   void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;

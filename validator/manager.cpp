@@ -224,8 +224,18 @@ td::actor::Task<> ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broad
   if (!need_monitor(broadcast.block_id.shard_full())) {
     co_return td::Status::Error("not monitoring shard");
   }
+  update_block_receive_stats(broadcast.block_id, BlockReceiveStats::from(source, /*is_candidate=*/false));
+  co_return co_await validate_block_broadcast(std::move(broadcast), signatures_checked);
+}
+
+td::actor::Task<> ValidatorManagerImpl::validate_block_broadcast(BlockBroadcast broadcast, bool signatures_checked) {
+  if (last_masterchain_state_.is_null() || !last_masterchain_block_handle_) {
+    co_return td::Status::Error(ErrorCode::notready, "node not started");
+  }
+  if (!need_monitor(broadcast.block_id.shard_full())) {
+    co_return td::Status::Error("not monitoring shard");
+  }
   BlockIdExt block_id = broadcast.block_id;
-  update_block_receive_stats(block_id, BlockReceiveStats::from(source, /*is_candidate=*/false));
   bool is_final = broadcast.sig_set->is_final();
   CatchainSeqno cc_seqno = broadcast.sig_set->get_catchain_seqno();
   auto [task, promise] = td::actor::StartedTask<>::make_bridge();
@@ -519,8 +529,8 @@ td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt
     VLOG(validator, DEBUG) << "dropping block candidate broadcast: not monitoring shard";
     co_return td::Unit{};
   }
-  add_cached_block_data(block_id, data.clone());
   update_block_receive_stats(block_id, BlockReceiveStats::from(source, /*is_candidate=*/true));
+  add_cached_block_data(block_id, data.clone());
 
   if (opts_->nonfinal_ls_queries_enabled()) {
     auto handle = co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::get_block_handle, block_id, true);
@@ -547,7 +557,8 @@ td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt
   co_return td::Unit{};
 }
 
-td::actor::Task<> ValidatorManagerImpl::new_block_finality_broadcast(BlockFinalityBroadcast finality) {
+td::actor::Task<> ValidatorManagerImpl::new_block_finality_broadcast(BlockFinalityBroadcast finality,
+                                                                     BroadcastSource source) {
   if (!last_masterchain_block_handle_ || !started_) {
     VLOG(validator, DEBUG) << "dropping block finality broadcast: not inited";
     co_return td::Unit{};
@@ -566,7 +577,9 @@ td::actor::Task<> ValidatorManagerImpl::new_block_finality_broadcast(BlockFinali
     co_return td::Unit{};
   }
 
-  pending_block_finality_.put(finality.block_id, std::move(finality.sig_set));
+  if (!pending_block_finality_.contains(finality.block_id)) {
+    pending_block_finality_.put(finality.block_id, PendingBlockFinality{std::move(finality.sig_set), source});
+  }
   try_process_pending_block_finality(finality.block_id);
   co_return td::Unit{};
 }
@@ -776,7 +789,7 @@ void ValidatorManagerImpl::try_process_pending_block_finality(BlockIdExt block_i
   }
 
   td::Result<td::BufferSlice> proof =
-      block_id.is_masterchain() ? WaitBlockData::generate_proof(block_id, block.ok()->root_cell(), *finality,
+      block_id.is_masterchain() ? WaitBlockData::generate_proof(block_id, block.ok()->root_cell(), finality->sig_set,
                                                                  last_masterchain_state_)
                                 : WaitBlockData::generate_proof_link(block_id, block.ok()->root_cell());
   if (proof.is_error()) {
@@ -794,15 +807,17 @@ void ValidatorManagerImpl::try_process_pending_block_finality(BlockIdExt block_i
     return;
   }
 
-  auto sig_set = *finality;
+  auto sig_set = finality->sig_set;
+  auto finality_source = finality->source;
   if (block_id.is_masterchain()) {
     cached_masterchain_block_candidates_.erase(block_id);
   }
   pending_block_finality_.erase(block_id);
   BlockBroadcast broadcast{block_id, std::move(sig_set), std::move(data), proof.move_as_ok()};
+  update_block_receive_stats(block_id, BlockReceiveStats::from_candidate_finality(finality_source));
   td::actor::send_closure(
-      actor_id(this), &ValidatorManagerImpl::new_block_broadcast, std::move(broadcast), false,
-      BroadcastSource::fast_sync_overlay, [block_id](td::Result<td::Unit> R) mutable {
+      actor_id(this), &ValidatorManagerImpl::validate_block_broadcast, std::move(broadcast), false,
+      [block_id](td::Result<td::Unit> R) mutable {
         if (R.is_error()) {
           auto error = R.move_as_error();
           if (error.code() == ErrorCode::notready || error.code() == ErrorCode::timeout) {
