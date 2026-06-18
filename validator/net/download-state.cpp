@@ -276,7 +276,7 @@ void DownloadState::got_block_state_part(td::BufferSlice data, td::uint32 reques
           create_tl_object<ton_api::tonNode_persistentStateIdV2>(
               create_tl_block_id(block_id_), create_tl_block_id(masterchain_block_id_), effective_shard_),
           sum_, part_size),
-      td::Timestamp::in(2.0), part_size + 1024, std::move(P));
+      td::Timestamp::in(20.0), part_size + 1024, std::move(P));
 }
 
 void DownloadState::got_block_state(td::BufferSlice data) {
