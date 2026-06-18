@@ -25,6 +25,7 @@ class Voted : public consensus::stats::CollectibleEvent<MetricCollector> {
  public:
   static std::unique_ptr<Voted> create(Vote vote);
 
+  bool equals(const consensus::stats::Event&) const override;
   consensus::stats::tl::EventRef to_tl() const override;
   std::string to_string() const override;
   void collect_to(MetricCollector& collector) const override;
@@ -32,6 +33,7 @@ class Voted : public consensus::stats::CollectibleEvent<MetricCollector> {
   const Vote& vote() const {
     return vote_;
   }
+  bool operator==(const Voted&) const = default;
 
  private:
   Voted(Vote vote);
@@ -43,6 +45,7 @@ class CertObserved : public consensus::stats::CollectibleEvent<MetricCollector> 
  public:
   static std::unique_ptr<CertObserved> create(Vote vote);
 
+  bool equals(const consensus::stats::Event&) const override;
   consensus::stats::tl::EventRef to_tl() const override;
   std::string to_string() const override;
   void collect_to(MetricCollector& collector) const override;
@@ -50,6 +53,7 @@ class CertObserved : public consensus::stats::CollectibleEvent<MetricCollector> 
   const Vote& vote() const {
     return vote_;
   }
+  bool operator==(const CertObserved&) const = default;
 
  private:
   CertObserved(Vote vote);

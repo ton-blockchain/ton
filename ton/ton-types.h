@@ -86,15 +86,7 @@ struct ShardIdFull {
   }
   ShardIdFull(WorkchainId workchain, ShardId shard) : workchain(workchain), shard(shard) {
   }
-  bool operator==(const ShardIdFull& other) const {
-    return workchain == other.workchain && shard == other.shard;
-  }
-  bool operator!=(const ShardIdFull& other) const {
-    return workchain != other.workchain || shard != other.shard;
-  }
-  bool operator<(const ShardIdFull& other) const {
-    return workchain < other.workchain || (workchain == other.workchain && shard < other.shard);
-  }
+  std::strong_ordering operator<=>(const ShardIdFull&) const = default;
   bool is_valid() const {
     return workchain != workchainInvalid;
   }
@@ -152,15 +144,7 @@ struct AccountIdPrefixFull {
   }
   AccountIdPrefixFull(WorkchainId workchain, AccountIdPrefix prefix) : workchain(workchain), account_id_prefix(prefix) {
   }
-  bool operator==(const AccountIdPrefixFull& other) const {
-    return workchain == other.workchain && account_id_prefix == other.account_id_prefix;
-  }
-  bool operator!=(const AccountIdPrefixFull& other) const {
-    return workchain != other.workchain || account_id_prefix != other.account_id_prefix;
-  }
-  bool operator<(const AccountIdPrefixFull& other) const {
-    return workchain < other.workchain || (workchain == other.workchain && account_id_prefix < other.account_id_prefix);
-  }
+  std::strong_ordering operator<=>(const AccountIdPrefixFull&) const = default;
   bool is_valid() const {
     return workchain != workchainInvalid;
   }
@@ -218,19 +202,7 @@ struct BlockId {
     seqno = 0;
     return invalidate();
   }
-  bool operator==(const BlockId& other) const {
-    return workchain == other.workchain && seqno == other.seqno && shard == other.shard;
-  }
-  bool operator!=(const BlockId& other) const {
-    return !(workchain == other.workchain && seqno == other.seqno && shard == other.shard);
-  }
-  bool operator<(const BlockId& other) const {
-    return workchain < other.workchain ||
-           (workchain == other.workchain && (seqno < other.seqno || (seqno == other.seqno && shard < other.shard)));
-  }
-  bool operator<(const ShardIdFull& other) const {
-    return workchain < other.workchain || (workchain == other.workchain && shard < other.shard);
-  }
+  std::strong_ordering operator<=>(const BlockId&) const = default;
   int pfx_len() const {
     return shard_pfx_len(shard);
   }
@@ -240,10 +212,6 @@ struct BlockId {
                                                   static_cast<unsigned long long>(shard), seqno)};
   }
 };
-
-inline bool operator<(const ShardIdFull& x, const BlockId& y) {
-  return x.workchain < y.workchain || (x.workchain == y.workchain && x.shard < y.shard);
-}
 
 struct BlockIdExt {
   BlockId id;
@@ -270,16 +238,7 @@ struct BlockIdExt {
     file_hash.set_zero();
     return id.invalidate_clear();
   }
-  bool operator==(const BlockIdExt& b) const {
-    return id == b.id && root_hash == b.root_hash && file_hash == b.file_hash;
-  }
-  bool operator!=(const BlockIdExt& b) const {
-    return !(id == b.id && root_hash == b.root_hash && file_hash == b.file_hash);
-  }
-  bool operator<(const BlockIdExt& b) const {
-    return id < b.id || (id == b.id && root_hash < b.root_hash) ||
-           (id == b.id && root_hash == b.root_hash && file_hash < b.file_hash);
-  }
+  std::strong_ordering operator<=>(const BlockIdExt&) const = default;
   ShardIdFull shard_full() const {
     return ShardIdFull(id);
   }
@@ -334,15 +293,7 @@ struct ZeroStateIdExt {
   ZeroStateIdExt(WorkchainId wc, const RootHash& rhash, const FileHash& fhash)
       : workchain(wc), root_hash(rhash), file_hash(fhash) {
   }
-  bool operator==(const ZeroStateIdExt& b) const {
-    return workchain == b.workchain && root_hash == b.root_hash && file_hash == b.file_hash;
-  }
-  bool operator!=(const ZeroStateIdExt& b) const {
-    return !(workchain == b.workchain && root_hash == b.root_hash && file_hash == b.file_hash);
-  }
-  bool operator<(const ZeroStateIdExt& b) const {
-    return file_hash < b.file_hash;
-  }
+  bool operator==(const ZeroStateIdExt&) const = default;
   bool is_valid() const {
     return workchain != workchainInvalid;
   }
@@ -401,12 +352,7 @@ struct Ed25519_PublicKey {
   td::Slice as_slice() const {
     return _pubkey.as_slice();
   }
-  bool operator==(const Ed25519_PublicKey& other) const {
-    return _pubkey == other._pubkey;
-  }
-  bool operator!=(const Ed25519_PublicKey& other) const {
-    return _pubkey != other._pubkey;
-  }
+  bool operator==(const Ed25519_PublicKey&) const = default;
   bool clear() {
     _pubkey.set_zero();
     return true;
@@ -459,6 +405,8 @@ struct BlockCandidate {
 
   // used only locally
   std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_proof_broadcasts = {};
+
+  bool operator==(const BlockCandidate&) const = default;
 
   BlockCandidate clone() const {
     return BlockCandidate{

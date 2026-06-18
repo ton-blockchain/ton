@@ -38,6 +38,8 @@ class ChainState : public td::CntObject {
     td::Ref<vm::Cell> root() const {
       return state;
     }
+
+    bool operator==(const NormalTip&) const = default;
   };
 
   struct BeforeMergeTip {
@@ -61,6 +63,7 @@ class ChainState : public td::CntObject {
     }
 
     td::Ref<vm::Cell> root() const;
+    bool operator==(const BeforeMergeTip&) const = default;
   };
 
   struct BeforeSplitTip {
@@ -85,6 +88,8 @@ class ChainState : public td::CntObject {
     td::Ref<vm::Cell> root() const {
       return tip.state;
     }
+
+    bool operator==(const BeforeSplitTip&) const = default;
   };
 
   struct ZerostateTip {
@@ -110,6 +115,8 @@ class ChainState : public td::CntObject {
     td::Ref<vm::Cell> root() const {
       return state;
     }
+
+    bool operator==(const ZerostateTip&) const = default;
   };
 
   using Tip = std::variant<NormalTip, BeforeMergeTip, BeforeSplitTip, ZerostateTip>;
@@ -130,6 +137,7 @@ class ChainState : public td::CntObject {
   BlockIdExt assert_normal() const;
 
   td::Ref<ChainState> apply(const BlockCandidate& candidate) const;
+  bool operator==(const ChainState&) const = default;
 
  private:
   Tip tip_;

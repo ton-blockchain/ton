@@ -200,6 +200,7 @@ set(TDUTILS_SOURCE
   td/utils/Context.h
   td/utils/crypto.h
   td/utils/DecTree.h
+  td/utils/deref.h
   td/utils/Destructor.h
   td/utils/Enumerator.h
   td/utils/EpochBasedMemoryReclamation.h
