@@ -323,6 +323,8 @@ __Enabled in mainnet on 2026-04-03__
 ## Version 15
 
 ## Transaction changes
-- "Change library" action can only be performed by governance contracts.
-- Private libraries cannot be added and are not used in TVM library context.
-- Account cannot be deployed with non-null libraries dict.
+- Libraries:
+  - "Change library" action can only be performed by governance contracts.
+  - Private libraries cannot be added and are not used in TVM library context.
+  - Account cannot be deployed with non-null libraries dict.
+- When action phase fails, action fine is now collected for all successful messages as well.
