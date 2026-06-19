@@ -247,6 +247,7 @@ struct ActionPhase {
   ton::LogicalTime end_lt;
   unsigned long long tot_msg_bits{0}, tot_msg_cells{0};
   td::RefInt256 action_fine;
+  td::RefInt256 fail_action_fine = td::zero_refint();  // Collected if action phase fails
   bool need_bounce_on_fail = false;
   bool bounce = false;
 };

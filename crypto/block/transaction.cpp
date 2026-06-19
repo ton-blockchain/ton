@@ -2241,7 +2241,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
         msg_balance_remaining = msg_balance_remaining_before_actions;
       }
       if (cfg.action_fine_enabled) {
-        ap.action_fine = std::min(ap.action_fine, balance.grams);
+        ap.action_fine = std::min(ap.action_fine + ap.fail_action_fine, balance.grams);
         ap.total_action_fees = ap.action_fine;
         balance.grams -= ap.action_fine;
         total_fees += ap.action_fine;
@@ -2272,7 +2272,7 @@ bool Transaction::prepare_action_phase(const ActionPhaseConfig& cfg) {
     if (cfg.extra_currency_v2) {
       end_lt = ap.end_lt = start_lt + 1;
       if (cfg.action_fine_enabled) {
-        ap.action_fine = std::min(ap.action_fine, balance.grams);
+        ap.action_fine = std::min(ap.action_fine + ap.fail_action_fine, balance.grams);
         ap.total_action_fees = ap.action_fine;
         balance.grams -= ap.action_fine;
         total_fees += ap.action_fine;
@@ -2864,15 +2864,15 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
   if (!ext_msg && !cfg.extra_currency_v2) {
     add_used_storage(info.value->prefetch_ref(), 0);
   }
+  td::uint64 fine =
+      cfg.action_fine_enabled && !account.is_special ? fine_per_cell * std::min<td::uint64>(max_cells, sstat.cells) : 0;
   auto collect_fine = [&] {
-    if (cfg.action_fine_enabled && !account.is_special) {
-      td::uint64 fine = fine_per_cell * std::min<td::uint64>(max_cells, sstat.cells);
-      if (ap.remaining_balance.grams->cmp(fine) < 0) {
-        fine = ap.remaining_balance.grams->to_long();
-      }
-      ap.action_fine += fine;
-      ap.remaining_balance.grams -= fine;
+    td::uint64 actual_fine = fine;
+    if (ap.remaining_balance.grams->cmp(actual_fine) < 0) {
+      actual_fine = ap.remaining_balance.grams->to_long();
     }
+    ap.action_fine += actual_fine;
+    ap.remaining_balance.grams -= actual_fine;
   };
   if (sstat.cells > max_cells && max_cells < cfg.size_limits.max_msg_cells) {
     LOG(DEBUG) << "not enough funds to process a message (max_cells=" << max_cells << ")";
@@ -3121,6 +3121,9 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
   ap.tot_msg_bits += sstat.bits + new_msg_bits;
   ap.tot_msg_cells += sstat.cells + 1;
+  if (cfg.global_version >= 15) {
+    ap.fail_action_fine += fine;
+  }
 
   return 0;
 }
