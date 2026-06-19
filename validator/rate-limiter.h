@@ -59,9 +59,9 @@ bool RateLimiter<RequestID>::check_in(RequestID request, size_t cost, td::Timest
   if (cost == 0) {
     cost = 1;
   }
-  bool small = request_windows_[request] == 2;
-  if ((small || check(time, cost)) && check(request, time, cost)) {
-    if (!small) {
+  bool is_small = request_windows_[request] == 2;
+  if ((is_small || check(time, cost)) && check(request, time, cost)) {
+    if (!is_small) {
       insert(time, cost);
     }
     insert(request, time, cost);
