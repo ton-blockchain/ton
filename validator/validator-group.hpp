@@ -18,6 +18,9 @@
 */
 #pragma once
 
+#include <memory>
+#include <optional>
+
 #include "interfaces/validator-manager.h"
 
 #include "collation-manager.hpp"
@@ -28,17 +31,43 @@ namespace validator {
 
 class ValidatorManager;
 
+struct GroupIdentity {
+  adnl::AdnlNodeIdShort adnl_id;
+  std::optional<PublicKeyHash> short_id;
+  bool suffix_db = true;
+
+  std::strong_ordering operator<=>(const GroupIdentity&) const = default;
+
+  bool is_validator() const {
+    return short_id.has_value();
+  }
+};
+
+struct GroupParams {
+  bool is_create_session_called;
+
+  ShardIdFull shard;
+  td::actor::ActorId<ValidatorManager> manager;
+  td::actor::ActorId<keyring::Keyring> keyring;
+  td::Ref<ValidatorManagerOptions> validator_opts;
+
+  td::Ref<block::ValidatorSet> validator_set;
+  GroupIdentity identity;
+
+  td::actor::ActorId<CollationManager> collation_manager;
+  NewConsensusConfig config;
+
+  ValidatorSessionId session_id;
+  td::actor::ActorId<overlay::Overlays> overlays;
+  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender;
+  std::string db_root;
+
+  std::vector<adnl::AdnlNodeIdShort> all_validators;
+};
+
 class IValidatorGroup : public td::actor::Actor {
  public:
-  static td::actor::ActorOwn<IValidatorGroup> create_bridge(
-      td::Slice name, ShardIdFull shard, PublicKeyHash local_id, ValidatorSessionId session_id,
-      td::Ref<block::ValidatorSet> validator_set, BlockSeqno last_key_block_seqno, NewConsensusConfig config,
-      td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender, td::actor::ActorId<overlay::Overlays> overlays,
-      std::string db_root, td::actor::ActorId<ValidatorManager> validator_manager,
-      td::actor::ActorId<CollationManager> collation_manager, bool create_session,
-      td::Ref<ValidatorManagerOptions> opts, bool monitoring_shard, bool is_validator,
-      adnl::AdnlNodeIdShort local_adnl_id, std::vector<adnl::AdnlNodeIdShort> overlay_members);
+  static td::actor::ActorOwn<IValidatorGroup> create_bridge(td::Slice name, GroupParams params);
 
   virtual void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) = 0;
   virtual void create_session() = 0;
@@ -48,6 +77,34 @@ class IValidatorGroup : public td::actor::Actor {
   virtual void notify_mc_finalized(BlockIdExt block) = 0;
 
   virtual void destroy() = 0;
+};
+
+struct ManagerContext {
+  td::actor::ActorId<ValidatorManager> manager;
+  td::Ref<ValidatorManagerOptions> opts;
+  td::actor::ActorId<keyring::Keyring> keyring;
+  td::actor::ActorId<overlay::Overlays> overlays;
+  td::actor::ActorId<adnl::AdnlSenderEx> quic;
+  std::string db_root;
+
+  std::set<PublicKeyHash> validator_keys;
+};
+
+struct ValidatorGroupCount {
+  size_t masterchain = 0;
+  size_t shard = 0;
+};
+
+class NetworkState {
+ public:
+  virtual ~NetworkState() = default;
+
+  static std::unique_ptr<NetworkState> create(BlockSeqno start_seqno);
+
+  virtual void update(const MasterchainState& state, ManagerContext ctx) = 0;
+  virtual void update_options(td::Ref<ValidatorManagerOptions> opts) = 0;
+
+  virtual ValidatorGroupCount validator_group_count() const = 0;
 };
 
 }  // namespace validator

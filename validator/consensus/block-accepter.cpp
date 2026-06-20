@@ -17,6 +17,10 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  static bool should_be_spawned(const Bus& bus) {
+    return bus.is_validator() || bus.config.observers_in_private_overlay();
+  }
+
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
@@ -24,11 +28,13 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
   template <>
   td::actor::Task<> process(BusHandle, std::shared_ptr<FinalizeBlock> event) {
+    auto& bus = *owning_bus();
+
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
 
     int broadcast_mode = fullnode::FullNode::broadcast_mode_custom;
-    if (event->candidate->leader == owning_bus()->local_id.idx) {
+    if (bus.is_validator() && event->candidate->leader == bus.local_id->idx) {
       broadcast_mode |= fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
     }
     if (last_mc_finalized_seqno_ >= 2 && block.id.seqno() < last_mc_finalized_seqno_ - 2) {
@@ -37,7 +43,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     if (sent_candidate_broadcasts_.contains(block.id)) {
       broadcast_mode &= ~(fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
     }
-    co_await td::actor::ask(owning_bus()->manager, &ManagerFacade::accept_block, block.id, block_data,
+    co_await td::actor::ask(bus.manager, &ManagerFacade::accept_block, block.id, block_data,
                             event->candidate->leader.value(), event->signatures, broadcast_mode, true);
     owning_bus().publish<TraceEvent>(stats::BlockAccepted::create(event->candidate->id));
     co_return {};

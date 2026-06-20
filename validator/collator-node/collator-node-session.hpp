@@ -75,7 +75,6 @@ class CollatorNodeSession : public td::actor::Actor {
   BlockSeqno next_block_seqno_;
   std::map<std::vector<BlockIdExt>, std::shared_ptr<CacheEntry>> cache_;
 
-  td::uint32 proto_version_ = 0;
   td::uint32 max_candidate_size_ = 0;
 
   void generate_block(std::vector<BlockIdExt> prev_blocks, td::optional<BlockCandidatePriority> o_priority,

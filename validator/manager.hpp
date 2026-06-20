@@ -30,6 +30,7 @@
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
 #include "metrics/prometheus-exporter.h"
+#include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
 #include "td/actor/MultiPromise.h"
@@ -278,29 +279,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
  private:
   // VALIDATOR GROUPS
-  ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set,
-                                          td::Bits256 opts_hash, BlockSeqno last_key_block_seqno,
-                                          const validatorsession::ValidatorSessionOptions &opts);
-  td::actor::ActorOwn<IValidatorGroup> create_validator_group(
-      ValidatorSessionId session_id, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set,
-      BlockSeqno key_seqno, validatorsession::ValidatorSessionOptions opts, bool create_catchain, bool is_validator,
-      adnl::AdnlNodeIdShort local_adnl_id_override, std::vector<adnl::AdnlNodeIdShort> overlay_members);
-  td::actor::ActorId<CollationManager> get_collation_manager(adnl::AdnlNodeIdShort adnl_id);
-
-  struct ValidatorGroupEntry {
-    std::string name() const {
-      return PSTRING() << "validator group " << shard << "." << cc_seqno;
-    }
-
-    td::actor::ActorOwn<IValidatorGroup> actor;
-    ShardIdFull shard;
-    bool started = false;
-    td::uint32 cc_seqno = 0;
-  };
-  std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
-  std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
-  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollationManager>> collation_managers_;
-  std::set<ValidatorSessionId> destroyed_validator_sessions_;
+  std::unique_ptr<NetworkState> network_state_;
 
  private:
   // MASTERCHAIN LAST BLOCK
@@ -334,8 +313,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shard_overlays();
   void update_shards();
   void update_shard_blocks();
-  void updated_init_block(BlockIdExt last_rotate_block_id,
-                          std::set<ValidatorSessionId> old_destroyed_validator_sessions);
+  void updated_init_block(BlockIdExt last_rotate_block_id);
   void got_next_gc_masterchain_handle(BlockHandle handle);
   void got_next_gc_masterchain_state(BlockHandle handle, td::Ref<MasterchainState> state);
   void advance_gc(BlockHandle handle, td::Ref<MasterchainState> state);
@@ -585,7 +563,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void start_up() override;
   void init_last_masterchain_state(td::Ref<MasterchainState> state) override;
   void started(ValidatorManagerInitResult result);
-  void got_destroyed_validator_sessions(std::vector<ValidatorSessionId> sessions);
   void finish_start_up();
 
   bool is_validator();
@@ -741,7 +718,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorOwn<td::actor::ActorStats> actor_stats_;
 
   bool started_ = false;
-  bool allow_validate_ = false;
 
  private:
   double state_ttl() const {
@@ -769,8 +745,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::uint64 total_validated_blocks_master_ok_{0}, total_validated_blocks_master_error_{0};
   td::uint64 total_collated_blocks_shard_ok_{0}, total_collated_blocks_shard_error_{0};
   td::uint64 total_validated_blocks_shard_ok_{0}, total_validated_blocks_shard_error_{0};
-
-  size_t active_validator_groups_master_{0}, active_validator_groups_shard_{0};
 
   void log_collate_query_stats(CollationStats stats) override;
   void log_validate_query_stats(ValidationStats stats) override;

@@ -151,6 +151,7 @@ class McShardHashI : public td::CntObject {
   virtual ton::LogicalTime start_lt() const = 0;
   virtual ton::LogicalTime end_lt() const = 0;
   virtual ton::UnixTime fsm_utime() const = 0;
+  virtual td::UTCSeconds fsm_utime_chrono() const = 0;
   virtual FsmState fsm_state() const = 0;
   virtual ton::ShardIdFull shard() const = 0;
   virtual bool before_split() const = 0;
@@ -218,6 +219,9 @@ struct McShardHash : public McShardHashI {
   }
   ton::UnixTime fsm_utime() const override final {
     return fsm_utime_;
+  }
+  td::UTCSeconds fsm_utime_chrono() const override final {
+    return td::UTCSeconds{std::chrono::seconds{fsm_utime()}};
   }
   ton::UnixTime fsm_utime_end() const {
     return fsm_utime_ + fsm_interval_;

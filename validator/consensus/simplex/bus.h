@@ -101,8 +101,6 @@ class Bus : public consensus::Bus {
 
   Bus() = default;
 
-  void populate_collator_schedule() override;
-
   std::vector<CertificateRef<Vote>> bootstrap_certificates;
   std::vector<Vote> bootstrap_votes;
 
@@ -129,6 +127,10 @@ struct StateResolver {
 
 struct Db {
   static void register_in(td::actor::Runtime&);
+};
+
+struct DefaultCollatorSchedule {
+  static void provide_for(td::actor::Runtime&);
 };
 
 }  // namespace ton::validator::consensus::simplex

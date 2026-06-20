@@ -112,7 +112,6 @@ void CollatorNodeSession::new_shard_block_accepted(BlockIdExt block_id, bool can
 
 void CollatorNodeSession::update_masterchain_config(td::Ref<MasterchainState> state) {
   ValidatorSessionConfig config = state->get_consensus_config();
-  proto_version_ = config.proto_version;
   max_candidate_size_ = config.max_block_size + config.max_collated_data_size + 1024;
 }
 

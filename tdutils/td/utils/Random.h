@@ -18,6 +18,8 @@
 */
 #pragma once
 
+#include <random>
+
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
 #include "td/utils/common.h"
@@ -39,7 +41,10 @@ class Random {
   static void secure_cleanup();
 #endif
 
+  static std::mt19937 fast_gen();
   static uint32 fast_uint32();
+
+  static std::mt19937_64 fast_gen_64();
   static uint64 fast_uint64();
 
   // distribution is not uniform, min and max are included

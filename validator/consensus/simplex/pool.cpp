@@ -326,8 +326,16 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     state_.emplace(State(bus));
     state_->slot_at(0)->state->available_base = ParentId{};
 
-    LOG(INFO) << "Validator group started. We are " << bus.local_id << " with weight " << bus.local_id.weight
-              << " out of " << bus.total_weight;
+    {
+      std::string id_line;
+      if (bus.is_validator()) {
+        id_line = PSTRING() << *bus.local_id << " (adnl: " << bus.local_id->adnl_id << ") with weight "
+                            << bus.local_id->weight << " out of " << bus.total_weight;
+      } else {
+        id_line = PSTRING() << "observer at " << bus.local_adnl_id;
+      }
+      LOG(INFO) << "Validator group started. We are " << id_line;
+    }
 
     first_nonannounced_window_ = bus.first_nonannounced_window;
 
@@ -377,9 +385,16 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   template <>
   void handle(BusHandle, std::shared_ptr<const Start>) {
     auto &bus = *owning_bus();
-    owning_bus().publish<TraceEvent>(
-        consensus::stats::Id::create(bus.shard, bus.cc_seqno, bus.local_id.idx.value(), bus.validator_set.size(),
-                                     bus.local_id.weight, bus.total_weight, bus.config.slots_per_leader_window));
+
+    std::optional<size_t> idx;
+    ValidatorWeight weight = 0;
+    if (bus.is_validator()) {
+      idx = bus.local_id->idx.value();
+      weight = bus.local_id->weight;
+    }
+    owning_bus().publish<TraceEvent>(consensus::stats::Id::create(bus.shard, bus.cc_seqno, idx,
+                                                                  bus.validator_set.size(), weight, bus.total_weight,
+                                                                  bus.config.slots_per_leader_window));
 
     reschedule_standstill_resolution();
     is_started_ = true;
@@ -399,13 +414,20 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
     auto maybe_tl_vote = fetch_tl_object<tl::vote>(message->message.data, true);
     if (maybe_tl_vote.is_ok()) {
+      if (!message->source_validator) {
+        LOG(WARNING) << "Dropping vote from " << message->source << " who is not a validator";
+        ban(message->source);
+        return;
+      }
+      auto source_validator = *message->source_validator;
+
       auto tl_vote = maybe_tl_vote.move_as_ok();
 
       auto unsigned_vote = Vote::from_tl(*tl_vote->vote_);
       auto referenced_slot = unsigned_vote.referenced_slot();
 
       if (referenced_slot >= first_too_new_slot) {
-        LOG(WARNING) << "Dropping too new vote from " << message->source << " : slot=" << referenced_slot
+        LOG(WARNING) << "Dropping too new vote from " << source_validator << " : slot=" << referenced_slot
                      << ", current_slot=" << now_;
         return;
       }
@@ -415,19 +437,19 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
       auto slot = state_->slot_at(referenced_slot);
       CHECK(slot.has_value());
-      if (!slot->state->votes[message->source.value()].wants(unsigned_vote)) {
+      if (!slot->state->votes[source_validator.value()].wants(unsigned_vote)) {
         return;
       }
 
-      auto maybe_vote = Signed<Vote>::from_tl(std::move(*tl_vote), message->source, bus);
+      auto maybe_vote = Signed<Vote>::from_tl(std::move(*tl_vote), source_validator, bus);
       if (maybe_vote.is_error()) {
-        LOG(WARNING) << "Dropping bad vote from " << message->source << " : " << maybe_vote.move_as_error();
+        LOG(WARNING) << "Dropping bad vote from " << source_validator << " : " << maybe_vote.move_as_error();
         ban(message->source);
         return;
       }
 
       auto vote = maybe_vote.move_as_ok();
-      handle_vote(message->source.get_using(bus), std::move(vote));
+      handle_vote(source_validator.get_using(bus), std::move(vote));
     }
 
     auto maybe_tl_certificate = fetch_tl_object<tl::certificate>(message->message.data, true);
@@ -593,7 +615,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
       }
       egress_quota -= msg_size;
 
-      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, std::move(message));
+      owning_bus().publish<OutgoingProtocolMessage>(OutgoingProtocolMessage::BroadcastToAll{}, std::move(message));
       co_return {};
     };
 
@@ -621,7 +643,9 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
         std::vector<ProtocolMessage> messages;
         state->certs.serialize_to(messages);
-        state->votes[bus.local_id.idx.value()].serialize_to(messages, state->certs);
+        if (bus.is_validator()) {
+          state->votes[bus.local_id->idx.value()].serialize_to(messages, state->certs);
+        }
 
         for (auto &message : messages) {
           co_await send(std::move(message));
@@ -702,20 +726,22 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
   td::actor::Task<> handle_our_vote(Vote vote, bool tolerate_conflicts = false, bool suppress_vote_broadcast = false) {
     auto &bus = *owning_bus();
+    CHECK(bus.is_validator());
 
     owning_bus().publish<TraceEvent>(stats::Voted::create(vote));
 
     auto vote_to_sign = serialize_tl_object(vote.to_tl(), true);
     auto data_to_sign = create_serialize_tl_object<consensus::tl::dataToSign>(bus.session_id, std::move(vote_to_sign));
-    auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
+    auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id->short_id,
                                              std::move(data_to_sign));
 
-    Signed<Vote> signed_vote{bus.local_id.idx, vote, std::move(signature)};
+    Signed<Vote> signed_vote{bus.local_id->idx, vote, std::move(signature)};
     td::BufferSlice serialized = signed_vote.serialize();
 
-    if (handle_vote(bus.local_id, std::move(signed_vote), tolerate_conflicts)) {
+    if (handle_vote(*bus.local_id, std::move(signed_vote), tolerate_conflicts)) {
       if (!suppress_vote_broadcast) {
-        owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(std::nullopt, std::move(serialized)));
+        owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(OutgoingProtocolMessage::BroadcastToAll{},
+                                                                       std::move(serialized)));
       }
     }
 
@@ -884,7 +910,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     LOG(WARNING) << "Obtained certificate for " << cert->vote << ": " << votes;
 
     if (!suppress_certificate_broadcast_) {
-      owning_bus().publish<OutgoingProtocolMessage>(std::nullopt, cert->serialize());
+      owning_bus().publish<OutgoingProtocolMessage>(
+          OutgoingProtocolMessage::BroadcastToRandom{params_.certificate_gossip_neighbors}, cert->serialize());
       owning_bus().publish<TraceEvent>(stats::CertObserved::create(cert->vote));
     }
 
@@ -950,11 +977,11 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   }
 
   // ===== Bad signature bans =====
-  void ban(PeerValidatorId peer) {
+  void ban(adnl::AdnlNodeIdShort peer) {
     bad_signature_bans_[peer] = td::Timestamp::in(params_.bad_signature_ban_duration);
   }
 
-  bool is_banned(PeerValidatorId peer) {
+  bool is_banned(adnl::AdnlNodeIdShort peer) {
     auto it = bad_signature_bans_.find(peer);
     if (it == bad_signature_bans_.end()) {
       return false;
@@ -987,7 +1014,7 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
   td::Promise<> standstill_resolution_notification_;
   td::actor::StartedTask<> standstill_resolution_awaiter_;
 
-  std::map<PeerValidatorId, td::Timestamp> bad_signature_bans_;
+  std::map<adnl::AdnlNodeIdShort, td::Timestamp> bad_signature_bans_;
 
   std::vector<Request> requests_;
 

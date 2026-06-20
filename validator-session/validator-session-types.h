@@ -29,22 +29,8 @@ struct ValidatorSessionOptions {
 
   explicit ValidatorSessionOptions(const ValidatorSessionConfig &conf);
 
-  CatChainOptions catchain_opts;
-
-  td::uint32 round_candidates = 3;
-  double next_candidate_delay = 2.0;
-  td::uint32 round_attempt_duration = 16;
-  td::uint32 max_round_attempts = 4;
-
   td::uint32 max_block_size = 4 << 20;
   td::uint32 max_collated_data_size = 4 << 20;
-
-  bool new_catchain_ids = false;
-  bool use_quic = false;
-
-  td::uint32 proto_version = 0;
-
-  td::Bits256 get_hash() const;
 };
 
 }  // namespace ton::validatorsession

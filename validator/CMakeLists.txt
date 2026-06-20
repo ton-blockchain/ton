@@ -95,10 +95,12 @@ set(VALIDATOR_SOURCE
   impl/applied-ext-message-cleanup.cpp
 
   manager.cpp
+  validator-group.cpp
 
   consensus/simplex/bus.cpp
   consensus/simplex/candidate-resolver.cpp
   consensus/simplex/certificate.cpp
+  consensus/simplex/collator-schedule.cpp
   consensus/simplex/consensus.cpp
   consensus/simplex/db.cpp
   consensus/simplex/pool.cpp

@@ -74,7 +74,8 @@ struct ValidationRequest {
 struct IncomingProtocolMessage {
   using LogToDebug = std::true_type;
 
-  PeerValidatorId source;
+  std::optional<PeerValidatorId> source_validator;
+  adnl::AdnlNodeIdShort source;
   ProtocolMessage message;
 
   std::string contents_to_string() const;
@@ -83,7 +84,14 @@ struct IncomingProtocolMessage {
 struct OutgoingProtocolMessage {
   using LogToDebug = std::true_type;
 
-  std::optional<PeerValidatorId> recipient;
+  struct BroadcastToAll {};
+  struct BroadcastToRandom {
+    size_t count;
+  };
+
+  using Recipient = std::variant<BroadcastToAll, BroadcastToRandom>;
+
+  Recipient recipient;
   ProtocolMessage message;
 
   std::string contents_to_string() const;
@@ -93,7 +101,8 @@ struct IncomingOverlayRequest {
   using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
-  PeerValidatorId source;
+  std::optional<PeerValidatorId> source_validator;
+  adnl::AdnlNodeIdShort source;
   ProtocolMessage request;
 
   std::string contents_to_string() const;
@@ -104,7 +113,7 @@ struct OutgoingOverlayRequest {
   using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
-  PeerValidatorId destination;
+  std::optional<adnl::AdnlNodeIdShort> destination;
   td::Timestamp timeout;
   ProtocolMessage request;
 
@@ -172,7 +181,9 @@ class Bus : public td::actor::Bus {
     stop_promise.set_value(td::Unit());
   }
 
-  virtual void populate_collator_schedule() = 0;
+  bool is_validator() const {
+    return local_id.has_value();
+  }
 
   ValidatorSessionId session_id;
 
@@ -185,10 +196,10 @@ class Bus : public td::actor::Bus {
   ValidatorWeight total_weight;
   ton::CatchainSeqno cc_seqno;
   td::uint32 validator_set_hash;
-  PeerValidator local_id;
+  std::optional<PeerValidator> local_id;
 
-  bool is_validator = true;
-  std::vector<adnl::AdnlNodeIdShort> overlay_members;
+  adnl::AdnlNodeIdShort local_adnl_id;
+  std::vector<adnl::AdnlNodeIdShort> all_validators;
 
   NewConsensusConfig config;
 

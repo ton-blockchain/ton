@@ -117,36 +117,6 @@ void StateDb::get_shard_client_state(td::Promise<BlockIdExt> promise) {
   promise.set_value(create_block_id(obj->block_));
 }
 
-void StateDb::update_destroyed_validator_sessions(std::vector<ValidatorSessionId> sessions,
-                                                  td::Promise<td::Unit> promise) {
-  auto key = create_hash_tl_object<ton_api::db_state_key_destroyedSessions>();
-
-  kv_->begin_write_batch().ensure();
-  kv_->set(key.as_slice(), create_serialize_tl_object<ton_api::db_state_destroyedSessions>(std::move(sessions)))
-      .ensure();
-  kv_->commit_write_batch().ensure();
-
-  promise.set_value(td::Unit());
-}
-
-void StateDb::get_destroyed_validator_sessions(td::Promise<std::vector<ValidatorSessionId>> promise) {
-  auto key = create_hash_tl_object<ton_api::db_state_key_destroyedSessions>();
-
-  std::string value;
-  auto R = kv_->get(key.as_slice(), value);
-  R.ensure();
-
-  if (R.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
-    promise.set_value(std::vector<ValidatorSessionId>{});
-    return;
-  }
-
-  auto F = fetch_tl_object<ton_api::db_state_destroyedSessions>(td::BufferSlice{value}, true);
-  F.ensure();
-  auto obj = F.move_as_ok();
-  promise.set_value(std::move(obj->sessions_));
-}
-
 void StateDb::update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) {
   auto key = create_hash_tl_object<ton_api::db_state_key_asyncSerializer>();
 
