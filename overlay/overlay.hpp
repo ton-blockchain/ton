@@ -306,6 +306,7 @@ class OverlayImpl : public Overlay {
   void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
   std::vector<adnl::AdnlNodeIdShort> get_neighbours(td::uint32 max_size = 0) const;
   std::vector<adnl::AdnlNodeIdShort> get_plumtree_neighbours(td::uint32 max_size = 0) const;
+  bool peer_receives_broadcasts(adnl::AdnlNodeIdShort peer_id);
   td::actor::ActorId<OverlayManager> overlay_manager() const {
     return manager_;
   }

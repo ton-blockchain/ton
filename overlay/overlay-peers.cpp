@@ -708,6 +708,11 @@ void OverlayImpl::iterate_all_peers(std::function<void(const adnl::AdnlNodeIdSho
   peer_list_.peers_.iterate([&](const adnl::AdnlNodeIdShort &key, OverlayPeer &peer) { cb(key, peer); });
 }
 
+bool OverlayImpl::peer_receives_broadcasts(adnl::AdnlNodeIdShort peer_id) {
+  auto *peer = peer_list_.peers_.get(peer_id);
+  return peer && !(peer->get_node()->flags() & OverlayMemberFlags::DoNotReceiveBroadcasts);
+}
+
 void OverlayImpl::update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec) {
   auto src_peer = peer_list_.peers_.get(peer_id);
   if (src_peer) {

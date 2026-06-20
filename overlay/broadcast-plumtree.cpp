@@ -602,6 +602,9 @@ bool BroadcastsPlumtree::Impl::send_simple_payload_to(OverlayImpl *overlay, Plum
 
 bool BroadcastsPlumtree::Impl::send_payload_to(OverlayImpl *overlay, const td::Bits256 &broadcast_id,
                                                PlumtreePartState &part, const adnl::AdnlNodeIdShort &dst) {
+  if (!overlay->peer_receives_broadcasts(dst)) {
+    return false;
+  }
   if (part.tree_index == PLUMTREE_SIMPLE_TREE_INDEX) {
     auto *state = get_simple_state(broadcast_id);
     return state && send_simple_payload_to(overlay, *state, part, dst);
@@ -614,6 +617,9 @@ void BroadcastsPlumtree::Impl::send_ihave_to(OverlayImpl *overlay, PlumtreePartS
                                              const td::Bits256 &broadcast_id, const adnl::AdnlNodeIdShort &dst) {
   if (dst.is_zero() || dst == overlay->local_id() || part.full_sent_to.contains(dst) ||
       part.advertised_to.contains(dst)) {
+    return;
+  }
+  if (!overlay->peer_receives_broadcasts(dst)) {
     return;
   }
   auto *s = slot(part.tree_index);
