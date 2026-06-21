@@ -54,9 +54,8 @@ fun test1(x: MInt): MVoid {
     __expect_type(x as MInt?, "MInt?");
     __expect_type(x as MIntN, "MIntN");
 
-    __expect_type(PointAlias{x:0,y:0}, "Point");
-    __expect_type(PointAlias2{x:0,y:0}, "Point");
     __expect_type(Point{x:0,y:0} as PointAlias, "PointAlias");
+    __expect_type(Point{x:0,y:0} as PointAlias2, "PointAlias2");
 
     if (x != 0) { return; }
 }

@@ -199,14 +199,17 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
   if (tensor1 && tensor2 && tensor1->size() == tensor2->size()) {
     std::vector<TypePtr> types_lca;
     types_lca.reserve(tensor1->size());
+    bool ith_became_union = false;
     for (int i = 0; i < tensor1->size(); ++i) {
-      TypePtr next = calculate_type_lca(tensor1->items[i], tensor2->items[i], became_union);
+      TypePtr next = calculate_type_lca(tensor1->items[i], tensor2->items[i], &ith_became_union);
       if (next == nullptr) {
         return nullptr;
       }
       types_lca.push_back(next);
     }
-    return TypeDataTensor::create(std::move(types_lca));
+    if (!ith_became_union) {
+      return TypeDataTensor::create(std::move(types_lca));
+    }
   }
 
   TypePtr resulting_union = TypeDataUnion::create(std::vector{a, b});
@@ -512,18 +515,18 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
   return {};
 }
 
-// is_valid_lvalue_path checks whether an expression is a valid target for writing (assignment / mutate).
+// is_valid_mutation_path checks whether an expression is a valid target for mutation.
 // Its main property: "safe to be re-evaluated" while transforming AST to IR.
-// Valid: `v` / `v.field` / `v.0!.nested` / `(a, b)`
-//        (all can be used as `lvalue = rhs` / `f(mutate lvalue)` / `lvalue.mutatingMethod()`)
-// Invalid: `v.id().field` / `(v = rhs).field` / `Point{x,y}.x` / `(a, b).0`
-//        (none can be used as lvalue, for example `Point{x,y}.x = 100` is denied)
+// Valid: `v` / `v.field` / `v.0!.nested`
+//        (all can be used as `f(mutate lvalue)` / `lvalue.mutatingMethod()`)
+// Invalid: `v.id().field` / `(v = rhs).field` / `Point{x,y}.x` / `(a, b)` / `[a, b]`
+//        (all are denied: `f(mutate Point{x,y}.x)` / `f(mutate (a,b))` / `v.id().increment()`)
 //
 // It's conceptually similar to extract_sink_expression_from_vertex, but NOT the same:
 // - "sink" is ONE local variable or field, used for smart casts and cfg
-// - "lvalue path" may contain MANY targets (each is sink) (both `a` and `b` for `(a,b) = (1,2)`)
-// When `out_sinks` is provided, collects SinkExpression for each "leaf" variable/field being mutated.
-bool is_valid_lvalue_path(AnyExprV v, std::vector<SinkExpression>* out_sinks, bool inside_dot_obj) {
+// - "lvalue path" is an atomically re-evaluable path to one target
+// When `out_sinks` is provided, stores SinkExpression if this lvalue path has one.
+bool is_valid_mutation_path(AnyExprV v, std::vector<SinkExpression>* out_sinks, bool inside_dot_obj) {
   if (auto as_ref = v->try_as<ast_reference>()) {
     if (out_sinks) {
       if (LocalVarPtr var_ref = as_ref->sym->try_as<LocalVarPtr>()) {
@@ -534,20 +537,8 @@ bool is_valid_lvalue_path(AnyExprV v, std::vector<SinkExpression>* out_sinks, bo
     }
     return true;
   }
-  if (v->try_as<ast_underscore>()) {
-    return true;
-  }
-  if (auto as_decl = v->try_as<ast_local_vars_declaration>()) {
-    return is_valid_lvalue_path(as_decl->get_expr(), out_sinks);
-  }
-  if (auto decl_var = v->try_as<ast_local_var_lhs>()) {
-    if (out_sinks) {
-      out_sinks->emplace_back(decl_var->var_ref);
-    }
-    return true;
-  }
   if (auto as_nn = v->try_as<ast_not_null_operator>()) {
-    return inside_dot_obj && is_valid_lvalue_path(as_nn->get_expr(), out_sinks, inside_dot_obj);
+    return inside_dot_obj && is_valid_mutation_path(as_nn->get_expr(), out_sinks, inside_dot_obj);
   }
   if (auto as_dot = v->try_as<ast_dot_access>();
            as_dot && (as_dot->is_target_indexed_access() || as_dot->is_target_struct_field())) {
@@ -559,7 +550,7 @@ bool is_valid_lvalue_path(AnyExprV v, std::vector<SinkExpression>* out_sinks, bo
       return false;
     }
     std::vector<SinkExpression> inner_sinks;
-    bool inner_valid = is_valid_lvalue_path(as_dot->get_obj(), &inner_sinks, true);
+    bool inner_valid = is_valid_mutation_path(as_dot->get_obj(), &inner_sinks, true);
     if (out_sinks) {
       for (SinkExpression s : inner_sinks) {
         out_sinks->push_back(s.get_child_s_expr(index_at));
@@ -567,21 +558,43 @@ bool is_valid_lvalue_path(AnyExprV v, std::vector<SinkExpression>* out_sinks, bo
     }
     return inner_valid;
   }
+  return false;
+}
+
+// is_valid_assignment_lhs checks destructuring assignments patterns.
+// When `out_sinks` is provided, stores SinkExpression for every lhs target.
+bool is_valid_assignment_lhs(AnyExprV v, std::vector<SinkExpression>* out_sinks) {
+  if (auto as_decl = v->try_as<ast_local_vars_declaration>()) {
+    return is_valid_assignment_lhs(as_decl->get_expr(), out_sinks);
+  }
+  if (auto decl_var = v->try_as<ast_local_var_lhs>()) {
+    if (out_sinks) {
+      out_sinks->emplace_back(decl_var->var_ref);
+    }
+    return true;
+  }
+  if (v->try_as<ast_underscore>()) {
+    return true;
+  }
+  // allow destructuring `(a, b) = someTensor`, store both `a` and `b`
   if (auto as_tensor = v->try_as<ast_tensor>()) {
     bool all_valid = true;
     for (int i = 0; i < as_tensor->size(); ++i) {
-      all_valid &= is_valid_lvalue_path(as_tensor->get_item(i), out_sinks);
+      all_valid &= is_valid_assignment_lhs(as_tensor->get_item(i), out_sinks);
     }
     return all_valid;
   }
+  // allow destructuring `[a, b] = someTuple` and nesting like `(a, [b,c]) = rhs`
   if (auto as_square = v->try_as<ast_square_brackets>()) {
     bool all_valid = true;
     for (int i = 0; i < as_square->size(); ++i) {
-      all_valid &= is_valid_lvalue_path(as_square->get_item(i), out_sinks);
+      all_valid &= is_valid_assignment_lhs(as_square->get_item(i), out_sinks);
     }
     return all_valid;
   }
-  return false;
+  // allow `lhs = rhs` if `f(mutate lhs)` is allowed:
+  // examples: `variable = rhs`, `(_, _, obj.field) = rhs` (we are in recursion inside a tensor)
+  return is_valid_mutation_path(v, out_sinks);
 }
 
 // given `lhs = rhs`, calculate "original" type of `lhs`

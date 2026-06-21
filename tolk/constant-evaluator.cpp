@@ -19,6 +19,7 @@
 #include "compilation-errors.h"
 #include "compiler-state.h"
 #include "generics-helpers.h"
+#include "recursion-guard.h"
 #include "type-system.h"
 #include "openssl/digest.hpp"
 #include "crypto/common/util.h"
@@ -117,8 +118,8 @@ static void parse_any_std_address(std::string_view str, SrcRange range, unsigned
   td::bitstring::bits_memcpy(*data, 3 + 8, addr.bits().ptr, 0, ton::StdSmcAddress::size());
 }
 
-// internal helper: for `ton("0.05")`, parse string literal "0.05" to 50000000
-static td::RefInt256 parse_nanotons_as_floating_string(SrcRange range, std::string_view str) {
+// internal helper: for `grams("0.05")`, parse string literal "0.05" to 50000000
+static td::RefInt256 parse_nanograms_as_floating_string(SrcRange range, std::string_view str) {
   bool is_negative = false;
   size_t i = 0;
 
@@ -153,7 +154,7 @@ static td::RefInt256 parse_nanotons_as_floating_string(SrcRange range, std::stri
     } else if (c >= '0' && c <= '9') {
       fractional_part = fractional_part * 10 + (c - '0');
       if (++fractional_digits > 9) {
-        err("too many digits after a dot, nanotons are 10^9").fire(range);
+        err("too many digits after a dot, nanograms are 10^9").fire(range);
       }
     } else {
       err("argument is not a valid number like \"0.05\"").fire(range);
@@ -233,7 +234,7 @@ static td::RefInt256 operator<<(td::RefInt256 x, const td::RefInt256& y) {
   if (y < 0 || y > 256) {
     x.write().invalidate();
   } else {
-    x.write() <<= static_cast<int>(y->to_long());
+    (x.write() <<= static_cast<int>(y->to_long())).normalize();
   }
   return x;
 }
@@ -243,7 +244,7 @@ static td::RefInt256 operator>>(td::RefInt256 x, const td::RefInt256& y) {
   if (y < 0 || y > 256) {
     x.write().invalidate();
   } else {
-    x.write() >>= static_cast<int>(y->to_long());
+    (x.write() >>= static_cast<int>(y->to_long())).normalize();
   }
   return x;
 }
@@ -260,7 +261,11 @@ static bool extract_string_literal_from_v(AnyExprV v, std::string& out) {
   return false;
 }
 
-// given `ton("0.05")` evaluate it to 50000000
+static bool is_grams_amount_function(std::string_view f_name) {
+  return f_name == "grams" || f_name == "ton";
+}
+
+// given `grams("0.05")` evaluate it to 50000000
 // given `stringCrc32("some_str")` or `"some_str".crc32()` evaluate it
 // etc.
 static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_function_call> v, std::string_view f_name) {
@@ -363,15 +368,15 @@ static ConstValExpression parse_vertex_call_to_compile_time_function(V<ast_funct
 
   std::string str;
   if (!extract_string_literal_from_v(v_arg, str)) {
-    // ton(SOME_CONST) is not supported
-    // ton(0.05) is not supported (it can't be represented in AST even)
+    // grams(SOME_CONST) is not supported
+    // grams(0.05) is not supported (it can't be represented in AST even)
     // stringCrc32(SOME_CONST) / stringCrc32(some_var) also, it's compile-time literal-only
-    err_const_string_required(f_name, f_name == "ton" ? "0.05" : "some_str").fire(v);
+    err_const_string_required(f_name, is_grams_amount_function(f_name) ? "0.05" : "some_str").fire(v);
   }
 
-  if (f_name == "ton") {
+  if (is_grams_amount_function(f_name)) {
     return create_const_cast(   // insert "50000000 as coins"
-      ConstValInt{parse_nanotons_as_floating_string(v_arg->range, str)},
+      ConstValInt{parse_nanograms_as_floating_string(v_arg->range, str)},
       TypeDataCoins::create()
     );
   }
@@ -518,14 +523,15 @@ class ConstExpressionEvaluator {
   static ConstValExpression handle_cast_as_operator(V<ast_cast_as_operator> v) {
     ConstValExpression val = eval_any_v_or_fire(v->get_expr());
 
+    TypePtr cast_from = v->get_expr()->inferred_type;
     TypePtr cast_to = v->inferred_type;
-    if (cast_to == TypeDataUnknown::create()) {   // `unknown` is forbidden in constants
+    if (cast_to == TypeDataUnknown::create() || cast_from == TypeDataUnknown::create()) {   // `unknown` is forbidden in constants
       err("not a constant expression").fire(v);
     }
-    return create_const_cast_for_declared(std::move(val), v->get_expr()->inferred_type, cast_to);
+    return create_const_cast_for_declared(std::move(val), cast_from, cast_to);
   }
 
-  // `ton("0.05")` and other compile-time functions
+  // `grams("0.05")` and other compile-time functions
   static ConstValExpression handle_function_call(V<ast_function_call> v) {
     FunctionPtr fun_ref = v->fun_maybe;
     if (!fun_ref || !fun_ref->is_compile_time_const_val()) {
@@ -547,12 +553,12 @@ class ConstExpressionEvaluator {
   // `anotherConst.0` or `Color.Red`
   static ConstValExpression handle_dot_access(V<ast_dot_access> v) {
     if (v->is_target_indexed_access()) {    // anotherConst.0
-      int index_at = std::get<int>(v->target);
+      size_t index_at = std::get<int>(v->target);
       ConstValExpression lhs = unwrap_const_cast(eval_any_v_or_fire(v->get_obj()));
-      if (ConstValTensor* lhs_tensor = std::get_if<ConstValTensor>(&lhs)) {
-        return lhs_tensor->items[index_at];   // an index exists: constant evaluation happens after
-      }                                          // type inferring and type checking
-      if (ConstValShapedTuple* lhs_shaped = std::get_if<ConstValShapedTuple>(&lhs)) {
+      if (ConstValTensor* lhs_tensor = std::get_if<ConstValTensor>(&lhs); lhs_tensor && index_at < lhs_tensor->items.size()) {
+        return lhs_tensor->items[index_at];
+      }
+      if (ConstValShapedTuple* lhs_shaped = std::get_if<ConstValShapedTuple>(&lhs); lhs_shaped && index_at < lhs_shaped->items.size()) {
         return lhs_shaped->items[index_at];
       }
     }
@@ -560,6 +566,9 @@ class ConstExpressionEvaluator {
       ConstValExpression lhs = unwrap_const_cast(eval_any_v_or_fire(v->get_obj()));
       if (ConstValObject* lhs_obj = std::get_if<ConstValObject>(&lhs)) {
         StructFieldPtr field = std::get<StructFieldPtr>(v->target);
+        if (field->field_idx >= static_cast<int>(lhs_obj->fields.size())) {
+          return ConstValNullLiteral{};   // can occur on type mismatch (already collected error)
+        }
         return lhs_obj->fields[field->field_idx];
       }
     }
@@ -675,11 +684,13 @@ ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {
     err("const `{}` appears, directly or indirectly, in its own initializer", const_ref).fire(const_ref->ident_anchor);
   }
   called_stack.push_back(const_ref);
+  RecursionGuard guard([&] {
+    called_stack.pop_back();
+  });
 
   ConstValExpression v = ConstExpressionEvaluator::eval_any_v_or_fire(const_ref->init_value);
   // for `const A: coins = 10` or `const A: lisp_list<int> = []` insert a cast for correctness
   v = create_const_cast_for_declared(std::move(v), const_ref->init_value->inferred_type, const_ref->declared_type);
-  called_stack.pop_back();
   computed_constants_cache[const_ref] = v;
   return v;
 }
@@ -693,9 +704,11 @@ ConstValExpression eval_field_default_value(StructFieldPtr field_ref) {
     err("field `{}` default value circularly references itself", field_ref).fire(field_ref->ident_anchor);
   }
   called_stack.push_back(field_ref);
+  RecursionGuard guard([&] {
+    called_stack.pop_back();
+  });
 
   ConstValExpression def_val = ConstExpressionEvaluator::eval_any_v_or_fire(field_ref->default_value);
-  called_stack.pop_back();
   return def_val;
 }
 
@@ -712,6 +725,9 @@ std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_re
   std::vector<td::RefInt256> values;
   values.reserve(enum_ref->members.size());
   called_stack.push_back(enum_ref);
+  RecursionGuard guard([&] {
+    called_stack.pop_back();
+  });
 
   td::RefInt256 prev_value = td::make_refint(-1);
   for (EnumMemberPtr member_ref : enum_ref->members) {
@@ -732,11 +748,20 @@ std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_re
     prev_value = std::move(cur_value);
   }
 
-  called_stack.pop_back();
   return values;
 }
 
-// for any constant expression: `1 + 2` / `ton("0.05")` / `SOME_STR.crc32()`, consteval them;
+// unwrap `const A: int32 = 5` to integer `5`
+// returns an empty RefInt256 if const_expr is not an integer, to be checked for `is_valid` / `is_null`
+td::RefInt256 unwrap_const_val_to_int(ConstValExpression const_expr) {
+  while (std::holds_alternative<ConstValCastToType>(const_expr)) {
+    const_expr = std::get<ConstValCastToType>(const_expr).inner.front();
+  }
+  const ConstValInt* const_int = std::get_if<ConstValInt>(&const_expr);
+  return const_int == nullptr ? td::RefInt256{} : const_int->int_val;
+}
+
+// for any constant expression: `1 + 2` / `grams("0.05")` / `SOME_STR.crc32()`, consteval them;
 // a non-constant expression: `a + b` / `foo()`, will fire (and can be wrapped by try/catch)
 ConstValExpression eval_expression_if_const_or_fire(AnyExprV v) {
   return ConstExpressionEvaluator::eval_any_v_or_fire(v);

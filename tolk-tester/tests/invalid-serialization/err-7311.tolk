@@ -18,7 +18,7 @@ fun main() {
         AskToTransfer => {
         }
         TransferNotificationForRecipient => {
-            m = AskToTransfer{jettonAmount: ton("0.1"), another: 0};
+            m = AskToTransfer{jettonAmount: grams("0.1"), another: 0};
             m.another = 1;
         }
     }

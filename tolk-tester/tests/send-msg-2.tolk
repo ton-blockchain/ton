@@ -115,7 +115,7 @@ fun test1_manual(toAddress: address, masterMsg: cell, jettonWalletCode: cell) {
     return beginCell()
         .storeUint(0x18, 6)     // bounceable
         .storeAddress(toWalletAddress) // dest
-        .storeCoins(ton("0.05"))
+        .storeCoins(grams("0.05"))
         // 1 state init exists, 0 either left (state init embedded), 1 either left (fixed_prefix_length exists)
         .storeUint(0b101, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
         .storeUint(SHARD_DEPTH, 5)
@@ -145,7 +145,7 @@ fun test1() {
             }
         },
         body: masterMsg,
-        value: ton("0.05"),
+        value: grams("0.05"),
     });
     assert(b.hash() == test1_manual(toAddress, masterMsg, jettonWalletCode).hash(), 101);
     return b.hash()
@@ -160,7 +160,7 @@ fun test2_manual(toAddress: address, masterMsg: cell, jettonWalletCode: cell) {
     return beginCell()
         .storeUint(0x18, 6)     // bounceable
         .storeAddress(toWalletAddress) // dest
-        .storeCoins(ton("0.05"))
+        .storeCoins(grams("0.05"))
         .storeUint(0, 1)    // no extra currencies
         .storeCoins(1)          // extra_flags for bounces
         .storeUint(0b111, 4 + 64 + 32 + 1 + 1 + 1)  // 1 state init exists + 1 state init ref + 1 body ref
@@ -187,7 +187,7 @@ fun test2() {
             }
         },
         body: masterMsg,
-        value: ton("0.05"),
+        value: grams("0.05"),
     });
     assert(b.hash() == test2_manual(toAddress, masterMsg, jettonWalletCode).hash(), 102);
     return b.hash()
@@ -204,7 +204,7 @@ fun test3_manual(myCode: cell, myData: cell, msgBody: Test3Body) {
     return beginCell()
         .storeUint(0x18, 6)     // bounceable
         .storeBuilder(addrInShard) // dest
-        .storeCoins(ton("0.001"))
+        .storeCoins(grams("0.001"))
         .storeUint(0, 1)    // no extra currencies
         .storeCoins(3)          // extra_flags for bounces
         .storeUint(0b10, 4 + 64 + 32 + 1 + 1)  // 1 state init exists + 1 state init inline
@@ -238,7 +238,7 @@ fun test3() {
             }
         },
         body,
-        value: ton("0.001"),
+        value: grams("0.001"),
     });
     assert(b.hash() == test3_manual(myCode, myData, body).hash(), 103);
     return b.hash()
@@ -268,7 +268,7 @@ fun test4() {
             }
         },
         body,
-        value: ton("0.1"),
+        value: grams("0.1"),
     });
     return b.hash()
 }
@@ -300,7 +300,7 @@ fun test5() {
             }
         },
         body: UnsafeBodyNoRef { forceInline: body },
-        value: ton("0.1"),
+        value: grams("0.1"),
     });
     return b.hash()
 }
@@ -326,7 +326,7 @@ fun test6(shardLen: int) {
             }
         },
         body: body,
-        value: ton("0.1"),
+        value: grams("0.1"),
     });
     return b.hash()
 }

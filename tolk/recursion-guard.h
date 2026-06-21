@@ -16,8 +16,33 @@
 */
 #pragma once
 
+#include <utility>
+
 namespace tolk {
 
-constexpr const char* TOLK_VERSION = "1.4.2";
+// RecursionGuard is used to detect when a type/expansion circularly references itself.
+// Example:
+// > if (called_stack.includes(fun_ref)) fire();
+// > called_stack.push_back(fun_ref);
+// > RecursionGuard guard([&] {
+// >   called_stack.pop_back();
+// > });
+// > analyze(fun_ref); // may enter the same execution point
+// We intentionally use the destructor to roll the state back on potential `err(...).fire()` inside.
+template<typename F>
+class RecursionGuard {
+  F on_destroy;
+
+public:
+  explicit RecursionGuard(F on_destroy)
+    : on_destroy(std::move(on_destroy)) {}
+
+  RecursionGuard(const RecursionGuard&) = delete;
+  RecursionGuard& operator=(const RecursionGuard&) = delete;
+
+  ~RecursionGuard() {
+    on_destroy();
+  }
+};
 
 } // namespace tolk

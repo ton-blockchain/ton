@@ -12,6 +12,11 @@ struct TwoU {
     b: uint8
 }
 
+struct MyType<T = RemainingBitsAndRefs> {
+    first: int8
+    next: T
+}
+
 @method_id(101)
 fun test1(value: int) {
     var t: JustInt32 = { value };
@@ -112,6 +117,14 @@ fun test9() {
     return (loaded.value, loadedInner.value, loadedTail, loadedInner.withCell == null);
 }
 
+@method_id(110)
+fun test10() {
+    val value1 = MyType.fromSlice("010203".hexToSlice());
+    __expect_type(value1, "MyType<RemainingBitsAndRefs>");
+    val value2 = MyType<int8>.fromSlice("010203".hexToSlice(), { assertEndAfterReading: false });
+    return value1.next.remainingBitsCount() + value2.next;
+}
+
 fun main(c: cell) {
     c as Cell<Point>;
     (c as Cell<Point>) as cell;
@@ -133,6 +146,7 @@ fun main(c: cell) {
 @testcase | 107 | x{0234}       | 6 16
 @testcase | 108 |               | 5 1
 @testcase | 109 |               | 20 10 30 -1
+@testcase | 110 |               | 18
 
 @fif_codegen
 """

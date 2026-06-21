@@ -32,11 +32,11 @@ namespace tolk {
 class ConstantExpressionsChecker final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_function_call> v) override {
-    // check `ton("0.05")` and others for correctness (not `ton(local_var)`, etc.)
+    // check `grams("0.05")` and others for correctness (not `grams(local_var)`, etc.)
     if (v->fun_maybe && v->fun_maybe->is_compile_time_const_val()) {
       // on invalid usage, this call will fire
       eval_expression_if_const_or_fire(v);
-      // note that in AST tree, it's still left as `ton("0.05")`, `stringCrc32("...")`, etc.
+      // note that in AST tree, it's still left as `grams("0.05")`, `stringCrc32("...")`, etc.
       // later, when transforming to IR, such compile-time functions are handled specially
     }
 
