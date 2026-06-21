@@ -66,7 +66,7 @@ fun unusedAbiThrow() {
 fun unusedAbiOutgoing() {
     createMessage({
         bounce: BounceMode.NoBounce,
-        value: ton("0.1"),
+        value: grams("0.1"),
         dest: address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e"),
         body: UnusedOutgoing {}.toCell(),
     });
@@ -75,7 +75,7 @@ fun unusedAbiOutgoing() {
 fun realSend() {
     createMessage({
         bounce: BounceMode.NoBounce,
-        value: ton("0.1"),
+        value: grams("0.1"),
         dest: address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e"),
         body: SwapMM {}.toCell(),
     });

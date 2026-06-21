@@ -9,8 +9,16 @@ struct Container1<T=int?> {
     item: T;
 }
 
+struct StaticDefaultBox<T = int32> {
+    item: T;
+}
+
 fun getItemOf<T=never>(v: Container1<T>) {
     return v.item;
+}
+
+fun StaticDefaultBox<T>.createDefault(): StaticDefaultBox<T> {
+    return { item: 0 };
 }
 
 struct WithDef1<T = null> {
@@ -48,7 +56,7 @@ struct Parameters<TBody = void, TInit = void> {
 }
 
 fun createParameters<TBody = null, TInit = null>(bounce: bool, body: TBody, data: TInit): Parameters<TBody, TInit> {
-    return { bounce, body, init: { value: ton("0"), data } };
+    return { bounce, body, init: { value: grams("0"), data } };
 }
 
 fun void.assertIsVoid(self) {
@@ -127,6 +135,9 @@ fun test2() {
 
     __expect_type(getItemOf({item: null as slice?}), "slice?");
     __expect_type(getItemOf({item: null}), "null");
+
+    var static_default = StaticDefaultBox.createDefault();
+    __expect_type(static_default, "StaticDefaultBox<int32>");
 }
 
 @method_id(103)
@@ -183,7 +194,7 @@ fun test6() {
     var p: Parameters<int, cell> = {
         bounce: true,
         body: 123,
-        init: { value: ton("0"), data: beginCell().endCell() }
+        init: { value: grams("0"), data: beginCell().endCell() }
     };
     return (p.body is int, p.init is cell, p.init is MyInit, p.init is MyInit && p.init.data.depth() == 0);
 }
@@ -191,7 +202,7 @@ fun test6() {
 @method_id(107)
 fun test7() {
     __expect_type(Parameters{ bounce: false }, "Parameters<void, void>");
-    __expect_type(Parameters{ bounce: false, body: 123, init: { value: ton("0"), data: beginCell() }}, "Parameters<int, builder>");
+    __expect_type(Parameters{ bounce: false, body: 123, init: { value: grams("0"), data: beginCell() }}, "Parameters<int, builder>");
     __expect_type(Parameters{ bounce: false, body: 123 }.genericIntVoid<builder>(), "(slice?, builder?)");
     __expect_type(Parameters{ bounce: false, body: 123 }.genericIntVoid<builder, cell>(), "(cell?, builder?)");
     __expect_type(Parameters{ bounce: false }.body, "void");
@@ -203,7 +214,7 @@ fun test7() {
 
     var v1 = mySend({ bounce: true });
     var v2 = mySend({ bounce: false, body: 123, init: beginCell() });
-    var v3 = mySend({ bounce: false, body: 123, init: { value: ton("0"), data: beginCell() }});
+    var v3 = mySend({ bounce: false, body: 123, init: { value: grams("0"), data: beginCell() }});
     var v4 = mySend({ bounce: true, init: { value: 16, data: null as [int]? }});
     return (v1, v2, v3, v4);
 }

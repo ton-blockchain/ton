@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.4.1
+tolk 1.4.2
 
 /**
   Gas and payment related primitives.
@@ -32,7 +32,7 @@ fun setGasLimitToMaximum(): void
 fun setGasLimit(limit: int): void
     asm "SETGASLIMIT"
 
-/// Calculates fee (amount in nanotoncoins to be paid) for a transaction which consumed `gasUsed` gas units.
+/// Calculates fee (amount in nanograms to be paid) for a transaction which consumed `gasUsed` gas units.
 @pure
 fun calculateGasFee(workchain: int8, gasUsed: int): coins
     asm(gasUsed workchain) "GETGASFEE"
@@ -42,12 +42,12 @@ fun calculateGasFee(workchain: int8, gasUsed: int): coins
 fun calculateGasFeeWithoutFlatPrice(workchain: int8, gasUsed: int): coins
     asm(gasUsed workchain) "GETGASFEESIMPLE"
 
-/// Calculates amount of nanotoncoins you should pay for storing a contract of provided size for `seconds`.
+/// Calculates amount of nanograms you should pay for storing a contract of provided size for `seconds`.
 /// `bits` and `cells` represent contract state (code + data).
 fun calculateStorageFee(workchain: int8, seconds: int, bits: int, cells: int): coins
     asm(cells bits seconds workchain) "GETSTORAGEFEE"
 
-/// Calculates amount of nanotoncoins you should pay to send a message of a specified size.
+/// Calculates amount of nanograms you should pay to send a message of a specified size.
 @pure
 fun calculateForwardFee(workchain: int8, bits: int, cells: int): coins
     asm(cells bits workchain) "GETFORWARDFEE"
@@ -62,13 +62,13 @@ fun calculateForwardFeeWithoutLumpPrice(workchain: int8, bits: int, cells: int):
 fun calculateOriginalForwardFee(workchain: int8, incomingFwdFee: coins): coins
     asm(incomingFwdFee workchain) "GETORIGINALFWDFEE"
 
-/// Returns the amount of nanotoncoins current contract debts for storage. ("due" and "debt" are synonyms)
+/// Returns the amount of nanograms current contract debts for storage. ("due" and "debt" are synonyms)
 /// If it has no debt, `0` is returned.
 @pure
 fun contract.getStorageDuePayment(): coins
     asm "DUEPAYMENT"
 
-/// Returns the amount of nanotoncoins charged for storage.
+/// Returns the amount of nanograms charged for storage.
 /// (during the storage phase preceding the current computation phase)
 @pure
 fun contract.getStoragePaidPayment(): coins

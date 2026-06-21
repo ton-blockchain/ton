@@ -72,6 +72,7 @@ fun test4() {
     __expect_type((5 as int).unionMix(), "bool");
     __expect_type((createEmptySlice().unionMix()), "slice");
     __expect_type(((5 as int|slice).unionMix()), "slice");
+    __expect_type(((5 as slice|int).unionMix()), "slice");
 }
 
 fun WrapA<T>.dup(self): WrapA<T> { return self }
@@ -372,6 +373,48 @@ fun test19() {
     __expect_type(throughAlias.which(), "int1");
 }
 
+type TaggedCellForPick<T> = cell
+
+fun TaggedCellForPick<(T, T)>.pickSpecialized(self): int22 {
+    return 22;
+}
+
+fun TaggedCellForPick<T | (U, V)>.pickSpecialized(self): int33 {
+    return 33;
+}
+
+@method_id(120)
+fun test20(): int {
+    val c: TaggedCellForPick<(int, int)> = createEmptyCell();
+    __expect_type(c.pickSpecialized(), "int22");
+    return c.pickSpecialized();
+}
+
+struct BoxForPick<T> { value: T }
+
+fun (T | BoxForPick<T>).pickT(self): int { return 111; }
+
+@method_id(121)
+fun test21(): int {
+    val order1 = 7 as int | BoxForPick<int>;
+    val order2 = 7 as BoxForPick<int> | int;
+    __expect_type(order2.pickT(), "int");
+    return order1.pickT() + order2.pickT();
+}
+
+struct OkRes<T> { v: T }
+struct ErrRes<E> { e: E }
+
+fun (OkRes<T> | ErrRes<E>).tagRes(self): int { return 222; }
+
+@method_id(122)
+fun test22(): int {
+    val order1 = ErrRes<slice>{ e: createEmptySlice() } as OkRes<int> | ErrRes<slice>;
+    val order2 = OkRes<int>{ v: 9 } as ErrRes<slice> | OkRes<int>;
+    __expect_type(order2.tagRes(), "int");
+    return order1.tagRes() + order2.tagRes();
+}
+
 fun main() {
     // besides these positive tests, there are many negative resulting in "ambiguous call"
     return 0
@@ -382,6 +425,9 @@ fun main() {
 @testcase | 113 |   | [ 1 2 258 1 2 -777 ]
 @testcase | 116 |   | 111222
 @testcase | 118 |   | 123
+@testcase | 120 |   | 22
+@testcase | 121 |   | 222
+@testcase | 122 |   | 444
 
 @fif_codegen
 """

@@ -12,7 +12,7 @@ enum InvertedColor {
     Red = Color.Blue,
     Green = Color.Green,
     Blue = Color.Red,
-    OneTon = ton("1"),
+    OneGram = grams("1"),
 }
 
 type ColorAlias = Color
@@ -261,7 +261,7 @@ fun test13(x: int) {
 @method_id(114)
 fun test14(x: InvertedColor) {
     __expect_type(InvertedColor.Red, "InvertedColor");
-    return (InvertedColor.Red, InvertedColor.Green, InvertedColor.Blue, InvertedColor.OneTon, x == InvertedColor.Red);
+    return (InvertedColor.Red, InvertedColor.Green, InvertedColor.Blue, InvertedColor.OneGram, x == InvertedColor.Red);
 }
 
 @method_id(115)

@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.4.1
+tolk 1.4.2
 
 /// Usually `c3` has a continuation initialized by the whole code of the contract. It is used for function calls.
 /// The primitive returns the current value of `c3`.
@@ -56,7 +56,7 @@ enum VmExitCode {
     ActionInvalid = 34              // action is invalid or not supported
     InvalidSourceAddress = 35       // invalid source address in outbound message
     InvalidDestAddress = 36         // invalid destination address in outbound message
-    NotEnoughToncoin = 37           // not enough Toncoin to send or pay fees
+    NotEnoughGrams = 37             // not enough GRAMs to send or pay fees
     NotEnoughExtraCurrencies = 38   // not enough extra currencies to send the specified amount
     MessageDoesNotFit = 39          // outbound message does not fit into a cell after rewriting
     CannotProcessMessage = 40       // not enough funds, message too large, or Merkle depth too big

@@ -100,6 +100,7 @@ ConstValExpression eval_field_default_value(StructFieldPtr field_ref);
 ConstValExpression eval_expression_if_const_or_fire(AnyExprV v);
 
 std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_ref);
+td::RefInt256 unwrap_const_val_to_int(ConstValExpression const_expr);
 
 void check_expression_is_constant_or_fire(AnyExprV v_expr);
 

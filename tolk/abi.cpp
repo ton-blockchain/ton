@@ -71,9 +71,11 @@ static ParsedDocComment parse_doc_comment(const DocCommentLines& doc_lines) {
 }
 
 static TypePtr normalize_createMessage_ty(TypePtr body_ty) {
-  if (const TypeDataStruct* t_struct = body_ty->unwrap_alias()->try_as<TypeDataStruct>()) {
-    if (t_struct->struct_ref->is_instantiation_of_CellT() || t_struct->struct_ref->is_instantiation_of_UnsafeBodyNoRef()) {
-      body_ty = t_struct->struct_ref->substitutedTs->typeT_at(0);
+  if (!get_custom_pack_unpack_function(body_ty)) {
+    if (const TypeDataStruct* t_struct = body_ty->unwrap_alias()->try_as<TypeDataStruct>()) {
+      if (t_struct->struct_ref->is_instantiation_of_CellT() || t_struct->struct_ref->is_instantiation_of_UnsafeBodyNoRef()) {
+        body_ty = t_struct->struct_ref->substitutedTs->typeT_at(0);
+      }
     }
   }
   return body_ty;
@@ -175,14 +177,12 @@ void ContractABI::register_emitted_event(TypePtr body_ty) {
 
 void ContractABI::register_thrown_error(GlobalConstPtr const_ref) {
   ConstValExpression val = eval_and_cache_const_init_val(const_ref);
-  while (std::holds_alternative<ConstValCastToType>(val)) {     // unwrap `const A: int32 = 5`
-    val = std::get<ConstValCastToType>(val).inner.front();   // (it's "cast 5 to int32" in a const-expr tree)
-  }
-  if (!std::holds_alternative<ConstValInt>(val)) {
+  td::RefInt256 err_code = unwrap_const_val_to_int(std::move(val));
+  if (err_code.is_null()) {
     return;
   }
 
-  register_thrown_error(ABIThrownErrorKind::constant, std::get<ConstValInt>(val).int_val, const_ref->name, get_abi_description(const_ref->doc_lines));
+  register_thrown_error(ABIThrownErrorKind::constant, err_code, const_ref->name, get_abi_description(const_ref->doc_lines));
   json_types.register_used_type(const_ref->inferred_type);
 }
 

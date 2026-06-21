@@ -1570,7 +1570,7 @@ fun demo316() {
     var p2 = lazy Point3d{ x: 2, y: 3, z: 99 }.toCell().load();
     var p3 = lazy Point3d{ x: 2, y: 3, z: 99 }.toCell().load();
     __expect_lazy("[p1] load x y z");
-    val cp1 = (p1 = p1).toCell().load();
+    val cp1 = (p1 = Point3d{ x: 2, y: 3, z: 99 }).toCell().load();
     __expect_lazy("[p2] load x y z");
     val cp2 = Cell<Point3d>.load(((p2.x += 5, p2).1).toCell());
     __expect_lazy("[p3] load (bits32) y, save immutable (tail)");
@@ -1586,7 +1586,7 @@ fun demo317() {
     var wrapped = lazy StorageWithTail.fromCell(src);
     __expect_lazy("[wrapped] load a, save immutable (tail)");
     wrapped.a = 33;
-    val wrappedOut = StorageWithTail.fromCell((wrapped = wrapped).makeCell());
+    val wrappedOut = StorageWithTail.fromCell(wrapped.makeCell());
 
     return (
         wrappedOut.a,
@@ -1608,8 +1608,11 @@ fun LazyAssignTrio.hashInline(self): int {
 @method_id(318)
 fun demo318() {
     var st = lazy LazyAssignTrio.fromSlice("010203".hexToSlice());
-    var other = lazy LazyAssignTrio.fromSlice("AABBCC".hexToSlice());
-    return (st = other).hashInline() == other.toCell().hash();
+    val other = LazyAssignTrio { a: 170, b: 187, c: 204 };
+    val inlineCallSawOther = (st = other).hashInline() == other.toCell().hash();
+    val st2 = st.toCell().load();
+    val other2 = other.toCell().load();
+    return (inlineCallSawOther, st2.a, st2.b, st2.c, other2.a, other2.b, other2.c);
 }
 
 
@@ -1817,8 +1820,8 @@ fun demo410(s: slice) {
         CounterIncrement => { debug.print(1) }
         CounterDecrement => { debug.dumpStack() }
         CounterReset => { random.setSeed(10) }
-        CounterDecrementBy1 => { reserveToncoinsOnBalance(10, 1) }
-        else => { /* do nothing, "just accept tons" */ }
+        CounterDecrementBy1 => { reserveGramsOnBalance(10, 1) }
+        else => { /* do nothing, "just accept grams" */ }
     }
 }
 
@@ -2063,7 +2066,7 @@ fun main() {
 @testcase | 314 |                 | 11 20 [ 8 [ 8 8 ] ] [ 8 [ 11 20 ] ] 32 [ 8 [ 8 9 ] ]
 @testcase | 315 |                 | 8 8 66 44 [ [ (null) (null) 0 ] ]
 @testcase | 316 |                 | 2 3 99 7 3 99 100 2 100 99
-@testcase | 318 |                 | -1
+@testcase | 318 |                 | -1 170 187 204 170 187 204
 
 @testcase | 400 |                             | 5
 @testcase | 401 | x{0110} -1                  | 50

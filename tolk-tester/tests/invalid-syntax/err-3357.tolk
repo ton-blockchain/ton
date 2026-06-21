@@ -1,5 +1,5 @@
 fun main() {
-    return ton("1000000000");
+    return grams("1000000000");
 }
 
 /**

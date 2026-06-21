@@ -46,7 +46,7 @@ fun wrap<T>(value: T): Wrapper<T> {
 }
 
 fun wrap2<T>(value: T) {
-    return WrapperAlias<T> { value };
+    return Wrapper<T> { value };
 }
 
 fun wrap0<T>(): Wrapper<T> {
@@ -174,9 +174,9 @@ fun createNestedWrapperOrNull<T>(setNull: bool, initVal: T) {
     }
     var c1 = Wrapper<Wrapper<T>> {value:{value:initVal}};
     var c2: Wrapper< Wrapper<(T)> > = {value:{value:initVal}};
-    var c3: Wrapper< Wrapper<((T | T))> > = WrapperAlias {value:{value:initVal}};
+    var c3: Wrapper< Wrapper<((T | T))> > = Wrapper {value:{value:initVal}};
     var c4: Wrapper< Wrapper<((T | T))> > = Wrapper<Wrapper<T>> {value:c3.value};
-    var c5: Wrapper< WrapperAlias<((T | T))> > = WrapperAlias<Wrapper<T>> {value:c3.value};
+    var c5: Wrapper< WrapperAlias<((T | T))> > = Wrapper<Wrapper<T>> {value:c3.value};
     var c6: WrapperAlias< WrapperAlias<((T | T))> > = Wrapper<Wrapper<T>> {value:c3.value};
     return c1;
 }
@@ -213,7 +213,7 @@ fun test8(lastNull: bool) {
 @method_id(109)
 fun test9() {
     var c1: WrappedInt = { value: 10 };
-    var c2: WrappedInt = WrappedInt { value: 20 };
+    var c2: WrappedInt = Wrapper { value: 20 };
     var c3: WrappedInt = Wrapper { value: 30 };
     var c4: Wrapper<int> = { value: 40 };
     c1 = c2 = c3 = c4;
@@ -230,7 +230,7 @@ fun test9() {
     c6 as Wrapper<WrappedInt>;
     c7 as Wrapper<Wrapper<int>>;
 
-    var p1: PairAlias<MyInt, WrappedInt> = { first: 42, second: WrappedInt { value: 200 } };
+    var p1: PairAlias<MyInt, WrappedInt> = { first: 42, second: Wrapper { value: 200 } };
     __expect_type(p1, "PairAlias<MyInt, WrappedInt>");
     __expect_type(p1 as Pair<int, Wrapper<int>>, "Pair<int, Wrapper<int>>");
     var p2: Pair<int, Wrapper<int>> = p1;
@@ -595,14 +595,14 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
     __expect_type(c!, "Wrapper<slice>");
     __expect_type(d, "WrappedInt");
     __expect_type(d.value, "int");
-    __expect_type(WrappedInt { value: 200 }, "Wrapper<int>");
+    __expect_type(Wrapper<int> { value: 200 } as WrappedInt, "WrappedInt");
     __expect_type(Wrapper<slice>{ value: c.value }, "Wrapper<slice>");
     __expect_type(Wrapper<bytes32>{ value: c.value as bytes32 }, "Wrapper<bytes32>");
     __expect_type(Wrapper<bytes32>{ value: Wrapper<bytes32> { value: (c.value as bytes32 as bytes32?)! }.value }, "Wrapper<bytes32>");
     __expect_type(Wrapper{ value: c.value }, "Wrapper<slice>");
     __expect_type(Wrapper{ value: c.value.loadInt(32) }, "Wrapper<int>");
-    __expect_type(WrapperAlias{ value: 10 }, "Wrapper<int>");
-    __expect_type(WrapperAlias{ value: 10 } as WrapperAlias<int>, "WrapperAlias<int>");
+    __expect_type(Wrapper{ value: 10 }, "Wrapper<int>");
+    __expect_type(Wrapper{ value: 10 } as WrapperAlias<int>, "WrapperAlias<int>");
     __expect_type(swap(Pair { first: 3, second: beginCell() }), "Pair<builder, int>");
 }
 

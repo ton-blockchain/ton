@@ -28,7 +28,7 @@
  *     1) LHS of assignment: `lhs = rhs`, `lhs += rhs`
  *     2) `mutate` argument: `f(mutate lhs)`
  *     3) `mutate self` method: `lhs.mutatingMethod()`
- *   For each source, is_valid_lvalue_path(lhs) is checked.
+ *   For each source, lvalue/destructuring syntax is checked.
  *   Additionally, readonly fields and immutable variables are checked.
  */
 
@@ -140,8 +140,9 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     AnyExprV lhs = v->get_lhs();
     tolk_assert(lhs->is_lvalue);
 
-    // allow `v.field = rhs`, but not `v.method().field = rhs`
-    if (!is_valid_lvalue_path(lhs)) {
+    // allow `v.field = rhs` and destructuring `(a, [b, c]) = rhs`,
+    // but not `v.method().field = rhs`
+    if (!is_valid_assignment_lhs(lhs)) {
       err("can not assign to a temporary expression").collect(lhs, cur_f);
     }
     parent::visit(v);
@@ -152,7 +153,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     tolk_assert(lhs->is_lvalue);
 
     // allow `v.field += rhs`, but not `v.method().field += rhs`
-    if (!is_valid_lvalue_path(lhs)) {
+    if (!is_valid_assignment_lhs(lhs)) {
       err("can not assign to a temporary expression").collect(lhs, cur_f);
     }
     parent::visit(v);
@@ -181,7 +182,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     // (but still allow `beginCell().storeUint()`, because `beginCell()` is NOT marked lvalue previously)
     AnyExprV self_obj = v->get_self_obj();
     if (v->fun_maybe && v->fun_maybe->does_mutate_self() && self_obj && self_obj->is_lvalue) {
-      if (!is_valid_lvalue_path(self_obj)) {
+      if (!is_valid_mutation_path(self_obj)) {
         err("can not mutate a temporary expression").collect(self_obj, cur_f);
       }
     }
@@ -192,7 +193,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
     // allow `f(mutate v)`, but not `f(mutate v.id())`
     for (int i = 0; i < v->get_num_args(); ++i) {
       auto ith_arg = v->get_arg(i);
-      if (ith_arg->passed_as_mutate && !is_valid_lvalue_path(ith_arg->get_expr())) {
+      if (ith_arg->passed_as_mutate && !is_valid_mutation_path(ith_arg->get_expr())) {
         err("can not mutate a temporary expression").collect(ith_arg, cur_f);
       }
       parent::visit(ith_arg);

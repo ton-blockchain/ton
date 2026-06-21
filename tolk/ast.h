@@ -157,7 +157,7 @@ enum class AnnotationKind {
 };
 
 enum class MatchArmKind {    // for `match` expression, each of arms `pattern => body` can be:
-  const_expression,          // `-1 => body` / `SOME_CONST + ton("0.05") => body` (any expr at parsing, resulting in const)
+  const_expression,          // `-1 => body` / `SOME_CONST + grams("0.05") => body` (any expr at parsing, resulting in const)
   exact_type,                // `int => body` / `User | slice => body`
   else_branch,               // `else => body`
 };
@@ -1509,11 +1509,11 @@ template<>
 // example: `tolk 0.6`
 // when compiler version mismatches, it means, that another compiler was earlier for that sources, a warning is emitted
 struct Vertex<ast_tolk_required_version> final : ASTOtherLeaf {
-  std::string_view semver;
+  std::string semver;
 
-  Vertex(SrcRange range, std::string_view semver)
+  Vertex(SrcRange range, std::string semver)
     : ASTOtherLeaf(ast_tolk_required_version, range)
-    , semver(semver) {}
+    , semver(std::move(semver)) {}
 };
 
 template<>

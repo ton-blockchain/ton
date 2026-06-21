@@ -121,8 +121,8 @@ static AliasDefPtr register_type_alias(V<ast_type_alias_declaration> v, AliasDef
   if (name.empty()) {
     name = v_ident->name;
   }
-  if (name == "T") {
-    err("`T` is a reserved system name for generics").fire(v_ident);
+  if (name == "T" || name == "K" || name == "V") {
+    err("`{}` is a reserved system name for generics", name).fire(v_ident);
   }
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
   AliasDefData* a_sym = new AliasDefData(std::move(name), v_ident, v->underlying_type_node, DocCommentLines(v->doc_lines), genericTs, substitutedTs, v);
@@ -208,6 +208,10 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
   if (name.empty()) {
     name = v_ident->name;
   }
+  if (name == "T" || name == "K" || name == "V") {
+    err("`{}` is a reserved system name for generics", name).fire(v_ident);
+  }
+
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
   StructData* s_sym = new StructData(std::move(name), v_ident, std::move(fields), opcode, v->overflow1023_policy, DocCommentLines(v->doc_lines), genericTs, substitutedTs, v);
   s_sym->base_struct_ref = base_struct_ref;   // for `Container<int>`, here is `Container<T>`

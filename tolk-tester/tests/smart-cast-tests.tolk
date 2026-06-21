@@ -900,6 +900,23 @@ fun test82(case: int) {
     return case == 1 ? classifyWithVoidField(w1) : classifyWithVoidField(w2);
 }
 
+type TensorLcaFirstSlotSmart = (int, int) | (slice, int)
+
+@method_id(183)
+fun test83(case: int) {
+    var x: TensorLcaFirstSlotSmart = case == 0 ? (10, 1) : ("00000020".hexToSlice(), 2);
+    if (x is (int, int)) {
+        __expect_type(x, "(int, int)");
+    } else {
+        __expect_type(x, "(slice, int)");
+    }
+    __expect_type(x, "TensorLcaFirstSlotSmart");
+    return match (x) {
+        (int, int) => x.0 + x.1,
+        (slice, int) => x.0.loadInt(32) + x.1,
+    };
+}
+
 fun main(x: int?): int {
     // mark used to codegen them
     test55;
@@ -942,6 +959,8 @@ fun main(x: int?): int {
 @testcase | 181 | 2     | -20
 @testcase | 182 | 1     | 107
 @testcase | 182 | 0     | 8
+@testcase | 183 | 0     | 11
+@testcase | 183 | 1     | 34
 
 @stderr warning: expression of type `int` can never be `null`, this condition is always true
 

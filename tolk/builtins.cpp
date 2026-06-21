@@ -1389,10 +1389,10 @@ std::vector<var_idx_t> generate_reflect_stackSizeOf(FunctionPtr called_f, CodeBl
 }
 
 
-// fun ton(amount: slice): coins; ton("0.05") replaced by 50000000 at compile-time
+// fun grams(amount: slice): coins; grams("0.05") replaced by 50000000 at compile-time
 // same for stringCrc32(constString: slice) and others
 static AsmOp compile_time_only_function(std::vector<VarDescr>&, std::vector<VarDescr>&, AnyV origin) {
-  // all ton() invocations are constants, replaced by integers; no dynamic values allowed, no work at runtime
+  // all grams() invocations are constants, replaced by integers; no dynamic values allowed, no work at runtime
   tolk_assert(false);
   return AsmOp::Nop(origin);
 }
@@ -1655,7 +1655,10 @@ void define_builtins() {
 
   // compile-time only functions, evaluated essentially at compile-time, no runtime implementation
   // they are placed in stdlib and marked as `builtin`
-  // note their parameter being `unknown`: in order to `ton(1)` pass type inferring but fire a more gentle error later
+  // note their parameter being `unknown`: in order to `grams(1)` pass type inferring but fire a more gentle error later
+  define_builtin_func("grams", {TypeDataUnknown::create()}, TypeDataCoins::create(), nullptr,
+                              compile_time_only_function,
+                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
   define_builtin_func("ton", {TypeDataUnknown::create()}, TypeDataCoins::create(), nullptr,
                               compile_time_only_function,
                                 FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);

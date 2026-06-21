@@ -204,9 +204,9 @@ fun test8() {
 @method_id(109)
 fun test9() {
     var m = [] as map<int8, (coins, ())>;
-    m.set(1, (ton("1"), ()));
-    val replaced = m.replaceIfExists(1, (ton("0.05"), ()));
-    val prev = m.replaceAndGetPrevious(1, (ton("0.01"), ()));
+    m.set(1, (grams("1"), ()));
+    val replaced = m.replaceIfExists(1, (grams("0.05"), ()));
+    val prev = m.replaceAndGetPrevious(1, (grams("0.01"), ()));
     return (replaced, prev.loadValue(), m.replaceAndGetPrevious(2, (0,())), m.mustGet(1).0);
 }
 
@@ -340,8 +340,8 @@ fun test22() {
 @method_id(123)
 fun test23() {
     var m: map<Point, DataWithCell> = createEmptyMap();
-    val p1 = m.setAndGetPrevious({x:1,y:1}, {a: null, v: ton("0.05"), p: Point{x:10,y:10}.toCell(), payload: null});
-    val p2 = m.setAndGetPrevious({x:1,y:1}, {a: null, v: ton("0.1"), p: null, payload: createEmptyCell()});
+    val p1 = m.setAndGetPrevious({x:1,y:1}, {a: null, v: grams("0.05"), p: Point{x:10,y:10}.toCell(), payload: null});
+    val p2 = m.setAndGetPrevious({x:1,y:1}, {a: null, v: grams("0.1"), p: null, payload: createEmptyCell()});
     return (p1.isFound, p2.isFound, p2.loadValue().p!.load(), m.mustGet({x:1,y:1}).a == null, m.get({x:1,y:1}).loadValue().payload.depth());
 }
 
@@ -349,9 +349,9 @@ fun test23() {
 fun test24() {
     var m = map<Point, DataWithCell> [];
     val p1 = m.deleteAndGetDeleted({x: 1, y: 1});
-    m.set({x: 3, y: 3}, {a: null, v: ton("0.05"), p: Point{x:30,y:30}.toCell(), payload: createEmptyCell()});
-    m.set({x: 1, y: 1}, {a: null, v: ton("0.05"), p: Point{x:10,y:10}.toCell(), payload: null});
-    m.set({x: 2, y: 2}, {a: null, v: ton("0.05"), p: null, payload: null});
+    m.set({x: 3, y: 3}, {a: null, v: grams("0.05"), p: Point{x:30,y:30}.toCell(), payload: createEmptyCell()});
+    m.set({x: 1, y: 1}, {a: null, v: grams("0.05"), p: Point{x:10,y:10}.toCell(), payload: null});
+    m.set({x: 2, y: 2}, {a: null, v: grams("0.05"), p: null, payload: null});
     val k2 = m.findKeyGreaterOrEqual({x: 2, y: 2}).getKey();
     var r = m.findFirst();
     var t = [];

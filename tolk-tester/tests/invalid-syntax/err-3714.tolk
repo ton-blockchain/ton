@@ -1,8 +1,8 @@
 fun main(am: slice) {
-    return ton(am);
+    return grams(am);
 }
 
 /**
 @compilation_should_fail
-@stderr function `ton` requires a constant string, like `ton("0.05")`
+@stderr function `grams` requires a constant string, like `grams("0.05")`
  */

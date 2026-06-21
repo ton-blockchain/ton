@@ -1,5 +1,5 @@
 fun ok(): (int, slice) asm(->0b1 0b0) "NOP"
-fun not(): (int, slice) asm(->0xFFFFF) "NOP"
+fun not(): (int, slice) asm(->0xF0) "NOP"
 
 /**
 @compilation_should_fail
