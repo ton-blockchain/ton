@@ -566,6 +566,9 @@ td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
   if (!inited_) {
     co_return td::Status::Error(ErrorCode::notready, "not inited");
   }
+  if (alive_peers_.size() <= std::min<size_t>(current_validators_adnl_.size() / 2, 20)) {
+    co_return td::Status::Error(ErrorCode::notready, "too few alive nodes");
+  }
   auto peer = alive_peers_.get_random_key();
   if (peer == nullptr) {
     co_return td::Status::Error(ErrorCode::notready, "no nodes");
