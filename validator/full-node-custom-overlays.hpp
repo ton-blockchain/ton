@@ -122,7 +122,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
     bool alive = false;
   };
   std::map<adnl::AdnlNodeIdShort, PeerInfo> peers_info_;
-  td::DecTree<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort> alive_peers_;
+  td::DecTree<adnl::AdnlNodeIdShort, td::Unit> alive_peers_;
   adnl::AdnlNodeIdShort last_pinged_peer_ = adnl::AdnlNodeIdShort::zero();
 
   td::actor::Task<> ping_peer(adnl::AdnlNodeIdShort peer_id);

@@ -144,7 +144,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
     bool alive = false;
   };
   std::map<adnl::AdnlNodeIdShort, PeerInfo> peers_info_;
-  td::DecTree<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort> alive_peers_;
+  td::DecTree<adnl::AdnlNodeIdShort, td::Unit> alive_peers_;
 
   bool is_validator_adnl(adnl::AdnlNodeIdShort id) const {
     // Sorted in FullNodeFastSyncOverlays::update_overlays

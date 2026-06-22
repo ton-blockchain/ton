@@ -566,7 +566,7 @@ td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
   if (!inited_) {
     co_return td::Status::Error(ErrorCode::notready, "not inited");
   }
-  auto peer = alive_peers_.get_random();
+  auto peer = alive_peers_.get_random_key();
   if (peer == nullptr) {
     co_return td::Status::Error(ErrorCode::notready, "no nodes");
   }
@@ -639,7 +639,7 @@ td::actor::Task<> FullNodeFastSyncOverlay::ping_peer(adnl::AdnlNodeIdShort peer_
   peer_info.proto_version =
       std::make_pair<td::uint32, td::uint32>(capabilities->version_major_, capabilities->version_minor_);
   if (!peer_info.alive) {
-    alive_peers_.insert(peer_id, peer_id);
+    alive_peers_.insert(peer_id, td::Unit{});
     peer_info.alive = true;
   }
   co_return {};
