@@ -177,6 +177,8 @@ class LiteQuery : public td::actor::Actor {
   void perform_getShardBlockProof(BlockIdExt blkid);
   void continue_getShardBlockProof(Ref<BlockData> cur_block,
                                    std::vector<std::pair<BlockIdExt, td::BufferSlice>> result);
+  void perform_getBlockSignatures(BlockIdExt blkid);
+  void continue_getBlockSignatures(td::Ref<block::BlockSignatureSet> sig_set);
   void perform_getOutMsgQueueSizes(td::optional<ShardIdFull> shard);
   void continue_getOutMsgQueueSizes(td::optional<ShardIdFull> shard, Ref<MasterchainState> state);
   void perform_getBlockOutMsgQueueSize(int mode, BlockIdExt blkid);

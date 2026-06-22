@@ -108,6 +108,7 @@ liteServer.getValidatorStats#091a58bc mode:# id:tonNode.blockIdExt limit:int sta
 liteServer.getLibraries library_list:(vector int256) = liteServer.LibraryResult;
 liteServer.getLibrariesWithProof id:tonNode.blockIdExt mode:# library_list:(vector int256) = liteServer.LibraryResultWithProof;
 liteServer.getShardBlockProof id:tonNode.blockIdExt = liteServer.ShardBlockProof;
+liteServer.getBlockSignatures id:tonNode.blockIdExt = liteServer.SignatureSet;
 liteServer.getOutMsgQueueSizes mode:# wc:mode.0?int shard:mode.0?long = liteServer.OutMsgQueueSizes;
 liteServer.getBlockOutMsgQueueSize mode:# id:tonNode.blockIdExt want_proof:mode.0?true = liteServer.BlockOutMsgQueueSize;
 liteServer.getDispatchQueueInfo mode:# id:tonNode.blockIdExt after_addr:mode.1?int256 max_accounts:int want_proof:mode.0?true = liteServer.DispatchQueueInfo;

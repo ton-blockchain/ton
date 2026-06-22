@@ -271,6 +271,7 @@ void LiteQuery::perform() {
             this->perform_getLibrariesWithProof(ton::create_block_id(q.id_), q.mode_, q.library_list_);
           },
           [&](lite_api::liteServer_getShardBlockProof& q) { this->perform_getShardBlockProof(create_block_id(q.id_)); },
+          [&](lite_api::liteServer_getBlockSignatures& q) { this->perform_getBlockSignatures(create_block_id(q.id_)); },
           [&](lite_api::liteServer_nonfinal_getPendingShardBlocks& q) {
             this->perform_nonfinal_getPendingShardBlocks(q.mode_, ShardIdFull{q.wc_, (ShardId)q.shard_});
           },
@@ -3345,6 +3346,41 @@ void LiteQuery::continue_getShardBlockProof(Ref<BlockData> cur_block,
                                         std::move(result));
         }
       });
+}
+
+void LiteQuery::perform_getBlockSignatures(BlockIdExt blkid) {
+  LOG(INFO) << "started a getBlockSignatures(" << blkid.to_str() << ") liteserver query";
+  if (!blkid.is_valid_ext()) {
+    fatal_error("invalid block id");
+    return;
+  }
+  if (!blkid.is_masterchain()) {
+    fatal_error("only masterchain block signatures are available");
+    return;
+  }
+  td::actor::send_closure_later(
+      manager_, &ValidatorManager::wait_block_signatures_short, blkid, td::Timestamp::in(5.0),
+      [Self = actor_id(this)](td::Result<td::Ref<block::BlockSignatureSet>> R) {
+        if (R.is_error()) {
+          td::actor::send_closure(Self, &LiteQuery::abort_query,
+                                  R.move_as_error_prefix("cannot get block signatures: "));
+        } else {
+          td::actor::send_closure_later(Self, &LiteQuery::continue_getBlockSignatures, R.move_as_ok());
+        }
+      });
+}
+
+void LiteQuery::continue_getBlockSignatures(td::Ref<block::BlockSignatureSet> sig_set) {
+  if (sig_set.is_null()) {
+    fatal_error("no signatures stored for this block");
+    return;
+  }
+  if (!sig_set->is_final()) {
+    fatal_error("stored block signatures are not final");
+    return;
+  }
+  LOG(INFO) << "getBlockSignatures() query completed";
+  finish_query(serialize_tl_object(sig_set->tl_lite(), true));
 }
 
 void LiteQuery::perform_getOutMsgQueueSizes(td::optional<ShardIdFull> shard) {
