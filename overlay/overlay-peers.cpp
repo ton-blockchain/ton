@@ -459,11 +459,16 @@ void OverlayImpl::send_random_peers_v2_cont(adnl::AdnlNodeIdShort src, OverlayNo
     }
   }
 
-  td::uint32 max_iterations = nodes_to_send() + 16;
+  std::vector<adnl::AdnlNodeIdShort> sent_peers;
+  td::uint32 max_iterations = nodes_to_send() + 100;
   for (td::uint32 i = 0; i < max_iterations && vec.size() < nodes_to_send(); i++) {
     auto P = get_random_peer(true);
     if (P) {
       if (P->has_full_id() && !P->is_permanent_member()) {
+        if (std::find(sent_peers.begin(), sent_peers.end(), P->get_id()) != sent_peers.end()) {
+          continue;
+        }
+        sent_peers.push_back(P->get_id());
         vec.emplace_back(P->get_node()->tl_v2());
       }
     } else {
@@ -528,7 +533,8 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
                          td::uint32 nodes_to_change, auto is_neighbour, auto set_neighbour,
                          const char *neighbour_name) {
     td::uint32 iter = 0;
-    while (iter++ < 10 && (nodes_to_change > 0 || neighbours.size() < max_neighbours)) {
+    td::uint32 max_iterations = nodes_to_change == 0 ? 10 : 100;
+    while (iter++ < max_iterations && (nodes_to_change > 0 || neighbours.size() < max_neighbours)) {
       auto X = peer_list_.peers_.get_random();
       if (!X) {
         break;
@@ -598,12 +604,14 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
 OverlayPeer *OverlayImpl::get_random_peer(bool only_alive) {
   size_t skip_bad = 3;
   OverlayPeer *res = nullptr;
+  bool removed_peer = false;
   while (!res && peer_list_.peers_.size() > (only_alive ? peer_list_.bad_peers_.size() : 0)) {
     auto P = peer_list_.peers_.get_random();
     if (!P->is_permanent_member() &&
         (P->get_version() + 3600 < td::Clocks::system() || P->certificate()->is_expired())) {
       VLOG(overlay, INFO) << this << ": deleting outdated peer " << P->get_id();
       del_peer(P->get_id());
+      removed_peer = true;
       continue;
     }
     if (!P->is_alive()) {
@@ -617,7 +625,9 @@ OverlayPeer *OverlayImpl::get_random_peer(bool only_alive) {
     }
     res = P;
   }
-  update_neighbours(0, false);
+  if (removed_peer) {
+    update_neighbours(0, false);
+  }
   return res;
 }
 
