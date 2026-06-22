@@ -325,7 +325,7 @@ td::actor::Task<QuerySender> FullNodeCustomOverlay::get_query_sender() {
 
     void query_finished(bool success) const override {
       if (!success) {
-        td::actor::ask(parent_, &FullNodeCustomOverlay::ping_peer, peer_id_).detach_silent();
+        td::actor::ask(parent_, &FullNodeCustomOverlay::on_peer_query_error, peer_id_).detach_silent();
       }
     }
 
@@ -463,6 +463,16 @@ void FullNodeCustomOverlay::alarm() {
   }
 }
 
+td::actor::Task<> FullNodeCustomOverlay::on_peer_query_error(adnl::AdnlNodeIdShort peer_id) {
+  VLOG(full_node, DEBUG) << "Peer " << peer_id << " query failed, ignore it for 3s";
+  auto &info = peers_info_[peer_id];
+  info.ignore_until = td::Timestamp::in(3.0);
+  update_peer_alive(peer_id, info);
+  co_await td::actor::coro_sleep(info.ignore_until);
+  update_peer_alive(peer_id, info);
+  co_return {};
+}
+
 td::actor::Task<> FullNodeCustomOverlay::ping_peer(adnl::AdnlNodeIdShort peer_id) {
   CHECK(inited_);
   td::BufferSlice query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
@@ -473,29 +483,32 @@ td::actor::Task<> FullNodeCustomOverlay::ping_peer(adnl::AdnlNodeIdShort peer_id
   PeerInfo &peer_info = peers_info_[peer_id];
   if (r_response.is_error()) {
     VLOG(full_node, DEBUG) << "Failed to ping peer " << peer_id << ": " << r_response.move_as_error();
-    if (peer_info.alive) {
-      alive_peers_.remove(peer_id);
-      peer_info.alive = false;
-    }
+    peer_info.responds = false;
+    update_peer_alive(peer_id, peer_info);
     co_return {};
   }
   auto r_capabilities = fetch_tl_object<ton_api::tonNode_capabilities>(r_response.move_as_ok(), true);
   if (r_capabilities.is_error()) {
     VLOG(full_node, DEBUG) << "Failed to ping peer " << peer_id << ": " << r_capabilities.move_as_error();
-    if (peer_info.alive) {
-      alive_peers_.remove(peer_id);
-      peer_info.alive = false;
-    }
+    peer_info.responds = false;
+    update_peer_alive(peer_id, peer_info);
     co_return {};
   }
   auto capabilities = r_capabilities.move_as_ok();
   peer_info.proto_version =
       std::make_pair<td::uint32, td::uint32>(capabilities->version_major_, capabilities->version_minor_);
-  if (!peer_info.alive) {
-    alive_peers_.insert(peer_id, td::Unit{});
-    peer_info.alive = true;
-  }
+  peer_info.responds = true;
+  update_peer_alive(peer_id, peer_info);
   co_return {};
+}
+
+void FullNodeCustomOverlay::update_peer_alive(adnl::AdnlNodeIdShort peer_id, const PeerInfo &info) {
+  bool alive = info.responds && (!info.ignore_until || info.ignore_until.is_in_past());
+  if (alive) {
+    alive_peers_.insert(peer_id, td::Unit{});
+  } else {
+    alive_peers_.remove(peer_id);
+  }
 }
 
 }  // namespace ton::validator::fullnode
