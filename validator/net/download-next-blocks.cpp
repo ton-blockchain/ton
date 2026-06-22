@@ -152,7 +152,7 @@ td::actor::Task<> DownloadNextBlocks::process_block(tl_object_ptr<ton_api::tonNo
     auto prev_blocks =
         CO_TRY(extract_prev_blocks_from_proof(compressed_v2->proof_.as_slice(), id).trace("extract prev blocks"));
     if (prev_blocks != std::vector{handle_->id()}) {
-      co_return td::Status::Error("prev block id mismatch");
+      co_return td::Status::Error(ErrorCode::protoviolation, "prev block id mismatch");
     }
     auto prev_state = co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::wait_block_state, handle_,
                                               priority_, td::Timestamp::in(5.0), true)
@@ -167,10 +167,10 @@ td::actor::Task<> DownloadNextBlocks::process_block(tl_object_ptr<ton_api::tonNo
                                 prev_state_root)
              .trace("deserialize block"));
   if (is_link) {
-    co_return td::Status::Error(ErrorCode::notready, "node doesn't have proof for this block");
+    co_return td::Status::Error(ErrorCode::protoviolation, "node doesn't have proof for this block");
   }
   if (td::sha256_bits256(block_data.as_slice()) != id.file_hash) {
-    co_return td::Status::Error(ErrorCode::notready, "received data with bad hash");
+    co_return td::Status::Error(ErrorCode::protoviolation, "received data with bad hash");
   }
   co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::validate_block_is_next_proof, handle_->id(),
                           id, std::move(proof));

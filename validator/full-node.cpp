@@ -639,7 +639,9 @@ td::actor::Task<> FullNodeImpl::get_next_blocks_loop() {
                                                 query_sender, 1, validator_manager_, std::move(promise))
         .release();
     auto R = co_await std::move(task).wrap();
-    query_sender->query_finished(R.is_ok());
+    // Do not penalize peer when it does not have next blocks if the last block is new enough
+    query_sender->query_finished(R.is_ok() || (R.error().code() == ErrorCode::notready && handle_->inited_unix_time() &&
+                                               handle_->unix_time() >= (UnixTime)td::Clocks::system() - 5));
     if (R.is_error()) {
       auto S = R.move_as_error();
       if (S.code() != ErrorCode::notready && S.code() != ErrorCode::timeout) {
