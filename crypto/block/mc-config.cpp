@@ -373,21 +373,7 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
   }
   auto consensus_config = get_consensus_config();
 
-  if (gen::NewConsensusConfig::Record_simplex_config v1; gen::unpack_cell(c2, v1)) {
-    return ton::NewConsensusConfig{
-        .max_block_size = consensus_config.max_block_size,
-        .max_collated_data_size = consensus_config.max_collated_data_size,
-
-        .slots_per_leader_window = v1.slots_per_leader_window,
-
-        .noncritical_params =
-            {
-                .target_rate{v1.target_rate_ms},
-                .first_block_timeout{v1.first_block_timeout_ms},
-                .max_leader_window_desync = v1.max_leader_window_desync,
-            },
-    };
-  } else if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
+  if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
     ton::NewConsensusConfig config{
         .max_block_size = consensus_config.max_block_size,
         .max_collated_data_size = consensus_config.max_collated_data_size,
