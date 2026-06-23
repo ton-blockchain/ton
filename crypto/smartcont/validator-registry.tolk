@@ -8,6 +8,7 @@ const VAL_REGISTRY_CONFIG_PARAM = 46;
 const REQUEST_PERIOD = 120;
 
 const OP_CLEANUP = 0x32b85a9b;
+const OP_UPDATE_CODE = 0x34bdaa6c;
 const OP_REQUEST = 0xcdb9d286;
 
 const ERR_INVALID_OP = 900;
@@ -21,6 +22,9 @@ const ERR_VALIDATOR_NOT_FOUND = 907;
 const ERR_TOO_EARLY_REQUEST = 908;
 const ERR_WRONG_SIGNATURE = 909;
 const ERR_RANGE_ERROR = 910;
+const ERR_NO_CONFIG = 911;
+const ERR_BAD_NEW_CODE_HASH = 912;
+const ERR_NEW_CODE_ALREADY_INSTALLED = 913;
 
 contract ValidatorRegistry {
     storage: Storage
@@ -70,16 +74,20 @@ fun ShardSet.unpackFromSlice(mutate s: slice) {
     return ShardSet{n, mask};
 }
 
+struct (0x3601163e) RegistryConfig {
+    addr: uint256,
+    maxCollatorsPerValidator: uint32,
+    newCodeHash: uint256?
+}
+
 @pure
 fun getLastKeyBlockSeqno(): uint32
     asm "PREVKEYBLOCK 2 INDEX";
 
-@pure
-fun getMaxCollatorsPerValidator(): uint32 {
-    // val_registry_config#f0 contract_address:bits256 max_collators_per_validator:uint32 = ValRegistryConfig;
-    var cs = blockchain.configParam(VAL_REGISTRY_CONFIG_PARAM)!.beginParse();
-    cs.skipBits(8 + 256);
-    return cs.loadUint(32);
+fun getRegistryConfigCell(): cell {
+    var c = blockchain.configParam(VAL_REGISTRY_CONFIG_PARAM);
+    assert (c != null) throw ERR_NO_CONFIG;
+    return c;
 }
 
 fun validateEntry(c: Cell<Entry>?) {
@@ -87,7 +95,8 @@ fun validateEntry(c: Cell<Entry>?) {
         return;
     }
     val entry = c.load();
-    val maxCollators = getMaxCollatorsPerValidator();
+    val config = lazy RegistryConfig.fromCell(getRegistryConfigCell());
+    val maxCollators = config.maxCollatorsPerValidator;
     var nCollators = 0;
     var r = entry.collators.findFirst();
     while (r.isFound) {
@@ -153,6 +162,15 @@ fun cleanupRegistry() {
     contract.setData(storage.toCell());
 }
 
+fun updateCode(newCode: cell) {
+    val config = lazy RegistryConfig.fromCell(getRegistryConfigCell());
+    val newCodeHash = config.newCodeHash;
+    assert (newCodeHash != null && newCodeHash == newCode.hash()) throw ERR_BAD_NEW_CODE_HASH;
+    assert (contract.getCode().hash() != newCodeHash) throw ERR_NEW_CODE_ALREADY_INSTALLED;
+    contract.setCodePostponed(newCode);
+    acceptExternalMessage();
+}
+
 fun getValidatorPublicKey(valSetIdx: int, valIdx: uint16): uint256 {
     val param = blockchain.configParam(valSetIdx);
     assert (param != null) throw ERR_VALIDATOR_NOT_FOUND;
@@ -177,6 +195,12 @@ fun onExternalMessage(inMsg: slice) {
     if (opcode == OP_CLEANUP) {
         inMsg.assertEnd();
         cleanupRegistry();
+        return;
+    }
+    if (opcode == OP_UPDATE_CODE) {
+        val newCode = inMsg.loadRef();
+        inMsg.assertEnd();
+        updateCode(newCode);
         return;
     }
 
