@@ -5,8 +5,10 @@ PROGRAM{
   DECLPROC getValidatorKeys()
   0 DECLMETHOD onInternalMessage()
   -1 DECLMETHOD onExternalMessage()
-  // 8 functions inlined in-place:
+  // 9 functions inlined in-place:
   // - MapLookupResult<slice>.loadValue (1 call)
+  // - ShardSet.packToBuilder (0 calls)
+  // - ShardSet.unpackFromSlice (0 calls)
   // - getMaxCollatorsPerValidator (1 call)
   // - cleanupRegistry (1 call)
   // - getValidatorPublicKey (1 call)
@@ -14,118 +16,144 @@ PROGRAM{
   // - MapEntry<uint16, slice>.loadValue (1 call)
   // - MapEntry<uint256, ValidatorInfo>.getKey (1 call)
   // - MapLookupResult<ValidatorInfo>.loadValue (1 call)
-  // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:66
+  // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:85
   validateEntry() PROC:<{   	//  c
     DUP                     	//  c c
-    // 67: if (c == null)
+    // 86: if (c == null)
     ISNULL                  	//  c '1
     IFJMP:<{                	//  c
       DROP                  	// 
     }>                      	//  c
-    // 70: val entry = c.load()
+    // 89: val entry = c.load()
     CTOS                    	//  s
     x{eae0b274} SDBEGINSQ   	//  s '5
     63 THROWIFNOT           	//  s
     LDOPTREF                	//  '8 s
-    ENDS                    	//  entry
-    // 61: var cs = blockchain.configParam(VAL_REGISTRY_CONFIG_PARAM)!.beginParse()
-    46 PUSHINT              	//  entry '11=46
-    CONFIGOPTPARAM          	//  entry '12
-    CTOS                    	//  entry cs
-    // 62: cs.skipBits(8 + 256)
+    // 67: val n = s.loadUint(4)
+    4 LDU                   	//  '8 n s
+    OVER                    	//  '8 n s n
+    // 68: assert (n <= 8) throw ERR_RANGE_ERROR
+    9 LESSINT               	//  '8 n s '19
+    910 THROWIFNOT          	//  '8 n s
+    OVER                    	//  '8 n s n
+    // 69: val mask = s.loadUint(1 << n)
+    POW2                    	//  '8 n s '21
+    1 2 BLKDROP2            	//  '8 s '21
+    LDUX                    	//  '8 '23 '22
+    NIP                     	//  '8 s
+    // 89: val entry = c.load()
+    ENDS                    	//  entry.collators
+    // 80: var cs = blockchain.configParam(VAL_REGISTRY_CONFIG_PARAM)!.beginParse()
+    46 PUSHINT              	//  entry.collators '29=46
+    CONFIGOPTPARAM          	//  entry.collators '30
+    CTOS                    	//  entry.collators cs
+    // 81: cs.skipBits(8 + 256)
     264 PUSHINT
-    SDSKIPFIRST             	//  entry cs
-    // 63: return cs.loadUint(32)
-    32 PLDU                 	//  entry maxCollators
-    // 72: var nCollators = 0
-    0 PUSHINT               	//  entry maxCollators nCollators=0
-    // 73: var r = entry.collators.findFirst()
+    SDSKIPFIRST             	//  entry.collators cs
+    // 82: return cs.loadUint(32)
+    32 PLDU                 	//  entry.collators maxCollators
+    // 91: var nCollators = 0
+    0 PUSHINT               	//  entry.collators maxCollators nCollators=0
+    // 92: var r = entry.collators.findFirst()
     s2 PUSH
-    8 PUSHPOW2              	//  entry maxCollators nCollators=0 entry '30=256
-    DICTUMIN NULLSWAPIFNOT2 	//  entry maxCollators nCollators=0 r.rawValue r.key r.isFound
-    // 74: while (r.isFound)
-    WHILE:<{                	//  entry maxCollators nCollators r.rawValue r.key r.isFound
-    }>DO<{                  	//  entry maxCollators nCollators r.rawValue r.key
-      s0 s2 XCHG            	//  entry maxCollators r.key r.rawValue nCollators
-      // 75: nCollators += 1
-      INC                   	//  entry maxCollators r.key r.rawValue nCollators
-      s0 s3 PUSH2           	//  entry maxCollators r.key r.rawValue nCollators nCollators maxCollators
-      // 76: assert (nCollators <= maxCollators) throw ERR_TOO_MANY_COLLATORS
-      LEQ                   	//  entry maxCollators r.key r.rawValue nCollators '37
-      901 THROWIFNOT        	//  entry maxCollators r.key s nCollators
-      SWAP                  	//  entry maxCollators r.key nCollators s
-      // 1055: return V.fromSlice(self.rawValue!
-      x{10364494} SDBEGINSQ 	//  entry maxCollators r.key nCollators s '41
-      63 THROWIFNOT         	//  entry maxCollators r.key nCollators s
-      ENDS                  	//  entry maxCollators r.key nCollators
+    8 PUSHPOW2              	//  entry.collators maxCollators nCollators=0 entry.collators '48=256
+    DICTUMIN NULLSWAPIFNOT2 	//  entry.collators maxCollators nCollators=0 r.rawValue r.key r.isFound
+    // 93: while (r.isFound)
+    WHILE:<{                	//  entry.collators maxCollators nCollators r.rawValue r.key r.isFound
+    }>DO<{                  	//  entry.collators maxCollators nCollators r.rawValue r.key
+      s0 s2 XCHG            	//  entry.collators maxCollators r.key r.rawValue nCollators
+      // 94: nCollators += 1
+      INC                   	//  entry.collators maxCollators r.key r.rawValue nCollators
+      s0 s3 PUSH2           	//  entry.collators maxCollators r.key r.rawValue nCollators nCollators maxCollators
+      // 95: assert (nCollators <= maxCollators) throw ERR_TOO_MANY_COLLATORS
+      LEQ                   	//  entry.collators maxCollators r.key r.rawValue nCollators '55
+      901 THROWIFNOT        	//  entry.collators maxCollators r.key s nCollators
+      SWAP                  	//  entry.collators maxCollators r.key nCollators s
+      // 1058: return V.fromSlice(self.rawValue!
+      x{10364494} SDBEGINSQ 	//  entry.collators maxCollators r.key nCollators s '61
+      63 THROWIFNOT         	//  entry.collators maxCollators r.key nCollators s
+      // 67: val n = s.loadUint(4)
+      4 LDU                 	//  entry.collators maxCollators r.key nCollators n s
+      OVER                  	//  entry.collators maxCollators r.key nCollators n s n
+      // 68: assert (n <= 8) throw ERR_RANGE_ERROR
+      9 LESSINT             	//  entry.collators maxCollators r.key nCollators n s '74
+      910 THROWIFNOT        	//  entry.collators maxCollators r.key nCollators n s
+      OVER                  	//  entry.collators maxCollators r.key nCollators n s n
+      // 69: val mask = s.loadUint(1 << n)
+      POW2                  	//  entry.collators maxCollators r.key nCollators n s '76
+      1 2 BLKDROP2          	//  entry.collators maxCollators r.key nCollators s '76
+      LDUX                  	//  entry.collators maxCollators r.key nCollators '78 '77
+      NIP                   	//  entry.collators maxCollators r.key nCollators s
+      // 1058: return V.fromSlice(self.rawValue!
+      ENDS                  	//  entry.collators maxCollators r.key nCollators
       s1 s3 XCPU
-      // 78: r = entry.collators.iterateNext(r)
-      8 PUSHPOW2            	//  entry maxCollators nCollators r.key entry '49=256
-      DICTUGETNEXT NULLSWAPIFNOT2	//  entry maxCollators nCollators r.rawValue r.key r.isFound
-    }>                      	//  entry maxCollators nCollators r.rawValue r.key
+      // 97: r = entry.collators.iterateNext(r)
+      8 PUSHPOW2            	//  entry.collators maxCollators nCollators r.key entry.collators '85=256
+      DICTUGETNEXT NULLSWAPIFNOT2	//  entry.collators maxCollators nCollators r.rawValue r.key r.isFound
+    }>                      	//  entry.collators maxCollators nCollators r.rawValue r.key
     5 BLKDROP               	// 
   }>
-  // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:82
+  // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:101
   getValidatorKeys() PROC:<{	//  configIdx validators
     SWAP                    	//  validators configIdx
-    // 83: val param = blockchain.configParam(configIdx)
+    // 102: val param = blockchain.configParam(configIdx)
     CONFIGOPTPARAM          	//  validators param
     DUP                     	//  validators param param
-    // 84: if (param == null)
+    // 103: if (param == null)
     ISNULL                  	//  validators param '4
     IFJMP:<{                	//  validators param
       DROP                  	//  validators
     }>                      	//  validators param
-    // 87: val paramCs = param.beginParse()
+    // 106: val paramCs = param.beginParse()
     CTOS                    	//  validators paramCs
     DUP                     	//  validators paramCs paramCs
-    // 88: if (paramCs.remainingRefsCount() == 0)
+    // 107: if (paramCs.remainingRefsCount() == 0)
     SREFS                   	//  validators paramCs '7
     IFNOTJMP:<{             	//  validators paramCs
       DROP                  	//  validators
     }>                      	//  validators paramCs
-    // 92: val valSet: map<uint16, slice> = createMapFromLowLevelDict(paramCs.preloadRef())
+    // 111: val valSet: map<uint16, slice> = createMapFromLowLevelDict(paramCs.preloadRef())
     PLDREF                  	//  validators valSet
-    // 93: var r = valSet.findFirst()
+    // 112: var r = valSet.findFirst()
     DUP
     16 PUSHINT              	//  validators valSet valSet '18=16
     DICTUMIN NULLSWAPIFNOT2 	//  validators valSet r.rawValue r.key r.isFound
-    // 94: while (r.isFound)
+    // 113: while (r.isFound)
     WHILE:<{                	//  validators valSet r.rawValue r.key r.isFound
     }>DO<{                  	//  validators valSet cs r.key
       SWAP                  	//  validators valSet r.key cs
-      // 99: cs.skipBits(8 + 32)
+      // 118: cs.skipBits(8 + 32)
       40 LDU
       NIP                   	//  validators valSet r.key cs
-      // 100: validators.set(cs.loadUint(256), ())
+      // 119: validators.set(cs.loadUint(256), ())
       256 PLDU              	//  validators valSet r.key '30
       NEWC                  	//  validators valSet r.key '30 '31
       s0 s1 s4 XCHG3
       8 PUSHPOW2            	//  r.key valSet '31 '30 validators '37=256
       DICTUSETB             	//  r.key valSet validators
       s2 s1 XCPU
-      // 101: r = valSet.iterateNext(r)
+      // 120: r = valSet.iterateNext(r)
       16 PUSHINT            	//  validators valSet r.key valSet '43=16
       DICTUGETNEXT NULLSWAPIFNOT2	//  validators valSet r.rawValue r.key r.isFound
     }>                      	//  validators valSet r.rawValue r.key
     3 BLKDROP               	//  validators
   }>
-  // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:153
+  // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:172
   onInternalMessage() PROC:<{	// 
   }>
-  // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:156
+  // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:175
   onExternalMessage() PROC:<{	//  inMsg
-    // 157: val opcode = inMsg.loadUint(32)
+    // 176: val opcode = inMsg.loadUint(32)
     32 LDU                  	//  opcode inMsg
-    // 158: if (opcode == OP_CLEANUP)
+    // 177: if (opcode == OP_CLEANUP)
     OVER
     850942619 PUSHINT       	//  opcode inMsg opcode '5=850942619
     EQUAL                   	//  opcode inMsg '6
     IFJMP:<{                	//  opcode inMsg
       NIP                   	//  inMsg
-      // 159: inMsg.assertEnd()
+      // 178: inMsg.assertEnd()
       ENDS                  	// 
-      // 106: var storage = Storage.fromCell(contract.getData())
+      // 125: var storage = Storage.fromCell(contract.getData())
       c4 PUSH               	//  '7
       CTOS                  	//  s
       x{9bc722a8} SDBEGINSQ 	//  s '11
@@ -133,230 +161,253 @@ PROGRAM{
       LDOPTREF              	//  '14 s
       32 LDU                	//  '14 '16 s
       ENDS                  	//  storage.registry storage.lastCleanupKeyBlockSeqno
-      // 107: val lastKeyBlockSeqno = getLastKeyBlockSeqno()
+      // 126: val lastKeyBlockSeqno = getLastKeyBlockSeqno()
       PREVKEYBLOCK 2 INDEX  	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno
       2DUP                  	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno
-      // 108: assert (storage.lastCleanupKeyBlockSeqno < lastKeyBlockSeqno) throw ERR_TOO_EARLY_CLEANUP
+      // 127: assert (storage.lastCleanupKeyBlockSeqno < lastKeyBlockSeqno) throw ERR_TOO_EARLY_CLEANUP
       LESS                  	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno '22
       902 THROWIFNOT        	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno
-      // 109: acceptExternalMessage()
+      // 128: acceptExternalMessage()
       ACCEPT                	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno
-      // 111: var validators: map<uint256, ()> = []
+      // 130: var validators: map<uint256, ()> = []
       NEWDICT               	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators
-      // 112: getValidatorKeys(32, mutate validators)
+      // 131: getValidatorKeys(32, mutate validators)
       32 PUSHINT            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators '26=32
       SWAP                  	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno '26=32 validators
       getValidatorKeys() CALLDICT	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators
-      // 113: getValidatorKeys(34, mutate validators)
+      // 132: getValidatorKeys(34, mutate validators)
       34 PUSHINT            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators '28=34
       SWAP                  	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno '28=34 validators
       getValidatorKeys() CALLDICT	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators
-      // 114: getValidatorKeys(36, mutate validators)
+      // 133: getValidatorKeys(36, mutate validators)
       36 PUSHINT            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators '30=36
       SWAP                  	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno '30=36 validators
       getValidatorKeys() CALLDICT	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators
-      // 116: var r = storage.registry.findFirst()
+      // 135: var r = storage.registry.findFirst()
       s3 PUSH
       8 PUSHPOW2            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators storage.registry '37=256
       DICTUMIN NULLSWAPIFNOT2	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators '32 '33 '34
       s2 POP                	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key
-      // 117: var iter = 0
+      // 136: var iter = 0
       0 PUSHINT             	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter=0
-      // 118: while (r.isFound)
+      // 137: while (r.isFound)
       WHILE:<{              	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter
         s0 s2 XCHG          	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.key r.isFound
       }>DO<{                	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.key
         s0 s5 PUSH2
-        // 120: r = storage.registry.iterateNext(r)
+        // 139: r = storage.registry.iterateNext(r)
         8 PUSHPOW2          	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.key storage.registry '50=256
         DICTUGETNEXT NULLSWAPIFNOT2	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key '45 '46 '47
         s2 POP              	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.isFound r.key
         s2 s4 PUSH2
-        // 121: if (!validators.exists(key))
-        8 PUSHPOW2          	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.isFound r.key key validators '55=256
-        DICTUGET NULLSWAPIFNOT	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.isFound r.key '51 '52
-        NIP                 	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.isFound r.key '52
+        // 140: if (!validators.exists(key))
+        8 PUSHPOW2          	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.isFound r.key key validators '58=256
+        DICTUGET NULLSWAPIFNOT	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.isFound r.key '54 '55
+        NIP                 	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.isFound r.key '55
         IFNOT:<{            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.isFound r.key
           s2 s7 XCHG2
-          // 122: storage.registry.delete(key)
-          8 PUSHPOW2        	//  r.key storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.isFound key storage.registry '60=256
-          DICTUDEL          	//  r.key storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.isFound '56 '57
+          // 141: storage.registry.delete(key)
+          8 PUSHPOW2        	//  r.key storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.isFound key storage.registry '63=256
+          DICTUDEL          	//  r.key storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.isFound '59 '60
           DROP              	//  r.key storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.isFound storage.registry
           s6 s6 XCHG2       	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.key r.isFound
         }>ELSE<{            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter key r.isFound r.key
           s2 POP            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.key r.isFound
         }>                  	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.key r.isFound
         s0 s2 XCHG          	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter
-        // 124: iter += 1
+        // 143: iter += 1
         INC                 	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter
-        // 125: if (iter % 20 == 0)
+        // 144: if (iter % 20 == 0)
         DUP
-        20 PUSHINT          	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter iter '63=20
-        MOD                 	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter '64
+        20 PUSHINT          	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter iter '66=20
+        MOD                 	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter '67
         IFNOT:<{            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter
-          // 129: contract.setData(storage.toCell())
+          // 148: contract.setData(storage.toCell())
           NEWC              	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter b
           x{9bc722a8} STSLICECONST	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter b
           s7 s(-1) PUXC     	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter storage.registry b
           STOPTREF          	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter b
           s6 PUSH           	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter b storage.lastCleanupKeyBlockSeqno
           32 STUR           	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter b
-          ENDC              	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter '72
+          ENDC              	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter '75
           c4 POP            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter
-          // 130: commitContractDataAndActions()
+          // 149: commitContractDataAndActions()
           COMMIT            	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter
         }>                  	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators r.isFound r.key iter
       }>                    	//  storage.registry storage.lastCleanupKeyBlockSeqno lastKeyBlockSeqno validators iter r.key
       s3 s4 XCHG
       4 BLKDROP             	//  storage.registry storage.lastCleanupKeyBlockSeqno
-      // 134: contract.setData(storage.toCell())
+      // 153: contract.setData(storage.toCell())
       NEWC                  	//  storage.registry storage.lastCleanupKeyBlockSeqno b
       x{9bc722a8} STSLICECONST	//  storage.registry storage.lastCleanupKeyBlockSeqno b
       s1 s2 XCHG            	//  storage.lastCleanupKeyBlockSeqno storage.registry b
       STOPTREF              	//  storage.lastCleanupKeyBlockSeqno b
       32 STU                	//  b
-      ENDC                  	//  '78
+      ENDC                  	//  '81
       c4 POP                	// 
     }>                      	//  opcode inMsg
     SWAP
-    // 164: assert (opcode == OP_REQUEST) throw ERR_INVALID_OP
-    3451507334 PUSHINT      	//  inMsg opcode '80=3451507334
-    EQUAL                   	//  inMsg '81
+    // 183: assert (opcode == OP_REQUEST) throw ERR_INVALID_OP
+    3451507334 PUSHINT      	//  inMsg opcode '83=3451507334
+    EQUAL                   	//  inMsg '84
     900 THROWIFNOT          	//  inMsg
-    // 165: val signature = inMsg.loadBits(512)
-    9 PUSHPOW2              	//  inMsg '82=512
+    // 184: val signature = inMsg.loadBits(512)
+    9 PUSHPOW2              	//  inMsg '85=512
     LDSLICEX                	//  signature inMsg
     DUP                     	//  signature inMsg inMsg
-    // 166: val toSign = inMsg.hash()
+    // 185: val toSign = inMsg.hash()
     NEWC
     STSLICE
     HASHBU                  	//  signature s toSign
     SWAP                    	//  signature toSign s
-    // 167: val request = RequestUpdate.fromSlice(inMsg)
-    x{fbd82b02} SDBEGINSQ   	//  signature toSign s '91
+    // 186: val request = RequestUpdate.fromSlice(inMsg)
+    x{fbd82b02} SDBEGINSQ   	//  signature toSign s '94
     63 THROWIFNOT           	//  signature toSign s
-    32 LDU                  	//  signature toSign '95 s
-    8 LDU                   	//  signature toSign '95 '97 s
-    16 LDU                  	//  signature toSign '95 '97 '99 s
-    32 LDU                  	//  signature toSign '95 '97 '99 '101 s
-    LDOPTREF                	//  signature toSign '95 '97 '99 '101 '102 s
+    32 LDU                  	//  signature toSign '98 s
+    8 LDU                   	//  signature toSign '98 '100 s
+    16 LDU                  	//  signature toSign '98 '100 '102 s
+    32 LDU                  	//  signature toSign '98 '100 '102 '104 s
+    LDOPTREF                	//  signature toSign '98 '100 '102 '104 '105 s
     ENDS                    	//  signature toSign request.lastKeyBlockSeqno request.valSetIdx request.valIdx request.validUntil request.newEntry
-    // 168: assert (request.lastKeyBlockSeqno == getLastKeyBlockSeqno()) throw ERR_WRONG_KEY_BLOCK_SEQNO
-    PREVKEYBLOCK 2 INDEX    	//  signature toSign request.lastKeyBlockSeqno request.valSetIdx request.valIdx request.validUntil request.newEntry '109
-    s1 s5 XCHG              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil request.lastKeyBlockSeqno '109
-    EQUAL                   	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '110
+    // 187: assert (request.lastKeyBlockSeqno == getLastKeyBlockSeqno()) throw ERR_WRONG_KEY_BLOCK_SEQNO
+    PREVKEYBLOCK 2 INDEX    	//  signature toSign request.lastKeyBlockSeqno request.valSetIdx request.valIdx request.validUntil request.newEntry '112
+    s1 s5 XCHG              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil request.lastKeyBlockSeqno '112
+    EQUAL                   	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '113
     903 THROWIFNOT          	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil
     s2 PUSH                 	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil request.valSetIdx
-    // 169: assert (request.valSetIdx == 32 || request.valSetIdx == 34 || request.valSetIdx == 36) throw ERR_WRONG_VAL_SET_IDX
-    32 EQINT                	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '113
+    // 188: assert (request.valSetIdx == 32 || request.valSetIdx == 34 || request.valSetIdx == 36) throw ERR_WRONG_VAL_SET_IDX
+    32 EQINT                	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '116
     IF:<{                   	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil
-      -1 PUSHINT            	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '114=-1
+      -1 PUSHINT            	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '117=-1
     }>ELSE<{                	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil
       s2 PUSH               	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil request.valSetIdx
-      34 EQINT              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '117
-      0 NEQINT              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '114
-    }>                      	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '114
+      34 EQINT              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '120
+      0 NEQINT              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '117
+    }>                      	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '117
     IF:<{                   	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil
-      -1 PUSHINT            	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '120=-1
+      -1 PUSHINT            	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '123=-1
     }>ELSE<{                	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil
       s2 PUSH               	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil request.valSetIdx
-      36 EQINT              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '123
-      0 NEQINT              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '120
-    }>                      	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '120
+      36 EQINT              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '126
+      0 NEQINT              	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '123
+    }>                      	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '123
     904 THROWIFNOT          	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil
-    // 170: assert (request.validUntil < blockchain.now() + REQUEST_PERIOD) throw ERR_TOO_BIG_VALID_UNTIL
-    NOW                     	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '127
-    120 ADDCONST            	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '129
-    OVER                    	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '129 request.validUntil
-    GREATER                 	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '130
+    // 189: assert (request.validUntil < blockchain.now() + REQUEST_PERIOD) throw ERR_TOO_BIG_VALID_UNTIL
+    NOW                     	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '130
+    120 ADDCONST            	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '132
+    OVER                    	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '132 request.validUntil
+    GREATER                 	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '133
     905 THROWIFNOT          	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil
-    // 171: assert (request.validUntil > blockchain.now()) throw ERR_MESSAGE_EXPIRED
-    NOW                     	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '132
-    GREATER                 	//  signature toSign request.newEntry request.valSetIdx request.valIdx '133
+    // 190: assert (request.validUntil > blockchain.now()) throw ERR_MESSAGE_EXPIRED
+    NOW                     	//  signature toSign request.newEntry request.valSetIdx request.valIdx request.validUntil '135
+    GREATER                 	//  signature toSign request.newEntry request.valSetIdx request.valIdx '136
     906 THROWIFNOT          	//  signature toSign request.newEntry request.valSetIdx request.valIdx
     SWAP                    	//  signature toSign request.newEntry request.valIdx request.valSetIdx
-    // 138: val param = blockchain.configParam(valSetIdx)
+    // 157: val param = blockchain.configParam(valSetIdx)
     CONFIGOPTPARAM          	//  signature toSign request.newEntry request.valIdx param
     DUP                     	//  signature toSign request.newEntry request.valIdx param param
-    // 139: assert (param != null) throw ERR_VALIDATOR_NOT_FOUND
-    ISNULL                  	//  signature toSign request.newEntry request.valIdx param '138
+    // 158: assert (param != null) throw ERR_VALIDATOR_NOT_FOUND
+    ISNULL                  	//  signature toSign request.newEntry request.valIdx param '141
     907 THROWIF             	//  signature toSign request.newEntry request.valIdx param
-    // 140: val paramCs = param.beginParse()
+    // 159: val paramCs = param.beginParse()
     CTOS                    	//  signature toSign request.newEntry request.valIdx paramCs
     DUP                     	//  signature toSign request.newEntry request.valIdx paramCs paramCs
-    // 141: assert (paramCs.remainingRefsCount() > 0) throw ERR_VALIDATOR_NOT_FOUND
-    SREFS                   	//  signature toSign request.newEntry request.valIdx paramCs '142
-    0 GTINT                 	//  signature toSign request.newEntry request.valIdx paramCs '144
+    // 160: assert (paramCs.remainingRefsCount() > 0) throw ERR_VALIDATOR_NOT_FOUND
+    SREFS                   	//  signature toSign request.newEntry request.valIdx paramCs '145
+    0 GTINT                 	//  signature toSign request.newEntry request.valIdx paramCs '147
     907 THROWIFNOT          	//  signature toSign request.newEntry request.valIdx paramCs
-    // 142: val valSet: map<uint16, slice> = createMapFromLowLevelDict(paramCs.preloadRef())
+    // 161: val valSet: map<uint16, slice> = createMapFromLowLevelDict(paramCs.preloadRef())
     PLDREF                  	//  signature toSign request.newEntry request.valIdx valSet
-    // 143: val r = valSet.get(valIdx)
-    16 PUSHINT              	//  signature toSign request.newEntry request.valIdx valSet '152=16
-    // 144: assert (r.isFound) throw ERR_VALIDATOR_NOT_FOUND
+    // 162: val r = valSet.get(valIdx)
+    16 PUSHINT              	//  signature toSign request.newEntry request.valIdx valSet '155=16
+    // 163: assert (r.isFound) throw ERR_VALIDATOR_NOT_FOUND
     DICTUGET
     907 THROWIFNOT          	//  signature toSign request.newEntry cs
-    // 149: cs.skipBits(8 + 32)
+    // 168: cs.skipBits(8 + 32)
     40 LDU
     NIP                     	//  signature toSign request.newEntry cs
-    // 150: return cs.loadUint(256)
+    // 169: return cs.loadUint(256)
     256 PLDU                	//  signature toSign request.newEntry publicKey
-    // 174: var storage = Storage.fromCell(contract.getData())
-    c4 PUSH                 	//  signature toSign request.newEntry publicKey '166
+    // 193: var storage = Storage.fromCell(contract.getData())
+    c4 PUSH                 	//  signature toSign request.newEntry publicKey '169
     CTOS                    	//  signature toSign request.newEntry publicKey s
-    x{9bc722a8} SDBEGINSQ   	//  signature toSign request.newEntry publicKey s '170
+    x{9bc722a8} SDBEGINSQ   	//  signature toSign request.newEntry publicKey s '173
     63 THROWIFNOT           	//  signature toSign request.newEntry publicKey s
-    LDOPTREF                	//  signature toSign request.newEntry publicKey '173 s
-    32 LDU                  	//  signature toSign request.newEntry publicKey '173 '175 s
+    LDOPTREF                	//  signature toSign request.newEntry publicKey '176 s
+    32 LDU                  	//  signature toSign request.newEntry publicKey '176 '178 s
     ENDS                    	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno
     s2 s1 PUSH2
-    // 175: val r = storage.registry.get(publicKey)
-    8 PUSHPOW2              	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno publicKey storage.registry '182=256
+    // 194: val r = storage.registry.get(publicKey)
+    8 PUSHPOW2              	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno publicKey storage.registry '185=256
     DICTUGET NULLSWAPIFNOT  	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno r.rawSlice r.isFound
-    // 177: if (r.isFound)
+    // 196: if (r.isFound)
     IF:<{                   	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno s
-      // 1019: return TValue.fromSlice(self.rawSlice!
-      x{57766eec} SDBEGINSQ 	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno s '192
+      // 1022: return TValue.fromSlice(self.rawSlice!
+      x{57766eec} SDBEGINSQ 	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno s '195
       63 THROWIFNOT         	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno s
-      32 LDU                	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno '196 s
-      LDOPTREF              	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno '196 '197 s
-      NIP                   	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno '196 s
-      ENDS                  	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.allowUpdateAt
+      32 LDU                	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno '199 s
+      LDOPTREF              	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno '199 '200 s
+      ENDS                  	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.allowUpdateAt info.entry
     }>ELSE<{                	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno r.rawSlice
       DROP                  	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno
-      // 180: info = ValidatorInfo
-      0 PUSHINT             	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.allowUpdateAt=0
-    }>                      	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.allowUpdateAt
-    // 183: assert (blockchain.now() >= info.allowUpdateAt) throw ERR_TOO_EARLY_REQUEST
-    NOW                     	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.allowUpdateAt '201
-    LEQ                     	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno '202
-    908 THROWIFNOT          	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno
-    s4 s5 s2 XC2PU          	//  storage.lastCleanupKeyBlockSeqno storage.registry request.newEntry publicKey toSign signature publicKey
-    // 185: assert (isSignatureValid(toSign, signature, publicKey)) throw ERR_WRONG_SIGNATURE
-    CHKSIGNU                	//  storage.lastCleanupKeyBlockSeqno storage.registry request.newEntry publicKey '204
-    909 THROWIFNOT          	//  storage.lastCleanupKeyBlockSeqno storage.registry request.newEntry publicKey
-    OVER                    	//  storage.lastCleanupKeyBlockSeqno storage.registry request.newEntry publicKey request.newEntry
-    // 186: validateEntry(request.newEntry)
-    validateEntry() CALLDICT	//  storage.lastCleanupKeyBlockSeqno storage.registry request.newEntry publicKey
-    // 188: acceptExternalMessage()
-    ACCEPT                  	//  storage.lastCleanupKeyBlockSeqno storage.registry request.newEntry publicKey
-    // 189: info.allowUpdateAt = blockchain.now() + REQUEST_PERIOD
-    NOW                     	//  storage.lastCleanupKeyBlockSeqno storage.registry request.newEntry publicKey '205
-    120 ADDCONST            	//  storage.lastCleanupKeyBlockSeqno storage.registry info.entry publicKey info.allowUpdateAt
-    // 191: storage.registry.set(publicKey, info)
-    NEWC                    	//  storage.lastCleanupKeyBlockSeqno storage.registry info.entry publicKey info.allowUpdateAt '208
-    x{57766eec} STSLICECONST	//  storage.lastCleanupKeyBlockSeqno storage.registry info.entry publicKey info.allowUpdateAt '208
-    32 STU                  	//  storage.lastCleanupKeyBlockSeqno storage.registry info.entry publicKey '208
-    s1 s2 XCHG              	//  storage.lastCleanupKeyBlockSeqno storage.registry publicKey info.entry '208
-    STOPTREF                	//  storage.lastCleanupKeyBlockSeqno storage.registry publicKey '208
-    s0 s2 XCHG
-    8 PUSHPOW2              	//  storage.lastCleanupKeyBlockSeqno '208 publicKey storage.registry '217=256
+      // 199: info = ValidatorInfo
+      0 PUSHINT             	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno '203=0
+      PUSHNULL              	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.allowUpdateAt=0 info.entry
+    }>                      	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.allowUpdateAt info.entry
+    // 202: assert (blockchain.now() >= info.allowUpdateAt) throw ERR_TOO_EARLY_REQUEST
+    NOW
+    ROT                     	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.entry '208 info.allowUpdateAt
+    GEQ                     	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.entry '209
+    908 THROWIFNOT          	//  signature toSign request.newEntry publicKey storage.registry storage.lastCleanupKeyBlockSeqno info.entry
+    s5 s6 s3 XC2PU          	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry toSign signature publicKey
+    // 204: assert (isSignatureValid(toSign, signature, publicKey)) throw ERR_WRONG_SIGNATURE
+    CHKSIGNU                	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry '211
+    909 THROWIFNOT          	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry
+    // 206: acceptExternalMessage()
+    ACCEPT                  	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry
+    // 207: info.allowUpdateAt = blockchain.now() + REQUEST_PERIOD
+    NOW                     	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry '212
+    120 ADDCONST            	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry info.allowUpdateAt
+    // 208: storage.registry.set(publicKey, info)
+    NEWC                    	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry info.allowUpdateAt '215
+    x{57766eec} STSLICECONST	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry info.allowUpdateAt '215
+    OVER                    	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry info.allowUpdateAt '215 info.allowUpdateAt
+    32 STUR                 	//  info.entry storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry info.allowUpdateAt '215
+    s1 s6 XCHG              	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry info.entry '215
+    STOPTREF                	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry '215
+    s2 s1 PUXC
+    8 PUSHPOW2              	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey '215 publicKey storage.registry '224=256
+    DICTUSETB               	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry
+    // 209: contract.setData(storage.toCell())
+    NEWC                    	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry b
+    x{9bc722a8} STSLICECONST	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry b
+    s1 s(-1) PUXC           	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry storage.registry b
+    STOPTREF                	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry b
+    s4 PUSH                 	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry b storage.lastCleanupKeyBlockSeqno
+    32 STUR                 	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry b
+    ENDC                    	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry '230
+    c4 POP                  	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry
+    // 210: commitContractDataAndActions()
+    COMMIT                  	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry
+    s2 PUSH                 	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno request.newEntry publicKey storage.registry request.newEntry
+    // 212: validateEntry(request.newEntry)
+    validateEntry() CALLDICT	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno info.entry publicKey storage.registry
+    // 214: storage.registry.set(publicKey, info)
+    NEWC                    	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno info.entry publicKey storage.registry '231
+    x{57766eec} STSLICECONST	//  info.allowUpdateAt storage.lastCleanupKeyBlockSeqno info.entry publicKey storage.registry '231
+    s1 s5 XCHG              	//  storage.registry storage.lastCleanupKeyBlockSeqno info.entry publicKey info.allowUpdateAt '231
+    32 STU                  	//  storage.registry storage.lastCleanupKeyBlockSeqno info.entry publicKey '231
+    s1 s2 XCHG              	//  storage.registry storage.lastCleanupKeyBlockSeqno publicKey info.entry '231
+    STOPTREF                	//  storage.registry storage.lastCleanupKeyBlockSeqno publicKey '231
+    s0 s1 s3 XCHG3
+    8 PUSHPOW2              	//  storage.lastCleanupKeyBlockSeqno '231 publicKey storage.registry '240=256
     DICTUSETB               	//  storage.lastCleanupKeyBlockSeqno storage.registry
-    // 192: contract.setData(storage.toCell())
+    // 215: contract.setData(storage.toCell())
     NEWC                    	//  storage.lastCleanupKeyBlockSeqno storage.registry b
     x{9bc722a8} STSLICECONST	//  storage.lastCleanupKeyBlockSeqno storage.registry b
     STOPTREF                	//  storage.lastCleanupKeyBlockSeqno b
     32 STU                  	//  b
-    ENDC                    	//  '223
+    ENDC                    	//  '246
     c4 POP                  	// 
   }>
 }END>c
