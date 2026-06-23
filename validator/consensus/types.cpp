@@ -7,10 +7,10 @@
 #include "auto/tl/ton_api.hpp"
 #include "keys/encryptor.h"
 #include "td/utils/overloaded.h"
-#include "validator-session/candidate-serializer.h"
 
 #include "bus.h"
 #include "checksum.h"
+#include "payload.h"
 
 namespace ton::validator::consensus {
 

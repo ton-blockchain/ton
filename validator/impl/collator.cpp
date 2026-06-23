@@ -36,7 +36,6 @@
 #include "vm/db/StaticBagOfCellsDb.h"
 #include "vm/dict.h"
 
-#include "candidate-serializer.h"
 #include "collator-impl.h"
 #include "fabric.h"
 #include "storage-stat-cache.hpp"

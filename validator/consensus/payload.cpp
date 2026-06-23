@@ -22,7 +22,7 @@
 #include "vm/boc-compression.h"
 #include "vm/boc.h"
 
-#include "candidate-serializer.h"
+#include "payload.h"
 
 namespace ton::validatorsession {
 
