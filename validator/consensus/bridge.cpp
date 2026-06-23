@@ -180,20 +180,13 @@ class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
 class BridgeImpl final : public IValidatorGroup {
  public:
-  BridgeImpl(std::string name, GroupParams&& params)
-      : is_create_session_called_(params.is_create_session_called), name_(name), params_(std::move(params)) {
+  BridgeImpl(std::string name, GroupParams&& params) : name_(name), params_(std::move(params)) {
   }
 
   virtual void start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) override {
     CHECK(!is_start_called_);
     is_start_called_ = true;
     resolve_state_and_start(blocks, min_mc_block_id).start().detach();
-  }
-
-  virtual void create_session() override {
-    CHECK(!is_create_session_called_);
-    is_create_session_called_ = true;
-    maybe_start_group();
   }
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) override {
@@ -334,21 +327,11 @@ class BridgeImpl final : public IValidatorGroup {
   td::actor::Task<> resolve_state_and_start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) {
     auto state = co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id);
     start_event_ = std::make_shared<Start>(state);
-    maybe_start_group();
+    bus_.publish(start_event_);
     co_return {};
   }
 
-  void maybe_start_group() {
-    if (!bus_ || !is_create_session_called_ || !is_start_called_ || !start_event_ || is_started_) {
-      return;
-    }
-    is_started_ = true;
-    bus_.publish(start_event_);
-  }
-
   bool is_start_called_ = false;
-  bool is_create_session_called_ = false;
-  bool is_started_ = false;
 
   std::string name_;
   GroupParams params_;

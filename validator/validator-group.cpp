@@ -165,7 +165,6 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
 td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const SessionInfo &info,
                                                 const GroupIdentity &identity) {
   GroupParams params{
-      .is_create_session_called = true,
       .shard = info.shard,
       .manager = ctx.deps.manager,
       .keyring = ctx.deps.keyring,
