@@ -6359,7 +6359,7 @@ bool Collator::create_collated_data() {
  * @returns True if the block candidate was created successfully, false otherwise.
  */
 bool Collator::create_block_candidate() {
-  auto consensus_config = config_->get_consensus_config();
+  auto consensus_config = config_->get_new_consensus_config(workchain());
   // 1. serialize block
   LOG(INFO) << "serializing new Block";
   vm::BagOfCells boc;
