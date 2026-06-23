@@ -997,7 +997,7 @@ chan_data$_ config:^ChanConfig state:^ChanState = ChanData;
 //
 // VALIDATOR REGISTRY
 //
-val_registry_config#f0 contract_address:bits256 max_collators_per_validator:uint32 = ValRegistryConfig;
+val_registry_config#3601163e contract_address:bits256 max_collators_per_validator:uint32 new_code_hash:(Maybe uint256) = ValRegistryConfig;
 
 _ x:(## 1) = BitsPow2 0;
 _ {n:#} l:(BitsPow2 n) r:(BitsPow2 n) = BitsPow2 (n + 1);
@@ -1013,3 +1013,4 @@ val_registry_request_update#fbd82b02 last_key_block_seqno:uint32 val_set:uint8 v
     new_entry:(Maybe ^ValRegistryEntry) = ValRegistryRequest;
 
 val_registry_message_cleanup#32b85a9b = ValRegistryMessageCleanup;
+val_registry_message_update_code#34bdaa6c new_code:^Cell = ValRegistryMessageUpdateCode;
