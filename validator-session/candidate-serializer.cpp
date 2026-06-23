@@ -23,9 +23,10 @@
 #include "vm/boc.h"
 
 #include "candidate-serializer.h"
-#include "validator-session-types.h"
 
 namespace ton::validatorsession {
+
+constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_BENCHMARK) = verbosity_WARNING;
 
 namespace {
 constexpr const char* k_called_from_validator_session = "validator_session";

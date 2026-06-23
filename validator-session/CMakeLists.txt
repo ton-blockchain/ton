@@ -1,8 +1,6 @@
 add_library(validatorsession STATIC
   candidate-serializer.cpp
   candidate-serializer.h
-  validator-session-types.cpp
-  validator-session-types.h
 )
 
 target_include_directories(validatorsession PUBLIC

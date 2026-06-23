@@ -26,7 +26,6 @@
 #include "impl/out-msg-queue-proof.hpp"
 #include "td/actor/BackpressureQueue.h"
 #include "td/utils/logging.h"
-#include "validator-session/validator-session-types.h"
 #include "validator/validator.h"
 
 #include "block.h"
