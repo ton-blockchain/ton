@@ -1,37 +1,23 @@
 /*
-    This file is part of TON Blockchain Library.
+ * Copyright (c) 2024-2026, TON CORE TECHNOLOGIES CO. L.L.C
+ *
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
 
-    TON Blockchain Library is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Lesser General Public License as published by
-    the Free Software Foundation, either version 2 of the License, or
-    (at your option) any later version.
-
-    TON Blockchain Library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Lesser General Public License for more details.
-
-    You should have received a copy of the GNU Lesser General Public License
-    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-*/
 #pragma once
-#include <string>
 
 #include "auto/tl/ton_api.h"
-#include "ton/ton-types.h"
+#include "td/utils/Status.h"
 
-namespace ton::validatorsession {
+namespace ton::validator::consensus {
 
-td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::validatorSession_candidate>& block,
-                                                bool compression_enabled);
-td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candidate(td::Slice data,
-                                                                                     bool compression_enabled,
-                                                                                     int max_decompressed_data_size);
+namespace tl {
 
-td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, size_t& decompressed_size,
-                                                    std::string called_from, td::Bits256 root_hash);
-td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_data(
-    td::Slice compressed, bool improved_compression, int decompressed_size, int max_decompressed_size,
-    std::string called_from, td::Bits256 root_hash);
+using payload = ton_api::validatorSession_candidate;
 
-}  // namespace ton::validatorsession
+}
+
+td::Result<td::BufferSlice> serialize_payload(const tl_object_ptr<tl::payload>& payload);
+td::Result<tl_object_ptr<tl::payload>> deserialize_payload(td::Slice data, int max_decompressed_data_size);
+
+}  // namespace ton::validator::consensus

@@ -1,19 +1,9 @@
 /*
-    This file is part of TON Blockchain Library.
+ * Copyright (c) 2024-2026, TON CORE TECHNOLOGIES CO. L.L.C
+ *
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
 
-    TON Blockchain Library is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Lesser General Public License as published by
-    the Free Software Foundation, either version 2 of the License, or
-    (at your option) any later version.
-
-    TON Blockchain Library is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Lesser General Public License for more details.
-
-    You should have received a copy of the GNU Lesser General Public License
-    along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
-*/
 #include "auto/tl/ton_api.hpp"
 #include "td/utils/Time.h"
 #include "td/utils/lz4.h"
@@ -24,13 +14,13 @@
 
 #include "payload.h"
 
-namespace ton::validatorsession {
+namespace ton::validator::consensus {
+
+namespace {
 
 constexpr int VERBOSITY_NAME(VALIDATOR_SESSION_BENCHMARK) = verbosity_WARNING;
 
-namespace {
 constexpr const char* k_called_from_validator_session = "validator_session";
-}  // namespace
 
 td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice collated_data, size_t& decompressed_size,
                                                     std::string called_from, td::Bits256 root_hash) {
@@ -91,20 +81,9 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
   return std::make_pair(std::move(block_data), std::move(collated_data));
 }
 
-td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::validatorSession_candidate>& block,
-                                                bool compression_enabled) {
-  if (!compression_enabled) {
-    auto t_compression_start = td::Time::now();
-    auto res = serialize_tl_object(block, true);
-    VLOG(VALIDATOR_SESSION_BENCHMARK) << "Broadcast_benchmark serialize_candidate block_id="
-                                      << block->root_hash_.to_hex()
-                                      << " called_from=" << k_called_from_validator_session
-                                      << " time_sec=" << (td::Time::now() - t_compression_start)
-                                      << " compression=" << "none"
-                                      << " original_size=" << block->data_.size() + block->collated_data_.size()
-                                      << " compressed_size=" << block->data_.size() + block->collated_data_.size();
-    return res;
-  }
+}  // namespace
+
+td::Result<td::BufferSlice> serialize_payload(const tl_object_ptr<ton_api::validatorSession_candidate>& block) {
   size_t decompressed_size;
   TRY_RESULT(compressed, compress_candidate_data(block->data_, block->collated_data_, decompressed_size,
                                                  k_called_from_validator_session, block->root_hash_))
@@ -112,19 +91,8 @@ td::Result<td::BufferSlice> serialize_candidate(const tl_object_ptr<ton_api::val
       0, block->src_, block->round_, block->root_hash_, (int)decompressed_size, std::move(compressed));
 }
 
-td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candidate(td::Slice data,
-                                                                                     bool compression_enabled,
-                                                                                     int max_decompressed_data_size) {
-  if (!compression_enabled) {
-    auto t_decompression_start = td::Time::now();
-    TRY_RESULT(res, fetch_tl_object<ton_api::validatorSession_candidate>(data, true));
-    VLOG(VALIDATOR_SESSION_BENCHMARK) << "Broadcast_benchmark deserialize_candidate block_id="
-                                      << res->root_hash_.to_hex() << " called_from=" << k_called_from_validator_session
-                                      << " time_sec=" << (td::Time::now() - t_decompression_start)
-                                      << " compression=" << "none"
-                                      << " compressed_size=" << res->data_.size() + res->collated_data_.size();
-    return std::move(res);
-  }
+td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_payload(td::Slice data,
+                                                                                   int max_decompressed_data_size) {
   TRY_RESULT(f, fetch_tl_object<ton_api::validatorSession_Candidate>(data, true));
   td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> res;
   ton_api::downcast_call(
@@ -158,4 +126,4 @@ td::Result<tl_object_ptr<ton_api::validatorSession_candidate>> deserialize_candi
   return res;
 }
 
-}  // namespace ton::validatorsession
+}  // namespace ton::validator::consensus

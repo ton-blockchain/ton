@@ -148,9 +148,8 @@ td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, 
     auto slot = static_cast<td::uint32>(block_broadcast.slot_);
     TRY_STATUS(set_check_leader(slot));
 
-    TRY_RESULT(candidate, validatorsession::deserialize_candidate(
-                              block_broadcast.candidate_, true,
-                              bus.config.max_block_size + bus.config.max_collated_data_size + 1024));
+    TRY_RESULT(candidate, deserialize_payload(block_broadcast.candidate_,
+                                              bus.config.max_block_size + bus.config.max_collated_data_size + 1024));
 
     if (!candidate->src_.is_zero()) {
       return td::Status::Error("src field of the candidate broadcast must be null");
@@ -227,8 +226,7 @@ td::BufferSlice Candidate::serialize() const {
         candidate.collated_data.clone());
 
     return create_serialize_tl_object<tl::block>(id.slot, CandidateId::parent_id_to_tl(parent_id),
-                                                 validatorsession::serialize_candidate(candidate_tl, true).move_as_ok(),
-                                                 signature.clone());
+                                                 serialize_payload(candidate_tl).move_as_ok(), signature.clone());
   };
   return std::visit(td::overloaded(empty_fn, block_fn), block);
 }
