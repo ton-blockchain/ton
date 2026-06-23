@@ -264,21 +264,6 @@ struct ValidationStats {
   }
 };
 
-struct CollatorNodeResponseStats {
-  PublicKeyHash self = PublicKeyHash::zero();
-  PublicKeyHash validator_id = PublicKeyHash::zero();
-  double timestamp = -1.0;
-  BlockIdExt block_id, original_block_id;
-  td::Bits256 collated_data_hash = td::Bits256::zero();
-
-  tl_object_ptr<ton_api::validatorStats_collatorNodeResponse> tl() const {
-    return create_tl_object<ton_api::validatorStats_collatorNodeResponse>(
-        self.bits256_value(), validator_id.bits256_value(), timestamp, create_tl_block_id(block_id),
-        create_tl_block_id(original_block_id), collated_data_hash);
-    ;
-  }
-};
-
 using ExtMsgQueue = td::actor::BackpressureQueue<std::pair<td::Ref<ExtMessage>, int>>;
 
 struct ExtMsgCallback {
@@ -440,8 +425,6 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void log_collate_query_stats(CollationStats stats) {
   }
   virtual void log_validate_query_stats(ValidationStats stats) {
-  }
-  virtual void log_collator_node_response_stats(CollatorNodeResponseStats stats) {
   }
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;

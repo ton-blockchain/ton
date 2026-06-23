@@ -23,8 +23,6 @@
 
 #include "interfaces/validator-manager.h"
 
-#include "collation-manager.hpp"
-
 namespace ton {
 
 namespace validator {
@@ -54,7 +52,6 @@ struct GroupParams {
   td::Ref<block::ValidatorSet> validator_set;
   GroupIdentity identity;
 
-  td::actor::ActorId<CollationManager> collation_manager;
   NewConsensusConfig config;
 
   ValidatorSessionId session_id;

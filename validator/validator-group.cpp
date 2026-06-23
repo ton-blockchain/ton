@@ -172,7 +172,6 @@ td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const Sessio
       .validator_opts = ctx.deps.opts,
       .validator_set = info.validator_set,
       .identity = identity,
-      .collation_manager = {},
       .config = info.config,
       .session_id = info.session_id,
       .overlays = ctx.deps.overlays,

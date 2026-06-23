@@ -26,13 +26,9 @@ namespace {
 
 class ManagerFacadeImpl : public ManagerFacade {
  public:
-  ManagerFacadeImpl(td::actor::ActorId<ValidatorManager> manager,
-                    td::actor::ActorId<CollationManager> collation_manager, td::Ref<block::ValidatorSet> validator_set,
+  ManagerFacadeImpl(td::actor::ActorId<ValidatorManager> manager, td::Ref<block::ValidatorSet> validator_set,
                     td::Ref<ValidatorManagerOptions> opts)
-      : manager_(manager)
-      , collation_manager_(collation_manager)
-      , validator_set_(std::move(validator_set))
-      , opts_(std::move(opts)) {
+      : manager_(manager), validator_set_(std::move(validator_set)), opts_(std::move(opts)) {
   }
 
   td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
@@ -103,7 +99,6 @@ class ManagerFacadeImpl : public ManagerFacade {
 
  private:
   td::actor::ActorId<ValidatorManager> manager_;
-  td::actor::ActorId<CollationManager> collation_manager_;
   td::Ref<block::ValidatorSet> validator_set_;
   td::Ref<ValidatorManagerOptions> opts_;
 };
@@ -227,9 +222,8 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   void start_up() override {
-    manager_facade_ =
-        td::actor::create_actor<ManagerFacadeImpl>(name_ + ".ManagerFacade", params_.manager, params_.collation_manager,
-                                                   params_.validator_set, params_.validator_opts);
+    manager_facade_ = td::actor::create_actor<ManagerFacadeImpl>(name_ + ".ManagerFacade", params_.manager,
+                                                                 params_.validator_set, params_.validator_opts);
 
     auto bus = std::make_shared<simplex::Bus>();
 
