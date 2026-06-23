@@ -202,10 +202,14 @@ fun onExternalMessage(inMsg: slice) {
     assert (blockchain.now() >= info.allowUpdateAt) throw ERR_TOO_EARLY_REQUEST;
 
     assert (isSignatureValid(toSign, signature, publicKey)) throw ERR_WRONG_SIGNATURE;
-    validateEntry(request.newEntry);
 
     acceptExternalMessage();
     info.allowUpdateAt = blockchain.now() + REQUEST_PERIOD;
+    storage.registry.set(publicKey, info);
+    contract.setData(storage.toCell());
+    commitContractDataAndActions();
+
+    validateEntry(request.newEntry);
     info.entry = request.newEntry;
     storage.registry.set(publicKey, info);
     contract.setData(storage.toCell());
