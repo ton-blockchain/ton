@@ -1005,10 +1005,14 @@ chan_data$_ config:^ChanConfig state:^ChanState = ChanData;
 //
 val_registry_config#f0 contract_address:bits256 max_collators_per_validator:uint32 = ValRegistryConfig;
 
+_ x:(## 1) = BitsPow2 0;
+_ {n:#} l:(BitsPow2 n) r:(BitsPow2 n) = BitsPow2 (n + 1);
+val_registry_shard_set$_ n:(#<= 8) mask:(BitsPow2 n) = ValRegistryShardSet;
+
 val_registry_storage#9bc722a8 registry:(HashmapE 256 ValRegistryValidator) last_cleanup_key_block_seqno:uint32 = ValRegistryStorage;
 val_registry_validator#57766eec allow_update_at:uint32 entry:(Maybe ^ValRegistryEntry) = ValRegistryValidator;
-val_registry_entry#eae0b274 collators:(HashmapE 256 ValRegistryCollator) = ValRegistryEntry;
-val_registry_collator#10364494 = ValRegistryCollator;
+val_registry_entry#eae0b274 collators:(HashmapE 256 ValRegistryCollator) monitoring_shards:ValRegistryShardSet = ValRegistryEntry;
+val_registry_collator#10364494 monitoring_shards:ValRegistryShardSet = ValRegistryCollator;
 
 val_registry_message_request#cdb9d286 signature:(512 * Bit) request:ValRegistryRequest = ValRegistryMessageRequest;
 val_registry_request_update#fbd82b02 last_key_block_seqno:uint32 val_set:uint8 val_idx:uint16 valid_until:uint32

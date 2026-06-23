@@ -151,14 +151,16 @@ Ref<vm::Cell> ValidatorRegistryWatcher::make_entry_cell(Ref<MasterchainState> mc
   if (collators.empty()) {
     return {};
   }
+  auto monitoring_shards_all = vm::CellBuilder{}.store_long(0, 4).store_ones(1).as_cellslice_ref();
   vm::Dictionary collators_dict{256};
   for (const adnl::AdnlNodeIdShort& id : collators) {
     vm::CellBuilder cb;
-    CHECK(block::gen::t_ValRegistryCollator.pack_val_registry_collator(cb));
+    CHECK(block::gen::t_ValRegistryCollator.pack_val_registry_collator(cb, monitoring_shards_all));
     collators_dict.set_builder(id.bits256_value(), std::move(cb));
   }
   Ref<vm::Cell> result;
-  CHECK(block::gen::t_ValRegistryEntry.cell_pack_val_registry_entry(result, collators_dict.get_root()));
+  CHECK(block::gen::t_ValRegistryEntry.cell_pack_val_registry_entry(result, collators_dict.get_root(),
+                                                                    monitoring_shards_all));
   return result;
 }
 

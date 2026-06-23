@@ -3,7 +3,6 @@
     Each validator can modify its own registry entry using a signed external message.
  */
 import "@stdlib/gas-payments"
-import "@stdlib/reflection"
 
 const VAL_REGISTRY_CONFIG_PARAM = 46;
 const REQUEST_PERIOD = 120;
@@ -21,6 +20,7 @@ const ERR_MESSAGE_EXPIRED = 906;
 const ERR_VALIDATOR_NOT_FOUND = 907;
 const ERR_TOO_EARLY_REQUEST = 908;
 const ERR_WRONG_SIGNATURE = 909;
+const ERR_RANGE_ERROR = 910;
 
 contract ValidatorRegistry {
     storage: Storage
@@ -37,10 +37,12 @@ struct (0x57766eec) ValidatorInfo {
 }
 
 struct (0xeae0b274) Entry {
-    collators: map<uint256, Collator>
+    collators: map<uint256, Collator>,
+    monitoringShards: ShardSet
 }
 
 struct (0x10364494) Collator {
+    monitoringShards: ShardSet
 }
 
 struct (0xfbd82b02) RequestUpdate {
@@ -49,6 +51,23 @@ struct (0xfbd82b02) RequestUpdate {
     valIdx: uint16,
     validUntil: uint32,
     newEntry: Cell<Entry>?
+}
+
+struct ShardSet {
+    // val_registry_shard_set$_ n:(#<= 8) mask:(BitsPow2 n) = ValRegistryShardSet;
+    n: uint8,
+    mask: int
+}
+
+fun ShardSet.packToBuilder(self, mutate b: builder) {
+    b.storeUint(self.n, 4).storeUint(self.mask, 1 << self.n);
+}
+
+fun ShardSet.unpackFromSlice(mutate s: slice) {
+    val n = s.loadUint(4);
+    assert (n <= 8) throw ERR_RANGE_ERROR;
+    val mask = s.loadUint(1 << n);
+    return ShardSet{n, mask};
 }
 
 @pure
