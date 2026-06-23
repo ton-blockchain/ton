@@ -23,7 +23,6 @@
 #include <queue>
 #include <set>
 
-#include "collator-node/collator-node.hpp"
 #include "common/refcnt.hpp"
 #include "db/db-event-publisher.hpp"
 #include "impl/ext-message-pool.hpp"
@@ -748,7 +747,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void log_collate_query_stats(CollationStats stats) override;
   void log_validate_query_stats(ValidationStats stats) override;
-  void log_collator_node_response_stats(CollatorNodeResponseStats stats) override;
 
   void register_stats_provider(
       td::uint64 idx, std::string prefix,
@@ -760,14 +758,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void add_shard_block_retainer(adnl::AdnlNodeIdShort id) override;
 
   void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) override;
-
-  struct Collator {
-    td::actor::ActorOwn<CollatorNode> actor;
-    std::set<ShardIdFull> shards;
-
-    bool can_collate_shard(ShardIdFull shard) const;
-  };
-  std::map<adnl::AdnlNodeIdShort, Collator> collator_nodes_;
 
   std::map<BlockSeqno, td::Ref<PersistentStateDescription>> persistent_state_descriptions_;
   std::map<BlockIdExt, td::Ref<PersistentStateDescription>> persistent_state_blocks_;

@@ -60,10 +60,6 @@ set(VALIDATOR_HEADERS
   shard-block-verifier.hpp
   shard-block-retainer.hpp
 
-  collation-manager.hpp
-  collator-node/collator-node.hpp
-  collator-node/collator-node-session.hpp
-  collator-node/utils.hpp
   manager-disk.h
   manager-disk.hpp
   manager-init.h
@@ -77,10 +73,6 @@ set(VALIDATOR_HEADERS
   validator.h
 )
 set(VALIDATOR_SOURCE
-  collation-manager.cpp
-  collator-node/collator-node.cpp
-  collator-node/collator-node-session.cpp
-  collator-node/utils.cpp
   downloaders/wait-block-data.cpp
   get-next-key-blocks.cpp
   import-db-slice.cpp
@@ -114,6 +106,7 @@ set(VALIDATOR_SOURCE
   consensus/bridge.cpp
   consensus/bus.cpp
   consensus/chain-state.cpp
+  consensus/payload.cpp
   consensus/private-overlay.cpp
   consensus/trace-collector.cpp
   consensus/stats.cpp
@@ -166,7 +159,7 @@ set(FULL_NODE_SOURCE
 
 add_library(validator-db OBJECT ${VALIDATOR_DB_SOURCE})
 target_include_directories(validator-db PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
-target_link_libraries(validator-db PUBLIC tdactor adnl tl_api dht tdfec overlay validatorsession ton_db)
+target_link_libraries(validator-db PUBLIC tdactor adnl tl_api dht tdfec overlay ton_db)
 
 add_library(validator-common OBJECT
   downloaders/download-state.cpp
@@ -236,4 +229,4 @@ target_link_libraries(validator-disk PRIVATE validator-common validator-db)
 
 target_link_libraries(validator-hardfork PRIVATE validator-common validator-db)
 
-target_link_libraries(full-node PRIVATE tdactor adnl rldp2 tl_api dht tdfec overlay validatorsession ton_db)
+target_link_libraries(full-node PRIVATE tdactor adnl rldp2 tl_api dht tdfec overlay ton_db)

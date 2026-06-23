@@ -23,8 +23,6 @@
 
 #include "interfaces/validator-manager.h"
 
-#include "collation-manager.hpp"
-
 namespace ton {
 
 namespace validator {
@@ -44,8 +42,6 @@ struct GroupIdentity {
 };
 
 struct GroupParams {
-  bool is_create_session_called;
-
   ShardIdFull shard;
   td::actor::ActorId<ValidatorManager> manager;
   td::actor::ActorId<keyring::Keyring> keyring;
@@ -54,7 +50,6 @@ struct GroupParams {
   td::Ref<block::ValidatorSet> validator_set;
   GroupIdentity identity;
 
-  td::actor::ActorId<CollationManager> collation_manager;
   NewConsensusConfig config;
 
   ValidatorSessionId session_id;
@@ -70,7 +65,6 @@ class IValidatorGroup : public td::actor::Actor {
   static td::actor::ActorOwn<IValidatorGroup> create_bridge(td::Slice name, GroupParams params);
 
   virtual void start(std::vector<BlockIdExt> prev, BlockIdExt min_masterchain_block_id) = 0;
-  virtual void create_session() = 0;
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) = 0;
 

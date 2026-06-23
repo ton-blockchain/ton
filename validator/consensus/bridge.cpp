@@ -26,13 +26,9 @@ namespace {
 
 class ManagerFacadeImpl : public ManagerFacade {
  public:
-  ManagerFacadeImpl(td::actor::ActorId<ValidatorManager> manager,
-                    td::actor::ActorId<CollationManager> collation_manager, td::Ref<block::ValidatorSet> validator_set,
+  ManagerFacadeImpl(td::actor::ActorId<ValidatorManager> manager, td::Ref<block::ValidatorSet> validator_set,
                     td::Ref<ValidatorManagerOptions> opts)
-      : manager_(manager)
-      , collation_manager_(collation_manager)
-      , validator_set_(std::move(validator_set))
-      , opts_(std::move(opts)) {
+      : manager_(manager), validator_set_(std::move(validator_set)), opts_(std::move(opts)) {
   }
 
   td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
@@ -103,7 +99,6 @@ class ManagerFacadeImpl : public ManagerFacade {
 
  private:
   td::actor::ActorId<ValidatorManager> manager_;
-  td::actor::ActorId<CollationManager> collation_manager_;
   td::Ref<block::ValidatorSet> validator_set_;
   td::Ref<ValidatorManagerOptions> opts_;
 };
@@ -185,20 +180,13 @@ class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
 class BridgeImpl final : public IValidatorGroup {
  public:
-  BridgeImpl(std::string name, GroupParams&& params)
-      : is_create_session_called_(params.is_create_session_called), name_(name), params_(std::move(params)) {
+  BridgeImpl(std::string name, GroupParams&& params) : name_(name), params_(std::move(params)) {
   }
 
   virtual void start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) override {
     CHECK(!is_start_called_);
     is_start_called_ = true;
     resolve_state_and_start(blocks, min_mc_block_id).start().detach();
-  }
-
-  virtual void create_session() override {
-    CHECK(!is_create_session_called_);
-    is_create_session_called_ = true;
-    maybe_start_group();
   }
 
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts, bool apply_blocks) override {
@@ -227,9 +215,8 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   void start_up() override {
-    manager_facade_ =
-        td::actor::create_actor<ManagerFacadeImpl>(name_ + ".ManagerFacade", params_.manager, params_.collation_manager,
-                                                   params_.validator_set, params_.validator_opts);
+    manager_facade_ = td::actor::create_actor<ManagerFacadeImpl>(name_ + ".ManagerFacade", params_.manager,
+                                                                 params_.validator_set, params_.validator_opts);
 
     auto bus = std::make_shared<simplex::Bus>();
 
@@ -340,21 +327,11 @@ class BridgeImpl final : public IValidatorGroup {
   td::actor::Task<> resolve_state_and_start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) {
     auto state = co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id);
     start_event_ = std::make_shared<Start>(state);
-    maybe_start_group();
+    bus_.publish(start_event_);
     co_return {};
   }
 
-  void maybe_start_group() {
-    if (!bus_ || !is_create_session_called_ || !is_start_called_ || !start_event_ || is_started_) {
-      return;
-    }
-    is_started_ = true;
-    bus_.publish(start_event_);
-  }
-
   bool is_start_called_ = false;
-  bool is_create_session_called_ = false;
-  bool is_started_ = false;
 
   std::string name_;
   GroupParams params_;

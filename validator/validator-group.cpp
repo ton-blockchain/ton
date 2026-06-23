@@ -140,10 +140,7 @@ ValidatorSessionId session_id_for(const Context &ctx, ShardIdFull shard, const t
 }
 
 SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set) {
-  auto config = ctx.state.get_new_consensus_config(shard.workchain).value_force();
-  auto old_config = ctx.state.get_consensus_config();
-  config.max_block_size = old_config.max_block_size;
-  config.max_collated_data_size = old_config.max_collated_data_size;
+  auto config = ctx.state.get_new_consensus_config(shard.workchain);
 
   std::vector<GroupIdentity> identities;
   for (auto &identity : identities_for(ctx, validator_set, config)) {
@@ -165,14 +162,12 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
 td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const SessionInfo &info,
                                                 const GroupIdentity &identity) {
   GroupParams params{
-      .is_create_session_called = true,
       .shard = info.shard,
       .manager = ctx.deps.manager,
       .keyring = ctx.deps.keyring,
       .validator_opts = ctx.deps.opts,
       .validator_set = info.validator_set,
       .identity = identity,
-      .collation_manager = {},
       .config = info.config,
       .session_id = info.session_id,
       .overlays = ctx.deps.overlays,

@@ -36,7 +36,6 @@
 #include "vm/db/StaticBagOfCellsDb.h"
 #include "vm/dict.h"
 
-#include "candidate-serializer.h"
 #include "collator-impl.h"
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
@@ -6360,7 +6359,7 @@ bool Collator::create_collated_data() {
  * @returns True if the block candidate was created successfully, false otherwise.
  */
 bool Collator::create_block_candidate() {
-  auto consensus_config = config_->get_consensus_config();
+  auto consensus_config = config_->get_new_consensus_config(workchain());
   // 1. serialize block
   LOG(INFO) << "serializing new Block";
   vm::BagOfCells boc;

@@ -311,31 +311,6 @@ td::Status Config::visit_validator_params() const {
   return td::Status::OK();
 }
 
-ton::ValidatorSessionConfig Config::get_consensus_config() const {
-  auto cc = get_config_param(29);
-  ton::ValidatorSessionConfig c;
-  auto set = [&](auto& r) {
-    c.max_block_size = r.max_block_bytes;
-    c.max_collated_data_size = r.max_collated_bytes;
-  };
-  if (cc.not_null()) {
-    block::gen::ConsensusConfig::Record_consensus_config_v4 r4;
-    block::gen::ConsensusConfig::Record_consensus_config_v3 r3;
-    block::gen::ConsensusConfig::Record_consensus_config_new r2;
-    block::gen::ConsensusConfig::Record_consensus_config r1;
-    if (tlb::unpack_cell(cc, r4)) {
-      set(r4);
-    } else if (tlb::unpack_cell(cc, r3)) {
-      set(r3);
-    } else if (tlb::unpack_cell(cc, r2)) {
-      set(r2);
-    } else if (tlb::unpack_cell(cc, r1)) {
-      set(r1);
-    }
-  }
-  return c;
-}
-
 namespace {
 
 template <typename Base, td::uint32(Base::* where)>
@@ -356,45 +331,51 @@ void store_double(Base& base, td::uint32 value) {
   base.*where = fvalue;
 }
 
+void read_block_limits(ton::NewConsensusConfig& config, Ref<vm::Cell> cc) {
+  auto set = [&](auto& r) {
+    config.max_block_size = r.max_block_bytes;
+    config.max_collated_data_size = r.max_collated_bytes;
+  };
+  block::gen::ConsensusConfig::Record_consensus_config_v4 r4;
+  block::gen::ConsensusConfig::Record_consensus_config_v3 r3;
+  block::gen::ConsensusConfig::Record_consensus_config_new r2;
+  block::gen::ConsensusConfig::Record_consensus_config r1;
+  if (tlb::unpack_cell(cc, r4)) {
+    set(r4);
+  } else if (tlb::unpack_cell(cc, r3)) {
+    set(r3);
+  } else if (tlb::unpack_cell(cc, r2)) {
+    set(r2);
+  } else if (tlb::unpack_cell(cc, r1)) {
+    set(r1);
+  }
+}
+
 }  // namespace
 
-td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::WorkchainId wc) const {
+ton::NewConsensusConfig Config::get_new_consensus_config(ton::WorkchainId wc) const {
+  ton::NewConsensusConfig config;
+
+  if (auto cc = get_config_param(29); cc.not_null()) {
+    read_block_limits(config, cc);
+  }
+
   auto c1 = get_config_param(30);
   if (c1.is_null()) {
-    return {};
+    return config;
   }
   gen::NewConsensusConfigAll::Record rec;
   if (!gen::unpack_cell(c1, rec)) {
-    return {};
+    return config;
   }
   auto c2 = (wc == ton::masterchainId ? rec.mc : rec.shard)->prefetch_ref();
   if (c2.is_null()) {
-    return {};
+    return config;
   }
-  auto consensus_config = get_consensus_config();
 
-  if (gen::NewConsensusConfig::Record_simplex_config v1; gen::unpack_cell(c2, v1)) {
-    return ton::NewConsensusConfig{
-        .max_block_size = consensus_config.max_block_size,
-        .max_collated_data_size = consensus_config.max_collated_data_size,
-
-        .slots_per_leader_window = v1.slots_per_leader_window,
-
-        .noncritical_params =
-            {
-                .target_rate{v1.target_rate_ms},
-                .first_block_timeout{v1.first_block_timeout_ms},
-                .max_leader_window_desync = v1.max_leader_window_desync,
-            },
-    };
-  } else if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
-    ton::NewConsensusConfig config{
-        .max_block_size = consensus_config.max_block_size,
-        .max_collated_data_size = consensus_config.max_collated_data_size,
-
-        .protocol_version = v2.protocol_version,
-        .slots_per_leader_window = v2.slots_per_leader_window,
-    };
+  if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
+    config.protocol_version = v2.protocol_version;
+    config.slots_per_leader_window = v2.slots_per_leader_window;
 
     using NoncriticalParams = ton::NewConsensusConfig::NoncriticalParams;
 
@@ -415,11 +396,9 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
         store_func(config.noncritical_params, val);
       }
     }
-
-    return config;
   }
 
-  return {};
+  return config;
 }
 
 bool Config::foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const {

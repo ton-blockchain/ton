@@ -134,10 +134,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   ZeroStateIdExt get_zerostate_id() const {
     return zerostate_id_;
   }
-  ValidatorSessionConfig get_consensus_config() const override {
-    return config_->get_consensus_config();
-  }
-  td::optional<ton::NewConsensusConfig> get_new_consensus_config(WorkchainId wc) const override {
+  NewConsensusConfig get_new_consensus_config(WorkchainId wc) const override {
     return config_->get_new_consensus_config(wc);
   }
   block::SizeLimitsConfig::ExtMsgLimits get_ext_msg_limits() const override {
