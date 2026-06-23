@@ -6015,6 +6015,7 @@ int main(int argc, char *argv[]) {
             [&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_broadcast_speed_multiplier_fast_sync, v); });
         return td::Status::OK();
       });
+  p.add_option('\0', "broadcast-speed-catchain", "deprecated", [&](td::Slice) {});
   p.add_option(
       '\0', "permanent-celldb",
       "disable garbage collection in CellDb. This improves performance on archival nodes (once enabled, this option "
