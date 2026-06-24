@@ -63,6 +63,11 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
         authorized_keys.emplace(peer.short_id, max_broadcast_size);
       }
     }
+    if (bus.config.enable_collators()) {
+      for (const auto& peer : bus.all_overlay_nodes) {
+        authorized_keys.emplace(peer.pubkey_hash(), max_broadcast_size);
+      }
+    }
 
     td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_adnl_id_);
 
@@ -77,7 +82,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     options.send_twostep_broadcast_ = true;
     options.allow_old_broadcasts_ = false;
 
-    overlay_nodes_ = bus.all_validators;
+    overlay_nodes_ = bus.all_overlay_nodes;
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_adnl_id_,
                             std::move(overlay_full_id), overlay_nodes_, make_callback(),
                             overlay::OverlayPrivacyRules{0, 0, std::move(authorized_keys)},

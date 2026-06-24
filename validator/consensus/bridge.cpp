@@ -252,7 +252,8 @@ class BridgeImpl final : public IValidatorGroup {
     bus->manager = manager_facade_.get();
     bus->keyring = params_.keyring;
     bus->validator_opts = params_.validator_opts;
-    bus->all_validators = params_.all_validators;
+    bus->all_overlay_nodes = params_.all_overlay_nodes;
+    bus->is_collator = params_.identity.is_collator;
 
     bool found = false;
     size_t idx = 0;

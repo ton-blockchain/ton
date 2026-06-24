@@ -314,7 +314,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
 
     co_await try_load_candidate_data_from_db(id, state);
 
-    if (bus.all_validators.size() == 1) {
+    if (bus.all_overlay_nodes.size() == 1) {
       CHECK(state.candidate_and_cert.is_complete());
       co_return {};
     }

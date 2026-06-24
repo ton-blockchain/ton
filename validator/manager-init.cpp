@@ -321,6 +321,7 @@ void ValidatorManagerMasterchainReiniter::finish() {
       .gc_state = state_,
       .last_key_block_handle_ = handle_,
       .start_groups_from_seqno = start_seqno,
+      .previous_rotation = state_,
   });
   LOG(INFO) << "persistent state download finished";
   stop();
@@ -381,6 +382,7 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
             state_->get_block_id().seqno() < opts_->get_last_fork_masterchain_seqno())
       << "block_id=" << state_->get_block_id() << " init_block_id=" << opts_->init_block_id()
       << " last_hardfork_seqno=" << opts_->get_last_fork_masterchain_seqno();
+  CHECK(state_->rotated_all_shards());
 
   auto r_gc_block_id = co_await td::actor::ask(db_, &Db::get_gc_masterchain_block).wrap();
   BlockIdExt gc_block_id;
@@ -471,6 +473,8 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
   }
   LOG(INFO) << "Last key block is " << last_key_block_handle->id();
   auto start_seqno = std::max<BlockSeqno>(sync_handle->id().seqno(), opts_->get_last_fork_masterchain_seqno());
+  auto previous_rotation = co_await get_prev_rotated_all_shards(handle_, state_);
+  LOG(INFO) << "Previous rotated_all_shards seqno is " << previous_rotation->get_seqno();
   co_return ValidatorManagerInitResult{
       .handle = handle_,
       .state = state_,
@@ -479,6 +483,7 @@ td::actor::Task<ValidatorManagerInitResult> ValidatorManagerMasterchainStarter::
       .gc_state = gc_state,
       .last_key_block_handle_ = last_key_block_handle,
       .start_groups_from_seqno = start_seqno,
+      .previous_rotation = previous_rotation,
   };
 }
 
@@ -497,6 +502,22 @@ td::actor::Task<> ValidatorManagerMasterchainStarter::get_latest_applied_block()
         co_await td::actor::ask(manager_, &ValidatorManager::get_shard_state_from_db, handle_)};
   }
   co_return {};
+}
+
+td::actor::Task<Ref<MasterchainState>> ValidatorManagerMasterchainStarter::get_prev_rotated_all_shards(
+    BlockHandle handle, Ref<MasterchainState> state) {
+  if (state->get_seqno() == 0) {
+    co_return state;
+  }
+  do {
+    CHECK(handle->inited_prev());
+    handle = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, handle->one_prev(true), false);
+    CHECK(handle->received_state());
+    CHECK(!handle->deleted_state_boc());
+    state =
+        Ref<MasterchainState>(co_await td::actor::ask(manager_, &ValidatorManager::get_shard_state_from_db, handle));
+  } while (state->get_seqno() > 0 && !state->rotated_all_shards());
+  co_return state;
 }
 
 td::actor::Task<> ValidatorManagerMasterchainStarter::truncate(BlockSeqno truncate_seqno) {
