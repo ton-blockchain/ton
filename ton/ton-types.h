@@ -512,6 +512,10 @@ struct NewConsensusConfig {
     return protocol_version >= 3;
   }
 
+  bool enable_collators() const {
+    return protocol_version >= 3;
+  }
+
   // When adding a new noncritical parameters, also add it to consensus.simplex.noncriticalParams TL scheme
   // clang-format off
 #define ENUMERATE_NONCRITICAL_PARAMS(uint32_fn, double_fn, duration_fn) \

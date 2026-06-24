@@ -708,6 +708,7 @@ class ValidatorManagerImpl : public ValidatorManager {
  private:
   std::set<PublicKeyHash> validator_keys_;
   std::map<PublicKeyHash, td::actor::ActorOwn<ValidatorRegistryWatcher>> validator_registry_watchers_;
+  std::set<adnl::AdnlNodeIdShort> local_collator_adnl_ids_;
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;

@@ -79,6 +79,17 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
     overlay_nodes_ = bus.all_validators;
 
+    if (bus.config.enable_collators()) {
+      for (const auto& peer : bus.validator_set) {
+        for (const auto& collator : bus.collators_by_validator.at(peer.short_id)) {
+          overlay_nodes_.push_back(collator);
+          authorized_keys.emplace(collator.pubkey_hash(), max_broadcast_size);
+        }
+      }
+      std::sort(overlay_nodes_.begin(), overlay_nodes_.end());
+      overlay_nodes_.erase(std::unique(overlay_nodes_.begin(), overlay_nodes_.end()), overlay_nodes_.end());
+    }
+
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_adnl_id_,
                             std::move(overlay_full_id), overlay_nodes_, make_callback(),
                             overlay::OverlayPrivacyRules{0, 0, std::move(authorized_keys)},

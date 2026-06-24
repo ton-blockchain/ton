@@ -200,7 +200,10 @@ class Bus : public td::actor::Bus {
   std::optional<PeerValidator> local_id;
 
   adnl::AdnlNodeIdShort local_adnl_id;
+  bool is_collator = false;
+
   std::vector<adnl::AdnlNodeIdShort> all_validators;
+  std::map<PublicKeyHash, std::vector<adnl::AdnlNodeIdShort>> collators_by_validator;
 
   NewConsensusConfig config;
 
