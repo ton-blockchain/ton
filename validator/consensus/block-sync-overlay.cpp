@@ -43,8 +43,13 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     std::map<PublicKeyHash, td::uint32> authorized_keys;
     td::uint32 max_broadcast_size = bus.config.max_block_size + bus.config.max_collated_data_size + (1 << 20);
     for (const auto& peer : bus.validator_set) {
-      adnl_pubkey_to_peer_[peer.adnl_id.pubkey_hash()] = peer;
+      broadcast_src_to_peer_[peer.adnl_id.pubkey_hash()] = peer;
       authorized_keys.emplace(peer.adnl_id.pubkey_hash(), max_broadcast_size);
+      if (auto it = bus.collators_by_validator.find(peer.short_id); it != bus.collators_by_validator.end()) {
+        for (const adnl::AdnlNodeIdShort& collator_id : it->second) {
+          authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size);
+        }
+      }
     }
 
     td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_adnl_id_);
@@ -61,7 +66,7 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     options.allow_old_broadcasts_ = false;
 
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_adnl_id_,
-                            std::move(overlay_full_id), bus.all_validators, make_callback(),
+                            std::move(overlay_full_id), bus.all_overlay_nodes, make_callback(),
                             overlay::OverlayPrivacyRules{0, 0, std::move(authorized_keys)},
                             PSTRING() << R"({ "type": "blocksync", "shard": ")" << bus.shard << R"(", "cc_seqno": )"
                                       << bus.cc_seqno << R"( })",
@@ -120,8 +125,8 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     auto parsed_extra = fetch_tl_object<tl::broadcastExtra>(extra, true).move_as_ok();
 
     auto& bus = *owning_bus();
-    auto it = adnl_pubkey_to_peer_.find(src);
-    if (it == adnl_pubkey_to_peer_.end()) {
+    auto it = broadcast_src_to_peer_.find(src);
+    if (it == broadcast_src_to_peer_.end()) {
       LOG(WARNING) << "Block sync overlay broadcast from non-validator " << src;
       return;
     }
@@ -143,8 +148,8 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     }
 
     auto& bus = *owning_bus();
-    auto it = adnl_pubkey_to_peer_.find(src);
-    if (it == adnl_pubkey_to_peer_.end()) {
+    auto it = broadcast_src_to_peer_.find(src);
+    if (it == broadcast_src_to_peer_.end()) {
       co_return td::Status::Error("Precheck failed: Broadcast is not from a validator of the current group");
     }
     td::uint32 slot = parsed_extra.move_as_ok()->slot_;
@@ -161,7 +166,7 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender_;
   overlay::OverlayIdShort overlay_id_;
   adnl::AdnlNodeIdShort local_adnl_id_;
-  std::map<PublicKeyHash, PeerValidator> adnl_pubkey_to_peer_;
+  std::map<PublicKeyHash, PeerValidator> broadcast_src_to_peer_;
 };
 
 }  // namespace

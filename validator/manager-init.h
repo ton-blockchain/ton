@@ -38,6 +38,7 @@ struct ValidatorManagerInitResult {
   BlockHandle last_key_block_handle_;
 
   BlockSeqno start_groups_from_seqno;
+  td::Ref<MasterchainState> previous_rotation;
 };
 
 void validator_manager_init(td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager,

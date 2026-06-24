@@ -186,7 +186,7 @@ td::actor::Task<> ValidatorRegistryWatcher::send_external_message(StdSmcAddress 
   co_return {};
 }
 
-std::vector<adnl::AdnlNodeIdShort> ValidatorRegistryWatcher::get_all_collators(Ref<MasterchainState> mc_state) {
+CollatorsByValidator ValidatorRegistryWatcher::get_collators_by_validator(Ref<MasterchainState> mc_state) {
   block::ValidatorRegistryConfig config;
   auto r_data = get_contract_data(mc_state, config);
   if (r_data.is_error()) {
@@ -195,11 +195,32 @@ std::vector<adnl::AdnlNodeIdShort> ValidatorRegistryWatcher::get_all_collators(R
   }
   auto contract_data = r_data.move_as_ok();
 
-  std::set<adnl::AdnlNodeIdShort> collators;
+  std::set<adnl::AdnlNodeIdShort> validator_adnl_ids;
   for (int next : {-1, 0, 1}) {
     auto val_set = mc_state->get_total_validator_set(next);
     if (val_set.not_null()) {
       for (auto& val : val_set->export_vector()) {
+        adnl::AdnlNodeIdShort adnl_id;
+        if (val.addr.is_zero()) {
+          adnl_id = adnl::AdnlNodeIdShort{PublicKey{pubkeys::Ed25519{val.key}}.compute_short_id()};
+        } else {
+          adnl_id = adnl::AdnlNodeIdShort{val.addr};
+        }
+        validator_adnl_ids.insert(adnl_id);
+      }
+    }
+  }
+
+  CollatorsByValidator collators_by_validator;
+  std::set<PublicKeyHash> visited;
+  for (int next : {-1, 0, 1}) {
+    auto val_set = mc_state->get_total_validator_set(next);
+    if (val_set.not_null()) {
+      for (auto& val : val_set->export_vector()) {
+        PublicKeyHash key = PublicKey{pubkeys::Ed25519{val.key}}.compute_short_id();
+        if (!visited.insert(key).second) {
+          continue;
+        }
         auto r_entry = get_validator_entry(contract_data, val.key.as_bits256(), config);
         if (r_entry.is_error()) {
           LOG(WARNING) << "Get collators from validator registry: failed to get entry for pubkey "
@@ -207,14 +228,15 @@ std::vector<adnl::AdnlNodeIdShort> ValidatorRegistryWatcher::get_all_collators(R
           continue;
         }
         auto entry = r_entry.move_as_ok();
-        collators.insert(entry.collators.begin(), entry.collators.end());
+        std::erase_if(entry.collators,
+                      [&](const adnl::AdnlNodeIdShort& id) { return validator_adnl_ids.contains(id); });
+        if (!entry.collators.empty()) {
+          collators_by_validator[key] = std::move(entry.collators);
+        }
       }
     }
   }
-
-  LOG(DEBUG) << "Get collators from validator registry: got " << collators.size()
-             << " collators from contract -1:" << config.contract_address.to_hex();
-  return std::vector<adnl::AdnlNodeIdShort>{collators.begin(), collators.end()};
+  return collators_by_validator;
 }
 
 td::Result<Ref<vm::Cell>> ValidatorRegistryWatcher::get_contract_data(Ref<MasterchainState> mc_state,

@@ -15,6 +15,7 @@
 #include "chain-state.h"
 #include "manager-facade.h"
 #include "types.h"
+#include "validator-registry-watcher.hpp"
 
 namespace ton::validator::consensus {
 
@@ -200,7 +201,9 @@ class Bus : public td::actor::Bus {
   std::optional<PeerValidator> local_id;
 
   adnl::AdnlNodeIdShort local_adnl_id;
-  std::vector<adnl::AdnlNodeIdShort> all_validators;
+  std::vector<adnl::AdnlNodeIdShort> all_overlay_nodes;
+  bool is_collator = false;
+  CollatorsByValidator collators_by_validator;
 
   NewConsensusConfig config;
 

@@ -21,6 +21,7 @@
 #include "ton/ton-types.h"
 
 #include "validator-group.hpp"
+#include "validator-registry-watcher.hpp"
 
 namespace ton::validator {
 
@@ -55,7 +56,8 @@ struct OverlayMembers {
   std::set<adnl::AdnlNodeIdShort> local;
 };
 
-OverlayMembers overlay_members_of(const MasterchainState &state, const std::set<PublicKeyHash> &validator_keys) {
+OverlayMembers overlay_members_of(const MasterchainState &state, const ManagerContext &deps,
+                                  const CollatorsByValidator &collators_by_validator) {
   OverlayMembers members;
 
   for (int i = -1; i <= 1; ++i) {
@@ -67,8 +69,16 @@ OverlayMembers overlay_members_of(const MasterchainState &state, const std::set<
       PublicKeyHash key_hash = ValidatorFullId{val.key}.compute_short_id();
       adnl::AdnlNodeIdShort adnl_id{val.addr.is_zero() ? key_hash.bits256_value() : val.addr};
       members.all.push_back(adnl_id);
-      if (validator_keys.contains(key_hash)) {
+      if (deps.validator_keys.contains(key_hash)) {
         members.local.insert(adnl_id);
+      }
+    }
+  }
+  for (const auto &[_, collators] : collators_by_validator) {
+    for (const auto &collator_id : collators) {
+      members.all.push_back(collator_id);
+      if (deps.local_collator_adnl_ids.contains(collator_id)) {
+        members.local.insert(collator_id);
       }
     }
   }
@@ -85,19 +95,20 @@ struct Context {
   OverlayMembers overlay_members;
   td::uint32 unsafe_rotate_id = 0;
   bool should_manage_groups = false;
+  CollatorsByValidator collators_by_validator = {};
 };
 
 std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<block::ValidatorSet> &val_set,
                                           const NewConsensusConfig &config) {
   std::vector<GroupIdentity> identities;
-  std::set<adnl::AdnlNodeIdShort> group_validator_adnl_ids;
+  std::set<adnl::AdnlNodeIdShort> added_adnl_ids;
 
   for (auto key : ctx.deps.validator_keys) {
     if (auto validator = val_set->get_validator(key.bits256_value())) {
       PublicKeyHash key_hash = ValidatorFullId{validator->key}.compute_short_id();
       adnl::AdnlNodeIdShort adnl_id{validator->addr.is_zero() ? key_hash.bits256_value() : validator->addr};
 
-      group_validator_adnl_ids.insert(adnl_id);
+      added_adnl_ids.insert(adnl_id);
       identities.push_back({
           .adnl_id = adnl_id,
           .short_id = key_hash,
@@ -110,9 +121,24 @@ std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<bloc
     LOG(ERROR) << "Multiple known validator keys are in an active validator set. This is unsupported.";
   }
 
+  for (const auto &validator : val_set->export_vector()) {
+    PublicKeyHash key = PublicKey{pubkeys::Ed25519{validator.key}}.compute_short_id();
+    if (auto it = ctx.collators_by_validator.find(key); it != ctx.collators_by_validator.end()) {
+      for (const auto &collator_id : it->second) {
+        if (ctx.deps.local_collator_adnl_ids.contains(collator_id) && added_adnl_ids.insert(collator_id).second) {
+          identities.push_back({
+              .adnl_id = collator_id,
+              .is_collator = true,
+              .suffix_db = !identities.empty() || config.use_new_db_names(),
+          });
+        }
+      }
+    }
+  }
+
   for (auto adnl_id : ctx.overlay_members.local) {
-    if (!group_validator_adnl_ids.contains(adnl_id)) {
-      identities.push_back({.adnl_id = adnl_id, .short_id = std::nullopt});
+    if (!added_adnl_ids.contains(adnl_id)) {
+      identities.push_back({.adnl_id = adnl_id});
     }
   }
 
@@ -173,7 +199,9 @@ td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const Sessio
       .overlays = ctx.deps.overlays,
       .adnl_sender = ctx.deps.quic,
       .db_root = ctx.deps.db_root,
-      .all_validators = info.overlay_members,
+      .all_overlay_nodes = info.overlay_members,
+      .is_collator = identity.is_collator,
+      .collators_by_validator = ctx.collators_by_validator,
   };
   return IValidatorGroup::create_bridge(PSTRING() << "valgroup" << info.shard, params);
 }
@@ -497,6 +525,10 @@ class WorkchainState {
 
  private:
   void update_future(const Context &ctx, const std::set<ShardIdFull> &future_shards) {
+    if (ctx.state.rotated_all_shards()) {
+      future_.clear();
+      return;
+    }
     for (auto &shard : future_shards) {
       auto val_set = ctx.state.get_next_validator_set(shard);
       if (val_set.is_null()) {
@@ -544,13 +576,21 @@ class WorkchainState {
 
 class NetworkStateImpl final : public NetworkState {
  public:
-  explicit NetworkStateImpl(BlockSeqno start_seqno)
+  explicit NetworkStateImpl(BlockSeqno start_seqno, td::Ref<MasterchainState> previous_rotation)
       : start_seqno_(start_seqno), masterchain_(masterchainId), basechain_(basechainId) {
+    current_collators_ = ValidatorRegistryWatcher::get_collators_by_validator(previous_rotation);
   }
 
-  void update(const MasterchainState &state, ManagerContext deps) override {
+  void update(Ref<MasterchainState> state_ref, ManagerContext deps) override {
+    const MasterchainState &state = *state_ref;
+    CollatorsByValidator next_collators;
     if (state.rotated_all_shards()) {
       genesis_known_ = true;
+      next_collators = ValidatorRegistryWatcher::get_collators_by_validator(state_ref);
+    }
+    if (state.is_key_state()) {
+      CHECK(state.rotated_all_shards());
+      current_collators_ = next_collators;
     }
     if (!genesis_known_) {
       return;
@@ -561,7 +601,7 @@ class NetworkStateImpl final : public NetworkState {
     Context ctx{
         .deps = deps,
         .state = state,
-        .overlay_members = overlay_members_of(state, deps.validator_keys),
+        .overlay_members = overlay_members_of(state, deps, current_collators_),
         .unsafe_rotate_id = rotate_id,
         .should_manage_groups = state.get_seqno() >= start_seqno_,
     };
@@ -569,7 +609,12 @@ class NetworkStateImpl final : public NetworkState {
     masterchain_.update(ctx, masterchain_target(state), masterchain_future_shards(state));
     if (state.get_seqno() != 0) {
       // FIXME: We can potentially require zerostates to have ShardHashes populated instead.
+      ctx.collators_by_validator = current_collators_;
       basechain_.update(ctx, basechain_target(state), basechain_future_shards(state));
+    }
+
+    if (state.rotated_all_shards() && !state.is_key_state()) {
+      current_collators_ = next_collators;
     }
   }
 
@@ -589,14 +634,17 @@ class NetworkStateImpl final : public NetworkState {
   BlockSeqno start_seqno_;
   bool genesis_known_ = false;
 
+  CollatorsByValidator current_collators_;
+
   WorkchainState masterchain_;
   WorkchainState basechain_;
 };
 
 }  // namespace
 
-std::unique_ptr<NetworkState> NetworkState::create(BlockSeqno start_seqno) {
-  return std::make_unique<NetworkStateImpl>(start_seqno);
+std::unique_ptr<NetworkState> NetworkState::create(BlockSeqno start_seqno,
+                                                   td::Ref<MasterchainState> previous_rotation) {
+  return std::make_unique<NetworkStateImpl>(start_seqno, previous_rotation);
 }
 
 }  // namespace ton::validator
