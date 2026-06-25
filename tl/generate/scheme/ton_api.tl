@@ -262,6 +262,7 @@ overlay.query overlay:int256 = True;
 overlay.queryWithExtra overlay:int256 extra:overlay.messageExtra = True;
 overlay.getBroadcast hash:int256 = overlay.Broadcast;
 overlay.getBroadcastList list:overlay.broadcastList = overlay.BroadcastList;
+overlay.repairPlumtreePart broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
 
 ---types---
 
@@ -390,7 +391,6 @@ tonNode.blockIdExt workchain:int shard:long seqno:int root_hash:int256 file_hash
 overlay.broadcastPlumtreeSimple flags:int timestamp:double src:PublicKey certificate:overlay.Certificate broadcast_id:int256 tree_index:int data:bytes signature:bytes = overlay.Broadcast;
 overlay.broadcastPlumtreeFec flags:int timestamp:double src:PublicKey certificate:overlay.Certificate data_hash:int256 data_size:int part_index:int tree_index:int part:bytes signature:bytes = overlay.Broadcast;
 overlay.broadcastPlumtreeIHave broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
-overlay.broadcastPlumtreeRepair broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
 overlay.broadcastPlumtreePrune broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
 overlay.broadcastPlumtreeUseful broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
 overlay.broadcastPlumtreeFec.id flags:int data_hash:int256 data_size:int part_size:int = overlay.broadcastPlumtreeFec.Id;

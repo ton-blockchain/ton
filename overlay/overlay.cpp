@@ -51,6 +51,10 @@ static bool is_original_plumtree_sender(adnl::AdnlNodeIdShort local_id,
   return std::find(nodes.begin(), nodes.end(), local_id) != nodes.end();
 }
 
+static constexpr td::uint64 plumtree_payload_mtu() {
+  return static_cast<td::uint64>(Overlays::max_fec_broadcast_size()) + 4096;
+}
+
 td::actor::ActorOwn<Overlay> Overlay::create_public(td::actor::ActorId<keyring::Keyring> keyring,
                                                     td::actor::ActorId<adnl::Adnl> adnl,
                                                     td::actor::ActorId<OverlayManager> manager,
@@ -192,6 +196,15 @@ void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getB
   promise.set_error(td::Status::Error(ErrorCode::protoviolation, "dropping get broadcast list query"));
 }
 
+void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_repairPlumtreePart &query,
+                                td::Promise<td::BufferSlice> promise) {
+  if (!opts_.enable_plumtree_broadcast_) {
+    promise.set_error(td::Status::Error("Plumtree broadcasts are not enabled"));
+    return;
+  }
+  broadcasts_plumtree_.process_repair_query(this, src, query, std::move(promise));
+}
+
 /*void OverlayImpl::process_query(adnl::AdnlNodeIdShort src, adnl::AdnlQueryId query_id, ton_api::overlay_customQuery
 &query) { callback_->receive_query(src, query_id, id_, std::move(query.data_));
 }
@@ -330,15 +343,6 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
     co_return td::Unit{};
   }
   co_await broadcasts_plumtree_.process_ihave(this, message_from, std::move(msg));
-  co_return td::Unit{};
-}
-
-td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
-                                                 tl_object_ptr<ton_api::overlay_broadcastPlumtreeRepair> msg) {
-  if (!opts_.enable_plumtree_broadcast_) {
-    co_return td::Status::Error("Plumtree broadcasts are not enabled");
-  }
-  co_await broadcasts_plumtree_.process_repair(this, message_from, std::move(msg));
   co_return td::Unit{};
 }
 
@@ -508,28 +512,40 @@ void OverlayImpl::start_up() {
 
   if (!opts_.twostep_broadcast_sender_.empty()) {
     td::actor::send_closure(opts_.twostep_broadcast_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
-    update_peers_mtu();
   }
   if (opts_.enable_plumtree_broadcast_ && !opts_.plumtree_broadcast_sender_.empty()) {
     td::actor::send_closure(opts_.plumtree_broadcast_sender_, &adnl::AdnlSenderEx::add_id, local_id_);
-    update_peers_mtu();
   }
+  update_peers_mtu();
 }
 
 void OverlayImpl::update_peers_mtu() {
-  auto sender = opts_.enable_plumtree_broadcast_ && !opts_.plumtree_broadcast_sender_.empty()
-                    ? opts_.plumtree_broadcast_sender_
-                    : opts_.twostep_broadcast_sender_;
+  auto sender =
+      !opts_.twostep_broadcast_sender_.empty() ? opts_.twostep_broadcast_sender_ : opts_.plumtree_broadcast_sender_;
   if (!sender.empty()) {
     td::uint64 mtu = rules_.max_broadcast_size() + 1024;
     std::vector<adnl::AdnlNodeIdShort> peers;
     iterate_all_peers([&](const adnl::AdnlNodeIdShort &peer_id, const OverlayPeer &peer) {
-      if ((peer.is_permanent_member() || opts_.enable_plumtree_broadcast_) && peer_id != local_id_) {
+      if (peer.is_permanent_member() && peer_id != local_id_) {
         peers.push_back(peer_id);
       }
     });
     peers_mtu_guard_ = adnl::PeersMtuGuard{sender, local_id_, std::move(peers), mtu};
   }
+}
+
+void OverlayImpl::set_plumtree_eager_mtu_peers(std::vector<adnl::AdnlNodeIdShort> peers) {
+  if (!opts_.enable_plumtree_broadcast_ || opts_.plumtree_broadcast_sender_.empty()) {
+    plumtree_eager_mtu_guard_ = {};
+    return;
+  }
+  peers.erase(std::remove_if(peers.begin(), peers.end(),
+                             [&](const auto &peer) { return peer.is_zero() || peer == local_id_; }),
+              peers.end());
+  std::sort(peers.begin(), peers.end());
+  peers.erase(std::unique(peers.begin(), peers.end()), peers.end());
+  plumtree_eager_mtu_guard_ =
+      adnl::PeersMtuGuard{opts_.plumtree_broadcast_sender_, local_id_, std::move(peers), plumtree_payload_mtu()};
 }
 
 void OverlayImpl::set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort> neighbours) {
@@ -842,6 +858,20 @@ void OverlayImpl::broadcast_plumtree_signed_fec(PlumtreeOutboundFecPayload &&pay
 void OverlayImpl::broadcast_plumtree_signed_simple(PlumtreeOutboundSimplePayload &&payload,
                                                    td::Result<std::pair<td::BufferSlice, PublicKey>> &&R) {
   broadcasts_plumtree_.signed_simple(this, std::move(payload), std::move(R));
+}
+
+void OverlayImpl::receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Result<td::BufferSlice> R) {
+  if (R.is_error()) {
+    return;
+  }
+  [](OverlayImpl *self, adnl::AdnlNodeIdShort from, td::BufferSlice data) -> td::actor::Task<> {
+    auto status =
+        (co_await self->broadcasts_plumtree_.process_repair_response(self, from, std::move(data)).wrap())
+            .move_as_status();
+    LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready)
+        << self << ": failed to process Plumtree repair response from " << from << ": " << status;
+    co_return td::Unit{};
+  }(this, from, R.move_as_ok()).start().detach();
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra) {

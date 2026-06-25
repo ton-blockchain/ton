@@ -82,8 +82,10 @@ class BroadcastsPlumtree {
                                            tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> msg);
   td::actor::Task<> process_ihave(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                   tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg);
-  td::actor::Task<> process_repair(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
-                                   tl_object_ptr<ton_api::overlay_broadcastPlumtreeRepair> msg);
+  void process_repair_query(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+                            ton_api::overlay_repairPlumtreePart &query, td::Promise<td::BufferSlice> promise);
+  td::actor::Task<> process_repair_response(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+                                            td::BufferSlice data);
   td::actor::Task<> process_prune(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                   tl_object_ptr<ton_api::overlay_broadcastPlumtreePrune> msg);
   td::actor::Task<> process_useful(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,

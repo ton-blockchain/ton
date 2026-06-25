@@ -278,6 +278,7 @@ class OverlayImpl : public Overlay {
   void deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra);
   void register_delivered_broadcast(const BroadcastHash &hash);
   bool is_delivered(const BroadcastHash &hash);
+  void receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Result<td::BufferSlice> R);
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
   void precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra, bool signature_checked,
                           td::Promise<td::Unit> promise);
@@ -307,6 +308,7 @@ class OverlayImpl : public Overlay {
   std::vector<adnl::AdnlNodeIdShort> get_neighbours(td::uint32 max_size = 0) const;
   std::vector<adnl::AdnlNodeIdShort> get_plumtree_neighbours(td::uint32 max_size = 0) const;
   bool peer_receives_broadcasts(adnl::AdnlNodeIdShort peer_id);
+  void set_plumtree_eager_mtu_peers(std::vector<adnl::AdnlNodeIdShort> peers);
   td::actor::ActorId<OverlayManager> overlay_manager() const {
     return manager_;
   }
@@ -409,6 +411,8 @@ class OverlayImpl : public Overlay {
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getBroadcastList &query,
                      td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_repairPlumtreePart &query,
+                     td::Promise<td::BufferSlice> promise);
   //void process_query(adnl::AdnlNodeIdShort src, adnl::AdnlQueryId query_id, ton_api::overlay_customQuery &query);
 
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
@@ -434,8 +438,6 @@ class OverlayImpl : public Overlay {
                                       tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> bcast);
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
                                       tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg);
-  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
-                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreeRepair> msg);
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
                                       tl_object_ptr<ton_api::overlay_broadcastPlumtreePrune> msg);
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
@@ -566,6 +568,7 @@ class OverlayImpl : public Overlay {
 
   OverlayOptions opts_;
   adnl::PeersMtuGuard peers_mtu_guard_;
+  adnl::PeersMtuGuard plumtree_eager_mtu_guard_;
   adnl::Adnl::ProtectedPeersGuard protected_peers_guard_;
 
   std::map<PublicKeyHash, AuthorizedKeyLimiter> authorized_key_limiters_;
