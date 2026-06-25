@@ -90,6 +90,8 @@ struct PlumtreeFecBroadcastState : td::ListNode {
   td::uint32 data_size = 0;
   td::uint32 part_size = 0;
   bool delivered = false;
+  // Stop local decode retries after poisoned input, but keep transport state for forwarding/repair.
+  bool decode_failed = false;
 
   std::unique_ptr<td::raptorq::Decoder> decoder;
   std::set<td::uint32> decoder_parts;
@@ -527,7 +529,7 @@ td::Result<PlumtreeFecBroadcastRef> BroadcastsPlumtree::Impl::get_or_create_fec_
 }
 
 td::Status BroadcastsPlumtree::Impl::ensure_decoder(PlumtreeFecBroadcastState &broadcast) {
-  if (broadcast.delivered || broadcast.decoder) {
+  if (broadcast.delivered || broadcast.decode_failed || broadcast.decoder) {
     return td::Status::OK();
   }
   if (broadcast.part_size == 0 || broadcast.data_size == 0) {
@@ -542,7 +544,7 @@ td::Status BroadcastsPlumtree::Impl::ensure_decoder(PlumtreeFecBroadcastState &b
 
 td::Result<PlumtreeDecodedBroadcast> BroadcastsPlumtree::Impl::add_decoder_part_and_decode(
     OverlayImpl *overlay, PlumtreeFecBroadcastState &broadcast, td::uint32 part_index, const td::BufferSlice &part) {
-  if (broadcast.delivered || broadcast.decoder_parts.contains(part_index)) {
+  if (broadcast.delivered || broadcast.decode_failed || broadcast.decoder_parts.contains(part_index)) {
     return PlumtreeDecodedBroadcast{};
   }
   TRY_STATUS(ensure_decoder(broadcast));
@@ -556,6 +558,8 @@ td::Result<PlumtreeDecodedBroadcast> BroadcastsPlumtree::Impl::add_decoder_part_
   }
   TRY_RESULT(decoded, broadcast.decoder->try_decode(false));
   if (broadcast.data_hash != td::sha256_bits256(decoded.data.as_slice())) {
+    broadcast.decode_failed = true;
+    broadcast.decoder = {};
     return td::Status::Error(ErrorCode::protoviolation, "Plumtree decoded data hash mismatch");
   }
   broadcast.delivered = true;
