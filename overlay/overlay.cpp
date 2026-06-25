@@ -861,6 +861,7 @@ void OverlayImpl::broadcast_plumtree_signed_simple(PlumtreeOutboundSimplePayload
 }
 
 void OverlayImpl::receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Result<td::BufferSlice> R) {
+  broadcasts_plumtree_.repair_query_finished();
   if (R.is_error()) {
     return;
   }

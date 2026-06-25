@@ -55,6 +55,7 @@ namespace {
 constexpr double PLUMTREE_BROADCAST_TTL = 25.0;
 constexpr double PLUMTREE_PENDING_FEEDBACK_TTL = 5.0;
 constexpr std::size_t MAX_PENDING_REPAIR_PARTS = 1024;
+constexpr std::size_t MAX_ACTIVE_REPAIR_QUERIES = 512;
 constexpr td::uint32 PLUMTREE_SIMPLE_TREE_INDEX = 0;
 constexpr td::uint32 PLUMTREE_FEC_TREE_OFFSET = 1;
 
@@ -223,6 +224,7 @@ class BroadcastsPlumtree::Impl {
                                   tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg);
   void process_repair_query(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                             ton_api::overlay_repairPlumtreePart &query, td::Promise<td::BufferSlice> promise);
+  void repair_query_finished();
   td::actor::Task<> process_repair_response(OverlayImpl *overlay, adnl::AdnlNodeIdShort from, td::BufferSlice data);
   td::actor::Task<> process_prune(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                   tl_object_ptr<ton_api::overlay_broadcastPlumtreePrune> msg);
@@ -244,6 +246,7 @@ class BroadcastsPlumtree::Impl {
   std::map<td::Bits256, std::unique_ptr<PlumtreeSimpleBroadcastState>> simple_broadcasts_;
   std::map<MissingPartKey, std::unique_ptr<PlumtreeMissingPart>> missing_parts_;
   td::ListNode missing_parts_queue_;
+  std::size_t active_repair_queries_ = 0;
   td::ListNode lru_;
   td::ListNode simple_lru_;
 
@@ -637,6 +640,10 @@ void BroadcastsPlumtree::Impl::send_repair_requests(OverlayImpl *overlay, const 
   const auto &[broadcast_id, part_index, tree_index] = key;
   while (missing.sent_repair_targets < missing.repair_targets.size()) {
     const auto &dst = missing.repair_targets[missing.sent_repair_targets++];
+    if (active_repair_queries_ >= MAX_ACTIVE_REPAIR_QUERIES) {
+      continue;
+    }
+    ++active_repair_queries_;
     auto query = create_serialize_tl_object<ton_api::overlay_repairPlumtreePart>(
         broadcast_id, td::Clocks::system(), static_cast<std::int32_t>(part_index),
         static_cast<std::int32_t>(tree_index));
@@ -1401,6 +1408,11 @@ void BroadcastsPlumtree::Impl::process_repair_query(OverlayImpl *overlay, adnl::
   promise.set_value(wire.move_as_ok());
 }
 
+void BroadcastsPlumtree::Impl::repair_query_finished() {
+  CHECK(active_repair_queries_ > 0);
+  --active_repair_queries_;
+}
+
 td::actor::Task<> BroadcastsPlumtree::Impl::process_repair_response(OverlayImpl *overlay,
                                                                     adnl::AdnlNodeIdShort from,
                                                                     td::BufferSlice data) {
@@ -1589,6 +1601,10 @@ void BroadcastsPlumtree::process_repair_query(OverlayImpl *overlay, adnl::AdnlNo
                                               ton_api::overlay_repairPlumtreePart &query,
                                               td::Promise<td::BufferSlice> promise) {
   impl_->process_repair_query(overlay, from, query, std::move(promise));
+}
+
+void BroadcastsPlumtree::repair_query_finished() {
+  impl_->repair_query_finished();
 }
 
 td::actor::Task<> BroadcastsPlumtree::process_repair_response(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
