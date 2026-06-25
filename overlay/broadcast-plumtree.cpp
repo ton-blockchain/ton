@@ -641,6 +641,10 @@ void BroadcastsPlumtree::Impl::send_repair_requests(OverlayImpl *overlay, const 
   while (missing.sent_repair_targets < missing.repair_targets.size()) {
     const auto &dst = missing.repair_targets[missing.sent_repair_targets++];
     if (active_repair_queries_ >= MAX_ACTIVE_REPAIR_QUERIES) {
+      VLOG(PLUMTREE_WARNING) << overlay << ": dropping Plumtree repair query due to active query cap: active="
+                             << active_repair_queries_ << " limit=" << MAX_ACTIVE_REPAIR_QUERIES << " dst=" << dst
+                             << " broadcast_id=" << broadcast_id.to_hex() << " part_index=" << part_index
+                             << " tree_index=" << tree_index;
       continue;
     }
     ++active_repair_queries_;
