@@ -115,6 +115,7 @@ struct PlumtreeMissingPart : td::ListNode {
 
   MissingPartKey key;
   std::vector<adnl::AdnlNodeIdShort> repair_targets;
+  std::size_t sent_repair_targets = 0;
   td::Timestamp repair_at = td::Timestamp::never();
 };
 
@@ -634,7 +635,8 @@ bool BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::Ad
 void BroadcastsPlumtree::Impl::send_repair_requests(OverlayImpl *overlay, const MissingPartKey &key,
                                                     PlumtreeMissingPart &missing) {
   const auto &[broadcast_id, part_index, tree_index] = key;
-  for (const auto &dst : missing.repair_targets) {
+  while (missing.sent_repair_targets < missing.repair_targets.size()) {
+    const auto &dst = missing.repair_targets[missing.sent_repair_targets++];
     auto query = create_serialize_tl_object<ton_api::overlay_repairPlumtreePart>(
         broadcast_id, td::Clocks::system(), static_cast<std::int32_t>(part_index),
         static_cast<std::int32_t>(tree_index));
@@ -1330,6 +1332,10 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   }
   MissingPartKey key{control.broadcast_id, part_index, tree_index};
   auto *missing = get_or_create_missing_part(key);
+  if (!missing->repair_at) {
+    missing->repair_at = td::Timestamp::in(options_.repair_timeout_ms_ / 1000.0);
+    overlay->relax_plumtree_alarm(missing->repair_at);
+  }
   if (std::find(missing->repair_targets.begin(), missing->repair_targets.end(), from) ==
           missing->repair_targets.end() &&
       missing->repair_targets.size() < options_.max_repair_targets_) {
@@ -1337,12 +1343,6 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   }
   if (local_eager_limit_ == 0 || s->eager.empty()) {
     send_repair_requests(overlay, key, *missing);
-    erase_missing_part(key);
-    co_return td::Unit{};
-  }
-  if (!missing->repair_at) {
-    missing->repair_at = td::Timestamp::in(options_.repair_timeout_ms_ / 1000.0);
-    overlay->relax_plumtree_alarm(missing->repair_at);
   }
   co_return td::Unit{};
 }
