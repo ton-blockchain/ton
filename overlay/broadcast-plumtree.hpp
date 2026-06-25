@@ -92,7 +92,7 @@ class BroadcastsPlumtree {
                                    tl_object_ptr<ton_api::overlay_broadcastPlumtreeUseful> msg);
 
   void alarm(OverlayImpl *overlay);
-  td::Timestamp next_alarm_at() const;
+  td::Timestamp next_alarm_at();
   void gc(OverlayImpl *overlay);
 
  private:
