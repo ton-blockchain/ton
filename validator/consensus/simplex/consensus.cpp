@@ -32,6 +32,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  static bool should_be_spawned(const Bus& bus) {
+    return bus.is_validator();
+  }
+
   void start_up() override {
     auto [awaiter, promise] = td::actor::StartedTask<StartEvent>::make_bridge();
 
@@ -127,7 +131,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     if (offset == 0) {
       previous_window_had_skip_ = false;
 
-      if (bus.collator_schedule->is_expected_collator(bus.local_id.idx, event->start_slot)) {
+      if (bus.collator_schedule->is_expected_collator(bus.local_id->idx, event->start_slot)) {
         start_generation(event->base, event->start_slot).start().detach();
       }
     }
@@ -186,7 +190,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     }
 
     slot->state->pending_block = candidate;
-    if (candidate->leader != owning_bus()->local_id.idx) {
+    if (candidate->leader != owning_bus()->local_id->idx) {
       owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
     }
     try_notarize(*slot).start().detach();

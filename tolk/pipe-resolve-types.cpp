@@ -20,6 +20,7 @@
 #include "compiler-state.h"
 #include "generics-helpers.h"
 #include "contract-directive.h"
+#include "recursion-guard.h"
 #include "type-system.h"
 #include <charconv>
 
@@ -280,9 +281,11 @@ class TypeNodesVisitorResolver {
           err("type `{}` circularly references itself", struct_ref).fire(struct_ref->ident_anchor);
         }
         called_stack.push_back(struct_ref);
+        RecursionGuard guard([&] {
+          called_stack.pop_back();
+        });
         const GenericsDeclaration* genericTs = construct_genericTs(nullptr, v_genericsT_list);
         struct_ref->mutate()->assign_resolved_genericTs(genericTs);
-        called_stack.pop_back();
       }
     }
   }
@@ -789,10 +792,12 @@ class InfiniteStructSizeDetector {
     }
 
     called_stack.push_back(struct_ref);
+    RecursionGuard guard([&] {
+      called_stack.pop_back();
+    });
     for (StructFieldPtr field_ref : struct_ref->fields) {
       visit_type_deeply(field_ref->declared_type);
     }
-    called_stack.pop_back();
   }
 
 public:

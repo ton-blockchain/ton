@@ -79,7 +79,7 @@ fun test108(calcMin: bool) {
 
 @method_id(109)
 fun test109(bigCost: bool) {
-    return bigCost ? ton("0.05") : (ton("0.001"));
+    return bigCost ? grams("0.05") : (grams("0.001"));
 }
 
 @method_id(110)

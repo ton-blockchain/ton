@@ -37,7 +37,7 @@
  *   > d.mutatingMethod(d.nested.field = 10)    // error, can not borrow `d.nested.field`, because `d` already borrowed
  *   > p.x += (p.mut().x = 5)                   // error, can not borrow `p`, because `p.x` already borrowed
  *
- *   To track which variables/fields are being mutated, we use is_valid_lvalue_path() with sink collection:
+ *   To track which variables/fields are being mutated, we use is_valid_assignment_lhs() with sink collection:
  * it traverses the lvalue path and collects SinkExpression for each "leaf" variable being mutated.
  * For tensors like `(a, b)`, both `a` and `b` are collected.
  * Tensor literal projections like `(a, b).0` are not valid lvalue paths.
@@ -51,7 +51,7 @@ struct BorrowedVarOrField {
 };
 
 // to fire on `x.inc().addOther(mutate x)`, having `addOther()` call, detect `x` on the left;
-// without this, a chain of mutate-self will not fire, since `x.inc()` is not is_valid_lvalue_path
+// without this, a chain of mutate-self will not fire, since `x.inc()` is not is_valid_mutation_path
 static AnyExprV get_leftmost_chained_mutate_self(AnyExprV v) {
   auto as_call = v->try_as<ast_function_call>();
   if (!as_call || !as_call->fun_maybe || !as_call->dot_obj_is_self ||
@@ -60,7 +60,7 @@ static AnyExprV get_leftmost_chained_mutate_self(AnyExprV v) {
   }
 
   AnyExprV self_obj = as_call->get_self_obj();
-  return is_valid_lvalue_path(self_obj) ? self_obj : get_leftmost_chained_mutate_self(self_obj);
+  return is_valid_mutation_path(self_obj) ? self_obj : get_leftmost_chained_mutate_self(self_obj);
 }
 
 class BorrowedForWriteCtx {
@@ -100,7 +100,7 @@ public:
   void borrow_all_from_lvalue(FunctionPtr cur_f, AnyExprV lhs, FunctionPtr called_f) {
     // for `v = rhs`, sinks = [v]; for `(a, b.field) = rhs`, sinks = [a, b.field]
     std::vector<SinkExpression> sinks;
-    is_valid_lvalue_path(lhs, &sinks);    // not assert, it may be false (an error is already collected)
+    is_valid_assignment_lhs(lhs, &sinks);    // not assert, it may be false (an error is already collected)
     for (const SinkExpression& s : sinks) {
       borrow_or_fire_if_twice(cur_f, s, lhs, called_f);
     }

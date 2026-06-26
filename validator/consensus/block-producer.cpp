@@ -20,6 +20,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  static bool should_be_spawned(const Bus& bus) {
+    return bus.is_validator();
+  }
+
   void start_up() {
     target_rate_ = owning_bus()->config.noncritical_params.target_rate;
     no_empty_blocks_on_error_timeout_ = owning_bus()->config.noncritical_params.no_empty_blocks_on_error_timeout;
@@ -111,7 +115,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
             .shard = bus.shard,
             .min_masterchain_block_id = state->min_mc_block_id(),
             .prev = state->block_ids(),
-            .creator = Ed25519_PublicKey{bus.local_id.key.ed25519_value().raw()},
+            .creator = Ed25519_PublicKey{bus.local_id->key.ed25519_value().raw()},
             .utime = slot_start.at_unix(),
             .hard_timeout = slot_start + hard_timeout,
             .prev_block_data = state->block_data(),
@@ -196,9 +200,9 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
       auto id_to_sign = serialize_tl_object(id.to_tl(), true);
       auto data_to_sign = create_serialize_tl_object<tl::dataToSign>(bus.session_id, std::move(id_to_sign));
-      auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id.short_id,
+      auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id->short_id,
                                                std::move(data_to_sign));
-      auto candidate = td::make_ref<Candidate>(id, parent, bus.local_id.idx, std::move(block), std::move(signature));
+      auto candidate = td::make_ref<Candidate>(id, parent, bus.local_id->idx, std::move(block), std::move(signature));
       if (current_leader_window_ != window) {
         break;
       }

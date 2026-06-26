@@ -151,6 +151,7 @@ class McShardHashI : public td::CntObject {
   virtual ton::LogicalTime start_lt() const = 0;
   virtual ton::LogicalTime end_lt() const = 0;
   virtual ton::UnixTime fsm_utime() const = 0;
+  virtual td::UTCSeconds fsm_utime_chrono() const = 0;
   virtual FsmState fsm_state() const = 0;
   virtual ton::ShardIdFull shard() const = 0;
   virtual bool before_split() const = 0;
@@ -218,6 +219,9 @@ struct McShardHash : public McShardHashI {
   }
   ton::UnixTime fsm_utime() const override final {
     return fsm_utime_;
+  }
+  td::UTCSeconds fsm_utime_chrono() const override final {
+    return td::UTCSeconds{std::chrono::seconds{fsm_utime()}};
   }
   ton::UnixTime fsm_utime_end() const {
     return fsm_utime_ + fsm_interval_;
@@ -664,8 +668,7 @@ class Config {
     return cur_validators_;
   }
   std::pair<ton::UnixTime, ton::UnixTime> get_validator_set_start_stop(int next = 0) const;
-  ton::ValidatorSessionConfig get_consensus_config() const;
-  td::optional<ton::NewConsensusConfig> get_new_consensus_config(ton::WorkchainId wc) const;
+  ton::NewConsensusConfig get_new_consensus_config(ton::WorkchainId wc) const;
   bool foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const;
   Ref<WorkchainInfo> get_workchain_info(ton::WorkchainId workchain_id) const;
   std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, const block::TotalValidatorSet& vset,

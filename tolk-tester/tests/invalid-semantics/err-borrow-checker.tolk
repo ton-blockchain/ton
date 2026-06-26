@@ -119,7 +119,8 @@ fun mutateOverlapping(mutate x: int, mutate p: (int, int)): void {
     p = (3, 4);
 }
 
-// @stderr can not borrow `a19` for mutation once again, it is already being mutated by `mutateOverlapping`
+// @stderr can not mutate a temporary expression
+// @stderr mutateOverlapping(mutate a19, mutate (((a19, b19))))
 fun errCantBorrowInsideTensor(): (int, int) {
     var a19 = 10;
     var b19 = 20;

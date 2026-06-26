@@ -19,6 +19,7 @@
 #pragma once
 
 #include <iostream>
+#include <optional>
 #include <queue>
 
 #include "td/utils/port/FileFd.h"
@@ -82,7 +83,7 @@ class TerminalIOImpl : public TerminalIO, td::ObserverBase {
 
  private:
   static constexpr td::uint32 buf_size = 1 << 20;
-  td::BufferedStdin stdin_;
+  std::optional<td::BufferedStdin> stdin_;
 
   std::string prompt_;
   bool use_readline_ = false;

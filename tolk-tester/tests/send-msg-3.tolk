@@ -78,7 +78,7 @@ fun test3(eventId: int) {
     val someRef = MyBody { queryId: 800 }.toCell();
     var b = createExternalLogMessage({
         body: UnsafeBodyNoRef { 
-            forceInline: Body3 { bodyAddress, someRef, amount: ton("0.05") } 
+            forceInline: Body3 { bodyAddress, someRef, amount: grams("0.05") } 
         },
         dest: { topic: eventId },
     });

@@ -172,9 +172,12 @@ fun testMutableTensor() {
     updateTwoItems(mutate t, 10);
     t107_1 = 1;
     t107_2 = 2;
-    (t107_1, t107_2).updateTwoItems(10);
-    updateTwoItems(mutate (t107_1, t107_2), 10);
-    return (t, t107_1, t107_2);
+    var globalsPair = (t107_1, t107_2);
+    globalsPair.updateTwoItems(10);
+    updateTwoItems(mutate globalsPair, 10);
+    val before = t107_1;
+    (t107_1, t107_2) = globalsPair;
+    return (t, before, t107_1, t107_2);
 }
 
 @pure
@@ -443,7 +446,7 @@ fun main(){
 @testcase | 104 |    | 1 2 3
 @testcase | 105 |    | 5 5 110
 @testcase | 106 |    | 160 110
-@testcase | 107 |    | 60 70 21 22
+@testcase | 107 |    | 60 70 1 21 22
 @testcase | 110 |    | 320
 @testcase | 111 |    | 55 55
 @testcase | 112 |    | [ 1 13 3 23 33 ]

@@ -397,16 +397,6 @@ void RootDb::get_shard_client_state(td::Promise<BlockIdExt> promise) {
   td::actor::send_closure(state_db_, &StateDb::get_shard_client_state, std::move(promise));
 }
 
-void RootDb::update_destroyed_validator_sessions(std::vector<ValidatorSessionId> sessions,
-                                                 td::Promise<td::Unit> promise) {
-  td::actor::send_closure(state_db_, &StateDb::update_destroyed_validator_sessions, std::move(sessions),
-                          std::move(promise));
-}
-
-void RootDb::get_destroyed_validator_sessions(td::Promise<std::vector<ValidatorSessionId>> promise) {
-  td::actor::send_closure(state_db_, &StateDb::get_destroyed_validator_sessions, std::move(promise));
-}
-
 void RootDb::update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) {
   td::actor::send_closure(state_db_, &StateDb::update_async_serializer_state, std::move(state), std::move(promise));
 }

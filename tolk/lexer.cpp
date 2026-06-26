@@ -385,25 +385,6 @@ struct ChunkSkipWhitespace final : ChunkLexerBase {
   }
 };
 
-// Here we handle corner cases of grammar that are requested on demand.
-// E.g., for 'tolk >0.5.0', '0.5.0' should be parsed specially to emit tok_semver.
-// See TolkLanguageGrammar::parse_next_chunk_special().
-struct ChunkSpecialParsing {
-  static bool parse_semver(Lexer* lex) {
-    const char* str_begin = lex->c_str();
-    while (std::isdigit(lex->char_at()) || lex->char_at() == '.') {
-      lex->skip_chars(1);
-    }
-
-    std::string_view str_val(str_begin, lex->c_str() - str_begin);
-    if (str_val.empty()) {
-      return false;
-    }
-    lex->add_token(tok_semver, str_val);
-    return true;
-  }
-};
-
 // Anything starting from a valid identifier beginning symbol is parsed as an identifier.
 // But if a resulting string is a keyword, a corresponding token is emitted instead of tok_identifier.
 struct ChunkIdentifierOrKeyword final : ChunkLexerBase {
@@ -529,16 +510,6 @@ struct TolkLanguageGrammar {
     return best && best->parse(lex);
   }
 
-  static bool parse_next_chunk_special(Lexer* lex, TokenType parse_next_as) {
-    switch (parse_next_as) {
-      case tok_semver:
-        return ChunkSpecialParsing::parse_semver(lex);
-      default:
-        tolk_assert(false);
-        return false;
-    }
-  }
-
   static void register_token(const char* str, int len, TokenType tp) {
     trie.add_prefix(str, new ChunkSimpleToken(tp, len));
   }
@@ -647,16 +618,6 @@ void Lexer::next() {
   }
   if (is_eof()) {
     add_token(tok_eof, "");
-  }
-  cur_token = tokens_circularbuf[++cur_token_idx & 7];
-}
-
-void Lexer::next_special(TokenType parse_next_as, const char* str_expected) {
-  tolk_assert(cur_token_idx == last_token_idx);
-  skip_spaces();
-  update_location();
-  if (!TolkLanguageGrammar::parse_next_chunk_special(this, parse_next_as)) {
-    error(std::string(str_expected) + " expected");
   }
   cur_token = tokens_circularbuf[++cur_token_idx & 7];
 }

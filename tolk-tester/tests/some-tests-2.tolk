@@ -155,8 +155,8 @@ fun test96(p: Point) {
     3 PUSHINT	    //  g_next '12=3
     4 PUSHINT	    //  g_next '12=3 '13=4
     5 PUSHINT	    //  g_next '12=3 '13=4 '14=5
-    3 TUPLE	        //  g_cur g_next
-    SWAP            //  g_next g_cur
+    3 TUPLE	        //  g_cur '16
+    SWAP            //  '16 g_cur
     $cur SETGLOB    //  g_next
     $next SETGLOB   //
     $cur GETGLOB    //  g_cur

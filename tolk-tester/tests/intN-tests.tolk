@@ -7,8 +7,8 @@ const someN_u128: uint128 = 128;
 const someN_i32: int32 = 20 + (12 as int32) * (1 as uint8);
 const someN_coins = 10 as coins;
 
-const cost1 = ton("1.234");
-const cost2 = ton("0.05") + ton("0.001");
+const cost1 = grams("1.234");
+const cost2 = grams("0.05") + grams("0.001");
 
 fun rand(): uint256 { return random.uint256(); }
 
@@ -183,28 +183,34 @@ fun test9(c: coins, i: int8) {
 
 @method_id(110)
 fun test10() {
-    return (ton("0.05"), ton("0.05") + 100, cost1, cost2);
+    return (grams("0.05"), grams("0.05") + 100, cost1, cost2);
 }
 
 @method_id(111)
 fun test11() {
-    __expect_type(ton("0"), "coins");
-    __expect_type(ton("0") + ton("0"), "coins");
-    __expect_type(ton("0") * 20, "int");
+    __expect_type(grams("0"), "coins");
+    __expect_type(grams("0") + grams("0"), "coins");
+    __expect_type(grams("0") * 20, "int");
     return [
-        ton("1"),
-        ton("1.0"),
-        ton("1.00000"),
-        ton("-321.123456789"),
-        ton("+321.123456798"),
-        ton("0001.1000")
+        grams("1"),
+        grams("1.0"),
+        grams("1.00000"),
+        grams("-321.123456789"),
+        grams("+321.123456798"),
+        grams("0001.1000")
     ];
 }
 
 @method_id(112)
 fun test12() {
-    var a = ton("1") + ton("2");    // check absence in fif codegen
-    return ton("0.1");
+    var a = grams("1") + grams("2");    // check absence in fif codegen
+    return grams("0.1");
+}
+
+@method_id(113)
+fun test13_deprecatedTonAlias() {
+    __expect_type(ton("0"), "coins");
+    return ton("0.05");
 }
 
 fun test13(x1: int?, x2: int8?, x3: int, x4: int8): (int8?, int8?, int8?, int8?, int32?, int32?) {
@@ -236,6 +242,7 @@ fun main() {
 @testcase | 109 | 4  4 | 500 -1
 @testcase | 110 |      | 50000000 50000100 1234000000 51000000
 @testcase | 111 |      | [ 1000000000 1000000000 1000000000 -321123456789 321123456798 1100000000 ]
+@testcase | 113 |      | 50000000
 @testcase | 114 | 5    | (null) (null) 0
 @testcase | 114 | 15   | 15 2 typeid-1
 

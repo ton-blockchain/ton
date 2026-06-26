@@ -1,5 +1,5 @@
 fun main() {
-    return ton("-.");
+    return grams("-.");
 }
 
 /**

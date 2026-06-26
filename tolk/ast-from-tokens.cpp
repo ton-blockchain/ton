@@ -1694,8 +1694,11 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
     if (lex.tok() == tok_arrow) {
       lex.next();
       while (lex.tok() == tok_int_const) {
-        int ret_idx = static_cast<int>(parse_tok_int_const(lex.cur_str(), lex.cur_range())->to_long());
-        ret_order.push_back(ret_idx);
+        td::RefInt256 ret_idx = parse_tok_int_const(lex.cur_str(), lex.cur_range());
+        if (ret_idx < 0 || ret_idx >= 256) {
+          err("invalid asm index").fire(lex.cur_range());
+        }
+        ret_order.push_back(static_cast<int>(ret_idx->to_long()));
         lex.next();
       }
     }
@@ -1814,12 +1817,21 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
       case AnnotationKind::inline_simple:
+        if (v_body->kind == ast_asm_body) {
+          err("inline annotations are not applicable to asm functions").fire(v_annotation);
+        }
         inline_mode = FunctionInlineMode::inlineViaFif;   // maybe will be replaced by inlineInPlace later
         break;
       case AnnotationKind::inline_ref:
+        if (v_body->kind == ast_asm_body) {
+          err("inline annotations are not applicable to asm functions").fire(v_annotation);
+        }
         inline_mode = FunctionInlineMode::inlineRef;
         break;
       case AnnotationKind::noinline:
+        if (v_body->kind == ast_asm_body) {
+          err("inline annotations are not applicable to asm functions").fire(v_annotation);
+        }
         inline_mode = FunctionInlineMode::noInline;
         break;
       case AnnotationKind::pure:
@@ -2081,19 +2093,44 @@ static AnyV parse_enum_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   return createV<ast_enum_declaration>(range, v_ident, colon_type, doc_lines, body);
 }
 
+// for `tolk 1.4.0`, check for every "1","4","0" that it's a decimal token, not "0x..."
+static bool is_decimal_semver_part(std::string_view str) {
+  bool all_digits = true;
+  for (char c : str) {
+    all_digits &= c >= '0' && c <= '9';
+  }
+  return all_digits;
+}
+
 static AnyV parse_tolk_required_version(Lexer& lex) {
   SrcRange range = lex.range_start();
-  lex.next_special(tok_semver, "semver");   // syntax: "tolk 0.6"
+  lex.expect(tok_tolk, "`tolk`");
+
+  if (lex.tok() != tok_int_const || !is_decimal_semver_part(lex.cur_str())) {
+    lex.unexpected("semver, like `tolk 1.2`");
+  }
+
   std::string semver = static_cast<std::string>(lex.cur_str());
   range.end(lex.cur_range());
   lex.next();
+  while (lex.tok() == tok_dot) {      // allow `tolk 1.4`, `tolk 1.4.1`, etc.
+    lex.next();
+    if (lex.tok() != tok_int_const || !is_decimal_semver_part(lex.cur_str())) {
+      lex.unexpected("semver, like `tolk 1.2`");
+    }
+
+    semver += '.';
+    semver += lex.cur_str();
+    range.end(lex.cur_range());
+    lex.next();
+  }
 
   // for simplicity, there is no syntax ">= version" and so on, just strict compare
   if (TOLK_VERSION != semver && TOLK_VERSION != semver + ".0") {    // 0.6 = 0.6.0
     err("the contract is written in Tolk v{}, but you use Tolk compiler v{}; probably, it will lead to compilation errors or hash changes", semver, TOLK_VERSION).warning(range, nullptr);
   }
 
-  return createV<ast_tolk_required_version>(range, semver);  // semicolon is not necessary
+  return createV<ast_tolk_required_version>(range, std::move(semver));
 }
 
 static AnyV parse_import_directive(Lexer& lex) {

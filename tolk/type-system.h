@@ -592,7 +592,7 @@ public:
 
 /*
  * `coins` is just integer at TVM level, but encoded as varint when serializing structures.
- * Example: `var cost = ton("0.05")` has type `coins`.
+ * Example: `var cost = grams("0.05")` has type `coins`.
  */
 class TypeDataCoins final : public TypeData {
   TypeDataCoins() : TypeData(0) {}

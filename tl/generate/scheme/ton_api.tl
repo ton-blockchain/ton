@@ -274,79 +274,11 @@ overlay.db.key.nodes local_id:int256 overlay:int256 = overlay.db.Key;
 
 ---types---
 
-catchain.block.id incarnation:int256 src:int256 height:int data_hash:int256 = catchain.block.Id;
-catchain.block.dep src:int height:int data_hash:int256 signature:bytes = catchain.block.Dep;
-catchain.block.data prev:catchain.block.dep deps:(vector catchain.block.dep) = catchain.block.Data;
-catchain.block incarnation:int256 src:int height:int data:catchain.block.data signature:bytes = catchain.Block;
-catchain.blocks blocks:(vector catchain.block) = catchain.Blocks;
-catchain.blockUpdate block:catchain.block = catchain.Update;
-
-catchain.block.data.badBlock block:catchain.block = catchain.block.inner.Data;
-catchain.block.data.fork left:catchain.block.Dep right:catchain.block.Dep = catchain.block.inner.Data;
-catchain.block.data.nop = catchain.block.inner.Data;
-//catchain.block.data.vector msgs:(vector bytes) = catchain.block.inner.Data;
-//catchain.block.data.custom = catchain.block.inner.Data;
-
-catchain.firstblock unique_hash:int256 nodes:(vector int256) = catchain.FirstBlock;
-
-catchain.difference sent_upto:(vector int) = catchain.Difference;
-catchain.differenceFork left:catchain.block.dep right:catchain.block.dep = catchain.Difference;
-
-catchain.blockNotFound = catchain.BlockResult;
-catchain.blockResult block:catchain.block = catchain.BlockResult;
-
----functions---
-
-catchain.getBlock block:int256 = catchain.BlockResult;
-catchain.getDifference rt:(vector int) = catchain.Difference;
-//catchain.getForkDifference src:int fork:catchain.fork = catchain.ForkDifference;
-
----types---
-
-validatorSession.round.id session:int256 height:long prev_block:int256 seqno:int = validatorSession.round.Id;
-
-validatorSession.candidate.id round:int256 block_hash:int256 = validatorSession.tempBlock.Id;
-
-validatorSession.message.startSession = validatorSession.Message;
-validatorSession.message.finishSession = validatorSession.Message;
-
-validatorSession.message.submittedBlock round:int root_hash:int256 file_hash:int256
-               collated_data_file_hash:int256 = validatorSession.round.Message;
-validatorSession.message.approvedBlock round:int candidate:int256 signature:bytes = validatorSession.round.Message;
-validatorSession.message.rejectedBlock round:int candidate:int256 reason:bytes = validatorSession.round.Message;
-validatorSession.message.commit round:int candidate:int256 signature:bytes = validatorSession.round.Message;
-
-validatorSession.message.vote round:int attempt:int candidate:int256 = validatorSession.round.Message;
-validatorSession.message.voteFor round:int attempt:int candidate:int256 = validatorSession.round.Message;
-validatorSession.message.precommit round:int attempt:int candidate:int256 = validatorSession.round.Message;
-validatorSession.message.empty round:int attempt:int = validatorSession.round.Message;
-
-validatorSession.pong hash:long = validatorSession.Pong;
-
-validatorSession.candidateId src:int256 root_hash:int256 file_hash:int256 collated_data_file_hash:int256 = validatorSession.CandidateId;
-
-validatorSession.blockUpdate ts:long actions:(vector validatorSession.round.Message) state:int = validatorSession.BlockUpdate;
 validatorSession.candidate src:int256 round:int root_hash:int256 data:bytes collated_data:bytes = validatorSession.Candidate;
 validatorSession.compressedCandidate flags:# src:int256 round:int root_hash:int256 decompressed_size:int data:bytes = validatorSession.Candidate;
 validatorSession.compressedCandidateV2 flags:# src:int256 round:int root_hash:int256 data:bytes = validatorSession.Candidate;
-validatorSession.optimisticCandidateBroadcast flags:# prev_candidate_id:int256 data:bytes = validatorSession.OptimisticCandidateBroadcast;
-
-validatorSession.config catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
-        max_round_attempts:int max_block_size:int max_collated_data_size:int = validatorSession.Config;
-validatorSession.configNew catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
-        max_round_attempts:int max_block_size:int max_collated_data_size:int new_catchain_ids:Bool = validatorSession.Config;
-validatorSession.configVersioned catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
-        max_round_attempts:int max_block_size:int max_collated_data_size:int version:int = validatorSession.Config;
-
-validatorSession.catchainOptions idle_timeout:double max_deps:int max_block_size:int block_hash_covers_data:Bool
-        max_block_height_ceoff:int debug_disable_db:Bool = validatorSession.CatChainOptions;
-validatorSession.configVersionedV2 catchain_opts:validatorSession.CatChainOptions round_candidates:int next_candidate_delay:double
-        round_attempt_duration:int max_round_attempts:int max_block_size:int max_collated_data_size:int version:int = validatorSession.Config;
 
 ---functions---
-
-validatorSession.ping hash:long = validatorSession.Pong;
-validatorSession.downloadCandidate round:int id:validatorSession.candidateId = validatorSession.Candidate;
 
 ---types---
 
@@ -618,8 +550,6 @@ db.event.blockCandidateReceived block_id:tonNode.blockIdExt = db.Event;
 ---types---
 
 validator.groupMember public_key_hash:int256 adnl:int256 weight:long = engine.validator.GroupMember;
-validator.group workchain:int shard:long catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group;
-validator.groupEx workchain:int shard:long vertical_seqno:int catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group;
 validator.groupNew workchain:int shard:long vertical_seqno:int last_key_block_seqno:int catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group;
 
 validator.telemetry flags:# timestamp:double adnl_id:int256
@@ -1167,6 +1097,7 @@ engineConsoleClient.config address:string server_public_key:PublicKey client_pri
 
 consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;
 consensus.blockSyncOverlayId session_id:int256 = consensus.BlockOverlayId;
+consensus.dbId session_id:int256 is_validator:Bool validator_key:int256 adnl_id:int256 = consensus.DbId;
 consensus.dataToSign session_id:int256 data:bytes = consensus.DataToSign;
 
 consensus.candidateId slot:int hash:int256 = consensus.CandidateId;
@@ -1245,6 +1176,7 @@ consensus.simplex.noncriticalParams
     candidate_resolve_rate_limit:flags.12?int
     min_block_interval_ms:flags.13?int
     no_empty_blocks_on_error_timeout_ms:flags.14?int
+    certificate_gossip_neighbors:flags.15?int
     = consensus.NoncriticalParams;
 
 consensus.noncriticalParamsOverride
