@@ -170,11 +170,13 @@ class FullNodeImpl : public FullNode {
   };
   std::map<std::string, CustomOverlayInfo> custom_overlays_;
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_broadcasts_{256};
+  td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_finality_{256};
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_shard_block_desc_{256};
 
   void update_private_overlays();
   void update_custom_overlay(CustomOverlayInfo& overlay);
   void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
+  void send_block_finality_broadcast_to_custom_overlays(const BlockFinalityBroadcast& finality);
   void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
                                                          td::uint32 validator_set_hash, const td::BufferSlice& data);
   void send_shard_block_info_to_custom_overlays(BlockIdExt block_id, CatchainSeqno cc_seqno,

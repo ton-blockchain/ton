@@ -34,8 +34,9 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
 
     int block_broadcast_mode = fullnode::FullNode::broadcast_mode_custom;
-    int finality_broadcast_mode =
-        fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_public;
+    int finality_broadcast_mode = fullnode::FullNode::broadcast_mode_custom |
+                                  fullnode::FullNode::broadcast_mode_fast_sync |
+                                  fullnode::FullNode::broadcast_mode_public;
     if (bus.is_validator() && event->candidate->leader == bus.local_id->idx) {
       block_broadcast_mode |= fullnode::FullNode::broadcast_mode_public;
     }

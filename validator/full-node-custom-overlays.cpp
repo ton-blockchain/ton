@@ -90,6 +90,21 @@ void FullNodeCustomOverlay::process_block_broadcast(PublicKeyHash src, ton_api::
                           BroadcastSource::custom_overlay);
 }
 
+void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
+  if (!block_senders_.count(adnl::AdnlNodeIdShort(src))) {
+    VLOG(full_node, DEBUG) << "Dropping block finality broadcast in private overlay \"" << name_
+                           << "\" from unauthorized sender " << src;
+    return;
+  }
+  auto block_id = create_block_id(query.id_);
+  BlockFinalityBroadcast finality{block_id, block::BlockSignatureSet::fetch(query.signature_set_)};
+
+  VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in custom overlay \"" << name_ << "\" from " << src
+                         << ": " << block_id;
+  td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
+                          BroadcastSource::custom_overlay);
+}
+
 void FullNodeCustomOverlay::obtain_state_for_decompression(PublicKeyHash src,
                                                            ton_api::tonNode_blockBroadcastCompressedV2 query) {
   auto id = create_block_id(query.id_);
@@ -233,6 +248,18 @@ void FullNodeCustomOverlay::send_broadcast(BlockBroadcast broadcast) {
   }
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
+}
+
+void FullNodeCustomOverlay::send_block_finality_broadcast(BlockFinalityBroadcast finality) {
+  if (!inited_) {
+    return;
+  }
+  VLOG(full_node, DEBUG) << "Sending blockFinalityBroadcast to custom overlay \"" << name_
+                         << "\": " << finality.block_id;
+  auto B = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(create_tl_block_id(finality.block_id),
+                                                                               finality.sig_set->tl());
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
 }
 
 void FullNodeCustomOverlay::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno,

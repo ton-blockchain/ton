@@ -406,6 +406,9 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
 }
 
 void FullNodeImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
+  if (mode & broadcast_mode_custom) {
+    send_block_finality_broadcast_to_custom_overlays(finality);
+  }
   if (mode & broadcast_mode_fast_sync) {
     auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(finality.block_id.shard_full()).first;
     if (!fast_sync_overlay.empty()) {
@@ -644,6 +647,7 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signat
 }
 
 void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) {
+  send_block_finality_broadcast_to_custom_overlays(finality);
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_finality_broadcast, std::move(finality),
                  source)
       .detach();
@@ -838,6 +842,22 @@ void FullNodeImpl::send_block_broadcast_to_custom_overlays(const BlockBroadcast 
       for (auto &[local_id, actor] : private_overlay.actors_) {
         if (private_overlay.params_.block_senders_.contains(local_id)) {
           td::actor::send_closure(actor, &FullNodeCustomOverlay::send_broadcast, broadcast.clone());
+        }
+      }
+    }
+  }
+}
+
+void FullNodeImpl::send_block_finality_broadcast_to_custom_overlays(const BlockFinalityBroadcast &finality) {
+  if (custom_overlays_sent_finality_.contains(finality.block_id)) {
+    return;
+  }
+  custom_overlays_sent_finality_.put(finality.block_id, {});
+  for (auto &[_, private_overlay] : custom_overlays_) {
+    if (private_overlay.params_.send_shard(finality.block_id.shard_full())) {
+      for (auto &[local_id, actor] : private_overlay.actors_) {
+        if (private_overlay.params_.block_senders_.contains(local_id)) {
+          td::actor::send_closure(actor, &FullNodeCustomOverlay::send_block_finality_broadcast, finality.clone());
         }
       }
     }
