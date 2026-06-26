@@ -286,6 +286,9 @@ void FullNodeFastSyncOverlay::send_block_finality_broadcast(BlockFinalityBroadca
   if (!inited_) {
     return;
   }
+  if (!enable_plumtree_broadcast_) {
+    return;
+  }
   VLOG(full_node, DEBUG) << "Sending Plumtree blockFinalityBroadcast in fast sync overlay: " << finality.block_id;
   auto broadcast_id = get_tl_object_sha_bits256(create_tl_block_id(finality.block_id));
   auto B = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(create_tl_block_id(finality.block_id),
@@ -298,6 +301,9 @@ void FullNodeFastSyncOverlay::send_block_finality_broadcast(BlockFinalityBroadca
 void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                    td::uint32 validator_set_hash, td::BufferSlice data) {
   if (!inited_) {
+    return;
+  }
+  if (!enable_plumtree_broadcast_) {
     return;
   }
   auto B = serialize_block_candidate_broadcast(block_id, cc_seqno, validator_set_hash, data, true,

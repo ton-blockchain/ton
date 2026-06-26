@@ -413,6 +413,14 @@ void FullNodeImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality
                               finality.clone());
     }
   }
+  if (mode & broadcast_mode_public) {
+    auto shard = get_shard(finality.block_id.shard_full());
+    if (shard.empty()) {
+      VLOG(full_node, WARNING) << "dropping OUT block finality broadcast to unknown shard";
+      return;
+    }
+    td::actor::send_closure(shard, &FullNodeShard::send_block_finality_broadcast, std::move(finality));
+  }
 }
 
 void FullNodeImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
