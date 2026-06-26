@@ -40,6 +40,7 @@ class FullNodeShard : public td::actor::Actor {
   virtual void update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) = 0;
   virtual void set_active(bool active) = 0;
   virtual void set_config(FullNodeConfig config) = 0;
+  virtual void set_params(bool active, bool enable_plumtree_broadcast) = 0;
 
   virtual void send_ihr_message(td::BufferSlice data) = 0;
   virtual void send_external_message(td::BufferSlice data) = 0;
@@ -83,7 +84,7 @@ class FullNodeShard : public td::actor::Actor {
       td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
       td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
       td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client,
-      td::actor::ActorId<FullNode> full_node, bool active);
+      td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast);
 };
 
 }  // namespace fullnode

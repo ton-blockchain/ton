@@ -126,10 +126,11 @@ class FullNodeImpl : public FullNode {
   struct ShardInfo {
     td::actor::ActorOwn<FullNodeShard> actor;
     bool active = false;
+    bool enable_plumtree_broadcast = false;
     td::Timestamp delete_at = td::Timestamp::never();
   };
 
-  void update_shard_actor(ShardIdFull shard, bool active);
+  void update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast);
 
   PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;

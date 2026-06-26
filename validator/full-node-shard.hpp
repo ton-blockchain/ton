@@ -95,6 +95,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void set_config(FullNodeConfig config) override {
     opts_.config_ = config;
   }
+  void set_params(bool active, bool enable_plumtree_broadcast) override;
 
   td::actor::Task<> get_next_blocks_loop();
 
@@ -254,7 +255,7 @@ class FullNodeShardImpl : public FullNodeShard {
                     td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                     td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node,
-                    bool active);
+                    bool active, bool enable_plumtree_broadcast);
 
  private:
   bool use_new_download() const {
@@ -294,6 +295,7 @@ class FullNodeShardImpl : public FullNodeShard {
   adnl::AdnlNodeIdShort last_pinged_neighbour_ = adnl::AdnlNodeIdShort::zero();
 
   bool active_;
+  bool enable_plumtree_broadcast_;
 
   FullNodeOptions opts_;
 
