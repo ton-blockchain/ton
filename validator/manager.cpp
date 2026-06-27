@@ -1585,9 +1585,7 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
 }
 
 void ValidatorManagerImpl::cache_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
-  if (!candidate.id.is_masterchain()) {
-    update_block_receive_stats(candidate.id, BlockSource::candidate_stored);
-  }
+  update_block_receive_stats(candidate.id, BlockSource::candidate_stored);
   add_cached_block_data(candidate.id, std::move(candidate.data));
   promise.set_value(td::Unit{});
 }
