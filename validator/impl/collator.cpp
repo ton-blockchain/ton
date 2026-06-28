@@ -906,7 +906,7 @@ bool Collator::check_cur_validator_set() {
     return true;
   }
   CatchainSeqno cc_seqno = 0;
-  auto nodes = config_->compute_validator_set_cc(shard_, now_, &cc_seqno);
+  auto nodes = config_->compute_validator_set_cc(shard_, &cc_seqno);
   if (nodes.empty()) {
     return fatal_error("cannot compute validator set for shard "s + shard_.to_str() + " from old masterchain state");
   }

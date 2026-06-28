@@ -2980,7 +2980,7 @@ bool LiteQuery::construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::Bloc
     }
     // compute validator set
     ShardIdFull shard{masterchainId};
-    auto nodes = config->compute_validator_set(shard, info.gen_utime, info.gen_catchain_seqno);
+    auto nodes = config->compute_validator_set(shard, info.gen_catchain_seqno);
     if (nodes.empty()) {
       return fatal_error(PSTRING() << "cannot compute validator set for block " << next << " with utime "
                                    << info.gen_utime << " and cc_seqno " << info.gen_catchain_seqno
