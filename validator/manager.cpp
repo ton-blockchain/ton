@@ -758,8 +758,7 @@ void ValidatorManagerImpl::try_process_pending_block_finality(BlockIdExt block_i
   auto data = candidate->clone();
   auto block = create_block(block_id, data.clone());
   if (block.is_error()) {
-    VLOG(validator, WARNING) << "failed to parse pending block candidate " << block_id << ": "
-                             << block.move_as_error();
+    VLOG(validator, WARNING) << "failed to parse pending block candidate " << block_id << ": " << block.move_as_error();
     if (block_id.is_masterchain()) {
       cached_masterchain_block_candidates_.erase(block_id);
     } else {
@@ -769,9 +768,9 @@ void ValidatorManagerImpl::try_process_pending_block_finality(BlockIdExt block_i
   }
 
   td::Result<td::BufferSlice> proof =
-      block_id.is_masterchain() ? WaitBlockData::generate_proof(block_id, block.ok()->root_cell(), finality->sig_set,
-                                                                 last_masterchain_state_)
-                                : WaitBlockData::generate_proof_link(block_id, block.ok()->root_cell());
+      block_id.is_masterchain()
+          ? WaitBlockData::generate_proof(block_id, block.ok()->root_cell(), finality->sig_set, last_masterchain_state_)
+          : WaitBlockData::generate_proof_link(block_id, block.ok()->root_cell());
   if (proof.is_error()) {
     auto error = proof.move_as_error();
     if (error.code() == ErrorCode::notready) {

@@ -1054,9 +1054,8 @@ void FullNodeShardImpl::send_block_finality_broadcast(BlockFinalityBroadcast fin
     return;
   }
   VLOG(full_node, DEBUG) << "Sending Plumtree blockFinalityBroadcast in public overlay: " << finality.block_id;
-  auto broadcast_id =
-      get_tl_object_sha_bits256(create_tl_object<ton_api::tonNode_finalityBroadcastId>(
-          create_tl_block_id(finality.block_id)));
+  auto broadcast_id = get_tl_object_sha_bits256(
+      create_tl_object<ton_api::tonNode_finalityBroadcastId>(create_tl_block_id(finality.block_id)));
   auto payload = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(
       create_tl_block_id(finality.block_id), finality.sig_set->tl());
   auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
@@ -1582,16 +1581,13 @@ void FullNodeShardImpl::get_stats_extra(td::Promise<std::string> promise) {
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
 }
 
-FullNodeShardImpl::FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                                     FileHash zero_state_file_hash, FullNodeOptions opts,
-                                     std::shared_ptr<RateLimiter<>> limiter,
-                                     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                                     td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
-                                     td::actor::ActorId<overlay::Overlays> overlays,
-                                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                     td::actor::ActorId<adnl::AdnlExtClient> client,
-                                     td::actor::ActorId<FullNode> full_node, bool active,
-                                     bool enable_plumtree_broadcast)
+FullNodeShardImpl::FullNodeShardImpl(
+    ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
+    FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter, td::actor::ActorId<keyring::Keyring> keyring,
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
+    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
+    td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<adnl::AdnlExtClient> client,
+    td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast)
     : shard_(shard)
     , local_id_(local_id)
     , adnl_id_(adnl_id)
@@ -1619,8 +1615,7 @@ td::actor::ActorOwn<FullNodeShard> FullNodeShard::create(
     td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast) {
   return td::actor::create_actor<FullNodeShardImpl>(
       PSTRING() << "tonnode" << shard, shard, local_id, adnl_id, zero_state_file_hash, opts, std::move(limiter),
-      keyring, adnl, rldp2, quic, overlays, validator_manager, client, full_node, active,
-      enable_plumtree_broadcast);
+      keyring, adnl, rldp2, quic, overlays, validator_manager, client, full_node, active, enable_plumtree_broadcast);
 }
 
 }  // namespace fullnode

@@ -40,8 +40,8 @@ using namespace std::literals::string_literals;
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<block::ValidatorSet> validator_set,
                                    td::Ref<block::BlockSignatureSet> signatures, int block_broadcast_mode,
-                                   int finality_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
-                                   td::Promise<td::Unit> promise)
+                                   int finality_broadcast_mode, bool apply,
+                                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
     , prev_(std::move(prev))
@@ -904,8 +904,7 @@ void AcceptBlockQuery::send_broadcasts() {
   }
 
   // do not wait for answer
-  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b),
-                                block_broadcast_mode_);
+  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), block_broadcast_mode_);
 
   // Do this for shard blocks later:
   // td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id_,

@@ -45,8 +45,8 @@ td::Result<BlockProofRoot> generate_block_proof_root(BlockIdExt id, td::Ref<vm::
 
   RootHash block_root_hash{block_root->get_hash().bits()};
   if (block_root_hash != id.root_hash) {
-    return td::Status::Error(PSTRING() << "block root hash mismatch: expected " << id.root_hash.to_hex()
-                                       << ", found " << block_root_hash.to_hex());
+    return td::Status::Error(PSTRING() << "block root hash mismatch: expected " << id.root_hash.to_hex() << ", found "
+                                       << block_root_hash.to_hex());
   }
 
   auto usage_tree = std::make_shared<vm::CellUsageTree>();
@@ -108,9 +108,8 @@ td::Result<BlockProofRoot> generate_block_proof_root(BlockIdExt id, td::Ref<vm::
     block::gen::McBlockExtra::Record mc_extra;
     if (!(extra.custom->have_refs() && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) &&
           !mc_extra.key_block)) {
-      return td::Status::Error(PSTRING()
-                               << "extra header of non-key masterchain block " << block_id
-                               << " is invalid or contains extra information reserved for key blocks only");
+      return td::Status::Error(PSTRING() << "extra header of non-key masterchain block " << block_id
+                                         << " is invalid or contains extra information reserved for key blocks only");
     }
   }
 

@@ -255,8 +255,8 @@ class FullNodeShardImpl : public FullNodeShard {
                     td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
                     td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node,
-                    bool active, bool enable_plumtree_broadcast);
+                    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active,
+                    bool enable_plumtree_broadcast);
 
  private:
   bool use_new_download() const {

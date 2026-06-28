@@ -46,8 +46,7 @@ static std::string overlay_actor_name(const OverlayIdFull &overlay_id, const Ove
   return PSTRING() << "overlay." << opts.name_;
 }
 
-static bool is_original_plumtree_sender(adnl::AdnlNodeIdShort local_id,
-                                        const std::vector<adnl::AdnlNodeIdShort> &nodes,
+static bool is_original_plumtree_sender(adnl::AdnlNodeIdShort local_id, const std::vector<adnl::AdnlNodeIdShort> &nodes,
                                         const OverlayOptions &opts) {
   return opts.is_original_sender_ || std::find(nodes.begin(), nodes.end(), local_id) != nodes.end();
 }
@@ -323,8 +322,8 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
   co_return td::Unit{};
 }
 
-td::actor::Task<> OverlayImpl::process_broadcast(
-    adnl::AdnlNodeIdShort message_from, tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> bcast) {
+td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                                 tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> bcast) {
   if (!opts_.enable_plumtree_broadcast_) {
     co_return td::Status::Error("Plumtree broadcasts are not enabled");
   }
@@ -401,10 +400,8 @@ void OverlayImpl::alarm() {
     const auto &overlay_name = opts_.name_.empty() ? "unknown" : opts_.name_;
 
     VLOG(overlay, WARNING) << "Overlay_traffic"
-                           << " overlay_name=" << overlay_name
-                           << " overlay_id=" << overlay_id_.bits256_value().to_hex()
-                           << " duration_sec=" << t_elapsed
-                           << " out_bytes=" << total_traffic_ctr.out_bytes
+                           << " overlay_name=" << overlay_name << " overlay_id=" << overlay_id_.bits256_value().to_hex()
+                           << " duration_sec=" << t_elapsed << " out_bytes=" << total_traffic_ctr.out_bytes
                            << " in_bytes=" << total_traffic_ctr.in_bytes
                            << " out_pckts=" << total_traffic_ctr.out_packets
                            << " in_pckts=" << total_traffic_ctr.in_packets;
@@ -544,9 +541,9 @@ void OverlayImpl::set_plumtree_eager_mtu_peers(std::vector<adnl::AdnlNodeIdShort
     plumtree_eager_mtu_guard_ = {};
     return;
   }
-  peers.erase(std::remove_if(peers.begin(), peers.end(),
-                             [&](const auto &peer) { return peer.is_zero() || peer == local_id_; }),
-              peers.end());
+  peers.erase(
+      std::remove_if(peers.begin(), peers.end(), [&](const auto &peer) { return peer.is_zero() || peer == local_id_; }),
+      peers.end());
   std::sort(peers.begin(), peers.end());
   peers.erase(std::unique(peers.begin(), peers.end()), peers.end());
   plumtree_eager_mtu_guard_ =
@@ -871,13 +868,14 @@ void OverlayImpl::receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, t
     return;
   }
   [](OverlayImpl *self, adnl::AdnlNodeIdShort from, td::BufferSlice data) -> td::actor::Task<> {
-    auto status =
-        (co_await self->broadcasts_plumtree_.process_repair_response(self, from, std::move(data)).wrap())
-            .move_as_status();
+    auto status = (co_await self->broadcasts_plumtree_.process_repair_response(self, from, std::move(data)).wrap())
+                      .move_as_status();
     LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready)
         << self << ": failed to process Plumtree repair response from " << from << ": " << status;
     co_return td::Unit{};
-  }(this, from, R.move_as_ok()).start().detach();
+  }(this, from, R.move_as_ok())
+                                                                                 .start()
+                                                                                 .detach();
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra) {

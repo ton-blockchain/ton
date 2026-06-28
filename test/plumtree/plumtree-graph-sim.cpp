@@ -141,9 +141,8 @@ DeliveryDiversity summarize_full_node_diversity(const Graph &graph, const std::v
                                                 const std::vector<ton::PublicKeyHash> &sources) {
   std::set<td::Bits256> hashes;
   std::set<ton::PublicKeyHash> source_hashes;
-  for (std::size_t i = 0; i < graph.nodes.size() && i < delivered.size() && i < payload_hashes.size() &&
-                          i < sources.size();
-       ++i) {
+  for (std::size_t i = 0;
+       i < graph.nodes.size() && i < delivered.size() && i < payload_hashes.size() && i < sources.size(); ++i) {
     if (graph.nodes[i].is_validator || !delivered[i]) {
       continue;
     }
@@ -484,10 +483,9 @@ int main(int argc, char **argv) {
   double sim_time_s = 0.0;
   bool all_expected_delivered = true;
   std::cout << "Plumtree graph simulation: mode=" << broadcast_mode_name(settings.broadcast_mode)
-            << ", all-validators-send, nodes=" << graph.nodes.size()
-            << ", validators=" << validators.size() << ", senders=" << validators.size()
-            << ", tree_slots=" << opts.plumtree_fec_options_.tree_slots_ << ", expected=" << expected_delivered
-            << ", unreachable=" << (graph.nodes.size() - expected_delivered);
+            << ", all-validators-send, nodes=" << graph.nodes.size() << ", validators=" << validators.size()
+            << ", senders=" << validators.size() << ", tree_slots=" << opts.plumtree_fec_options_.tree_slots_
+            << ", expected=" << expected_delivered << ", unreachable=" << (graph.nodes.size() - expected_delivered);
   std::cout << ", broadcasts=" << settings.broadcast_count
             << ", payload=" << format_bytes(static_cast<double>(settings.payload_bytes)) << "\n";
   print_table_header();

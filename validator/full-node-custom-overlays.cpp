@@ -99,8 +99,8 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
   auto block_id = create_block_id(query.id_);
   BlockFinalityBroadcast finality{block_id, block::BlockSignatureSet::fetch(query.signature_set_)};
 
-  VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in custom overlay \"" << name_ << "\" from " << src
-                         << ": " << block_id;
+  VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
+                         << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
                           BroadcastSource::custom_overlay);
 }

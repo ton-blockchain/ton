@@ -286,10 +286,9 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
 void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast) {
   ShardInfo &info = shards_[shard];
   if (info.actor.empty()) {
-    info.actor =
-        FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, limiter_, keyring_, adnl_,
-                              rldp2_, quic_, overlays_, validator_manager_, client_, actor_id(this), active,
-                              enable_plumtree_broadcast);
+    info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, limiter_, keyring_,
+                                       adnl_, rldp2_, quic_, overlays_, validator_manager_, client_, actor_id(this),
+                                       active, enable_plumtree_broadcast);
     if (!all_validators_.empty()) {
       td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
     }

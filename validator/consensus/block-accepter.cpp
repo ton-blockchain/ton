@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
-#include "validator/full-node.h"
-
 #include <set>
+
+#include "validator/full-node.h"
 
 #include "bus.h"
 #include "stats.h"
@@ -48,12 +48,12 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       }
     } else {
       if (is_leader) {
-        block_broadcast_mode |= fullnode::FullNode::broadcast_mode_public |
-                                fullnode::FullNode::broadcast_mode_fast_sync;
+        block_broadcast_mode |=
+            fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
       }
       if (sent_candidate_broadcasts_.contains(block.id)) {
-        block_broadcast_mode &= ~(fullnode::FullNode::broadcast_mode_fast_sync |
-                                  fullnode::FullNode::broadcast_mode_custom);
+        block_broadcast_mode &=
+            ~(fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
       }
     }
     if (last_mc_finalized_seqno_ >= 2 && block.id.seqno() < last_mc_finalized_seqno_ - 2) {

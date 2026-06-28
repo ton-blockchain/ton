@@ -493,8 +493,8 @@ void OverlayManager::send_broadcast_plumtree(adnl::AdnlNodeIdShort local_id, Ove
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
-      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree, send_as, flags,
-                              broadcast_id, std::move(object));
+      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree, send_as, flags, broadcast_id,
+                              std::move(object));
     }
   }
 }

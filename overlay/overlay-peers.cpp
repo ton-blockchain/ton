@@ -590,14 +590,15 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
     }
   };
 
-  update_list(peer_list_.neighbours_, max_neighbours(), nodes_to_change,
-              [](OverlayPeer *P) { return P->is_neighbour(); },
-              [](OverlayPeer *P, bool value) { P->set_neighbour(value); }, "neighbour");
+  update_list(
+      peer_list_.neighbours_, max_neighbours(), nodes_to_change, [](OverlayPeer *P) { return P->is_neighbour(); },
+      [](OverlayPeer *P, bool value) { P->set_neighbour(value); }, "neighbour");
   if (max_plumtree_neighbours() > 0) {
     auto plumtree_nodes_to_change = nodes_to_change == 0 ? 0 : std::max<td::uint32>(nodes_to_change, 5);
-    update_list(peer_list_.plumtree_neighbours_, max_plumtree_neighbours(), plumtree_nodes_to_change,
-                [](OverlayPeer *P) { return P->is_plumtree_neighbour(); },
-                [](OverlayPeer *P, bool value) { P->set_plumtree_neighbour(value); }, "Plumtree neighbour");
+    update_list(
+        peer_list_.plumtree_neighbours_, max_plumtree_neighbours(), plumtree_nodes_to_change,
+        [](OverlayPeer *P) { return P->is_plumtree_neighbour(); },
+        [](OverlayPeer *P, bool value) { P->set_plumtree_neighbour(value); }, "Plumtree neighbour");
   }
 }
 

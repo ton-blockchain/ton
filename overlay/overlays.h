@@ -437,8 +437,8 @@ class Overlays : public td::actor::Actor {
   virtual void send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
                                              PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
                                              td::BufferSlice extra) = 0;
-  virtual void send_broadcast_plumtree_fec(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
-                                           PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object) = 0;
+  virtual void send_broadcast_plumtree_fec(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
+                                           td::uint32 flags, td::BufferSlice object) = 0;
   virtual void send_broadcast_plumtree(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
                                        td::uint32 flags, td::Bits256 broadcast_id, td::BufferSlice object) = 0;
 
