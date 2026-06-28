@@ -35,7 +35,7 @@ class ProofLinkQ : virtual public ProofLink {
   td::BufferSlice data_;
   mutable td::AtomicRef<vm::Cell> root_;
 
-  td::Result<td::Ref<vm::Cell>> get_root_cell() const;
+  td::Result<td::Ref<vm::Cell>> get_root_cell() const override;
 
  public:
   ProofLinkQ(const BlockIdExt &id, td::BufferSlice data) : id_(id), data_(std::move(data)) {
