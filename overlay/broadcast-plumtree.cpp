@@ -202,7 +202,8 @@ class BroadcastsPlumtree::Impl {
  public:
   explicit Impl(PlumtreeFecOptions options, bool is_original_sender)
       : options_(options)
-      , local_eager_limit_(is_original_sender ? options_.validator_eager_limit_ : options_.eager_limit_) {
+      , is_original_sender_(is_original_sender)
+      , local_eager_limit_(is_original_sender_ ? options_.validator_eager_limit_ : options_.eager_limit_) {
     slots_.resize(options_.tree_slots_);
   }
 
@@ -240,6 +241,7 @@ class BroadcastsPlumtree::Impl {
  private:
   td::actor::ActorId<adnl::AdnlSenderInterface> sender_;
   PlumtreeFecOptions options_;
+  bool is_original_sender_ = false;
   td::uint32 local_eager_limit_ = 0;
 
   std::vector<PlumtreeSlot> slots_;
@@ -306,8 +308,8 @@ class BroadcastsPlumtree::Impl {
                        const adnl::AdnlNodeIdShort &dst);
   void send_ihave_to(OverlayImpl *overlay, PlumtreePartState &part, const td::Bits256 &broadcast_id,
                      const adnl::AdnlNodeIdShort &dst);
-  void send_prune(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst, const PlumtreePartState &part,
-                  const td::Bits256 &broadcast_id);
+  void send_prune(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst, const td::Bits256 &broadcast_id,
+                  td::uint32 part_index, td::uint32 tree_index);
   void send_useful(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst, const PlumtreePartState &part,
                    const td::Bits256 &broadcast_id);
   void forward_payload(OverlayImpl *overlay, const td::Bits256 &broadcast_id, PlumtreePartState &part,
@@ -409,6 +411,10 @@ std::vector<adnl::AdnlNodeIdShort> BroadcastsPlumtree::Impl::get_eager_mtu_peers
 }
 
 void BroadcastsPlumtree::Impl::refresh_eager_mtu(OverlayImpl *overlay) const {
+  if (is_original_sender_) {
+    overlay->set_plumtree_eager_mtu_peers({});
+    return;
+  }
   overlay->set_plumtree_eager_mtu_peers(get_eager_mtu_peers());
 }
 
@@ -779,11 +785,12 @@ void BroadcastsPlumtree::Impl::send_ihave_to(OverlayImpl *overlay, PlumtreePartS
 }
 
 void BroadcastsPlumtree::Impl::send_prune(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
-                                          const PlumtreePartState &part, const td::Bits256 &broadcast_id) {
+                                          const td::Bits256 &broadcast_id, td::uint32 part_index,
+                                          td::uint32 tree_index) {
   send_control(overlay, dst,
                create_tl_object<ton_api::overlay_broadcastPlumtreePrune>(broadcast_id, td::Clocks::system(),
-                                                                         static_cast<std::int32_t>(part.part_index),
-                                                                         static_cast<std::int32_t>(part.tree_index)));
+                                                                         static_cast<std::int32_t>(part_index),
+                                                                         static_cast<std::int32_t>(tree_index)));
 }
 
 void BroadcastsPlumtree::Impl::send_useful(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &dst,
@@ -1129,6 +1136,13 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
 
   auto broadcast_id = compute_broadcast_id(flags, msg->data_hash_, data_size, part_size);
   CO_TRY(validate_control_fields(broadcast_id, part_index, tree_index));
+  if (is_original_sender_) {
+    if (auto *s = slot(tree_index)) {
+      remove_eager(overlay, *s, from);
+    }
+    send_prune(overlay, from, broadcast_id, part_index, tree_index);
+    co_return td::Status::Error(ErrorCode::notready, "original sender ignores Plumtree part");
+  }
   PublicKey source_key(msg->src_);
   auto source_hash = source_key.compute_short_id();
   auto it = broadcasts_.find(broadcast_id);
@@ -1195,7 +1209,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
     if (auto *s = slot(tree_index)) {
       remove_eager(overlay, *s, from);
     }
-    send_prune(overlay, from, *known, broadcast_id);
+    send_prune(overlay, from, broadcast_id, known->part_index, known->tree_index);
     co_return td::Status::Error(ErrorCode::notready, "duplicate Plumtree part");
   }
 
@@ -1238,6 +1252,13 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
   if (msg->data_.empty() || msg->data_.size() > Overlays::max_fec_broadcast_size()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree simple payload size");
   }
+  if (is_original_sender_) {
+    if (auto *s = slot(tree_index)) {
+      remove_eager(overlay, *s, from);
+    }
+    send_prune(overlay, from, broadcast_id, part_index, tree_index);
+    co_return td::Status::Error(ErrorCode::notready, "original sender ignores Plumtree simple payload");
+  }
   auto data_size = static_cast<td::uint32>(msg->data_.size());
   auto it = simple_broadcasts_.find(broadcast_id);
   if (it == simple_broadcasts_.end() && overlay->is_delivered(broadcast_id)) {
@@ -1271,7 +1292,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
     if (auto *s = slot(tree_index)) {
       remove_eager(overlay, *s, from);
     }
-    send_prune(overlay, from, *known, broadcast_id);
+    send_prune(overlay, from, broadcast_id, known->part_index, known->tree_index);
     co_return td::Status::Error(ErrorCode::notready, "duplicate Plumtree simple payload");
   }
 
@@ -1281,7 +1302,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
     if (auto *s = slot(tree_index)) {
       remove_eager(overlay, *s, from);
     }
-    send_prune(overlay, from, *known, broadcast_id);
+    send_prune(overlay, from, broadcast_id, known->part_index, known->tree_index);
     co_return td::Status::Error(ErrorCode::notready, "duplicate Plumtree simple payload");
   }
   if (!has_state(broadcast_id) && overlay->is_delivered(broadcast_id)) {
@@ -1326,6 +1347,9 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
 
 td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                                           tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg) {
+  if (is_original_sender_) {
+    co_return td::Unit{};
+  }
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree immediate sender");
   }

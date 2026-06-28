@@ -317,6 +317,7 @@ struct OverlayOptions {
   };
 
   bool enable_plumtree_broadcast_ = false;
+  bool is_original_sender_ = false;
   td::actor::ActorId<adnl::AdnlSenderEx> plumtree_broadcast_sender_ = {};
   PlumtreeFecOptions plumtree_fec_options_;
 

@@ -424,6 +424,8 @@ void FullNodeFastSyncOverlay::init() {
   overlay::OverlayPrivacyRules rules{0, 0, std::move(authorized_keys)};
   std::string scope = PSTRING() << R"({ "type": "fast-sync", "shard_id": )" << shard_.shard
                                 << ", \"workchain_id\": " << shard_.workchain << " }";
+  auto local_validator_it = std::find(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id_);
+  bool is_original_sender = local_validator_it != current_validators_adnl_.end();
   overlay::OverlayOptions options;
   options.name_ = "fast-sync" + shard_.to_str();
   if (enable_plumtree_broadcast_ || !shard_.is_masterchain()) {
@@ -435,6 +437,7 @@ void FullNodeFastSyncOverlay::init() {
   options.twostep_broadcast_sender_ = adnl_sender_;
   options.send_twostep_broadcast_ = send_twostep_broadcasts_;
   options.enable_plumtree_broadcast_ = enable_plumtree_broadcast_;
+  options.is_original_sender_ = is_original_sender;
   options.plumtree_broadcast_sender_ =
       enable_plumtree_broadcast_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_}
                                  : td::actor::ActorId<adnl::AdnlSenderEx>{};

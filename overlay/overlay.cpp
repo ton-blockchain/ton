@@ -47,8 +47,9 @@ static std::string overlay_actor_name(const OverlayIdFull &overlay_id, const Ove
 }
 
 static bool is_original_plumtree_sender(adnl::AdnlNodeIdShort local_id,
-                                        const std::vector<adnl::AdnlNodeIdShort> &nodes) {
-  return std::find(nodes.begin(), nodes.end(), local_id) != nodes.end();
+                                        const std::vector<adnl::AdnlNodeIdShort> &nodes,
+                                        const OverlayOptions &opts) {
+  return opts.is_original_sender_ || std::find(nodes.begin(), nodes.end(), local_id) != nodes.end();
 }
 
 static constexpr td::uint64 plumtree_payload_mtu() {
@@ -107,7 +108,7 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     , local_id_(local_id)
     , id_full_(std::move(overlay_id))
     , callback_(std::move(callback))
-    , broadcasts_plumtree_(opts.plumtree_fec_options_, is_original_plumtree_sender(local_id, nodes))
+    , broadcasts_plumtree_(opts.plumtree_fec_options_, is_original_plumtree_sender(local_id, nodes, opts))
     , overlay_type_(overlay_type)
     , rules_(std::move(rules))
     , scope_(scope)

@@ -134,6 +134,7 @@ void FullNodeShardImpl::create_overlay() {
   opts.announce_self_ = active_;
   opts.broadcast_speed_multiplier_ = opts_.public_broadcast_speed_multiplier_;
   opts.enable_plumtree_broadcast_ = enable_plumtree_broadcast_;
+  opts.is_original_sender_ = is_original_sender_;
   opts.plumtree_broadcast_sender_ = enable_plumtree_broadcast_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_}
                                                                : td::actor::ActorId<adnl::AdnlSenderEx>{};
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
@@ -1369,6 +1370,12 @@ void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_
     return;
   }
   bool update_cert = false;
+  bool recreate_overlay = false;
+  bool is_original_sender = !local_hash.is_zero();
+  if (is_original_sender_ != is_original_sender) {
+    is_original_sender_ = is_original_sender;
+    recreate_overlay = enable_plumtree_broadcast_;
+  }
   if (!local_hash.is_zero() && local_hash != sign_cert_by_) {
     update_cert = true;
   }
@@ -1381,7 +1388,12 @@ void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_
 
   rules_ = overlay::OverlayPrivacyRules{overlay::Overlays::max_fec_broadcast_size(),
                                         overlay::CertificateFlags::AllowFec, std::move(authorized_keys)};
-  td::actor::send_closure(overlays_, &overlay::Overlays::set_privacy_rules, adnl_id_, overlay_id_, rules_);
+  if (recreate_overlay) {
+    td::actor::send_closure(overlays_, &ton::overlay::Overlays::delete_overlay, adnl_id_, overlay_id_);
+    create_overlay();
+  } else {
+    td::actor::send_closure(overlays_, &overlay::Overlays::set_privacy_rules, adnl_id_, overlay_id_, rules_);
+  }
 
   if (update_cert) {
     sign_new_certificate(sign_cert_by_);

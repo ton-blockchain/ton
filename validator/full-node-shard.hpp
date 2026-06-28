@@ -297,6 +297,7 @@ class FullNodeShardImpl : public FullNodeShard {
 
   bool active_;
   bool enable_plumtree_broadcast_;
+  bool is_original_sender_ = false;
 
   FullNodeOptions opts_;
 
