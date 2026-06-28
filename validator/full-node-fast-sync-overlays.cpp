@@ -325,13 +325,8 @@ void FullNodeFastSyncOverlay::send_validator_telemetry(tl_object_ptr<ton_api::va
     process_telemetry_broadcast(local_id_, telemetry);
   }
   auto data = serialize_tl_object(telemetry, true);
-  if (data.size() <= overlay::Overlays::max_simple_broadcast_size()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), 0, std::move(data));
-  } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), 0, std::move(data));
-  }
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), 0, std::move(data));
 }
 
 void FullNodeFastSyncOverlay::collect_validator_telemetry(std::string filename) {
