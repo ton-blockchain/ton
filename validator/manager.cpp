@@ -564,9 +564,25 @@ td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt
   co_return td::Unit{};
 }
 
+static td::actor::Task<> check_finality_signatures(BlockIdExt block_id, Ref<block::BlockSignatureSet> sig_set,
+                                                   Ref<MasterchainState> mc_state) {
+  co_await td::actor::become_lightweight();
+  auto config = CO_TRY(mc_state->get_config_holder());
+  auto val_set = config->get_validator_set(block_id.shard_full(), sig_set->get_catchain_seqno());
+  if (val_set.is_null()) {
+    co_return td::Status::Error("no validator set");
+  }
+  if (sig_set->is_final()) {
+    CO_TRY(sig_set->check_signatures(val_set, block_id));
+  } else {
+    CO_TRY(sig_set->check_approve_signatures(val_set, block_id));
+  }
+  co_return {};
+}
+
 td::actor::Task<> ValidatorManagerImpl::new_block_finality_broadcast(BlockFinalityBroadcast finality,
                                                                      BroadcastSource source) {
-  if (!last_masterchain_block_handle_ || !started_) {
+  if (!last_masterchain_block_handle_ || last_masterchain_state_.is_null()) {
     VLOG(validator, DEBUG) << "dropping block finality broadcast: not inited";
     co_return td::Unit{};
   }
@@ -584,9 +600,18 @@ td::actor::Task<> ValidatorManagerImpl::new_block_finality_broadcast(BlockFinali
     co_return td::Unit{};
   }
 
-  if (!pending_block_finality_.contains(finality.block_id)) {
-    pending_block_finality_.put(finality.block_id, PendingBlockFinality{std::move(finality.sig_set), source});
+  if (pending_block_finality_.contains(finality.block_id)) {
+    co_return {};
   }
+  auto S = co_await check_finality_signatures(finality.block_id, finality.sig_set, last_masterchain_state_).wrap();
+  if (S.is_error()) {
+    VLOG(validator, WARNING) << "dropping block finality broadcast: " << S.move_as_error();
+    co_return {};
+  }
+  if (!finality.block_id.is_masterchain() && finality.sig_set->is_final() && is_validator()) {
+    generate_shard_block_description(finality.block_id, finality.sig_set).start().detach();
+  }
+  pending_block_finality_.put(finality.block_id, PendingBlockFinality{std::move(finality.sig_set), source});
   try_process_pending_block_finality(finality.block_id);
   co_return td::Unit{};
 }
@@ -816,8 +841,8 @@ void ValidatorManagerImpl::try_process_pending_block_finality(BlockIdExt block_i
   BlockBroadcast broadcast{block_id, std::move(sig_set), std::move(data), proof.move_as_ok()};
   update_block_receive_stats(block_id, BlockReceiveStats::from_candidate_finality(finality_source));
   td::actor::send_closure(
-      actor_id(this), &ValidatorManagerImpl::validate_block_broadcast, std::move(broadcast), false,
-      [block_id](td::Result<td::Unit> R) mutable {
+      actor_id(this), &ValidatorManagerImpl::validate_block_broadcast, std::move(broadcast),
+      /* signatures_checked = */ true, [block_id](td::Result<td::Unit> R) mutable {
         if (R.is_error()) {
           auto error = R.move_as_error();
           if (error.code() == ErrorCode::notready || error.code() == ErrorCode::timeout) {
