@@ -128,6 +128,11 @@ void run_validate_shard_block_description(td::BufferSlice data, BlockHandle mast
                                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                                           td::Promise<td::Ref<ShardTopBlockDescription>> promise, bool is_fake = false);
 
+td::actor::Task<td::BufferSlice> generate_shard_block_description(BlockIdExt block_id,
+                                                                  Ref<block::BlockSignatureSet> signatures,
+                                                                  td::Timestamp timeout,
+                                                                  td::actor::ActorId<ValidatorManager> manager);
+
 }  // namespace validator
 
 }  // namespace ton
