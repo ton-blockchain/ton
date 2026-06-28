@@ -539,6 +539,10 @@ void OverlayImpl::set_plumtree_eager_mtu_peers(std::vector<adnl::AdnlNodeIdShort
     plumtree_eager_mtu_guard_ = {};
     return;
   }
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+    plumtree_eager_mtu_guard_ = {};
+    return;
+  }
   peers.erase(std::remove_if(peers.begin(), peers.end(),
                              [&](const auto &peer) { return peer.is_zero() || peer == local_id_; }),
               peers.end());
