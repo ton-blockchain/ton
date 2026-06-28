@@ -39,6 +39,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
     int block_broadcast_mode = fullnode::FullNode::broadcast_mode_custom;
     int finality_broadcast_mode = 0;
+    bool send_shard_block_desc = true;
     if (bus.config.enable_plumtree_broadcast()) {
       finality_broadcast_mode = fullnode::FullNode::broadcast_mode_custom |
                                 fullnode::FullNode::broadcast_mode_fast_sync |
@@ -46,6 +47,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       if (is_leader) {
         block_broadcast_mode |= fullnode::FullNode::broadcast_mode_public;
       }
+      send_shard_block_desc = false;
     } else {
       if (is_leader) {
         block_broadcast_mode |=
@@ -62,7 +64,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     }
     co_await td::actor::ask(bus.manager, &ManagerFacade::accept_block, block.id, block_data,
                             event->candidate->leader.value(), event->signatures, block_broadcast_mode,
-                            finality_broadcast_mode, true);
+                            finality_broadcast_mode, send_shard_block_desc, true);
     owning_bus().publish<TraceEvent>(stats::BlockAccepted::create(event->candidate->id));
     co_return {};
   }
