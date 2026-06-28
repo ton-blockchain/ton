@@ -225,7 +225,13 @@ td::actor::Task<> ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broad
     co_return td::Status::Error("not monitoring shard");
   }
   update_block_receive_stats(broadcast.block_id, BlockReceiveStats::from(source, /*is_candidate=*/false));
-  co_return co_await validate_block_broadcast(std::move(broadcast), signatures_checked);
+  BlockIdExt block_id = broadcast.block_id;
+  auto sig_set = broadcast.sig_set;
+  co_await validate_block_broadcast(std::move(broadcast), signatures_checked);
+  if (!block_id.is_masterchain() && sig_set->is_final() && is_validator()) {
+    generate_shard_block_description(block_id, sig_set).start().detach();
+  }
+  co_return {};
 }
 
 td::actor::Task<> ValidatorManagerImpl::validate_block_broadcast(BlockBroadcast broadcast, bool signatures_checked) {
@@ -275,6 +281,21 @@ td::actor::Task<> ValidatorManagerImpl::validated_accepted_block_broadcast(Block
   }
   process_accepted_nonfinal_block(block_id, cc_seqno);
   co_return td::Unit{};
+}
+
+td::actor::Task<> ValidatorManagerImpl::generate_shard_block_description(BlockIdExt block_id,
+                                                                         Ref<block::BlockSignatureSet> sig_set) {
+  auto r_desc =
+      co_await validator::generate_shard_block_description(block_id, sig_set, td::Timestamp::in(30.0), actor_id(this))
+          .wrap();
+  if (r_desc.is_error()) {
+    VLOG(validator, WARNING) << "Failed to generate shard block description for " << block_id << " : "
+                             << r_desc.error();
+    co_return {};
+  }
+  VLOG(validator, DEBUG) << "Generated shard block description for " << block_id;
+  new_shard_block_description_broadcast(block_id, sig_set->get_catchain_seqno(), r_desc.move_as_ok());
+  co_return {};
 }
 
 void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
