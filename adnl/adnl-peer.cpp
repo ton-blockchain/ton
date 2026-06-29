@@ -820,7 +820,8 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
   VLOG(adnl, INFO) << this << ": updating addr list to version " << addr_list.version() << " size=" << addr_list.size();
 
   const auto addrs = addr_list.adnl_addrs();
-  has_reverse_addr_ = addr_list.has_reverse();
+  // has_reverse_addr_ = addr_list.has_reverse();
+  has_reverse_addr_ = false;
   if (has_reverse_addr_ && addrs.empty()) {
     return;
   }
