@@ -188,7 +188,35 @@ double SimNetwork::propagation_latency_s(adnl::AdnlNodeIdShort src, adnl::AdnlNo
   return std::max(0.0, latency_ms) / 1000.0;
 }
 
+namespace {
+
+void set_response_result(td::Promise<td::BufferSlice> promise, td::Result<td::BufferSlice> result,
+                         td::uint64 max_answer_size) {
+  if (result.is_ok() && result.ok().size() > max_answer_size) {
+    promise.set_error(td::Status::Error("simulated ADNL query response exceeds max answer size"));
+    return;
+  }
+  promise.set_result(std::move(result));
+}
+
+}  // namespace
+
 void SimNetwork::enqueue(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
+  enqueue_event(src, dst, std::move(data), SimEventKind::Message, {});
+}
+
+void SimNetwork::enqueue_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
+                               td::Promise<td::BufferSlice> promise) {
+  enqueue_event(src, dst, std::move(data), SimEventKind::Query, std::move(promise));
+}
+
+void SimNetwork::enqueue_response(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
+                                  td::Promise<td::BufferSlice> promise) {
+  enqueue_event(src, dst, std::move(data), SimEventKind::Response, std::move(promise));
+}
+
+void SimNetwork::enqueue_event(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
+                               SimEventKind kind, td::Promise<td::BufferSlice> promise) {
   std::lock_guard<std::mutex> lock(mutex);
   auto bytes = data.size();
   auto type = overlay_payload_constructor_id(data.as_slice());
@@ -211,7 +239,7 @@ void SimNetwork::enqueue(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, t
   auto first_byte_at = tx_start + propagation;
   auto last_byte_at = tx_start + tx_delay + propagation;
   events.emplace(std::pair<double, td::uint64>{first_byte_at, next_event_order++},
-                 SimEvent{src, dst, std::move(data), true, last_byte_at, bytes});
+                 SimEvent{src, dst, std::move(data), kind, std::move(promise), true, last_byte_at, bytes});
 }
 
 td::optional<double> SimNetwork::next_event_time() const {
@@ -296,13 +324,27 @@ void SimulatedSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdSh
 
 void SimulatedSender::send_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
                                  td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data) {
-  promise.set_error(td::Status::Error("Plumtree graph simulator does not route ADNL queries"));
+  send_query_ex(src, dst, std::move(name), std::move(promise), timeout, std::move(data), td::uint64(-1));
 }
 
 void SimulatedSender::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
                                     td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data,
                                     td::uint64 max_answer_size) {
-  promise.set_error(td::Status::Error("Plumtree graph simulator does not route ADNL queries"));
+  auto response_promise =
+      td::PromiseCreator::lambda([network = network_, src, dst, max_answer_size,
+                                  promise = std::move(promise)](td::Result<td::BufferSlice> result) mutable {
+        if (result.is_error()) {
+          set_response_result(std::move(promise), std::move(result), max_answer_size);
+          return;
+        }
+        auto response = result.move_as_ok();
+        network->enqueue_response(dst, src, std::move(response),
+                                  td::PromiseCreator::lambda([promise = std::move(promise), max_answer_size](
+                                                                 td::Result<td::BufferSlice> delivered) mutable {
+                                    set_response_result(std::move(promise), std::move(delivered), max_answer_size);
+                                  }));
+      });
+  network_->enqueue_query(src, dst, std::move(data), std::move(response_promise));
 }
 
 void SimulatedSender::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,

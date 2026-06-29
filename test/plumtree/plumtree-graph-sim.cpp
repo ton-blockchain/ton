@@ -551,8 +551,19 @@ int main(int argc, char **argv) {
       if (!due_events.empty()) {
         scheduler.run_in_context([&] {
           for (auto &event : due_events) {
-            td::actor::send_closure(network->overlay_manager, &ton::overlay::OverlayManager::receive_message, event.src,
-                                    event.dst, std::move(event.data));
+            switch (event.kind) {
+              case SimEventKind::Message:
+                td::actor::send_closure(network->overlay_manager, &ton::overlay::OverlayManager::receive_message,
+                                        event.src, event.dst, std::move(event.data));
+                break;
+              case SimEventKind::Query:
+                td::actor::send_closure(network->overlay_manager, &ton::overlay::OverlayManager::receive_query,
+                                        event.src, event.dst, std::move(event.data), std::move(event.promise));
+                break;
+              case SimEventKind::Response:
+                event.promise.set_value(std::move(event.data));
+                break;
+            }
           }
         });
         pump_scheduler(scheduler);

@@ -75,10 +75,14 @@ struct DeliveryState {
   std::vector<PublicKeyHash> delivered_source_hashes() const;
 };
 
+enum class SimEventKind { Message, Query, Response };
+
 struct SimEvent {
   adnl::AdnlNodeIdShort src;
   adnl::AdnlNodeIdShort dst;
   td::BufferSlice data;
+  SimEventKind kind = SimEventKind::Message;
+  td::Promise<td::BufferSlice> promise;
   bool receive_queued = false;
   double last_byte_at = 0.0;
   std::size_t bytes = 0;
@@ -108,6 +112,10 @@ struct SimNetwork {
   double now_s() const;
   double propagation_latency_s(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst);
   void enqueue(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data);
+  void enqueue_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
+                     td::Promise<td::BufferSlice> promise);
+  void enqueue_response(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data,
+                        td::Promise<td::BufferSlice> promise);
   td::optional<double> next_event_time() const;
   std::vector<SimEvent> pop_due_events(double time_s);
   td::uint64 sent_bytes_count() const;
@@ -115,6 +123,10 @@ struct SimNetwork {
   td::uint64 prune_messages_count() const;
   std::vector<td::uint64> sent_bytes_by_node_snapshot() const;
   std::vector<td::uint64> received_bytes_by_node_snapshot() const;
+
+ private:
+  void enqueue_event(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data, SimEventKind kind,
+                     td::Promise<td::BufferSlice> promise);
 };
 
 class SimulatedSender : public adnl::AdnlSenderEx {
