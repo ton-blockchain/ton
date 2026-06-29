@@ -261,6 +261,8 @@ class BroadcastsPlumtree::Impl {
   void expire_pending_feedback(PlumtreeSlot &slot) const;
   void expire_pending_feedback();
   bool can_reserve_eager_feedback(PlumtreeSlot &slot, const adnl::AdnlNodeIdShort &peer) const;
+  void register_full_payload_send(PlumtreeSlot &slot, PlumtreePartState &part,
+                                  const adnl::AdnlNodeIdShort &dst) const;
   bool add_eager_peer_ref(adnl::AdnlNodeIdShort peer);
   bool remove_eager_peer_ref(adnl::AdnlNodeIdShort peer);
   std::vector<adnl::AdnlNodeIdShort> get_eager_mtu_peers() const;
@@ -344,13 +346,7 @@ PlumtreeSlot *BroadcastsPlumtree::Impl::slot(td::uint32 tree_index) {
 }
 
 td::uint32 BroadcastsPlumtree::Impl::slot_load(const PlumtreeSlot &slot) const {
-  td::uint32 load = static_cast<td::uint32>(slot.eager.size());
-  for (const auto &[peer, _] : slot.pending_feedback) {
-    if (!slot.eager.contains(peer)) {
-      ++load;
-    }
-  }
-  return load;
+  return static_cast<td::uint32>(slot.eager.size() + slot.pending_feedback.size());
 }
 
 void BroadcastsPlumtree::Impl::expire_pending_feedback(PlumtreeSlot &slot) const {
@@ -379,6 +375,17 @@ bool BroadcastsPlumtree::Impl::can_reserve_eager_feedback(PlumtreeSlot &slot, co
     return true;
   }
   return slot_load(slot) < local_eager_limit_;
+}
+
+void BroadcastsPlumtree::Impl::register_full_payload_send(PlumtreeSlot &slot, PlumtreePartState &part,
+                                                          const adnl::AdnlNodeIdShort &dst) const {
+  if (slot.eager.contains(dst)) {
+    slot.pending_feedback.erase(dst);
+  } else {
+    slot.pending_feedback[dst] = td::Timestamp::now();
+  }
+  part.full_sent_to.insert(dst);
+  ++part.full_sends;
 }
 
 bool BroadcastsPlumtree::Impl::add_eager_peer_ref(adnl::AdnlNodeIdShort peer) {
@@ -698,9 +705,7 @@ td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_fec_payload_for_pe
       static_cast<std::int32_t>(broadcast.data_size), static_cast<std::int32_t>(part.part_index),
       static_cast<std::int32_t>(part.tree_index), part_data->second.clone(), part.signature.clone());
   auto wire_size = wire.size();
-  s->pending_feedback[dst] = td::Timestamp::now();
-  part.full_sent_to.insert(dst);
-  ++part.full_sends;
+  register_full_payload_send(*s, part, dst);
   overlay->get_broadcasts_limiter(part.source, part.certificate.get()).register_out_traffic(wire_size);
   return std::move(wire);
 }
@@ -726,9 +731,7 @@ td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_simple_payload_for
       part.certificate ? part.certificate->tl() : Certificate::empty_tl(), payload.broadcast_id,
       static_cast<std::int32_t>(part.tree_index), payload.data.clone(), part.signature.clone());
   auto wire_size = wire.size();
-  s->pending_feedback[dst] = td::Timestamp::now();
-  part.full_sent_to.insert(dst);
-  ++part.full_sends;
+  register_full_payload_send(*s, part, dst);
   overlay->get_broadcasts_limiter(part.source, part.certificate.get()).register_out_traffic(wire_size);
   return std::move(wire);
 }
@@ -1488,8 +1491,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_prune(OverlayImpl *overlay, 
   if (!part || !s) {
     co_return td::Unit{};
   }
-  bool had_record = s->pending_feedback.contains(from) || s->eager.contains(from) || part->full_sent_to.contains(from);
-  if (!had_record) {
+  if (!part->full_sent_to.contains(from)) {
     co_return td::Unit{};
   }
   remove_eager(overlay, *s, from);
@@ -1512,7 +1514,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_useful(
   }
   auto *part = get_part(control.broadcast_id, part_index, tree_index);
   auto *s = slot(tree_index);
-  if (!part || !s || (!s->pending_feedback.contains(from) && !s->eager.contains(from))) {
+  if (!part || !s || !part->full_sent_to.contains(from)) {
     co_return td::Unit{};
   }
   bool was_pending = s->pending_feedback.erase(from) > 0;
