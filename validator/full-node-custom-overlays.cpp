@@ -502,8 +502,12 @@ td::actor::Task<> FullNodeCustomOverlay::ping_peer(adnl::AdnlNodeIdShort peer_id
   co_return {};
 }
 
-void FullNodeCustomOverlay::update_peer_alive(adnl::AdnlNodeIdShort peer_id, const PeerInfo &info) {
+void FullNodeCustomOverlay::update_peer_alive(adnl::AdnlNodeIdShort peer_id, PeerInfo &info) {
   bool alive = info.responds && (!info.ignore_until || info.ignore_until.is_in_past());
+  if (info.alive == alive) {
+    return;
+  }
+  info.alive = alive;
   if (alive) {
     alive_peers_.insert(peer_id, td::Unit{});
   } else {

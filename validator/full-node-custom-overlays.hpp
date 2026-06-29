@@ -121,6 +121,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
     std::pair<td::uint32, td::uint32> proto_version{0, 0};
     bool responds = false;
     td::Timestamp ignore_until = td::Timestamp::never();
+    bool alive = false;
   };
   std::map<adnl::AdnlNodeIdShort, PeerInfo> peers_info_;
   td::DecTree<adnl::AdnlNodeIdShort, td::Unit> alive_peers_;  // alive == responds && ignore_until in past
@@ -128,7 +129,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
 
   td::actor::Task<> on_peer_query_error(adnl::AdnlNodeIdShort peer_id);
   td::actor::Task<> ping_peer(adnl::AdnlNodeIdShort peer_id);
-  void update_peer_alive(adnl::AdnlNodeIdShort peer_id, const PeerInfo &info);
+  void update_peer_alive(adnl::AdnlNodeIdShort peer_id, PeerInfo &info);
 };
 
 }  // namespace ton::validator::fullnode
