@@ -312,6 +312,8 @@ static td::BufferSlice register_reverse_connection_to_sign(adnl::AdnlNodeIdShort
 
 void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_registerReverseConnection &query,
                                   td::Promise<td::BufferSlice> promise) {
+  promise.set_error(td::Status::Error("reverse ping is not supported"));
+  return;
   td::uint32 ttl = query.ttl_, now = (td::uint32)td::Clocks::system();
   if (ttl <= now) {
     promise.set_error(td::Status::Error("too old ttl"));
@@ -335,6 +337,8 @@ void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_regist
 
 void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_requestReversePing &query,
                                   td::Promise<td::BufferSlice> promise) {
+  promise.set_error(td::Status::Error("reverse ping is not supported"));
+  return;
   adnl::AdnlNodeIdShort client{query.client_};
   auto it = reverse_connections_.find(client);
   if (it != reverse_connections_.end() && !it->second.ttl_.is_in_past()) {
@@ -428,6 +432,8 @@ void DhtMemberImpl::receive_ping(DhtKeyId key, DhtNode result) {
 }
 
 void DhtMemberImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data) {
+  VLOG(dht, INFO) << "reverse ping is not supported";
+  return;
   auto F = fetch_tl_object<ton_api::dht_requestReversePingCont>(data, true);
   if (F.is_ok()) {
     auto S = [&]() -> td::Status {
