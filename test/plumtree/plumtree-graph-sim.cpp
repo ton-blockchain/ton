@@ -37,7 +37,6 @@
 #include <set>
 #include <sstream>
 #include <string>
-#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -355,9 +354,7 @@ int main(int argc, char **argv) {
       graph.nodes[i].is_validator = true;
     }
   }
-  std::string db_root = PSTRING() << "tmp-dir-plumtree-graph-sim-" << settings.seed << "-" << getpid();
-  td::rmrf(db_root).ignore();
-  td::mkdir(db_root).ensure();
+  auto db_root = td::mkdtemp(".", PSTRING() << "tmp-dir-plumtree-graph-sim-" << settings.seed << "-").move_as_ok();
 
   td::Time::allow_freezes();
   td::Time::freeze();
