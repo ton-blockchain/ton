@@ -54,6 +54,8 @@ namespace {
 
 constexpr double PLUMTREE_BROADCAST_TTL = 25.0;
 constexpr double PLUMTREE_PENDING_FEEDBACK_TTL = 5.0;
+constexpr double PLUMTREE_EAGER_PEER_INACTIVITY_TTL = 30.0;
+constexpr td::uint32 PLUMTREE_EAGER_PEER_MAX_SENT_WITHOUT_ACTIVITY = 50;
 constexpr std::size_t MAX_PENDING_REPAIR_PARTS = 1024;
 constexpr std::size_t MAX_ACTIVE_REPAIR_QUERIES = 512;
 constexpr td::uint32 PLUMTREE_SIMPLE_TREE_INDEX = 0;
@@ -62,6 +64,11 @@ constexpr td::uint32 PLUMTREE_FEC_TREE_OFFSET = 1;
 struct PlumtreeSlot {
   std::set<adnl::AdnlNodeIdShort> eager;
   std::map<adnl::AdnlNodeIdShort, td::Timestamp> pending_feedback;
+};
+
+struct PlumtreeEagerPeerActivity {
+  td::Timestamp last_active_at = td::Timestamp::now();
+  td::uint32 sent_since_active = 0;
 };
 
 struct PlumtreePartState {
@@ -245,6 +252,7 @@ class BroadcastsPlumtree::Impl {
 
   std::vector<PlumtreeSlot> slots_;
   std::map<adnl::AdnlNodeIdShort, td::uint32> eager_peer_refcnt_;
+  std::map<adnl::AdnlNodeIdShort, PlumtreeEagerPeerActivity> eager_peer_activity_;
   std::map<td::Bits256, std::unique_ptr<PlumtreeFecBroadcastState>> broadcasts_;
   std::map<td::Bits256, std::unique_ptr<PlumtreeSimpleBroadcastState>> simple_broadcasts_;
   std::map<MissingPartKey, std::unique_ptr<PlumtreeMissingPart>> missing_parts_;
@@ -261,8 +269,10 @@ class BroadcastsPlumtree::Impl {
   void expire_pending_feedback(PlumtreeSlot &slot) const;
   void expire_pending_feedback();
   bool can_reserve_eager_feedback(PlumtreeSlot &slot, const adnl::AdnlNodeIdShort &peer) const;
-  void register_full_payload_send(PlumtreeSlot &slot, PlumtreePartState &part,
-                                  const adnl::AdnlNodeIdShort &dst) const;
+  void register_full_payload_send(PlumtreeSlot &slot, PlumtreePartState &part, const adnl::AdnlNodeIdShort &dst);
+  void note_eager_peer_active(adnl::AdnlNodeIdShort peer);
+  bool is_inactive_eager_peer(adnl::AdnlNodeIdShort peer, td::Timestamp now) const;
+  void remove_inactive_eager_peers(OverlayImpl *overlay, PlumtreeSlot &slot);
   bool add_eager_peer_ref(adnl::AdnlNodeIdShort peer);
   bool remove_eager_peer_ref(adnl::AdnlNodeIdShort peer);
   std::vector<adnl::AdnlNodeIdShort> get_eager_mtu_peers() const;
@@ -378,9 +388,10 @@ bool BroadcastsPlumtree::Impl::can_reserve_eager_feedback(PlumtreeSlot &slot, co
 }
 
 void BroadcastsPlumtree::Impl::register_full_payload_send(PlumtreeSlot &slot, PlumtreePartState &part,
-                                                          const adnl::AdnlNodeIdShort &dst) const {
+                                                          const adnl::AdnlNodeIdShort &dst) {
   if (slot.eager.contains(dst)) {
     slot.pending_feedback.erase(dst);
+    ++eager_peer_activity_[dst].sent_since_active;
   } else {
     slot.pending_feedback[dst] = td::Timestamp::now();
   }
@@ -388,10 +399,50 @@ void BroadcastsPlumtree::Impl::register_full_payload_send(PlumtreeSlot &slot, Pl
   ++part.full_sends;
 }
 
+void BroadcastsPlumtree::Impl::note_eager_peer_active(adnl::AdnlNodeIdShort peer) {
+  auto it = eager_peer_activity_.find(peer);
+  if (it == eager_peer_activity_.end()) {
+    return;
+  }
+  it->second.last_active_at = td::Timestamp::now();
+  it->second.sent_since_active = 0;
+}
+
+bool BroadcastsPlumtree::Impl::is_inactive_eager_peer(adnl::AdnlNodeIdShort peer, td::Timestamp now) const {
+  auto it = eager_peer_activity_.find(peer);
+  if (it == eager_peer_activity_.end()) {
+    return false;
+  }
+  return it->second.sent_since_active > PLUMTREE_EAGER_PEER_MAX_SENT_WITHOUT_ACTIVITY &&
+         it->second.last_active_at <= now - PLUMTREE_EAGER_PEER_INACTIVITY_TTL;
+}
+
+void BroadcastsPlumtree::Impl::remove_inactive_eager_peers(OverlayImpl *overlay, PlumtreeSlot &slot) {
+  bool mtu_peers_changed = false;
+  auto now = td::Timestamp::now();
+  for (auto it = slot.eager.begin(); it != slot.eager.end();) {
+    if (!is_inactive_eager_peer(*it, now)) {
+      ++it;
+      continue;
+    }
+    auto peer = *it;
+    slot.pending_feedback.erase(peer);
+    mtu_peers_changed = remove_eager_peer_ref(peer) || mtu_peers_changed;
+    it = slot.eager.erase(it);
+  }
+  if (mtu_peers_changed) {
+    refresh_eager_mtu(overlay);
+  }
+}
+
 bool BroadcastsPlumtree::Impl::add_eager_peer_ref(adnl::AdnlNodeIdShort peer) {
   auto &cnt = eager_peer_refcnt_[peer];
   ++cnt;
-  return cnt == 1;
+  if (cnt == 1) {
+    eager_peer_activity_[peer] = {};
+    return true;
+  }
+  return false;
 }
 
 bool BroadcastsPlumtree::Impl::remove_eager_peer_ref(adnl::AdnlNodeIdShort peer) {
@@ -403,6 +454,7 @@ bool BroadcastsPlumtree::Impl::remove_eager_peer_ref(adnl::AdnlNodeIdShort peer)
     return false;
   }
   eager_peer_refcnt_.erase(it);
+  eager_peer_activity_.erase(peer);
   return true;
 }
 
@@ -818,6 +870,7 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, const td::B
                               [&](const auto &peer) { return peer == overlay->local_id() || peer == from; }),
                active.end());
   std::set<adnl::AdnlNodeIdShort> full_sent;
+  remove_inactive_eager_peers(overlay, *s);
   trim_eager_to_capacity(overlay, *s);
   for (const auto &peer : s->eager) {
     if (peer != from && send_payload_to(overlay, broadcast_id, part, peer)) {
@@ -1207,6 +1260,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
     broadcast = it->second.get();
   }
   CO_TRY(ensure_decoder(*broadcast));
+  note_eager_peer_active(from);
 
   if (auto *known = get_part(broadcast_id, part_index, tree_index)) {
     if (auto *s = slot(tree_index)) {
@@ -1289,6 +1343,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
     TD_PERF_COUNTER(check_signature_overlay_broadcast_plumtree_simple_payload);
     CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
   }
+  note_eager_peer_active(from);
 
   if (auto *known = get_part(broadcast_id, part_index, tree_index)) {
     if (auto *s = slot(tree_index)) {
@@ -1360,6 +1415,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   CO_TRY(validate_control_fields(control.broadcast_id, control.part_index, control.tree_index));
   auto part_index = control.part_index;
   auto tree_index = control.tree_index;
+  note_eager_peer_active(from);
 
   if (!has_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
@@ -1429,6 +1485,7 @@ void BroadcastsPlumtree::Impl::process_repair_query(OverlayImpl *overlay, adnl::
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "duplicate Plumtree repair"));
     return;
   }
+  note_eager_peer_active(from);
   auto &s = slots_[tree_index];
   if (!can_reserve_eager_feedback(s, from) || part->full_sends >= local_eager_limit_) {
     promise.set_value(create_serialize_tl_object<ton_api::overlay_broadcastNotFound>());
@@ -1494,6 +1551,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_prune(OverlayImpl *overlay, 
   if (!part->full_sent_to.contains(from)) {
     co_return td::Unit{};
   }
+  note_eager_peer_active(from);
   remove_eager(overlay, *s, from);
   co_return td::Unit{};
 }
@@ -1517,6 +1575,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_useful(
   if (!part || !s || !part->full_sent_to.contains(from)) {
     co_return td::Unit{};
   }
+  note_eager_peer_active(from);
   bool was_pending = s->pending_feedback.erase(from) > 0;
   if (was_pending) {
     promote_eager(overlay, *s, from, false);
