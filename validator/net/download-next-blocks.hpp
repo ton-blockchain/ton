@@ -61,8 +61,6 @@ class DownloadNextBlocks : public td::actor::Actor {
   bool success_ = false;
   bool success_local_ = false;
 
-  std::unique_ptr<ActionToken> token_;
-
   static constexpr td::uint32 MAX_BLOCKS = 10;
   static constexpr size_t MAX_SIZE_MANY = (1 << 20) + 128;
 };

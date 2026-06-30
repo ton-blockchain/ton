@@ -106,9 +106,6 @@ td::actor::Task<> DownloadNextBlocks::run() {
     }
   }
 
-  token_ = co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::get_download_token, 1, priority_,
-                                   td::Timestamp::in(2.0))
-               .trace("get_download_token");
   if (download_from_.is_zero() && client_.empty()) {
     auto peers =
         co_await td::actor::ask(overlays_, &overlay::Overlays::get_overlay_random_peers, local_id_, overlay_id_, 1);
