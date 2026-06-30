@@ -367,6 +367,7 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void send_ihr_message(td::Ref<IhrMessage> message) = 0;
   virtual void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) = 0;
   virtual void send_block_broadcast(BlockBroadcast broadcast, int mode) = 0;
+  virtual void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) = 0;
   virtual void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                                     block::ImportedMsgQueueLimits limits,
                                                     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;

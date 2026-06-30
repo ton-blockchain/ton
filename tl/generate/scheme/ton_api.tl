@@ -262,6 +262,7 @@ overlay.query overlay:int256 = True;
 overlay.queryWithExtra overlay:int256 extra:overlay.messageExtra = True;
 overlay.getBroadcast hash:int256 = overlay.Broadcast;
 overlay.getBroadcastList list:overlay.broadcastList = overlay.BroadcastList;
+overlay.repairPlumtreePart broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
 
 ---types---
 
@@ -319,6 +320,14 @@ tonNode.signatureSet.simplex final:Bool cc_seqno:int validator_set_hash:int sign
 
 tonNode.blockId workchain:int shard:long seqno:int = tonNode.BlockId;
 tonNode.blockIdExt workchain:int shard:long seqno:int root_hash:int256 file_hash:int256 = tonNode.BlockIdExt;
+overlay.broadcastPlumtreeSimple flags:int timestamp:double src:PublicKey certificate:overlay.Certificate broadcast_id:int256 tree_index:int data:bytes signature:bytes = overlay.Broadcast;
+overlay.broadcastPlumtreeFec flags:int timestamp:double src:PublicKey certificate:overlay.Certificate data_hash:int256 data_size:int part_index:int tree_index:int part:bytes signature:bytes = overlay.Broadcast;
+overlay.broadcastPlumtreeIHave broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.broadcastPlumtreePrune broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.broadcastPlumtreeUseful broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.broadcastPlumtreeFec.id flags:int data_hash:int256 data_size:int part_size:int = overlay.broadcastPlumtreeFec.Id;
+overlay.broadcastPlumtreeSimple.toSign id:int256 timestamp:double tree_index:int data:bytes = overlay.broadcastPlumtreeSimple.ToSign;
+overlay.broadcastPlumtreeFec.toSign id:int256 timestamp:double part_index:int tree_index:int part:bytes = overlay.broadcastPlumtreeFec.ToSign;
 tonNode.zeroStateIdExt workchain:int root_hash:int256 file_hash:int256 = tonNode.ZeroStateIdExt;
 tonNode.shardId workchain:int shard:long = tonNode.ShardId;
 
@@ -352,6 +361,8 @@ tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_ha
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.SignatureSet flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
+tonNode.finalityBroadcastId id:tonNode.blockIdExt = tonNode.FinalityBroadcastId;
+tonNode.blockFinalityBroadcast id:tonNode.blockIdExt signature_set:tonNode.SignatureSet = tonNode.Broadcast;
 tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;

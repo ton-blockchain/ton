@@ -472,6 +472,33 @@ void OverlayManager::send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort local_i
   }
 }
 
+void OverlayManager::send_broadcast_plumtree_fec(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+                                                 PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object) {
+  CHECK(object.size() <= Overlays::max_fec_broadcast_size());
+  auto it = overlays_.find(local_id);
+  if (it != overlays_.end()) {
+    auto it2 = it->second.find(overlay_id);
+    if (it2 != it->second.end()) {
+      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree_fec, send_as, flags,
+                              std::move(object));
+    }
+  }
+}
+
+void OverlayManager::send_broadcast_plumtree(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+                                             PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
+                                             td::BufferSlice object) {
+  CHECK(object.size() <= Overlays::max_fec_broadcast_size());
+  auto it = overlays_.find(local_id);
+  if (it != overlays_.end()) {
+    auto it2 = it->second.find(overlay_id);
+    if (it2 != it->second.end()) {
+      td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree, send_as, flags, broadcast_id,
+                              std::move(object));
+    }
+  }
+}
+
 void OverlayManager::set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                        OverlayPrivacyRules rules) {
   auto it = overlays_.find(local_id);
@@ -517,6 +544,17 @@ void OverlayManager::update_root_member_list(adnl::AdnlNodeIdShort local_id, Ove
       it2->second.member_certificate = certificate;
       td::actor::send_closure(it2->second.overlay, &Overlay::update_root_member_list, std::move(nodes),
                               std::move(root_public_keys), std::move(certificate));
+    }
+  }
+}
+
+void OverlayManager::set_test_plumtree_neighbours(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+                                                  std::vector<adnl::AdnlNodeIdShort> neighbours) {
+  auto it = overlays_.find(local_id);
+  if (it != overlays_.end()) {
+    auto it2 = it->second.find(overlay_id);
+    if (it2 != it->second.end()) {
+      td::actor::send_closure(it2->second.overlay, &Overlay::set_test_plumtree_neighbours, std::move(neighbours));
     }
   }
 }

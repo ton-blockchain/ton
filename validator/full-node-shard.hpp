@@ -95,6 +95,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void set_config(FullNodeConfig config) override {
     opts_.config_ = config;
   }
+  void set_params(bool active, bool enable_plumtree_broadcast) override;
 
   td::actor::Task<> get_next_blocks_loop();
 
@@ -154,6 +155,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
   void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
   void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
@@ -184,6 +186,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data) override;
   void send_broadcast(BlockBroadcast broadcast) override;
+  void send_block_finality_broadcast(BlockFinalityBroadcast finality) override;
 
   void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                       td::Promise<ReceivedBlock> promise) override;
@@ -249,10 +252,11 @@ class FullNodeShardImpl : public FullNodeShard {
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
                     FileHash zero_state_file_hash, FullNodeOptions opts, std::shared_ptr<RateLimiter<>> limiter,
                     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
+                    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
+                    td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node,
-                    bool active);
+                    td::actor::ActorId<adnl::AdnlExtClient> client, td::actor::ActorId<FullNode> full_node, bool active,
+                    bool enable_plumtree_broadcast);
 
  private:
   bool use_new_download() const {
@@ -270,6 +274,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp2::Rldp> rldp2_;
+  td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<adnl::AdnlExtClient> client_;
@@ -291,6 +296,8 @@ class FullNodeShardImpl : public FullNodeShard {
   adnl::AdnlNodeIdShort last_pinged_neighbour_ = adnl::AdnlNodeIdShort::zero();
 
   bool active_;
+  bool enable_plumtree_broadcast_;
+  bool is_original_sender_ = false;
 
   FullNodeOptions opts_;
 

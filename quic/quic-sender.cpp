@@ -269,7 +269,7 @@ td::Result<td::IPAddress> QuicSender::get_ip_address(const adnl::AdnlNode &node)
 
 QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
                        QuicServer::Options options)
-    : AdnlSenderEx(/* default_mtu = */ 0)
+    : AdnlSenderEx(/* default_mtu = */ adnl::Adnl::get_mtu())
     , adnl_(std::move(adnl))
     , keyring_(std::move(keyring))
     , server_options_(options) {

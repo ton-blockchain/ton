@@ -39,7 +39,8 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<block::ValidatorSet> validator_set,
-                                   td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode, bool apply,
+                                   td::Ref<block::BlockSignatureSet> signatures, int block_broadcast_mode,
+                                   int finality_broadcast_mode, bool apply,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
@@ -48,7 +49,8 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , signatures_(std::move(signatures))
     , is_fake_(false)
     , is_fork_(false)
-    , send_broadcast_mode_(send_broadcast_mode)
+    , block_broadcast_mode_(block_broadcast_mode)
+    , finality_broadcast_mode_(finality_broadcast_mode)
     , apply_(apply)
     , manager_(manager)
     , promise_(std::move(promise))
@@ -415,7 +417,7 @@ void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
       handle_->inited_state_root_hash() &&
       (is_masterchain() ? handle_->inited_proof() && handle_->is_applied() && handle_->inited_is_key_block()
                         : handle_->inited_proof_link()) &&
-      send_broadcast_mode_ == 0) {
+      block_broadcast_mode_ == 0 && finality_broadcast_mode_ == 0) {
     finish_query();
     return;
   }
@@ -877,10 +879,20 @@ void AcceptBlockQuery::applied() {
 }
 
 void AcceptBlockQuery::send_broadcasts() {
-  if (send_broadcast_mode_ == 0) {
+  if (block_broadcast_mode_ == 0 && finality_broadcast_mode_ == 0) {
     return;
   }
-  VLOG(validator, DEBUG) << "send_broadcasts mode=" << send_broadcast_mode_;
+  VLOG(validator, DEBUG) << "send_broadcasts block_mode=" << block_broadcast_mode_
+                         << " finality_mode=" << finality_broadcast_mode_;
+  if (finality_broadcast_mode_ != 0) {
+    td::actor::send_closure_later(manager_, &ValidatorManager::send_block_finality_broadcast,
+                                  BlockFinalityBroadcast{id_, signatures_}, finality_broadcast_mode_);
+  }
+
+  if (block_broadcast_mode_ == 0) {
+    return;
+  }
+
   BlockBroadcast b;
   b.data = data_->data();
   b.block_id = id_;
@@ -892,12 +904,12 @@ void AcceptBlockQuery::send_broadcasts() {
   }
 
   // do not wait for answer
-  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), send_broadcast_mode_);
+  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), block_broadcast_mode_);
 
   // Do this for shard blocks later:
   // td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id_,
   //                         validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-  //                         std::move(b.data), send_broadcast_mode_);
+  //                         std::move(b.data), block_broadcast_mode_);
 }
 
 }  // namespace validator

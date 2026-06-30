@@ -10,6 +10,7 @@
 #include "ton/ton-io.hpp"
 #include "validator/consensus/simplex/bus.h"
 #include "validator/fabric.h"
+#include "validator/full-node.h"
 #include "validator/validator-group.hpp"
 
 namespace ton::validator {
@@ -52,12 +53,12 @@ class ManagerFacadeImpl : public ManagerFacade {
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
-                                 td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
-                                 bool apply) override {
+                                 td::Ref<block::BlockSignatureSet> signatures, int block_broadcast_mode,
+                                 int finality_broadcast_mode, bool apply) override {
     while (true) {
       auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-      run_accept_block_query(id, data, {}, validator_set_, signatures, send_broadcast_mode, apply, manager_,
-                             std::move(promise));
+      run_accept_block_query(id, data, {}, validator_set_, signatures, block_broadcast_mode, finality_broadcast_mode,
+                             apply, manager_, std::move(promise));
       auto result = co_await std::move(task).wrap();
       if (result.is_ok() || result.error().code() == ErrorCode::cancelled) {
         break;
@@ -65,7 +66,8 @@ class ManagerFacadeImpl : public ManagerFacade {
       LOG_CHECK(result.error().code() == ErrorCode::timeout || result.error().code() == ErrorCode::notready)
           << "Failed to accept finalized block " << id << " : " << result.error();
       LOG(WARNING) << "Failed to accept finalized block " << id << ", retrying : " << result.error();
-      send_broadcast_mode = 0;
+      block_broadcast_mode = 0;
+      finality_broadcast_mode = 0;
       co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
     }
     co_return {};
@@ -178,6 +180,36 @@ class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::C
   }
 };
 
+class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
+ public:
+  TON_RUNTIME_DEFINE_EVENT_HANDLER();
+
+  static bool should_be_spawned(const Bus& bus) {
+    return bus.is_validator() || bus.config.observers_in_private_overlay();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
+    stop();
+  }
+
+  template <>
+  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
+    if (!bus->config.enable_plumtree_broadcast()) {
+      return;
+    }
+    if (event->candidate->is_empty()) {
+      return;
+    }
+
+    int mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync |
+               fullnode::FullNode::broadcast_mode_public;
+    const auto& block = std::get<BlockCandidate>(event->candidate->block);
+    td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, block.id, block.data.clone(),
+                            mode);
+  }
+};
+
 class BridgeImpl final : public IValidatorGroup {
  public:
   BridgeImpl(std::string name, GroupParams&& params) : name_(name), params_(std::move(params)) {
@@ -277,6 +309,7 @@ class BridgeImpl final : public IValidatorGroup {
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);
     runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
+    runtime.register_actor<CandidateBroadcastRelay>("CandidateBroadcastRelay");
     BlockSyncOverlay::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);

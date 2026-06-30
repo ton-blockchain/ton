@@ -63,6 +63,9 @@ class Overlay : public td::actor::Actor {
   virtual void send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) = 0;
   virtual void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                                   td::BufferSlice extra) = 0;
+  virtual void send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) = 0;
+  virtual void send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
+                                       td::BufferSlice data) = 0;
   virtual void print(td::StringBuilder &sb) = 0;
   virtual void get_overlay_random_peers(td::uint32 max_peers,
                                         td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) = 0;
@@ -79,6 +82,7 @@ class Overlay : public td::actor::Actor {
   virtual void update_member_certificate(OverlayMemberCertificate cert) = 0;
   virtual void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids,
                                        std::vector<PublicKeyHash> root_public_keys, OverlayMemberCertificate cert) = 0;
+  virtual void set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort> neighbours) = 0;
   //virtual void receive_broadcast(td::BufferSlice data) = 0;
   //virtual void subscribe(std::unique_ptr<Overlays::Callback> callback) = 0;
   virtual void forget_peer(adnl::AdnlNodeIdShort peer_id) = 0;

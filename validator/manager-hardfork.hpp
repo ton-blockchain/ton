@@ -339,6 +339,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override {
   }
+  void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override {
+  }
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override {

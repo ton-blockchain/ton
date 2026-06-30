@@ -1,5 +1,6 @@
 set(OVERLAY_SOURCE
   broadcast-fec.cpp
+  broadcast-plumtree.cpp
   broadcast-simple.cpp
   broadcast-twostep.cpp
   overlay-manager.cpp
@@ -7,6 +8,7 @@ set(OVERLAY_SOURCE
   overlay-peers.cpp
 
   broadcast-fec.hpp
+  broadcast-plumtree.hpp
   broadcast-simple.hpp
   broadcast-twostep.hpp
   overlay-manager.h

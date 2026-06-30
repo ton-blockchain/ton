@@ -252,6 +252,8 @@ class ValidatorManagerInterface : public td::actor::Actor {
     }
     virtual void send_broadcast(BlockBroadcast broadcast, int mode) {
     }
+    virtual void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
+    }
     virtual void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats) {
     }
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
@@ -348,6 +350,9 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                                      td::BufferSlice data) = 0;
   virtual td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                           td::BufferSlice data, BroadcastSource source) {
+    co_return td::Unit{};
+  }
+  virtual td::actor::Task<> new_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) {
     co_return td::Unit{};
   }
 
