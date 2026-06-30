@@ -269,7 +269,8 @@ void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast br
 
 td::actor::Task<> ValidatorManagerImpl::validated_accepted_block_broadcast(BlockIdExt block_id,
                                                                            CatchainSeqno cc_seqno) {
-  if (opts_->nonfinal_ls_queries_enabled()) {
+  if (!block_id.is_masterchain() && opts_->nonfinal_ls_queries_enabled() && shard_client_handle_ &&
+      shard_client_handle_->unix_time() > (UnixTime)td::Clocks::system() - 60) {
     co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::wait_block_state_short, block_id, 0,
                             td::Timestamp::in(60.0), true);
   }
@@ -518,7 +519,8 @@ td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt
   update_block_receive_stats(block_id, BlockReceiveStats::from(source, /*is_candidate=*/true));
   add_cached_block_data(block_id, data.clone());
 
-  if (opts_->nonfinal_ls_queries_enabled()) {
+  if (opts_->nonfinal_ls_queries_enabled() && shard_client_handle_ &&
+      shard_client_handle_->unix_time() > (UnixTime)td::Clocks::system() - 60) {
     auto handle = co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::get_block_handle, block_id, true);
     Ref<BlockData> block = CO_TRY(create_block(block_id, std::move(data)));
     co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::set_block_data, handle, std::move(block));
@@ -599,6 +601,9 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
   }
   shard_blocks_[ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()}].latest_desc = desc;
   VLOG(validator, DEBUG) << "new shard block descr for " << desc->block_id();
+  if (!shard_client_handle_ || shard_client_handle_->unix_time() <= (UnixTime)td::Clocks::system() - 60) {
+    return;
+  }
   if (need_monitor(desc->block_id().shard_full())) {
     ShardIdFull shard = desc->shard();
     shard.shard |= 1;
