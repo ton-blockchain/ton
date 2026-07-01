@@ -2376,18 +2376,6 @@ void ValidatorManagerImpl::new_masterchain_block() {
     td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification);
   }
 
-  if (validating_masterchain()) {
-    std::set<ShardIdFull> collating_shards;
-    collating_shards.emplace(masterchainId);
-    if (!collating_shards.empty()) {
-      if (out_msg_queue_importer_.empty()) {
-        out_msg_queue_importer_ = td::actor::create_actor<OutMsgQueueImporter>("outmsgqueueimporter", actor_id(this),
-                                                                               opts_, last_masterchain_state_);
-      }
-      td::actor::send_closure(out_msg_queue_importer_, &OutMsgQueueImporter::new_masterchain_block_notification,
-                              last_masterchain_state_, std::move(collating_shards));
-    }
-  }
   if (!shard_block_verifier_.empty()) {
     td::actor::send_closure(shard_block_verifier_, &ShardBlockVerifier::update_masterchain_state,
                             last_masterchain_state_);
