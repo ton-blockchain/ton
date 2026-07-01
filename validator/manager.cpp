@@ -614,7 +614,8 @@ td::actor::Task<> ValidatorManagerImpl::new_block_finality_broadcast(BlockFinali
     co_return td::Unit{};
   }
 
-  if (pending_block_finality_.contains(finality.block_id)) {
+  auto cached = pending_block_finality_.get_if_exists(finality.block_id, false);
+  if (cached && cached->sig_set->is_final() >= finality.sig_set->is_final()) {
     co_return {};
   }
   auto S = co_await check_finality_signatures(finality.block_id, finality.sig_set, last_masterchain_state_).wrap();
