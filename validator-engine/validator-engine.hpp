@@ -262,6 +262,7 @@ class ValidatorEngine : public td::actor::Actor {
   bool started_keyring_ = false;
   bool started_ = false;
   td::FileFd console_ready_fd_;
+  bool dht_server_ = false;
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
   std::string validator_telemetry_filename_;
@@ -324,6 +325,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_console_ready_fd(td::FileFd fd) {
     console_ready_fd_ = std::move(fd);
+  }
+  void set_dht_server(bool value) {
+    dht_server_ = value;
   }
   void add_ip(td::IPAddress addr) {
     addrs_.push_back(addr);
