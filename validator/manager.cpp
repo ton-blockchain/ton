@@ -2196,10 +2196,10 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
       });
   td::actor::send_closure(db_, &Db::get_persistent_state_descriptions, std::move(Q));
   update_shard_overlays();
-  finish_start_up();
+  finish_start_up().start().detach_ensure();
 }
 
-void ValidatorManagerImpl::finish_start_up() {
+td::actor::Task<> ValidatorManagerImpl::finish_start_up() {
   new_masterchain_block();
 
   serializer_ =
@@ -2227,15 +2227,38 @@ void ValidatorManagerImpl::finish_start_up() {
         run_hardfork_accept_block_query(b, dataR.move_as_ok(), SelfId, std::move(P));
       });
       td::actor::send_closure(db_, &Db::try_get_static_file, b.file_hash, std::move(P));
-      return;
+      co_return {};
     }
   }
 
+  auto S = co_await start_up_advance_mc().wrap();
+  if (S.is_error()) {
+    VLOG(validator, ERROR) << "Initial advancing of masterchain: " << S.move_as_error();
+  }
   if (!out_of_sync()) {
     completed_prestart_sync();
   } else {
     prestart_sync();
   }
+  co_return {};
+}
+
+td::actor::Task<> ValidatorManagerImpl::start_up_advance_mc() {
+  while (last_masterchain_block_handle_->inited_next()) {
+    auto next_handle = co_await td::actor::ask(actor_id(this), &ValidatorManager::get_block_handle,
+                                               last_masterchain_block_handle_->one_next(true), true);
+    if (!next_handle->is_applied()) {
+      break;
+    }
+    auto data = co_await td::actor::ask(actor_id(this), &ValidatorManager::get_block_data, next_handle);
+    auto block = CO_TRY(create_block(next_handle->id(), std::move(data)));
+    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+    run_apply_block_query(next_handle->id(), block, next_handle->id(), actor_id(this), td::Timestamp::in(10.0),
+                          std::move(promise));
+    co_await std::move(task);
+    VLOG(validator, INFO) << "Initial advancing mc to seqno " << next_handle->id().seqno();
+  }
+  co_return {};
 }
 
 void ValidatorManagerImpl::applied_hardfork() {
