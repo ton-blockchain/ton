@@ -286,6 +286,10 @@ td::actor::Task<> ValidatorManagerImpl::validated_accepted_block_broadcast(Block
 
 td::actor::Task<> ValidatorManagerImpl::generate_shard_block_description(BlockIdExt block_id,
                                                                          Ref<block::BlockSignatureSet> sig_set) {
+  if (!shard_client_handle_ || shard_client_handle_->unix_time() <= (UnixTime)td::Clocks::system() - 60) {
+    VLOG(validator, INFO) << "Failed to generate shard block description for " << block_id << " : out of sync";
+    co_return {};
+  }
   auto r_desc =
       co_await validator::generate_shard_block_description(block_id, sig_set, td::Timestamp::in(30.0), actor_id(this))
           .wrap();
