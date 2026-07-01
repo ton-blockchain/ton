@@ -113,6 +113,7 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   Ref<block::ValidatorSet> get_next_validator_set(ShardIdFull shard) const override;
   Ref<block::ValidatorSet> get_total_validator_set(int next) const override;  // next = -1 -> prev, next = 0 -> cur
   Ref<block::ValidatorSet> get_validator_set(ShardIdFull shard, CatchainSeqno cc_seqno) const;
+  Ref<block::ValidatorSet> get_next_validator_set(ShardIdFull shard, CatchainSeqno cc_seqno) const;
   bool rotated_all_shards() const override;
   std::vector<Ref<McShardHash>> get_shards() const override;
   td::Ref<McShardHash> get_shard_from_config(ShardIdFull shard, bool exact) const override;

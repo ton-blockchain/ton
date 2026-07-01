@@ -425,6 +425,17 @@ Ref<block::ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard,
   return Ref<block::ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};
 }
 
+Ref<block::ValidatorSet> MasterchainStateQ::get_next_validator_set(ShardIdFull shard, CatchainSeqno cc_seqno) const {
+  if (!config_ || !next_validators_) {
+    return {};
+  }
+  auto nodes = config_->compute_validator_set(shard, *next_validators_, cc_seqno);
+  if (nodes.empty()) {
+    return {};
+  }
+  return Ref<block::ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};
+}
+
 // next = -1 -> prev, next = 0 -> cur
 Ref<block::ValidatorSet> MasterchainStateQ::get_total_validator_set(int next) const {
   if (!config_) {

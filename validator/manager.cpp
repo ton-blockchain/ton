@@ -49,6 +49,7 @@
 #include "import-db-slice.hpp"
 #include "manager.h"
 #include "manager.hpp"
+#include "shard.hpp"
 #include "state-serializer.hpp"
 #include "validate-broadcast.hpp"
 #include "validator-group.hpp"
@@ -567,16 +568,25 @@ td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt
 static td::actor::Task<> check_finality_signatures(BlockIdExt block_id, Ref<block::BlockSignatureSet> sig_set,
                                                    Ref<MasterchainState> mc_state) {
   co_await td::actor::become_lightweight();
-  auto config = CO_TRY(mc_state->get_config_holder());
-  auto val_set = config->get_validator_set(block_id.shard_full(), sig_set->get_catchain_seqno());
-  if (val_set.is_null()) {
-    co_return td::Status::Error("no validator set");
+  auto try_val_set = [&](Ref<block::ValidatorSet> val_set) -> td::Status {
+    if (val_set.is_null()) {
+      return td::Status::Error("no validator set");
+    }
+    if (sig_set->is_final()) {
+      TRY_STATUS(sig_set->check_signatures(val_set, block_id));
+    } else {
+      TRY_STATUS(sig_set->check_approve_signatures(val_set, block_id));
+    }
+    return td::Status::OK();
+  };
+
+  auto mc_state_q = Ref<MasterchainStateQ>(mc_state);
+  auto next_val_set = mc_state_q->get_next_validator_set(block_id.shard_full(), sig_set->get_catchain_seqno());
+  if (try_val_set(next_val_set).is_ok()) {
+    co_return {};
   }
-  if (sig_set->is_final()) {
-    CO_TRY(sig_set->check_signatures(val_set, block_id));
-  } else {
-    CO_TRY(sig_set->check_approve_signatures(val_set, block_id));
-  }
+  auto val_set = mc_state_q->get_validator_set(block_id.shard_full(), sig_set->get_catchain_seqno());
+  CO_TRY(try_val_set(val_set));
   co_return {};
 }
 
