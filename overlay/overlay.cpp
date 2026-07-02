@@ -721,8 +721,10 @@ bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data
     VLOG(overlay, WARNING) << "Plumtree broadcast payload is too large";
     return false;
   }
-  if (!has_valid_broadcast_certificate(send_as, data_size, /* is_fec = */ true,
-                                       /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender())) {
+  auto cert = get_certificate(send_as);
+  if (check_source_eligible(send_as, cert.get(), static_cast<td::uint32>(data_size), /* is_fec = */ true,
+                            /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender()) !=
+      BroadcastCheckResult::Allowed) {
     VLOG(overlay, WARNING) << "Plumtree broadcast source certificate is invalid";
     return false;
   }
