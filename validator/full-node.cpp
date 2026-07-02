@@ -633,7 +633,13 @@ td::actor::Task<> FullNodeImpl::get_next_blocks_loop() {
   td::uint32 attempt = 0;
   while (true) {
     ++attempt;
-    auto query_sender = co_await get_query_sender(ShardIdFull{masterchainId});
+    auto r_query_sender = co_await get_query_sender(ShardIdFull{masterchainId}).wrap();
+    if (r_query_sender.is_error()) {
+      VLOG(full_node, WARNING) << "Cannot get query sender: " << r_query_sender.move_as_error();
+      co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+      continue;
+    }
+    auto query_sender = r_query_sender.move_as_ok();
     auto [task, promise] = td::actor::StartedTask<BlockHandle>::make_bridge();
     td::actor::create_actor<DownloadNextBlocks>(PSTRING() << "downloadnextblocks" << handle_->id().id, handle_,
                                                 query_sender, 1, validator_manager_, std::move(promise))
