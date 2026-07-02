@@ -271,7 +271,7 @@ class BroadcastsPlumtree::Impl {
   bool can_reserve_eager_feedback(PlumtreeSlot &slot, const adnl::AdnlNodeIdShort &peer) const;
   void register_full_payload_send(PlumtreeSlot &slot, PlumtreePartState &part, const adnl::AdnlNodeIdShort &dst);
   void note_eager_peer_active(adnl::AdnlNodeIdShort peer);
-  bool is_inactive_eager_peer(adnl::AdnlNodeIdShort peer, td::Timestamp now) const;
+  bool is_inactive_eager_peer(adnl::AdnlNodeIdShort peer, td::Timestamp now, bool receives_broadcasts) const;
   void remove_inactive_eager_peers(OverlayImpl *overlay, PlumtreeSlot &slot);
   bool add_eager_peer_ref(adnl::AdnlNodeIdShort peer);
   bool remove_eager_peer_ref(adnl::AdnlNodeIdShort peer);
@@ -408,20 +408,26 @@ void BroadcastsPlumtree::Impl::note_eager_peer_active(adnl::AdnlNodeIdShort peer
   it->second.sent_since_active = 0;
 }
 
-bool BroadcastsPlumtree::Impl::is_inactive_eager_peer(adnl::AdnlNodeIdShort peer, td::Timestamp now) const {
+bool BroadcastsPlumtree::Impl::is_inactive_eager_peer(adnl::AdnlNodeIdShort peer, td::Timestamp now,
+                                                      bool receives_broadcasts) const {
   auto it = eager_peer_activity_.find(peer);
   if (it == eager_peer_activity_.end()) {
     return false;
   }
-  return it->second.sent_since_active > PLUMTREE_EAGER_PEER_MAX_SENT_WITHOUT_ACTIVITY &&
-         it->second.last_active_at <= now - PLUMTREE_EAGER_PEER_INACTIVITY_TTL;
+  if (it->second.last_active_at > now - PLUMTREE_EAGER_PEER_INACTIVITY_TTL) {
+    return false;
+  }
+  if (!receives_broadcasts) {
+    return true;
+  }
+  return it->second.sent_since_active > PLUMTREE_EAGER_PEER_MAX_SENT_WITHOUT_ACTIVITY;
 }
 
 void BroadcastsPlumtree::Impl::remove_inactive_eager_peers(OverlayImpl *overlay, PlumtreeSlot &slot) {
   bool mtu_peers_changed = false;
   auto now = td::Timestamp::now();
   for (auto it = slot.eager.begin(); it != slot.eager.end();) {
-    if (!is_inactive_eager_peer(*it, now)) {
+    if (!is_inactive_eager_peer(*it, now, overlay->peer_receives_broadcasts(*it))) {
       ++it;
       continue;
     }
