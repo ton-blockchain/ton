@@ -307,6 +307,7 @@ __Enabled in mainnet on 2026-04-03__
   - Top shard block (in masterchain)
 
 ## Version 14
+__Enabled in mainnet on 2026-06-05__
 
 ### TVM changes
 - `SENDMSG` no longer uses user-provided `fwd_fee` / `ihr_fee` as a lower bound for the returned fee estimate of an internal message. This aligns the compute-phase estimate with action-phase behavior, which has been ignoring those fields since version 8 (`disable_custom_fess`). Previously a large `fwd_fee` written into the message cell could inflate the value returned by `SENDMSG` (and its estimate-only mode `+1024`) arbitrarily, while the action phase still charged only the recomputed network price.
@@ -322,7 +323,7 @@ __Enabled in mainnet on 2026-04-03__
 
 ## Version 15
 
-## Transaction changes
+### Transaction changes
 - Libraries:
   - "Change library" action can only be performed by governance contracts.
   - Private libraries cannot be added and are not used in TVM library context.
