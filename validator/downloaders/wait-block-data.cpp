@@ -31,14 +31,7 @@ namespace ton {
 
 namespace validator {
 
-namespace {
-
-struct BlockProofRoot {
-  td::Ref<vm::Cell> proof;
-  UnixTime gen_utime;
-};
-
-td::Result<BlockProofRoot> generate_block_proof_root(BlockIdExt id, td::Ref<vm::Cell> block_root) {
+td::Result<td::Ref<vm::Cell>> WaitBlockData::generate_block_proof_root(BlockIdExt id, td::Ref<vm::Cell> block_root) {
   if (block_root.is_null()) {
     return td::Status::Error("block root is null");
   }
@@ -113,11 +106,11 @@ td::Result<BlockProofRoot> generate_block_proof_root(BlockIdExt id, td::Ref<vm::
     }
   }
 
-  return BlockProofRoot{std::move(proof), info.gen_utime};
+  return proof;
 }
 
-td::Result<td::BufferSlice> serialize_block_proof(BlockIdExt id, td::Ref<vm::Cell> proof, bool has_signatures,
-                                                  td::Ref<vm::Cell> signatures_cell = {}) {
+static td::Result<td::BufferSlice> serialize_block_proof(BlockIdExt id, td::Ref<vm::Cell> proof, bool has_signatures,
+                                                         td::Ref<vm::Cell> signatures_cell = {}) {
   vm::CellBuilder cb;
   td::Ref<vm::Cell> proof_cell;
   if (!(cb.store_long_bool(0xc3, 8)               // block_proof#c3
@@ -132,8 +125,6 @@ td::Result<td::BufferSlice> serialize_block_proof(BlockIdExt id, td::Ref<vm::Cel
   }
   return std_boc_serialize(proof_cell, 0);
 }
-
-}  // namespace
 
 void WaitBlockData::alarm() {
   abort_query(td::Status::Error(ErrorCode::timeout, "timeout"));
@@ -373,12 +364,12 @@ td::Result<td::BufferSlice> WaitBlockData::generate_proof(BlockIdExt id, td::Ref
 
   TRY_RESULT(proof_root, generate_block_proof_root(id, std::move(block_root)));
   TRY_RESULT(config, state->get_config_holder());
-  auto vset = config->get_validator_set(id.shard_full(), proof_root.gen_utime, signatures->get_catchain_seqno());
+  auto vset = config->get_validator_set(id.shard_full(), signatures->get_catchain_seqno());
   if (vset.is_null()) {
     return td::Status::Error(ErrorCode::notready, "failed to compute validator set for masterchain proof");
   }
   TRY_RESULT(signatures_cell, signatures->serialize(vset));
-  return serialize_block_proof(id, std::move(proof_root.proof), true, std::move(signatures_cell));
+  return serialize_block_proof(id, std::move(proof_root), true, std::move(signatures_cell));
 }
 
 td::Result<td::BufferSlice> WaitBlockData::generate_proof_link(BlockIdExt id, td::Ref<vm::Cell> block_root) {
@@ -387,7 +378,7 @@ td::Result<td::BufferSlice> WaitBlockData::generate_proof_link(BlockIdExt id, td
     return td::Status::Error("cannot create proof link for masterchain block");
   }
   TRY_RESULT(proof_root, generate_block_proof_root(id, std::move(block_root)));
-  return serialize_block_proof(id, std::move(proof_root.proof), false);
+  return serialize_block_proof(id, std::move(proof_root), false);
 }
 
 }  // namespace validator

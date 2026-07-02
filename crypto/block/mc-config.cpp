@@ -1858,24 +1858,23 @@ ton::CatchainSeqno ConfigInfo::get_shard_cc_seqno(ton::ShardIdFull shard) const 
 }
 
 std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard,
-                                                               const block::TotalValidatorSet& vset, ton::UnixTime time,
+                                                               const block::TotalValidatorSet& vset,
                                                                ton::CatchainSeqno cc_seqno) const {
   return do_compute_validator_set(get_catchain_validators_config(), shard, vset, cc_seqno);
 }
 
-std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
+std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard,
                                                                ton::CatchainSeqno cc_seqno) const {
   if (!cur_validators_) {
     LOG(DEBUG) << "failed to compute validator set: cur_validators_ is empty";
     return {};
   } else {
-    return compute_validator_set(shard, *cur_validators_, time, cc_seqno);
+    return compute_validator_set(shard, *cur_validators_, cc_seqno);
   }
 }
 
 std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::ShardIdFull shard,
                                                                       const block::TotalValidatorSet& vset,
-                                                                      ton::UnixTime time,
                                                                       ton::CatchainSeqno* cc_seqno_delta) const {
   if (cc_seqno_delta && (*cc_seqno_delta & -2)) {
     return {};
@@ -1890,13 +1889,13 @@ std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::Shard
   return do_compute_validator_set(get_catchain_validators_config(), shard, vset, cc_seqno);
 }
 
-std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
+std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::ShardIdFull shard,
                                                                       ton::CatchainSeqno* cc_seqno_delta) const {
   auto vset = get_cur_validator_set();
   if (!vset) {
     return {};
   } else {
-    return compute_validator_set_cc(shard, *vset, time, cc_seqno_delta);
+    return compute_validator_set_cc(shard, *vset, cc_seqno_delta);
   }
 }
 
