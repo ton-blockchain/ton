@@ -18,8 +18,6 @@
 */
 #pragma once
 
-#include "adnl/adnl-ext-client.h"
-#include "overlay/overlays.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
 
@@ -48,9 +46,6 @@ class DownloadNextBlocks : public td::actor::Actor {
   td::uint32 priority_;
 
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
-  td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
-  td::actor::ActorId<overlay::Overlays> overlays_;
-  td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<BlockHandle> promise_;
 
   bool success_ = false;

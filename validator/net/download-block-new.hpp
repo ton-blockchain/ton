@@ -50,8 +50,6 @@ class DownloadBlockNew : public td::actor::Actor {
 
  private:
   BlockIdExt block_id_;
-  adnl::AdnlNodeIdShort local_id_;
-  overlay::OverlayIdShort overlay_id_;
 
   QuerySender query_sender_;
   td::uint32 priority_;
