@@ -1469,7 +1469,6 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   CO_TRY(validate_control_fields(control.broadcast_id, control.part_index, control.tree_index));
   auto part_index = control.part_index;
   auto tree_index = control.tree_index;
-  note_eager_peer_active(from);
 
   if (!has_state(control.broadcast_id) && overlay->is_delivered(control.broadcast_id)) {
     co_return td::Unit{};
@@ -1539,7 +1538,6 @@ void BroadcastsPlumtree::Impl::process_repair_query(OverlayImpl *overlay, adnl::
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "duplicate Plumtree repair"));
     return;
   }
-  note_eager_peer_active(from);
   auto &s = slots_[tree_index];
   if (!can_reserve_eager_feedback(s, from) || part->full_sends >= local_eager_limit_) {
     promise.set_value(create_serialize_tl_object<ton_api::overlay_broadcastNotFound>());
