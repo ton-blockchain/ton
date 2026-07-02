@@ -86,26 +86,25 @@ td::Status ValidatorSetCompute::init(const Config *config) {
 }
 
 Ref<ValidatorSet> ValidatorSetCompute::compute_validator_set(ton::ShardIdFull shard, const TotalValidatorSet &vset,
-                                                             ton::UnixTime time, ton::CatchainSeqno cc_seqno) const {
+                                                             ton::CatchainSeqno cc_seqno) const {
   if (!config_) {
     return {};
   }
   LOG(DEBUG) << "in compute_validator_set() for " << shard;
-  auto nodes = config_->compute_validator_set(shard, vset, time, cc_seqno);
+  auto nodes = config_->compute_validator_set(shard, vset, cc_seqno);
   if (nodes.empty()) {
-    LOG(ERROR) << "compute_validator_set() for " << shard << "," << time << "," << cc_seqno << " returned empty list";
+    LOG(ERROR) << "compute_validator_set() for " << shard << "," << cc_seqno << " returned empty list";
     return {};
   }
   return Ref<ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};
 }
 
-Ref<ValidatorSet> ValidatorSetCompute::get_validator_set(ton::ShardIdFull shard, ton::UnixTime utime,
-                                                         ton::CatchainSeqno cc) const {
+Ref<ValidatorSet> ValidatorSetCompute::get_validator_set(ton::ShardIdFull shard, ton::CatchainSeqno cc) const {
   if (!config_ || !cur_validators_) {
     LOG(ERROR) << "ValidatorSetCompute::get_validator_set() : no config or no cur_validators";
     return {};
   }
-  return compute_validator_set(shard, *cur_validators_, utime, cc);
+  return compute_validator_set(shard, *cur_validators_, cc);
 }
 
 Ref<ValidatorSet> ValidatorSetCompute::get_next_validator_set(ton::ShardIdFull shard, ton::UnixTime utime,
@@ -115,15 +114,15 @@ Ref<ValidatorSet> ValidatorSetCompute::get_next_validator_set(ton::ShardIdFull s
     return {};
   }
   if (!next_validators_) {
-    return compute_validator_set(shard, *cur_validators_, utime, cc + 1);
+    return compute_validator_set(shard, *cur_validators_, cc + 1);
   }
   bool is_mc = shard.is_masterchain();
   auto ccv_cfg = config_->get_catchain_validators_config();
   unsigned cc_lifetime = is_mc ? ccv_cfg.mc_cc_lifetime : ccv_cfg.shard_cc_lifetime;
   if (next_validators_->utime_since > (utime / cc_lifetime + 1) * cc_lifetime) {
-    return compute_validator_set(shard, *cur_validators_, utime, cc + 1);
+    return compute_validator_set(shard, *cur_validators_, cc + 1);
   } else {
-    return compute_validator_set(shard, *next_validators_, utime, cc + 1);
+    return compute_validator_set(shard, *next_validators_, cc + 1);
   }
 }
 

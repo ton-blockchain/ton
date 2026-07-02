@@ -407,6 +407,6 @@ template <typename T>
 Result<T>&& co_try_inner(Result<T>&& value) {
   return std::move(value);
 }
-#define CO_TRY(x) co_await ::td::actor::co_try_inner(x)
+#define CO_TRY(x) (co_await ::td::actor::co_try_inner(x))
 
 }  // namespace td::actor

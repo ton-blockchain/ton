@@ -86,8 +86,8 @@ td::Result<std::vector<td::Ref<ShardTopBlockDescription>>> create_new_shard_bloc
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
-                            int block_broadcast_mode, int finality_broadcast_mode, bool apply,
-                            td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
+                            int block_broadcast_mode, int finality_broadcast_mode, bool send_shard_block_desc,
+                            bool apply, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
 void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                  td::Ref<block::ValidatorSet> validator_set,
                                  td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
@@ -127,6 +127,11 @@ void run_validate_shard_block_description(td::BufferSlice data, BlockHandle mast
                                           td::Ref<MasterchainState> masterchain_state,
                                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                                           td::Promise<td::Ref<ShardTopBlockDescription>> promise, bool is_fake = false);
+
+td::actor::Task<td::BufferSlice> generate_shard_block_description(BlockIdExt block_id,
+                                                                  Ref<block::BlockSignatureSet> signatures,
+                                                                  td::Timestamp timeout,
+                                                                  td::actor::ActorId<ValidatorManager> manager);
 
 }  // namespace validator
 
