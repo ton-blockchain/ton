@@ -497,7 +497,7 @@ td::Status BlockProofLink::validate(td::uint32* save_utime) const {
       auto config = cfg_res.move_as_ok();
       // compute validator set
       ton::ShardIdFull shard{ton::masterchainId};
-      auto nodes = config->compute_validator_set(shard, info.gen_utime, info.gen_catchain_seqno);
+      auto nodes = config->compute_validator_set(shard, info.gen_catchain_seqno);
       if (nodes.empty()) {
         return td::Status::Error(PSTRING()
                                  << "while checking a forward BlockProofLink: cannot compute validator set for block "

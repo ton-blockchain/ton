@@ -672,9 +672,8 @@ class Config {
   bool foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const;
   Ref<WorkchainInfo> get_workchain_info(ton::WorkchainId workchain_id) const;
   std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, const block::TotalValidatorSet& vset,
-                                                         ton::UnixTime time, ton::CatchainSeqno cc_seqno) const;
-  std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
                                                          ton::CatchainSeqno cc_seqno) const;
+  std::vector<ton::ValidatorDescr> compute_validator_set(ton::ShardIdFull shard, ton::CatchainSeqno cc_seqno) const;
   std::vector<ton::ValidatorDescr> compute_total_validator_set(int next) const;
   td::Result<SizeLimitsConfig> get_size_limits_config() const;
   static td::Result<SizeLimitsConfig> do_get_size_limits_config(td::Ref<vm::CellSlice> cs);
@@ -782,9 +781,9 @@ class ConfigInfo : public Config, public ShardConfig {
   std::unique_ptr<vm::AugmentedDictionary> create_accounts_dict() const;
   const vm::AugmentedDictionary& get_accounts_dict() const;
   std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard,
-                                                            const block::TotalValidatorSet& vset, ton::UnixTime time,
+                                                            const block::TotalValidatorSet& vset,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
-  std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
+  std::vector<ton::ValidatorDescr> compute_validator_set_cc(ton::ShardIdFull shard,
                                                             ton::CatchainSeqno* cc_seqno_delta = nullptr) const;
   td::Result<Ref<vm::Tuple>> get_prev_blocks_info() const;
   static td::Result<std::unique_ptr<ConfigInfo>> extract_config(Ref<vm::Cell> mc_state_root,

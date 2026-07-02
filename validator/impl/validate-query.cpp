@@ -2321,7 +2321,7 @@ bool ValidateQuery::register_shard_block_creators(std::vector<td::Bits256> creat
  */
 bool ValidateQuery::check_cur_validator_set() {
   CatchainSeqno cc_seqno = 0;
-  auto nodes = config_->compute_validator_set_cc(shard_, now_, &cc_seqno);
+  auto nodes = config_->compute_validator_set_cc(shard_, &cc_seqno);
   if (nodes.empty()) {
     return reject_query("cannot compute validator set for shard "s + shard_.to_str() + " from old masterchain state");
   }
@@ -2372,7 +2372,7 @@ bool ValidateQuery::check_mc_validator_info(bool update_mc_cc) {
     return reject_query(cc_updated ? "masterchain catchain seqno increased without any reason"
                                    : "masterchain catchain seqno unchanged while it had to");
   }
-  auto nodes = new_config_->compute_validator_set(shard_, now_, val_info.catchain_seqno);
+  auto nodes = new_config_->compute_validator_set(shard_, val_info.catchain_seqno);
   if (nodes.empty()) {
     return reject_query("cannot compute next masterchain validator set from new masterchain state");
   }

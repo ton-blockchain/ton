@@ -40,7 +40,7 @@ using namespace std::literals::string_literals;
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<block::ValidatorSet> validator_set,
                                    td::Ref<block::BlockSignatureSet> signatures, int block_broadcast_mode,
-                                   int finality_broadcast_mode, bool apply,
+                                   int finality_broadcast_mode, bool send_shard_block_desc, bool apply,
                                    td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
@@ -51,6 +51,7 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , is_fork_(false)
     , block_broadcast_mode_(block_broadcast_mode)
     , finality_broadcast_mode_(finality_broadcast_mode)
+    , send_shard_block_desc_(send_shard_block_desc)
     , apply_(apply)
     , manager_(manager)
     , promise_(std::move(promise))
@@ -845,7 +846,9 @@ void AcceptBlockQuery::top_block_descr_validated(td::Result<Ref<ShardTopBlockDes
   } else {
     top_block_descr_ = R.move_as_ok();
     CHECK(top_block_descr_.not_null());
-    td::actor::send_closure_later(manager_, &ValidatorManager::send_top_shard_block_description, top_block_descr_);
+    if (send_shard_block_desc_) {
+      td::actor::send_closure_later(manager_, &ValidatorManager::send_top_shard_block_description, top_block_descr_);
+    }
   }
   written_block_next();
 }

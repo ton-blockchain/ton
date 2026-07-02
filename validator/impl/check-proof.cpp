@@ -122,7 +122,6 @@ bool CheckProof::init_parse(bool is_aux) {
     }
   }
   auto keep_cc_seqno = catchain_seqno_;
-  auto keep_utime = created_at_;
   Ref<vm::Cell> sig_root = proof.signatures->prefetch_ref();
   if (sig_root.not_null()) {
     auto r_sig_set = block::BlockSignatureSet::fetch(sig_root, sig_weight_);
@@ -255,7 +254,7 @@ bool CheckProof::init_parse(bool is_aux) {
     if (res.is_error()) {
       return fatal_error(std::move(res));
     }
-    vset_ = vs_comp.get_validator_set(id_.shard_full(), keep_utime, keep_cc_seqno);
+    vset_ = vs_comp.get_validator_set(id_.shard_full(), keep_cc_seqno);
     if (vset_.is_null()) {
       return fatal_error("cannot extract current validator set for block "s + id_.to_str() +
                          " from previous key block " + key_id_.to_str());
@@ -389,7 +388,7 @@ void CheckProof::process_masterchain_state() {
   }
   auto state_q = Ref<MasterchainStateQ>(state_);
   CHECK(state_q.not_null());
-  vset_ = state_q->get_validator_set(id_.shard_full(), created_at_, catchain_seqno_);
+  vset_ = state_q->get_validator_set(id_.shard_full(), catchain_seqno_);
   check_signatures();
 }
 

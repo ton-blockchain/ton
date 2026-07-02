@@ -210,11 +210,21 @@ void ValidateBroadcast::got_zero_state(td::Ref<MasterchainState> state) {
 
 void ValidateBroadcast::check_signatures_common(td::Ref<ConfigHolder> conf) {
   VLOG(validator, DEBUG) << "checking signatures (" << (broadcast_.sig_set->is_final() ? "final" : "approve") << ")";
+  if (header_info_.cc_seqno != broadcast_.sig_set->get_catchain_seqno()) {
+    abort_query(
+        td::Status::Error(ErrorCode::notready, "catchain seqno in block header and signature set does not match"));
+    return;
+  }
+  if (header_info_.validator_set_hash != broadcast_.sig_set->get_validator_set_hash()) {
+    abort_query(
+        td::Status::Error(ErrorCode::notready, "validator set hash in block header and signature set does not match"));
+    return;
+  }
   if (signatures_checked_) {
     checked_signatures();
     return;
   }
-  auto val_set = conf->get_validator_set(broadcast_.block_id.shard_full(), header_info_.utime, header_info_.cc_seqno);
+  auto val_set = conf->get_validator_set(broadcast_.block_id.shard_full(), header_info_.cc_seqno);
   if (val_set.is_null()) {
     abort_query(td::Status::Error(ErrorCode::notready, "failed to compute validator set"));
     return;

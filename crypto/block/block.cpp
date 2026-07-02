@@ -2033,6 +2033,12 @@ td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockI
   }
 }
 
+td::Result<BlockHeaderInfo> get_block_header_info(Ref<vm::Cell> block_root, const ton::BlockIdExt& id) {
+  BlockHeaderInfo info;
+  TRY_STATUS(unpack_block_prev_blk_try(std::move(block_root), id, info.prev, info.mc_blkid, info.after_split));
+  return info;
+}
+
 td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
                                      std::vector<ton::BlockIdExt>& prev, ton::BlockIdExt& mc_blkid, bool& after_split,
                                      ton::BlockIdExt* fetch_blkid) {
