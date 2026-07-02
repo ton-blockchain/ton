@@ -45,11 +45,14 @@ struct PlumtreeOutboundFecPayload {
   td::uint32 flags = 0;
   double timestamp = 0.0;
   PublicKeyHash source;
-  td::Bits256 data_hash;
-  td::uint32 data_size = 0;
+  td::Bits256 full_data_hash;
+  td::uint32 full_data_size = 0;
   td::uint32 part_index = 0;
   td::uint32 tree_index = 0;
-  td::BufferSlice part;
+  // Bytes covered by data_hash/signature: one FEC symbol.
+  td::uint32 data_size = 0;
+  td::Bits256 data_hash;
+  td::BufferSlice data;
 };
 
 struct PlumtreeOutboundSimplePayload {
@@ -58,6 +61,8 @@ struct PlumtreeOutboundSimplePayload {
   double timestamp = 0.0;
   PublicKeyHash source;
   td::uint32 tree_index = 0;
+  td::uint32 data_size = 0;
+  td::Bits256 data_hash;
   td::BufferSlice data;
 };
 
