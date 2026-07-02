@@ -540,8 +540,8 @@ td::actor::Task<QuerySender> FullNodeFastSyncOverlay::get_query_sender() {
                               std::move(promise), timeout, std::move(query), max_answer_size, adnl_sender_);
     }
 
-    void query_finished(bool success) const override {
-      if (!success) {
+    void query_finished(td::Status S) const override {
+      if (S.is_error() && S.code() == ErrorCode::timeout) {
         td::actor::ask(parent_, &FullNodeFastSyncOverlay::ping_peer, peer_id_).detach_silent();
       }
     }

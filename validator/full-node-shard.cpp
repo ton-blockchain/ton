@@ -653,8 +653,9 @@ td::actor::Task<QuerySender> FullNodeShardImpl::get_query_sender() {
                               std::move(promise), timeout, std::move(query), max_answer_size, adnl_sender_);
     }
 
-    void query_finished(bool success) const override {
-      td::actor::send_closure(parent_, &FullNodeShardImpl::update_neighbour_stats, peer_id_, timer_.elapsed(), success);
+    void query_finished(td::Status S) const override {
+      td::actor::send_closure(parent_, &FullNodeShardImpl::update_neighbour_stats, peer_id_, timer_.elapsed(),
+                              S.is_ok() || S.code() == ErrorCode::notready || S.code() == ErrorCode::cancelled);
     }
 
     std::string to_str() const override {

@@ -323,8 +323,8 @@ td::actor::Task<QuerySender> FullNodeCustomOverlay::get_query_sender() {
                               std::move(promise), timeout, std::move(query), max_answer_size, adnl_sender_);
     }
 
-    void query_finished(bool success) const override {
-      if (!success) {
+    void query_finished(td::Status S) const override {
+      if (S.is_error()) {
         td::actor::ask(parent_, &FullNodeCustomOverlay::on_peer_query_error, peer_id_).detach_silent();
       }
     }

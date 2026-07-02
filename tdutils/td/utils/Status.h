@@ -587,6 +587,12 @@ class Result {
     }
     return Status::OK();
   }
+  Status as_status() TD_WARN_UNUSED_RESULT {
+    if (status_.is_error()) {
+      return error().clone();
+    }
+    return Status::OK();
+  }
   const T &ok() const {
     LOG_CHECK(status_.is_ok()) << status_;
     return value_;

@@ -117,7 +117,7 @@ class QuerySenderInterface {
     return std::move(task);
   }
 
-  virtual void query_finished(bool success) const {
+  virtual void query_finished(td::Status S) const {
   }
 
   virtual std::string to_str() const = 0;

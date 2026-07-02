@@ -555,7 +555,7 @@ td::actor::Task<ReceivedBlock> FullNodeImpl::download_block(BlockIdExt id, td::u
                                             validator_manager_, std::move(promise))
       .release();
   auto R = co_await std::move(task).wrap();
-  query_sender->query_finished(R.is_ok());
+  query_sender->query_finished(R.as_status());
   co_return std::move(R);
 }
 
@@ -567,7 +567,7 @@ td::actor::Task<td::BufferSlice> FullNodeImpl::download_zero_state(BlockIdExt id
                                          query_sender, priority, timeout, validator_manager_, std::move(promise))
       .release();
   auto R = co_await std::move(task).wrap();
-  query_sender->query_finished(R.is_ok());
+  query_sender->query_finished(R.as_status());
   co_return std::move(R);
 }
 
@@ -580,7 +580,7 @@ td::actor::Task<td::BufferSlice> FullNodeImpl::download_persistent_state(BlockId
                                          query_sender, priority, timeout, validator_manager_, std::move(promise))
       .release();
   auto R = co_await std::move(task).wrap();
-  query_sender->query_finished(R.is_ok());
+  query_sender->query_finished(R.as_status());
   co_return std::move(R);
 }
 
@@ -592,7 +592,7 @@ td::actor::Task<td::BufferSlice> FullNodeImpl::download_block_proof(BlockIdExt b
                                          query_sender, priority, timeout, validator_manager_, std::move(promise))
       .release();
   auto R = co_await std::move(task).wrap();
-  query_sender->query_finished(R.is_ok());
+  query_sender->query_finished(R.as_status());
   co_return std::move(R);
 }
 
@@ -604,7 +604,7 @@ td::actor::Task<td::BufferSlice> FullNodeImpl::download_block_proof_link(BlockId
                                          query_sender, priority, timeout, validator_manager_, std::move(promise))
       .release();
   auto R = co_await std::move(task).wrap();
-  query_sender->query_finished(R.is_ok());
+  query_sender->query_finished(R.as_status());
   co_return std::move(R);
 }
 
@@ -615,7 +615,7 @@ td::actor::Task<std::vector<BlockIdExt>> FullNodeImpl::get_next_key_blocks(Block
                                             1, timeout, validator_manager_, std::move(promise))
       .release();
   auto R = co_await std::move(task).wrap();
-  query_sender->query_finished(R.is_ok());
+  query_sender->query_finished(R.as_status());
   co_return std::move(R);
 }
 
@@ -628,7 +628,7 @@ td::actor::Task<std::string> FullNodeImpl::download_archive(BlockSeqno mastercha
       std::move(tmp_dir), query_sender, timeout, validator_manager_, std::move(promise))
       .release();
   auto R = co_await std::move(task).wrap();
-  query_sender->query_finished(R.is_ok());
+  query_sender->query_finished(R.as_status());
   co_return std::move(R);
 }
 
@@ -650,8 +650,12 @@ td::actor::Task<> FullNodeImpl::get_next_blocks_loop() {
         .release();
     auto R = co_await std::move(task).wrap();
     // Do not penalize peer when it does not have next blocks if the last block is new enough
-    query_sender->query_finished(R.is_ok() || (R.error().code() == ErrorCode::notready && handle_->inited_unix_time() &&
-                                               handle_->unix_time() >= (UnixTime)td::Clocks::system() - 5));
+    if (R.is_error() && R.error().code() == ErrorCode::notready && handle_->inited_unix_time() &&
+        handle_->unix_time() >= (UnixTime)td::Clocks::system() - 5) {
+      query_sender->query_finished(td::Status::OK());
+    } else {
+      query_sender->query_finished(R.as_status());
+    }
     if (R.is_error()) {
       auto S = R.move_as_error();
       if (S.code() != ErrorCode::notready && S.code() != ErrorCode::timeout) {
