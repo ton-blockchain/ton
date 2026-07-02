@@ -2333,6 +2333,7 @@ int Transaction::try_action_set_code(vm::CellSlice& cs, ActionPhase& ap, const A
  *          41 if the library reference is required but is null,
  *          43 if the number of cells in the library exceeds the limit,
  *          42 if there was a VM error during the operation.
+ *          46 if publishing private library or called on non-special account
  */
 int Transaction::try_action_change_library(vm::CellSlice& cs, ActionPhase& ap, const ActionPhaseConfig& cfg) {
   block::gen::OutAction::Record_action_change_library rec;
