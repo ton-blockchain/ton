@@ -513,14 +513,18 @@ td::actor::Task<QuerySender> FullNodeImpl::get_query_sender(ShardIdFull shard_id
   }
 
   {
+    std::vector<td::actor::ActorId<FullNodeCustomOverlay>> overlays;
     for (auto &[_, overlay] : custom_overlays_) {
       if (overlay.params_.send_queries_) {
         for (auto &[_, actor] : overlay.actors_) {
-          auto R = co_await td::actor::ask(actor, &FullNodeCustomOverlay::get_query_sender).wrap();
-          if (R.is_ok()) {
-            co_return R.move_as_ok();
-          }
+          overlays.push_back(actor.get());
         }
+      }
+    }
+    for (auto &actor : overlays) {
+      auto R = co_await td::actor::ask(actor, &FullNodeCustomOverlay::get_query_sender).wrap();
+      if (R.is_ok()) {
+        co_return R.move_as_ok();
       }
     }
   }
