@@ -862,20 +862,26 @@ void OverlayImpl::broadcast_plumtree_signed_simple(PlumtreeOutboundSimplePayload
   broadcasts_plumtree_.signed_simple(this, std::move(payload), std::move(R));
 }
 
-void OverlayImpl::receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Result<td::BufferSlice> R) {
+void OverlayImpl::receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Bits256 expected_broadcast_id,
+                                                   td::uint32 expected_part_index, td::uint32 expected_tree_index,
+                                                   td::Result<td::BufferSlice> R) {
   broadcasts_plumtree_.repair_query_finished();
   if (R.is_error()) {
     return;
   }
-  [](OverlayImpl *self, adnl::AdnlNodeIdShort from, td::BufferSlice data) -> td::actor::Task<> {
-    auto status = (co_await self->broadcasts_plumtree_.process_repair_response(self, from, std::move(data)).wrap())
+  [](OverlayImpl *self, adnl::AdnlNodeIdShort from, td::Bits256 expected_broadcast_id, td::uint32 expected_part_index,
+     td::uint32 expected_tree_index, td::BufferSlice data) -> td::actor::Task<> {
+    auto status = (co_await self->broadcasts_plumtree_
+                       .process_repair_response(self, from, expected_broadcast_id, expected_part_index,
+                                                expected_tree_index, std::move(data))
+                       .wrap())
                       .move_as_status();
     LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready)
         << self << ": failed to process Plumtree repair response from " << from << ": " << status;
     co_return td::Unit{};
-  }(this, from, R.move_as_ok())
-                                                                                 .start()
-                                                                                 .detach();
+  }(this, from, expected_broadcast_id, expected_part_index, expected_tree_index, R.move_as_ok())
+                                                                  .start()
+                                                                  .detach();
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra) {

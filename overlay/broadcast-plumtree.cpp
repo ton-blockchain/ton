@@ -147,6 +147,8 @@ struct PlumtreeFecBroadcastRef {
   bool created = false;
 };
 
+enum class PlumtreePayloadOrigin { Push, RepairResponse };
+
 template <class T>
 PlumtreeControlFields get_control_fields(const T &msg) {
   return PlumtreeControlFields{msg.broadcast_id_, msg.timestamp_, static_cast<td::uint32>(msg.part_index_),
@@ -226,15 +228,20 @@ class BroadcastsPlumtree::Impl {
                      td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
 
   td::actor::Task<> process_fec_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
-                                        tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> msg);
+                                        tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> msg,
+                                        PlumtreePayloadOrigin origin = PlumtreePayloadOrigin::Push,
+                                        const MissingPartKey *expected_key = nullptr);
   td::actor::Task<> process_simple_payload(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
-                                           tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> msg);
+                                           tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> msg,
+                                           PlumtreePayloadOrigin origin = PlumtreePayloadOrigin::Push,
+                                           const MissingPartKey *expected_key = nullptr);
   td::actor::Task<> process_ihave(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                   tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg);
   void process_repair_query(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                             ton_api::overlay_repairPlumtreePart &query, td::Promise<td::BufferSlice> promise);
   void repair_query_finished();
-  td::actor::Task<> process_repair_response(OverlayImpl *overlay, adnl::AdnlNodeIdShort from, td::BufferSlice data);
+  td::actor::Task<> process_repair_response(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
+                                            MissingPartKey expected_key, td::BufferSlice data);
   td::actor::Task<> process_prune(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
                                   tl_object_ptr<ton_api::overlay_broadcastPlumtreePrune> msg);
   td::actor::Task<> process_useful(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
@@ -269,6 +276,9 @@ class BroadcastsPlumtree::Impl {
   void expire_pending_feedback(PlumtreeSlot &slot) const;
   void expire_pending_feedback();
   bool can_reserve_eager_feedback(PlumtreeSlot &slot, const adnl::AdnlNodeIdShort &peer) const;
+  td::Status check_payload_origin(PlumtreePayloadOrigin origin, const MissingPartKey *expected_key,
+                                  const MissingPartKey &actual_key, const PlumtreeSlot &slot,
+                                  const adnl::AdnlNodeIdShort &from) const;
   void register_full_payload_send(PlumtreeSlot &slot, PlumtreePartState &part, const adnl::AdnlNodeIdShort &dst);
   void note_eager_peer_active(adnl::AdnlNodeIdShort peer);
   bool is_inactive_eager_peer(adnl::AdnlNodeIdShort peer, td::Timestamp now, bool receives_broadcasts) const;
@@ -385,6 +395,22 @@ bool BroadcastsPlumtree::Impl::can_reserve_eager_feedback(PlumtreeSlot &slot, co
     return true;
   }
   return slot_load(slot) < local_eager_limit_;
+}
+
+td::Status BroadcastsPlumtree::Impl::check_payload_origin(PlumtreePayloadOrigin origin,
+                                                          const MissingPartKey *expected_key,
+                                                          const MissingPartKey &actual_key, const PlumtreeSlot &slot,
+                                                          const adnl::AdnlNodeIdShort &from) const {
+  if (origin == PlumtreePayloadOrigin::RepairResponse) {
+    if (!expected_key || *expected_key != actual_key) {
+      return td::Status::Error(ErrorCode::protoviolation, "Plumtree repair response key mismatch");
+    }
+    return td::Status::OK();
+  }
+  if (!slot.eager.contains(from)) {
+    return td::Status::Error(ErrorCode::notready, "unsolicited Plumtree payload from non-eager peer");
+  }
+  return td::Status::OK();
 }
 
 void BroadcastsPlumtree::Impl::register_full_payload_send(PlumtreeSlot &slot, PlumtreePartState &part,
@@ -726,9 +752,11 @@ void BroadcastsPlumtree::Impl::send_repair_requests(OverlayImpl *overlay, const 
     auto query = create_serialize_tl_object<ton_api::overlay_repairPlumtreePart>(broadcast_id, td::Clocks::system(),
                                                                                  static_cast<std::int32_t>(part_index),
                                                                                  static_cast<std::int32_t>(tree_index));
-    auto promise = td::PromiseCreator::lambda([overlay_id = actor_id(overlay), dst](td::Result<td::BufferSlice> R) {
-      td::actor::send_closure(overlay_id, &OverlayImpl::receive_plumtree_repair_response, dst, std::move(R));
-    });
+    auto promise = td::PromiseCreator::lambda(
+        [overlay_id = actor_id(overlay), dst, broadcast_id, part_index, tree_index](td::Result<td::BufferSlice> R) {
+          td::actor::send_closure(overlay_id, &OverlayImpl::receive_plumtree_repair_response, dst, broadcast_id,
+                                  part_index, tree_index, std::move(R));
+        });
     td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_query_via, dst, overlay->local_id(),
                             overlay->overlay_id(), "plumtree repair", std::move(promise),
                             td::Timestamp::in(PLUMTREE_PENDING_FEEDBACK_TTL), std::move(query), plumtree_payload_mtu(),
@@ -1174,7 +1202,8 @@ void BroadcastsPlumtree::Impl::signed_simple(OverlayImpl *overlay, PlumtreeOutbo
 }
 
 td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
-    OverlayImpl *overlay, adnl::AdnlNodeIdShort from, tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> msg) {
+    OverlayImpl *overlay, adnl::AdnlNodeIdShort from, tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> msg,
+    PlumtreePayloadOrigin origin, const MissingPartKey *expected_key) {
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree immediate sender");
   }
@@ -1206,6 +1235,19 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
     send_prune(overlay, from, broadcast_id, part_index, tree_index);
     co_return td::Status::Error(ErrorCode::notready, "original sender ignores Plumtree part");
   }
+  MissingPartKey payload_key{broadcast_id, part_index, tree_index};
+  auto *s = slot(tree_index);
+  if (!s) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree slot");
+  }
+  auto origin_status = check_payload_origin(origin, expected_key, payload_key, *s, from);
+  if (origin_status.is_error()) {
+    if (origin == PlumtreePayloadOrigin::Push) {
+      send_prune(overlay, from, broadcast_id, part_index, tree_index);
+    }
+    co_return std::move(origin_status);
+  }
+
   PublicKey source_key(msg->src_);
   auto source_hash = source_key.compute_short_id();
   auto it = broadcasts_.find(broadcast_id);
@@ -1278,12 +1320,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
 
   auto *part = add_fec_part_state(*broadcast, part_index, tree_index, timestamp, std::move(source_key), source_hash,
                                   cert, std::move(msg->signature_), msg->part_.clone());
-  erase_missing_part(MissingPartKey{broadcast_id, part_index, tree_index});
+  erase_missing_part(payload_key);
 
-  auto *s = slot(tree_index);
-  if (!s) {
-    co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree slot");
-  }
   promote_eager(overlay, *s, from, true);
   send_useful(overlay, from, *part, broadcast_id);
   forward_payload(overlay, broadcast_id, *part, from);
@@ -1297,7 +1335,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
 }
 
 td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
-    OverlayImpl *overlay, adnl::AdnlNodeIdShort from, tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> msg) {
+    OverlayImpl *overlay, adnl::AdnlNodeIdShort from, tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> msg,
+    PlumtreePayloadOrigin origin, const MissingPartKey *expected_key) {
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree simple immediate sender");
   }
@@ -1321,6 +1360,19 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
     send_prune(overlay, from, broadcast_id, part_index, tree_index);
     co_return td::Status::Error(ErrorCode::notready, "original sender ignores Plumtree simple payload");
   }
+  MissingPartKey payload_key{broadcast_id, part_index, tree_index};
+  auto *s = slot(tree_index);
+  if (!s) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree slot");
+  }
+  auto origin_status = check_payload_origin(origin, expected_key, payload_key, *s, from);
+  if (origin_status.is_error()) {
+    if (origin == PlumtreePayloadOrigin::Push) {
+      send_prune(overlay, from, broadcast_id, part_index, tree_index);
+    }
+    co_return std::move(origin_status);
+  }
+
   auto data_size = static_cast<td::uint32>(msg->data_.size());
   auto it = simple_broadcasts_.find(broadcast_id);
   if (it == simple_broadcasts_.end() && overlay->is_delivered(broadcast_id)) {
@@ -1390,15 +1442,11 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
   auto *state_ptr = state.get();
   simple_lru_.put(state_ptr);
   simple_broadcasts_.emplace(broadcast_id, std::move(state));
-  erase_missing_part(MissingPartKey{broadcast_id, part_index, tree_index});
+  erase_missing_part(payload_key);
   VLOG(PLUMTREE_INFO) << overlay << ": Plumtree SIMPLE_RECV broadcast_id=" << state_ptr->broadcast_id.to_hex()
                       << " tree_index=" << state_ptr->part.tree_index << " data_size=" << state_ptr->data.size()
                       << " from=" << from;
 
-  auto *s = slot(tree_index);
-  if (!s) {
-    co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree slot");
-  }
   promote_eager(overlay, *s, from, true);
   send_useful(overlay, from, state_ptr->part, broadcast_id);
   forward_payload(overlay, broadcast_id, state_ptr->part, from);
@@ -1511,7 +1559,7 @@ void BroadcastsPlumtree::Impl::repair_query_finished() {
 }
 
 td::actor::Task<> BroadcastsPlumtree::Impl::process_repair_response(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
-                                                                    td::BufferSlice data) {
+                                                                    MissingPartKey expected_key, td::BufferSlice data) {
   if (from.is_zero()) {
     co_return td::Status::Error(ErrorCode::protoviolation, "missing Plumtree repair response sender");
   }
@@ -1522,10 +1570,12 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_repair_response(OverlayImpl 
   auto obj = bcast.move_as_ok();
   switch (obj->get_id()) {
     case ton_api::overlay_broadcastPlumtreeFec::ID:
-      co_await process_fec_payload(overlay, from, move_tl_object_as<ton_api::overlay_broadcastPlumtreeFec>(obj));
+      co_await process_fec_payload(overlay, from, move_tl_object_as<ton_api::overlay_broadcastPlumtreeFec>(obj),
+                                   PlumtreePayloadOrigin::RepairResponse, &expected_key);
       break;
     case ton_api::overlay_broadcastPlumtreeSimple::ID:
-      co_await process_simple_payload(overlay, from, move_tl_object_as<ton_api::overlay_broadcastPlumtreeSimple>(obj));
+      co_await process_simple_payload(overlay, from, move_tl_object_as<ton_api::overlay_broadcastPlumtreeSimple>(obj),
+                                      PlumtreePayloadOrigin::RepairResponse, &expected_key);
       break;
     case ton_api::overlay_broadcastNotFound::ID:
       break;
@@ -1702,8 +1752,11 @@ void BroadcastsPlumtree::repair_query_finished() {
 }
 
 td::actor::Task<> BroadcastsPlumtree::process_repair_response(OverlayImpl *overlay, adnl::AdnlNodeIdShort from,
-                                                              td::BufferSlice data) {
-  co_await impl_->process_repair_response(overlay, from, std::move(data));
+                                                              const td::Bits256 &expected_broadcast_id,
+                                                              td::uint32 expected_part_index,
+                                                              td::uint32 expected_tree_index, td::BufferSlice data) {
+  co_await impl_->process_repair_response(
+      overlay, from, MissingPartKey{expected_broadcast_id, expected_part_index, expected_tree_index}, std::move(data));
   co_return td::Unit{};
 }
 
