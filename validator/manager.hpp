@@ -169,6 +169,19 @@ class ValidatorManagerImpl : public ValidatorManager {
   };
   std::map<BlockIdExt, WaitBlockHandle> wait_block_handle_;
 
+  // In-flight deduplication of full block-broadcast validation. The same block
+  // can arrive via several overlays (public / custom / fast-sync / shard) as
+  // distinct broadcasts; the expensive proof and signature checks do not depend
+  // on which broadcast carried the block, so only one is validated at a time
+  // and the rest wait for its result. The map value holds the broadcasts for a
+  // block that have not been tried yet while one is in flight.
+  struct QueuedBroadcast {
+    BlockBroadcast broadcast;
+    bool signatures_checked;
+    td::Promise<td::Unit> promise;
+  };
+  std::map<BlockIdExt, std::vector<QueuedBroadcast>> validating_broadcasts_;
+
   td::actor::ActorOwn<OutMsgQueueImporter> out_msg_queue_importer_;
 
  private:
@@ -318,6 +331,8 @@ class ValidatorManagerImpl : public ValidatorManager {
                                 td::Promise<td::Unit> promise) override;
   void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
   void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override;
+  void start_validate_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise);
+  void finished_validate_broadcast(BlockIdExt block_id, bool success);
   void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
   td::actor::Task<> validated_accepted_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
 

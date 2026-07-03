@@ -225,20 +225,67 @@ void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool si
     promise.set_error(td::Status::Error("not monitoring shard"));
     return;
   }
-  promise = [SelfId = actor_id(this), promise = std::move(promise), block_id = broadcast.block_id,
+  auto it = validating_broadcasts_.find(broadcast.block_id);
+  if (it != validating_broadcasts_.end()) {
+    // Another broadcast for this block is already being validated. Wait for its
+    // result instead of repeating the signature and proof checks.
+    it->second.push_back({std::move(broadcast), signatures_checked, std::move(promise)});
+    return;
+  }
+  validating_broadcasts_[broadcast.block_id];
+  start_validate_broadcast(std::move(broadcast), signatures_checked, std::move(promise));
+}
+
+void ValidatorManagerImpl::start_validate_broadcast(BlockBroadcast broadcast, bool signatures_checked,
+                                                    td::Promise<td::Unit> promise) {
+  BlockIdExt block_id = broadcast.block_id;
+  promise = [SelfId = actor_id(this), promise = std::move(promise), block_id,
              cc_seqno = broadcast.sig_set->get_catchain_seqno(),
              is_final = broadcast.sig_set->is_final()](td::Result<td::Unit> R) mutable {
     if (R.is_ok() && is_final) {
       td::actor::ask(SelfId, &ValidatorManagerImpl::validated_accepted_block_broadcast, block_id, cc_seqno).detach();
     }
+    td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_validate_broadcast, block_id, R.is_ok());
     promise.set_result(std::move(R));
   };
-  BlockIdExt block_id = broadcast.block_id;
   td::actor::create_actor<ValidateBroadcast>(PSTRING() << "broadcast" << block_id.id, std::move(broadcast),
                                              last_masterchain_block_handle_, last_masterchain_state_,
                                              last_known_key_block_handle_, actor_id(this), td::Timestamp::in(20.0),
                                              std::move(promise), false, signatures_checked)
       .release();
+}
+
+void ValidatorManagerImpl::finished_validate_broadcast(BlockIdExt block_id, bool success) {
+  auto it = validating_broadcasts_.find(block_id);
+  if (it == validating_broadcasts_.end()) {
+    return;
+  }
+  if (success) {
+    // The block is validated and stored, so every other broadcast for it is now
+    // redundant: resolve all the waiters with the shared result. Their own
+    // is_final handling is intentionally skipped -- those broadcasts were not
+    // verified, and acting on an unverified finality claim would be unsafe (in
+    // the rare case where a concurrent final broadcast is deduplicated behind a
+    // non-final one, its collator notification is simply picked up from the
+    // next broadcast once this entry is gone).
+    auto queued = std::move(it->second);
+    validating_broadcasts_.erase(it);
+    for (auto &q : queued) {
+      q.promise.set_result(td::Unit());
+    }
+    return;
+  }
+  // This broadcast failed to validate (e.g. forged signatures or proof). A
+  // different broadcast for the same block may still be valid, so try the next
+  // one rather than failing every waiter: sharing the failure would let a peer
+  // that races a bad broadcast keep a valid block from being accepted.
+  if (it->second.empty()) {
+    validating_broadcasts_.erase(it);
+    return;
+  }
+  auto next = std::move(it->second.front());
+  it->second.erase(it->second.begin());
+  start_validate_broadcast(std::move(next.broadcast), next.signatures_checked, std::move(next.promise));
 }
 
 void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
