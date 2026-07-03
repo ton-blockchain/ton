@@ -101,6 +101,7 @@ class BroadcastsPlumtree {
   void alarm(OverlayImpl *overlay);
   td::Timestamp next_alarm_at();
   void gc(OverlayImpl *overlay);
+  void remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer);
 
  private:
   class Impl;

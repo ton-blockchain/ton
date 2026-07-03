@@ -292,14 +292,14 @@ struct OverlayOptions {
   bool frequent_dht_lookup_ = false;
   td::uint32 local_overlay_member_flags_ = 0;
   td::int32 max_slaves_in_semiprivate_overlay_ = 5;
-  td::uint32 max_peers_ = 30;
+  td::uint32 max_peers_ = 300;
   td::uint32 max_neighbours_ = 10;
   td::uint32 nodes_to_send_ = 4;
   td::uint32 propagate_broadcast_to_ = 5;
   td::uint32 default_permanent_members_flags_ = 0;
   double broadcast_speed_multiplier_ = 1.0;
   bool private_ping_peers_ = false;
-  td::uint32 max_pending_peers_ = 50;
+  td::uint32 max_pending_peers_ = 100;
 
   td::actor::ActorId<adnl::AdnlSenderEx> twostep_broadcast_sender_ = {};
   bool send_twostep_broadcast_ = false;

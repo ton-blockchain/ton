@@ -44,6 +44,7 @@ void OverlayImpl::del_peer(const adnl::AdnlNodeIdShort &id) {
 
   VLOG(overlay, DEBUG) << this << ": deleting peer " << id;
 
+  broadcasts_plumtree_.remove_peer(this, id);
   del_from_all_neighbour_lists(P);
   peer_list_.peers_.remove(id);
   peer_list_.bad_peers_.erase(id);

@@ -52,7 +52,7 @@ constexpr int VERBOSITY_NAME(PLUMTREE_INFO) = verbosity_DEBUG;
 
 namespace {
 
-constexpr double PLUMTREE_BROADCAST_TTL = 25.0;
+constexpr double PLUMTREE_BROADCAST_LIFETIME = 20.0;
 constexpr double PLUMTREE_PENDING_FEEDBACK_TTL = 5.0;
 constexpr double PLUMTREE_EAGER_PEER_INACTIVITY_TTL = 30.0;
 constexpr td::uint32 PLUMTREE_EAGER_PEER_MAX_SENT_WITHOUT_ACTIVITY = 50;
@@ -188,10 +188,10 @@ td::Status check_timestamp(double timestamp) {
     return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree timestamp");
   }
   auto now = td::Clocks::system();
-  if (timestamp < now - 20.0) {
+  if (timestamp < now - PLUMTREE_BROADCAST_LIFETIME) {
     return td::Status::Error(ErrorCode::notready, "too old Plumtree broadcast");
   }
-  if (timestamp > now + 20.0) {
+  if (timestamp > now + PLUMTREE_BROADCAST_LIFETIME) {
     return td::Status::Error(ErrorCode::notready, "too new Plumtree broadcast");
   }
   return td::Status::OK();
@@ -254,6 +254,7 @@ class BroadcastsPlumtree::Impl {
   void alarm(OverlayImpl *overlay);
   td::Timestamp next_alarm_at();
   void gc(OverlayImpl *overlay);
+  void remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer);
 
  private:
   td::actor::ActorId<adnl::AdnlSenderInterface> sender_;
@@ -564,6 +565,12 @@ void BroadcastsPlumtree::Impl::remove_eager(OverlayImpl *overlay, PlumtreeSlot &
   slot.pending_feedback.erase(peer);
   if (mtu_peers_changed) {
     refresh_eager_mtu(overlay);
+  }
+}
+
+void BroadcastsPlumtree::Impl::remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer) {
+  for (auto &slot : slots_) {
+    remove_eager(overlay, slot, peer);
   }
 }
 
@@ -1755,7 +1762,7 @@ td::Timestamp BroadcastsPlumtree::Impl::next_alarm_at() {
 void BroadcastsPlumtree::Impl::gc(OverlayImpl *overlay) {
   expire_pending_feedback();
   auto now = td::Timestamp::now();
-  auto broadcast_expired_before = now - PLUMTREE_BROADCAST_TTL;
+  auto broadcast_expired_before = now - PLUMTREE_BROADCAST_LIFETIME;
   while (!broadcasts_.empty()) {
     auto *bcast = static_cast<PlumtreeFecBroadcastState *>(lru_.prev);
     CHECK(bcast);
@@ -1873,6 +1880,10 @@ td::Timestamp BroadcastsPlumtree::next_alarm_at() {
 
 void BroadcastsPlumtree::gc(OverlayImpl *overlay) {
   impl_->gc(overlay);
+}
+
+void BroadcastsPlumtree::remove_peer(OverlayImpl *overlay, adnl::AdnlNodeIdShort peer) {
+  impl_->remove_peer(overlay, peer);
 }
 
 }  // namespace overlay
