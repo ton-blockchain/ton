@@ -215,17 +215,17 @@ void DownloadBlockNew::got_ready_to_deserialize(tl_object_ptr<ton_api::tonNode_D
   }
 
   if (!allow_partial_proof_ && is_link) {
-    abort_query(td::Status::Error(ErrorCode::notready, "node doesn't have proof for this block"));
+    abort_query(td::Status::Error(ErrorCode::protoviolation, "node doesn't have proof for this block"));
     return;
   }
   if (id != block_id_) {
-    abort_query(td::Status::Error(ErrorCode::notready, "received data for wrong block"));
+    abort_query(td::Status::Error(ErrorCode::protoviolation, "received data for wrong block"));
     return;
   }
   block_.id = id;
   block_.data = std::move(block_data);
   if (td::sha256_bits256(block_.data.as_slice()) != id.file_hash) {
-    abort_query(td::Status::Error(ErrorCode::notready, "received data with bad hash"));
+    abort_query(td::Status::Error(ErrorCode::protoviolation, "received data with bad hash"));
     return;
   }
 
