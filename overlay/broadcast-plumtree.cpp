@@ -1254,22 +1254,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
   }
   auto broadcast_id = compute_broadcast_id(flags, msg->full_data_hash_, full_data_size, part_size);
   CO_TRY(validate_control_fields(broadcast_id, part_index, tree_index));
-  PublicKey source_key(msg->src_);
-  auto source_hash = source_key.compute_short_id();
-  auto cert = CO_TRY(Certificate::create(msg->certificate_));
-  auto check = overlay->check_source_eligible(source_hash, cert.get(), full_data_size, /* is_fec = */ true,
-                                              /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender(), from);
-  if (check != BroadcastCheckResult::Allowed) {
-    co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree source is not allowed");
-  }
-  auto part_hash = td::sha256_bits256(msg->data_.as_slice());
-  auto to_sign = make_fec_payload_to_sign(broadcast_id, timestamp, part_index, tree_index, part_size, part_hash);
-  {
-    TD_PERF_COUNTER(check_signature_overlay_broadcast_plumtree_fec_payload);
-    CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
-  }
-
   if (is_original_sender_) {
+    // If we are original sender, peers shouldn't send us parts. If they did, they have another source, so we need to prune them.
     if (auto *s = slot(tree_index)) {
       remove_eager(overlay, *s, from);
     }
@@ -1301,9 +1287,33 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
     }
   }
 
+  if (auto *known = get_part(broadcast_id, part_index, tree_index)) {
+    if (auto *s = slot(tree_index)) {
+      remove_eager(overlay, *s, from);
+    }
+    send_prune(overlay, from, broadcast_id, known->part_index, known->tree_index);
+    co_return td::Status::Error(ErrorCode::notready, "duplicate Plumtree part");
+  }
+
+  PublicKey source_key(msg->src_);
+  auto source_hash = source_key.compute_short_id();
+  auto cert = CO_TRY(Certificate::create(msg->certificate_));
+  auto check = overlay->check_source_eligible(source_hash, cert.get(), full_data_size, /* is_fec = */ true,
+                                              /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender(), from);
+  if (check != BroadcastCheckResult::Allowed) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree source is not allowed");
+  }
+
   if (new_broadcast) {
     CO_TRY(overlay->get_broadcasts_limiter(source_hash, cert.get()).precheck_new_broadcast(full_data_size));
     co_await overlay->precheck_broadcast(source_hash, broadcast_id, {}, false).trace("precheck Plumtree broadcast");
+  }
+
+  auto part_hash = td::sha256_bits256(msg->data_.as_slice());
+  auto to_sign = make_fec_payload_to_sign(broadcast_id, timestamp, part_index, tree_index, part_size, part_hash);
+  {
+    TD_PERF_COUNTER(check_signature_overlay_broadcast_plumtree_fec_payload);
+    CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
   }
 
   PlumtreeFecBroadcastState *broadcast = nullptr;
@@ -1379,21 +1389,6 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
     co_return td::Status::Error(ErrorCode::protoviolation, "invalid Plumtree simple payload size");
   }
   auto data_size = static_cast<td::uint32>(msg->data_.size());
-  PublicKey source_key(msg->src_);
-  auto source_hash = source_key.compute_short_id();
-  auto cert = CO_TRY(Certificate::create(msg->certificate_));
-  auto check = overlay->check_source_eligible(source_hash, cert.get(), data_size, /* is_fec = */ true,
-                                              /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender(), from);
-  if (check != BroadcastCheckResult::Allowed) {
-    co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree simple source is not allowed");
-  }
-  auto data_hash = td::sha256_bits256(msg->data_.as_slice());
-  auto to_sign = make_simple_payload_to_sign(broadcast_id, timestamp, tree_index, data_size, data_hash);
-  {
-    TD_PERF_COUNTER(check_signature_overlay_broadcast_plumtree_simple_payload);
-    CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
-  }
-
   if (is_original_sender_) {
     if (auto *s = slot(tree_index)) {
       remove_eager(overlay, *s, from);
@@ -1420,11 +1415,35 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
   }
   bool new_broadcast = it == simple_broadcasts_.end();
 
+  if (auto *known = get_part(broadcast_id, part_index, tree_index)) {
+    if (auto *s = slot(tree_index)) {
+      remove_eager(overlay, *s, from);
+    }
+    send_prune(overlay, from, broadcast_id, known->part_index, known->tree_index);
+    co_return td::Status::Error(ErrorCode::notready, "duplicate Plumtree simple payload");
+  }
+
+  PublicKey source_key(msg->src_);
+  auto source_hash = source_key.compute_short_id();
+  auto cert = CO_TRY(Certificate::create(msg->certificate_));
+  auto check = overlay->check_source_eligible(source_hash, cert.get(), data_size, /* is_fec = */ true,
+                                              /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender(), from);
+  if (check != BroadcastCheckResult::Allowed) {
+    co_return td::Status::Error(ErrorCode::protoviolation, "Plumtree simple source is not allowed");
+  }
+
   auto &limiter = overlay->get_broadcasts_limiter(source_hash, cert.get());
   if (new_broadcast) {
     CO_TRY(limiter.precheck_new_broadcast(data_size));
     co_await overlay->precheck_broadcast(source_hash, broadcast_id, {}, false)
         .trace("precheck Plumtree simple broadcast");
+  }
+
+  auto data_hash = td::sha256_bits256(msg->data_.as_slice());
+  auto to_sign = make_simple_payload_to_sign(broadcast_id, timestamp, tree_index, data_size, data_hash);
+  {
+    TD_PERF_COUNTER(check_signature_overlay_broadcast_plumtree_simple_payload);
+    CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
   }
 
   note_eager_peer_active(from);
@@ -1527,6 +1546,16 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
     }
   }
 
+  MissingPartKey key{control.broadcast_id, part_index, tree_index};
+  auto existing_missing = missing_parts_.find(key);
+  if (existing_missing != missing_parts_.end()) {
+    auto &missing = *existing_missing->second;
+    if (std::find(missing.repair_targets.begin(), missing.repair_targets.end(), from) != missing.repair_targets.end() ||
+        missing.repair_targets.size() >= options_.max_repair_targets_) {
+      co_return td::Unit{};
+    }
+  }
+
   PublicKey source_key(msg->src_);
   auto source_hash = source_key.compute_short_id();
   auto cert = CO_TRY(Certificate::create(msg->certificate_));
@@ -1545,7 +1574,6 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   }
   CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
 
-  MissingPartKey key{control.broadcast_id, part_index, tree_index};
   auto *missing = get_or_create_missing_part(key, data_size);
   if (!missing->repair_at) {
     missing->repair_at = td::Timestamp::in(options_.repair_timeout_ms_ / 1000.0);
