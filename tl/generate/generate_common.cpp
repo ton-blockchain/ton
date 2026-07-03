@@ -77,8 +77,8 @@ int main() {
 #ifdef TONLIB_ENABLE_JNI
   generate_cpp<td::TD_TL_writer_jni_cpp, td::TD_TL_writer_jni_h>(
       "auto/tl", "tonlib_api", "std::string", "std::string", "td::SecureString", "td::SecureString",
-      {"\"tl/tl_jni_object.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\""},
-      {"<string>", "\"td/utils/SharedSlice.h\"", "\"crypto/common/bitstring.h\""});
+      {"<optional>", "\"tl/tl_jni_object.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\""},
+      {"<string>", "<optional>", "\"td/utils/SharedSlice.h\"", "\"crypto/common/bitstring.h\""});
 #else
   generate_cpp<>("auto/tl", "tonlib_api", "std::string", "std::string", "td::SecureString", "td::SecureString",
                  {"\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\""},
