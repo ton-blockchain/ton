@@ -633,6 +633,26 @@ OverlayPeer *OverlayImpl::get_random_peer(bool only_alive) {
   return res;
 }
 
+OverlayPeer *OverlayImpl::get_random_neighbour_peer() {
+  auto neighbours = peer_list_.neighbours_.size();
+  auto plumtree_neighbours = peer_list_.plumtree_neighbours_.size();
+  auto total = neighbours + plumtree_neighbours;
+  if (total == 0) {
+    return nullptr;
+  }
+
+  auto start = td::Random::fast(0, static_cast<td::uint32>(total - 1));
+  for (size_t offset = 0; offset < total; offset++) {
+    auto i = (start + offset) % total;
+    auto &peer = i < neighbours ? peer_list_.neighbours_[i] : peer_list_.plumtree_neighbours_[i - neighbours];
+    auto P = peer_list_.peers_.get(peer);
+    if (P) {
+      return P;
+    }
+  }
+  return nullptr;
+}
+
 void OverlayImpl::get_overlay_random_peers(td::uint32 max_peers,
                                            td::Promise<std::vector<adnl::AdnlNodeIdShort>> promise) {
   std::vector<adnl::AdnlNodeIdShort> v;
