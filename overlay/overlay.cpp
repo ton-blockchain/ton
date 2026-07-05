@@ -435,13 +435,21 @@ void OverlayImpl::alarm() {
 
   if (overlay_type_ != OverlayType::FixedMemberList) {
     if (has_valid_membership_certificate()) {
-      auto P = get_random_peer();
-      if (P) {
+      auto send_random_peers_query = [&](OverlayPeer *P) {
+        if (!P) {
+          return;
+        }
         if (overlay_type_ == OverlayType::Public) {
           send_random_peers(P->get_id(), {});
         } else {
           send_random_peers_v2(P->get_id(), {});
         }
+      };
+      auto neighbour = get_random_neighbour_peer();
+      send_random_peers_query(neighbour);
+      auto peer = get_random_peer();
+      if (!neighbour || !peer || neighbour->get_id() != peer->get_id()) {
+        send_random_peers_query(peer);
       }
     } else {
       VLOG(overlay, WARNING) << "member certificate ist invalid, valid_until="

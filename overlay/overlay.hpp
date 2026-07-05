@@ -462,6 +462,7 @@ class OverlayImpl : public Overlay {
   void del_from_plumtree_neighbour_list(OverlayPeer *P);
   void del_from_all_neighbour_lists(OverlayPeer *P);
   OverlayPeer *get_random_peer(bool only_alive = false);
+  OverlayPeer *get_random_neighbour_peer();
   bool is_root_public_key(const PublicKeyHash &key) const;
   bool has_good_peers() const;
   size_t neighbours_cnt() const;
