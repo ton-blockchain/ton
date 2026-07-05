@@ -435,21 +435,23 @@ void OverlayImpl::alarm() {
 
   if (overlay_type_ != OverlayType::FixedMemberList) {
     if (has_valid_membership_certificate()) {
-      auto send_random_peers_query = [&](OverlayPeer *P) {
-        if (!P) {
-          return;
-        }
+      auto send_random_peers_query = [&](const adnl::AdnlNodeIdShort &peer) {
         if (overlay_type_ == OverlayType::Public) {
-          send_random_peers(P->get_id(), {});
+          send_random_peers(peer, {});
         } else {
-          send_random_peers_v2(P->get_id(), {});
+          send_random_peers_v2(peer, {});
         }
       };
-      auto neighbour = get_random_neighbour_peer();
-      send_random_peers_query(neighbour);
-      auto peer = get_random_peer();
-      if (!neighbour || !peer || neighbour->get_id() != peer->get_id()) {
-        send_random_peers_query(peer);
+      auto neighbour_id = adnl::AdnlNodeIdShort::zero();
+      if (auto neighbour = get_random_neighbour_peer()) {
+        neighbour_id = neighbour->get_id();
+        send_random_peers_query(neighbour_id);
+      }
+      if (auto peer = get_random_peer()) {
+        auto peer_id = peer->get_id();
+        if (peer_id != neighbour_id) {
+          send_random_peers_query(peer_id);
+        }
       }
     } else {
       VLOG(overlay, WARNING) << "member certificate ist invalid, valid_until="

@@ -642,15 +642,8 @@ OverlayPeer *OverlayImpl::get_random_neighbour_peer() {
   }
 
   auto start = td::Random::fast(0, static_cast<td::uint32>(total - 1));
-  for (size_t offset = 0; offset < total; offset++) {
-    auto i = (start + offset) % total;
-    auto &peer = i < neighbours ? peer_list_.neighbours_[i] : peer_list_.plumtree_neighbours_[i - neighbours];
-    auto P = peer_list_.peers_.get(peer);
-    if (P) {
-      return P;
-    }
-  }
-  return nullptr;
+  auto &peer = start < neighbours ? peer_list_.neighbours_[start] : peer_list_.plumtree_neighbours_[start - neighbours];
+  return peer_list_.peers_.get(peer);
 }
 
 void OverlayImpl::get_overlay_random_peers(td::uint32 max_peers,
