@@ -278,7 +278,9 @@ class OverlayImpl : public Overlay {
   void deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra);
   void register_delivered_broadcast(const BroadcastHash &hash);
   bool is_delivered(const BroadcastHash &hash);
-  void receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Result<td::BufferSlice> R);
+  void receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Bits256 expected_broadcast_id,
+                                        td::uint32 expected_part_index, td::uint32 expected_tree_index,
+                                        td::Result<td::BufferSlice> R);
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
   void precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra, bool signature_checked,
                           td::Promise<td::Unit> promise);
@@ -460,6 +462,7 @@ class OverlayImpl : public Overlay {
   void del_from_plumtree_neighbour_list(OverlayPeer *P);
   void del_from_all_neighbour_lists(OverlayPeer *P);
   OverlayPeer *get_random_peer(bool only_alive = false);
+  OverlayPeer *get_random_neighbour_peer();
   bool is_root_public_key(const PublicKeyHash &key) const;
   bool has_good_peers() const;
   size_t neighbours_cnt() const;

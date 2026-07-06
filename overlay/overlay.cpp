@@ -435,12 +435,22 @@ void OverlayImpl::alarm() {
 
   if (overlay_type_ != OverlayType::FixedMemberList) {
     if (has_valid_membership_certificate()) {
-      auto P = get_random_peer();
-      if (P) {
+      auto send_random_peers_query = [&](const adnl::AdnlNodeIdShort &peer) {
         if (overlay_type_ == OverlayType::Public) {
-          send_random_peers(P->get_id(), {});
+          send_random_peers(peer, {});
         } else {
-          send_random_peers_v2(P->get_id(), {});
+          send_random_peers_v2(peer, {});
+        }
+      };
+      auto neighbour_id = adnl::AdnlNodeIdShort::zero();
+      if (auto neighbour = get_random_neighbour_peer()) {
+        neighbour_id = neighbour->get_id();
+        send_random_peers_query(neighbour_id);
+      }
+      if (auto peer = get_random_peer()) {
+        auto peer_id = peer->get_id();
+        if (peer_id != neighbour_id) {
+          send_random_peers_query(peer_id);
         }
       }
     } else {
@@ -721,8 +731,10 @@ bool OverlayImpl::can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data
     VLOG(overlay, WARNING) << "Plumtree broadcast payload is too large";
     return false;
   }
-  if (!has_valid_broadcast_certificate(send_as, data_size, /* is_fec = */ true,
-                                       /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender())) {
+  auto cert = get_certificate(send_as);
+  if (check_source_eligible(send_as, cert.get(), static_cast<td::uint32>(data_size), /* is_fec = */ true,
+                            /* is_any_sender = */ flags & Overlays::BroadcastFlagAnySender()) !=
+      BroadcastCheckResult::Allowed) {
     VLOG(overlay, WARNING) << "Plumtree broadcast source certificate is invalid";
     return false;
   }
@@ -862,20 +874,26 @@ void OverlayImpl::broadcast_plumtree_signed_simple(PlumtreeOutboundSimplePayload
   broadcasts_plumtree_.signed_simple(this, std::move(payload), std::move(R));
 }
 
-void OverlayImpl::receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Result<td::BufferSlice> R) {
+void OverlayImpl::receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Bits256 expected_broadcast_id,
+                                                   td::uint32 expected_part_index, td::uint32 expected_tree_index,
+                                                   td::Result<td::BufferSlice> R) {
   broadcasts_plumtree_.repair_query_finished();
   if (R.is_error()) {
     return;
   }
-  [](OverlayImpl *self, adnl::AdnlNodeIdShort from, td::BufferSlice data) -> td::actor::Task<> {
-    auto status = (co_await self->broadcasts_plumtree_.process_repair_response(self, from, std::move(data)).wrap())
+  [](OverlayImpl *self, adnl::AdnlNodeIdShort from, td::Bits256 expected_broadcast_id, td::uint32 expected_part_index,
+     td::uint32 expected_tree_index, td::BufferSlice data) -> td::actor::Task<> {
+    auto status = (co_await self->broadcasts_plumtree_
+                       .process_repair_response(self, from, expected_broadcast_id, expected_part_index,
+                                                expected_tree_index, std::move(data))
+                       .wrap())
                       .move_as_status();
     LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready)
         << self << ": failed to process Plumtree repair response from " << from << ": " << status;
     co_return td::Unit{};
-  }(this, from, R.move_as_ok())
-                                                                                 .start()
-                                                                                 .detach();
+  }(this, from, expected_broadcast_id, expected_part_index, expected_tree_index, R.move_as_ok())
+                                                                  .start()
+                                                                  .detach();
 }
 
 void OverlayImpl::deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra) {
