@@ -634,15 +634,16 @@ OverlayPeer *OverlayImpl::get_random_peer(bool only_alive) {
 }
 
 OverlayPeer *OverlayImpl::get_random_neighbour_peer() {
-  auto neighbours = peer_list_.neighbours_.size();
-  auto plumtree_neighbours = peer_list_.plumtree_neighbours_.size();
-  auto total = neighbours + plumtree_neighbours;
+  const size_t neighbours = peer_list_.neighbours_.size();
+  const size_t plumtree_neighbours = peer_list_.plumtree_neighbours_.size();
+  const size_t total = neighbours + plumtree_neighbours;
   if (total == 0) {
     return nullptr;
   }
 
-  auto start = td::Random::fast(0, static_cast<td::uint32>(total - 1));
-  auto &peer = start < neighbours ? peer_list_.neighbours_[start] : peer_list_.plumtree_neighbours_[start - neighbours];
+  const size_t start = td::Random::fast_uint32() % total;
+  const adnl::AdnlNodeIdShort &peer =
+      start < neighbours ? peer_list_.neighbours_[start] : peer_list_.plumtree_neighbours_[start - neighbours];
   return peer_list_.peers_.get(peer);
 }
 
