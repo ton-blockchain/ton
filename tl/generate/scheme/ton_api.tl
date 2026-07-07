@@ -325,6 +325,10 @@ overlay.broadcastPlumtreeFec flags:int timestamp:double src:PublicKey certificat
 overlay.broadcastPlumtreeIHave broadcast_id:int256 timestamp:double part_index:int tree_index:int src:PublicKey certificate:overlay.Certificate payload_timestamp:double data_size:int data_hash:int256 signature:bytes = overlay.Broadcast;
 overlay.broadcastPlumtreePrune broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
 overlay.broadcastPlumtreeUseful broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.plumtreeStatsRecord src:int256 epoch:int tree_index:int eager:(vector long) = overlay.PlumtreeStatsRecord;
+overlay.plumtreeStatsPush record:overlay.plumtreeStatsRecord = overlay.Broadcast;
+overlay.plumtreeStatsExchange overlay:int256 records:(vector overlay.plumtreeStatsRecord) = overlay.PlumtreeStatsExchange;
+overlay.plumtreeStatsDump overlay:int256 received_from:int256 received_at:double records:(vector overlay.plumtreeStatsRecord) = overlay.PlumtreeStatsDump;
 overlay.broadcastPlumtreeFec.id flags:int full_data_hash:int256 full_data_size:int part_size:int = overlay.broadcastPlumtreeFec.Id;
 overlay.broadcastPlumtreeSimple.toSign id:int256 timestamp:double tree_index:int data_size:int data_hash:int256 = overlay.broadcastPlumtreeSimple.ToSign;
 overlay.broadcastPlumtreeFec.toSign id:int256 timestamp:double part_index:int tree_index:int data_size:int data_hash:int256 = overlay.broadcastPlumtreeFec.ToSign;
