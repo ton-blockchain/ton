@@ -46,6 +46,7 @@
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
 #include "td/utils/Status.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/Timer.h"
 #include "td/utils/VectorQueue.h"
 #include "td/utils/base64.h"
@@ -1101,6 +1102,7 @@ struct BocOptions {
   KvOptions kv_options;
   std::variant<CreateV1Options, CreateV2Options, CreateInMemoryOptions> options;
   std::pair<int, int> compress_depth_range{0, 0};
+  std::string db_path;
   td::uint64 seed{123};
   td::Random::Xorshift128plus rnd{123};
 
@@ -1114,13 +1116,15 @@ struct BocOptions {
       auto merge_operator = std::make_shared<MergeOperatorAddCellRefcnt>();
       static const CompactionFilterEraseEmptyValues compaction_filter;
       CHECK(!old_key_value || old_key_value.use_count() == 1);
-      std::string db_path = "test_celldb";
+      if (db_path.empty()) {
+        db_path = "test_celldb";
+      }
       if (old_key_value) {
         //LOG(ERROR) << "Reload rocksdb";
         old_key_value.reset();
       } else {
         //LOG(ERROR) << "New rocksdb";
-        td::RocksDb::destroy(db_path).ensure();
+        td::rmrf(db_path).ignore();
       }
       auto db_options = td::RocksDbOptions{
           .block_cache = {},
@@ -1291,6 +1295,17 @@ void with_all_boc_options(F &&f, size_t tests_n, bool only_v2 = false) {
     DynamicBagOfCellsDb::Stats stats;
     auto o_in_memory = std::get_if<DynamicBagOfCellsDb::CreateInMemoryOptions>(&options.options);
     for (td::uint32 i = 0; i < tests_n; i++) {
+      std::string db_path;
+      if (options.kv_options.kv_type == BocOptions::KvOptions::RocksDb) {
+        db_path = td::mkdtemp(td::get_temporary_dir(), "test_celldb").move_as_ok();
+      }
+      SCOPE_EXIT {
+        if (!db_path.empty()) {
+          td::rmrf(db_path).ignore();
+        }
+      };
+      options.db_path = db_path;
+
       auto before = counter();
 
       options.seed = i == 0 ? 123 : i;
