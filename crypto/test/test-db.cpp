@@ -1102,9 +1102,9 @@ struct BocOptions {
   KvOptions kv_options;
   std::variant<CreateV1Options, CreateV2Options, CreateInMemoryOptions> options;
   std::pair<int, int> compress_depth_range{0, 0};
-  std::string db_path;
   td::uint64 seed{123};
   td::Random::Xorshift128plus rnd{123};
+  std::string db_path;
 
   std::shared_ptr<KeyValue> create_kv(std::shared_ptr<KeyValue> old_key_value, bool no_reads = false) {
     if (kv_options.kv_type == KvOptions::InMemory) {

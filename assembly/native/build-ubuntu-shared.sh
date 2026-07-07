@@ -26,6 +26,11 @@ else
   export CCACHE_DISABLE=1
 fi
 
+git submodule sync --recursive
+test $? -eq 0 || { echo "Can't sync submodules"; exit 1; }
+git submodule update --init --recursive
+test $? -eq 0 || { echo "Can't update submodules"; exit 1; }
+
 # Avoid -march=native with shared CI ccache to prevent illegal instructions.
 if [ "${GITHUB_ACTIONS}" = "true" ] || [ "$with_ccache" = true ]; then
   HOST_ARCH="$(uname -m)"
