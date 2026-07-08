@@ -364,6 +364,20 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
   co_return td::Unit{};
 }
 
+td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                                 tl_object_ptr<ton_api::overlay_plumtreeStatsPush> msg) {
+  if (!opts_.enable_plumtree_broadcast_) {
+    co_return td::Status::Error("Plumtree broadcasts are not enabled");
+  }
+  co_await broadcasts_plumtree_.process_stats_push(this, message_from, std::move(msg));
+  co_return td::Unit{};
+}
+
+void OverlayImpl::get_plumtree_stats_records(
+    td::Promise<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> promise) {
+  promise.set_value(broadcasts_plumtree_.collect_stats_records());
+}
+
 void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::overlay_messageExtra> extra,
                                   td::BufferSlice data) {
   if (!check_src_peer(src, extra ? extra->certificate_.get() : nullptr)) {

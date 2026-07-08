@@ -499,6 +499,20 @@ void OverlayManager::send_broadcast_plumtree(adnl::AdnlNodeIdShort local_id, Ove
   }
 }
 
+void OverlayManager::get_plumtree_stats_records(
+    adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+    td::Promise<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> promise) {
+  auto it = overlays_.find(local_id);
+  if (it != overlays_.end()) {
+    auto it2 = it->second.find(overlay_id);
+    if (it2 != it->second.end()) {
+      td::actor::send_closure(it2->second.overlay, &Overlay::get_plumtree_stats_records, std::move(promise));
+      return;
+    }
+  }
+  promise.set_error(td::Status::Error(ErrorCode::notready, "no such overlay"));
+}
+
 void OverlayManager::set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                        OverlayPrivacyRules rules) {
   auto it = overlays_.find(local_id);

@@ -16,6 +16,7 @@
 */
 #pragma once
 
+#include <cstddef>
 #include <fstream>
 
 #include "full-node.h"
@@ -61,6 +62,11 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry);
 
   void collect_validator_telemetry(std::string filename);
+  void collect_plumtree_stats(std::string filename);
+
+  void send_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type, ShardIdFull shard,
+                           std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records);
+  void send_plumtree_stats_to(td::actor::ActorId<FullNodeFastSyncOverlay> collector);
 
   void start_up() override;
   void tear_down() override;
@@ -128,16 +134,22 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void try_init();
   void init();
   void get_stats_extra(td::Promise<std::string> promise);
+  void dump_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type,
+                           tl_object_ptr<ton_api::tonNode_shardId> shard, adnl::AdnlNodeIdShort src,
+                           std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records);
 
   td::actor::ActorOwn<ValidatorTelemetry> telemetry_sender_;
   bool collect_telemetry_ = false;
   std::ofstream telemetry_file_;
+  std::string plumtree_stats_filename_;
+  std::ofstream plumtree_stats_file_;
 };
 
 class FullNodeFastSyncOverlays {
  public:
   std::pair<td::actor::ActorId<FullNodeFastSyncOverlay>, adnl::AdnlNodeIdShort> choose_overlay(ShardIdFull shard);
   td::actor::ActorId<FullNodeFastSyncOverlay> get_masterchain_overlay_for(adnl::AdnlNodeIdShort adnl_id);
+  void send_plumtree_stats(td::actor::ActorId<FullNodeFastSyncOverlay> collector, std::size_t overlays_limit) const;
   void update_overlays(td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
                        std::set<ShardIdFull> monitoring_shards, const FileHash& zero_state_file_hash,
                        double broadcast_speed_multiplier, const td::actor::ActorId<keyring::Keyring>& keyring,
