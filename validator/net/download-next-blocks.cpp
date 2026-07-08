@@ -97,10 +97,6 @@ td::actor::Task<> DownloadNextBlocks::run() {
     }
   }
 
-  token_ = co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::get_download_token, 1, priority_,
-                                   td::Timestamp::in(2.0))
-               .trace("get_download_token");
-
   bool allow_many = query_sender_->get_proto_version() >= std::make_pair<td::uint32, td::uint32>(3, 2);
   VLOG(full_node, DEBUG) << "Download from " << query_sender_->to_str() << ", allow_many=" << allow_many;
   td::BufferSlice query;

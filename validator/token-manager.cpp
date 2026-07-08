@@ -47,21 +47,19 @@ void TokenManager::token_cleared(size_t size, td::uint32 priority) {
   }
 
   for (auto it = pending_.begin(); it != pending_.end();) {
-    if (it->first.priority && (free_tokens_ || free_priority_tokens_)) {
-      it->second.promise.set_value(gen_token(size, priority));
+    if (free_priority_tokens_ > 0 && it->first.priority > 0) {
+      it->second.promise.set_value(gen_token(it->first.size, it->first.priority));
+      --free_priority_tokens_;
       it = pending_.erase(it);
-      if (free_priority_tokens_ > 0) {
-        free_priority_tokens_--;
-      } else {
-        free_tokens_--;
-      }
-    } else if (!it->first.priority && free_tokens_) {
-      it->second.promise.set_value(gen_token(size, priority));
-      it = pending_.erase(it);
-      free_tokens_--;
-    } else {
-      break;
+      continue;
     }
+    if (free_tokens_ > 0) {
+      it->second.promise.set_value(gen_token(it->first.size, it->first.priority));
+      --free_tokens_;
+      it = pending_.erase(it);
+      continue;
+    }
+    break;
   }
 }
 
