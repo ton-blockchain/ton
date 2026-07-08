@@ -90,6 +90,9 @@ class OverlayManager : public Overlays {
                                    td::uint32 flags, td::BufferSlice object) override;
   void send_broadcast_plumtree(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
                                td::uint32 flags, td::Bits256 broadcast_id, td::BufferSlice object) override;
+  void get_plumtree_stats_records(
+      adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+      td::Promise<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> promise) override;
 
   void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, OverlayPrivacyRules rules) override;
   void update_certificate(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, PublicKeyHash key,

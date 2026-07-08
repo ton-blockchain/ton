@@ -15,6 +15,8 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <cstdio>
+
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
 #include "interfaces/validator-full-id.h"
@@ -32,6 +34,20 @@ namespace ton::validator::fullnode {
 namespace {
 
 constexpr const char *k_called_from_fast_sync = "fast-sync";
+constexpr td::uint64 k_plumtree_stats_file_limit = 1 << 20;
+
+template <class T>
+bool write_jsonl(std::ofstream &file, const T &value, const char *name) {
+  auto s = td::json_encode<std::string>(td::ToJson(value), false);
+  std::erase_if(s, [](char c) { return c == '\n' || c == '\r'; });
+  file << s << "\n";
+  file.flush();
+  if (file.fail()) {
+    VLOG(full_node, WARNING) << "Failed to write " << name << " to file";
+    return false;
+  }
+  return true;
+}
 
 }  // namespace
 
@@ -227,22 +243,25 @@ void FullNodeFastSyncOverlay::process_telemetry_broadcast(
     return;
   }
   VLOG(full_node, DEBUG) << "Got telemetry broadcast from " << src;
-  auto s = td::json_encode<std::string>(td::ToJson(*telemetry), false);
-  std::erase_if(s, [](char c) { return c == '\n' || c == '\r'; });
-  telemetry_file_ << s << "\n";
-  telemetry_file_.flush();
-  if (telemetry_file_.fail()) {
-    VLOG(full_node, WARNING) << "Failed to write telemetry to file";
-  }
+  write_jsonl(telemetry_file_, *telemetry, "telemetry");
 }
 
 void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {
-  auto B = fetch_tl_object<ton_api::tonNode_Broadcast>(std::move(broadcast), true);
+  auto B = fetch_tl_object<ton_api::tonNode_Broadcast>(broadcast, true);
   if (B.is_error()) {
     if (collect_telemetry_ && src != local_id_.pubkey_hash()) {
       auto R = fetch_tl_prefix<ton_api::validator_telemetry>(broadcast, true);
       if (R.is_ok()) {
         process_telemetry_broadcast(adnl::AdnlNodeIdShort{src}, R.ok());
+        return;
+      }
+    }
+    if (plumtree_stats_file_.is_open()) {
+      auto R = fetch_tl_prefix<ton_api::overlay_plumtreeStatsExchange>(broadcast, true);
+      if (R.is_ok()) {
+        auto msg = R.move_as_ok();
+        dump_plumtree_stats(overlay::OverlayIdShort{msg->overlay_}, adnl::AdnlNodeIdShort{src},
+                            std::move(msg->records_));
       }
     }
     return;
@@ -341,6 +360,83 @@ void FullNodeFastSyncOverlay::collect_validator_telemetry(std::string filename) 
   if (!telemetry_file_.is_open()) {
     LOG(WARNING) << "Cannot open file " << filename << " for validator telemetry";
   }
+}
+
+void FullNodeFastSyncOverlay::collect_plumtree_stats(std::string filename) {
+  if (plumtree_stats_file_.is_open()) {
+    plumtree_stats_file_.close();
+  }
+  plumtree_stats_filename_ = std::move(filename);
+  if (plumtree_stats_filename_.empty()) {
+    return;
+  }
+  LOG(WARNING) << "Collecting Plumtree stats to " << plumtree_stats_filename_ << " (local id: " << local_id_ << ")";
+  plumtree_stats_file_.open(plumtree_stats_filename_, std::ios_base::app);
+  if (!plumtree_stats_file_.is_open()) {
+    LOG(WARNING) << "Cannot open file " << plumtree_stats_filename_ << " for Plumtree stats";
+  }
+}
+
+void FullNodeFastSyncOverlay::dump_plumtree_stats(
+    overlay::OverlayIdShort stats_overlay, adnl::AdnlNodeIdShort src,
+    std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) {
+  if (!plumtree_stats_file_.is_open() || records.empty()) {
+    return;
+  }
+  VLOG(full_node, DEBUG) << "Got " << records.size() << " Plumtree stats records from " << src;
+  auto dump = create_tl_object<ton_api::overlay_plumtreeStatsDump>(stats_overlay.bits256_value(), src.bits256_value(),
+                                                                   td::Clocks::system(), std::move(records));
+  if (!write_jsonl(plumtree_stats_file_, *dump, "Plumtree stats")) {
+    return;
+  }
+  auto size = plumtree_stats_file_.tellp();
+  if (size < 0 || static_cast<td::uint64>(size) <= k_plumtree_stats_file_limit) {
+    return;
+  }
+  plumtree_stats_file_.close();
+  auto backup = plumtree_stats_filename_ + ".1";
+  if (std::rename(plumtree_stats_filename_.c_str(), backup.c_str()) != 0) {
+    VLOG(full_node, WARNING) << "Failed to rotate Plumtree stats file " << plumtree_stats_filename_;
+  }
+  plumtree_stats_file_.open(plumtree_stats_filename_, std::ios_base::trunc | std::ios_base::out);
+  if (!plumtree_stats_file_.is_open()) {
+    LOG(WARNING) << "Cannot reopen file " << plumtree_stats_filename_ << " for Plumtree stats";
+  }
+}
+
+void FullNodeFastSyncOverlay::send_plumtree_stats(
+    overlay::OverlayIdShort stats_overlay, std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) {
+  if (!inited_ || records.empty()) {
+    return;
+  }
+  auto records_count = records.size();
+  auto data = create_serialize_tl_object<ton_api::overlay_plumtreeStatsExchange>(stats_overlay.bits256_value(),
+                                                                                 std::move(records));
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), 0, std::move(data));
+  VLOG(full_node, DEBUG) << "Sent Plumtree stats exchange for overlay " << stats_overlay.bits256_value().to_hex()
+                         << ": " << records_count << " records";
+}
+
+void FullNodeFastSyncOverlay::send_plumtree_stats_to(td::actor::ActorId<FullNodeFastSyncOverlay> collector) {
+  if (!inited_ || !enable_plumtree_broadcast_ || collector.empty()) {
+    return;
+  }
+  td::actor::send_closure(overlays_, &overlay::Overlays::get_plumtree_stats_records, local_id_, overlay_id_,
+                          [collector, stats_overlay = overlay_id_](
+                              td::Result<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> R) mutable {
+                            if (R.is_error()) {
+                              VLOG(full_node, WARNING)
+                                  << "Failed to get fast-sync Plumtree stats records: " << R.move_as_error();
+                              return;
+                            }
+                            auto records = R.move_as_ok();
+                            if (records.empty()) {
+                              return;
+                            }
+                            td::actor::send_closure(collector, &FullNodeFastSyncOverlay::send_plumtree_stats,
+                                                    stats_overlay, std::move(records));
+                          });
 }
 
 void FullNodeFastSyncOverlay::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) {
@@ -546,6 +642,30 @@ td::actor::ActorId<FullNodeFastSyncOverlay> FullNodeFastSyncOverlays::get_master
     return {};
   }
   return it2->second.get();
+}
+
+void FullNodeFastSyncOverlays::send_plumtree_stats(td::actor::ActorId<FullNodeFastSyncOverlay> collector,
+                                                   std::size_t overlays_limit) const {
+  if (collector.empty() || overlays_limit == 0) {
+    return;
+  }
+  std::size_t selected_overlays = 0;
+  std::set<ShardIdFull> fast_sync_shards;
+  for (const auto &[_, overlays_info] : id_to_overlays_) {
+    for (const auto &[shard, overlay] : overlays_info.overlays_) {
+      if (overlay.empty()) {
+        continue;
+      }
+      if (!fast_sync_shards.insert(shard).second) {
+        continue;
+      }
+      if (selected_overlays >= overlays_limit) {
+        return;
+      }
+      ++selected_overlays;
+      td::actor::send_closure(overlay.get(), &FullNodeFastSyncOverlay::send_plumtree_stats_to, collector);
+    }
+  }
 }
 
 void FullNodeFastSyncOverlays::update_overlays(

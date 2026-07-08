@@ -16,6 +16,9 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <algorithm>
+#include <memory>
+
 #include "common/delay.h"
 #include "impl/out-msg-queue-proof.hpp"
 #include "interfaces/validator-full-id.h"
@@ -281,6 +284,7 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
                                       zero_state_file_hash_, opts_.fast_sync_broadcast_speed_multiplier_, keyring_,
                                       adnl_, rldp2_, quic_, overlays_, validator_manager_, actor_id(this));
   update_validator_telemetry_collector();
+  update_plumtree_stats_collector();
 }
 
 void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast) {
@@ -694,6 +698,109 @@ void FullNodeImpl::update_validator_telemetry_collector() {
   }
 }
 
+void FullNodeImpl::set_plumtree_stats_filename(std::string value) {
+  plumtree_stats_filename_ = std::move(value);
+  plumtree_stats_collector_key_ = PublicKeyHash::zero();
+  update_plumtree_stats_collector();
+}
+
+void FullNodeImpl::update_plumtree_stats_collector() {
+  if (plumtree_stats_filename_.empty()) {
+    plumtree_stats_collector_key_ = PublicKeyHash::zero();
+    return;
+  }
+  if (fast_sync_overlays_.get_masterchain_overlay_for(adnl::AdnlNodeIdShort{plumtree_stats_collector_key_}).empty()) {
+    auto [actor, adnl_id] = fast_sync_overlays_.choose_overlay(ShardIdFull{masterchainId});
+    if (actor.empty()) {
+      plumtree_stats_collector_key_ = PublicKeyHash::zero();
+      return;
+    }
+    plumtree_stats_collector_key_ = adnl_id.pubkey_hash();
+    td::actor::send_closure(actor, &FullNodeFastSyncOverlay::collect_plumtree_stats, plumtree_stats_filename_);
+  }
+}
+
+void FullNodeImpl::alarm() {
+  alarm_timestamp() = td::Timestamp::never();
+  schedule_plumtree_stats_exchange();
+}
+
+void FullNodeImpl::schedule_plumtree_stats_exchange() {
+  bool is_validator = std::any_of(local_keys_.begin(), local_keys_.end(),
+                                  [&](const PublicKeyHash &key) { return current_validators_.contains(key); });
+  if (!is_validator) {
+    // The validator set changes over time; check again later.
+    plumtree_stats_exchange_at_ = td::Timestamp::never();
+    alarm_timestamp().relax(td::Timestamp::in(60.0));
+    return;
+  }
+  auto now = td::Clocks::system();
+  auto epoch_duration = overlay::PlumtreeFecOptions{}.stats_epoch_duration_;
+  auto epoch = static_cast<td::int64>(now / epoch_duration);
+  double min_delay = epoch_duration * PLUMTREE_STATS_EXCHANGE_FROM;
+  double max_delay = epoch_duration * PLUMTREE_STATS_EXCHANGE_TO;
+  if (epoch != plumtree_stats_exchange_epoch_) {
+    plumtree_stats_exchange_epoch_ = epoch;
+    double at = static_cast<double>(epoch) * epoch_duration + min_delay +
+                td::Random::fast(0, 1000000) * 1e-6 * (max_delay - min_delay);
+    plumtree_stats_exchange_at_ = td::Timestamp::in(std::max(at - now, 0.0));
+  }
+  if (plumtree_stats_exchange_at_ && plumtree_stats_exchange_at_.is_in_past()) {
+    plumtree_stats_exchange_at_ = td::Timestamp::never();
+    start_plumtree_stats_exchange();
+  }
+  if (plumtree_stats_exchange_at_) {
+    alarm_timestamp().relax(plumtree_stats_exchange_at_);
+  } else {
+    // Wake up at the start of the next epoch's exchange window.
+    double next = static_cast<double>(epoch + 1) * epoch_duration + min_delay;
+    alarm_timestamp().relax(td::Timestamp::in(std::max(next - now, 1.0)));
+  }
+}
+
+void FullNodeImpl::start_plumtree_stats_exchange() {
+  auto masterchain_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull{masterchainId}).first;
+  if (masterchain_overlay.empty()) {
+    return;
+  }
+
+  fast_sync_overlays_.send_plumtree_stats(masterchain_overlay, PLUMTREE_STATS_EXCHANGE_OVERLAYS_LIMIT);
+  std::size_t public_overlays = 0;
+  for (const auto &[shard, info] : shards_) {
+    if (!info.enable_plumtree_broadcast) {
+      continue;
+    }
+    if (info.actor.empty()) {
+      continue;
+    }
+    if (public_overlays >= PLUMTREE_STATS_EXCHANGE_OVERLAYS_LIMIT) {
+      break;
+    }
+    ++public_overlays;
+    auto X = create_hash_tl_object<ton_api::tonNode_shardPublicOverlayId>(shard.workchain, shard.shard,
+                                                                          zero_state_file_hash_);
+    td::BufferSlice b{32};
+    b.as_slice().copy_from(as_slice(X));
+    auto stats_overlay = overlay::OverlayIdFull{std::move(b)}.compute_short_id();
+    td::actor::send_closure(
+        overlays_, &overlay::Overlays::get_plumtree_stats_records, adnl_id_, stats_overlay,
+        td::PromiseCreator::lambda(
+            [masterchain_overlay,
+             stats_overlay](td::Result<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> R) mutable {
+              if (R.is_error()) {
+                VLOG(full_node, WARNING) << "Failed to get public Plumtree stats records: " << R.move_as_error();
+                return;
+              }
+              auto records = R.move_as_ok();
+              if (records.empty()) {
+                return;
+              }
+              td::actor::send_closure(masterchain_overlay, &FullNodeFastSyncOverlay::send_plumtree_stats, stats_overlay,
+                                      std::move(records));
+            }));
+  }
+}
+
 void FullNodeImpl::start_up() {
   update_shard_actor(ShardIdFull{masterchainId}, true, false);
   if (local_id_.is_zero()) {
@@ -791,6 +898,7 @@ void FullNodeImpl::start_up() {
 
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::install_callback,
                           std::make_unique<Callback>(actor_id(this)), std::move(started_promise_));
+  alarm_timestamp().relax(td::Timestamp::in(1.0));
 }
 
 void FullNodeImpl::update_private_overlays() {
@@ -799,6 +907,7 @@ void FullNodeImpl::update_private_overlays() {
   }
 
   update_validator_telemetry_collector();
+  update_plumtree_stats_collector();
   if (local_keys_.empty()) {
     return;
   }

@@ -314,6 +314,8 @@ struct OverlayOptions {
     td::uint32 active_neighbours_ = 20;
     td::uint32 repair_timeout_ms_ = 200;
     td::uint32 max_repair_targets_ = 5;
+
+    double stats_epoch_duration_ = 3600.0;
   };
 
   bool enable_plumtree_broadcast_ = false;
@@ -441,6 +443,9 @@ class Overlays : public td::actor::Actor {
                                            td::uint32 flags, td::BufferSlice object) = 0;
   virtual void send_broadcast_plumtree(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
                                        td::uint32 flags, td::Bits256 broadcast_id, td::BufferSlice object) = 0;
+  virtual void get_plumtree_stats_records(
+      adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+      td::Promise<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> promise) = 0;
 
   virtual void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                  OverlayPrivacyRules rules) = 0;
