@@ -785,8 +785,8 @@ void FullNodeImpl::start_plumtree_stats_exchange() {
     td::actor::send_closure(
         overlays_, &overlay::Overlays::get_plumtree_stats_records, adnl_id_, stats_overlay,
         td::PromiseCreator::lambda(
-            [masterchain_overlay,
-             stats_overlay](td::Result<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> R) mutable {
+            [masterchain_overlay, stats_overlay,
+             shard](td::Result<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> R) mutable {
               if (R.is_error()) {
                 VLOG(full_node, WARNING) << "Failed to get public Plumtree stats records: " << R.move_as_error();
                 return;
@@ -796,7 +796,7 @@ void FullNodeImpl::start_plumtree_stats_exchange() {
                 return;
               }
               td::actor::send_closure(masterchain_overlay, &FullNodeFastSyncOverlay::send_plumtree_stats, stats_overlay,
-                                      std::move(records));
+                                      std::string{"public"}, shard, std::move(records));
             }));
   }
 }

@@ -63,17 +63,22 @@ bool is_valid_plumtree_stats_record(const ton_api::overlay_plumtreeStatsRecord &
   if (record.eager_0_.size() > options.eager_limit_ || record.eager_index_.size() > options.eager_limit_) {
     return false;
   }
-  if (record.delivered_bcsts_ < 0 || record.fec_parts_p99_ < 0 || record.useful_avg_ms_ < 0 ||
+  if (record.delivered_bcsts_ < 0 || record.parts_in_p99_bcsts_ < 0 || record.useful_avg_ms_ < 0 ||
       record.useful_max_ms_ < 0 || record.useful_p99_ms_ < 0) {
     return false;
   }
-  if (static_cast<td::uint32>(record.fec_parts_p99_) > options.parts_) {
+  if (static_cast<td::uint32>(record.parts_in_p99_bcsts_) > options.parts_) {
     return false;
   }
   return true;
 }
 
 bool is_valid_plumtree_stats_exchange(const ton_api::overlay_plumtreeStatsExchange &exchange) {
+  constexpr std::size_t k_overlay_type_size_limit = 25;
+  if (exchange.overlay_type_.empty() || exchange.overlay_type_.size() >= k_overlay_type_size_limit ||
+      !exchange.shard_) {
+    return false;
+  }
   if (exchange.records_.size() > k_plumtree_stats_records_limit) {
     return false;
   }
@@ -300,8 +305,8 @@ void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSli
           VLOG(full_node, WARNING) << "Dropping invalid Plumtree stats exchange from " << src;
           return;
         }
-        dump_plumtree_stats(overlay::OverlayIdShort{msg->overlay_}, adnl::AdnlNodeIdShort{src},
-                            std::move(msg->records_));
+        dump_plumtree_stats(overlay::OverlayIdShort{msg->overlay_}, std::move(msg->overlay_type_),
+                            std::move(msg->shard_), adnl::AdnlNodeIdShort{src}, std::move(msg->records_));
       }
     }
     return;
@@ -418,14 +423,15 @@ void FullNodeFastSyncOverlay::collect_plumtree_stats(std::string filename) {
 }
 
 void FullNodeFastSyncOverlay::dump_plumtree_stats(
-    overlay::OverlayIdShort stats_overlay, adnl::AdnlNodeIdShort src,
-    std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) {
-  if (!plumtree_stats_file_.is_open() || records.empty()) {
+    overlay::OverlayIdShort stats_overlay, std::string overlay_type, tl_object_ptr<ton_api::tonNode_shardId> shard,
+    adnl::AdnlNodeIdShort src, std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) {
+  if (!plumtree_stats_file_.is_open() || !shard || records.empty()) {
     return;
   }
   VLOG(full_node, DEBUG) << "Got " << records.size() << " Plumtree stats records from " << src;
-  auto dump = create_tl_object<ton_api::overlay_plumtreeStatsDump>(stats_overlay.bits256_value(), src.bits256_value(),
-                                                                   td::Clocks::system(), std::move(records));
+  auto dump = create_tl_object<ton_api::overlay_plumtreeStatsDump>(
+      stats_overlay.bits256_value(), std::move(overlay_type), std::move(shard), src.bits256_value(),
+      td::Clocks::system(), std::move(records));
   if (!write_jsonl(plumtree_stats_file_, *dump, "Plumtree stats")) {
     return;
   }
@@ -445,13 +451,14 @@ void FullNodeFastSyncOverlay::dump_plumtree_stats(
 }
 
 void FullNodeFastSyncOverlay::send_plumtree_stats(
-    overlay::OverlayIdShort stats_overlay, std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) {
+    overlay::OverlayIdShort stats_overlay, std::string overlay_type, ShardIdFull shard,
+    std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) {
   if (!inited_ || records.empty()) {
     return;
   }
   auto records_count = records.size();
-  auto data = create_serialize_tl_object<ton_api::overlay_plumtreeStatsExchange>(stats_overlay.bits256_value(),
-                                                                                 std::move(records));
+  auto data = create_serialize_tl_object<ton_api::overlay_plumtreeStatsExchange>(
+      stats_overlay.bits256_value(), std::move(overlay_type), create_tl_shard_id(shard), std::move(records));
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
                           local_id_.pubkey_hash(), 0, std::move(data));
   VLOG(full_node, DEBUG) << "Sent Plumtree stats exchange for overlay " << stats_overlay.bits256_value().to_hex()
@@ -463,7 +470,7 @@ void FullNodeFastSyncOverlay::send_plumtree_stats_to(td::actor::ActorId<FullNode
     return;
   }
   td::actor::send_closure(overlays_, &overlay::Overlays::get_plumtree_stats_records, local_id_, overlay_id_,
-                          [collector, stats_overlay = overlay_id_](
+                          [collector, stats_overlay = overlay_id_, shard = shard_](
                               td::Result<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> R) mutable {
                             if (R.is_error()) {
                               VLOG(full_node, WARNING)
@@ -475,7 +482,7 @@ void FullNodeFastSyncOverlay::send_plumtree_stats_to(td::actor::ActorId<FullNode
                               return;
                             }
                             td::actor::send_closure(collector, &FullNodeFastSyncOverlay::send_plumtree_stats,
-                                                    stats_overlay, std::move(records));
+                                                    stats_overlay, std::string{"fast-sync"}, shard, std::move(records));
                           });
 }
 
