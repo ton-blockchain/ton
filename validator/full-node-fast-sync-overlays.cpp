@@ -20,6 +20,7 @@
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
 #include "interfaces/validator-full-id.h"
+#include "overlay/overlays.h"
 #include "td/utils/JsonBuilder.h"
 #include "tl/tl_json.h"
 #include "ton/ton-io.hpp"
@@ -35,6 +36,7 @@ namespace {
 
 constexpr const char *k_called_from_fast_sync = "fast-sync";
 constexpr td::uint64 k_plumtree_stats_file_limit = 1 << 20;
+constexpr std::size_t k_plumtree_stats_records_limit = 128;
 
 template <class T>
 bool write_jsonl(std::ofstream &file, const T &value, const char *name) {
@@ -45,6 +47,40 @@ bool write_jsonl(std::ofstream &file, const T &value, const char *name) {
   if (file.fail()) {
     VLOG(full_node, WARNING) << "Failed to write " << name << " to file";
     return false;
+  }
+  return true;
+}
+
+bool is_valid_plumtree_stats_record(const ton_api::overlay_plumtreeStatsRecord &record) {
+  auto options = overlay::PlumtreeFecOptions{};
+  auto tree_index = static_cast<td::uint32>(record.tree_index_);
+  if (record.src_.is_zero()) {
+    return false;
+  }
+  if (record.epoch_ < 0 || record.tree_index_ <= 0 || tree_index >= options.tree_slots_) {
+    return false;
+  }
+  if (record.eager_0_.size() > options.eager_limit_ || record.eager_index_.size() > options.eager_limit_) {
+    return false;
+  }
+  if (record.delivered_bcsts_ < 0 || record.fec_parts_p99_ < 0 || record.useful_avg_ms_ < 0 ||
+      record.useful_max_ms_ < 0 || record.useful_p99_ms_ < 0) {
+    return false;
+  }
+  if (static_cast<td::uint32>(record.fec_parts_p99_) > options.parts_) {
+    return false;
+  }
+  return true;
+}
+
+bool is_valid_plumtree_stats_exchange(const ton_api::overlay_plumtreeStatsExchange &exchange) {
+  if (exchange.records_.size() > k_plumtree_stats_records_limit) {
+    return false;
+  }
+  for (const auto &record : exchange.records_) {
+    if (!record || !is_valid_plumtree_stats_record(*record)) {
+      return false;
+    }
   }
   return true;
 }
@@ -260,6 +296,10 @@ void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSli
       auto R = fetch_tl_prefix<ton_api::overlay_plumtreeStatsExchange>(broadcast, true);
       if (R.is_ok()) {
         auto msg = R.move_as_ok();
+        if (!is_valid_plumtree_stats_exchange(*msg)) {
+          VLOG(full_node, WARNING) << "Dropping invalid Plumtree stats exchange from " << src;
+          return;
+        }
         dump_plumtree_stats(overlay::OverlayIdShort{msg->overlay_}, adnl::AdnlNodeIdShort{src},
                             std::move(msg->records_));
       }
