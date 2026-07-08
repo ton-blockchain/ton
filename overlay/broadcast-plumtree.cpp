@@ -206,8 +206,8 @@ struct PlumtreeStats {
   }
 
   std::tuple<td::int32, td::int32, td::int32, td::int32, td::int32> snapshot_and_reset(td::uint32 parts_limit) {
-    auto result = std::make_tuple(stats_to_int32(delivered_bcsts), fec_parts_p99(), useful_avg_ms(), useful_max_ms(),
-                                  useful_p99_ms());
+    auto result = std::make_tuple(stats_to_int32(delivered_bcsts), parts_in_p99_bcsts(), useful_avg_ms(),
+                                  useful_max_ms(), useful_p99_ms());
     delivered_bcsts = 0;
     reset_fec_parts(parts_limit);
     reset_useful();
@@ -222,7 +222,7 @@ struct PlumtreeStats {
   td::uint32 useful_max_ms_value = 0;
   std::array<td::uint64, STATS_LATENCY_BUCKETS> useful_buckets{};
 
-  td::int32 fec_parts_p99() const {
+  td::int32 parts_in_p99_bcsts() const {
     td::uint64 total = 0;
     for (auto count : fec_parts_buckets) {
       total += count;
@@ -230,7 +230,8 @@ struct PlumtreeStats {
     if (total == 0) {
       return 0;
     }
-    auto target = total - total / 100;
+    // Lower-tail cutoff: 99% of delivered FEC broadcasts collected at least this many parts.
+    auto target = total / 100 + 1;
     td::uint64 seen = 0;
     for (std::size_t i = 0; i < fec_parts_buckets.size(); ++i) {
       seen += fec_parts_buckets[i];
@@ -315,7 +316,7 @@ tl_object_ptr<ton_api::overlay_plumtreeStatsRecord> clone_stats_record(
     const ton_api::overlay_plumtreeStatsRecord &record) {
   return create_tl_object<ton_api::overlay_plumtreeStatsRecord>(
       record.src_, record.epoch_, record.tree_index_, std::vector<td::int64>(record.eager_0_),
-      std::vector<td::int64>(record.eager_index_), record.delivered_bcsts_, record.fec_parts_p99_,
+      std::vector<td::int64>(record.eager_index_), record.delivered_bcsts_, record.parts_in_p99_bcsts_,
       record.useful_avg_ms_, record.useful_max_ms_, record.useful_p99_ms_);
 }
 
@@ -1950,12 +1951,12 @@ void BroadcastsPlumtree::Impl::stats_tick(OverlayImpl *overlay) {
   if (!stats_epoch_.snapshot_done && stats_epoch_.snapshot_at.is_in_past()) {
     stats_epoch_.snapshot_done = true;
     auto src = overlay->local_id().bits256_value();
-    auto [delivered_bcsts, fec_parts_p99, useful_avg_ms, useful_max_ms, useful_p99_ms] =
+    auto [delivered_bcsts, parts_in_p99_bcsts, useful_avg_ms, useful_max_ms, useful_p99_ms] =
         plumtree_stats_.snapshot_and_reset(options_.parts_);
     stats_epoch_.store[src] = create_tl_object<ton_api::overlay_plumtreeStatsRecord>(
         src, static_cast<td::int32>(stats_epoch_.epoch), static_cast<td::int32>(stats_epoch_.rotating_slot),
         eager_prefixes(slots_[PLUMTREE_SIMPLE_TREE_INDEX]), eager_prefixes(slots_[stats_epoch_.rotating_slot]),
-        delivered_bcsts, fec_parts_p99, useful_avg_ms, useful_max_ms, useful_p99_ms);
+        delivered_bcsts, parts_in_p99_bcsts, useful_avg_ms, useful_max_ms, useful_p99_ms);
   }
   if (stats_epoch_.snapshot_done && !stats_epoch_.send_done && stats_epoch_.send_at.is_in_past()) {
     stats_epoch_.send_done = true;
@@ -2015,11 +2016,11 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_stats_push(OverlayImpl *over
   if (record->eager_0_.size() > options_.eager_limit_ || record->eager_index_.size() > options_.eager_limit_) {
     co_return td::Unit{};
   }
-  if (record->delivered_bcsts_ < 0 || record->fec_parts_p99_ < 0 || record->useful_avg_ms_ < 0 ||
+  if (record->delivered_bcsts_ < 0 || record->parts_in_p99_bcsts_ < 0 || record->useful_avg_ms_ < 0 ||
       record->useful_max_ms_ < 0 || record->useful_p99_ms_ < 0) {
     co_return td::Unit{};
   }
-  if (static_cast<td::uint32>(record->fec_parts_p99_) > options_.parts_) {
+  if (static_cast<td::uint32>(record->parts_in_p99_bcsts_) > options_.parts_) {
     co_return td::Unit{};
   }
   if (stats_epoch_.store.size() >= STATS_STORE_LIMIT) {

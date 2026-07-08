@@ -64,7 +64,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void collect_validator_telemetry(std::string filename);
   void collect_plumtree_stats(std::string filename);
 
-  void send_plumtree_stats(overlay::OverlayIdShort stats_overlay,
+  void send_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type, ShardIdFull shard,
                            std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records);
   void send_plumtree_stats_to(td::actor::ActorId<FullNodeFastSyncOverlay> collector);
 
@@ -134,7 +134,8 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void try_init();
   void init();
   void get_stats_extra(td::Promise<std::string> promise);
-  void dump_plumtree_stats(overlay::OverlayIdShort stats_overlay, adnl::AdnlNodeIdShort src,
+  void dump_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type,
+                           tl_object_ptr<ton_api::tonNode_shardId> shard, adnl::AdnlNodeIdShort src,
                            std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records);
 
   td::actor::ActorOwn<ValidatorTelemetry> telemetry_sender_;
