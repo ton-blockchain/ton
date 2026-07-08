@@ -18,7 +18,10 @@
 */
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
+#include <limits>
 #include <map>
 #include <memory>
 #include <set>
@@ -155,10 +158,132 @@ struct PlumtreeFecBroadcastRef {
 
 enum class PlumtreePayloadOrigin { Push, RepairResponse };
 
-constexpr std::size_t STATS_STORE_LIMIT = 50;
+constexpr std::size_t STATS_STORE_LIMIT = 100;
+constexpr std::size_t STATS_LATENCY_BUCKETS = 100;
+constexpr td::uint32 STATS_LATENCY_BUCKET_MS = 10;
 // Fractions of the stats epoch
 constexpr double STATS_SNAPSHOT_DELAY = 1.0 / 12;  // 5 minutes
 constexpr double STATS_SEND_JITTER = 1.0 / 12;     // 5 minutes
+
+td::int32 stats_to_int32(td::uint64 value) {
+  auto max = static_cast<td::uint64>(std::numeric_limits<td::int32>::max());
+  return value > max ? std::numeric_limits<td::int32>::max() : static_cast<td::int32>(value);
+}
+
+struct PlumtreeStats {
+  void note_delivered_broadcast() {
+    ++delivered_bcsts;
+  }
+
+  void note_fec_parts_collected(td::uint32 parts, td::uint32 parts_limit) {
+    if (parts_limit == 0) {
+      return;
+    }
+    auto bucket_count = static_cast<std::size_t>(parts_limit) + 1;
+    if (fec_parts_buckets.size() != bucket_count) {
+      fec_parts_buckets.assign(bucket_count, 0);
+    }
+    auto bucket = std::min<td::uint32>(parts, parts_limit);
+    ++fec_parts_buckets[bucket];
+  }
+
+  void note_useful_delivery(double timestamp) {
+    auto duration_ms = (td::Clocks::system() - timestamp) * 1000.0;
+    if (!std::isfinite(duration_ms)) {
+      return;
+    }
+    if (duration_ms < 0.0) {
+      duration_ms = 0.0;
+    }
+    auto max = static_cast<double>(std::numeric_limits<td::uint32>::max());
+    auto value =
+        duration_ms > max ? std::numeric_limits<td::uint32>::max() : static_cast<td::uint32>(duration_ms + 0.5);
+    ++useful_count;
+    useful_sum_ms += value;
+    useful_max_ms_value = std::max(useful_max_ms_value, value);
+    auto bucket = std::min<std::size_t>(value / STATS_LATENCY_BUCKET_MS, useful_buckets.size() - 1);
+    ++useful_buckets[bucket];
+  }
+
+  std::tuple<td::int32, td::int32, td::int32, td::int32, td::int32> snapshot_and_reset(td::uint32 parts_limit) {
+    auto result = std::make_tuple(stats_to_int32(delivered_bcsts), fec_parts_p99(), useful_avg_ms(), useful_max_ms(),
+                                  useful_p99_ms());
+    delivered_bcsts = 0;
+    reset_fec_parts(parts_limit);
+    reset_useful();
+    return result;
+  }
+
+ private:
+  td::uint64 delivered_bcsts = 0;
+  std::vector<td::uint64> fec_parts_buckets;
+  td::uint64 useful_count = 0;
+  td::uint64 useful_sum_ms = 0;
+  td::uint32 useful_max_ms_value = 0;
+  std::array<td::uint64, STATS_LATENCY_BUCKETS> useful_buckets{};
+
+  td::int32 fec_parts_p99() const {
+    td::uint64 total = 0;
+    for (auto count : fec_parts_buckets) {
+      total += count;
+    }
+    if (total == 0) {
+      return 0;
+    }
+    auto target = total - total / 100;
+    td::uint64 seen = 0;
+    for (std::size_t i = 0; i < fec_parts_buckets.size(); ++i) {
+      seen += fec_parts_buckets[i];
+      if (seen >= target) {
+        return stats_to_int32(i);
+      }
+    }
+    return stats_to_int32(fec_parts_buckets.size() - 1);
+  }
+
+  void reset_fec_parts(td::uint32 parts_limit) {
+    if (parts_limit == 0) {
+      fec_parts_buckets.clear();
+      return;
+    }
+    auto bucket_count = static_cast<std::size_t>(parts_limit) + 1;
+    if (fec_parts_buckets.size() != bucket_count) {
+      fec_parts_buckets.assign(bucket_count, 0);
+      return;
+    }
+    std::fill(fec_parts_buckets.begin(), fec_parts_buckets.end(), 0);
+  }
+
+  td::int32 useful_avg_ms() const {
+    return useful_count == 0 ? 0 : stats_to_int32(useful_sum_ms / useful_count);
+  }
+
+  td::int32 useful_max_ms() const {
+    return stats_to_int32(useful_max_ms_value);
+  }
+
+  td::int32 useful_p99_ms() const {
+    if (useful_count == 0) {
+      return 0;
+    }
+    auto target = useful_count - useful_count / 100;
+    td::uint64 seen = 0;
+    for (std::size_t i = 0; i < useful_buckets.size(); ++i) {
+      seen += useful_buckets[i];
+      if (seen >= target) {
+        return stats_to_int32((i + 1) * STATS_LATENCY_BUCKET_MS);
+      }
+    }
+    return stats_to_int32(useful_buckets.size() * STATS_LATENCY_BUCKET_MS);
+  }
+
+  void reset_useful() {
+    useful_count = 0;
+    useful_sum_ms = 0;
+    useful_max_ms_value = 0;
+    useful_buckets.fill(0);
+  }
+};
 
 struct PlumtreeStatsEpochState {
   td::int64 epoch = -1;
@@ -169,10 +294,30 @@ struct PlumtreeStatsEpochState {
   bool snapshot_done = false;
   bool send_done = false;
   bool skipped = false;
-  // Keyed by reporting node id; value is its eager neighbour prefixes.
-  // [0] holds slot-0 records, [1] holds rotating-slot records.
-  std::map<td::Bits256, std::vector<td::int64>> store[2];
+  // Keyed by reporting node id.
+  std::map<td::Bits256, tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> store;
 };
+
+std::vector<td::int64> eager_prefixes(const PlumtreeSlot &slot) {
+  std::vector<td::int64> result;
+  result.reserve(slot.eager.size());
+  for (const auto &peer : slot.eager) {
+    // Neighbour ids are shortened to their first 8 bytes; TL serializes long as
+    // little-endian, so the wire bytes match the id prefix.
+    td::int64 prefix;
+    std::memcpy(&prefix, peer.bits256_value().as_slice().data(), sizeof(prefix));
+    result.push_back(prefix);
+  }
+  return result;
+}
+
+tl_object_ptr<ton_api::overlay_plumtreeStatsRecord> clone_stats_record(
+    const ton_api::overlay_plumtreeStatsRecord &record) {
+  return create_tl_object<ton_api::overlay_plumtreeStatsRecord>(
+      record.src_, record.epoch_, record.tree_index_, std::vector<td::int64>(record.eager_0_),
+      std::vector<td::int64>(record.eager_index_), record.delivered_bcsts_, record.fec_parts_p99_,
+      record.useful_avg_ms_, record.useful_max_ms_, record.useful_p99_ms_);
+}
 
 template <class T>
 PlumtreeControlFields get_control_fields(const T &msg) {
@@ -366,12 +511,13 @@ class BroadcastsPlumtree::Impl {
                            td::uint32 full_data_size, td::uint32 part_size, td::Bits256 full_data_hash,
                            td::Bits256 broadcast_id, std::vector<TreePartKey> assigned_parts, const char *mode);
 
-  PlumtreeStatsEpochState stats_;
+  PlumtreeStatsEpochState stats_epoch_;
+  PlumtreeStats plumtree_stats_;
 
   void stats_sync_epoch();
   void stats_tick(OverlayImpl *overlay);
-  void stats_forward(OverlayImpl *overlay, td::uint32 tree_index, const td::Bits256 &src,
-                     const std::vector<td::int64> &eager, const adnl::AdnlNodeIdShort &from);
+  void stats_forward(OverlayImpl *overlay, const ton_api::overlay_plumtreeStatsRecord &record,
+                     const adnl::AdnlNodeIdShort &from);
 };
 
 td::Status BroadcastsPlumtree::Impl::validate_control_fields(const td::Bits256 &broadcast_id, td::uint32 part_index,
@@ -1398,8 +1544,13 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_fec_payload(
   send_useful(overlay, from, *part, broadcast_id);
   forward_payload(overlay, broadcast_id, *part, from);
 
+  auto useful_part = broadcast->decoder_parts.size() < options_.k_;
   auto decoded = CO_TRY(decode_fec_part(overlay, *broadcast, part_index));
+  if (useful_part) {
+    plumtree_stats_.note_useful_delivery(timestamp);
+  }
   if (!decoded.data.empty()) {
+    plumtree_stats_.note_delivered_broadcast();
     co_await check_and_deliver(overlay, decoded.source, decoded.check_result, std::move(decoded.data))
         .trace("check Plumtree broadcast");
   }
@@ -1534,6 +1685,8 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_simple_payload(
   promote_eager(overlay, *s, from, true);
   send_useful(overlay, from, state_ptr->part, broadcast_id);
   forward_payload(overlay, broadcast_id, state_ptr->part, from);
+  plumtree_stats_.note_delivered_broadcast();
+  plumtree_stats_.note_useful_delivery(timestamp);
   overlay->register_delivered_broadcast(state_ptr->broadcast_id);
   co_await check_and_deliver(overlay, state_ptr->part.source, check, state_ptr->data.clone())
       .trace("check Plumtree simple broadcast");
@@ -1770,22 +1923,22 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_useful(
 void BroadcastsPlumtree::Impl::stats_sync_epoch() {
   auto now = td::Clocks::system();
   auto epoch = static_cast<td::int64>(now / options_.stats_epoch_duration_);
-  if (epoch == stats_.epoch) {
+  if (epoch == stats_epoch_.epoch) {
     return;
   }
-  stats_ = {};
-  stats_.epoch = epoch;
-  stats_.rotating_slot = 1 + static_cast<td::uint32>(epoch % static_cast<td::int64>(options_.tree_slots_ - 1));
+  stats_epoch_ = {};
+  stats_epoch_.epoch = epoch;
+  stats_epoch_.rotating_slot = 1 + static_cast<td::uint32>(epoch % static_cast<td::int64>(options_.tree_slots_ - 1));
   double epoch_start = static_cast<double>(epoch) * options_.stats_epoch_duration_ - now;
   double snapshot_delay = options_.stats_epoch_duration_ * STATS_SNAPSHOT_DELAY;
   double send_jitter = td::Random::fast(0, 1000) * 1e-3 * options_.stats_epoch_duration_ * STATS_SEND_JITTER;
-  stats_.snapshot_at = td::Timestamp::in(epoch_start + snapshot_delay);
-  stats_.send_at = td::Timestamp::in(epoch_start + snapshot_delay + send_jitter);
-  stats_.next_epoch_at = td::Timestamp::in(static_cast<double>(epoch + 1) * options_.stats_epoch_duration_ - now);
-  if (stats_.snapshot_at.is_in_past()) {
-    stats_.snapshot_done = true;
-    stats_.send_done = true;
-    stats_.skipped = true;
+  stats_epoch_.snapshot_at = td::Timestamp::in(epoch_start + snapshot_delay);
+  stats_epoch_.send_at = td::Timestamp::in(epoch_start + snapshot_delay + send_jitter);
+  stats_epoch_.next_epoch_at = td::Timestamp::in(static_cast<double>(epoch + 1) * options_.stats_epoch_duration_ - now);
+  if (stats_epoch_.snapshot_at.is_in_past()) {
+    stats_epoch_.snapshot_done = true;
+    stats_epoch_.send_done = true;
+    stats_epoch_.skipped = true;
   }
 }
 
@@ -1794,32 +1947,22 @@ void BroadcastsPlumtree::Impl::stats_tick(OverlayImpl *overlay) {
     return;
   }
   stats_sync_epoch();
-  if (!stats_.snapshot_done && stats_.snapshot_at.is_in_past()) {
-    stats_.snapshot_done = true;
+  if (!stats_epoch_.snapshot_done && stats_epoch_.snapshot_at.is_in_past()) {
+    stats_epoch_.snapshot_done = true;
     auto src = overlay->local_id().bits256_value();
-    for (int store_index = 0; store_index < 2; ++store_index) {
-      auto tree_index = store_index == 0 ? PLUMTREE_SIMPLE_TREE_INDEX : stats_.rotating_slot;
-      std::vector<td::int64> eager;
-      eager.reserve(slots_[tree_index].eager.size());
-      for (const auto &peer : slots_[tree_index].eager) {
-        // Neighbour ids are shortened to their first 8 bytes; TL serializes
-        // long as little-endian, so the wire bytes match the id prefix.
-        td::int64 prefix;
-        std::memcpy(&prefix, peer.bits256_value().as_slice().data(), sizeof(prefix));
-        eager.push_back(prefix);
-      }
-      stats_.store[store_index][src] = std::move(eager);
-    }
+    auto [delivered_bcsts, fec_parts_p99, useful_avg_ms, useful_max_ms, useful_p99_ms] =
+        plumtree_stats_.snapshot_and_reset(options_.parts_);
+    stats_epoch_.store[src] = create_tl_object<ton_api::overlay_plumtreeStatsRecord>(
+        src, static_cast<td::int32>(stats_epoch_.epoch), static_cast<td::int32>(stats_epoch_.rotating_slot),
+        eager_prefixes(slots_[PLUMTREE_SIMPLE_TREE_INDEX]), eager_prefixes(slots_[stats_epoch_.rotating_slot]),
+        delivered_bcsts, fec_parts_p99, useful_avg_ms, useful_max_ms, useful_p99_ms);
   }
-  if (stats_.snapshot_done && !stats_.send_done && stats_.send_at.is_in_past()) {
-    stats_.send_done = true;
+  if (stats_epoch_.snapshot_done && !stats_epoch_.send_done && stats_epoch_.send_at.is_in_past()) {
+    stats_epoch_.send_done = true;
     auto src = overlay->local_id().bits256_value();
-    for (int store_index = 0; store_index < 2; ++store_index) {
-      auto tree_index = store_index == 0 ? PLUMTREE_SIMPLE_TREE_INDEX : stats_.rotating_slot;
-      auto it = stats_.store[store_index].find(src);
-      if (it != stats_.store[store_index].end()) {
-        stats_forward(overlay, tree_index, src, it->second, adnl::AdnlNodeIdShort::zero());
-      }
+    auto it = stats_epoch_.store.find(src);
+    if (it != stats_epoch_.store.end()) {
+      stats_forward(overlay, *it->second, adnl::AdnlNodeIdShort::zero());
     }
   }
 }
@@ -1827,27 +1970,18 @@ void BroadcastsPlumtree::Impl::stats_tick(OverlayImpl *overlay) {
 std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> BroadcastsPlumtree::Impl::stats_collect_records()
     const {
   std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records;
-  records.reserve(stats_.store[0].size() + stats_.store[1].size());
-  for (int store_index = 0; store_index < 2; ++store_index) {
-    auto tree_index = store_index == 0 ? PLUMTREE_SIMPLE_TREE_INDEX : stats_.rotating_slot;
-    for (const auto &[src, eager] : stats_.store[store_index]) {
-      records.push_back(create_tl_object<ton_api::overlay_plumtreeStatsRecord>(
-          src, static_cast<td::int32>(stats_.epoch), static_cast<td::int32>(tree_index),
-          std::vector<td::int64>(eager)));
-    }
+  records.reserve(stats_epoch_.store.size());
+  for (const auto &entry : stats_epoch_.store) {
+    records.push_back(clone_stats_record(*entry.second));
   }
   return records;
 }
 
-void BroadcastsPlumtree::Impl::stats_forward(OverlayImpl *overlay, td::uint32 tree_index, const td::Bits256 &src,
-                                             const std::vector<td::int64> &eager, const adnl::AdnlNodeIdShort &from) {
-  for (const auto &dst : slots_[tree_index].eager) {
+void BroadcastsPlumtree::Impl::stats_forward(OverlayImpl *overlay, const ton_api::overlay_plumtreeStatsRecord &record,
+                                             const adnl::AdnlNodeIdShort &from) {
+  for (const auto &dst : slots_[PLUMTREE_SIMPLE_TREE_INDEX].eager) {
     if (dst != from) {
-      send_control(
-          overlay, dst,
-          create_tl_object<ton_api::overlay_plumtreeStatsPush>(create_tl_object<ton_api::overlay_plumtreeStatsRecord>(
-              src, static_cast<td::int32>(stats_.epoch), static_cast<td::int32>(tree_index),
-              std::vector<td::int64>(eager))));
+      send_control(overlay, dst, create_tl_object<ton_api::overlay_plumtreeStatsPush>(clone_stats_record(record)));
     }
   }
 }
@@ -1863,30 +1997,40 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_stats_push(OverlayImpl *over
   stats_sync_epoch();
   auto &record = msg->record_;
   auto tree_index = static_cast<td::uint32>(record->tree_index_);
-  int store_index = tree_index == PLUMTREE_SIMPLE_TREE_INDEX ? 0 : tree_index == stats_.rotating_slot ? 1 : -1;
-  if (store_index < 0) {
+  if (tree_index != stats_epoch_.rotating_slot) {
     co_return td::Unit{};
   }
-  if (stats_.skipped) {
+  if (stats_epoch_.skipped) {
     co_return td::Unit{};
   }
-  if (!slots_[tree_index].eager.contains(from)) {
+  if (!slots_[PLUMTREE_SIMPLE_TREE_INDEX].eager.contains(from)) {
     co_return td::Unit{};
   }
   if (record->src_.is_zero() || record->src_ == overlay->local_id().bits256_value()) {
     co_return td::Unit{};
   }
-  if (record->epoch_ != static_cast<td::int32>(stats_.epoch)) {
+  if (record->epoch_ != static_cast<td::int32>(stats_epoch_.epoch)) {
     co_return td::Unit{};
   }
-  if (record->eager_.size() > options_.eager_limit_) {
+  if (record->eager_0_.size() > options_.eager_limit_ || record->eager_index_.size() > options_.eager_limit_) {
     co_return td::Unit{};
   }
-  auto &store = stats_.store[store_index];
-  if (store.size() >= STATS_STORE_LIMIT || !store.emplace(record->src_, record->eager_).second) {
+  if (record->delivered_bcsts_ < 0 || record->fec_parts_p99_ < 0 || record->useful_avg_ms_ < 0 ||
+      record->useful_max_ms_ < 0 || record->useful_p99_ms_ < 0) {
     co_return td::Unit{};
   }
-  stats_forward(overlay, tree_index, record->src_, record->eager_, from);
+  if (static_cast<td::uint32>(record->fec_parts_p99_) > options_.parts_) {
+    co_return td::Unit{};
+  }
+  if (stats_epoch_.store.size() >= STATS_STORE_LIMIT) {
+    co_return td::Unit{};
+  }
+  auto src = record->src_;
+  auto [it, inserted] = stats_epoch_.store.emplace(src, std::move(record));
+  if (!inserted) {
+    co_return td::Unit{};
+  }
+  stats_forward(overlay, *it->second, from);
   co_return td::Unit{};
 }
 
@@ -1912,12 +2056,12 @@ td::Timestamp BroadcastsPlumtree::Impl::next_alarm_at() {
   auto *missing = oldest_missing_part();
   auto at = missing ? missing->repair_at : td::Timestamp::never();
   if (!sender_.empty() && options_.tree_slots_ >= 2) {
-    if (!stats_.snapshot_done) {
-      at.relax(stats_.snapshot_at);
-    } else if (!stats_.send_done) {
-      at.relax(stats_.send_at);
+    if (!stats_epoch_.snapshot_done) {
+      at.relax(stats_epoch_.snapshot_at);
+    } else if (!stats_epoch_.send_done) {
+      at.relax(stats_epoch_.send_at);
     } else {
-      at.relax(stats_.next_epoch_at);
+      at.relax(stats_epoch_.next_epoch_at);
     }
   }
   return at;
@@ -1939,6 +2083,8 @@ void BroadcastsPlumtree::Impl::gc(OverlayImpl *overlay) {
                           << " tree_parts=" << bcast->tree_parts.size()
                           << " payload_parts=" << bcast->parts_by_index.size()
                           << " decoder_parts=" << bcast->decoder_parts.size();
+    } else if (!is_original_sender_) {
+      plumtree_stats_.note_fec_parts_collected(static_cast<td::uint32>(bcast->parts_by_index.size()), options_.parts_);
     }
     CHECK(broadcasts_.erase(broadcast_id));
     overlay->register_delivered_broadcast(broadcast_id);

@@ -325,7 +325,7 @@ overlay.broadcastPlumtreeFec flags:int timestamp:double src:PublicKey certificat
 overlay.broadcastPlumtreeIHave broadcast_id:int256 timestamp:double part_index:int tree_index:int src:PublicKey certificate:overlay.Certificate payload_timestamp:double data_size:int data_hash:int256 signature:bytes = overlay.Broadcast;
 overlay.broadcastPlumtreePrune broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
 overlay.broadcastPlumtreeUseful broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
-overlay.plumtreeStatsRecord src:int256 epoch:int tree_index:int eager:(vector long) = overlay.PlumtreeStatsRecord;
+overlay.plumtreeStatsRecord src:int256 epoch:int tree_index:int eager_0:(vector long) eager_index:(vector long) delivered_bcsts:int fec_parts_p99:int useful_avg_ms:int useful_max_ms:int useful_p99_ms:int = overlay.PlumtreeStatsRecord;
 overlay.plumtreeStatsPush record:overlay.plumtreeStatsRecord = overlay.Broadcast;
 overlay.plumtreeStatsExchange overlay:int256 records:(vector overlay.plumtreeStatsRecord) = overlay.PlumtreeStatsExchange;
 overlay.plumtreeStatsDump overlay:int256 received_from:int256 received_at:double records:(vector overlay.plumtreeStatsRecord) = overlay.PlumtreeStatsDump;
