@@ -18,6 +18,10 @@
 */
 #pragma once
 
+#include "full-node-shard.h"
+#include "full-node.h"
+//#include "ton-node-slave.h"
+#include <cstddef>
 #include <map>
 #include <queue>
 #include <set>
@@ -104,6 +108,8 @@ class FullNodeImpl : public FullNode {
   void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) override;
 
   void set_validator_telemetry_filename(std::string value) override;
+  void set_plumtree_stats_filename(std::string value) override;
+  void alarm() override;
 
   void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
                                            overlay::OverlayMemberCertificate cert) override {
@@ -117,7 +123,6 @@ class FullNodeImpl : public FullNode {
                                                 QuerySource source) override;
 
   void start_up() override;
-  void alarm() override;
 
   FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
                FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
@@ -197,7 +202,19 @@ class FullNodeImpl : public FullNode {
   PublicKeyHash validator_telemetry_collector_key_ = PublicKeyHash::zero();
 
   void update_validator_telemetry_collector();
+  void update_plumtree_stats_collector();
 
+  // Fractions of the Plumtree stats epoch: +15..+30 minutes at the one-hour
+  static constexpr double PLUMTREE_STATS_EXCHANGE_FROM = 1.0 / 4;
+  static constexpr double PLUMTREE_STATS_EXCHANGE_TO = 1.0 / 2;
+  static constexpr std::size_t PLUMTREE_STATS_EXCHANGE_OVERLAYS_LIMIT = 4;
+  std::string plumtree_stats_filename_;
+  PublicKeyHash plumtree_stats_collector_key_ = PublicKeyHash::zero();
+  td::int64 plumtree_stats_exchange_epoch_ = -1;
+  td::Timestamp plumtree_stats_exchange_at_ = td::Timestamp::never();
+
+  void schedule_plumtree_stats_exchange();
+  void start_plumtree_stats_exchange();
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
 

@@ -43,6 +43,7 @@
 #include "td/db/utils/BlobView.h"
 #include "td/db/utils/CyclicBuffer.h"
 #include "td/utils/Random.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
 #include "td/utils/Status.h"
@@ -1077,6 +1078,9 @@ struct DB {
     dboc->set_loader(std::make_unique<CellLoader>(kv->snapshot()));
   }
 };
+
+thread_local const std::string *current_boc_rocksdb_path = nullptr;
+
 struct BocOptions {
   using AsyncExecutor = DynamicBagOfCellsDb::AsyncExecutor;
 
@@ -1114,13 +1118,15 @@ struct BocOptions {
       auto merge_operator = std::make_shared<MergeOperatorAddCellRefcnt>();
       static const CompactionFilterEraseEmptyValues compaction_filter;
       CHECK(!old_key_value || old_key_value.use_count() == 1);
-      std::string db_path = "test_celldb";
+      auto db_path = current_boc_rocksdb_path == nullptr || current_boc_rocksdb_path->empty()
+                         ? std::string{"test_celldb"}
+                         : *current_boc_rocksdb_path;
       if (old_key_value) {
         //LOG(ERROR) << "Reload rocksdb";
         old_key_value.reset();
       } else {
         //LOG(ERROR) << "New rocksdb";
-        td::RocksDb::destroy(db_path).ensure();
+        td::rmrf(db_path).ignore();
       }
       auto db_options = td::RocksDbOptions{
           .block_cache = {},
@@ -1291,6 +1297,19 @@ void with_all_boc_options(F &&f, size_t tests_n, bool only_v2 = false) {
     DynamicBagOfCellsDb::Stats stats;
     auto o_in_memory = std::get_if<DynamicBagOfCellsDb::CreateInMemoryOptions>(&options.options);
     for (td::uint32 i = 0; i < tests_n; i++) {
+      std::string db_path;
+      if (options.kv_options.kv_type == BocOptions::KvOptions::RocksDb) {
+        db_path = td::mkdtemp(td::get_temporary_dir(), "test_celldb").move_as_ok();
+      }
+      auto previous_boc_rocksdb_path = current_boc_rocksdb_path;
+      current_boc_rocksdb_path = db_path.empty() ? nullptr : &db_path;
+      SCOPE_EXIT {
+        current_boc_rocksdb_path = previous_boc_rocksdb_path;
+        if (!db_path.empty()) {
+          td::rmrf(db_path).ignore();
+        }
+      };
+
       auto before = counter();
 
       options.seed = i == 0 ? 123 : i;

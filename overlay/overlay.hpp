@@ -342,6 +342,8 @@ class OverlayImpl : public Overlay {
   void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids, std::vector<PublicKeyHash> root_public_keys,
                                OverlayMemberCertificate cert) override;
   void set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort> neighbours) override;
+  void get_plumtree_stats_records(
+      td::Promise<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> promise) override;
 
   bool check_src_peer(const adnl::AdnlNodeIdShort &id, const ton_api::overlay_MemberCertificate *certificate);
   bool is_persistent_node(const adnl::AdnlNodeIdShort &id);
@@ -444,6 +446,8 @@ class OverlayImpl : public Overlay {
                                       tl_object_ptr<ton_api::overlay_broadcastPlumtreePrune> msg);
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
                                       tl_object_ptr<ton_api::overlay_broadcastPlumtreeUseful> msg);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_plumtreeStatsPush> msg);
 
   td::Status validate_peer_certificate(const adnl::AdnlNodeIdShort &node, const OverlayMemberCertificate &cert,
                                        bool received_from_node = false);

@@ -2389,6 +2389,10 @@ void ValidatorEngine::start_full_node() {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::set_validator_telemetry_filename,
                               validator_telemetry_filename_);
     }
+    if (!plumtree_stats_filename_.empty()) {
+      td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::set_plumtree_stats_filename,
+                              plumtree_stats_filename_);
+    }
     load_custom_overlays_config();
     register_fast_sync_certificate_callback();
     register_shard_overlay_certificate_callback();
@@ -5974,6 +5978,14 @@ int main(int argc, char *argv[]) {
                "store validator telemetry from fast sync overlay to a given file (json format)", [&](td::Slice s) {
                  acts.push_back([&x, s = s.str()]() {
                    td::actor::send_closure(x, &ValidatorEngine::set_validator_telemetry_filename, s);
+                 });
+               });
+  p.add_option('\0', "collect-plumtree-stats",
+               "store Plumtree topology stats collected in the fast sync overlay to a given file (json format); only "
+               "effective on validators",
+               [&](td::Slice s) {
+                 acts.push_back([&x, s = s.str()]() {
+                   td::actor::send_closure(x, &ValidatorEngine::set_plumtree_stats_filename, s);
                  });
                });
   p.add_option(

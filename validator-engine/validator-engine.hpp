@@ -265,6 +265,7 @@ class ValidatorEngine : public td::actor::Actor {
   ton::BlockSeqno truncate_seqno_{0};
   std::string session_logs_file_;
   std::string validator_telemetry_filename_;
+  std::string plumtree_stats_filename_;
   bool not_all_shards_ = false;
   std::vector<ton::ShardIdFull> add_shard_cmds_;
   bool state_serializer_disabled_flag_ = false;
@@ -370,6 +371,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_validator_telemetry_filename(std::string value) {
     validator_telemetry_filename_ = std::move(value);
+  }
+  void set_plumtree_stats_filename(std::string value) {
+    plumtree_stats_filename_ = std::move(value);
   }
   void set_not_all_shards() {
     not_all_shards_ = true;
