@@ -33,6 +33,9 @@
 
 #include "full-node-custom-overlays.hpp"
 #include "full-node-fast-sync-overlays.hpp"
+#include "full-node-queries.hpp"
+#include "full-node-shard.h"
+#include "full-node.h"
 #include "rate-limiter.h"
 
 namespace ton {
@@ -69,29 +72,30 @@ class FullNodeImpl : public FullNode {
   void sync_completed();
 
   void initial_read_complete(BlockHandle top_block);
-  void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data);
-  void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
+  td::actor::Task<> send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data, int mode);
   void send_broadcast(BlockBroadcast broadcast, int mode);
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode);
   void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
-  void download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout, td::Promise<ReceivedBlock> promise);
-  void download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
-                           td::Promise<td::BufferSlice> promise);
-  void download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
-                                 td::uint32 priority, td::Timestamp timeout, td::Promise<td::BufferSlice> promise);
-  void download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                            td::Promise<td::BufferSlice> promise);
-  void download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                 td::Promise<td::BufferSlice> promise);
-  void get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout, td::Promise<std::vector<BlockIdExt>> promise);
-  void download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
-                        td::Timestamp timeout, td::Promise<std::string> promise);
-  void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
-                                    block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
-                                    td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise);
+
+  td::actor::Task<QuerySender> get_query_sender(ShardIdFull shard_id, bool historical = false);
+
+  td::actor::Task<ReceivedBlock> download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout);
+  td::actor::Task<td::BufferSlice> download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout);
+  td::actor::Task<td::BufferSlice> download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id,
+                                                             PersistentStateType type, td::uint32 priority,
+                                                             td::Timestamp timeout);
+  td::actor::Task<td::BufferSlice> download_block_proof(BlockIdExt block_id, td::uint32 priority,
+                                                        td::Timestamp timeout);
+  td::actor::Task<td::BufferSlice> download_block_proof_link(BlockIdExt block_id, td::uint32 priority,
+                                                             td::Timestamp timeout);
+  td::actor::Task<std::vector<BlockIdExt>> get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout);
+  td::actor::Task<std::string> download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
+                                                std::string tmp_dir, td::Timestamp timeout);
+
+  td::actor::Task<> get_next_blocks_loop();
 
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
@@ -114,6 +118,9 @@ class FullNodeImpl : public FullNode {
                            << (double)cert.expire_at() - td::Clocks::system();
     fast_sync_overlays_.add_member_certificate(local_id, std::move(cert));
   }
+
+  td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
+                                                QuerySource source) override;
 
   void start_up() override;
 
@@ -139,8 +146,8 @@ class FullNodeImpl : public FullNode {
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
 
-  td::actor::ActorId<FullNodeShard> get_shard(AccountIdPrefixFull dst);
-  td::actor::ActorId<FullNodeShard> get_shard(ShardIdFull shard, bool historical = false);
+  td::actor::ActorId<FullNodeShard> get_shard_overlay_actor(AccountIdPrefixFull dst);
+  td::actor::ActorId<FullNodeShard> get_shard_overlay_actor(ShardIdFull shard, bool historical = false);
   std::map<ShardIdFull, ShardInfo> shards_;
   int wc_monitor_min_split_ = 0;
 
@@ -151,7 +158,9 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorId<dht::Dht> dht_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
+
   td::actor::ActorId<adnl::AdnlExtClient> client_;
+  QuerySender client_query_sender_;
 
   std::string db_root_;
 
@@ -164,6 +173,10 @@ class FullNodeImpl : public FullNode {
 
   td::Promise<td::Unit> started_promise_;
   FullNodeOptions opts_;
+
+  BlockHandle handle_;
+  td::Promise<> sync_promise_;
+  td::Timestamp sync_completed_at_;
 
   FullNodeFastSyncOverlays fast_sync_overlays_;
 
@@ -205,9 +218,12 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
 
-  std::shared_ptr<RateLimiter<>> limiter_;
+  // Separate handlers for separate rate limiters
+  FullNodeQueryHandler query_handler_public_;
+  FullNodeQueryHandler query_handler_fast_sync_;
+  FullNodeQueryHandler query_handler_custom_;
 
-  decltype(limiter_) make_limiter(const FullNodeOptions& opts);
+  static std::shared_ptr<RateLimiter<>> make_rate_limiter(const FullNodeOptions::RateLimiterParams& params);
 };
 
 }  // namespace fullnode

@@ -57,8 +57,14 @@ struct FullNodeOptions {
   double private_broadcast_speed_multiplier_ = 1.0;
   double fast_sync_broadcast_speed_multiplier_ = 1.0;
   double initial_sync_delay_ = 60.0;
-  double ratelimit_window_size_ = 1.0;
-  size_t ratelimit_global_ = 96, ratelimit_heavy_ = 64, ratelimit_medium_ = 72;
+
+  struct RateLimiterParams {
+    double window_size_ = 1.0;
+    size_t limit_global_ = 96, limit_heavy_ = 64, limit_medium_ = 72, limit_small_ = 200;
+  };
+  RateLimiterParams rate_limit_public_ = {};
+  RateLimiterParams rate_limit_fast_sync_ = {};
+  RateLimiterParams rate_limit_custom_ = {};
 };
 
 struct CustomOverlayParams {
@@ -66,13 +72,61 @@ struct CustomOverlayParams {
   std::vector<adnl::AdnlNodeIdShort> nodes_;
   std::map<adnl::AdnlNodeIdShort, int> msg_senders_;
   std::set<adnl::AdnlNodeIdShort> block_senders_;
+  std::set<adnl::AdnlNodeIdShort> accept_queries_;
   std::vector<ShardIdFull> sender_shards_;
   bool skip_public_msg_send_ = false;
   bool use_quic_ = false;
+  bool send_queries_ = false;
 
   bool send_shard(const ShardIdFull& shard) const;
   static CustomOverlayParams fetch(const ton_api::engine_validator_customOverlay& f);
 };
+
+enum class QuerySource {
+  public_overlay,
+  fast_sync_overlay,
+  custom_overlay,
+  full_node_master,
+};
+
+inline td::StringBuilder& operator<<(td::StringBuilder& sb, const QuerySource& source) {
+  switch (source) {
+    case QuerySource::public_overlay:
+      return sb << "public overlay";
+    case QuerySource::fast_sync_overlay:
+      return sb << "fast-sync overlay";
+    case QuerySource::custom_overlay:
+      return sb << "custom overlay";
+    case QuerySource::full_node_master:
+      return sb << "full-node master";
+  }
+  return sb << "unknown";
+}
+
+class QuerySenderInterface {
+ public:
+  virtual ~QuerySenderInterface() = default;
+
+  virtual void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
+                          td::Promise<td::BufferSlice> promise) const = 0;
+
+  td::actor::StartedTask<td::BufferSlice> send_query(td::BufferSlice query, td::Timestamp timeout,
+                                                     td::uint64 max_answer_size) const {
+    auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+    send_query(std::move(query), timeout, max_answer_size, std::move(promise));
+    return std::move(task);
+  }
+
+  virtual void query_finished(td::Status S) const {
+  }
+
+  virtual std::string to_str() const = 0;
+
+  virtual std::pair<td::uint32, td::uint32> get_proto_version() const {
+    return {0, 0};
+  }
+};
+using QuerySender = std::shared_ptr<QuerySenderInterface>;
 
 class FullNode : public td::actor::Actor {
  public:
@@ -112,6 +166,9 @@ class FullNode : public td::actor::Actor {
   virtual void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
                                                    overlay::OverlayMemberCertificate cert) = 0;
 
+  virtual td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
+                                                        QuerySource source) = 0;
+
   static constexpr td::uint32 max_block_size() {
     return 4 << 20;
   }
@@ -124,6 +181,8 @@ class FullNode : public td::actor::Actor {
   enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4 };
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
+  static constexpr td::uint32 PROTO_VERSION_MAJOR = 3;
+  static constexpr td::uint32 PROTO_VERSION_MINOR = 2;
 
   static td::actor::ActorOwn<FullNode> create(
       ton::PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,

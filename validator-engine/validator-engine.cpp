@@ -5689,6 +5689,8 @@ void dump_stats() {
   LOG(WARNING) << td::NamedThreadSafeCounter::get_default();
 }
 
+using namespace std::literals::string_literals;
+
 int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
 
@@ -6055,37 +6057,89 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_initial_sync_delay, v); });
         return td::Status::OK();
       });
-  p.add_checked_option(
-      0, "fullnode-ratelimit-window-size", "ratelimit tracking window size (in seconds)",
-      [&](td::Slice s) -> td::Status {
-        auto v = td::to_double(s);
-        if (v < 0) {
-          return td::Status::Error("ratelimit-window-size should be non-negative");
-        }
-        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_window_size, v); });
-        return td::Status::OK();
-      });
-  p.add_checked_option(
-      0, "fullnode-ratelimit-global", "ratelimit for all kind of requests (in request-cost units per window)",
-      [&](td::Slice s) -> td::Status {
-        TRY_RESULT(v, td::to_integer_safe<size_t>(s));
-        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_global, v); });
-        return td::Status::OK();
-      });
-  p.add_checked_option(
-      0, "fullnode-ratelimit-heavy", "ratelimit for heavy requests (in 2 MiB request-cost units per window)",
-      [&](td::Slice s) -> td::Status {
-        TRY_RESULT(v, td::to_integer_safe<size_t>(s));
-        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_heavy, v); });
-        return td::Status::OK();
-      });
-  p.add_checked_option(
-      0, "fullnode-ratelimit-medium", "ratelimit for medium requests (in counts per window)",
-      [&](td::Slice s) -> td::Status {
-        TRY_RESULT(v, td::to_integer_safe<size_t>(s));
-        acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_ratelimit_medium, v); });
-        return td::Status::OK();
-      });
+  for (size_t iter = 0; iter < 3; ++iter) {
+    static const char *suffixes[3] = {"", "-fast-sync", "-custom"};
+    const char *suffix = suffixes[iter];
+    static const char *names[3] = {"public", "fast sync", "custom"};
+    const char *name = names[iter];
+    auto limiter = [=](ton::validator::fullnode::FullNodeOptions &opts)
+        -> ton::validator::fullnode::FullNodeOptions::RateLimiterParams & {
+      switch (iter) {
+        case 0:
+          return opts.rate_limit_public_;
+        case 1:
+          return opts.rate_limit_fast_sync_;
+        case 2:
+          return opts.rate_limit_custom_;
+        default:
+          UNREACHABLE();
+      }
+    };
+    p.add_checked_option(0, "fullnode-ratelimit-window-size"s + suffix,
+                         PSTRING() << "ratelimit tracking window size in " << name << " overlays (in seconds)",
+                         [&, limiter](td::Slice s) -> td::Status {
+                           auto v = td::to_double(s);
+                           if (v < 0) {
+                             return td::Status::Error("ratelimit window size should be non-negative");
+                           }
+                           acts.push_back([=, &x]() {
+                             td::actor::send_closure(x, &ValidatorEngine::with_full_node_options,
+                                                     [=](ton::validator::fullnode::FullNodeOptions &opts) {
+                                                       limiter(opts).window_size_ = v;
+                                                     });
+                           });
+                           return td::Status::OK();
+                         });
+    p.add_checked_option(0, "fullnode-ratelimit-global"s + suffix,
+                         PSTRING() << "ratelimit for heavy and medium of requests in " << name
+                                   << " overlays (in request-cost units per window)",
+                         [&, limiter](td::Slice s) -> td::Status {
+                           TRY_RESULT(v, td::to_integer_safe<size_t>(s));
+                           acts.push_back([=, &x]() {
+                             td::actor::send_closure(x, &ValidatorEngine::with_full_node_options,
+                                                     [=](ton::validator::fullnode::FullNodeOptions &opts) {
+                                                       limiter(opts).limit_global_ = v;
+                                                     });
+                           });
+                           return td::Status::OK();
+                         });
+    p.add_checked_option(
+        0, "fullnode-ratelimit-heavy"s + suffix,
+        PSTRING() << "ratelimit for heavy requests in " << name << " overlays (in 2 MiB request-cost units per window)",
+        [&, limiter](td::Slice s) -> td::Status {
+          TRY_RESULT(v, td::to_integer_safe<size_t>(s));
+          acts.push_back([=, &x]() {
+            td::actor::send_closure(
+                x, &ValidatorEngine::with_full_node_options,
+                [=](ton::validator::fullnode::FullNodeOptions &opts) { limiter(opts).limit_heavy_ = v; });
+          });
+          return td::Status::OK();
+        });
+    p.add_checked_option(0, "fullnode-ratelimit-medium"s + suffix,
+                         PSTRING() << "ratelimit for medium requests in " << name << " overlays (in counts per window)",
+                         [&, limiter](td::Slice s) -> td::Status {
+                           TRY_RESULT(v, td::to_integer_safe<size_t>(s));
+                           acts.push_back([=, &x]() {
+                             td::actor::send_closure(x, &ValidatorEngine::with_full_node_options,
+                                                     [=](ton::validator::fullnode::FullNodeOptions &opts) {
+                                                       limiter(opts).limit_medium_ = v;
+                                                     });
+                           });
+                           return td::Status::OK();
+                         });
+    p.add_checked_option(0, "fullnode-ratelimit-small"s + suffix,
+                         PSTRING() << "ratelimit for small requests in " << name << " overlays (in counts per window)",
+                         [&, limiter](td::Slice s) -> td::Status {
+                           TRY_RESULT(v, td::to_integer_safe<size_t>(s));
+                           acts.push_back([=, &x]() {
+                             td::actor::send_closure(x, &ValidatorEngine::with_full_node_options,
+                                                     [=](ton::validator::fullnode::FullNodeOptions &opts) {
+                                                       limiter(opts).limit_small_ = v;
+                                                     });
+                           });
+                           return td::Status::OK();
+                         });
+  }
   p.add_checked_option(
       '\0', "auto-sign", "ADNL id (hex) to receive automatically issued shard overlay certificates",
       [&](td::Slice s) -> td::Status {
