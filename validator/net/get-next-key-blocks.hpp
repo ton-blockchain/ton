@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "adnl/adnl-ext-client.h"
-#include "overlay/overlays.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
+
+#include "full-node.h"
 
 namespace ton {
 
@@ -31,11 +31,8 @@ namespace fullnode {
 
 class GetNextKeyBlocks : public td::actor::Actor {
  public:
-  GetNextKeyBlocks(BlockIdExt block_id, td::uint32 limit, adnl::AdnlNodeIdShort local_id,
-                   overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
+  GetNextKeyBlocks(BlockIdExt block_id, td::uint32 limit, QuerySender query_sender, td::uint32 priority,
                    td::Timestamp timeout, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                   td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                   td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
                    td::Promise<std::vector<BlockIdExt>> promise);
 
   void abort_query(td::Status reason);
@@ -44,8 +41,6 @@ class GetNextKeyBlocks : public td::actor::Actor {
 
   void start_up() override;
   void got_download_token(std::unique_ptr<ActionToken> token);
-  void got_node_to_download(adnl::AdnlNodeIdShort node);
-  void send_request();
   void got_result(td::BufferSlice res);
 
   void download_next_proof();
@@ -56,19 +51,11 @@ class GetNextKeyBlocks : public td::actor::Actor {
  private:
   BlockIdExt block_id_;
   td::uint32 limit_;
-  adnl::AdnlNodeIdShort local_id_;
-  overlay::OverlayIdShort overlay_id_;
 
-  adnl::AdnlNodeIdShort download_from_ = adnl::AdnlNodeIdShort::zero();
-
+  QuerySender query_sender_;
   td::uint32 priority_;
-
   td::Timestamp timeout_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
-  td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
-  td::actor::ActorId<overlay::Overlays> overlays_;
-  td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<std::vector<BlockIdExt>> promise_;
 
   std::vector<BlockIdExt> pending_;

@@ -32,23 +32,14 @@ namespace validator {
 
 namespace fullnode {
 
-DownloadNextBlocks::DownloadNextBlocks(adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
-                                       BlockHandle handle, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
-                                       bool allow_many, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                                       td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
-                                       td::actor::ActorId<overlay::Overlays> overlays,
-                                       td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<BlockHandle> promise)
-    : local_id_(local_id)
-    , overlay_id_(overlay_id)
-    , handle_(handle)
+DownloadNextBlocks::DownloadNextBlocks(BlockHandle handle, QuerySender query_sender, td::uint32 priority,
+                                       td::actor::ActorId<ValidatorManagerInterface> validator_manager,
+                                       td::Promise<BlockHandle> promise)
+    : handle_(handle)
     , start_prev_id_(handle->id())
-    , download_from_(download_from)
+    , query_sender_(std::move(query_sender))
     , priority_(priority)
-    , allow_many_(allow_many)
     , validator_manager_(validator_manager)
-    , rldp_(rldp)
-    , overlays_(overlays)
-    , client_(client)
     , promise_(std::move(promise)) {
 }
 
@@ -59,15 +50,15 @@ void DownloadNextBlocks::start_up() {
     if (self->success_local_) {
       sb << "loaded next block after " << self->start_prev_id_.id << " from db";
     } else if (self->success_) {
-      sb << "downloaded next blocks after " << self->start_prev_id_.id << " from " << self->download_from_ << " up to "
-         << self->handle_->id().id;
+      sb << "downloaded next blocks after " << self->start_prev_id_.id << " from " << self->query_sender_->to_str()
+         << " up to " << self->handle_->id().id;
     }
     if (R.is_error()) {
       if (self->success_) {
         sb << ", then got error: " << R.error();
       } else {
-        sb << "failed to download next blocks after " << self->start_prev_id_.id << " from " << self->download_from_
-           << ": " << R.error();
+        sb << "failed to download next blocks after " << self->start_prev_id_.id << " from "
+           << self->query_sender_->to_str() << ": " << R.error();
       }
     }
     if (R.is_ok() || R.error().code() == ErrorCode::notready || R.error().code() == ErrorCode::timeout) {
@@ -90,7 +81,7 @@ void DownloadNextBlocks::start_up() {
 
 td::actor::Task<> DownloadNextBlocks::run() {
   CHECK(start_prev_id_.is_masterchain_ext());
-  VLOG(full_node, DEBUG) << "Download next block after " << start_prev_id_ << ", allow_many=" << allow_many_;
+  VLOG(full_node, DEBUG) << "Download next block after " << start_prev_id_;
   if (handle_->inited_next()) {
     auto next_handle = co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::get_block_handle,
                                                handle_->one_next(true), true);
@@ -109,18 +100,12 @@ td::actor::Task<> DownloadNextBlocks::run() {
   token_ = co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::get_download_token, 1, priority_,
                                    td::Timestamp::in(2.0))
                .trace("get_download_token");
-  if (download_from_.is_zero() && client_.empty()) {
-    auto peers =
-        co_await td::actor::ask(overlays_, &overlay::Overlays::get_overlay_random_peers, local_id_, overlay_id_, 1);
-    if (peers.empty()) {
-      co_return td::Status::Error(ErrorCode::notready, "no nodes");
-    }
-    download_from_ = peers[0];
-  }
-  VLOG(full_node, DEBUG) << "Download from " << download_from_;
+
+  bool allow_many = query_sender_->get_proto_version() >= std::make_pair<td::uint32, td::uint32>(3, 2);
+  VLOG(full_node, DEBUG) << "Download from " << query_sender_->to_str() << ", allow_many=" << allow_many;
   td::BufferSlice query;
   size_t max_size;
-  if (allow_many_) {
+  if (allow_many) {
     query = create_serialize_tl_object<ton_api::tonNode_downloadNextBlocksFull>(create_tl_block_id(start_prev_id_),
                                                                                 MAX_BLOCKS);
     max_size = std::max<size_t>(MAX_SIZE_MANY, FullNode::max_proof_size() + FullNode::max_block_size() + 128);
@@ -128,20 +113,10 @@ td::actor::Task<> DownloadNextBlocks::run() {
     query = create_serialize_tl_object<ton_api::tonNode_downloadNextBlockFull>(create_tl_block_id(start_prev_id_));
     max_size = FullNode::max_proof_size() + FullNode::max_block_size() + 128;
   }
-  auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
-  if (client_.empty()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, download_from_, local_id_, overlay_id_,
-                            "get_next_blocks", std::move(promise), td::Timestamp::in(5.0), std::move(query), max_size,
-                            rldp_);
-  } else {
-    td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "get_next_blocks",
-                            create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)),
-                            td::Timestamp::in(5.0), std::move(promise));
-  }
 
-  td::BufferSlice response = co_await std::move(task);
+  td::BufferSlice response = co_await query_sender_->send_query(std::move(query), td::Timestamp::in(5.0), max_size);
   std::vector<tl_object_ptr<ton_api::tonNode_DataFull>> response_vec;
-  if (allow_many_) {
+  if (allow_many) {
     auto f = CO_TRY(fetch_tl_object<ton_api::tonNode_nextBlocksFull>(std::move(response), true));
     for (auto &obj : f->blocks_) {
       if (obj->get_id() == ton_api::tonNode_dataFullEmpty::ID) {
@@ -177,7 +152,7 @@ td::actor::Task<> DownloadNextBlocks::process_block(tl_object_ptr<ton_api::tonNo
     auto prev_blocks =
         CO_TRY(extract_prev_blocks_from_proof(compressed_v2->proof_.as_slice(), id).trace("extract prev blocks"));
     if (prev_blocks != std::vector{handle_->id()}) {
-      co_return td::Status::Error("prev block id mismatch");
+      co_return td::Status::Error(ErrorCode::protoviolation, "prev block id mismatch");
     }
     auto prev_state = co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::wait_block_state, handle_,
                                               priority_, td::Timestamp::in(5.0), true)
@@ -192,10 +167,10 @@ td::actor::Task<> DownloadNextBlocks::process_block(tl_object_ptr<ton_api::tonNo
                                 prev_state_root)
              .trace("deserialize block"));
   if (is_link) {
-    co_return td::Status::Error(ErrorCode::notready, "node doesn't have proof for this block");
+    co_return td::Status::Error(ErrorCode::protoviolation, "node doesn't have proof for this block");
   }
   if (td::sha256_bits256(block_data.as_slice()) != id.file_hash) {
-    co_return td::Status::Error(ErrorCode::notready, "received data with bad hash");
+    co_return td::Status::Error(ErrorCode::protoviolation, "received data with bad hash");
   }
   co_await td::actor::ask(validator_manager_, &ValidatorManagerInterface::validate_block_is_next_proof, handle_->id(),
                           id, std::move(proof));

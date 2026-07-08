@@ -81,7 +81,6 @@ td::Result<BlockHandle> create_block_handle(td::Slice data);
 td::Result<ConstBlockHandle> create_temp_block_handle(td::BufferSlice data);
 BlockHandle create_empty_block_handle(BlockIdExt id);
 td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits);
-td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data);
 td::Result<std::vector<td::Ref<ShardTopBlockDescription>>> create_new_shard_block_descriptions(td::BufferSlice data);
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,

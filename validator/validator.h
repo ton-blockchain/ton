@@ -241,8 +241,6 @@ class ValidatorManagerInterface : public td::actor::Actor {
                                           std::set<ShardIdFull> shards_to_monitor) {
     }
 
-    virtual void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) {
-    }
     virtual void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
     }
     virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
@@ -345,7 +343,6 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual td::actor::Task<> new_external_message_query(td::BufferSlice data) {
     co_return td::Status::Error("not implemented");
   }
-  virtual void new_ihr_message(td::BufferSlice data) = 0;
   virtual void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::BufferSlice data) = 0;
   virtual td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,

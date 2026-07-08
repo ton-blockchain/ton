@@ -297,13 +297,6 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::Buffe
   co_return td::Unit{};
 }
 
-void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
-  auto R = create_ihr_message(std::move(data));
-  if (R.is_ok()) {
-    ihr_messages_.emplace_back(R.move_as_ok());
-  }
-}
-
 void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                                  td::BufferSlice data) {
   if (!last_masterchain_block_handle_) {
@@ -551,10 +544,6 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_
   }
 }
 
-void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) {
-  promise.set_result(ihr_messages_);
-}
-
 void ValidatorManagerImpl::get_shard_blocks_for_collator(
     BlockIdExt masterchain_block_id, td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) {
   if (!last_masterchain_block_handle_) {
@@ -580,10 +569,6 @@ void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Ha
 }
 
 void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) {
-}
-
-void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
-                                                 std::vector<IhrMessage::Hash> to_delete) {
 }
 
 void ValidatorManagerImpl::get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {

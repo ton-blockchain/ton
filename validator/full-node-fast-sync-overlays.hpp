@@ -19,6 +19,8 @@
 #include <cstddef>
 #include <fstream>
 
+#include "td/utils/DecTree.h"
+
 #include "full-node.h"
 #include "validator-telemetry.hpp"
 
@@ -52,6 +54,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
     VLOG(full_node, WARNING) << "dropping unknown broadcast";
   }
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
+  void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
 
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
@@ -70,12 +73,15 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
 
   void start_up() override;
   void tear_down() override;
+  void alarm() override;
 
   void set_validators(std::vector<PublicKeyHash> root_public_keys,
                       std::vector<adnl::AdnlNodeIdShort> current_validators_adnl);
   void set_member_certificate(overlay::OverlayMemberCertificate member_certificate);
   void set_params(bool receive_broadcasts, bool send_twostep_broadcasts, bool enable_plumtree_broadcast,
                   td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender);
+
+  td::actor::Task<QuerySender> get_query_sender();
 
   FullNodeFastSyncOverlay(adnl::AdnlNodeIdShort local_id, ShardIdFull shard, FileHash zero_state_file_hash,
                           std::vector<PublicKeyHash> root_public_keys,
@@ -143,6 +149,20 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   std::ofstream telemetry_file_;
   std::string plumtree_stats_filename_;
   std::ofstream plumtree_stats_file_;
+
+  struct PeerInfo {
+    std::pair<td::uint32, td::uint32> proto_version{0, 0};
+    bool alive = false;
+  };
+  std::map<adnl::AdnlNodeIdShort, PeerInfo> peers_info_;
+  td::DecTree<adnl::AdnlNodeIdShort, td::Unit> alive_peers_;
+
+  bool is_validator_adnl(adnl::AdnlNodeIdShort id) const {
+    // Sorted in FullNodeFastSyncOverlays::update_overlays
+    return std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), id);
+  }
+
+  td::actor::Task<> ping_peer(adnl::AdnlNodeIdShort peer_id);
 };
 
 class FullNodeFastSyncOverlays {

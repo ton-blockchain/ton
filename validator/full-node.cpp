@@ -22,6 +22,12 @@
 #include "common/delay.h"
 #include "impl/out-msg-queue-proof.hpp"
 #include "interfaces/validator-full-id.h"
+#include "net/download-archive-slice.hpp"
+#include "net/download-block-new.hpp"
+#include "net/download-next-blocks.hpp"
+#include "net/download-proof.hpp"
+#include "net/download-state.hpp"
+#include "net/get-next-key-blocks.hpp"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/Random.h"
@@ -195,16 +201,22 @@ void FullNodeImpl::del_custom_overlay(std::string name, td::Promise<td::Unit> pr
 }
 
 void FullNodeImpl::initial_read_complete(BlockHandle top_handle) {
-  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
+  CHECK(!handle_);
+  handle_ = std::move(top_handle);
+  sync_promise_ = [SelfId = actor_id(this)](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &FullNodeImpl::sync_completed);
-  });
-  auto it = shards_.find(ShardIdFull{masterchainId});
-  CHECK(it != shards_.end() && !it->second.actor.empty());
-  td::actor::send_closure(it->second.actor, &FullNodeShard::set_handle, top_handle, std::move(P));
+  };
+  get_next_blocks_loop().start().detach_ensure("get_next_blocks_loop");
+
+  sync_completed_at_ = td::Timestamp::in(opts_.initial_sync_delay_);
+  alarm_timestamp().relax(sync_completed_at_);
 }
 
 void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std::set<ShardIdFull> shards_to_monitor) {
+  if (!client_.empty()) {
+    return;
+  }
   CHECK(shards_to_monitor.count(ShardIdFull(masterchainId)));
   bool join_all_overlays = !sign_cert_by_.is_zero();
   std::set<ShardIdFull> all_shards;
@@ -288,11 +300,12 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
 }
 
 void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast) {
+  CHECK(client_.empty());
   ShardInfo &info = shards_[shard];
   if (info.actor.empty()) {
-    info.actor = FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, limiter_, keyring_,
-                                       adnl_, rldp2_, quic_, overlays_, validator_manager_, client_, actor_id(this),
-                                       active, enable_plumtree_broadcast);
+    info.actor =
+        FullNodeShard::create(shard, local_id_, adnl_id_, zero_state_file_hash_, opts_, keyring_, adnl_, rldp2_, quic_,
+                              overlays_, validator_manager_, actor_id(this), active, enable_plumtree_broadcast);
     if (!all_validators_.empty()) {
       td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
     }
@@ -308,16 +321,14 @@ void FullNodeImpl::sync_completed() {
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::sync_complete, [](td::Result<>) {});
 }
 
-void FullNodeImpl::send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) {
-  auto shard = get_shard(dst);
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping OUT ihr message to unknown shard";
-    return;
+td::actor::Task<> FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
+  if (!client_.empty()) {
+    auto query_sender = co_await get_query_sender(dst.as_leaf_shard());
+    co_await query_sender->send_query(create_serialize_tl_object<ton_api::tonNode_slave_sendExtMessage>(
+                                          create_tl_object<ton_api::tonNode_externalMessage>(std::move(data))),
+                                      td::Timestamp::in(1.0), 1024);
+    co_return {};
   }
-  td::actor::send_closure(shard, &FullNodeShard::send_ihr_message, std::move(data));
-}
-
-void FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) {
   bool skip_public = false;
   for (auto &[_, private_overlay] : custom_overlays_) {
     if (private_overlay.params_.send_shard(dst.as_leaf_shard())) {
@@ -331,20 +342,25 @@ void FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::BufferSlice dat
       }
     }
   }
-
-  if (!skip_public) {
-    auto shard = get_shard(dst);
-    if (shard.empty()) {
-      VLOG(full_node, WARNING) << "dropping OUT ext message to unknown shard";
-      return;
-    }
-    td::actor::send_closure(shard, &FullNodeShard::send_external_message, std::move(data));
+  if (skip_public || opts_.config_.ext_messages_broadcast_disabled_) {
+    co_return {};
   }
+  auto shard = get_shard_overlay_actor(dst);
+  if (shard.empty()) {
+    VLOG(full_node, WARNING) << "dropping OUT ext message to unknown shard";
+    co_return {};
+  }
+  td::actor::send_closure(shard, &FullNodeShard::send_external_message, std::move(data));
+  co_return {};
 }
 
 void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
+  if (!client_.empty()) {
+    VLOG(full_node, WARNING) << "dropping OUT shard block info message: full-node is in slave mode";
+    return;
+  }
   send_shard_block_info_to_custom_overlays(block_id, cc_seqno, data);
-  auto shard = get_shard(ShardIdFull{masterchainId});
+  auto shard = get_shard_overlay_actor(ShardIdFull{masterchainId});
   if (shard.empty()) {
     VLOG(full_node, WARNING) << "dropping OUT shard block info message to unknown shard";
     return;
@@ -359,6 +375,10 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
 
 void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                         td::BufferSlice data, int mode) {
+  if (!client_.empty()) {
+    VLOG(full_node, WARNING) << "dropping OUT block candidate broadcast: full-node is in slave mode";
+    return;
+  }
   if (mode & broadcast_mode_custom) {
     send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   }
@@ -370,7 +390,7 @@ void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_se
     }
   }
   if (mode & broadcast_mode_public) {
-    auto shard = get_shard(block_id.shard_full());
+    auto shard = get_shard_overlay_actor(block_id.shard_full());
     if (shard.empty()) {
       VLOG(full_node, WARNING) << "dropping OUT Plumtree block candidate message to unknown shard";
     } else {
@@ -389,6 +409,10 @@ void FullNodeImpl::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBr
 }
 
 void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
+  if (!client_.empty()) {
+    VLOG(full_node, WARNING) << "dropping OUT block broadcast: full-node is in slave mode";
+    return;
+  }
   if (mode & broadcast_mode_custom) {
     send_block_broadcast_to_custom_overlays(broadcast);
   }
@@ -399,9 +423,9 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
     }
   }
   if (mode & broadcast_mode_public) {
-    auto shard = get_shard(broadcast.block_id.shard_full());
+    auto shard = get_shard_overlay_actor(broadcast.block_id.shard_full());
     if (shard.empty()) {
-      VLOG(full_node, WARNING) << "dropping OUT broadcast to unknown shard";
+      VLOG(full_node, WARNING) << "dropping OUT block broadcast to unknown shard";
       return;
     }
     td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
@@ -420,7 +444,7 @@ void FullNodeImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality
     }
   }
   if (mode & broadcast_mode_public) {
-    auto shard = get_shard(finality.block_id.shard_full());
+    auto shard = get_shard_overlay_actor(finality.block_id.shard_full());
     if (shard.empty()) {
       VLOG(full_node, WARNING) << "dropping OUT block finality broadcast to unknown shard";
       return;
@@ -429,107 +453,244 @@ void FullNodeImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality
   }
 }
 
-void FullNodeImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
-                                  td::Promise<ReceivedBlock> promise) {
-  auto shard = get_shard(id.shard_full());
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping download block query to unknown shard";
-    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
-    return;
-  }
-  td::actor::send_closure(shard, &FullNodeShard::download_block, id, priority, timeout, std::move(promise));
+static QuerySender get_empty_query_sender() {
+  // Some full-node queries sometimes don't actually call send_query,
+  // so we give this sender instead of failing in get_query_sender
+  class QuerySenderEmptyImpl : public QuerySenderInterface {
+   public:
+    void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
+                    td::Promise<td::BufferSlice> promise) const override {
+      promise.set_error(td::Status::Error(ErrorCode::notready, "no nodes"));
+    }
+
+    std::string to_str() const override {
+      return "unknown";
+    }
+  };
+  static auto sender = std::make_shared<QuerySenderEmptyImpl>();
+  return sender;
 }
 
-void FullNodeImpl::download_zero_state(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
-                                       td::Promise<td::BufferSlice> promise) {
-  auto shard = get_shard(id.shard_full());
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping download state query to unknown shard";
-    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
-    return;
+td::actor::Task<QuerySender> FullNodeImpl::get_query_sender(ShardIdFull shard_id, bool historical) {
+  if (!client_.empty()) {
+    class QuerySenderMasterImpl : public QuerySenderInterface {
+     public:
+      QuerySenderMasterImpl(td::actor::ActorId<adnl::AdnlExtClient> client,
+                            std::pair<td::uint32, td::uint32> proto_version)
+          : client_(std::move(client)), proto_version_(proto_version) {
+      }
+
+      void send_query(td::BufferSlice query, td::Timestamp timeout, td::uint64 max_answer_size,
+                      td::Promise<td::BufferSlice> promise) const override {
+        td::actor::send_closure(client_, &adnl::AdnlExtClient::send_query, "q",
+                                create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)), timeout,
+                                promise.wrap([=](td::BufferSlice &&res) -> td::Result<td::BufferSlice> {
+                                  if (res.size() > max_answer_size) {
+                                    return td::Status::Error("too big answer");
+                                  }
+                                  return std::move(res);
+                                }));
+      }
+
+      std::string to_str() const override {
+        return PSTRING() << "full-node master";
+      }
+
+      std::pair<td::uint32, td::uint32> get_proto_version() const override {
+        return proto_version_;
+      }
+
+     private:
+      td::actor::ActorId<adnl::AdnlExtClient> client_;
+      std::pair<td::uint32, td::uint32> proto_version_;
+    };
+    if (!client_query_sender_) {
+      auto query = create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
+      auto response = co_await td::actor::ask(
+          client_, &adnl::AdnlExtClient::send_query, "q",
+          create_serialize_tl_object_suffix<ton_api::tonNode_query>(std::move(query)), td::Timestamp::in(2.0));
+      auto capabilities = CO_TRY(fetch_tl_object<ton_api::tonNode_capabilities>(response, true));
+      std::pair<td::uint32, td::uint32> proto_version{capabilities->version_major_, capabilities->version_minor_};
+      client_query_sender_ = std::make_shared<QuerySenderMasterImpl>(client_, proto_version);
+    }
+    co_return client_query_sender_;
   }
-  td::actor::send_closure(shard, &FullNodeShard::download_zero_state, id, priority, timeout, std::move(promise));
+
+  {
+    std::vector<td::actor::ActorId<FullNodeCustomOverlay>> overlays;
+    for (auto &[_, overlay] : custom_overlays_) {
+      if (overlay.params_.send_queries_) {
+        for (auto &[_, actor] : overlay.actors_) {
+          overlays.push_back(actor.get());
+        }
+      }
+    }
+    for (auto &actor : overlays) {
+      auto R = co_await td::actor::ask(actor, &FullNodeCustomOverlay::get_query_sender).wrap();
+      if (R.is_ok()) {
+        co_return R.move_as_ok();
+      }
+    }
+  }
+
+  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(shard_id).first;
+  if (!fast_sync_overlay.empty()) {
+    auto R = co_await td::actor::ask(fast_sync_overlay, &FullNodeFastSyncOverlay::get_query_sender).wrap();
+    if (R.is_ok()) {
+      co_return R.move_as_ok();
+    }
+  }
+
+  auto shard = get_shard_overlay_actor(shard_id, historical);
+  if (shard.empty()) {
+    co_return get_empty_query_sender();
+  }
+  auto R = co_await td::actor::ask(shard, &FullNodeShard::get_query_sender).wrap();
+  if (R.is_error()) {
+    co_return get_empty_query_sender();
+  }
+  co_return R.move_as_ok();
 }
 
-void FullNodeImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
-                                             td::uint32 priority, td::Timestamp timeout,
-                                             td::Promise<td::BufferSlice> promise) {
-  auto shard = get_shard(id.shard_full(), /* historical = */ true);
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping download state diff query to unknown shard";
-    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
-    return;
-  }
-  td::actor::send_closure(shard, &FullNodeShard::download_persistent_state, id, masterchain_block_id, type, priority,
-                          timeout, std::move(promise));
+td::actor::Task<ReceivedBlock> FullNodeImpl::download_block(BlockIdExt id, td::uint32 priority, td::Timestamp timeout) {
+  auto query_sender = co_await get_query_sender(id.shard_full());
+  auto [task, promise] = td::actor::StartedTask<ReceivedBlock>::make_bridge();
+  td::actor::create_actor<DownloadBlockNew>(PSTRING() << "downloadreq" << id.id, id, query_sender, priority, timeout,
+                                            validator_manager_, std::move(promise))
+      .release();
+  auto R = co_await std::move(task).wrap();
+  query_sender->query_finished(R.as_status());
+  co_return std::move(R);
 }
 
-void FullNodeImpl::download_block_proof(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                        td::Promise<td::BufferSlice> promise) {
-  auto shard = get_shard(block_id.shard_full());
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping download proof query to unknown shard";
-    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
-    return;
-  }
-  td::actor::send_closure(shard, &FullNodeShard::download_block_proof, block_id, priority, timeout, std::move(promise));
+td::actor::Task<td::BufferSlice> FullNodeImpl::download_zero_state(BlockIdExt id, td::uint32 priority,
+                                                                   td::Timestamp timeout) {
+  auto query_sender = co_await get_query_sender(id.shard_full());
+  auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id, id, BlockIdExt{}, UnsplitStateType{},
+                                         query_sender, priority, timeout, validator_manager_, std::move(promise))
+      .release();
+  auto R = co_await std::move(task).wrap();
+  query_sender->query_finished(R.as_status());
+  co_return std::move(R);
 }
 
-void FullNodeImpl::download_block_proof_link(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
-                                             td::Promise<td::BufferSlice> promise) {
-  auto shard = get_shard(block_id.shard_full(), /* historical = */ true);
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping download proof link query to unknown shard";
-    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
-    return;
-  }
-  td::actor::send_closure(shard, &FullNodeShard::download_block_proof_link, block_id, priority, timeout,
-                          std::move(promise));
+td::actor::Task<td::BufferSlice> FullNodeImpl::download_persistent_state(BlockIdExt id, BlockIdExt masterchain_block_id,
+                                                                         PersistentStateType type, td::uint32 priority,
+                                                                         td::Timestamp timeout) {
+  auto query_sender = co_await get_query_sender(id.shard_full(), /* historical = */ true);
+  auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+  td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id, id, masterchain_block_id, type,
+                                         query_sender, priority, timeout, validator_manager_, std::move(promise))
+      .release();
+  auto R = co_await std::move(task).wrap();
+  query_sender->query_finished(R.as_status());
+  co_return std::move(R);
 }
 
-void FullNodeImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout,
-                                       td::Promise<std::vector<BlockIdExt>> promise) {
-  auto shard = get_shard(block_id.shard_full());
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping download proof link query to unknown shard";
-    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
-    return;
-  }
-  td::actor::send_closure(shard, &FullNodeShard::get_next_key_blocks, block_id, timeout, std::move(promise));
+td::actor::Task<td::BufferSlice> FullNodeImpl::download_block_proof(BlockIdExt block_id, td::uint32 priority,
+                                                                    td::Timestamp timeout) {
+  auto query_sender = co_await get_query_sender(block_id.shard_full());
+  auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+  td::actor::create_actor<DownloadProof>(PSTRING() << "downloadproofreq" << block_id.id, block_id, false, false,
+                                         query_sender, priority, timeout, validator_manager_, std::move(promise))
+      .release();
+  auto R = co_await std::move(task).wrap();
+  query_sender->query_finished(R.as_status());
+  co_return std::move(R);
 }
 
-void FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
-                                    td::Timestamp timeout, td::Promise<std::string> promise) {
-  auto shard = get_shard(shard_prefix, /* historical = */ true);
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping download archive query to unknown shard";
-    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
-    return;
-  }
-  CHECK(!shard.empty());
-  td::actor::send_closure(shard, &FullNodeShard::download_archive, masterchain_seqno, shard_prefix, std::move(tmp_dir),
-                          timeout, std::move(promise));
+td::actor::Task<td::BufferSlice> FullNodeImpl::download_block_proof_link(BlockIdExt block_id, td::uint32 priority,
+                                                                         td::Timestamp timeout) {
+  auto query_sender = co_await get_query_sender(block_id.shard_full());
+  auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
+  td::actor::create_actor<DownloadProof>(PSTRING() << "downloadproofreq" << block_id.id, block_id, true, false,
+                                         query_sender, priority, timeout, validator_manager_, std::move(promise))
+      .release();
+  auto R = co_await std::move(task).wrap();
+  query_sender->query_finished(R.as_status());
+  co_return std::move(R);
 }
 
-void FullNodeImpl::download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
-                                                block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
-                                                td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) {
-  if (blocks.empty()) {
-    promise.set_value({});
-    return;
-  }
-  // All blocks are expected to have the same minsplit shard prefix
-  auto shard = get_shard(blocks[0].shard_full());
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping download msg queue query to unknown shard";
-    promise.set_error(td::Status::Error(ErrorCode::notready, "shard not ready"));
-    return;
-  }
-  td::actor::send_closure(shard, &FullNodeShard::download_out_msg_queue_proof, dst_shard, std::move(blocks), limits,
-                          timeout, std::move(promise));
+td::actor::Task<std::vector<BlockIdExt>> FullNodeImpl::get_next_key_blocks(BlockIdExt block_id, td::Timestamp timeout) {
+  auto query_sender = co_await get_query_sender(block_id.shard_full());
+  auto [task, promise] = td::actor::StartedTask<std::vector<BlockIdExt>>::make_bridge();
+  td::actor::create_actor<GetNextKeyBlocks>(PSTRING() << "getnextkeyblocks" << block_id.id, block_id, 16, query_sender,
+                                            1, timeout, validator_manager_, std::move(promise))
+      .release();
+  auto R = co_await std::move(task).wrap();
+  query_sender->query_finished(R.as_status());
+  co_return std::move(R);
 }
 
-td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard, bool historical) {
+td::actor::Task<std::string> FullNodeImpl::download_archive(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
+                                                            std::string tmp_dir, td::Timestamp timeout) {
+  auto query_sender = co_await get_query_sender(shard_prefix, /* historical = */ true);
+  auto [task, promise] = td::actor::StartedTask<std::string>::make_bridge();
+  td::actor::create_actor<DownloadArchiveSlice>(
+      PSTRING() << "downloadarchive." << masterchain_seqno << "." << shard_prefix, masterchain_seqno, shard_prefix,
+      std::move(tmp_dir), query_sender, timeout, validator_manager_, std::move(promise))
+      .release();
+  auto R = co_await std::move(task).wrap();
+  query_sender->query_finished(R.as_status());
+  co_return std::move(R);
+}
+
+td::actor::Task<> FullNodeImpl::get_next_blocks_loop() {
+  CHECK(handle_);
+  td::uint32 attempt = 0;
+  while (true) {
+    ++attempt;
+    auto r_query_sender = co_await get_query_sender(ShardIdFull{masterchainId}).wrap();
+    if (r_query_sender.is_error()) {
+      VLOG(full_node, WARNING) << "Cannot get query sender: " << r_query_sender.move_as_error();
+      co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+      continue;
+    }
+    auto query_sender = r_query_sender.move_as_ok();
+    auto [task, promise] = td::actor::StartedTask<BlockHandle>::make_bridge();
+    td::actor::create_actor<DownloadNextBlocks>(PSTRING() << "downloadnextblocks" << handle_->id().id, handle_,
+                                                query_sender, 1, validator_manager_, std::move(promise))
+        .release();
+    auto R = co_await std::move(task).wrap();
+    // Do not penalize peer when it does not have next blocks if the last block is new enough
+    if (R.is_error() && R.error().code() == ErrorCode::notready && handle_->inited_unix_time() &&
+        handle_->unix_time() >= (UnixTime)td::Clocks::system() - 5) {
+      query_sender->query_finished(td::Status::OK());
+    } else {
+      query_sender->query_finished(R.as_status());
+    }
+    if (R.is_error()) {
+      auto S = R.move_as_error();
+      if (S.code() != ErrorCode::notready && S.code() != ErrorCode::timeout) {
+        VLOG(full_node, WARNING) << "failed to download next block after " << handle_->id() << ": " << S;
+      } else {
+        if ((attempt % 128) == 0) {
+          VLOG(full_node, INFO) << "failed to download next block after " << handle_->id() << ": " << S;
+        } else {
+          VLOG(full_node, DEBUG) << "failed to download next block after " << handle_->id() << ": " << S;
+        }
+      }
+      co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
+      continue;
+    }
+    attempt = 0;
+    handle_ = R.move_as_ok();
+    if (sync_promise_) {
+      if (handle_->unix_time() > td::Clocks::system() - 300) {
+        sync_promise_.set_value(td::Unit());
+      } else {
+        sync_completed_at_ = td::Timestamp::in(opts_.initial_sync_delay_);
+        alarm_timestamp().relax(sync_completed_at_);
+      }
+    }
+  }
+}
+
+td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard_overlay_actor(ShardIdFull shard, bool historical) {
+  if (!client_.empty()) {
+    return {};
+  }
   if (shard.is_masterchain()) {
     return shards_[ShardIdFull{masterchainId}].actor.get();
   }
@@ -561,8 +722,8 @@ td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(ShardIdFull shard, boo
   return shards_[ShardIdFull{masterchainId}].actor.get();
 }
 
-td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard(AccountIdPrefixFull dst) {
-  return get_shard(shard_prefix(dst, max_shard_pfx_len));
+td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard_overlay_actor(AccountIdPrefixFull dst) {
+  return get_shard_overlay_actor(shard_prefix(dst, max_shard_pfx_len));
 }
 
 void FullNodeImpl::got_key_block_config(td::Ref<ConfigHolder> config) {
@@ -723,6 +884,13 @@ void FullNodeImpl::update_plumtree_stats_collector() {
 void FullNodeImpl::alarm() {
   alarm_timestamp() = td::Timestamp::never();
   schedule_plumtree_stats_exchange();
+  if (sync_completed_at_ && sync_completed_at_.is_in_past()) {
+    if (sync_promise_) {
+      sync_promise_.set_value(td::Unit());
+    }
+    sync_completed_at_ = td::Timestamp::never();
+  }
+  alarm_timestamp().relax(sync_completed_at_);
 }
 
 void FullNodeImpl::schedule_plumtree_stats_exchange() {
@@ -801,8 +969,24 @@ void FullNodeImpl::start_plumtree_stats_exchange() {
   }
 }
 
+td::actor::Task<td::BufferSlice> FullNodeImpl::handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
+                                                            QuerySource source) {
+  switch (source) {
+    case QuerySource::public_overlay:
+      return query_handler_public_.handle_query(std::move(query), src, source);
+    case QuerySource::fast_sync_overlay:
+      return query_handler_fast_sync_.handle_query(std::move(query), src, source);
+    case QuerySource::custom_overlay:
+      return query_handler_custom_.handle_query(std::move(query), src, source);
+    default:
+      UNREACHABLE();  // full-node master queries are processed in FullNodeMaster actor
+  }
+}
+
 void FullNodeImpl::start_up() {
-  update_shard_actor(ShardIdFull{masterchainId}, true, false);
+  if (client_.empty()) {
+    update_shard_actor(ShardIdFull{masterchainId}, true, false);
+  }
   if (local_id_.is_zero()) {
     if (adnl_id_.is_zero()) {
       auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
@@ -822,11 +1006,8 @@ void FullNodeImpl::start_up() {
       td::actor::send_closure(id_, &FullNodeImpl::on_new_masterchain_block, std::move(state),
                               std::move(shards_to_monitor));
     }
-    void send_ihr_message(AccountIdPrefixFull dst, td::BufferSlice data) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_ihr_message, dst, std::move(data));
-    }
     void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_ext_message, dst, std::move(data));
+      td::actor::ask(id_, &FullNodeImpl::send_ext_message, dst, std::move(data)).detach("send_ext_message");
     }
     void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_shard_block_info, block_id, cc_seqno, std::move(data));
@@ -881,8 +1062,7 @@ void FullNodeImpl::start_up() {
     void download_out_msg_queue_proof(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                       block::ImportedMsgQueueLimits limits, td::Timestamp timeout,
                                       td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override {
-      td::actor::send_closure(id_, &FullNodeImpl::download_out_msg_queue_proof, dst_shard, std::move(blocks), limits,
-                              timeout, std::move(promise));
+      promise.set_error(td::Status::Error("not implemented"));
     }
 
     void new_key_block(BlockHandle handle) override {
@@ -1032,7 +1212,9 @@ FullNodeImpl::FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id
     , db_root_(db_root)
     , started_promise_(std::move(started_promise))
     , opts_(opts)
-    , limiter_(make_limiter(opts)) {
+    , query_handler_public_(validator_manager, make_rate_limiter(opts.rate_limit_public_))
+    , query_handler_fast_sync_(validator_manager, make_rate_limiter(opts.rate_limit_fast_sync_))
+    , query_handler_custom_(validator_manager, make_rate_limiter(opts.rate_limit_custom_)) {
 }
 
 td::actor::ActorOwn<FullNode> FullNode::create(
@@ -1071,35 +1253,38 @@ CustomOverlayParams CustomOverlayParams::fetch(const ton_api::engine_validator_c
     if (node->block_sender_) {
       c.block_senders_.emplace(node->adnl_id_);
     }
+    if (node->accept_queries_) {
+      c.accept_queries_.emplace(node->adnl_id_);
+    }
   }
   for (const auto &shard : f.sender_shards_) {
     c.sender_shards_.push_back(create_shard_id(shard));
   }
   c.skip_public_msg_send_ = f.skip_public_msg_send_;
   c.use_quic_ = f.use_quic_;
+  c.send_queries_ = f.send_queries_;
   return c;
 }
 
-decltype(FullNodeImpl::limiter_) FullNodeImpl::make_limiter(const FullNodeOptions &opts) {
-  double w_size = opts.ratelimit_window_size_;
-  size_t h_limit = opts.ratelimit_heavy_;
-  size_t m_limit = opts.ratelimit_medium_;
-  size_t g_limit = opts.ratelimit_global_;
+std::shared_ptr<RateLimiter<>> FullNodeImpl::make_rate_limiter(const FullNodeOptions::RateLimiterParams &params) {
+  double w_size = params.window_size_;
   return std::make_shared<RateLimiter<>>(
-      RateLimit{w_size, g_limit},
-      std::map<int32_t, RateLimit>{{ton_api::tonNode_getArchiveSlice::ID, {w_size, h_limit}},
-                                   {ton_api::tonNode_downloadPersistentStateSliceV2::ID, {w_size, h_limit}},
-                                   {ton_api::tonNode_downloadZeroState::ID, {w_size, h_limit}},
-
-                                   {ton_api::tonNode_downloadBlock::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadBlockFull::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadNextBlockFull::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadNextBlocksFull::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadBlockProof::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadBlockProofLink::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadKeyBlockProof::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_downloadKeyBlockProofLink::ID, {w_size, m_limit}},
-                                   {ton_api::tonNode_getOutMsgQueueProof::ID, {w_size, m_limit}}});
+      RateLimit{w_size, params.limit_global_}, RateLimit{w_size, params.limit_heavy_},
+      std::set{ton_api::tonNode_getArchiveSlice::ID, ton_api::tonNode_downloadPersistentStateSliceV2::ID,
+               ton_api::tonNode_downloadZeroState::ID},
+      RateLimit{w_size, params.limit_medium_},
+      std::set{ton_api::tonNode_downloadBlock::ID, ton_api::tonNode_downloadBlockFull::ID,
+               ton_api::tonNode_downloadNextBlockFull::ID, ton_api::tonNode_downloadNextBlocksFull::ID,
+               ton_api::tonNode_downloadBlockProof::ID, ton_api::tonNode_downloadBlockProofLink::ID,
+               ton_api::tonNode_downloadKeyBlockProof::ID, ton_api::tonNode_downloadKeyBlockProofLink::ID,
+               ton_api::tonNode_getOutMsgQueueProof::ID},
+      RateLimit{w_size, params.limit_small_},
+      std::set{ton_api::tonNode_getNextBlockDescription::ID, ton_api::tonNode_getNextBlocksDescription::ID,
+               ton_api::tonNode_prepareBlockProof::ID, ton_api::tonNode_prepareKeyBlockProof::ID,
+               ton_api::tonNode_prepareBlock::ID, ton_api::tonNode_prepareZeroState::ID,
+               ton_api::tonNode_getNextKeyBlockIds::ID, ton_api::tonNode_getArchiveInfo::ID,
+               ton_api::tonNode_getShardArchiveInfo::ID, ton_api::tonNode_preparePersistentState::ID,
+               ton_api::tonNode_getPersistentStateSizeV2::ID});
 }
 
 }  // namespace fullnode

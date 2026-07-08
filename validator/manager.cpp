@@ -499,9 +499,6 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_query_cont(td::Ref<
   co_return td::Unit{};
 }
 
-void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
-}
-
 void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                                  td::BufferSlice data) {
   if (!last_masterchain_block_handle_ || !started_) {
@@ -1303,9 +1300,6 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::install_collator_queue, shard, std::move(callback));
 }
 
-void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) {
-}
-
 void ValidatorManagerImpl::get_shard_blocks_for_collator(
     BlockIdExt masterchain_block_id, td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) {
   std::vector<td::Ref<ShardTopBlockDescription>> v;
@@ -1330,10 +1324,6 @@ void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle,
   }
   td::actor::send_closure(applied_ext_message_cleanup_actor_, &AppliedExtMessageCleanupActor::cleanup_applied_block,
                           std::move(handle), std::move(block));
-}
-
-void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
-                                                 std::vector<IhrMessage::Hash> to_delete) {
 }
 
 void ValidatorManagerImpl::get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
@@ -1987,9 +1977,6 @@ void ValidatorManagerImpl::send_get_block_proof_link_request(BlockIdExt block_id
 void ValidatorManagerImpl::send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                                             td::Promise<std::vector<BlockIdExt>> promise) {
   callback_->get_next_key_blocks(block_id, td::Timestamp::in(10.0), std::move(promise));
-}
-
-void ValidatorManagerImpl::send_ihr_message(td::Ref<IhrMessage> message) {
 }
 
 void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
