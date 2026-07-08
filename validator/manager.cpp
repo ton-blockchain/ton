@@ -2017,6 +2017,7 @@ void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast, int mo
 }
 
 void ValidatorManagerImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
+  new_block_finality_broadcast(finality.clone(), BroadcastSource::consensus_overlay).start().detach();
   callback_->send_block_finality_broadcast(std::move(finality), mode);
 }
 
