@@ -136,7 +136,8 @@ struct BlockReceiveStats {
       case BroadcastSource::custom_overlay:
         return BlockSource::candidate_finality_custom;
       case BroadcastSource::consensus_overlay:
-        break;
+        // This happens when we get block finality directly from consensus
+        return BlockSource::block_accepted;
     }
     UNREACHABLE();
   }
