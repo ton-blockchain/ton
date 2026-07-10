@@ -2284,7 +2284,9 @@ void ValidatorEngine::start_rldp() {
   auto peer_table = td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl_.get());
   CHECK(!peer_table.empty());
   CHECK(!keyring_.empty());
-  quic_ = td::actor::create_actor<ton::quic::QuicSender>("QuicSender", peer_table, keyring_.get());
+  LOG(INFO) << "QUIC flood limits: " << quic_flood_limits_;
+  quic_ = td::actor::create_actor<ton::quic::QuicSender>("QuicSender", peer_table, keyring_.get(), quic_options_,
+                                                         quic_flood_limits_);
   td::actor::send_closure(quic_.get(), &ton::quic::QuicSender::set_quic_options, quic_options_);
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_.get(),
                           &ton::quic::QuicSender::collect);
@@ -6204,8 +6206,7 @@ int main(int argc, char *argv[]) {
       '\0', "quic-flood-control", "per-IP limit for QUIC connections (-1 to disable)", [&](td::Slice arg) {
         TRY_RESULT(l, td::to_integer_safe<int64_t>(arg));
         acts.push_back([&, l = l >= 0 ? std::optional<size_t>{l} : std::optional<size_t>{std::nullopt}] {
-          td::actor::send_closure(x, &ValidatorEngine::set_quic_options,
-                                  ton::quic::QuicServer::Options{.flood_control = l});
+          td::actor::send_closure(x, &ValidatorEngine::set_quic_flood_control, l);
         });
         return td::Status::OK();
       });

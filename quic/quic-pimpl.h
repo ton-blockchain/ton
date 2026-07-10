@@ -21,6 +21,7 @@
 
 #include "openssl-utils.h"
 #include "quic-common.h"
+#include "quic-ingress-shaper.h"
 
 namespace ton::quic {
 
@@ -46,6 +47,7 @@ struct QuicConnectionOptions {
   static constexpr size_t DEFAULT_MAX_STREAMS_BIDI = 1024;
   static constexpr ngtcp2_duration DEFAULT_IDLE_TIMEOUT = 15 * NGTCP2_SECONDS;
   static constexpr ngtcp2_duration DEFAULT_KEEP_ALIVE_TIMEOUT = 5 * NGTCP2_SECONDS;
+  static constexpr ngtcp2_duration DEFAULT_HANDSHAKE_TIMEOUT = 5 * NGTCP2_SECONDS;
 
   size_t initial_max_data = DEFAULT_INITIAL_MAX_DATA;
   size_t max_window = DEFAULT_MAX_WINDOW;
@@ -53,8 +55,10 @@ struct QuicConnectionOptions {
   size_t initial_max_stream_data_bidi_remote = DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE;
   size_t max_stream_window = DEFAULT_MAX_STREAM_WINDOW;
   size_t max_streams_bidi = DEFAULT_MAX_STREAMS_BIDI;
+  size_t max_outbound_buffered_bytes = 0;  // reject buffer_stream past this (0 = disabled)
   ngtcp2_duration idle_timeout = DEFAULT_IDLE_TIMEOUT;
   ngtcp2_duration keep_alive_timeout = DEFAULT_KEEP_ALIVE_TIMEOUT;
+  ngtcp2_duration handshake_timeout = DEFAULT_HANDSHAKE_TIMEOUT;
   CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
 };
 
@@ -193,12 +197,36 @@ struct QuicConnectionPImpl {
 
   void shutdown_stream(QuicStreamID sid);
   void set_stream_receive_credit_from_max_size(QuicStreamID sid, td::uint64 max_size);
+  // Enforce the outbound-buffered cap (untrusted + trusted); when cleared (our own outbound) the
+  // cap only logs so a legitimate large answer is never dropped.
+  void set_outbound_cap_enforced(bool enforced) {
+    enforce_outbound_cap_ = enforced;
+  }
+  // The buffered-egress ceiling: untrusted uses the per-connection budget, trusted a larger one.
+  void set_outbound_buffered_cap(td::uint64 cap) {
+    options_.max_outbound_buffered_bytes = cap;
+  }
+  // A deliberate application-level close (eviction, policy shed) carrying our protocol's close
+  // code and a short diagnostic reason; close_out is left empty when ngtcp2 has nothing to send.
+  void write_application_close(UdpMessageBuffer& close_out, td::uint64 code, td::Slice reason);
+
+  // Aggregate ingress shaping for untrusted inbound connections (connection-level MAX_DATA only;
+  // per-stream credit is untouched). start on creation, stop on trust upgrade (dumps accrued
+  // debt as an immediate offset extension). The server serves accrued debt via grant_ingress —
+  // inline after ingress while nobody waits, else through its paced round-robin drain.
+  void start_ingress_shaping(IngressAggregate* aggregate);
+  void stop_ingress_shaping();
+  td::uint64 grant_ingress(td::Timestamp now, td::uint64 cap);
+  td::uint64 ingress_debt() const;
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream();
   [[nodiscard]] td::Status buffer_stream(QuicStreamID sid, td::BufferSlice data, bool fin);
   [[nodiscard]] ngtcp2_conn_info get_conn_info() const;
   [[nodiscard]] size_t get_last_packet_streams() const {
     return last_packet_streams_;
+  }
+  [[nodiscard]] size_t outbound_buffered() const {
+    return outbound_buffered_;
   }
 
   ~QuicConnectionPImpl() {
@@ -246,6 +274,9 @@ struct QuicConnectionPImpl {
   QuicStreamID write_sid_ = -1;
   std::vector<ngtcp2_vec> write_datav_;
   size_t last_packet_streams_ = 0;
+  size_t outbound_buffered_ = 0;      // appended, not yet acked (Σ pin_.size())
+  bool enforce_outbound_cap_ = true;  // cleared once the connection is trusted / our own outbound
+  IngressShaper ingress_shaper_;      // shapes connection-level MAX_DATA for untrusted inbound conns
 
   ngtcp2_conn* conn() const {
     CHECK(conn_);
@@ -283,6 +314,7 @@ struct QuicConnectionPImpl {
 
   void commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size, const ngtcp2_path& path);
   void write_connection_close(UdpMessageBuffer& close_out, int liberr);
+  void write_connection_close(UdpMessageBuffer& close_out, const ngtcp2_ccerr& err);
   void prepare_stream_write(QuicStreamID sid, bool padding, StreamWriteContext& ctx, std::vector<ngtcp2_vec>& datav);
   void finish_stream_write(QuicStreamID sid, const StreamWriteContext& ctx, ngtcp2_ssize pdatalen);
   void start_batch();

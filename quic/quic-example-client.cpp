@@ -24,17 +24,19 @@ class QuicTester : public td::actor::Actor {
       return td::Status::OK();
     }
 
-    td::Status on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,
-                         bool is_end) override {
+    void on_message(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid,
+                    td::Result<td::BufferSlice> message) override {
+      if (message.is_error()) {
+        LOG(ERROR) << "stream " << sid << " failed: " << message.error();
+        return;
+      }
+      auto data = message.move_as_ok();
       LOG(INFO) << "received " << data.size() << " bytes on stream " << sid;
       std::cout.write(data.data(), static_cast<std::streamsize>(data.size()));
       std::cout.flush();
 
-      if (is_end) {
-        LOG(INFO) << "stream " << sid << " ended";
-        td::actor::send_closure(tester_, &QuicTester::on_response_complete);
-      }
-      return td::Status::OK();
+      LOG(INFO) << "stream " << sid << " ended";
+      td::actor::send_closure(tester_, &QuicTester::on_response_complete);
     }
 
     void on_closed(ton::quic::QuicConnectionId cid) override {

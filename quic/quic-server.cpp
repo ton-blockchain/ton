@@ -3,6 +3,7 @@
 
 #include "td/actor/actor.h"
 #include "td/utils/Timer.h"
+#include "td/utils/algorithm.h"
 
 #include "quic-pimpl.h"
 #include "quic-server.h"
@@ -29,28 +30,34 @@ td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, std::un
 
 td::Result<td::actor::ActorOwn<QuicServer>> QuicServer::create(int port, std::unique_ptr<Callback> callback,
                                                                td::uint64 default_mtu, ServerIdentity identity,
-                                                               td::Slice alpn, td::Slice bind_host, Options options) {
+                                                               td::Slice alpn, td::Slice bind_host, Options options,
+                                                               FloodLimits flood_limits) {
   CHECK(callback);
   td::IPAddress local_addr;
   TRY_STATUS(local_addr.init_host_port(bind_host.str(), port));
+  // Bind IPv4 only, so we never accept IPv6 peers: our per-IP flood tables (rate limiters,
+  // half-open/connection caps, discourage) are keyed by address, and a peer with an IPv6 /64 could
+  // rotate addresses to defeat every per-IP cap. Refusing the v6 bind is what keeps every peer
+  // address IPv4 (an AF_INET socket can't receive v6) — until we aggregate per-IP caps by /64 prefix.
+  if (!local_addr.is_ipv4()) {
+    return td::Status::Error(PSLICE() << "QuicServer refuses non-IPv4 bind address " << bind_host);
+  }
 
   TRY_RESULT(fd, td::UdpSocketFd::open(local_addr));
 
   auto name = PSTRING() << "QUIC:" << local_addr;
   return td::actor::create_actor<QuicServer>(td::actor::ActorOptions().with_name(name).with_poll(true), std::move(fd),
                                              default_mtu, std::move(identity), td::BufferSlice(alpn),
-                                             std::move(callback), options);
+                                             std::move(callback), options, flood_limits);
 }
 
 QuicServer::QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, ServerIdentity identity, td::BufferSlice alpn,
-                       std::unique_ptr<Callback> callback, Options options)
+                       std::unique_ptr<Callback> callback, Options options, FloodLimits flood_limits)
     : fd_(std::move(fd))
     , alpn_(std::move(alpn))
     , identities_(td::make_ref<ServerIdentities>())
     , options_(options)
-    , conn_rate_limiters_(options.new_connection_rate_limit_capacity, options.new_connection_rate_limit_period)
-    , global_conn_rate_limiter_(options.global_new_connection_rate_limit_capacity,
-                                options.global_new_connection_rate_limit_period)
+    , guard_(flood_limits, *this)
     , gso_enabled_(options.enable_gso && td::UdpSocketFd::is_gso_supported())
     , callback_(std::move(callback)) {
   auto local_id = identity.local_id;
@@ -99,10 +106,16 @@ void QuicServer::hangup_shared() {
   LOG(ERROR) << "unexpected hangup_shared signal";
 }
 
+std::deque<QuicConnectionId> &QuicServer::active_queue_for(const ConnectionState &state) {
+  // Our own outbound dials are trusted-class from creation (is_outbound is stamped before the
+  // handshake); inbound is untrusted until the handshake proves trust — the safe default.
+  return (state.peer_info.trusted || state.is_outbound) ? active_trusted_ : active_untrusted_;
+}
+
 void QuicServer::on_connection_updated(ConnectionState &state) {
   if (!state.in_active_queue) {
     state.in_active_queue = true;
-    active_connections_.push_back(state.cid);
+    active_queue_for(state).push_back(state.cid);
   }
 
   double key = state.impl().get_expiry_timestamp().at();
@@ -199,43 +212,16 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::install_con
   return state;
 }
 
-td::Status QuicServer::ensure_flood_allowed(const std::string &flood_addr) {
-  if (!options_.flood_control.has_value()) {
-    return td::Status::OK();
-  }
-  if (auto it = flood_map_.find(flood_addr); it != flood_map_.end() && it->second >= *options_.flood_control) {
-    return td::Status::Error("flood control overflow");
-  }
-  TRY_STATUS(conn_rate_limiters_.take_new_connection(flood_addr));
-  if (!global_conn_rate_limiter_.take()) {
-    return td::Status::Error("global new connection rate limit exceeded");
-  }
-  return td::Status::OK();
-}
-
-void QuicServer::flood_on_inbound_connection_created(const std::string &flood_addr) {
-  if (!options_.flood_control.has_value()) {
-    return;
-  }
-  flood_map_[flood_addr]++;
-}
-
-void QuicServer::flood_on_inbound_connection_closed(const std::string &flood_addr) {
-  if (!options_.flood_control.has_value()) {
-    return;
-  }
-  auto it = flood_map_.find(flood_addr);
-  if (it == flood_map_.end()) {
-    return;
-  }
-  if (--it->second == 0) {
-    flood_map_.erase(it);
-  }
-}
-
 QuicConnectionOptions QuicServer::build_connection_options() const {
+  const auto &limits = guard_.limits();
   QuicConnectionOptions conn_options;
   conn_options.cc_algo = options_.cc_algo;
+  // One limit bounds buffered bytes in both directions: our unacked egress is capped at the same
+  // per-connection budget as inbound reassembly. Enforced on untrusted, log-only otherwise.
+  conn_options.max_outbound_buffered_bytes = limits.max_connection_buffered;
+  conn_options.handshake_timeout = limits.handshake_deadline > 0
+                                       ? static_cast<ngtcp2_duration>(limits.handshake_deadline * NGTCP2_SECONDS)
+                                       : std::numeric_limits<ngtcp2_duration>::max();
   if (options_.max_streams_bidi.has_value()) {
     conn_options.max_streams_bidi = *options_.max_streams_bidi;
   }
@@ -263,6 +249,12 @@ td::Result<std::optional<ServerInitialInfo>> QuicServer::prepare_server_initial_
   }
 
   if (initial_packet.token.empty()) {
+    // Stage-A overload valve: under global saturation, drop instead of inviting a handshake we can't
+    // admit. This only peeks the global limiter (the src IP is unproven here, so nothing is spent);
+    // a Retry is amplification-safe, so absent saturation we always answer with one.
+    if (!guard_.accepting_handshakes()) {
+      return std::optional<ServerInitialInfo>{};
+    }
     TRY_STATUS(send_retry(initial_packet, remote_address));
     return std::optional<ServerInitialInfo>{};
   }
@@ -317,7 +309,6 @@ td::Status QuicServer::send_stateless_datagram(td::Slice packet_kind, const td::
   }
   if (!is_sent) {
     LOG(DEBUG) << "dropping stateless " << packet_kind << " to " << remote_address << ": send_message blocked";
-    return td::Status::OK();
   }
   return td::Status::OK();
 }
@@ -367,6 +358,61 @@ td::Status QuicServer::send_invalid_token_connection_close(const VersionCid &pac
       td::Slice(reinterpret_cast<const char *>(datagram.data()), static_cast<size_t>(datagram_size)));
 }
 
+// Fail the peer fast on a close it did not initiate: without a CONNECTION_CLOSE it would keep
+// using the connection until its own timeouts fire.
+void QuicServer::send_close_notice(ConnectionState &state, CloseCode code) {
+  std::array<char, NGTCP2_MAX_UDP_PAYLOAD_SIZE> close_buffer;
+  UdpMessageBuffer close_msg;
+  close_msg.storage = td::MutableSlice(close_buffer.data(), close_buffer.size());
+  state.impl().write_application_close(close_msg, static_cast<td::uint64>(code), close_code_name(code));
+  send_connection_close(state, close_msg);  // no-op when empty
+}
+
+// ---- FloodGuard::Host: the transport seam the guard drives, mapping verdicts onto existing code.
+void QuicServer::drop_connection(QuicConnectionId cid, CloseCode code) {
+  auto state = find_connection(cid);
+  if (!state) {
+    return;
+  }
+  send_close_notice(*state, code);
+  on_connection_closed(cid);
+}
+
+void QuicServer::reset_stream(QuicConnectionId cid, QuicStreamID sid) {
+  shutdown_stream(cid, sid);
+}
+
+void QuicServer::deliver(QuicConnectionId cid, QuicStreamID sid, td::Result<td::BufferSlice> message) {
+  callback_->on_message(cid, sid, std::move(message));
+}
+
+void QuicServer::configure(QuicConnectionId cid, FloodGuard::TransportCaps caps) {
+  auto state = find_connection(cid);
+  if (!state) {
+    return;
+  }
+  state->impl().set_outbound_buffered_cap(caps.egress_cap);
+  state->impl().set_outbound_cap_enforced(caps.egress_enforced);
+  if (caps.shape_ingress) {
+    state->impl().start_ingress_shaping(&guard_.ingress_aggregate());
+  } else {
+    state->impl().stop_ingress_shaping();  // dumps accrued debt as an immediate offset extension
+  }
+  on_connection_updated(*state);  // flush any resulting MAX_DATA change
+}
+
+FloodGuard::IngressGrant QuicServer::grant_ingress(QuicConnectionId cid, td::Timestamp now, td::uint64 cap) {
+  auto state = find_connection(cid);
+  if (!state) {
+    return {0, 0};  // gone == fully served
+  }
+  auto granted = state->impl().grant_ingress(now, cap);
+  if (granted) {
+    on_connection_updated(*state);
+  }
+  return {granted, state->impl().ingress_debt()};
+}
+
 void QuicServer::send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg) {
   if (msg.storage.empty()) {
     return;
@@ -411,13 +457,13 @@ bool QuicServer::handle_expiry(ConnectionState &state) {
       return true;
     case QuicConnectionPImpl::ExpiryAction::Close:
       LOG(INFO) << "expiry Close for " << state.remote_address;
-      on_connection_updated(state);  // should we?..
-      return true;
+      return true;  // erase_pending_connections tears it down and sends the close notice
   }
   return true;
 }
 
 void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
+  guard_.on_stream_finished(cid, sid);  // the app's last word on it (release the in-flight charge)
   auto state = find_connection(cid);
   if (!state) {
     return;
@@ -445,11 +491,9 @@ void QuicServer::on_connection_closed(QuicConnectionId cid) {
   auto state = it->second;
   LOG(INFO) << "Close connection: " << *state;
   unbind_all_cids(*state);
+  guard_.on_connection_closed(cid);  // releases the guard's flood bookkeeping; idempotent
   if (state->in_heap()) {
     timeout_heap_.erase(state.get());
-  }
-  if (!state->is_outbound) {
-    flood_on_inbound_connection_closed(state->remote_address.get_ip_host());
   }
   if (auto local_it = conns_by_peer_.find(state->local_id); local_it != conns_by_peer_.end()) {
     if (auto peer_it = local_it->second.find(state->peer_id); peer_it != local_it->second.end()) {
@@ -466,6 +510,15 @@ void QuicServer::on_connection_closed(QuicConnectionId cid) {
   callback_->on_closed(cid);
 }
 
+void QuicServer::close_connection(QuicConnectionId cid, CloseCode code) {
+  guard_.close_connection(cid, code);  // records the discourage verdict, then drops via Host::drop_connection
+}
+
+void QuicServer::set_reserved_only(bool reserved_only) {
+  guard_.set_reserved_only(reserved_only);
+  alarm_timestamp() = td::Timestamp::now();  // drain the queued connection shutdowns on the next tick
+}
+
 void QuicServer::alarm() {
   loop();
 }
@@ -478,21 +531,18 @@ void QuicServer::handle_timeouts() {
     }
   }
 
-  StreamShutdownList shutdown;
-  callback_->loop(td::Timestamp::now(), shutdown);
-  for (auto &e : shutdown.entries) {
-    shutdown_stream(e.cid, e.sid);
-  }
-
   {
     td::PerfWarningTimer w("cleanup_conn_rate_limiters", 0.1);
-    conn_rate_limiters_.cleanup();
+    guard_.tick(td::Timestamp::now());  // stream deadlines, queued closes, evictions, limiter cleanup
   }
 }
 
 void QuicServer::erase_pending_connections() {
   for (auto cid : to_erase_connections_) {
-    on_connection_closed(cid);
+    if (auto state = find_connection(cid)) {
+      send_close_notice(*state, CloseCode::ok);
+      on_connection_closed(cid);
+    }
   }
   to_erase_connections_.clear();
 }
@@ -551,6 +601,10 @@ td::Status QuicServer::on_handshake_completed(QuicConnectionId cid, td::Slice lo
   state->local_id = local_id;
   state->peer_id = peer_id;
   state->peer_info = resolve_peer_info(local_id, peer_id);
+  // Classify into the trust class (egress cap, ingress shaping) and leave the half-open tables. A
+  // reserved-only refusal returns an error the caller routes through the failed-handshake teardown
+  // (a non-discouraging ok-close), without announcing the connection to the application.
+  TRY_STATUS(guard_.on_handshake_done(cid, state->peer_info.trusted, state->peer_info.mtu));
   conns_by_peer_[local_id][peer_id].insert(state->cid);
   return callback_->on_connected(cid, local_id, peer_id, is_outbound, state->peer_info);
 }
@@ -572,6 +626,7 @@ void QuicServer::refresh_peer_info(ConnectionState &state) {
     return;
   }
   state.peer_info = info;
+  guard_.on_peer_info_updated(state.cid, info.trusted, info.mtu);  // re-cap, re/un-shape on a trust flip
   callback_->on_peer_info_updated(state.cid, info);
 }
 
@@ -626,6 +681,7 @@ void QuicServer::loop() {
   td::sync_with_poll(fd_);
   handle_timeouts();
   drain_ingress();
+  guard_.drain_shaper(td::Timestamp::now());  // internally paced: a no-op before the drain tick
   flush_egress();
   erase_pending_connections();
   update_alarm();
@@ -661,10 +717,13 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   }
 
   td::Status on_stream_data(StreamDataEvent event) override {
-    return callback_.on_stream(cid_, event.sid, std::move(event.data), event.fin);
+    // The guard reassembles and flood-accounts; an error resets only this stream (never the
+    // connection), and the failure has already been delivered to the app via Host::deliver.
+    return server_.guard_.on_stream_data(cid_, event.sid, std::move(event.data), event.fin);
   }
   void on_stream_closed(QuicStreamID sid) override {
-    return callback_.on_stream_closed(cid_, sid);
+    server_.guard_.on_stream_closed(cid_, sid);  // churn / orphan re-homing
+    callback_.on_stream_closed(cid_, sid);
   }
 
  private:
@@ -694,18 +753,30 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
 
   TRY_RESULT(initial_packet, VersionCid::from_initial_datagram(td::Slice(msg_in.storage)));
 
-  auto flood_addr = msg_in.address.get_ip_host();
-  TRY_STATUS(ensure_flood_allowed(flood_addr));
-
+  // Stage A — prove the source IP before spending any counted budget. A tokenless Initial draws
+  // only a stateless Retry (or, under global overload, a silent drop); the retry token is bound to
+  // the address, so a peer that echoes it back has proven its IP. Nothing per-IP is consulted or
+  // consumed here — a spoofed src address cannot drain another peer's rate/discourage budget.
   TRY_RESULT(initial_info, prepare_server_initial_info(initial_packet, msg_in.address));
   if (!initial_info.has_value()) {
     return std::shared_ptr<ConnectionState>{};
   }
 
+  // Stage B — the IP is proven (valid retry token, or stateless retry disabled): now the per-IP
+  // rate limiter, flood control, discourage throttle and per-IP half-open cap may spend budget.
+  auto flood_addr = msg_in.address.get_ip_host();
+  TRY_STATUS(guard_.admit(flood_addr));
+
   // Create new connection to handle unknown inbound message
   TRY_RESULT(local_address, fd_.get_local_address());
 
   auto conn_options = build_connection_options();
+  // The window is left auto-tuning (not pinned): the shaper bounds the *sustained* ingress rate by
+  // pacing connection-level MAX_DATA offset extension, independent of window size. Auto-tuning only
+  // fires in reaction to the credit we already granted, and the extra headroom it can inject over a
+  // connection's whole life is bounded by max_window - initial_max_data — a one-time burst, not a
+  // rate leak. Pinning the window to initial_max_data would have capped every inbound connection
+  // (trusted included, since trust is unknown here) at ~initial_max_data per RTT.
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
   auto identities = identities_;
   TRY_RESULT(p_impl,
@@ -713,7 +784,10 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
                                                 *initial_info, std::move(pimpl_callback), conn_options));
   TRY_RESULT(state, install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid));
 
-  flood_on_inbound_connection_created(flood_addr);
+  // Register the half-open connection (per-IP + FIFO count, live-per-IP count, discourage throttle
+  // slot), start ingress shaping and evict the oldest half-open past the global cap. Shaping covers
+  // the pre-handshake window; a trust upgrade unshapes it in on_handshake_completed.
+  guard_.on_inbound_created(state->cid, flood_addr);
 
   return state;
 }
@@ -738,6 +812,7 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn, sni,
                                                         std::move(pimpl_callback), conn_options));
   TRY_RESULT(state, install_connection(std::move(p_impl), remote_address, true, std::nullopt));
+  guard_.on_outbound_created(state->cid);  // never pooled/shaped; egress cap stays log-only
 
   on_connection_updated(*state);
   return QuicConnectionId(state->cid);
@@ -764,7 +839,7 @@ void QuicServer::drain_ingress() {
                              cnt, ingress_data_buffers);
     if (cnt == 0) {
       if (status.is_error()) {
-        LOG(ERROR) << "failed to drain incoming traffic: " << status;
+        LOG_EVERY(ERROR) << "failed to drain incoming traffic: " << status;
       }
       break;
     }
@@ -814,7 +889,11 @@ void QuicServer::drain_ingress() {
         ingress_stats_.packets++;
         auto R = get_or_create_connection(packet);
         if (R.is_error()) {
-          LOG(WARNING) << "dropping inbound packet from " << packet.address << ": " << R.error();
+          ++inbound_drop_log_counter_;
+          if (inbound_drop_log_counter_ % kInboundDropLogEvery == 1) {
+            LOG(WARNING) << "dropping inbound packet from " << packet.address << ": " << R.error() << " (sample "
+                         << inbound_drop_log_counter_ << ")";
+          }
           return;
         }
         auto state = R.move_as_ok();
@@ -827,12 +906,18 @@ void QuicServer::drain_ingress() {
         auto handle_status = state->impl().handle_ingress(packet, close_msg);
         if (handle_status.is_ok()) {
           on_connection_updated(*state);
+          // Queue/dequeue this connection in the shaper drain by its accrued debt (grants happen
+          // only in the paced drain, so every grant is subject to the fair-share cap).
+          guard_.on_ingress_debt(state->cid, state->impl().ingress_debt());
           return;
         }
-        // Fatal errors are local/system faults (OOM, internal callback failure) worth a warning; everything
+        // Fatal errors are local/system faults (OOM, internal callback failure) worth a warning; a
+        // deliberate CONNECTION_CLOSE carries the peer's close code and is worth INFO; everything
         // else is peer-induced (rejected/bad handshake, unknown SNI, protocol violation) and routine.
         if (ngtcp2_err_is_fatal(handle_status.code())) {
           LOG(WARNING) << "failed to handle ingress from " << *state << ": " << handle_status;
+        } else if (handle_status.code() == NGTCP2_ERR_DRAINING) {
+          LOG(INFO) << "closing connection after ingress from " << *state << ": " << handle_status;
         } else {
           LOG(DEBUG) << "closing connection after ingress from " << *state << ": " << handle_status;
         }
@@ -905,9 +990,15 @@ bool QuicServer::produce_next_egress(size_t batch_index) {
   const size_t max_packets = gso_enabled_ ? kMaxBurst : 1;
   const size_t max_buf = DEFAULT_MTU * max_packets;
 
-  while (!active_connections_.empty()) {
-    auto cid = active_connections_.front();
-    active_connections_.pop_front();
+  while (!active_trusted_.empty() || !active_untrusted_.empty()) {
+    // Prefer trusted, but serve untrusted-first on the picker's anti-starvation pick; fall back to
+    // the other class when the preferred one is empty (work-conserving).
+    bool prefer_untrusted = picker_.prefer_untrusted();
+    auto &primary = prefer_untrusted ? active_untrusted_ : active_trusted_;
+    auto &fallback = prefer_untrusted ? active_trusted_ : active_untrusted_;
+    auto &queue = primary.empty() ? fallback : primary;
+    auto cid = queue.front();
+    queue.pop_front();
 
     auto conn = find_connection(cid);
     if (!conn) {
@@ -927,6 +1018,10 @@ bool QuicServer::produce_next_egress(size_t batch_index) {
     if (batch.storage.empty()) {
       continue;  // no data, connection stays out of queue
     }
+    picker_.on_served();  // advance only on a served pick, so skips don't skew the ratio
+    if (!conn->peer_info.trusted && !conn->is_outbound) {
+      guard_.note_activity(cid);  // egress keeps a long untrusted answer off the inactivity sweep
+    }
     on_connection_updated(*conn);
 
     egress_batch_owners_[batch_index] = conn;
@@ -943,11 +1038,11 @@ void QuicServer::flush_egress() {
     return;  // still blocked
   }
 
-  auto active_count = active_connections_.size();
+  auto active_count = active_trusted_.size() + active_untrusted_.size();
   auto total_count = connections_.size();
 
   td::int64 bytes_budget = 10 << 20;
-  while (!active_connections_.empty() && bytes_budget > 0) {
+  while ((!active_trusted_.empty() || !active_untrusted_.empty()) && bytes_budget > 0) {
     size_t batch_count = 0;
     while (batch_count < kEgressBatch && produce_next_egress(batch_count)) {
       batch_count++;
@@ -1006,8 +1101,7 @@ void QuicServer::update_alarm() {
   if (!timeout_heap_.empty()) {
     alarm_ts = td::Timestamp::at(timeout_heap_.top_key());
   }
-  alarm_ts.relax(callback_->next_alarm());
-  alarm_ts.relax(conn_rate_limiters_.next_cleanup_at());
+  alarm_ts.relax(guard_.next_wakeup());
   alarm_timestamp() = alarm_ts;
 }
 
@@ -1025,25 +1119,38 @@ td::Result<QuicStreamID> QuicServer::open_stream(QuicConnectionId cid, StreamOpt
 
 td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                                  td::BufferSlice data, bool is_end) {
+  bool existing = std::holds_alternative<QuicStreamID>(stream);
   auto state = find_connection(cid);
   if (!state) {
+    if (existing) {
+      guard_.on_stream_finished(cid, std::get<QuicStreamID>(stream));  // the app's last word on it
+    }
     return td::Status::Error("Connection not found");
   }
 
   QuicStreamID sid;
-  if (auto *existing = std::get_if<QuicStreamID>(&stream)) {
-    sid = *existing;
+  if (existing) {
+    sid = std::get<QuicStreamID>(stream);
   } else {
     TRY_RESULT_ASSIGN(sid, state->impl().open_stream());
     auto &options = std::get<StreamOptions>(stream);
-    callback_->set_stream_options(cid, sid, options);
+    guard_.on_local_stream(cid, sid, options);
     if (options.max_size.has_value()) {
       state->impl().set_stream_receive_credit_from_max_size(sid, *options.max_size);
     }
   }
 
-  TRY_STATUS(state->impl().buffer_stream(sid, std::move(data), is_end));
+  auto status = state->impl().buffer_stream(sid, std::move(data), is_end);
+  if (status.is_error()) {
+    // Error contract: a failed send leaves no live stream behind. Reset it so it can't pin a
+    // max_streams credit or StreamState; resetting an already-gone stream is a no-op.
+    state->impl().shutdown_stream(sid);
+  }
+  if (existing && (is_end || status.is_error())) {
+    guard_.on_stream_finished(cid, sid);  // answered or reset: the app is done with the stream
+  }
   on_connection_updated(*state);
+  TRY_STATUS(std::move(status));
   return sid;
 }
 

@@ -27,13 +27,12 @@ class QuicHttpServer : public td::actor::Actor {
       return td::Status::OK();
     }
 
-    td::Status on_stream(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data,
-                         bool is_end) override {
-      td::actor::send_closure(server_, &QuicHttpServer::on_stream_data, cid, sid, std::move(data));
-      if (is_end) {
-        td::actor::send_closure(server_, &QuicHttpServer::on_stream_end, cid, sid);
+    void on_message(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid,
+                    td::Result<td::BufferSlice> message) override {
+      if (message.is_error()) {
+        return;  // the stream failed before a complete request arrived
       }
-      return td::Status::OK();
+      td::actor::send_closure(server_, &QuicHttpServer::on_request, cid, sid, message.move_as_ok());
     }
 
     void on_closed(ton::quic::QuicConnectionId cid) override {
@@ -82,26 +81,11 @@ class QuicHttpServer : public td::actor::Actor {
   }
 
   void on_closed(ton::quic::QuicConnectionId cid) {
-    request_buf_.erase(cid);
     LOG(INFO) << "connection closed";
   }
 
-  void on_stream_data(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data) {
-    auto &buf = request_buf_[cid][sid];
-    auto s = data.as_slice();
-    buf.append(s.data(), s.size());
-  }
-
-  void on_stream_end(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) {
-    auto it = request_buf_.find(cid);
-    std::string req;
-    if (it != request_buf_.end()) {
-      auto stream_it = it->second.find(sid);
-      if (stream_it != it->second.end()) {
-        req = std::move(stream_it->second);
-        it->second.erase(stream_it);
-      }
-    }
+  void on_request(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid, td::BufferSlice data) {
+    std::string req = data.as_slice().str();
 
     std::string first_line;
     if (!req.empty()) {
@@ -147,8 +131,6 @@ class QuicHttpServer : public td::actor::Actor {
   td::BufferSlice bind_host_;
 
   td::actor::ActorOwn<ton::quic::QuicServer> server_;
-
-  std::map<ton::quic::QuicConnectionId, std::map<ton::quic::QuicStreamID, std::string>> request_buf_;
 
   std::deque<std::string> responses_;
 };
