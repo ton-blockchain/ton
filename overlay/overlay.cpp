@@ -552,7 +552,8 @@ void OverlayImpl::update_peers_mtu() {
         peers.push_back(peer_id);
       }
     });
-    peers_mtu_guard_ = adnl::PeersMtuGuard{sender, local_id_, std::move(peers), mtu};
+    // Permanent members (over validator overlays, essentially the validator set) are trusted.
+    peers_mtu_guard_ = adnl::PeersMtuGuard{sender, local_id_, std::move(peers), mtu, /* trusted = */ true};
   }
 }
 
@@ -570,8 +571,10 @@ void OverlayImpl::set_plumtree_eager_mtu_peers(std::vector<adnl::AdnlNodeIdShort
       peers.end());
   std::sort(peers.begin(), peers.end());
   peers.erase(std::unique(peers.begin(), peers.end()), peers.end());
-  plumtree_eager_mtu_guard_ =
-      adnl::PeersMtuGuard{opts_.plumtree_broadcast_sender_, local_id_, std::move(peers), plumtree_payload_mtu()};
+  // Eager membership is remote-influenceable (any member is promoted by sending a payload
+  // part), so it grants only the large per-stream mtu, never trust.
+  plumtree_eager_mtu_guard_ = adnl::PeersMtuGuard{opts_.plumtree_broadcast_sender_, local_id_, std::move(peers),
+                                                  plumtree_payload_mtu(), /* trusted = */ false};
 }
 
 void OverlayImpl::set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort> neighbours) {

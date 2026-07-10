@@ -57,15 +57,6 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, ServerIdentit
   CHECK(identities_.write().add_identity(std::move(identity)));
   set_default_mtu(local_id, default_mtu);
   td::Random::secure_bytes(td::MutableSlice(retry_secret_.data(), retry_secret_.size()));
-  callback_->set_peer_mtu_callback([this](adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) {
-    if (auto it = peers_mtu_.find({local_id, peer_id}); it != peers_mtu_.end()) {
-      return it->second;
-    }
-    if (auto it = default_mtu_by_local_id_.find(local_id); it != default_mtu_by_local_id_.end()) {
-      return it->second;
-    }
-    return static_cast<td::uint64>(0);
-  });
   if (options.enable_gro) {
     auto gro_status = fd_.enable_gro();
     if (gro_status.is_ok()) {
@@ -460,6 +451,17 @@ void QuicServer::on_connection_closed(QuicConnectionId cid) {
   if (!state->is_outbound) {
     flood_on_inbound_connection_closed(state->remote_address.get_ip_host());
   }
+  if (auto local_it = conns_by_peer_.find(state->local_id); local_it != conns_by_peer_.end()) {
+    if (auto peer_it = local_it->second.find(state->peer_id); peer_it != local_it->second.end()) {
+      peer_it->second.erase(state->cid);
+      if (peer_it->second.empty()) {
+        local_it->second.erase(peer_it);
+      }
+      if (local_it->second.empty()) {
+        conns_by_peer_.erase(local_it);
+      }
+    }
+  }
   connections_.erase(it);
   callback_->on_closed(cid);
 }
@@ -514,13 +516,85 @@ void QuicServer::set_default_mtu(adnl::AdnlNodeIdShort local_id, td::uint64 mtu)
   } else {
     default_mtu_by_local_id_[local_id] = mtu;
   }
+  refresh_peer_infos(local_id, {});
 }
 
-void QuicServer::set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) {
+void QuicServer::set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu,
+                              bool trusted) {
   if (mtu == 0) {
     peers_mtu_.erase({local_id, peer_id});
   } else {
-    peers_mtu_[{local_id, peer_id}] = mtu;
+    peers_mtu_[{local_id, peer_id}] = {mtu, trusted};
+  }
+  refresh_peer_infos(local_id, peer_id);
+}
+
+static td::Result<adnl::AdnlNodeIdShort> adnl_short_id_from_public_key(td::Slice public_key) {
+  if (public_key.size() != 32) {
+    return td::Status::Error("public key must be 32 bytes");
+  }
+  td::Bits256 key_bits;
+  key_bits.as_slice().copy_from(public_key);
+  return adnl::AdnlNodeIdFull(PublicKey(pubkeys::Ed25519(key_bits))).compute_short_id();
+}
+
+// The handshake proved the keys: stamp the connection with its identity and the registry's
+// {mtu, trusted} for that path, then hand the connection to the application callback.
+td::Status QuicServer::on_handshake_completed(QuicConnectionId cid, td::Slice local_public_key,
+                                              td::Slice peer_public_key, bool is_outbound) {
+  TRY_RESULT(local_id, adnl_short_id_from_public_key(local_public_key));
+  TRY_RESULT(peer_id, adnl_short_id_from_public_key(peer_public_key));
+  auto state = find_connection(cid);
+  if (!state) {
+    return td::Status::Error("connection is gone");
+  }
+  state->local_id = local_id;
+  state->peer_id = peer_id;
+  state->peer_info = resolve_peer_info(local_id, peer_id);
+  conns_by_peer_[local_id][peer_id].insert(state->cid);
+  return callback_->on_connected(cid, local_id, peer_id, is_outbound, state->peer_info);
+}
+
+QuicServer::PeerMtuInfo QuicServer::resolve_peer_info(adnl::AdnlNodeIdShort local_id,
+                                                      adnl::AdnlNodeIdShort peer_id) const {
+  if (auto it = peers_mtu_.find({local_id, peer_id}); it != peers_mtu_.end()) {
+    return it->second;
+  }
+  if (auto it = default_mtu_by_local_id_.find(local_id); it != default_mtu_by_local_id_.end()) {
+    return {it->second, false};
+  }
+  return {};
+}
+
+void QuicServer::refresh_peer_info(ConnectionState &state) {
+  auto info = resolve_peer_info(state.local_id, state.peer_id);
+  if (info.mtu == state.peer_info.mtu && info.trusted == state.peer_info.trusted) {
+    return;
+  }
+  state.peer_info = info;
+  callback_->on_peer_info_updated(state.cid, info);
+}
+
+void QuicServer::refresh_peer_infos(adnl::AdnlNodeIdShort local_id, std::optional<adnl::AdnlNodeIdShort> peer_id) {
+  auto local_it = conns_by_peer_.find(local_id);
+  if (local_it == conns_by_peer_.end()) {
+    return;
+  }
+  auto refresh_cids = [&](const std::set<QuicConnectionId> &cids) {
+    for (auto cid : cids) {
+      if (auto state = find_connection(cid)) {
+        refresh_peer_info(*state);
+      }
+    }
+  };
+  if (peer_id) {
+    if (auto peer_it = local_it->second.find(*peer_id); peer_it != local_it->second.end()) {
+      refresh_cids(peer_it->second);
+    }
+  } else {
+    for (auto &[pid, cids] : local_it->second) {
+      refresh_cids(cids);
+    }
   }
 }
 
@@ -578,8 +652,8 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   }
 
   void on_handshake_completed(HandshakeCompletedEvent event) override {
-    auto status =
-        callback_.on_connected(cid_, std::move(event.local_public_key), std::move(event.peer_public_key), is_outbound_);
+    auto status = server_.on_handshake_completed(cid_, event.local_public_key.as_slice(),
+                                                 event.peer_public_key.as_slice(), is_outbound_);
     if (status.is_error()) {
       LOG(WARNING) << "on_connected failed for " << cid_ << ": " << status;
       server_.to_erase_connections_.push_back(cid_);
@@ -653,6 +727,13 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   // Do not check flood here, because connect is initiated by us
 
   auto conn_options = build_connection_options();
+  // Cap how many bidi streams the peer may open on a connection WE initiated. QuicSender pins it to
+  // 0: an outbound connection is single-purpose (we open the query streams, the peer replies on
+  // them), so a peer that tries to open one is refused at the transport layer, before any
+  // reassembly or off-role delivery.
+  if (options_.outbound_max_peer_streams_bidi.has_value()) {
+    conn_options.max_streams_bidi = *options_.outbound_max_peer_streams_bidi;
+  }
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, true);
   TRY_RESULT(p_impl, QuicConnectionPImpl::create_client(local_address, remote_address, std::move(client_key), alpn, sni,
                                                         std::move(pimpl_callback), conn_options));

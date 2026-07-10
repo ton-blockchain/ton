@@ -20,6 +20,14 @@
 
 namespace ton::adnl {
 
+// A peer-specific MTU registration also declares whether the peer is trusted to send us
+// heavy traffic — both are the same locally-made decision. Aggregated independently over
+// registrations: effective mtu = max, effective trusted = any.
+struct PeerMtu {
+  td::uint64 mtu = 0;
+  bool trusted = false;
+};
+
 class AdnlSenderEx : public AdnlSenderInterface {
  public:
   AdnlSenderEx() = default;
@@ -36,8 +44,8 @@ class AdnlSenderEx : public AdnlSenderInterface {
   // Use PeersMtuGuard instead of calling add_peer_mtu/remove_peer_mtu directly
   void set_default_mtu(td::uint64 mtu);
   void set_local_id_mtu(AdnlNodeIdShort local_id, td::uint64 mtu);
-  void add_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::uint64 mtu);
-  void remove_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::uint64 mtu);
+  void add_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::uint64 mtu, bool trusted);
+  void remove_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::uint64 mtu, bool trusted);
 
  protected:
   // Called after changing mtu through methods above
@@ -48,16 +56,24 @@ class AdnlSenderEx : public AdnlSenderInterface {
 
   td::uint64 get_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id);
 
-  td::uint64 get_peer_mtu_inner(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id);
-  std::vector<std::pair<AdnlNodeIdShort, td::uint64>> get_local_id_peers_mtu(AdnlNodeIdShort local_id);
+  // Peer-specific registration only (no default/local-id fallback); {0, false} if none.
+  PeerMtu get_peer_mtu_inner(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id);
+  std::vector<std::pair<AdnlNodeIdShort, PeerMtu>> get_local_id_peers_mtu(AdnlNodeIdShort local_id);
   td::uint64 get_local_id_mtu(AdnlNodeIdShort local_id);
 
  private:
   td::uint64 default_mtu_ = Adnl::get_mtu();
 
+  // trusted_count counts live trusted registrations; each registration inserts one mtu and
+  // (if trusted) bumps the count, so trusted_count <= mtus.size() and the entry dies exactly
+  // when mtus empties. Not a pair-multiset: max-mtu's flag is not the OR.
+  struct PeerMtuEntry {
+    std::multiset<td::uint64> mtus;
+    td::uint32 trusted_count = 0;
+  };
   struct LocalIdMtu {
     td::uint64 mtu = 0;
-    std::map<AdnlNodeIdShort, std::multiset<td::uint64>> mtu_peers;
+    std::map<AdnlNodeIdShort, PeerMtuEntry> mtu_peers;
   };
   std::map<AdnlNodeIdShort, LocalIdMtu> mtu_local_ids_;
 };
@@ -66,10 +82,10 @@ class PeersMtuGuard {
  public:
   PeersMtuGuard() = default;
   PeersMtuGuard(td::actor::ActorId<AdnlSenderEx> sender, AdnlNodeIdShort local_id,
-                std::vector<AdnlNodeIdShort> peer_ids, td::uint64 mtu)
-      : sender_(std::move(sender)), local_id_(local_id), peer_ids_(std::move(peer_ids)), mtu_(mtu) {
+                std::vector<AdnlNodeIdShort> peer_ids, td::uint64 mtu, bool trusted)
+      : sender_(std::move(sender)), local_id_(local_id), peer_ids_(std::move(peer_ids)), mtu_(mtu), trusted_(trusted) {
     for (const AdnlNodeIdShort peer_id : peer_ids_) {
-      td::actor::send_closure(sender_, &AdnlSenderEx::add_peer_mtu, local_id_, peer_id, mtu_);
+      td::actor::send_closure(sender_, &AdnlSenderEx::add_peer_mtu, local_id_, peer_id, mtu_, trusted_);
     }
   }
   PeersMtuGuard(const PeersMtuGuard&) = delete;
@@ -77,13 +93,16 @@ class PeersMtuGuard {
       : sender_(std::move(other.sender_))
       , local_id_(other.local_id_)
       , peer_ids_(std::move(other.peer_ids_))
-      , mtu_(other.mtu_) {
+      , mtu_(other.mtu_)
+      , trusted_(other.trusted_) {
     other.sender_ = {};
   }
   ~PeersMtuGuard() {
     reset();
   }
   PeersMtuGuard& operator=(const PeersMtuGuard& other) = delete;
+  // Reassignment queues the incoming guard's ADDs (its constructor) before our REMOVEs, so a
+  // peer present in both keeps a nonzero count throughout — its mtu and trust never flap.
   PeersMtuGuard& operator=(PeersMtuGuard&& other) noexcept {
     if (this == &other) {
       return *this;
@@ -93,6 +112,7 @@ class PeersMtuGuard {
     local_id_ = other.local_id_;
     peer_ids_ = std::move(other.peer_ids_);
     mtu_ = other.mtu_;
+    trusted_ = other.trusted_;
     other.sender_ = {};
     return *this;
   }
@@ -102,13 +122,14 @@ class PeersMtuGuard {
   AdnlNodeIdShort local_id_;
   std::vector<AdnlNodeIdShort> peer_ids_;
   td::uint64 mtu_ = 0;
+  bool trusted_ = false;
 
   void reset() {
     if (sender_.empty()) {
       return;
     }
     for (const AdnlNodeIdShort peer_id : peer_ids_) {
-      td::actor::send_closure(sender_, &AdnlSenderEx::remove_peer_mtu, local_id_, peer_id, mtu_);
+      td::actor::send_closure(sender_, &AdnlSenderEx::remove_peer_mtu, local_id_, peer_id, mtu_, trusted_);
     }
     peer_ids_.clear();
   }

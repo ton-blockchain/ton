@@ -57,16 +57,27 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
     std::optional<size_t> max_streams_bidi = std::nullopt;
+    // Bidi-stream credit advertised to the peer on connections WE initiate (outbound). nullopt =
+    // use max_streams_bidi. QuicSender sets 0: its outbound connections carry only our own streams.
+    std::optional<size_t> outbound_max_peer_streams_bidi = std::nullopt;
     td::uint32 new_connection_rate_limit_capacity = 10;
     double new_connection_rate_limit_period = 0.2;
     td::uint32 global_new_connection_rate_limit_capacity = 100000;
     double global_new_connection_rate_limit_period = 0.00001;
     bool stateless_retry = true;
   };
+  // Per-connection peer info, resolved from the (local_id, peer_id) MTU registry at handshake
+  // and stamped on the connection: the max message size we accept from the peer, and whether it
+  // is trusted to send us heavy traffic.
+  struct PeerMtuInfo {
+    td::uint64 mtu = 0;
+    bool trusted = false;
+  };
+
   class Callback {
    public:
-    virtual td::Status on_connected(QuicConnectionId cid, td::SecureString local_public_key,
-                                    td::SecureString peer_public_key, bool is_outbound) = 0;
+    virtual td::Status on_connected(QuicConnectionId cid, adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
+                                    bool is_outbound, PeerMtuInfo peer_info) = 0;
     virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
     virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
@@ -77,7 +88,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     virtual td::Timestamp next_alarm() const {
       return td::Timestamp::never();
     }
-    virtual void set_peer_mtu_callback(std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> f) = 0;
+    // A live connection's registry entry changed (late registration, trust flip, mtu update).
+    virtual void on_peer_info_updated(QuicConnectionId cid, PeerMtuInfo peer_info) {
+    }
     virtual ~Callback() = default;
   };
 
@@ -96,9 +109,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void log_stats(std::string reason = "stats");
 
   // MTU state is keyed by local_id and (local_id, peer_id). Peer-specific MTU overrides the
-  // per-local default. Setting an MTU to 0 erases the corresponding entry.
+  // per-local default. Setting an MTU to 0 erases the corresponding entry. trusted rides on the
+  // peer registration; stored for classification (not consumed yet).
   void set_default_mtu(adnl::AdnlNodeIdShort local_id, td::uint64 mtu);
-  void set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
+  void set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu, bool trusted);
 
   // Register an additional ADNL identity on this server. Subsequent identities are reachable via
   // SNI (ServerIdentity::sni(local_id)). Re-registering an id that's already present is a no-op.
@@ -168,6 +182,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     std::unique_ptr<QuicConnectionPImpl> impl_;
     td::IPAddress remote_address;
     QuicConnectionId cid;
+    // Known after the handshake proves the keys; zero before.
+    adnl::AdnlNodeIdShort local_id;
+    adnl::AdnlNodeIdShort peer_id;
+    PeerMtuInfo peer_info;
     std::optional<QuicConnectionId> bootstrap_routed_cid;
     std::set<QuicConnectionId> routed_cids;
     bool is_outbound;
@@ -235,6 +253,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   std::map<QuicConnectionId, QuicConnectionId> cid_to_primary_cid_;
   std::map<BootstrapRouteKey, QuicConnectionId> bootstrap_routes_;
   std::map<QuicConnectionId, std::shared_ptr<ConnectionState>> connections_;
+  // Handshake-completed connections indexed by their (local_id, peer_id) so an MTU/trust
+  // registry change refreshes only the affected connections, not every connection.
+  std::map<adnl::AdnlNodeIdShort, std::map<adnl::AdnlNodeIdShort, std::set<QuicConnectionId>>> conns_by_peer_;
   std::deque<QuicConnectionId> active_connections_;
   std::vector<QuicConnectionId> to_erase_connections_;
   td::KHeap<double> timeout_heap_;
@@ -265,7 +286,13 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   UdpStats egress_stats_;
 
   std::map<adnl::AdnlNodeIdShort, td::uint64> default_mtu_by_local_id_;
-  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::uint64> peers_mtu_;
+  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, PeerMtuInfo> peers_mtu_;
+
+  PeerMtuInfo resolve_peer_info(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) const;
+  void refresh_peer_info(ConnectionState &state);
+  void refresh_peer_infos(adnl::AdnlNodeIdShort local_id, std::optional<adnl::AdnlNodeIdShort> peer_id);
+  td::Status on_handshake_completed(QuicConnectionId cid, td::Slice local_public_key, td::Slice peer_public_key,
+                                    bool is_outbound);
 };
 
 }  // namespace ton::quic

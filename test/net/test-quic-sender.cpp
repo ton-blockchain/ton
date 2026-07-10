@@ -416,14 +416,14 @@ ton::quic::QuicServer::Options small_stream_limit_options(size_t max_streams_bid
 }
 
 struct RawQuicEndpointState {
-  void remember_connection(ton::quic::QuicConnectionId cid, bool is_outbound, std::string local_public_key) {
+  void remember_connection(ton::quic::QuicConnectionId cid, bool is_outbound, ton::adnl::AdnlNodeIdShort local_id) {
     std::lock_guard guard(mutex);
     if (is_outbound) {
       outbound_cid = cid;
-      outbound_local_public_key = std::move(local_public_key);
+      outbound_local_id = local_id;
     } else {
       inbound_cid = cid;
-      inbound_local_public_key = std::move(local_public_key);
+      inbound_local_id = local_id;
     }
   }
 
@@ -432,14 +432,14 @@ struct RawQuicEndpointState {
     closed_connections.insert(cid);
   }
 
-  std::optional<std::string> get_inbound_local_public_key() const {
+  std::optional<ton::adnl::AdnlNodeIdShort> get_inbound_local_id() const {
     std::lock_guard guard(mutex);
-    return inbound_local_public_key;
+    return inbound_local_id;
   }
 
-  std::optional<std::string> get_outbound_local_public_key() const {
+  std::optional<ton::adnl::AdnlNodeIdShort> get_outbound_local_id() const {
     std::lock_guard guard(mutex);
-    return outbound_local_public_key;
+    return outbound_local_id;
   }
 
   void remember_local_stream(ton::quic::QuicStreamID sid) {
@@ -490,8 +490,8 @@ struct RawQuicEndpointState {
   mutable std::mutex mutex;
   std::optional<ton::quic::QuicConnectionId> outbound_cid;
   std::optional<ton::quic::QuicConnectionId> inbound_cid;
-  std::optional<std::string> outbound_local_public_key;
-  std::optional<std::string> inbound_local_public_key;
+  std::optional<ton::adnl::AdnlNodeIdShort> outbound_local_id;
+  std::optional<ton::adnl::AdnlNodeIdShort> inbound_local_id;
   std::unordered_set<ton::quic::QuicConnectionId> closed_connections;
   std::unordered_set<ton::quic::QuicStreamID> locally_opened_streams;
   std::unordered_set<ton::quic::QuicStreamID> closed_streams;
@@ -508,9 +508,9 @@ class RawQuicCallback final : public ton::quic::QuicServer::Callback {
     server_ = server;
   }
 
-  td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString local_public_key, td::SecureString,
-                          bool is_outbound) override {
-    state_->remember_connection(cid, is_outbound, local_public_key.as_slice().str());
+  td::Status on_connected(ton::quic::QuicConnectionId cid, ton::adnl::AdnlNodeIdShort local_id,
+                          ton::adnl::AdnlNodeIdShort, bool is_outbound, ton::quic::QuicServer::PeerMtuInfo) override {
+    state_->remember_connection(cid, is_outbound, local_id);
     return td::Status::OK();
   }
 
@@ -528,10 +528,6 @@ class RawQuicCallback final : public ton::quic::QuicServer::Callback {
 
   void on_stream_closed(ton::quic::QuicConnectionId, ton::quic::QuicStreamID sid) override {
     state_->remember_closed_stream(sid);
-  }
-
-  void set_peer_mtu_callback(
-      std::function<td::uint64(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort)>) override {
   }
 
  private:
@@ -1091,9 +1087,9 @@ TEST(QuicSniDispatch, ClientSniSelectsAdditionalIdentity) {
     static_cast<void>(client_cid);
     static_cast<void>(server_cid);
 
-    auto inbound_local_pub = server.state->get_inbound_local_public_key();
-    ASSERT_TRUE(inbound_local_pub.has_value());
-    ASSERT_EQ(*inbound_local_pub, pubkey_bytes(extra_key));
+    auto inbound_local = server.state->get_inbound_local_id();
+    ASSERT_TRUE(inbound_local.has_value());
+    ASSERT_EQ(*inbound_local, short_id_from_key(extra_key));
 
     co_return td::Unit{};
   });
@@ -1115,9 +1111,9 @@ TEST(QuicSniDispatch, NoSniFallsBackToDefaultIdentity) {
     static_cast<void>(client_cid);
     static_cast<void>(server_cid);
 
-    auto inbound_local_pub = server.state->get_inbound_local_public_key();
-    ASSERT_TRUE(inbound_local_pub.has_value());
-    ASSERT_EQ(*inbound_local_pub, pubkey_bytes(server.key));
+    auto inbound_local = server.state->get_inbound_local_id();
+    ASSERT_TRUE(inbound_local.has_value());
+    ASSERT_EQ(*inbound_local, short_id_from_key(server.key));
 
     co_return td::Unit{};
   });
@@ -1143,9 +1139,9 @@ TEST(QuicSniDispatch, UnknownSniFailsHandshake) {
     auto outbound_cid = outbound_cid_result.move_as_ok();
 
     co_await t.wait_for_connection_close(client, outbound_cid);
-    ASSERT_TRUE(!client.state->get_outbound_local_public_key().has_value());
+    ASSERT_TRUE(!client.state->get_outbound_local_id().has_value());
     ASSERT_TRUE(!client.state->get_outbound_cid().has_value());
-    ASSERT_TRUE(!server.state->get_inbound_local_public_key().has_value());
+    ASSERT_TRUE(!server.state->get_inbound_local_id().has_value());
     ASSERT_TRUE(!server.state->get_inbound_cid().has_value());
 
     co_return td::Unit{};

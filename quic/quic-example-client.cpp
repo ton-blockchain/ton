@@ -16,11 +16,10 @@ class QuicTester : public td::actor::Actor {
     explicit Callback(td::actor::ActorId<QuicTester> tester) : tester_(std::move(tester)) {
     }
 
-    td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString /*local_public_key*/,
-                            td::SecureString peer_public_key, bool /*is_outbound*/) override {
-      auto public_key_b64 = td::base64_encode(peer_public_key.as_slice());
-      LOG(INFO) << "connected";
-      LOG(INFO) << "server public key: " << public_key_b64;
+    td::Status on_connected(ton::quic::QuicConnectionId cid, ton::adnl::AdnlNodeIdShort /*local_id*/,
+                            ton::adnl::AdnlNodeIdShort peer_id, bool /*is_outbound*/,
+                            ton::quic::QuicServer::PeerMtuInfo /*peer_info*/) override {
+      LOG(INFO) << "connected to " << peer_id;
       td::actor::send_closure(tester_, &QuicTester::on_connected, cid);
       return td::Status::OK();
     }
@@ -43,10 +42,6 @@ class QuicTester : public td::actor::Actor {
     }
 
     void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
-    }
-
-    void set_peer_mtu_callback(
-        std::function<td::uint64(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort)> f) override {
     }
 
    private:

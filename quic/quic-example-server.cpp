@@ -20,9 +20,10 @@ class QuicHttpServer : public td::actor::Actor {
     explicit ServerCallback(td::actor::ActorId<QuicHttpServer> server) : server_(std::move(server)) {
     }
 
-    td::Status on_connected(ton::quic::QuicConnectionId cid, td::SecureString /*local_public_key*/,
-                            td::SecureString peer_public_key, bool /*is_outbound*/) override {
-      td::actor::send_closure(server_, &QuicHttpServer::on_connected, cid, std::move(peer_public_key));
+    td::Status on_connected(ton::quic::QuicConnectionId cid, ton::adnl::AdnlNodeIdShort /*local_id*/,
+                            ton::adnl::AdnlNodeIdShort peer_id, bool /*is_outbound*/,
+                            ton::quic::QuicServer::PeerMtuInfo /*peer_info*/) override {
+      td::actor::send_closure(server_, &QuicHttpServer::on_connected, cid, peer_id);
       return td::Status::OK();
     }
 
@@ -40,10 +41,6 @@ class QuicHttpServer : public td::actor::Actor {
     }
 
     void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
-    }
-
-    void set_peer_mtu_callback(
-        std::function<td::uint64(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort)> f) override {
     }
 
    private:
@@ -80,9 +77,8 @@ class QuicHttpServer : public td::actor::Actor {
   }
 
  private:
-  void on_connected(ton::quic::QuicConnectionId cid, td::SecureString public_key) {
-    auto public_key_b64 = td::base64_encode(public_key.as_slice());
-    LOG(INFO) << "connected: CID, peer public key: " << public_key_b64;
+  void on_connected(ton::quic::QuicConnectionId cid, ton::adnl::AdnlNodeIdShort peer_id) {
+    LOG(INFO) << "connected: peer " << peer_id;
   }
 
   void on_closed(ton::quic::QuicConnectionId cid) {
