@@ -148,6 +148,41 @@ Logger::~Logger() {
   }
 }
 
+namespace detail {
+namespace {
+thread_local uint32 log_every_skipped_count{0};
+}  // namespace
+
+bool log_every_pass_time(LogEveryState &state, double period) {
+  auto now = Time::now();
+  if (now < state.next_time) {
+    state.skipped++;
+    return false;
+  }
+  state.next_time = now + period;
+  log_every_skipped_count = state.skipped;
+  state.skipped = 0;
+  return true;
+}
+
+bool log_every_pass_count(LogEveryState &state, uint64 count) {
+  if (state.counter++ % count != 0) {
+    state.skipped++;
+    return false;
+  }
+  log_every_skipped_count = state.skipped;
+  state.skipped = 0;
+  return true;
+}
+
+StringBuilder &operator<<(StringBuilder &sb, LogEverySkipped) {
+  if (log_every_skipped_count > 0) {
+    sb << "[skipped " << log_every_skipped_count << "] ";
+  }
+  return sb;
+}
+}  // namespace detail
+
 TsCerr::TsCerr() {
   enterCritical();
 }
