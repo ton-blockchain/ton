@@ -17,16 +17,19 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <functional>
 #include <limits>
 #include <map>
+#include <string_view>
 #include <thread>
 #include <vector>
 
 #include "td/utils/AsyncFileLog.h"
 #include "td/utils/FileLog.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/Slice.h"
 #include "td/utils/TimestampFormat.h"
 #include "td/utils/TsFileLog.h"
@@ -36,6 +39,7 @@
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/path.h"
+#include "td/utils/port/sleep.h"
 #include "td/utils/port/thread.h"
 #include "td/utils/port/thread_local.h"
 #include "td/utils/tests.h"
@@ -71,6 +75,76 @@ TEST(Log, LogCategory) {
   cat.set_level(-1);
   ASSERT_EQ(VERBOSITY_NAME(INFO), cat.get_level());
   td::set_verbosity_level(old_level);
+}
+
+TEST(Log, LogEvery) {
+  struct CountingLog final : td::LogInterface {
+    std::atomic<int> count{0};
+    std::atomic<int> with_skipped{0};
+    std::atomic<bool> saw_skipped_999{false};
+    void append(td::CSlice slice, int /*log_level*/) override {
+      count++;
+      std::string_view sv(slice.data(), slice.size());
+      if (sv.find("[skipped") != sv.npos) {
+        with_skipped++;
+      }
+      if (sv.find("[skipped 999]") != sv.npos) {
+        saw_skipped_999 = true;
+      }
+    }
+  };
+  CountingLog log;
+  auto *old_log = td::log_interface;
+  td::log_interface = &log;
+  auto old_level = td::set_verbosity_level(VERBOSITY_NAME(INFO));
+  SCOPE_EXIT {
+    td::log_interface = old_log;
+    td::set_verbosity_level(old_level);
+  };
+
+  auto spam = [](int n) {
+    for (int i = 0; i < n; i++) {
+      LOG_EVERY(ERROR, 0.05s) << "flood " << i;
+    }
+  };
+  spam(1000);
+  ASSERT_EQ(1, log.count.load());
+  ASSERT_EQ(0, log.with_skipped.load());
+
+  td::usleep_for(100000);
+  spam(1);
+  ASSERT_EQ(2, log.count.load());
+  ASSERT_TRUE(log.saw_skipped_999.load());
+
+  log.count = 0;
+  log.with_skipped = 0;
+  for (int i = 0; i < 1000; i++) {
+    LOG_EVERY(ERROR, 100) << "count flood";
+  }
+  ASSERT_EQ(10, log.count.load());
+  ASSERT_EQ(9, log.with_skipped.load());
+
+  log.count = 0;
+  for (int i = 0; i < 1000; i++) {
+    VLOG_EVERY(test_xyz, INFO) << "flood";
+  }
+  ASSERT_EQ(1, log.count.load());
+
+#if !TD_THREAD_UNSUPPORTED
+  log.count = 0;
+  td::vector<td::thread> threads;
+  for (int t = 0; t < 4; t++) {
+    threads.emplace_back([] {
+      for (int i = 0; i < 1000; i++) {
+        LOG_EVERY(ERROR) << "thread flood";
+      }
+    });
+  }
+  for (auto &thread : threads) {
+    thread.join();
+  }
+  ASSERT_EQ(4, log.count.load());
+#endif
 }
 
 #if !TD_THREAD_UNSUPPORTED

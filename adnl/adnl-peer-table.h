@@ -99,6 +99,9 @@ class AdnlPeerTable : public Adnl {
                                      td::Promise<AdnlDbItem> promise) = 0;
 
   virtual void deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) = 0;
+  // Like deliver, but the promise resolves once the message has been handled by the subscriber.
+  virtual void deliver_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
+                          td::Promise<td::Unit> promise) = 0;
   virtual void deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
                              td::Promise<td::BufferSlice> promise) = 0;
   virtual void decrypt_message(AdnlNodeIdShort dst, td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;

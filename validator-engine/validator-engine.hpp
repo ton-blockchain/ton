@@ -284,7 +284,11 @@ class ValidatorEngine : public td::actor::Actor {
                                                                   .initial_sync_delay_ = 60.0};
 
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
-  ton::quic::QuicServer::Options quic_options_ = {};
+  // Production QUIC configuration = the struct defaults (quic-server.h, quic-flood-guard.h — the
+  // latter carries the per-field rationale). CLI flags (--quic-flood-control) override on top;
+  // effective flood limits are logged at startup.
+  ton::quic::QuicServer::Options quic_options_;
+  ton::quic::FloodLimits quic_flood_limits_;
 
  public:
   static constexpr td::uint8 max_cat() {
@@ -438,6 +442,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_quic_options(ton::quic::QuicServer::Options options) {
     quic_options_ = std::move(options);
+  }
+  void set_quic_flood_control(std::optional<size_t> flood_control) {
+    quic_flood_limits_.max_conns_per_ip = flood_control;  // nullopt = --quic-flood-control -1 (disabled)
   }
 
   void start_up() override;

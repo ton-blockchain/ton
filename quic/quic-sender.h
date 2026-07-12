@@ -17,7 +17,7 @@ class QuicSender : public adnl::AdnlSenderEx {
   using AdnlPath = std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>;
 
   explicit QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
-                      QuicServer::Options options = {});
+                      QuicServer::Options options = {}, FloodLimits flood_limits = {});
   ~QuicSender() override = default;
 
   void send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) override;
@@ -30,6 +30,8 @@ class QuicSender : public adnl::AdnlSenderEx {
                        td::Promise<td::string> promise) override;
 
   void set_quic_options(QuicServer::Options options);
+  // Emergency lever: shed all untrusted connections and refuse new ones; trusted peers keep working.
+  void set_reserved_only(bool reserved_only);
   void add_id(adnl::AdnlNodeIdShort local_id) override;
   void log_stats(std::string reason = "stats");
 
@@ -75,16 +77,25 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   QuicServer::Options server_options_;
+  FloodLimits flood_limits_;
+  bool reserved_only_ = false;  // emergency mode: keep only trusted/outbound connections
 
   std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;
   std::map<QuicConnectionId, std::shared_ptr<Connection>> by_cid_;
+
+  // Per-peer dial backoff: after a failed dial we refuse to re-dial before the backoff window
+  // elapses; while backed off, queries fail fast (not queued to wait it out) and a successful
+  // handshake clears it. See DialBackoff in quic-flood-guard.h.
+  DialBackoff<AdnlPath> dial_backoff_{flood_limits_.dial_backoff_initial, flood_limits_.dial_backoff_max};
 
   std::map<int, td::actor::ActorOwn<QuicServer>> servers_by_port_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorId<QuicServer>> servers_by_id_;
   std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
 
   void start_up() override;
+  void alarm() override;  // periodic DialBackoff GC; re-arms itself
+  static constexpr double kDialBackoffGcPeriod = 60.0;
 
   td::actor::Task<td::Unit> send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                               td::BufferSlice data);
@@ -106,16 +117,22 @@ class QuicSender : public adnl::AdnlSenderEx {
                                           bool is_outbound, std::shared_ptr<Connection>& connection);
 
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
-                    adnl::AdnlNodeIdShort peer_id, bool is_outbound);
+                    adnl::AdnlNodeIdShort peer_id, bool is_outbound, QuicServer::PeerMtuInfo peer_info);
+  void invalid_message(std::shared_ptr<Connection> connection, QuicStreamID stream_id, td::Slice data);
+  void on_stream_complete_inbound(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                  td::Result<td::BufferSlice> r_data);
+  void on_stream_complete_outbound(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                   td::Result<td::BufferSlice> r_data);
   void on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> data);
   void on_stream_closed(QuicConnectionId cid, QuicStreamID stream_id);
   void on_closed(QuicConnectionId cid);
 
   void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_query& query);
   void on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id, ton_api::quic_message& message);
+  td::actor::Task<> on_inbound_message(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
+                                       td::BufferSlice data);
   td::actor::Task<> on_inbound_query(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                                      td::BufferSlice query);
-  void on_answer(Connection& connection, QuicStreamID stream_id, ton_api::quic_answer& answer);
 
   static td::Result<td::IPAddress> get_ip_address(const adnl::AdnlNode& node);
 };

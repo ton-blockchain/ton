@@ -185,10 +185,17 @@ struct Executor {
 
 template <class P>
 ActorMessageCoroutineSafe<P>::~ActorMessageCoroutineSafe() {
-  if (continuation_) {
-    SchedulerExecutor{}.schedule(
-        continuation_.promise().route_finish(td::Status::Error(/* ErrorCode::cancelled */ 653, "Actor destroyed")));
+  if (!continuation_) {
+    return;
   }
+  if (core::SchedulerContext::get_ptr() == nullptr) {
+    // Scheduler-group teardown drains queues and mailboxes without a context; nothing can run
+    // anymore. Cancel the same way the drain cancels queued continuation tokens: destroy the frame.
+    continuation_.destroy();
+    return;
+  }
+  SchedulerExecutor{}.schedule(
+      continuation_.promise().route_finish(td::Status::Error(/* ErrorCode::cancelled */ 653, "Actor destroyed")));
 }
 
 struct ResumeOn {

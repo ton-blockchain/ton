@@ -68,6 +68,13 @@ class Adnl : public AdnlSenderInterface {
    public:
     virtual void receive_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) {
     }
+    // Delivery with an acknowledgement: the promise resolves once the message has been handled. The
+    // default routes to receive_message and acks immediately; override to defer the ack to real work.
+    virtual void receive_message(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
+                                 td::Promise<td::Unit> promise) {
+      receive_message(src, dst, std::move(data));
+      promise.set_value(td::Unit{});
+    }
     virtual void receive_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
                                td::Promise<td::BufferSlice> promise) {
     }
