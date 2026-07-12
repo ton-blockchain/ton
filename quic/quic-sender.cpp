@@ -596,6 +596,14 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
   }
   auto connection = it->second;
 
+  // Deliver only on a connection whose peer identity is confirmed: is_ready is set in on_connected
+  // once the peer key matched the expected peer; a not-yet-ready or init_error connection is being
+  // torn down, and delivering its streams would attribute traffic to an unauthenticated peer.
+  if (!connection->is_ready || connection->init_error) {
+    LOG(ERROR) << "drop stream from unauthenticated connection CID:" << cid << " SID:" << stream_id;
+    return;
+  }
+
   if (r_data.is_error()) {
     auto resp_it = connection->responses.find(stream_id);
     if (resp_it != connection->responses.end()) {
@@ -610,19 +618,22 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
     return;  // currently message will trigger empty response
   }
 
-  // TODO: accept request only from inbound streams. and answers only from outbound
-
-  auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
-  if (req_R.is_ok()) {
-    auto request = req_R.move_as_ok();
-    ton_api::downcast_call(*request, [&](auto &query) { on_request(connection, stream_id, query); });
-    return;
-  }
-
-  auto answer_R = fetch_tl_object<ton_api::quic_answer>(data.clone(), true);
-  if (answer_R.is_ok()) {
-    on_answer(*connection, stream_id, *answer_R.move_as_ok());
-    return;
+  // Requests are accepted only on inbound connections, answers only on outbound ones: an outbound
+  // connection carries our own queries, so a request arriving on it (or an answer on an inbound one)
+  // is misdirected.
+  if (!connection->is_outbound) {
+    auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
+    if (req_R.is_ok()) {
+      auto request = req_R.move_as_ok();
+      ton_api::downcast_call(*request, [&](auto &query) { on_request(connection, stream_id, query); });
+      return;
+    }
+  } else {
+    auto answer_R = fetch_tl_object<ton_api::quic_answer>(data.clone(), true);
+    if (answer_R.is_ok()) {
+      on_answer(*connection, stream_id, *answer_R.move_as_ok());
+      return;
+    }
   }
 
   LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()
