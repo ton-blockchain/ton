@@ -30,7 +30,7 @@ td::actor::Task<ExtMessageChecker::CheckedExtMsg> ExtMessageChecker::check(td::B
                                                                            td::Ref<MasterchainState> mc_state) {
   CheckedExtMsg result;
   td::Timer timer;
-  auto message = co_await create_ext_message(std::move(data), limits);
+  auto message = CO_TRY(create_ext_message(std::move(data), limits));
   result.message = message;
   result.timings.parse = timer.elapsed();
 
@@ -59,22 +59,21 @@ td::actor::Task<ExtMessageChecker::CheckedExtMsg> ExtMessageChecker::check(td::B
     a.block_lt = lt;
     return std::move(a);
   };
-  auto acc = co_await unpack_account();
+  auto acc = CO_TRY(unpack_account());
 
-  // NOTE: exec_config stays valid below because nothing in between actually suspends (the
-  // co_awaits unwrap ready td::Result values); only this worker's tasks mutate exec_configs_.
+  // NOTE: exec_config stays valid below because nothing in between actually suspends
+  // (CO_TRY unwrap ready td::Result values); only this worker's tasks mutate exec_configs_.
   auto &exec_config = exec_configs_[{wc, state.utime}];
   if (exec_config.nolog == nullptr) {
-    exec_config.nolog = co_await ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, false);
-    exec_config.log = co_await ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, true);
+    exec_config.nolog = CO_TRY(ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, false));
+    exec_config.log = CO_TRY(ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, true));
     if (exec_configs_.size() > 16) {
       std::erase_if(exec_configs_,
                     [&](const auto &kv) { return kv.second.nolog == nullptr || kv.first.second + 60 < state.utime; });
     }
   }
 
-  co_await run_message(wc, std::move(acc), unpack_account, state.utime, state.lt + 1, message->root_cell(),
-                       exec_config);
+  CO_TRY(run_message(wc, std::move(acc), unpack_account, state.utime, state.lt + 1, message->root_cell(), exec_config));
   result.timings.vm = timer.elapsed();
   co_return result;
 }
@@ -107,7 +106,7 @@ td::actor::Task<ExtMessageChecker::ResolvedState> ExtMessageChecker::resolve_sta
   // Refresh the per-mc-block config. Extracted once per masterchain block per worker instead of
   // once per message (the old LiteQuery-based fetch re-extracted the full config every message).
   if (config_ == nullptr || config_mc_block_id_ != mc_state->get_block_id()) {
-    config_ = co_await block::ConfigInfo::extract_config(mc_state->root_cell(), mc_state->get_block_id(), 0xFFFF);
+    config_ = CO_TRY(block::ConfigInfo::extract_config(mc_state->root_cell(), mc_state->get_block_id(), 0xFFFF));
     config_mc_block_id_ = mc_state->get_block_id();
     exec_configs_.clear();
   }
