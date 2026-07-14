@@ -562,6 +562,8 @@ int register_voting_proposal(slice cs, int msg_value) impure inline_ref {
     throw_unless(37, sign_tag == 0x566f7445);
     var (vdescr, total_weight) = get_validator_descr(idx);
     var (val_pubkey, weight) = unpack_validator_descr(vdescr);
+    ;; by design config vote can be replayed onto the same proposal next round
+    ;; if sender validator idx will match
     throw_unless(34, check_data_signature(msg_body, signature, val_pubkey));
     int res = proceed_register_vote(phash, idx, weight);
     return send_confirmation(s_addr, query_id, res + 0xd6745240);
