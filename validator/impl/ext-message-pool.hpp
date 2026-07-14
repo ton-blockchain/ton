@@ -16,12 +16,14 @@
 */
 #pragma once
 
+#include <deque>
 #include <set>
 
 #include "interfaces/validator-manager.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/PersistentTreap.h"
 
+#include "ext-message-checker.hpp"
 #include "external-message.hpp"
 
 namespace ton::validator {
@@ -51,6 +53,9 @@ class ExtMessagePool : public td::actor::Actor {
   std::vector<std::pair<std::string, std::string>> prepare_stats();
 
   void alarm() override;
+  void start_up() override {
+    alarm_timestamp().relax(admission_stats_at_);
+  }
 
  private:
   struct MessageId {
@@ -165,19 +170,59 @@ class ExtMessagePool : public td::actor::Actor {
   };
   std::map<std::pair<WorkchainId, StdSmcAddress>, WalletInfo> wallets_;
 
-  td::actor::Task<CheckResult> check_message(td::Ref<ExtMessage> message, td::optional<td::uint32> &msg_seqno);
-  td::Result<td::uint32> check_message_to_wallet(td::Ref<ExtMessage> message, const WalletMessageProcessor *wallet,
-                                                 block::Account acc, UnixTime utime, LogicalTime lt,
-                                                 std::unique_ptr<block::ConfigInfo> config,
-                                                 td::Promise<td::Unit> allow_broadcast_promise);
+  // ===== Parallel admission =====
+  // The expensive per-message stages (parse, account state fetch, VM check) run on these worker
+  // actors; the pool only dispatches and finalizes. Created lazily on the first check.
+  std::vector<td::actor::ActorOwn<ExtMessageChecker>> checkers_;
+  std::vector<size_t> checker_inflight_;
+  size_t next_checker_{0};
+  void init_checkers();
+  // Admission backpressure: only MAX_INFLIGHT_CHECKS checks run concurrently; the rest wait in
+  // FIFO order (bounded — beyond that requests fail fast instead of queueing into a congestion
+  // collapse that would starve the whole node).
+  size_t inflight_checks_{0};
+  std::deque<td::actor::StartedTask<>::ExternalPromise> admission_waiters_;
+  void release_check_slot();
+  // Adaptive wait-queue cap: bound the ESTIMATED queueing delay, not just the count, so that
+  // under degraded capacity (CPU contention, cold caches) requests fail fast instead of being
+  // answered after the client has already timed out.
+  double check_completion_rate_{2000.0};  // EWMA, completions/s; optimistic start for cold boot
+  td::uint64 completions_in_rate_window_{0};
+  double rate_window_start_{td::Time::now()};
+  size_t max_admission_waiters();
+  // Atomic (non-suspending) pool-side completion of a checked wallet message: prune/dedup the
+  // wallet seqno window and register the allow-broadcast promise.
+  td::Result<td::actor::StartedTask<>> finalize_wallet_check(const td::Ref<ExtMessage> &message,
+                                                             const ExtMessageChecker::CheckedExtMsg &checked);
+
+  // Rolling window for the periodic "ext admission" INFO stat.
+  struct AdmissionWindowStats {
+    td::uint64 in{0}, admitted{0}, rejected{0}, checked{0};
+    double check_time{0};
+    ExtMessageChecker::StageTimings timings;
+    td::Timestamp window_start = td::Timestamp::now();
+  };
+  AdmissionWindowStats admission_window_;
+  td::Timestamp admission_stats_at_ = td::Timestamp::in(ADMISSION_STATS_PERIOD);
+  void log_admission_stats();
 
   std::vector<std::unique_ptr<ExtMsgCallback>> callbacks_;
 
+  static constexpr double CANDIDATE_EXTERNALS_TTL = 60.0;
+  static constexpr size_t MAX_TRACKED_CANDIDATES = 256;
   static constexpr double MAX_EXT_MSG_PER_ADDR_TIME_WINDOW = 10.0;
   static constexpr size_t MAX_EXT_MSG_PER_ADDR = 3 * 10;
   static constexpr size_t PER_ADDRESS_LIMIT = 256;
   static constexpr size_t SOFT_MEMPOOL_LIMIT = 1024;
-  static constexpr td::uint32 MAX_WALLET_SEQNO_DIFF = 16;
+  static constexpr size_t NUM_CHECKERS = 24;
+  static constexpr size_t MAX_INFLIGHT_CHECKS = 8 * NUM_CHECKERS;
+  // Absolute bound on queued admission requests; the effective bound is adaptive
+  // (max_admission_waiters() targets MAX_ADMISSION_QUEUE_DELAY of estimated wait).
+  static constexpr size_t MAX_ADMISSION_WAITERS = 50000;
+  // Keep the estimated queueing delay well under client/liteserver timeouts (~10s): beyond
+  // that the requests would be answered after the caller gave up anyway, so fail them fast.
+  static constexpr double MAX_ADMISSION_QUEUE_DELAY = 5.0;
+  static constexpr double ADMISSION_STATS_PERIOD = 5.0;
 };
 
 }  // namespace ton::validator
