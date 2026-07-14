@@ -82,7 +82,6 @@ class ExtMessagePool : public td::actor::Actor {
     bool active = true;
     td::Timestamp reactivate_at;
     td::Timestamp delete_at;
-    td::optional<td::uint32> msg_seqno;
 
     auto address() const {
       return std::make_pair(message->wc(), message->addr());
@@ -150,25 +149,8 @@ class ExtMessagePool : public td::actor::Actor {
 
   td::Timestamp cleanup_mempool_at_ = td::Timestamp::now();
 
-  void add_message_to_mempool(td::Ref<ExtMessage> message, int priority, td::optional<td::uint32> msg_seqno);
+  void add_message_to_mempool(td::Ref<ExtMessage> message, int priority);
   bool erase_message(int priority, const MessageId &id);
-
-  struct WalletMessageInfo {
-    td::uint32 valid_until;
-    td::Promise<td::Unit> allow_broadcast_promise;
-  };
-  struct WalletInfo {
-    std::map<td::uint32, WalletMessageInfo> messages;
-    ~WalletInfo() {
-      for (auto &[_, message] : messages) {
-        if (message.allow_broadcast_promise) {
-          message.allow_broadcast_promise.set_error(td::Status::Error("wallet is no longer valid"));
-        }
-      }
-    }
-    void process_messages(td::uint32 wallet_seqno, UnixTime utime);
-  };
-  std::map<std::pair<WorkchainId, StdSmcAddress>, WalletInfo> wallets_;
 
   // ===== Parallel admission =====
   // The expensive per-message stages (parse, account state fetch, VM check) run on these worker
@@ -190,10 +172,6 @@ class ExtMessagePool : public td::actor::Actor {
   td::uint64 completions_in_rate_window_{0};
   double rate_window_start_{td::Time::now()};
   size_t max_admission_waiters();
-  // Atomic (non-suspending) pool-side completion of a checked wallet message: prune/dedup the
-  // wallet seqno window and register the allow-broadcast promise.
-  td::Result<td::actor::StartedTask<>> finalize_wallet_check(const td::Ref<ExtMessage> &message,
-                                                             const ExtMessageChecker::CheckedExtMsg &checked);
 
   // Rolling window for the periodic "ext admission" INFO stat.
   struct AdmissionWindowStats {

@@ -81,9 +81,7 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
   t.lookup += checked.timings.lookup;
   t.vm += checked.timings.vm;
 
-  // Finalize atomically (no suspension) on the pool actor: wallet seqno window bookkeeping and
-  // the per-address counter must observe one consistent order even though checks complete out
-  // of order.
+  // Finalize atomically (no suspension) on the pool actor
   auto message = checked.message;
   WorkchainId wc = message->wc();
   StdSmcAddress addr = message->addr();
@@ -92,14 +90,9 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
       return td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex());
     }
     td::actor::StartedTask<> wait_allow_broadcast;
-    if (checked.is_wallet) {
-      TRY_RESULT_ASSIGN(wait_allow_broadcast, finalize_wallet_check(message, checked));
-    } else {
-      wallets_.erase({wc, addr});
-      auto [task, allow_broadcast_promise] = td::actor::StartedTask<>::make_bridge();
-      allow_broadcast_promise.set_value(td::Unit{});
-      wait_allow_broadcast = std::move(task);
-    }
+    auto [task, allow_broadcast_promise] = td::actor::StartedTask<>::make_bridge();
+    allow_broadcast_promise.set_value(td::Unit{});
+    wait_allow_broadcast = std::move(task);
     if (checked_ext_msg_counter_.inc_msg_count(wc, addr) > MAX_EXT_MSG_PER_ADDR) {
       return td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex());
     }
@@ -112,9 +105,7 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
     co_return result.move_as_error();
   }
   if (add_to_mempool) {
-    add_message_to_mempool(
-        checked.message, priority,
-        checked.is_wallet ? td::optional<td::uint32>(checked.msg_seqno) : td::optional<td::uint32>());
+    add_message_to_mempool(checked.message, priority);
   }
   co_return result.move_as_ok();
 }
@@ -143,31 +134,6 @@ void ExtMessagePool::release_check_slot() {
     admission_waiters_.pop_front();
     waiter.set_value(td::Unit{});
   }
-}
-
-td::Result<td::actor::StartedTask<>> ExtMessagePool::finalize_wallet_check(
-    const td::Ref<ExtMessage> &message, const ExtMessageChecker::CheckedExtMsg &checked) {
-  WorkchainId wc = message->wc();
-  StdSmcAddress addr = message->addr();
-  auto &wallet_info = wallets_[{wc, addr}];
-  SCOPE_EXIT {
-    if (wallet_info.messages.empty()) {
-      wallets_.erase({wc, addr});
-    }
-  };
-  wallet_info.process_messages(checked.wallet_seqno, checked.state_utime);
-  if (checked.msg_seqno < checked.wallet_seqno) {
-    return td::Status::Error(PSTRING() << "Too old seqno: msg_seqno=" << checked.msg_seqno
-                                       << ", wallet_seqno=" << checked.wallet_seqno);
-  }
-  if (wallet_info.messages.contains(checked.msg_seqno)) {
-    return td::Status::Error(PSTRING() << "Duplicate msg_seqno " << checked.msg_seqno);
-  }
-  auto [task, allow_broadcast_promise] = td::actor::StartedTask<>::make_bridge();
-  wallet_info.messages[checked.msg_seqno] = WalletMessageInfo{
-      .valid_until = checked.msg_valid_until, .allow_broadcast_promise = std::move(allow_broadcast_promise)};
-  wallet_info.process_messages(checked.wallet_seqno, checked.state_utime);
-  return std::move(task);
 }
 
 void ExtMessagePool::log_admission_stats() {
@@ -367,8 +333,7 @@ void ExtMessagePool::alarm() {
   });
 }
 
-void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int priority,
-                                            td::optional<td::uint32> msg_seqno) {
+void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int priority) {
   WorkchainId wc = message->wc();
   StdSmcAddress addr = message->addr();
   auto &msgs = ext_msgs_[priority];
@@ -378,7 +343,6 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
     return;
   }
   auto msg = std::make_shared<MempoolMsg>(message);
-  msg->msg_seqno = msg_seqno;
   MessageId id{message->shard(), message->hash()};
   auto address = msg->address();
   auto it = msgs.ext_addr_messages_.find(address);
@@ -412,37 +376,6 @@ void ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int pri
     }
     return false;
   });
-}
-
-void ExtMessagePool::WalletInfo::process_messages(td::uint32 wallet_seqno, UnixTime utime) {
-  for (auto it = messages.begin(); it != messages.end();) {
-    auto &[seqno, message] = *it;
-    if (seqno < wallet_seqno) {
-      if (message.allow_broadcast_promise) {
-        message.allow_broadcast_promise.set_error(
-            td::Status::Error(PSTRING() << "Too old seqno: msg_seqno=" << seqno << ", wallet_seqno=" << wallet_seqno));
-      }
-      it = messages.erase(it);
-      continue;
-    }
-    if (message.valid_until <= utime) {
-      if (message.allow_broadcast_promise) {
-        message.allow_broadcast_promise.set_error(td::Status::Error("valid_until is in the past"));
-      }
-      it = messages.erase(it);
-      continue;
-    }
-    ++it;
-  }
-  for (td::uint32 seqno = wallet_seqno;; ++seqno) {
-    auto it = messages.find(seqno);
-    if (it == messages.end()) {
-      break;
-    }
-    if (it->second.allow_broadcast_promise) {
-      it->second.allow_broadcast_promise.set_value(td::Unit{});
-    }
-  }
 }
 
 size_t ExtMessagePool::CheckedExtMsgCounter::get_msg_count(WorkchainId wc, StdSmcAddress addr) {
