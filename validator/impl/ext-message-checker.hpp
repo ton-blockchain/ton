@@ -27,12 +27,12 @@
 namespace ton::validator {
 
 // Off-pool worker for the expensive, pool-state-independent part of external message admission:
-// TLB parse + size limits, account state resolution (cold celldb reads), wallet seqno extraction
-// and the full VM execution of recv_external (incl. the ed25519 signature check inside the VM).
+// TLB parse + size limits, account state resolution (cold celldb reads) and the full VM execution of recv_external
+// (incl. the ed25519 signature check inside the VM).
 //
 // Several instances run in parallel on the actor scheduler; ExtMessagePool round-robins messages
-// across them and keeps all shared bookkeeping (per-address counters, wallet seqno windows,
-// mempool/treap mutation, candidate holds) on the pool actor itself.
+// across them and keeps all shared bookkeeping (per-address counters, mempool/treap mutation, candidate holds)
+// on the pool actor itself.
 class ExtMessageChecker : public td::actor::Actor {
  public:
   explicit ExtMessageChecker(td::actor::ActorId<ValidatorManager> manager) : manager_(std::move(manager)) {
@@ -49,17 +49,11 @@ class ExtMessageChecker : public td::actor::Actor {
 
   struct CheckedExtMsg {
     td::Ref<ExtMessage> message;
-    bool is_wallet{false};
-    // Wallet-only fields (valid when is_wallet is true):
-    td::uint32 msg_seqno{0};
-    UnixTime msg_valid_until{0};
-    td::uint32 wallet_seqno{0};
-    UnixTime state_utime{0};
     StageTimings timings;
   };
 
   // Runs every admission check that does not touch pool state. The pool finalizes the result
-  // (counters, wallet seqno window dedup, mempool insertion) atomically on its own actor.
+  // (counters, mempool insertion) atomically on its own actor.
   td::actor::Task<CheckedExtMsg> check(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
                                        td::Ref<MasterchainState> mc_state);
 
@@ -102,8 +96,6 @@ class ExtMessageChecker : public td::actor::Actor {
     LogicalTime lt{0};
   };
   td::actor::Task<ResolvedState> resolve_state(td::Ref<MasterchainState> mc_state, AccountIdPrefixFull prefix);
-
-  static constexpr td::uint32 MAX_WALLET_SEQNO_DIFF = 16;
 };
 
 }  // namespace ton::validator

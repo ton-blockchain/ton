@@ -73,50 +73,9 @@ td::actor::Task<ExtMessageChecker::CheckedExtMsg> ExtMessageChecker::check(td::B
     }
   }
 
-  const WalletMessageProcessor *wallet =
-      acc.code.not_null() ? WalletMessageProcessor::get(acc.code->get_hash().bits()) : nullptr;
-  if (wallet == nullptr) {
-    co_await run_message(wc, std::move(acc), unpack_account, state.utime, state.lt + 1, message->root_cell(),
-                         exec_config);
-    result.timings.vm = timer.elapsed();
-    co_return result;
-  }
-
-  LOG(DEBUG) << "Checking external message to " << wc << ":" << addr.to_hex() << ", " << wallet->name();
-  auto wallet_seqno = co_await wallet->get_wallet_seqno(acc.data);
-  auto [msg_seqno, msg_valid_until] = co_await wallet->parse_message(message->root_cell());
-  LOG(DEBUG) << "External message to " << wallet->name() << ": msg_seqno=" << msg_seqno
-             << ", msg_ttl=" << msg_valid_until << ", wallet_seqno=" << wallet_seqno;
-  if (msg_valid_until <= (UnixTime)td::Clocks::system()) {
-    co_return td::Status::Error("valid_until is in the past");
-  }
-  if (msg_seqno < wallet_seqno) {
-    co_return td::Status::Error(PSTRING()
-                                << "Too old seqno: msg_seqno=" << msg_seqno << ", wallet_seqno=" << wallet_seqno);
-  }
-  if (msg_seqno - wallet_seqno > MAX_WALLET_SEQNO_DIFF) {
-    co_return td::Status::Error(PSTRING()
-                                << "Too new seqno: msg_seqno=" << msg_seqno << ", wallet_seqno=" << wallet_seqno);
-  }
-  // Note: the duplicate-seqno check against other in-flight messages is pool state; the pool
-  // performs it at finalization (after this VM run instead of before it — same admission verdict).
-  acc.data = co_await wallet->set_wallet_seqno(acc.data, msg_seqno);
-  acc.storage_dict_hash = acc.orig_storage_dict_hash = {};
-  auto unpack_wallet_account = [&unpack_account, wallet, msg_seqno]() -> td::Result<block::Account> {
-    TRY_RESULT(a, unpack_account());
-    TRY_RESULT_ASSIGN(a.data, wallet->set_wallet_seqno(a.data, msg_seqno));
-    a.storage_dict_hash = a.orig_storage_dict_hash = {};
-    return std::move(a);
-  };
-  co_await run_message(wc, std::move(acc), unpack_wallet_account, state.utime, state.lt + 1, message->root_cell(),
+  co_await run_message(wc, std::move(acc), unpack_account, state.utime, state.lt + 1, message->root_cell(),
                        exec_config);
   result.timings.vm = timer.elapsed();
-  result.is_wallet = true;
-  result.msg_seqno = msg_seqno;
-  result.msg_valid_until = msg_valid_until;
-  result.wallet_seqno = wallet_seqno;
-  result.state_utime = state.utime;
-  LOG(DEBUG) << "Checked external message to " << wc << ":" << addr.to_hex() << ", " << wallet->name();
   co_return result;
 }
 
