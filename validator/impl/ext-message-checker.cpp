@@ -64,6 +64,7 @@ td::actor::Task<ExtMessageChecker::CheckedExtMsg> ExtMessageChecker::check(td::B
   // NOTE: exec_config stays valid below because nothing in between actually suspends
   // (CO_TRY unwrap ready td::Result values); only this worker's tasks mutate exec_configs_.
   auto &exec_config = exec_configs_[{wc, state.utime}];
+  alarm_timestamp().relax(td::Timestamp::in(60.0));
   if (exec_config.nolog == nullptr) {
     exec_config.nolog = CO_TRY(ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, false));
     exec_config.log = CO_TRY(ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, true));
@@ -151,12 +152,15 @@ td::actor::Task<ExtMessageChecker::ResolvedState> ExtMessageChecker::resolve_sta
     }
     entry = CachedState{block_id, std::move(state), vm::load_cell_slice_ref(sstate.accounts), sstate.gen_utime,
                         sstate.gen_lt};
-    if (states_.size() > 64) {
-      // Drop stale shards (after splits/merges); the hot entries repopulate on the next message.
-      std::erase_if(states_, [&](const auto &kv) { return kv.second.block_id != block_id; });
-    }
   }
+  alarm_timestamp().relax(td::Timestamp::in(60.0));
   co_return make_resolved(entry);
+}
+
+void ExtMessageChecker::alarm() {
+  // Drop caches to avoid holding ShardState objects for too long
+  states_.clear();
+  exec_configs_.clear();
 }
 
 }  // namespace ton::validator
