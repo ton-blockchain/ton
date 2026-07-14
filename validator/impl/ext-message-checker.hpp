@@ -57,6 +57,8 @@ class ExtMessageChecker : public td::actor::Actor {
   td::actor::Task<CheckedExtMsg> check(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
                                        td::Ref<MasterchainState> mc_state);
 
+  void alarm() override;
+
  private:
   td::actor::ActorId<ValidatorManager> manager_;
 
