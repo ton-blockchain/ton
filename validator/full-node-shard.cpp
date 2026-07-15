@@ -211,13 +211,6 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ex
   process_external_message_broadcast(query, [](td::Result<td::Unit>) {});
 }
 
-void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
-  BlockIdExt block_id = create_block_id(query.block_->block_);
-  VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast from " << src << ": " << block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
-                          std::move(query.block_->data_), false);
-}
-
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
   process_block_candidate_broadcast(src, query);
 }
@@ -293,21 +286,6 @@ void FullNodeShardImpl::send_external_message(td::BufferSlice data) {
   } else {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source, 0,
                             std::move(B));
-  }
-}
-
-void FullNodeShardImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  VLOG(full_node, DEBUG) << "Sending newShardBlockBroadcast: " << block_id;
-  auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
-      create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
-  auto source = choose_outbound_source(static_cast<td::uint32>(B.size()),
-                                       B.size() > overlay::Overlays::max_simple_broadcast_size());
-  if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, adnl_id_, overlay_id_, source, 0,
-                            std::move(B));
-  } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
-                            overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
   }
 }
 

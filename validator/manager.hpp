@@ -537,7 +537,6 @@ class ValidatorManagerImpl : public ValidatorManager {
                                          td::Promise<td::BufferSlice> promise) override;
   void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                         td::Promise<std::vector<BlockIdExt>> promise) override;
-  void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override;
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
@@ -689,7 +688,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
  private:
-  td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
   td::Timestamp check_shard_clients_;
   td::Timestamp log_status_at_;

@@ -312,22 +312,6 @@ class TestNode : public td::actor::Actor {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
                                 td::PromiseCreator::lambda([](td::Result<>) {}));
       }
-      void send_shard_block_info(ton::BlockIdExt block_id, ton::CatchainSeqno cc_seqno, td::BufferSlice data) override {
-        ++tdescr_cnt_;
-        if (!tdescr_save_) {
-          LOG(INFO) << "Ignoring newly-generated ShardTopBlockDescr for " << block_id;
-        } else {
-          char buffer[16];
-          sprintf(buffer, "%d.boc", tdescr_cnt_);
-          std::string fname = std::string{tdescr_pfx_.empty() ? "tdescr" : tdescr_pfx_} + buffer;
-          LOG(INFO) << "Saving newly-generated ShardTopBlockDescr for " << block_id << " into file " << fname;
-          auto res = block::save_binary_file(fname, std::move(data));
-          if (res.is_error()) {
-            LOG(ERROR) << "Cannot save ShardTopBlockDescr for " << block_id << " into file " << fname << " : "
-                       << res.move_as_error().to_string();
-          }
-        }
-      }
     };
 
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::install_callback,

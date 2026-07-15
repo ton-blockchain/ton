@@ -106,13 +106,6 @@ void FullNodeFastSyncOverlay::process_block_finality_broadcast(PublicKeyHash src
                           BroadcastSource::fast_sync_overlay, true);
 }
 
-void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
-  BlockIdExt block_id = create_block_id(query.block_->block_);
-  VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast in fast sync overlay from " << src << ": " << block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
-                          std::move(query.block_->data_), true);
-}
-
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
   process_block_candidate_broadcast(src, query);
 }
@@ -204,23 +197,6 @@ void FullNodeFastSyncOverlay::receive_query(adnl::AdnlNodeIdShort src, td::Buffe
                                             td::Promise<td::BufferSlice> promise) {
   td::actor::send_closure(full_node_, &FullNode::handle_query, std::move(query), src, QuerySource::fast_sync_overlay,
                           std::move(promise));
-}
-
-void FullNodeFastSyncOverlay::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  if (!inited_) {
-    return;
-  }
-  VLOG(full_node, DEBUG) << "Sending newShardBlockBroadcast in fast sync overlay: " << block_id;
-  auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
-      create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
-  if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagNoTwostep(), std::move(B));
-  } else {
-    td::actor::send_closure(
-        overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_, local_id_.pubkey_hash(),
-        overlay::Overlays::BroadcastFlagAnySender() | overlay::Overlays::BroadcastFlagNoTwostep(), std::move(B));
-  }
 }
 
 void FullNodeFastSyncOverlay::send_block_finality_broadcast(BlockFinalityBroadcast finality) {

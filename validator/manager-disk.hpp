@@ -254,7 +254,6 @@ class ValidatorManagerImpl : public ValidatorManager {
                                         td::Promise<std::vector<BlockIdExt>> promise) override {
     UNREACHABLE();
   }
-  void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override {
   }
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
