@@ -33,10 +33,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  static bool should_be_spawned(const Bus& bus) {
-    return bus.is_validator() || bus.config.observers_in_private_overlay();
-  }
-
   void start_up() override {
     auto& bus = *owning_bus();
 
@@ -51,7 +47,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     for (const auto& peer : bus.validator_set) {
       adnl_id_to_peer_[peer.adnl_id] = peer;
       short_id_to_peer_[peer.short_id] = peer;
-      overlay_nodes_.push_back(peer.adnl_id);
       overlay_nodes_tl.push_back(peer.short_id.bits256_value());
       authorized_keys.emplace(peer.short_id, max_broadcast_size);
     }
@@ -69,10 +64,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     options.send_twostep_broadcast_ = true;
     options.allow_old_broadcasts_ = false;
 
-    if (bus.config.observers_in_private_overlay()) {
-      overlay_nodes_ = bus.all_validators;
-    }
-
+    overlay_nodes_ = bus.all_validators;
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_adnl_id_,
                             std::move(overlay_full_id), overlay_nodes_, make_callback(),
                             overlay::OverlayPrivacyRules{0, 0, std::move(authorized_keys)},
@@ -153,9 +145,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
     auto& bus = *owning_bus();
-    if (bus.config.enable_block_sync()) {
-      return;
-    }
 
     CHECK(bus.is_validator());
     td::BufferSlice extra = create_serialize_tl_object<ton_api::consensus_broadcastExtra>(event->candidate->id.slot);
@@ -211,10 +200,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   void on_overlay_broadcast(PublicKeyHash src, td::BufferSlice data, td::BufferSlice extra) {
     auto& bus = *owning_bus();
 
-    if (bus.config.enable_block_sync()) {
-      LOG(WARNING) << "Dropping candidate broadcast from " << src << " in private overlay: protocol violation";
-      return;
-    }
     if (bus.is_validator() && src == bus.local_id->short_id) {
       return;
     }
@@ -243,9 +228,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
-    if (owning_bus()->config.enable_block_sync()) {
-      co_return td::Status::Error("Precheck failed: Candidate broadcasts in private overlay are disabled");
-    }
     auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true);
     if (parsed_extra.is_error()) {
       co_return parsed_extra.move_as_error_prefix("Precheck failed: Failed to parse broadcast extra: ");

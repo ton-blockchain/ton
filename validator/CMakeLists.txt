@@ -101,7 +101,6 @@ set(VALIDATOR_SOURCE
   consensus/simplex/votes.cpp
   consensus/block-accepter.cpp
   consensus/block-producer.cpp
-  consensus/block-sync-overlay.cpp
   consensus/block-validator.cpp
   consensus/bridge.cpp
   consensus/bus.cpp
