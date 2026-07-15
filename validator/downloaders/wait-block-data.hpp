@@ -58,7 +58,7 @@ class WaitBlockData : public td::actor::Actor {
   void set_is_hardfork(bool value);
   void start();
   void got_block_data_from_db(td::Ref<BlockData> data);
-  void loaded_data(ReceivedBlock data);
+  void loaded_data(ReceivedBlock data, bool from_manager);
   void loaded_block_data(td::Ref<BlockData> block);
   void checked_proof_link();
   void failed_to_get_block_data_from_net(td::Status reason);
@@ -67,8 +67,7 @@ class WaitBlockData : public td::actor::Actor {
 
   static td::Result<td::Ref<vm::Cell>> generate_block_proof_root(BlockIdExt id, td::Ref<vm::Cell> block_root);
   static td::Result<td::BufferSlice> generate_proof(BlockIdExt id, td::Ref<vm::Cell> block_root,
-                                                    td::Ref<block::BlockSignatureSet> signatures,
-                                                    td::Ref<MasterchainState> state);
+                                                    td::Ref<vm::Cell> serialized_signatures);
   static td::Result<td::BufferSlice> generate_proof_link(BlockIdExt id, td::Ref<vm::Cell> block_root);
 
  private:

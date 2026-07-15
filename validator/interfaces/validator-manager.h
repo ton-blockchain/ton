@@ -319,9 +319,6 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_signatures_short(BlockIdExt id, td::Timestamp timeout,
                                            td::Promise<td::Ref<block::BlockSignatureSet>> promise) = 0;
 
-  virtual void cache_block_candidate(BlockCandidate candidate, td::Promise<td::Unit> promise) {
-    promise.set_value(td::Unit{});
-  }
   virtual void send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                               td::BufferSlice data, int mode) = 0;
 
