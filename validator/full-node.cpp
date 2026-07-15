@@ -405,30 +405,6 @@ void FullNodeImpl::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBr
   }
 }
 
-void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
-  if (!client_.empty()) {
-    VLOG(full_node, WARNING) << "dropping OUT block broadcast: full-node is in slave mode";
-    return;
-  }
-  if (mode & broadcast_mode_custom) {
-    send_block_broadcast_to_custom_overlays(broadcast);
-  }
-  if (mode & broadcast_mode_fast_sync) {
-    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(broadcast.block_id.shard_full(), true).first;
-    if (!fast_sync_overlay.empty()) {
-      td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_broadcast, broadcast.clone());
-    }
-  }
-  if (mode & broadcast_mode_public) {
-    auto shard = get_shard_overlay_actor(broadcast.block_id.shard_full());
-    if (shard.empty()) {
-      VLOG(full_node, WARNING) << "dropping OUT block broadcast to unknown shard";
-      return;
-    }
-    td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
-  }
-}
-
 void FullNodeImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
   if (mode & broadcast_mode_custom) {
     send_block_finality_broadcast_to_custom_overlays(finality);
@@ -793,23 +769,6 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
   }
 }
 
-void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source,
-                                           bool send_to_custom) {
-  if (send_to_custom) {
-    send_block_broadcast_to_custom_overlays(broadcast);
-  }
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
-                          signatures_checked, source, [](td::Result<td::Unit> R) {
-                            if (R.is_error()) {
-                              if (R.error().code() == ErrorCode::notready) {
-                                LOG(DEBUG) << "dropped broadcast: " << R.move_as_error();
-                              } else {
-                                LOG(INFO) << "dropped broadcast: " << R.move_as_error();
-                              }
-                            }
-                          });
-}
-
 void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
                                                     bool send_to_custom) {
   if (send_to_custom) {
@@ -1024,9 +983,6 @@ void FullNodeImpl::start_up() {
     void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_out_msg_queue_proof_broadcast, std::move(broadcast));
     }
-    void send_broadcast(BlockBroadcast broadcast, int mode) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_broadcast, std::move(broadcast), mode);
-    }
     void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_block_finality_broadcast, std::move(finality), mode);
     }
@@ -1120,22 +1076,6 @@ void FullNodeImpl::update_custom_overlay(CustomOverlayInfo &overlay) {
     auto it = current_validators_.find(local_key);
     if (it != current_validators_.end()) {
       try_local_id(it->second);
-    }
-  }
-}
-
-void FullNodeImpl::send_block_broadcast_to_custom_overlays(const BlockBroadcast &broadcast) {
-  if (custom_overlays_sent_broadcasts_.contains(broadcast.block_id)) {
-    return;
-  }
-  custom_overlays_sent_broadcasts_.put(broadcast.block_id, {});
-  for (auto &[_, private_overlay] : custom_overlays_) {
-    if (private_overlay.params_.send_shard(broadcast.block_id.shard_full())) {
-      for (auto &[local_id, actor] : private_overlay.actors_) {
-        if (private_overlay.params_.block_senders_.contains(local_id)) {
-          td::actor::send_closure(actor, &FullNodeCustomOverlay::send_broadcast, broadcast.clone());
-        }
-      }
     }
   }
 }

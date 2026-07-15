@@ -446,8 +446,8 @@ class TestManagerFacade : public ManagerFacade {
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
-                                 td::Ref<block::BlockSignatureSet> signatures, int block_broadcast_mode,
-                                 int finality_broadcast_mode, bool send_shard_block_desc, bool apply) override;
+                                 td::Ref<block::BlockSignatureSet> signatures, bool send_finaluty_broadcast,
+                                 bool apply) override;
 
   td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override;
   td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override;
@@ -888,8 +888,7 @@ class TestConsensus : public td::actor::Actor {
 
 td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
                                                   td::Ref<block::BlockSignatureSet> signatures,
-                                                  int block_broadcast_mode, int finality_broadcast_mode,
-                                                  bool send_shard_block_desc, bool apply) {
+                                                  bool send_finality_broadcast, bool apply) {
   CHECK(id.shard_full() == SHARD);
   LOG(WARNING) << "Accept block #" << id.seqno() << " (" << (signatures->is_final() ? "final" : "notarize")
                << " signatures), creator_idx=" << creator_idx;

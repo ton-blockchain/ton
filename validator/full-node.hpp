@@ -76,7 +76,6 @@ class FullNodeImpl : public FullNode {
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data, int mode);
-  void send_broadcast(BlockBroadcast broadcast, int mode);
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode);
   void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
 
@@ -100,8 +99,6 @@ class FullNodeImpl : public FullNode {
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
 
-  void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source,
-                               bool send_to_custom) override;
   void process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
                                         bool send_to_custom) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
@@ -193,7 +190,6 @@ class FullNodeImpl : public FullNode {
 
   void update_private_overlays();
   void update_custom_overlay(CustomOverlayInfo& overlay);
-  void send_block_broadcast_to_custom_overlays(const BlockBroadcast& broadcast);
   void send_block_finality_broadcast_to_custom_overlays(const BlockFinalityBroadcast& finality);
   void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
                                                          td::uint32 validator_set_hash, const td::BufferSlice& data);

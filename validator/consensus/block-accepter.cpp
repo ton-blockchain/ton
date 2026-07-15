@@ -27,26 +27,12 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   template <>
   td::actor::Task<> process(BusHandle, std::shared_ptr<FinalizeBlock> event) {
     auto& bus = *owning_bus();
-
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
     auto block_data = create_block(block.id, block.data.clone()).move_as_ok();
-
-    bool is_leader = bus.is_validator() && event->candidate->leader == bus.local_id->idx;
-
-    int block_broadcast_mode = fullnode::FullNode::broadcast_mode_custom;
-    int finality_broadcast_mode = fullnode::FullNode::broadcast_mode_custom |
-                                  fullnode::FullNode::broadcast_mode_fast_sync |
-                                  fullnode::FullNode::broadcast_mode_public;
-    if (is_leader) {
-      block_broadcast_mode |= fullnode::FullNode::broadcast_mode_public;
-    }
-    if (last_mc_finalized_seqno_ >= 2 && block.id.seqno() < last_mc_finalized_seqno_ - 2) {
-      block_broadcast_mode = 0;
-      finality_broadcast_mode = 0;
-    }
+    bool send_finality_broadcast = block.id.seqno() + 8 > last_mc_finalized_seqno_;
     co_await td::actor::ask(bus.manager, &ManagerFacade::accept_block, block.id, block_data,
-                            event->candidate->leader.value(), event->signatures, block_broadcast_mode,
-                            finality_broadcast_mode, false, true);
+                            event->candidate->leader.value(), event->signatures, send_finality_broadcast,
+                            /* accept = */ true);
     owning_bus().publish<TraceEvent>(stats::BlockAccepted::create(event->candidate->id));
     co_return {};
   }
