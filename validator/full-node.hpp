@@ -77,7 +77,6 @@ class FullNodeImpl : public FullNode {
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data, int mode);
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode);
-  void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats);
 
   td::actor::Task<QuerySender> get_query_sender(ShardIdFull shard_id, bool historical = false);
 
