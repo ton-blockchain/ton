@@ -290,6 +290,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::LRUCache<BlockIdExt, td::BufferSlice> cached_block_data_{/* max_size = */ 256};
   td::LRUCache<BlockIdExt, PendingBlockFinality> pending_block_finality_{/* max_size = */ 256};
+  std::set<BlockIdExt> active_broadcast_checks_;
 
   td::actor::ActorOwn<ExtMessagePool> ext_message_pool_;
   td::actor::ActorOwn<AppliedExtMessageCleanupActor> applied_ext_message_cleanup_actor_;

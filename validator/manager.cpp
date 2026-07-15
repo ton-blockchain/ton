@@ -654,6 +654,13 @@ td::actor::Task<> ValidatorManagerImpl::try_process_pending_block_finality_inner
   pending_block_finality_.erase(block_id);
   update_block_receive_stats(block_id, BlockReceiveStats::from_candidate_finality(finality_source));
 
+  if (!active_broadcast_checks_.insert(block_id).second) {
+    VLOG(validator, DEBUG) << "Dropping duplicate candidate+finality for " << block_id;
+    co_return {};
+  }
+  SCOPE_EXIT {
+    active_broadcast_checks_.erase(block_id);
+  };
   BlockBroadcast broadcast = co_await create_broadcast(block_id, std::move(data), signatures, serialized_signatures);
   auto [task, promise] = td::actor::StartedTask<>::make_bridge();
   td::actor::create_actor<ValidateBroadcast>(
