@@ -1065,7 +1065,6 @@ void FullNodeImpl::send_block_finality_broadcast_to_custom_overlays(const BlockF
 void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt &block_id, CatchainSeqno cc_seqno,
                                                                      td::uint32 validator_set_hash,
                                                                      const td::BufferSlice &data) {
-  // Same cache of sent broadcasts as in send_block_broadcast_to_custom_overlays
   if (custom_overlays_sent_broadcasts_.contains(block_id)) {
     return;
   }

@@ -446,7 +446,7 @@ class TestManagerFacade : public ManagerFacade {
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
-                                 td::Ref<block::BlockSignatureSet> signatures, bool send_finaluty_broadcast,
+                                 td::Ref<block::BlockSignatureSet> signatures, bool send_finality_broadcast,
                                  bool apply) override;
 
   td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override;

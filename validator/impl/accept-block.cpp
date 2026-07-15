@@ -30,7 +30,6 @@
 
 #include "accept-block.hpp"
 #include "fabric.h"
-#include "full-node.h"
 #include "top-shard-descr.hpp"
 
 namespace ton {
