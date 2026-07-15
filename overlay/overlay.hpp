@@ -33,6 +33,7 @@
 #include "fec/fec.h"
 #include "keys/encryptor.h"
 #include "rldp2/rldp.h"
+#include "td/actor/SharedFuture.h"
 #include "td/utils/DecTree.h"
 #include "td/utils/LRUCache.h"
 #include "td/utils/List.h"
@@ -230,6 +231,8 @@ class OverlayImpl : public Overlay {
   void receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> nodes) override;
 
   void get_self_node(td::Promise<OverlayNode> promise);
+  td::actor::Task<OverlayNode> get_self_node_coro();
+  td::actor::Task<OverlayNode> get_self_node_inner();
 
   void alarm() override;
   void start_up() override;
@@ -509,6 +512,8 @@ class OverlayImpl : public Overlay {
   std::set<BroadcastHash> delivered_broadcasts_;
 
   std::queue<BroadcastHash> bcast_lru_;
+
+  std::shared_ptr<td::actor::SharedFuture<OverlayNode>> self_node_future_;
 
   void bcast_gc();
 

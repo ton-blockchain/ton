@@ -2,6 +2,7 @@
 #include <cstring>
 #include <limits>
 #include <openssl/ssl.h>
+#include <openssl/x509.h>
 
 #include "td/utils/Random.h"
 #include "td/utils/Timer.h"
@@ -112,6 +113,26 @@ static td::Result<Ed25519EvpKeyPtr> make_ed25519_evp_key(const td::Ed25519::Priv
   return std::move(evp_key);
 }
 
+// Builds a minimal self-signed X.509 that wraps the same Ed25519 public key as `key`.
+static td::Result<openssl_ptr<X509, &X509_free>> make_self_signed_rpk_cert(EVP_PKEY* key) {
+  OPENSSL_MAKE_PTR(cert, X509_new(), X509_free, "Failed to allocate X509");
+  OPENSSL_CHECK_OK(X509_set_version(cert.get(), X509_VERSION_3), "Failed to set X509 version");
+  OPENSSL_CHECK_OK(ASN1_INTEGER_set(X509_get_serialNumber(cert.get()), 1), "Failed to set serial");
+  // RPK ignores validity, and our verify callback is permissive; set a wide, 32-bit-safe window anyway.
+  OPENSSL_CHECK_PTR(X509_gmtime_adj(X509_getm_notBefore(cert.get()), 0), "Failed to set notBefore");
+  OPENSSL_CHECK_PTR(X509_gmtime_adj(X509_getm_notAfter(cert.get()), 60L * 60 * 24 * 365 * 20),
+                    "Failed to set notAfter");
+  OPENSSL_CHECK_OK(X509_set_pubkey(cert.get(), key), "Failed to set public key");
+  X509_NAME* name = X509_get_subject_name(cert.get());
+  OPENSSL_CHECK_OK(X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+                                              reinterpret_cast<const unsigned char*>("ton-rpk"), -1, -1, 0),
+                   "Failed to set subject name");
+  OPENSSL_CHECK_OK(X509_set_issuer_name(cert.get(), name), "Failed to set issuer name");
+  // Ed25519 is one-shot: the digest passed to X509_sign must be NULL.
+  OPENSSL_CHECK_OK(X509_sign(cert.get(), key, nullptr), "Failed to self-sign RPK certificate");
+  return std::move(cert);
+}
+
 static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::PrivateKey& key) {
   SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
   SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
@@ -125,12 +146,20 @@ static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::Private
 
   TRY_RESULT(evp_key, make_ed25519_evp_key(key));
   OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx, evp_key.get()), "Failed to set private key");
+  TRY_RESULT(cert, make_self_signed_rpk_cert(evp_key.get()));
+  OPENSSL_CHECK_OK(SSL_CTX_use_certificate(ssl_ctx, cert.get()), "Failed to set certificate");
   return td::Status::OK();
 }
 
 static td::Status use_rpk_private_key(SSL* ssl, const td::Ed25519::PrivateKey& key) {
   TRY_RESULT(evp_key, make_ed25519_evp_key(key));
-  OPENSSL_CHECK_OK(SSL_use_PrivateKey(ssl, evp_key.get()), "Failed to set private key");
+  TRY_RESULT(cert, make_self_signed_rpk_cert(evp_key.get()));
+  // Swap certificate and key atomically (override=1): the SSL already carries the default identity's
+  // cert+key inherited from the SSL_CTX, so installing either one alone would trip OpenSSL's
+  // consistency check against the stale counterpart. SSL_use_cert_and_key only checks the supplied
+  // pair against each other, and they match by construction.
+  OPENSSL_CHECK_OK(SSL_use_cert_and_key(ssl, cert.get(), evp_key.get(), nullptr, 1),
+                   "Failed to set RPK certificate and key");
   return td::Status::OK();
 }
 

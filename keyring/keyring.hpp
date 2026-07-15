@@ -68,8 +68,11 @@ class KeyringImpl : public Keyring {
   std::map<PublicKeyHash, std::unique_ptr<PrivateKeyDescr>> map_;
   std::unique_ptr<Decryptor> decryptor_;
   std::unique_ptr<Encryptor> encryptor_;
+  bool loaded_all_keys_ = false;
 
   std::string db_root_;
+
+  void load_all_keys();
 };
 
 }  // namespace keyring

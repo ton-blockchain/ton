@@ -278,6 +278,14 @@ class OverlayMemberCertificate {
     signature_ = std::move(signature);
   }
 
+  bool operator==(const OverlayMemberCertificate &other) const {
+    if (empty() && other.empty()) {
+      return true;
+    }
+    return signed_by_ == other.signed_by_ && flags_ == other.flags_ && slot_ == other.slot_ &&
+           expire_at_ == other.expire_at_ && signature_ == other.signature_;
+  }
+
  private:
   PublicKey signed_by_;
   td::uint32 flags_;

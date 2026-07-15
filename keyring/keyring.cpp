@@ -18,6 +18,7 @@
 */
 #include "common/errorcode.h"
 #include "common/io.hpp"
+#include "td/utils/PathView.h"
 #include "td/utils/Random.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/port/path.h"
@@ -202,6 +203,7 @@ void KeyringImpl::decrypt_message(PublicKeyHash key_hash, td::BufferSlice data, 
 }
 
 void KeyringImpl::export_all_private_keys(td::Promise<std::vector<PrivateKey>> promise) {
+  load_all_keys();
   std::vector<PrivateKey> keys;
   for (auto& [_, descr] : map_) {
     if (!descr->is_temp && descr->private_key.exportable()) {
@@ -209,6 +211,40 @@ void KeyringImpl::export_all_private_keys(td::Promise<std::vector<PrivateKey>> p
     }
   }
   promise.set_value(std::move(keys));
+}
+
+void KeyringImpl::load_all_keys() {
+  if (loaded_all_keys_) {
+    return;
+  }
+  loaded_all_keys_ = true;
+  LOG(DEBUG) << "Loading all keys from " << db_root_;
+  bool first = true;
+  auto S = td::WalkPath::run(db_root_, [&](td::Slice path, td::WalkPath::Type type) {
+    if (type == td::WalkPath::Type::EnterDir) {
+      if (!first) {
+        return td::WalkPath::Action::SkipDir;
+      }
+      first = false;
+    } else if (type == td::WalkPath::Type::RegularFile) {
+      td::Slice name = td::PathView{path}.file_name();
+      td::Bits256 hash;
+      if (hash.from_hex(name) != 256) {
+        LOG(WARNING) << "Unexpected file in keyring directory: " << name;
+        return td::WalkPath::Action::Continue;
+      }
+      auto R = load_key(PublicKeyHash{hash});
+      if (R.is_error()) {
+        LOG(WARNING) << "Failed to load key " << name << ": " << R.move_as_error();
+      } else {
+        LOG(DEBUG) << "Loaded key " << name;
+      }
+    }
+    return td::WalkPath::Action::Continue;
+  });
+  if (S.is_error()) {
+    LOG(WARNING) << "Failed to load all keys: " << S;
+  }
 }
 
 td::actor::ActorOwn<Keyring> Keyring::create(std::string db_root) {

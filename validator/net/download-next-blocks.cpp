@@ -114,6 +114,9 @@ td::actor::Task<> DownloadNextBlocks::run() {
   std::vector<tl_object_ptr<ton_api::tonNode_DataFull>> response_vec;
   if (allow_many) {
     auto f = CO_TRY(fetch_tl_object<ton_api::tonNode_nextBlocksFull>(std::move(response), true));
+    if (f->blocks_.size() > MAX_BLOCKS) {
+      co_return td::Status::Error(ErrorCode::protoviolation, "got too many blocks");
+    }
     for (auto &obj : f->blocks_) {
       if (obj->get_id() == ton_api::tonNode_dataFullEmpty::ID) {
         co_return td::Status::Error(ErrorCode::protoviolation, "got empty block in nextBlocksFull");

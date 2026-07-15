@@ -41,6 +41,7 @@
 #include "td/actor/MultiPromise.h"
 #include "td/utils/BufferedFd.h"
 #include "td/utils/FileLog.h"
+#include "td/utils/LRUCache.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
 #include "td/utils/filesystem.h"
@@ -1277,18 +1278,17 @@ class RldpHttpProxy : public td::actor::Actor {
   }
 
   void update_peer_capabilities(ton::adnl::AdnlNodeIdShort peer, td::uint64 capabilities) {
-    auto &c = peer_capabilities_[peer];
-    if (c.capabilities != capabilities) {
+    td::uint64 &c = peer_capabilities_.get(peer);
+    if (c != capabilities) {
       LOG(DEBUG) << "Update capabilities of peer " << peer << " : " << capabilities;
     }
-    c.capabilities = capabilities;
-    c.received = true;
+    c = capabilities;
   }
 
   void get_peer_capabilities(ton::adnl::AdnlNodeIdShort peer, td::Promise<td::uint64> promise) {
-    auto &c = peer_capabilities_[peer];
-    if (c.received) {
-      promise.set_value(td::uint64{c.capabilities});
+    td::uint64 *c = peer_capabilities_.get_if_exists(peer);
+    if (c) {
+      promise.set_value(td::uint64{*c});
       return;
     }
     td::actor::send_closure(
@@ -1348,11 +1348,7 @@ class RldpHttpProxy : public td::actor::Actor {
            std::function<void(ton::tl_object_ptr<ton::ton_api::http_getNextPayloadPart>, td::Promise<td::BufferSlice>)>>
       payload_senders_;
 
-  struct PeerCapabilities {
-    td::uint64 capabilities = 0;
-    bool received = false;
-  };
-  std::map<ton::adnl::AdnlNodeIdShort, PeerCapabilities> peer_capabilities_;
+  td::LRUCache<ton::adnl::AdnlNodeIdShort, td::uint64> peer_capabilities_{10000};
 };
 
 void TcpToRldpRequestSender::resolve(std::string host) {

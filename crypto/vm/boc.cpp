@@ -637,7 +637,7 @@ td::Status BagOfCells::serialize_to_file(td::FileFd& fd, int mode) {
   return td::Status::OK();
 }
 
-unsigned long long BagOfCells::Info::read_int(const unsigned char* ptr, unsigned bytes) {
+unsigned long long BagOfCells::Info::read_int(const unsigned char* ptr, unsigned bytes) const {
   unsigned long long res = 0;
   while (bytes > 0) {
     res = (res << 8) + *ptr++;
@@ -646,7 +646,7 @@ unsigned long long BagOfCells::Info::read_int(const unsigned char* ptr, unsigned
   return res;
 }
 
-void BagOfCells::Info::write_int(unsigned char* ptr, unsigned long long value, int bytes) {
+void BagOfCells::Info::write_int(unsigned char* ptr, unsigned long long value, int bytes) const {
   ptr += bytes;
   while (bytes) {
     *--ptr = value & 0xff;

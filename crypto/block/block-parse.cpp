@@ -879,13 +879,17 @@ bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record& data) const {
              && t_Grams.fetch_to(cs, data.fwd_fee_remaining)        // fwd_fee_remaining:Grams
              && cs.fetch_ref_to(data.msg);                          // msg:^Message
     case 5:
+      bool with_metadata, with_emitted_lt;
       return cs.fetch_ulong(4) == 5                                 // msg_envelope_v2#5
              && t_IntermediateAddress.fetch_to(cs, data.cur_addr)   // cur_addr:IntermediateAddress
              && t_IntermediateAddress.fetch_to(cs, data.next_addr)  // next_addr:IntermediateAddress
              && t_Grams.fetch_to(cs, data.fwd_fee_remaining)        // fwd_fee_remaining:Grams
              && cs.fetch_ref_to(data.msg)                           // msg:^Message
-             && Maybe<UInt>(64).skip(cs)                            // emitted_lt:(Maybe uint64)
-             && Maybe<gen::MsgMetadata>().skip(cs);                 // metadata:(Maybe MsgMetadata)
+             && cs.fetch_bool_to(with_emitted_lt) &&
+             (!with_emitted_lt || cs.skip_first(64))  // emitted_lt:(Maybe uint64)
+             && cs.fetch_bool_to(with_metadata) &&
+             (!with_metadata || gen::t_MsgMetadata.skip(cs))  // metadata:(Maybe MsgMetadata)
+             && (with_emitted_lt || with_metadata);           // otherwise it should be msg_envelope#4
     default:
       return false;
   }
@@ -911,7 +915,8 @@ bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record_std& data) const
              && cs.fetch_bool_to(with_emitted_lt) &&
              (!with_emitted_lt || cs.fetch_uint_to(64, data.emitted_lt.value_force()))  // emitted_lt:(Maybe uint64)
              && cs.fetch_bool_to(with_metadata) &&
-             (!with_metadata || data.metadata.value_force().unpack(cs));  // metadata:(Maybe MsgMetadata)
+             (!with_metadata || data.metadata.value_force().unpack(cs))  // metadata:(Maybe MsgMetadata)
+             && (with_emitted_lt || with_metadata);                      // otherwise it should be msg_envelope#4
     }
     default:
       return false;

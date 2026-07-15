@@ -528,12 +528,19 @@ td::Result<bool> Config::config_del_collator(ton::adnl::AdnlNodeIdShort addr, to
   if (!shard.is_valid_ext()) {
     return td::Status::Error(PSTRING() << "invalid shard: " << shard);
   }
-  auto &shards = collators[addr];
-  auto it = std::find(shards.begin(), shards.end(), shard);
-  if (it == shards.end()) {
+  auto it = collators.find(addr);
+  if (it == collators.end()) {
     return false;
   }
-  shards.erase(it);
+  auto &shards = it->second;
+  auto it2 = std::find(shards.begin(), shards.end(), shard);
+  if (it2 == shards.end()) {
+    return false;
+  }
+  shards.erase(it2);
+  if (shards.empty()) {
+    collators.erase(it);
+  }
   return true;
 }
 
@@ -1319,6 +1326,9 @@ class CheckDhtServerStatusQuery : public td::actor::Actor {
       td::actor::send_closure(adnl_, &ton::adnl::Adnl::send_query, local_id_, E.adnl_id().compute_short_id(), "ping",
                               std::move(P), td::Timestamp::in(1.0),
                               ton::create_serialize_tl_object<ton::ton_api::dht_getSignedAddressList>());
+    }
+    if (pending_ == 0) {
+      finish_query();
     }
   }
 

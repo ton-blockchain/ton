@@ -1149,7 +1149,7 @@ ShardConfig::ShardConfig(const ShardConfig& other)
 
 bool ShardConfig::get_shard_hash_raw_from(vm::Dictionary& dict, vm::CellSlice& cs, ton::ShardIdFull id,
                                           ton::ShardIdFull& true_id, bool exact, Ref<vm::Cell>* leaf) {
-  if (id.is_masterchain() || !id.is_valid()) {
+  if (id.is_masterchain() || !id.is_valid_ext()) {
     return false;
   }
   auto root = dict.lookup_ref(td::BitArray<32>{id.workchain});
@@ -2062,8 +2062,7 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     limits.ext_msg_limits.max_size = rec.max_ext_msg_size;
     limits.ext_msg_limits.max_depth = static_cast<td::uint16>(rec.max_ext_msg_depth);
   };
-
-  auto unpack_v2 = [&](gen::SizeLimitsConfig::Record_size_limits_config_v2& rec) {
+  auto unpack_v2 = [&](auto& rec) {
     unpack_v1(rec);
     limits.max_acc_state_cells = rec.max_acc_state_cells;
     limits.max_mc_acc_state_cells = rec.max_mc_acc_state_cells;
@@ -2076,12 +2075,20 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
       limits.max_transaction_library_loads = (td::uint32)rec.max_transaction_library_loads->prefetch_long(32);
     }
   };
+  auto unpack_v3 = [&](gen::SizeLimitsConfig::Record_size_limits_config_v3& rec) {
+    unpack_v2(rec);
+    limits.max_total_msg_bits = rec.max_total_msg_bits;
+    limits.max_total_msg_cells = rec.max_total_msg_cells;
+  };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;
+  gen::SizeLimitsConfig::Record_size_limits_config_v3 rec_v3;
   if (tlb::csr_unpack(cs, rec_v1)) {
     unpack_v1(rec_v1);
   } else if (tlb::csr_unpack(cs, rec_v2)) {
     unpack_v2(rec_v2);
+  } else if (tlb::csr_unpack(cs, rec_v3)) {
+    unpack_v3(rec_v3);
   } else {
     return td::Status::Error("configuration parameter 43 is invalid");
   }

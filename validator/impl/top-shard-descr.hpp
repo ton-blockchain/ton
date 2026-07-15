@@ -54,7 +54,7 @@ class ShardTopBlockDescrQ final : public ShardTopBlockDescrQBase {
                     Ref<MasterchainState> last_masterchain_block_state) const override;
   td::Result<int> prevalidate(BlockIdExt last_mc_block_id, Ref<MasterchainState> last_mc_state, int mode,
                               int& res_flags) const;
-  td::Result<int> validate(BlockIdExt last_mc_block_id, Ref<MasterchainState> last_mc_state, int mode, int& res_flags);
+  td::Result<int> validate(BlockIdExt last_mc_block_id, Ref<MasterchainState> last_mc_state, int mode);
 
   td::BufferSlice serialize() const override {
     return data_.clone();
@@ -146,6 +146,8 @@ class ShardTopBlockDescrQ final : public ShardTopBlockDescrQBase {
   td::Status unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cell> proof_root, bool is_head);
   td::Result<int> validate_internal(BlockIdExt last_mc_block_id, Ref<MasterchainState> last_mc_state, int& res_flags,
                                     int mode) const;
+
+  enum ResFlags { invalid = 1, vset_cur = 4, vset_next = 8, sig_ok = 16, sig_bad = 32 };
 };
 
 class ValidateShardTopBlockDescr : public td::actor::Actor {

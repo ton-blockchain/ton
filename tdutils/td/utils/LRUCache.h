@@ -109,7 +109,7 @@ class LRUCache {
 
  private:
   struct Entry : ListNode {
-    Entry(K key, uint64 weight) : key(std::move(key)), weight(weight) {
+    Entry(K key, uint64 weight) : key(std::move(key)), value(), weight(weight) {
     }
     Entry(K key, V value, uint64 weight) : key(std::move(key)), value(std::move(value)), weight(weight) {
     }

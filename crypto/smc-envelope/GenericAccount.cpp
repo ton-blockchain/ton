@@ -76,7 +76,7 @@ bool GenericAccount::store_int_message(vm::CellBuilder& cb, const block::StdAddr
 }
 
 td::Ref<vm::Cell> GenericAccount::create_ext_message(const block::StdAddress& address, td::Ref<vm::Cell> new_state,
-                                                     td::Ref<vm::Cell> body) noexcept {
+                                                     td::Ref<vm::Cell> body) {
   if (body.is_null()) {
     return {};
   }

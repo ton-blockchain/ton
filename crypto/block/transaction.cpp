@@ -3030,6 +3030,14 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
     new_msg_bits = cb.size();
     new_msg = cb.finalize();
+    if (cfg.global_version >= 15) {
+      if (ap.tot_msg_bits + sstat.bits + new_msg_bits > cfg.size_limits.max_total_msg_bits ||
+          ap.tot_msg_cells + sstat.cells + 1 > cfg.size_limits.max_total_msg_cells) {
+        LOG(DEBUG) << "total message size too large, invalid";
+        collect_fine();
+        return check_skip_invalid(47);
+      }
+    }
 
     // clear msg_balance_remaining if it has been used
     if (act_rec.mode & 0xc0) {
@@ -3074,6 +3082,14 @@ int Transaction::try_action_send_msg(const vm::CellSlice& cs0, ActionPhase& ap, 
 
     new_msg_bits = cb.size();
     new_msg = cb.finalize();
+    if (cfg.global_version >= 15) {
+      if (ap.tot_msg_bits + sstat.bits + new_msg_bits > cfg.size_limits.max_total_msg_bits ||
+          ap.tot_msg_cells + sstat.cells + 1 > cfg.size_limits.max_total_msg_cells) {
+        LOG(DEBUG) << "total message size too large, invalid";
+        collect_fine();
+        return check_skip_invalid(47);
+      }
+    }
 
     // update balance
     ap.remaining_balance -= fwd_fee;

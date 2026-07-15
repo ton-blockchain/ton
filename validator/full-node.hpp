@@ -100,11 +100,14 @@ class FullNodeImpl : public FullNode {
   void got_key_block_config(td::Ref<ConfigHolder> config);
   void new_key_block(BlockHandle handle);
 
-  void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source) override;
-  void process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) override;
+  void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source,
+                               bool send_to_custom) override;
+  void process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
+                                        bool send_to_custom) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
-                                         td::BufferSlice data, BroadcastSource source) override;
-  void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
+                                         td::BufferSlice data, BroadcastSource source, bool send_to_custom) override;
+  void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
+                                          bool send_to_custom) override;
   void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) override;
 
   void set_validator_telemetry_filename(std::string value) override;
@@ -185,9 +188,9 @@ class FullNodeImpl : public FullNode {
     std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<FullNodeCustomOverlay>> actors_;  // our local id -> actor
   };
   std::map<std::string, CustomOverlayInfo> custom_overlays_;
-  td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_broadcasts_{256};
-  td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_finality_{256};
-  td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_shard_block_desc_{256};
+  td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_broadcasts_{10000};
+  td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_finality_{10000};
+  td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_shard_block_desc_{10000};
 
   void update_private_overlays();
   void update_custom_overlay(CustomOverlayInfo& overlay);

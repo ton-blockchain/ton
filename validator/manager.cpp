@@ -291,6 +291,13 @@ td::actor::Task<> ValidatorManagerImpl::generate_shard_block_description(BlockId
     VLOG(validator, INFO) << "Failed to generate shard block description for " << block_id << " : out of sync";
     co_return {};
   }
+  ShardIdFull shard = block_id.shard_full();
+  auto shard_desc =
+      last_masterchain_state_->get_shard_from_config(ShardIdFull{shard.workchain, shard.shard | 1}, false);
+  if (shard_desc.not_null() && shard_desc->top_block_id().seqno() >= block_id.seqno()) {
+    VLOG(validator, INFO) << "Don't generate shard block description for " << block_id << " : too old block";
+    co_return {};
+  }
   auto r_desc =
       co_await validator::generate_shard_block_description(block_id, sig_set, td::Timestamp::in(30.0), actor_id(this))
           .wrap();

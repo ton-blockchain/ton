@@ -1630,6 +1630,10 @@ class GetMasterchainBlockSignatures : public td::actor::Actor {
 
   void got_block_id(ton::BlockIdExt id) {
     block_id_ = id;
+    if (block_id_.id != block_id_short_) {
+      abort(td::Status::Error("got incorrect block header from liteserver"));
+      return;
+    }
     client_.send_query(
         ton::lite_api::liteServer_getBlockProof(0x1001, ton::create_tl_lite_block_id(prev_block_id_),
                                                 ton::create_tl_lite_block_id(block_id_)),
@@ -2196,6 +2200,10 @@ class RunEmulator : public TonlibQueryActor {
               check_block_transactions_proof(bTxes, mode, lt, self->request_.address.addr, root_hash, req_count);
           if (proof_status.is_error()) {
             self->check(std::move(proof_status));
+            return;
+          }
+          if (bTxes->incomplete_ && bTxes->ids_.empty()) {
+            self->check(td::Status::Error("Got 0 transactions with `incomplete` flag"));
             return;
           }
 
@@ -3651,7 +3659,8 @@ td::Result<td::Ref<vm::Cell>> create_ext_message_checked(const block::StdAddress
   if (body.is_null()) {
     return td::Status::Error("Failed to create external message: body is empty");
   }
-  auto message = ton::GenericAccount::create_ext_message(address, std::move(new_state), std::move(body));
+  TRY_RESULT(message, TRY_VM(td::Result<td::Ref<vm::Cell>>(
+                          ton::GenericAccount::create_ext_message(address, std::move(new_state), std::move(body)))));
   if (message.is_null()) {
     return td::Status::Error("Failed to create external message");
   }
@@ -6564,12 +6573,16 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactions& re
     after = nullptr;
   }
 
+  auto block_id = ton::create_block_id(block);
   client_.send_query(
       ton::lite_api::liteServer_listBlockTransactions(std::move(block), request.mode_, request.count_, std::move(after),
                                                       reverse_mode, check_proof),
-      promise.wrap([root_hash, req_count = request.count_, start_addr, start_lt,
+      promise.wrap([block_id, root_hash, req_count = request.count_, start_addr, start_lt,
                     mode = request.mode_](lite_api_ptr<ton::lite_api::liteServer_blockTransactions>&& bTxes)
                        -> td::Result<object_ptr<tonlib_api::blocks_transactions>> {
+        if (block_id != create_block_id(bTxes->id_)) {
+          return td::Status::Error("Liteserver responded with wrong block");
+        }
         TRY_STATUS(check_block_transactions_proof(bTxes, mode, start_lt, start_addr, root_hash, req_count));
 
         tonlib_api::blocks_transactions r;

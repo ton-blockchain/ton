@@ -34,7 +34,7 @@ DecryptedKey::DecryptedKey(RawDecryptedKey key)
     : DecryptedKey(std::move(key.mnemonic_words), td::Ed25519::PrivateKey(key.private_key.copy())) {
 }
 
-EncryptedKey DecryptedKey::encrypt(td::Slice local_password, td::Slice old_secret) const {
+td::Result<EncryptedKey> DecryptedKey::encrypt(td::Slice local_password, td::Slice old_secret) const {
   td::SecureString secret(32);
   if (old_secret.size() == td::as_slice(secret).size()) {
     secret.as_mutable_slice().copy_from(old_secret);
@@ -53,6 +53,7 @@ EncryptedKey DecryptedKey::encrypt(td::Slice local_password, td::Slice old_secre
   auto data = td::serialize_secure(RawDecryptedKey{std::move(mnemonic_words_copy), private_key.as_octet_string()});
   auto encrypted_data = SimpleEncryption::encrypt_data(data, as_slice(encryption_secret));
 
-  return EncryptedKey{std::move(encrypted_data), private_key.get_public_key().move_as_ok(), std::move(secret)};
+  TRY_RESULT(public_key, private_key.get_public_key());
+  return EncryptedKey{std::move(encrypted_data), std::move(public_key), std::move(secret)};
 }
 }  // namespace tonlib

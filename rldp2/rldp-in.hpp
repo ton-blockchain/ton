@@ -110,7 +110,11 @@ class RldpIn : public RldpImpl {
   std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, Connection> connections_;
   std::set<std::tuple<td::Timestamp, adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>> timeout_set_;
 
-  std::map<TransferId, td::Promise<td::BufferSlice>> queries_;
+  struct OutQuery {
+    td::Promise<td::BufferSlice> promise;
+    td::uint64 max_answer_size;
+  };
+  std::map<TransferId, OutQuery> queries_;
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
 

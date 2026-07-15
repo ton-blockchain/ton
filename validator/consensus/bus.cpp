@@ -60,11 +60,14 @@ std::string block_signature_set_to_string(const td::Ref<block::BlockSignatureSet
 
 static td::StringBuilder& operator<<(td::StringBuilder& sb, const OutgoingProtocolMessage::Recipient& recipient) {
   auto broadcast_to_all_fn = [&](const OutgoingProtocolMessage::BroadcastToAll&) { sb << "BroadcastToAll{}"; };
+  auto broadcast_to_validators_fn = [&](const OutgoingProtocolMessage::BroadcastToValidators&) {
+    sb << "BroadcastToValidators{}";
+  };
   auto broadcast_to_random_fn = [&](const OutgoingProtocolMessage::BroadcastToRandom& r) {
     sb << "BroadcastToRandom{count=" << r.count << "}";
   };
 
-  std::visit(td::overloaded(broadcast_to_all_fn, broadcast_to_random_fn), recipient);
+  std::visit(td::overloaded(broadcast_to_all_fn, broadcast_to_validators_fn, broadcast_to_random_fn), recipient);
   return sb;
 }
 

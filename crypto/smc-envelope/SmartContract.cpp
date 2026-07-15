@@ -401,7 +401,11 @@ td::Ref<vm::Cell> SmartContract::get_init_state() const {
 
 SmartContract::Answer SmartContract::run_method(Args args) {
   if (args.c7 && !args.config) {
-    args.config = try_fetch_config_from_c7(args.c7.value());
+    auto r_config = TRY_VM(td::Result<std::shared_ptr<const block::Config>>(try_fetch_config_from_c7(args.c7.value())));
+    if (r_config.is_error()) {
+      return make_error_answer(get_state(), ~static_cast<td::int32>(vm::Excno::fatal), r_config.error().message());
+    }
+    args.config = r_config.move_as_ok();
   }
   if (!args.c7) {
     args.c7 = prepare_vm_c7(args, state_.code);
@@ -433,7 +437,11 @@ SmartContract::Answer SmartContract::run_method(Args args) {
 
 SmartContract::Answer SmartContract::run_get_method(Args args) const {
   if (args.c7 && !args.config) {
-    args.config = try_fetch_config_from_c7(args.c7.value());
+    auto r_config = TRY_VM(td::Result<std::shared_ptr<const block::Config>>(try_fetch_config_from_c7(args.c7.value())));
+    if (r_config.is_error()) {
+      return make_error_answer(get_state(), ~static_cast<td::int32>(vm::Excno::fatal), r_config.error().message());
+    }
+    args.config = r_config.move_as_ok();
   }
   if (!args.c7) {
     args.c7 = prepare_vm_c7(args, state_.code);

@@ -117,13 +117,15 @@ td::Result<Ref<vm::Cell>> apply_block_to_prev_states(Ref<BlockData> block, std::
   return vm::MerkleUpdate::apply(prev_root, rec.state_update, hint);
 }
 
-Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_reader,
-                               std::vector<Ref<vm::Cell>> prev_roots, vm::StoreCellHint* hint) {
+td::Result<td::Ref<vm::Cell>> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_reader,
+                                               std::vector<Ref<vm::Cell>> prev_roots, vm::StoreCellHint* hint) {
   TD_PERF_COUNTER(apply_block_to_state_fast);
   td::PerfWarningTimer t{"applyblocktostatefast", 0.1};
   block::gen::Block::Record rec;
-  CHECK(block::gen::unpack_cell(block->root_cell(), rec));
-  vm::MerkleUpdate::validate(rec.state_update).ensure();
+  if (!block::gen::unpack_cell(block->root_cell(), rec)) {
+    return td::Status::Error("failed to unpack Block");
+  }
+  TRY_STATUS(vm::MerkleUpdate::validate(rec.state_update));
   vm::CellSlice merkle_update{vm::NoVm{}, rec.state_update};
 
   Ref<vm::Cell> prev_root;
@@ -131,10 +133,16 @@ Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_r
     prev_root = prev_roots[0];
   } else {
     CHECK(prev_roots.size() == 2);
-    CHECK(block::gen::t_ShardState.cell_pack_split_state(prev_root, prev_roots[0], prev_roots[1]));
+    if (!block::gen::t_ShardState.cell_pack_split_state(prev_root, prev_roots[0], prev_roots[1])) {
+      return td::Status::Error("failed to pack split state root");
+    }
   }
-  CHECK(prev_root->get_hash() == merkle_update.prefetch_ref(0)->get_hash(0));
-  CHECK(prev_root->get_depth() == merkle_update.prefetch_ref(0)->get_depth(0));
+  if (prev_root->get_hash() != merkle_update.prefetch_ref(0)->get_hash(0)) {
+    return td::Status::Error("prev state root hash mismatch");
+  }
+  if (prev_root->get_depth() != merkle_update.prefetch_ref(0)->get_depth(0)) {
+    return td::Status::Error("prev state root depth mismatch");
+  }
 
   Ref<vm::Cell> proof_root = merkle_update.prefetch_ref(1);
 
@@ -144,7 +152,7 @@ Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_r
         : cell_db_reader_(cell_db_reader), hint_(hint) {
     }
 
-    Ref<vm::Cell> dfs(Ref<vm::Cell> cell, unsigned merkle_depth) {
+    td::Result<Ref<vm::Cell>> dfs(Ref<vm::Cell> cell, unsigned merkle_depth) {
       vm::CellSlice cs(vm::NoVm(), cell);
       if (cs.special_type() == vm::Cell::SpecialType::PrunnedBranch) {
         if (cell->get_level() == merkle_depth + 1) {
@@ -153,7 +161,9 @@ Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_r
             hint_->prev_state_cells.insert(hash);
           }
           auto result = cell_db_reader_.create_unloaded_cell(cell, merkle_depth);
-          CHECK(result->get_hash() == hash);
+          if (result->get_hash() != hash) {
+            return td::Status::Error("prunned branch hash mismatch");
+          }
           return result;
         }
         return cell;
@@ -167,7 +177,7 @@ Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_r
       vm::CellBuilder cb;
       cb.store_bits(cs.fetch_bits(cs.size()));
       for (unsigned i = 0; i < cs.size_refs(); i++) {
-        auto ref = dfs(cs.prefetch_ref(i), child_merkle_depth);
+        TRY_RESULT(ref, dfs(cs.prefetch_ref(i), child_merkle_depth));
         cb.store_ref(std::move(ref));
       }
       auto hash_hint = [&](unsigned level, const vm::Cell::LevelMask&, vm::CellHash& hash) {
@@ -187,8 +197,10 @@ Ref<vm::Cell> build_next_state(Ref<BlockData> block, vm::CellDbReader& cell_db_r
     td::HashMap<Key, Ref<vm::Cell>> ready_cells_;
   };
 
-  auto result = BuildNextState{cell_db_reader, hint}.dfs(proof_root, 0);
-  CHECK(result->get_hash() == proof_root->get_hash(0));
+  TRY_RESULT(result, BuildNextState(cell_db_reader, hint).dfs(proof_root, 0));
+  if (result->get_hash() != proof_root->get_hash(0)) {
+    return td::Status::Error("new state hash mismatch");
+  }
   return result;
 }
 
