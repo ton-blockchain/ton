@@ -98,7 +98,7 @@ class FullNodeShardImpl : public FullNodeShard {
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
 
   template <class T>
-  void process_broadcast(PublicKeyHash, T&) {
+  void process_broadcast(PublicKeyHash, T &) {
     VLOG(full_node, WARNING) << "dropping unknown broadcast";
   }
 
