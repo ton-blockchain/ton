@@ -34,10 +34,6 @@ using td::Ref;
 
 /*
  *
- * block data (if not given) can be obtained from:
- *   db as part of collated block
- *   db as block
- *   net
  * must write block data, block signatures and block state
  * initialize prev, before_split, after_merge
  * for masterchain write block proof and set next for prev block
@@ -50,9 +46,8 @@ class AcceptBlockQuery : public td::actor::Actor {
   struct IsFake {};
   struct ForceFork {};
   AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
-                   td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
-                   bool send_finality_broadcast, bool apply, td::actor::ActorId<ValidatorManager> manager,
-                   td::Promise<td::Unit> promise);
+                   td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures, bool apply,
+                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
   AcceptBlockQuery(IsFake fake, BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                    td::Ref<block::ValidatorSet> validator_set, td::actor::ActorId<ValidatorManager> manager,
                    td::Promise<td::Unit> promise);
@@ -77,18 +72,9 @@ class AcceptBlockQuery : public td::actor::Actor {
   void got_prev_state(td::Ref<ShardState> state);
   void written_state(td::Ref<ShardState> state);
   void written_block_proof();
-  void got_last_mc_block(std::pair<td::Ref<MasterchainState>, BlockIdExt> last);
-  void got_mc_state(Ref<ShardState> res);
-  void find_known_ancestors();
-  void require_proof_link(BlockIdExt id);
-  void got_proof_link(BlockIdExt id, Ref<ProofLink> proof);
-  bool create_top_shard_block_description();
-  void create_topshard_blk_descr();
-  void top_block_descr_validated(td::Result<Ref<ShardTopBlockDescription>> R);
   void written_block_next();
   void written_block_info_2();
   void applied();
-  void send_broadcasts();
 
  private:
   BlockIdExt id_;
@@ -98,14 +84,12 @@ class AcceptBlockQuery : public td::actor::Actor {
   Ref<block::BlockSignatureSet> signatures_;
   bool is_fake_;
   bool is_fork_;
-  bool send_finality_broadcast_ = false;
   bool apply_ = true;
-  bool ancestors_split_{false}, is_key_block_{false};
+  bool is_key_block_ = false;
   td::Timestamp timeout_ = td::Timestamp::in(600.0);
   td::actor::ActorId<ValidatorManager> manager_;
   td::Promise<td::Unit> promise_;
 
-  FileHash signatures_hash_;
   BlockHandle handle_;
   Ref<Proof> proof_;
   Ref<ProofLink> proof_link_;
@@ -115,19 +99,7 @@ class AcceptBlockQuery : public td::actor::Actor {
   LogicalTime lt_;
   UnixTime created_at_;
   RootHash state_keep_old_hash_, state_old_hash_, state_hash_;
-  BlockIdExt mc_blkid_, prev_mc_blkid_;
   bool before_split_;
-
-  Ref<MasterchainStateQ> last_mc_state_;
-  BlockIdExt last_mc_id_;
-  std::vector<Ref<block::McShardHash>> ancestors_;
-  BlockSeqno ancestors_seqno_;
-  std::vector<Ref<ProofLink>> proof_links_;
-  std::vector<Ref<vm::Cell>> proof_roots_;
-  std::vector<BlockIdExt> link_prev_;
-  Ref<vm::Cell> signatures_cell_;
-  td::BufferSlice top_block_descr_data_;
-  Ref<ShardTopBlockDescription> top_block_descr_;
 
   td::PerfWarningTimer perf_timer_;
 
@@ -139,7 +111,6 @@ class AcceptBlockQuery : public td::actor::Actor {
   }
   bool precheck_header();
   bool create_new_proof();
-  bool unpack_proof_link(BlockIdExt id, Ref<ProofLink> proof);
 
   bool is_masterchain() const {
     return id_.id.is_masterchain();

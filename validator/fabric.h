@@ -85,8 +85,7 @@ td::Result<std::vector<td::Ref<ShardTopBlockDescription>>> create_new_shard_bloc
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
-                            bool send_finality_broadcast, bool apply, td::actor::ActorId<ValidatorManager> manager,
-                            td::Promise<td::Unit> promise);
+                            bool apply, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
 void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                  td::Ref<block::ValidatorSet> validator_set,
                                  td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
