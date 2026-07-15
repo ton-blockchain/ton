@@ -143,13 +143,8 @@ jobs:
         run: |
           git fetch --all --tags
           git tag -l
-          NEW_TAG=v$(date +'%Y.%m')
-          FOUND=$(git tag -l | grep $NEW_TAG | wc -l)
-          if [ $FOUND -eq 0 ]; then
-            echo "TAG=$NEW_TAG" >> $GITHUB_OUTPUT
-          else
-            echo "TAG=$NEW_TAG-$FOUND" >> $GITHUB_OUTPUT
-          fi
+          NEW_TAG=v2026.06
+          echo "TAG=$NEW_TAG" >> $GITHUB_OUTPUT
 
       - name: Get registration token
         id: getRegToken
@@ -219,14 +214,6 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-x86-64-windows/proxy-liteserver.exe
           asset_name: proxy-liteserver.exe
-          tag: ${{ steps.tag.outputs.TAG }}
-
-      - name: Upload Windows 2019 single artifact - rldp-http-proxy
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86-64-windows/rldp-http-proxy.exe
-          asset_name: rldp-http-proxy.exe
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Windows 2019 single artifact - http-proxy
@@ -327,14 +314,6 @@ jobs:
           asset_name: proxy-liteserver-mac-x86-64
           tag: ${{ steps.tag.outputs.TAG }}
 
-      - name: Upload Mac x86-64 single artifact - rldp-http-proxy
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-macos/rldp-http-proxy
-          asset_name: rldp-http-proxy-mac-x86-64
-          tag: ${{ steps.tag.outputs.TAG }}
-
       - name: Upload Mac x86-64 single artifact - http-proxy
         uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
@@ -432,14 +411,6 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-arm64-macos/proxy-liteserver
           asset_name: proxy-liteserver-mac-arm64
-          tag: ${{ steps.tag.outputs.TAG }}
-
-      - name: Upload Mac arm64 single artifact - rldp-http-proxy
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-arm64-macos/rldp-http-proxy
-          asset_name: rldp-http-proxy-mac-arm64
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Mac arm64 single artifact - http-proxy
@@ -548,14 +519,6 @@ jobs:
           asset_name: proxy-liteserver-linux-x86_64
           tag: ${{ steps.tag.outputs.TAG }}
 
-      - name: Upload Linux x86-64 single artifact - rldp-http-proxy
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-x86_64-linux/rldp-http-proxy
-          asset_name: rldp-http-proxy-linux-x86_64
-          tag: ${{ steps.tag.outputs.TAG }}
-
       - name: Upload Linux x86-64 single artifact - http-proxy
         uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
         with:
@@ -653,14 +616,6 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-arm64-linux/proxy-liteserver
           asset_name: proxy-liteserver-linux-arm64
-          tag: ${{ steps.tag.outputs.TAG }}
-
-      - name: Upload Linux arm64 single artifact - rldp-http-proxy
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-arm64-linux/rldp-http-proxy
-          asset_name: rldp-http-proxy-linux-arm64
           tag: ${{ steps.tag.outputs.TAG }}
 
       - name: Upload Linux arm64 single artifact - http-proxy
