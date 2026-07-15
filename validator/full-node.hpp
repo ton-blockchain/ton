@@ -73,7 +73,6 @@ class FullNodeImpl : public FullNode {
 
   void initial_read_complete(BlockHandle top_block);
   td::actor::Task<> send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data);
-  void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data, int mode);
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode);
@@ -102,8 +101,6 @@ class FullNodeImpl : public FullNode {
                                         bool send_to_custom) override;
   void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                          td::BufferSlice data, BroadcastSource source, bool send_to_custom) override;
-  void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
-                                          bool send_to_custom) override;
   void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) override;
 
   void set_validator_telemetry_filename(std::string value) override;
@@ -185,15 +182,12 @@ class FullNodeImpl : public FullNode {
   std::map<std::string, CustomOverlayInfo> custom_overlays_;
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_broadcasts_{10000};
   td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_finality_{10000};
-  td::LRUCache<BlockIdExt, td::Unit> custom_overlays_sent_shard_block_desc_{10000};
 
   void update_private_overlays();
   void update_custom_overlay(CustomOverlayInfo& overlay);
   void send_block_finality_broadcast_to_custom_overlays(const BlockFinalityBroadcast& finality);
   void send_block_candidate_broadcast_to_custom_overlays(const BlockIdExt& block_id, CatchainSeqno cc_seqno,
                                                          td::uint32 validator_set_hash, const td::BufferSlice& data);
-  void send_shard_block_info_to_custom_overlays(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                const td::BufferSlice& data);
 
   std::string validator_telemetry_filename_;
   PublicKeyHash validator_telemetry_collector_key_ = PublicKeyHash::zero();

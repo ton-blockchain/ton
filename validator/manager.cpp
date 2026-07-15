@@ -1991,21 +1991,6 @@ void ValidatorManagerImpl::send_get_next_key_blocks_request(BlockIdExt block_id,
   callback_->get_next_key_blocks(block_id, td::Timestamp::in(10.0), std::move(promise));
 }
 
-void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
-  if (!resend_shard_blocks_at_) {
-    resend_shard_blocks_at_ = td::Timestamp::in(td::Random::fast(0, 100) * 0.01 + 2.0);
-    alarm_timestamp().relax(resend_shard_blocks_at_);
-  }
-  auto it = out_shard_blocks_.find(ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()});
-  if (it != out_shard_blocks_.end() && desc->block_id().id.seqno <= it->second->block_id().id.seqno) {
-    VLOG(validator, DEBUG) << "dropping duplicate top block description";
-  } else {
-    out_shard_blocks_[ShardTopBlockDescriptionId{desc->block_id().shard_full(), desc->catchain_seqno()}] = desc;
-    callback_->send_shard_block_info(desc->block_id(), desc->catchain_seqno(), desc->serialize());
-    add_shard_block_description(desc);
-  }
-}
-
 void ValidatorManagerImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
   new_block_finality_broadcast(finality.clone(), BroadcastSource::consensus_overlay).start().detach();
   callback_->send_block_finality_broadcast(std::move(finality), mode);
@@ -2752,16 +2737,6 @@ void ValidatorManagerImpl::alarm() {
     log_status_at_ = td::Timestamp::in(60.0);
   }
   alarm_timestamp().relax(log_status_at_);
-  if (resend_shard_blocks_at_ && resend_shard_blocks_at_.is_in_past()) {
-    resend_shard_blocks_at_ = td::Timestamp::never();
-    for (auto &B : out_shard_blocks_) {
-      callback_->send_shard_block_info(B.second->block_id(), B.second->catchain_seqno(), B.second->serialize());
-    }
-    if (out_shard_blocks_.size() > 0) {
-      resend_shard_blocks_at_ = td::Timestamp::in(td::Random::fast(0, 100) * 0.01 + 2);
-    }
-  }
-  alarm_timestamp().relax(resend_shard_blocks_at_);
   if (check_waiters_at_.is_in_past()) {
     check_waiters_at_ = td::Timestamp::in(1.0);
     for (auto &w : wait_block_data_) {

@@ -937,10 +937,6 @@ void ValidatorManagerImpl::send_get_persistent_state_request(BlockIdExt id, Bloc
   UNREACHABLE();
 }
 
-void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
-  callback_->send_shard_block_info(desc->block_id(), desc->catchain_seqno(), desc->serialize());
-}
-
 void ValidatorManagerImpl::start_up() {
   db_ = create_db_actor(actor_id(this), db_root_, opts_);
 

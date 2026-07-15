@@ -351,25 +351,6 @@ td::actor::Task<> FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::Bu
   co_return {};
 }
 
-void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  if (!client_.empty()) {
-    VLOG(full_node, WARNING) << "dropping OUT shard block info message: full-node is in slave mode";
-    return;
-  }
-  send_shard_block_info_to_custom_overlays(block_id, cc_seqno, data);
-  auto shard = get_shard_overlay_actor(ShardIdFull{masterchainId});
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping OUT shard block info message to unknown shard";
-    return;
-  }
-  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull(masterchainId), true).first;
-  if (!fast_sync_overlay.empty()) {
-    td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_shard_block_info, block_id, cc_seqno,
-                            data.clone());
-  }
-  td::actor::send_closure(shard, &FullNodeShard::send_shard_block_info, block_id, cc_seqno, std::move(data));
-}
-
 void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                         td::BufferSlice data, int mode) {
   if (!client_.empty()) {
@@ -782,15 +763,6 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
       .detach();
 }
 
-void FullNodeImpl::process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
-                                                      bool send_to_custom) {
-  if (send_to_custom) {
-    send_shard_block_info_to_custom_overlays(block_id, cc_seqno, data);
-  }
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block_description_broadcast,
-                          block_id, cc_seqno, std::move(data));
-}
-
 void FullNodeImpl::get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) {
   td::actor::send_closure(out_msg_queue_query_token_manager_, &TokenManager::get_token, 1, 0, td::Timestamp::in(10.0),
                           std::move(promise));
@@ -964,9 +936,6 @@ void FullNodeImpl::start_up() {
     void send_ext_message(AccountIdPrefixFull dst, td::BufferSlice data) override {
       td::actor::ask(id_, &FullNodeImpl::send_ext_message, dst, std::move(data)).detach("send_ext_message");
     }
-    void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_shard_block_info, block_id, cc_seqno, std::move(data));
-    }
     void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                               td::BufferSlice data, int mode) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_block_candidate, block_id, cc_seqno, validator_set_hash,
@@ -1099,24 +1068,6 @@ void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(const Block
         if (private_overlay.params_.block_senders_.contains(local_id)) {
           td::actor::send_closure(actor, &FullNodeCustomOverlay::send_block_candidate, block_id, cc_seqno,
                                   validator_set_hash, data.clone());
-        }
-      }
-    }
-  }
-}
-
-void FullNodeImpl::send_shard_block_info_to_custom_overlays(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                            const td::BufferSlice &data) {
-  if (custom_overlays_sent_shard_block_desc_.contains(block_id)) {
-    return;
-  }
-  custom_overlays_sent_shard_block_desc_.put(block_id, {});
-  for (auto &[_, private_overlay] : custom_overlays_) {
-    if (private_overlay.params_.send_shard(block_id.shard_full())) {
-      for (auto &[local_id, actor] : private_overlay.actors_) {
-        if (private_overlay.params_.block_senders_.contains(local_id)) {
-          td::actor::send_closure(actor, &FullNodeCustomOverlay::send_shard_block_info, block_id, cc_seqno,
-                                  data.clone());
         }
       }
     }
