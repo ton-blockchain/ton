@@ -356,9 +356,6 @@ void FullNodeFastSyncOverlay::send_block_finality_broadcast(BlockFinalityBroadca
   if (!inited_) {
     return;
   }
-  if (!enable_plumtree_broadcast_) {
-    return;
-  }
   VLOG(full_node, DEBUG) << "Sending Plumtree blockFinalityBroadcast in fast sync overlay: " << finality.block_id;
   auto broadcast_id = get_tl_object_sha_bits256(
       create_tl_object<ton_api::tonNode_finalityBroadcastId>(create_tl_block_id(finality.block_id)));
@@ -380,16 +377,9 @@ void FullNodeFastSyncOverlay::send_block_candidate(BlockIdExt block_id, Catchain
     VLOG(full_node, WARNING) << "failed to serialize block candidate broadcast: " << B.move_as_error();
     return;
   }
-  if (enable_plumtree_broadcast_) {
-    VLOG(full_node, DEBUG) << "Sending Plumtree newBlockCandidate in fast sync overlay (with compression): "
-                           << block_id;
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
-  } else {
-    VLOG(full_node, DEBUG) << "Sending newBlockCandidate in fast sync overlay (with compression): " << block_id;
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                            local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
-  }
+  VLOG(full_node, DEBUG) << "Sending Plumtree newBlockCandidate in fast sync overlay (with compression): " << block_id;
+  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec, local_id_, overlay_id_,
+                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
 void FullNodeFastSyncOverlay::send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry) {
@@ -472,7 +462,7 @@ void FullNodeFastSyncOverlay::send_plumtree_stats(
 }
 
 void FullNodeFastSyncOverlay::send_plumtree_stats_to(td::actor::ActorId<FullNodeFastSyncOverlay> collector) {
-  if (!inited_ || !enable_plumtree_broadcast_ || collector.empty()) {
+  if (!inited_ || collector.empty()) {
     return;
   }
   td::actor::send_closure(overlays_, &overlay::Overlays::get_plumtree_stats_records, local_id_, overlay_id_,
@@ -575,18 +565,15 @@ void FullNodeFastSyncOverlay::init() {
   bool is_original_sender = local_validator_it != current_validators_adnl_.end();
   overlay::OverlayOptions options;
   options.name_ = "fast-sync" + shard_.to_str();
-  if (enable_plumtree_broadcast_ || !shard_.is_masterchain()) {
-    options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
-  }
+  options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.local_overlay_member_flags_ = receive_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
   options.twostep_broadcast_sender_ = adnl_sender_;
-  options.send_twostep_broadcast_ = send_twostep_broadcasts_;
-  options.enable_plumtree_broadcast_ = enable_plumtree_broadcast_;
+  options.send_twostep_broadcast_ = true;
+  options.enable_plumtree_broadcast_ = true;
   options.is_original_sender_ = is_original_sender;
-  options.plumtree_broadcast_sender_ = enable_plumtree_broadcast_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_}
-                                                                  : td::actor::ActorId<adnl::AdnlSenderEx>{};
+  options.plumtree_broadcast_sender_ = quic_;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_semiprivate_overlay, local_id_,
                           overlay_id_full_.clone(), current_validators_adnl_, root_public_keys_, member_certificate_,
                           std::make_unique<Callback>(actor_id(this)), rules, std::move(scope), options);
@@ -644,16 +631,11 @@ void FullNodeFastSyncOverlay::set_member_certificate(overlay::OverlayMemberCerti
   }
 }
 
-void FullNodeFastSyncOverlay::set_params(bool receive_broadcasts, bool send_twostep_broadcasts,
-                                         bool enable_plumtree_broadcast,
-                                         td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender) {
-  if (receive_broadcasts == receive_broadcasts_ && send_twostep_broadcasts == send_twostep_broadcasts_ &&
-      enable_plumtree_broadcast == enable_plumtree_broadcast_ && adnl_sender == adnl_sender_) {
+void FullNodeFastSyncOverlay::set_params(bool receive_broadcasts, td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender) {
+  if (receive_broadcasts == receive_broadcasts_ && adnl_sender == adnl_sender_) {
     return;
   }
   receive_broadcasts_ = receive_broadcasts;
-  send_twostep_broadcasts_ = send_twostep_broadcasts;
-  enable_plumtree_broadcast_ = enable_plumtree_broadcast;
   adnl_sender_ = adnl_sender;
   if (inited_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
@@ -974,24 +956,15 @@ void FullNodeFastSyncOverlays::update_overlays(
 
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
-      bool enable_plumtree_broadcast = state->get_new_consensus_config(shard.workchain).enable_plumtree_broadcast();
-      bool receive_broadcasts;
-      if (enable_plumtree_broadcast) {
-        receive_broadcasts = !overlays_info.is_validator_ && monitoring_shards.contains(shard);
-      } else {
-        receive_broadcasts = monitoring_shards.contains(shard);
-      }
-      bool send_twostep_broadcasts = true;
+      bool receive_broadcasts = !overlays_info.is_validator_ && monitoring_shards.contains(shard);
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
-            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, send_twostep_broadcasts,
-            enable_plumtree_broadcast, broadcast_speed_multiplier, keyring, adnl, quic, quic, overlays,
-            validator_manager, full_node);
+            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts,
+            broadcast_speed_multiplier, keyring, adnl, quic, quic, overlays, validator_manager, full_node);
       } else {
-        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_broadcasts,
-                                send_twostep_broadcasts, enable_plumtree_broadcast, quic);
+        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_broadcasts, quic);
         if (changed_certificate) {
           td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_member_certificate,
                                   overlays_info.current_certificate_);

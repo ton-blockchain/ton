@@ -101,7 +101,6 @@ std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<bloc
       identities.push_back({
           .adnl_id = adnl_id,
           .short_id = key_hash,
-          .suffix_db = !identities.empty() || config.use_new_db_names(),
       });
     }
   }
@@ -144,9 +143,7 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
 
   std::vector<GroupIdentity> identities;
   for (auto &identity : identities_for(ctx, validator_set, config)) {
-    if (identity.is_validator() || config.enable_block_sync() || config.observers_in_private_overlay()) {
-      identities.push_back(identity);
-    }
+    identities.push_back(identity);
   }
 
   return {

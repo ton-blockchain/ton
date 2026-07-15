@@ -508,22 +508,6 @@ struct NewConsensusConfig {
   td::uint32 protocol_version = 0;
   td::uint32 slots_per_leader_window = 4;
 
-  bool enable_block_sync() const {
-    return protocol_version == 1;
-  }
-
-  bool use_new_db_names() const {
-    return protocol_version >= 2;
-  }
-
-  bool observers_in_private_overlay() const {
-    return protocol_version >= 2;
-  }
-
-  bool enable_plumtree_broadcast() const {
-    return protocol_version >= 2;
-  }
-
   // When adding a new noncritical parameters, also add it to consensus.simplex.noncriticalParams TL scheme
   // clang-format off
 #define ENUMERATE_NONCRITICAL_PARAMS(uint32_fn, double_fn, duration_fn) \

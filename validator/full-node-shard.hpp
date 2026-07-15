@@ -85,7 +85,6 @@ class FullNodeShardImpl : public FullNodeShard {
   void set_config(FullNodeConfig config) override {
     opts_.config_ = config;
   }
-  void set_params(bool active, bool enable_plumtree_broadcast) override;
 
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
   void receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data);
@@ -157,7 +156,7 @@ class FullNodeShardImpl : public FullNodeShard {
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
                     td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                    td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast);
+                    td::actor::ActorId<FullNode> full_node, bool active);
 
  private:
   bool use_new_download() const {
@@ -193,7 +192,6 @@ class FullNodeShardImpl : public FullNodeShard {
   adnl::AdnlNodeIdShort last_pinged_neighbour_ = adnl::AdnlNodeIdShort::zero();
 
   bool active_;
-  bool enable_plumtree_broadcast_;
   bool is_original_sender_ = false;
 
   FullNodeOptions opts_;
