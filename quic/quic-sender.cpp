@@ -269,7 +269,7 @@ td::Result<td::IPAddress> QuicSender::get_ip_address(const adnl::AdnlNode &node)
 
 QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
                        QuicServer::Options options)
-    : AdnlSenderEx(/* default_mtu = */ 0)
+    : AdnlSenderEx(/* default_mtu = */ adnl::Adnl::get_mtu())
     , adnl_(std::move(adnl))
     , keyring_(std::move(keyring))
     , server_options_(options) {
@@ -309,31 +309,6 @@ void QuicSender::log_stats(std::string reason) {
   }
 }
 
-std::vector<metrics::MetricFamily> QuicSender::Stats::Entry::dump() const {
-  return {
-      metrics::MetricFamily::make_scalar("conns", "gauge", server_stats.total_conns),
-      metrics::MetricFamily::make_scalar("rx_bytes_total", "counter", server_stats.impl_stats.bytes_rx),
-      metrics::MetricFamily::make_scalar("tx_bytes_total", "counter", server_stats.impl_stats.bytes_tx),
-      metrics::MetricFamily::make_scalar("lost_bytes_total", "counter", server_stats.impl_stats.bytes_lost),
-      metrics::MetricFamily::make_scalar("unacked_bytes", "gauge", server_stats.impl_stats.bytes_unacked),
-      metrics::MetricFamily::make_scalar("unsent_bytes", "gauge", server_stats.impl_stats.bytes_unsent),
-      metrics::MetricFamily::make_scalar("open_sids", "gauge", server_stats.impl_stats.open_sids),
-      metrics::MetricFamily::make_scalar("mean_rtt", "gauge", server_stats.impl_stats.mean_rtt),
-  };
-}
-
-std::vector<metrics::MetricFamily> QuicSender::Stats::dump() const {
-  auto summary_set = metrics::MetricSet{.families = summary.dump()};
-  auto whole_per_path_set = metrics::MetricSet{};
-  for (const auto &[path, entry] : per_path) {
-    auto path_set = metrics::MetricSet{.families = entry.dump()};
-    auto src_v = PSTRING() << path.first, dst_v = PSTRING() << path.second;
-    auto label_set = metrics::LabelSet{.labels = {{"src", src_v}, {"dst", dst_v}}};
-    whole_per_path_set = std::move(whole_per_path_set).join(std::move(path_set).label(label_set));
-  }
-  return std::move(summary_set).wrap("summary").join(std::move(whole_per_path_set).wrap("per_path")).families;
-}
-
 td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
   Stats stats;
   for (auto &[_, server] : servers_by_port_) {
@@ -348,12 +323,9 @@ td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
   co_return stats;
 }
 
-// TODO(avevad): remove obsolete Stats and collect metrics directly
-void QuicSender::collect(td::Promise<metrics::MetricSet> P) {
-  td::actor::send_closure(actor_id(this), &QuicSender::collect_stats,
-                          td::make_promise([P = std::move(P)](td::Result<Stats> R) mutable {
-                            P.set_value(metrics::MetricSet{.families = R.move_as_ok().dump()}.wrap("quic"));
-                          }));
+td::actor::Task<> QuicSender::collect(metrics::Context ctx) {
+  // TODO
+  co_return {};
 }
 
 void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
@@ -624,6 +596,14 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
   }
   auto connection = it->second;
 
+  // Deliver only on a connection whose peer identity is confirmed: is_ready is set in on_connected
+  // once the peer key matched the expected peer; a not-yet-ready or init_error connection is being
+  // torn down, and delivering its streams would attribute traffic to an unauthenticated peer.
+  if (!connection->is_ready || connection->init_error) {
+    LOG(ERROR) << "drop stream from unauthenticated connection CID:" << cid << " SID:" << stream_id;
+    return;
+  }
+
   if (r_data.is_error()) {
     auto resp_it = connection->responses.find(stream_id);
     if (resp_it != connection->responses.end()) {
@@ -638,19 +618,22 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
     return;  // currently message will trigger empty response
   }
 
-  // TODO: accept request only from inbound streams. and answers only from outbound
-
-  auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
-  if (req_R.is_ok()) {
-    auto request = req_R.move_as_ok();
-    ton_api::downcast_call(*request, [&](auto &query) { on_request(connection, stream_id, query); });
-    return;
-  }
-
-  auto answer_R = fetch_tl_object<ton_api::quic_answer>(data.clone(), true);
-  if (answer_R.is_ok()) {
-    on_answer(*connection, stream_id, *answer_R.move_as_ok());
-    return;
+  // Requests are accepted only on inbound connections, answers only on outbound ones: an outbound
+  // connection carries our own queries, so a request arriving on it (or an answer on an inbound one)
+  // is misdirected.
+  if (!connection->is_outbound) {
+    auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
+    if (req_R.is_ok()) {
+      auto request = req_R.move_as_ok();
+      ton_api::downcast_call(*request, [&](auto &query) { on_request(connection, stream_id, query); });
+      return;
+    }
+  } else {
+    auto answer_R = fetch_tl_object<ton_api::quic_answer>(data.clone(), true);
+    if (answer_R.is_ok()) {
+      on_answer(*connection, stream_id, *answer_R.move_as_ok());
+      return;
+    }
   }
 
   LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()

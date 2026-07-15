@@ -23,12 +23,13 @@
 #include <queue>
 #include <set>
 
-#include "collator-node/collator-node.hpp"
 #include "common/refcnt.hpp"
 #include "db/db-event-publisher.hpp"
 #include "impl/ext-message-pool.hpp"
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
+#include "metrics/prometheus-exporter.h"
+#include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
 #include "td/actor/MultiPromise.h"
@@ -75,6 +76,93 @@ class BlockHandleLru : public td::ListNode {
  private:
   BlockHandle handle_;
 };
+
+#define BLOCK_SOURCE_LIST(F)       \
+  F(unknown)                       \
+  F(block_broadcast_public)        \
+  F(block_broadcast_fast_sync)     \
+  F(block_broadcast_custom)        \
+  F(block_download)                \
+  F(candidate_broadcast_public)    \
+  F(candidate_broadcast_fast_sync) \
+  F(candidate_broadcast_consensus) \
+  F(candidate_broadcast_custom)    \
+  F(candidate_finality_public)     \
+  F(candidate_finality_fast_sync)  \
+  F(candidate_finality_custom)     \
+  F(candidate_stored)              \
+  F(block_accepted)
+TON_METRIC_DEFINE_LABEL(BlockSource, "source", BLOCK_SOURCE_LIST)
+#undef BLOCK_SOURCE_LIST
+
+struct BlockReceiveStats {
+  static constexpr auto n_types = metrics::LabelDomainOf<BlockSource>::size;
+
+  td::Timestamp received_at[n_types];
+  bool applied = false;
+
+  BlockSource get_earliest_type() const {
+    auto result = BlockSource::unknown;
+    td::Timestamp result_ts;
+    for (size_t i = 0; i < n_types; i++) {
+      if (received_at[i] && (!result_ts || received_at[i] < result_ts)) {
+        result = static_cast<BlockSource>(i);
+        result_ts = received_at[i];
+      }
+    }
+    return result;
+  }
+
+  static BlockSource from(BroadcastSource source, bool is_candidate) {
+    switch (source) {
+      case BroadcastSource::public_overlay:
+        return is_candidate ? BlockSource::candidate_broadcast_public : BlockSource::block_broadcast_public;
+      case BroadcastSource::fast_sync_overlay:
+        return is_candidate ? BlockSource::candidate_broadcast_fast_sync : BlockSource::block_broadcast_fast_sync;
+      case BroadcastSource::custom_overlay:
+        return is_candidate ? BlockSource::candidate_broadcast_custom : BlockSource::block_broadcast_custom;
+      case BroadcastSource::consensus_overlay:
+        return BlockSource::candidate_broadcast_consensus;
+    }
+    UNREACHABLE();
+  }
+
+  static BlockSource from_candidate_finality(BroadcastSource source) {
+    switch (source) {
+      case BroadcastSource::public_overlay:
+        return BlockSource::candidate_finality_public;
+      case BroadcastSource::fast_sync_overlay:
+        return BlockSource::candidate_finality_fast_sync;
+      case BroadcastSource::custom_overlay:
+        return BlockSource::candidate_finality_custom;
+      case BroadcastSource::consensus_overlay:
+        // This happens when we get block finality directly from consensus
+        return BlockSource::block_accepted;
+    }
+    UNREACHABLE();
+  }
+};
+
+struct PendingBlockFinality {
+  td::Ref<block::BlockSignatureSet> sig_set;
+  BroadcastSource source;
+};
+
+struct WorkchainLabel {
+  int id;
+
+  bool operator==(const WorkchainLabel &) const = default;
+};
+
+constexpr metrics::LabelValues<WorkchainLabel, 2> ton_metric_label(WorkchainLabel) {
+  return {
+      .key = "workchain",
+      .entries = {{
+          {WorkchainLabel{0}, "0"},
+          {WorkchainLabel{-1}, "-1"},
+      }},
+  };
+}
 
 class ValidatorManagerImpl : public ValidatorManager {
  private:
@@ -206,36 +294,17 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<BlockIdExt, td::Ref<OutMsgQueueProof>> cached_msg_queue_to_masterchain_;
 
   td::LRUCache<BlockIdExt, td::BufferSlice> cached_block_data_{/* max_size = */ 128};
+  td::LRUCache<BlockIdExt, td::BufferSlice> cached_masterchain_block_candidates_{/* max_size = */ 128};
   td::LRUCache<BlockIdExt, td::Unit> cached_checked_shard_block_descriptions_{/* max_size = */ 1024};
+
+  td::LRUCache<BlockIdExt, PendingBlockFinality> pending_block_finality_{/* max_size = */ 256};
 
   td::actor::ActorOwn<ExtMessagePool> ext_message_pool_;
   td::actor::ActorOwn<AppliedExtMessageCleanupActor> applied_ext_message_cleanup_actor_;
 
  private:
   // VALIDATOR GROUPS
-  ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set,
-                                          td::Bits256 opts_hash, BlockSeqno last_key_block_seqno,
-                                          const validatorsession::ValidatorSessionOptions &opts);
-  td::actor::ActorOwn<IValidatorGroup> create_validator_group(
-      ValidatorSessionId session_id, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set,
-      BlockSeqno key_seqno, validatorsession::ValidatorSessionOptions opts, bool create_catchain, bool is_validator,
-      adnl::AdnlNodeIdShort local_adnl_id_override, std::vector<adnl::AdnlNodeIdShort> overlay_members);
-  td::actor::ActorId<CollationManager> get_collation_manager(adnl::AdnlNodeIdShort adnl_id);
-
-  struct ValidatorGroupEntry {
-    std::string name() const {
-      return PSTRING() << "validator group " << shard << "." << cc_seqno;
-    }
-
-    td::actor::ActorOwn<IValidatorGroup> actor;
-    ShardIdFull shard;
-    bool started = false;
-    td::uint32 cc_seqno = 0;
-  };
-  std::map<ValidatorSessionId, ValidatorGroupEntry> validator_groups_;
-  std::map<ValidatorSessionId, ValidatorGroupEntry> next_validator_groups_;
-  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<CollationManager>> collation_managers_;
-  std::set<ValidatorSessionId> destroyed_validator_sessions_;
+  std::unique_ptr<NetworkState> network_state_;
 
  private:
   // MASTERCHAIN LAST BLOCK
@@ -269,8 +338,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shard_overlays();
   void update_shards();
   void update_shard_blocks();
-  void updated_init_block(BlockIdExt last_rotate_block_id,
-                          std::set<ValidatorSessionId> old_destroyed_validator_sessions);
+  void updated_init_block(BlockIdExt last_rotate_block_id);
   void got_next_gc_masterchain_handle(BlockHandle handle);
   void got_next_gc_masterchain_state(BlockHandle handle, td::Ref<MasterchainState> state);
   void advance_gc(BlockHandle handle, td::Ref<MasterchainState> state);
@@ -293,20 +361,12 @@ class ValidatorManagerImpl : public ValidatorManager {
     promise.set_value(td::Unit());
   }
 
-  void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    permanent_keys_.insert(key);
-    promise.set_value(td::Unit());
-  }
   void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    temp_keys_.insert(key);
-    promise.set_value(td::Unit());
-  }
-  void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    permanent_keys_.erase(key);
+    validator_keys_.insert(key);
     promise.set_value(td::Unit());
   }
   void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    temp_keys_.erase(key);
+    validator_keys_.erase(key);
     promise.set_value(td::Unit());
   }
 
@@ -316,10 +376,13 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block_proof_link(BlockIdExt block_id, td::BufferSlice proof, td::Promise<td::Unit> promise) override;
   void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                 td::Promise<td::Unit> promise) override;
-  void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
-  void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override;
+  void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
+  td::actor::Task<> new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
+                                        BroadcastSource source) override;
+  td::actor::Task<> validate_block_broadcast(BlockBroadcast broadcast, bool signatures_checked);
   void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
   td::actor::Task<> validated_accepted_block_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno);
+  td::actor::Task<> generate_shard_block_description(BlockIdExt block_id, Ref<block::BlockSignatureSet> sig_set);
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
   void sync_complete(td::Promise<td::Unit> promise) override;
@@ -351,11 +414,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::Task<> new_external_message_query_cont(td::Ref<ExtMessage> message,
                                                     td::actor::StartedTask<> wait_allow_broadcast);
 
-  void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override;
-  td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                  td::BufferSlice data) override;
+  td::actor::Task<> new_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
+                                                  BroadcastSource source) override;
+  td::actor::Task<> new_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) override;
 
   void add_ext_server_id(adnl::AdnlNodeIdShort id) override;
   void add_ext_server_port(td::uint16 port) override;
@@ -427,13 +490,11 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                       td::Promise<td::Ref<MessageQueue>> promise) override;
   void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) override;
-  void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) override;
   void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                      td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                   std::vector<ExtMessage::Hash> to_delete) override;
   void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) override;
-  void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay, std::vector<IhrMessage::Hash> to_delete) override;
 
   void set_next_block(BlockIdExt prev, BlockIdExt next, td::Promise<td::Unit> promise) override;
 
@@ -459,13 +520,14 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) override;
   void new_block_cont(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise);
+  void on_block_accepted(BlockIdExt block_id) override;
   void get_top_masterchain_state(td::Promise<td::Ref<MasterchainState>> promise) override;
   void get_top_masterchain_block(td::Promise<BlockIdExt> promise) override;
   void get_top_masterchain_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
   void get_last_liteserver_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
   void get_shard_client_state_block(td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) override;
 
-  void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override;
+  td::actor::Task<ReceivedBlock> send_get_block_request(BlockIdExt id, td::uint32 priority) override;
   void send_get_zero_state_request(BlockIdExt id, td::uint32 priority, td::Promise<td::BufferSlice> promise) override;
   void send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                          td::uint32 priority, td::Promise<td::BufferSlice> promise) override;
@@ -475,9 +537,9 @@ class ValidatorManagerImpl : public ValidatorManager {
                                          td::Promise<td::BufferSlice> promise) override;
   void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                         td::Promise<std::vector<BlockIdExt>> promise) override;
-  void send_ihr_message(td::Ref<IhrMessage> message) override;
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override;
+  void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override;
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,
                                             td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) override;
@@ -515,6 +577,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_shard_block_description(td::Ref<ShardTopBlockDescription> desc);
   void add_cached_block_data(BlockIdExt block_id, td::BufferSlice data);
+  void try_process_pending_block_finality(BlockIdExt block_id);
   void preload_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Promise<td::Unit> promise);
   void loaded_msg_queue_to_masterchain(td::Ref<ShardTopBlockDescription> desc, td::Ref<OutMsgQueueProof> res,
                                        td::Promise<td::Unit> promise);
@@ -526,8 +589,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void start_up() override;
   void init_last_masterchain_state(td::Ref<MasterchainState> state) override;
   void started(ValidatorManagerInitResult result);
-  void got_destroyed_validator_sessions(std::vector<ValidatorSessionId> sessions);
-  void finish_start_up();
+  td::actor::Task<> finish_start_up();
+  td::actor::Task<> start_up_advance_mc();
 
   bool is_validator();
   bool validating_masterchain();
@@ -638,8 +701,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorOwn<TokenManager> token_manager_;
 
  private:
-  std::set<PublicKeyHash> permanent_keys_;
-  std::set<PublicKeyHash> temp_keys_;
+  std::set<PublicKeyHash> validator_keys_;
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;
@@ -683,7 +745,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorOwn<td::actor::ActorStats> actor_stats_;
 
   bool started_ = false;
-  bool allow_validate_ = false;
 
  private:
   double state_ttl() const {
@@ -712,11 +773,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::uint64 total_collated_blocks_shard_ok_{0}, total_collated_blocks_shard_error_{0};
   td::uint64 total_validated_blocks_shard_ok_{0}, total_validated_blocks_shard_error_{0};
 
-  size_t active_validator_groups_master_{0}, active_validator_groups_shard_{0};
-
   void log_collate_query_stats(CollationStats stats) override;
   void log_validate_query_stats(ValidationStats stats) override;
-  void log_collator_node_response_stats(CollatorNodeResponseStats stats) override;
 
   void register_stats_provider(
       td::uint64 idx, std::string prefix,
@@ -728,14 +786,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void add_shard_block_retainer(adnl::AdnlNodeIdShort id) override;
 
   void iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) override;
-
-  struct Collator {
-    td::actor::ActorOwn<CollatorNode> actor;
-    std::set<ShardIdFull> shards;
-
-    bool can_collate_shard(ShardIdFull shard) const;
-  };
-  std::map<adnl::AdnlNodeIdShort, Collator> collator_nodes_;
 
   std::map<BlockSeqno, td::Ref<PersistentStateDescription>> persistent_state_descriptions_;
   std::map<BlockIdExt, td::Ref<PersistentStateDescription>> persistent_state_blocks_;
@@ -765,6 +815,13 @@ class ValidatorManagerImpl : public ValidatorManager {
   bool is_valid_nonfinal_group(ShardIdFull shard, CatchainSeqno cc_seqno);
   void process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno);
   void cleanup_nonfinal_groups();
+
+  td::LRUCache<BlockIdExt, BlockReceiveStats> block_receive_stats_{1000};
+  metrics::Labeled<metrics::Counter, WorkchainLabel, BlockSource> first_received_;
+  metrics::Labeled<metrics::Counter, WorkchainLabel, BlockSource> received_;
+
+  td::actor::Task<> collect(metrics::Context ctx) override;
+  void update_block_receive_stats(BlockIdExt block_id, BlockSource type);
 };
 
 }  // namespace validator

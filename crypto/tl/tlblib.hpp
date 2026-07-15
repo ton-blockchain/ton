@@ -426,18 +426,27 @@ bool csr_unpack_safe(Ref<vm::CellSlice> csr, R& rec, Args&... args) {
 
 template <typename R, typename... Args>
 bool unpack_cell(Ref<vm::Cell> cell, R& rec, Args&... args) {
+  if (cell.is_null()) {
+    return false;
+  }
   vm::CellSlice cs = vm::load_cell_slice_quiet(std::move(cell));
   return cs.is_valid() && (typename R::type_class{}).unpack(cs, rec, args...) && cs.empty_ext();
 }
 
 template <typename R, typename... Args>
 bool unpack_cell_inexact(Ref<vm::Cell> cell, R& rec, Args&... args) {
+  if (cell.is_null()) {
+    return false;
+  }
   vm::CellSlice cs = vm::load_cell_slice_quiet(std::move(cell));
   return cs.is_valid() && (typename R::type_class{}).unpack(cs, rec, args...);
 }
 
 template <typename T, typename R, typename... Args>
 bool type_unpack_cell(Ref<vm::Cell> cell, const T& type, R& rec, Args&... args) {
+  if (cell.is_null()) {
+    return false;
+  }
   vm::CellSlice cs = vm::load_cell_slice_quiet(std::move(cell));
   return cs.is_valid() && type.unpack(cs, rec, args...) && cs.empty_ext();
 }

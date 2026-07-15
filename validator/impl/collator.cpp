@@ -36,7 +36,6 @@
 #include "vm/db/StaticBagOfCellsDb.h"
 #include "vm/dict.h"
 
-#include "candidate-serializer.h"
 #include "collator-impl.h"
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
@@ -907,7 +906,7 @@ bool Collator::check_cur_validator_set() {
     return true;
   }
   CatchainSeqno cc_seqno = 0;
-  auto nodes = config_->compute_validator_set_cc(shard_, now_, &cc_seqno);
+  auto nodes = config_->compute_validator_set_cc(shard_, &cc_seqno);
   if (nodes.empty()) {
     return fatal_error("cannot compute validator set for shard "s + shard_.to_str() + " from old masterchain state");
   }
@@ -4823,6 +4822,13 @@ bool Collator::process_new_messages(bool& enqueue_only) {
     stats_.load_fraction_new_msgs = block_limit_status_->load_fraction(block::ParamLimits::cl_normal);
   };
   while (!new_msgs.empty()) {
+    if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
+      block_full_ = true;
+    }
+    if (!block_full_ && internal_msg_timeout_.is_in_past()) {
+      LOG(INFO) << "soft timeout reached, enqueue all remaining new messages";
+      block_full_ = true;
+    }
     block::NewOutMsg msg = new_msgs.top();
     new_msgs.pop();
     block_limit_status_->extra_out_msgs--;
@@ -5356,7 +5362,7 @@ bool Collator::update_block_creator_stats() {
  * @returns A Result object containing a reference to the configuration data.
  */
 td::Result<Ref<vm::Cell>> Collator::get_config_data_from_smc(const ton::StdSmcAddress& cfg_addr) {
-  return block::get_config_data_from_smc(account_dict->lookup_ref(cfg_addr));
+  return block::get_config_data_from_smc(account_dict->lookup(cfg_addr));
 }
 
 /**
@@ -6360,7 +6366,7 @@ bool Collator::create_collated_data() {
  * @returns True if the block candidate was created successfully, false otherwise.
  */
 bool Collator::create_block_candidate() {
-  auto consensus_config = config_->get_consensus_config();
+  auto consensus_config = config_->get_new_consensus_config(workchain());
   // 1. serialize block
   LOG(INFO) << "serializing new Block";
   vm::BagOfCells boc;

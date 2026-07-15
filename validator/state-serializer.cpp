@@ -639,7 +639,7 @@ void AsyncStateSerializer::write_shard_state(BlockHandle handle, ShardIdFull sha
 void AsyncStateSerializer::fail_handler(td::Status reason) {
   current_status_ = PSTRING() << "pending, " << reason;
   current_status_ts_ = {};
-  VLOG(VALIDATOR_NOTICE) << "failure: " << reason;
+  VLOG(validator, INFO) << "failure: " << reason;
   attempt_++;
   delay_action(
       [SelfId = actor_id(this)]() { td::actor::send_closure(SelfId, &AsyncStateSerializer::fail_handler_cont); },

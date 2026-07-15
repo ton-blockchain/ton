@@ -18,10 +18,10 @@
 */
 #pragma once
 
-#include "adnl/adnl-ext-client.h"
-#include "overlay/overlays.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
+
+#include "full-node.h"
 
 namespace ton {
 
@@ -31,12 +31,9 @@ namespace fullnode {
 
 class DownloadProof : public td::actor::Actor {
  public:
-  DownloadProof(BlockIdExt block_id, bool allow_partial_proof, bool is_key_block, adnl::AdnlNodeIdShort local_id,
-                overlay::OverlayIdShort overlay_id, adnl::AdnlNodeIdShort download_from, td::uint32 priority,
-                td::Timestamp timeout, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                td::actor::ActorId<adnl::AdnlSenderInterface> rldp, td::actor::ActorId<overlay::Overlays> overlays,
-                td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlExtClient> client,
-                td::Promise<td::BufferSlice> promise);
+  DownloadProof(BlockIdExt block_id, bool allow_partial_proof, bool is_key_block, QuerySender query_sender,
+                td::uint32 priority, td::Timestamp timeout,
+                td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::Promise<td::BufferSlice> promise);
 
   void abort_query(td::Status reason);
   void alarm() override;
@@ -45,7 +42,6 @@ class DownloadProof : public td::actor::Actor {
   void start_up() override;
   void checked_db();
   void got_download_token(std::unique_ptr<ActionToken> token);
-  void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_block_proof_description(td::BufferSlice proof_description);
   void got_block_proof(td::BufferSlice data);
   void got_block_partial_proof(td::BufferSlice data);
@@ -54,19 +50,11 @@ class DownloadProof : public td::actor::Actor {
   BlockIdExt block_id_;
   bool allow_partial_proof_;
   bool is_key_block_;
-  adnl::AdnlNodeIdShort local_id_;
-  overlay::OverlayIdShort overlay_id_;
 
-  adnl::AdnlNodeIdShort download_from_ = adnl::AdnlNodeIdShort::zero();
-
+  QuerySender query_sender_;
   td::uint32 priority_;
-
   td::Timestamp timeout_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
-  td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
-  td::actor::ActorId<overlay::Overlays> overlays_;
-  td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<td::BufferSlice> promise_;
 
   td::BufferSlice data_;

@@ -22,6 +22,10 @@
 #include "TorrentHeader.hpp"
 
 namespace ton {
+static bool is_dir_slash(char c) {
+  return (c == TD_DIR_SLASH) | (c == '/');
+}
+
 td::CSlice TorrentHeader::get_dir_name() const {
   return dir_name;
 }
@@ -70,20 +74,20 @@ static td::Status validate_name(td::Slice name, bool is_dir_name = false) {
   if (name.empty()) {
     return td::Status::Error("Name can't be empty");
   }
-  if (name[0] == '/') {
+  if (is_dir_slash(name[0])) {
     return td::Status::Error("Name can't start with '/'");
   }
-  if (name.back() == '/' && !is_dir_name) {
+  if (is_dir_slash(name.back()) && !is_dir_name) {
     return td::Status::Error("Name can't end with '/'");
   }
   for (size_t l = 0; l < name.size();) {
     size_t r = l + 1;
-    while (r < name.size() && name[r] != '/') {
+    while (r < name.size() && !is_dir_slash(name[r])) {
       ++r;
     }
     td::Slice s = name.substr(l, r - l);
     if (s == "") {
-      return td::Status::Error("Name can't contain consequitive '/'");
+      return td::Status::Error("Name can't contain consecutive '/'");
     }
     if (s == ".") {
       return td::Status::Error("Name can't contain component \".\"");
@@ -91,7 +95,24 @@ static td::Status validate_name(td::Slice name, bool is_dir_name = false) {
     if (s == "..") {
       return td::Status::Error("Name can't contain component \"..\"");
     }
+#if TD_WINDOWS
+    // https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#naming-conventions
+    if (s.back() == '.' || s.back() == ' ') {
+      return td::Status::Error(PSTRING() << "Name component cannot end with '" << s.back() << "'");
+    }
+#endif
     l = r + 1;
+  }
+  for (char c : name) {
+    if (c == '\0') {
+      return td::Status::Error(PSTRING() << "Name can't contain character '\\0'");
+    }
+#if TD_WINDOWS
+    // https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file#naming-conventions
+    if (c == '<' || c == '>' || c == ':' || c == '"' || c == '|' || c == '?' || c == '*') {
+      return td::Status::Error(PSTRING() << "Name can't contain character '" << c << "'");
+    }
+#endif
   }
   return td::Status::OK();
 }
@@ -122,9 +143,16 @@ td::Status TorrentHeader::validate(td::uint64 total_size, td::uint64 header_size
 
   std::set<std::string> names;
   for (size_t i = 0; i < files_count; ++i) {
-    auto name = get_name(i);
+    auto name = get_name(i).str();
+#if TD_WINDOWS
+    for (char& c : name) {
+      if (c == '\\') {
+        c = '/';
+      }
+    }
+#endif
     TRY_STATUS_PREFIX(validate_name(name), PSTRING() << "Invalid filename " << name << ": ");
-    if (!names.insert(name.str()).second) {
+    if (!names.insert(name).second) {
       return td::Status::Error(PSTRING() << "Duplicate filename " << name);
     }
   }

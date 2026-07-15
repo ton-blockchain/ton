@@ -582,6 +582,19 @@ std::string TD_TL_writer_cpp::gen_fetch_function_end(bool has_parent, int field_
          "}\n";
 }
 
+std::string TD_TL_writer_cpp::gen_nameof_function_begin(const std::string &class_name) const {
+  std::string mapped_type = "int ";
+  std::string returned_type = "std::optional<std::string> ";
+  return "\n" + returned_type + class_name + "::nameof(" + mapped_type + "constructor) {\n" +
+         "  switch (constructor) {\n";
+}
+
+std::string TD_TL_writer_cpp::gen_nameof_function_end(const std::string &class_name) const {
+  return "  }\n"
+         "  return std::nullopt;\n"
+         "}\n";
+}
+
 std::string TD_TL_writer_cpp::gen_fetch_function_result_begin(const std::string &parser_name,
                                                               const std::string &class_name,
                                                               const tl::tl_tree *result) const {
@@ -661,6 +674,13 @@ std::string TD_TL_writer_cpp::gen_fetch_switch_end() const {
   return "    default:\n"
          "      FAIL(PSTRING() << \"Unknown constructor found \" << td::format::as_hex(constructor));\n"
          "  }\n";
+}
+
+std::string TD_TL_writer_cpp::gen_nameof_case(const tl::tl_combinator *t) const {
+  return "    case " + gen_class_name(t->name) +
+         "::ID:\n"
+         "      return \"" +
+         t->name + "\";\n";
 }
 
 std::string TD_TL_writer_cpp::gen_constructor_begin(int fields_num, const std::string &class_name,

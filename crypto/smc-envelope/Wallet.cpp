@@ -36,16 +36,20 @@ td::Ref<vm::Cell> Wallet::get_init_state(const td::Ed25519::PublicKey& public_ke
 td::Ref<vm::Cell> Wallet::get_init_message_new(const td::Ed25519::PrivateKey& private_key) noexcept {
   td::uint32 seqno = 0;
   td::uint32 valid_until = std::numeric_limits<td::uint32>::max();
-  auto signature =
-      private_key
-          .sign(vm::CellBuilder().store_long(seqno, 32).store_long(valid_until, 32).finalize()->get_hash().as_slice())
-          .move_as_ok();
+  auto r_signature = private_key.sign(
+      vm::CellBuilder().store_long(seqno, 32).store_long(valid_until, 32).finalize()->get_hash().as_slice());
+  if (r_signature.is_error()) {
+    return {};
+  }
+  auto signature = r_signature.move_as_ok();
   return vm::CellBuilder().store_bytes(signature).store_long(seqno, 32).store_long(valid_until, 32).finalize();
 }
 
 td::Ref<vm::Cell> Wallet::make_a_gift_message(const td::Ed25519::PrivateKey& private_key, td::uint32 seqno,
                                               td::uint32 valid_until, td::Span<Gift> gifts) noexcept {
-  CHECK(gifts.size() <= max_gifts_size);
+  if (gifts.size() > max_gifts_size) {
+    return {};
+  }
 
   vm::CellBuilder cb;
   cb.store_long(seqno, 32).store_long(valid_until, 32);
@@ -55,11 +59,19 @@ td::Ref<vm::Cell> Wallet::make_a_gift_message(const td::Ed25519::PrivateKey& pri
     if (gift.gramms == -1) {
       send_mode += 128;
     }
-    cb.store_long(send_mode, 8).store_ref(create_int_message(gift));
+    auto message = create_int_message(gift);
+    if (message.is_null()) {
+      return {};
+    }
+    cb.store_long(send_mode, 8).store_ref(std::move(message));
   }
 
   auto message_outer = cb.finalize();
-  auto signature = private_key.sign(message_outer->get_hash().as_slice()).move_as_ok();
+  auto r_signature = private_key.sign(message_outer->get_hash().as_slice());
+  if (r_signature.is_error()) {
+    return {};
+  }
+  auto signature = r_signature.move_as_ok();
   return vm::CellBuilder().store_bytes(signature).append_cellslice(vm::load_cell_slice(message_outer)).finalize();
 }
 

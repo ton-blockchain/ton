@@ -262,6 +262,7 @@ overlay.query overlay:int256 = True;
 overlay.queryWithExtra overlay:int256 extra:overlay.messageExtra = True;
 overlay.getBroadcast hash:int256 = overlay.Broadcast;
 overlay.getBroadcastList list:overlay.broadcastList = overlay.BroadcastList;
+overlay.repairPlumtreePart broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
 
 ---types---
 
@@ -273,79 +274,11 @@ overlay.db.key.nodes local_id:int256 overlay:int256 = overlay.db.Key;
 
 ---types---
 
-catchain.block.id incarnation:int256 src:int256 height:int data_hash:int256 = catchain.block.Id;
-catchain.block.dep src:int height:int data_hash:int256 signature:bytes = catchain.block.Dep;
-catchain.block.data prev:catchain.block.dep deps:(vector catchain.block.dep) = catchain.block.Data;
-catchain.block incarnation:int256 src:int height:int data:catchain.block.data signature:bytes = catchain.Block;
-catchain.blocks blocks:(vector catchain.block) = catchain.Blocks;
-catchain.blockUpdate block:catchain.block = catchain.Update;
-
-catchain.block.data.badBlock block:catchain.block = catchain.block.inner.Data;
-catchain.block.data.fork left:catchain.block.Dep right:catchain.block.Dep = catchain.block.inner.Data;
-catchain.block.data.nop = catchain.block.inner.Data;
-//catchain.block.data.vector msgs:(vector bytes) = catchain.block.inner.Data;
-//catchain.block.data.custom = catchain.block.inner.Data;
-
-catchain.firstblock unique_hash:int256 nodes:(vector int256) = catchain.FirstBlock;
-
-catchain.difference sent_upto:(vector int) = catchain.Difference;
-catchain.differenceFork left:catchain.block.dep right:catchain.block.dep = catchain.Difference;
-
-catchain.blockNotFound = catchain.BlockResult;
-catchain.blockResult block:catchain.block = catchain.BlockResult;
-
----functions---
-
-catchain.getBlock block:int256 = catchain.BlockResult;
-catchain.getDifference rt:(vector int) = catchain.Difference;
-//catchain.getForkDifference src:int fork:catchain.fork = catchain.ForkDifference;
-
----types---
-
-validatorSession.round.id session:int256 height:long prev_block:int256 seqno:int = validatorSession.round.Id;
-
-validatorSession.candidate.id round:int256 block_hash:int256 = validatorSession.tempBlock.Id;
-
-validatorSession.message.startSession = validatorSession.Message;
-validatorSession.message.finishSession = validatorSession.Message;
-
-validatorSession.message.submittedBlock round:int root_hash:int256 file_hash:int256
-               collated_data_file_hash:int256 = validatorSession.round.Message;
-validatorSession.message.approvedBlock round:int candidate:int256 signature:bytes = validatorSession.round.Message;
-validatorSession.message.rejectedBlock round:int candidate:int256 reason:bytes = validatorSession.round.Message;
-validatorSession.message.commit round:int candidate:int256 signature:bytes = validatorSession.round.Message;
-
-validatorSession.message.vote round:int attempt:int candidate:int256 = validatorSession.round.Message;
-validatorSession.message.voteFor round:int attempt:int candidate:int256 = validatorSession.round.Message;
-validatorSession.message.precommit round:int attempt:int candidate:int256 = validatorSession.round.Message;
-validatorSession.message.empty round:int attempt:int = validatorSession.round.Message;
-
-validatorSession.pong hash:long = validatorSession.Pong;
-
-validatorSession.candidateId src:int256 root_hash:int256 file_hash:int256 collated_data_file_hash:int256 = validatorSession.CandidateId;
-
-validatorSession.blockUpdate ts:long actions:(vector validatorSession.round.Message) state:int = validatorSession.BlockUpdate;
 validatorSession.candidate src:int256 round:int root_hash:int256 data:bytes collated_data:bytes = validatorSession.Candidate;
 validatorSession.compressedCandidate flags:# src:int256 round:int root_hash:int256 decompressed_size:int data:bytes = validatorSession.Candidate;
 validatorSession.compressedCandidateV2 flags:# src:int256 round:int root_hash:int256 data:bytes = validatorSession.Candidate;
-validatorSession.optimisticCandidateBroadcast flags:# prev_candidate_id:int256 data:bytes = validatorSession.OptimisticCandidateBroadcast;
-
-validatorSession.config catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
-        max_round_attempts:int max_block_size:int max_collated_data_size:int = validatorSession.Config;
-validatorSession.configNew catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
-        max_round_attempts:int max_block_size:int max_collated_data_size:int new_catchain_ids:Bool = validatorSession.Config;
-validatorSession.configVersioned catchain_idle_timeout:double catchain_max_deps:int round_candidates:int next_candidate_delay:double round_attempt_duration:int
-        max_round_attempts:int max_block_size:int max_collated_data_size:int version:int = validatorSession.Config;
-
-validatorSession.catchainOptions idle_timeout:double max_deps:int max_block_size:int block_hash_covers_data:Bool
-        max_block_height_ceoff:int debug_disable_db:Bool = validatorSession.CatChainOptions;
-validatorSession.configVersionedV2 catchain_opts:validatorSession.CatChainOptions round_candidates:int next_candidate_delay:double
-        round_attempt_duration:int max_round_attempts:int max_block_size:int max_collated_data_size:int version:int = validatorSession.Config;
 
 ---functions---
-
-validatorSession.ping hash:long = validatorSession.Pong;
-validatorSession.downloadCandidate round:int id:validatorSession.candidateId = validatorSession.Candidate;
 
 ---types---
 
@@ -387,8 +320,20 @@ tonNode.signatureSet.simplex final:Bool cc_seqno:int validator_set_hash:int sign
 
 tonNode.blockId workchain:int shard:long seqno:int = tonNode.BlockId;
 tonNode.blockIdExt workchain:int shard:long seqno:int root_hash:int256 file_hash:int256 = tonNode.BlockIdExt;
-tonNode.zeroStateIdExt workchain:int root_hash:int256 file_hash:int256 = tonNode.ZeroStateIdExt;
 tonNode.shardId workchain:int shard:long = tonNode.ShardId;
+overlay.broadcastPlumtreeSimple flags:int timestamp:double src:PublicKey certificate:overlay.Certificate broadcast_id:int256 tree_index:int data:bytes signature:bytes = overlay.Broadcast;
+overlay.broadcastPlumtreeFec flags:int timestamp:double src:PublicKey certificate:overlay.Certificate full_data_hash:int256 full_data_size:int part_index:int tree_index:int data:bytes signature:bytes = overlay.Broadcast;
+overlay.broadcastPlumtreeIHave broadcast_id:int256 timestamp:double part_index:int tree_index:int src:PublicKey certificate:overlay.Certificate payload_timestamp:double data_size:int data_hash:int256 signature:bytes = overlay.Broadcast;
+overlay.broadcastPlumtreePrune broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.broadcastPlumtreeUseful broadcast_id:int256 timestamp:double part_index:int tree_index:int = overlay.Broadcast;
+overlay.plumtreeStatsRecord src:int256 epoch:int tree_index:int eager_0:(vector long) eager_index:(vector long) delivered_bcsts:int parts_in_p99_bcsts:int useful_avg_ms:int useful_max_ms:int useful_p99_ms:int = overlay.PlumtreeStatsRecord;
+overlay.plumtreeStatsPush record:overlay.plumtreeStatsRecord = overlay.Broadcast;
+overlay.plumtreeStatsExchange overlay:int256 overlay_type:string shard:tonNode.shardId records:(vector overlay.plumtreeStatsRecord) = overlay.PlumtreeStatsExchange;
+overlay.plumtreeStatsDump overlay:int256 overlay_type:string shard:tonNode.shardId received_from:int256 received_at:double records:(vector overlay.plumtreeStatsRecord) = overlay.PlumtreeStatsDump;
+overlay.broadcastPlumtreeFec.id flags:int full_data_hash:int256 full_data_size:int part_size:int = overlay.broadcastPlumtreeFec.Id;
+overlay.broadcastPlumtreeSimple.toSign id:int256 timestamp:double tree_index:int data_size:int data_hash:int256 = overlay.broadcastPlumtreeSimple.ToSign;
+overlay.broadcastPlumtreeFec.toSign id:int256 timestamp:double part_index:int tree_index:int data_size:int data_hash:int256 = overlay.broadcastPlumtreeFec.ToSign;
+tonNode.zeroStateIdExt workchain:int root_hash:int256 file_hash:int256 = tonNode.ZeroStateIdExt;
 
 tonNode.blockDescriptionEmpty = tonNode.BlockDescription;
 tonNode.blockDescription id:tonNode.blockIdExt = tonNode.BlockDescription;
@@ -407,7 +352,6 @@ tonNode.data data:bytes = tonNode.Data;
 //tonNode.preparedKeyBlockProofEmpty = tonNode.PreparedKeyBlockProof;
 //tonNode.preparedKeyBlockProof block_id:tonNode.blockIdExt = tonNode.PreparedKeyBlockProof;
 
-tonNode.ihrMessage data:bytes = tonNode.IhrMessage;
 tonNode.externalMessage data:bytes = tonNode.ExternalMessage;
 
 tonNode.newShardBlock block:tonNode.blockIdExt cc_seqno:int data:bytes = tonNode.NewShardBlock;
@@ -420,7 +364,8 @@ tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_ha
 tonNode.blockBroadcastCompressed id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               flags:# compressed:bytes = tonNode.Broadcast;
 tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.SignatureSet flags:# proof:bytes data_compressed:bytes = tonNode.Broadcast;
-tonNode.ihrMessageBroadcast message:tonNode.ihrMessage = tonNode.Broadcast;
+tonNode.finalityBroadcastId id:tonNode.blockIdExt = tonNode.FinalityBroadcastId;
+tonNode.blockFinalityBroadcast id:tonNode.blockIdExt signature_set:tonNode.SignatureSet = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
 tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
 // signature may be empty, at least for now
@@ -451,6 +396,8 @@ tonNode.dataFullCompressed id:tonNode.blockIdExt flags:# compressed:bytes is_lin
 tonNode.dataFullCompressedV2 id:tonNode.blockIdExt flags:# proof:bytes block_compressed:bytes is_link:Bool = tonNode.DataFull;
 tonNode.dataFullEmpty = tonNode.DataFull;
 
+tonNode.nextBlocksFull blocks:(vector tonNode.DataFull) = tonNode.NextBlocksFull;
+
 tonNode.capabilities#f5bf60c0 version_major:int version_minor:int flags:# = tonNode.Capabilities;
 
 tonNode.success = tonNode.Success;
@@ -473,13 +420,11 @@ tonNode.getNextBlocksDescription prev_block:tonNode.blockIdExt limit:int = tonNo
 tonNode.getPrevBlocksDescription next_block:tonNode.blockIdExt limit:int cutoff_seqno:int = tonNode.BlocksDescription;
 tonNode.prepareBlockProof block:tonNode.blockIdExt allow_partial:Bool = tonNode.PreparedProof;
 tonNode.prepareKeyBlockProof block:tonNode.blockIdExt allow_partial:Bool = tonNode.PreparedProof;
-tonNode.prepareBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:Bool = tonNode.PreparedProof;
-tonNode.prepareKeyBlockProofs blocks:(vector tonNode.blockIdExt) allow_partial:Bool = tonNode.PreparedProof;
 tonNode.prepareBlock block:tonNode.blockIdExt = tonNode.Prepared;
-tonNode.prepareBlocks blocks:(vector tonNode.blockIdExt) = tonNode.Prepared;
 tonNode.prepareZeroState block:tonNode.blockIdExt = tonNode.PreparedState;
 tonNode.getNextKeyBlockIds block:tonNode.blockIdExt max_size:int = tonNode.KeyBlocks;
 tonNode.downloadNextBlockFull prev_block:tonNode.blockIdExt = tonNode.DataFull;
+tonNode.downloadNextBlocksFull prev_block:tonNode.blockIdExt max_blocks:int = tonNode.NextBlocksFull;
 tonNode.downloadBlockFull block:tonNode.blockIdExt = tonNode.DataFull;
 tonNode.downloadBlock block:tonNode.blockIdExt = tonNode.Data;
 tonNode.downloadZeroState block:tonNode.blockIdExt = tonNode.Data;
@@ -605,8 +550,6 @@ db.event.blockCandidateReceived block_id:tonNode.blockIdExt = db.Event;
 ---types---
 
 validator.groupMember public_key_hash:int256 adnl:int256 weight:long = engine.validator.GroupMember;
-validator.group workchain:int shard:long catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group;
-validator.groupEx workchain:int shard:long vertical_seqno:int catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group;
 validator.groupNew workchain:int shard:long vertical_seqno:int last_key_block_seqno:int catchain_seqno:int config_hash:int256 members:(vector validator.groupMember) = validator.Group;
 
 validator.telemetry flags:# timestamp:double adnl_id:int256
@@ -679,9 +622,9 @@ engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector eng
         shards_to_monitor:(vector tonNode.shardId)
         gc:engine.gc = engine.validator.Config;
 
-engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_priority:int block_sender:Bool = engine.validator.CustomOverlayNode;
+engine.validator.customOverlayNode adnl_id:int256 msg_sender:Bool msg_sender_priority:int block_sender:Bool accept_queries:Bool = engine.validator.CustomOverlayNode;
 engine.validator.customOverlay name:string nodes:(vector engine.validator.customOverlayNode) sender_shards:(vector tonNode.shardId)
-    skip_public_msg_send:Bool use_quic:Bool = engine.validator.CustomOverlay;
+    skip_public_msg_send:Bool use_quic:Bool send_queries:Bool = engine.validator.CustomOverlay;
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
 engine.validator.collatorOptions
@@ -807,6 +750,8 @@ engine.validator.getStats = engine.validator.Stats;
 engine.validator.getConfig = engine.validator.JsonConfig;
 
 engine.validator.setVerbosity verbosity:int = engine.validator.Success;
+engine.validator.setLogCategoryVerbosity name:string verbosity:int = engine.validator.Success;
+engine.validator.getLogCategories = engine.validator.TextStats;
 
 engine.validator.createElectionBid election_date:int election_addr:string wallet:string = engine.validator.ElectionBid;
 engine.validator.createProposalVote vote:bytes = engine.validator.ProposalVote;
@@ -1152,6 +1097,7 @@ engineConsoleClient.config address:string server_public_key:PublicKey client_pri
 
 consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;
 consensus.blockSyncOverlayId session_id:int256 = consensus.BlockOverlayId;
+consensus.dbId session_id:int256 is_validator:Bool validator_key:int256 adnl_id:int256 = consensus.DbId;
 consensus.dataToSign session_id:int256 data:bytes = consensus.DataToSign;
 
 consensus.candidateId slot:int hash:int256 = consensus.CandidateId;
@@ -1230,6 +1176,7 @@ consensus.simplex.noncriticalParams
     candidate_resolve_rate_limit:flags.12?int
     min_block_interval_ms:flags.13?int
     no_empty_blocks_on_error_timeout_ms:flags.14?int
+    certificate_gossip_neighbors:flags.15?int
     = consensus.NoncriticalParams;
 
 consensus.noncriticalParamsOverride

@@ -22,6 +22,7 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <source_location>
 #include <type_traits>
 #include <utility>
 
@@ -125,11 +126,6 @@
       LOG(ERROR) << log_status.move_as_error(); \
     }                                           \
   }
-
-#ifndef TD_STATUS_NO_ENSURE
-#define ensure() ensure_impl(__FILE__, __LINE__)
-#define ensure_error() ensure_error_impl(__FILE__, __LINE__)
-#endif
 
 #if TD_PORT_POSIX
 #define OS_ERROR(message)                                    \
@@ -256,29 +252,17 @@ class Status {
     return ptr_ != nullptr;
   }
 
-#ifdef TD_STATUS_NO_ENSURE
-  void ensure() const {
+  void ensure(std::source_location loc = std::source_location::current()) const {
     if (!is_ok()) {
-      LOG(FATAL) << "Unexpected Status " << to_string();
+      LOG(FATAL) << "Unexpected Status " << to_string() << " in file " << loc.file_name() << " at line " << loc.line();
     }
   }
-  void ensure_error() const {
+
+  void ensure_error(std::source_location loc = std::source_location::current()) const {
     if (is_ok()) {
-      LOG(FATAL) << "Unexpected Status::OK";
+      LOG(FATAL) << "Unexpected Status::OK in file " << loc.file_name() << " at line " << loc.line();
     }
   }
-#else
-  void ensure_impl(CSlice file_name, int line) const {
-    if (!is_ok()) {
-      LOG(FATAL) << "Unexpected Status " << to_string() << " in file " << file_name << " at line " << line;
-    }
-  }
-  void ensure_error_impl(CSlice file_name, int line) const {
-    if (is_ok()) {
-      LOG(FATAL) << "Unexpected Status::OK in file " << file_name << " at line " << line;
-    }
-  }
-#endif
 
   void ignore() const {
     // nop
@@ -536,41 +520,23 @@ class Result {
     }
   }
 
-#ifdef TD_STATUS_NO_ENSURE
-  const Result &ensure() const {
-    status_.ensure();
+  const Result &ensure(std::source_location loc = std::source_location::current()) const {
+    status_.ensure(loc);
     return *this;
   }
-  const Result &ensure_error() const {
-    status_.ensure_error();
+  const Result &ensure_error(std::source_location loc = std::source_location::current()) const {
+    status_.ensure_error(loc);
     return *this;
   }
-  Result &ensure() {
-    status_.ensure();
+  Result &ensure(std::source_location loc = std::source_location::current()) {
+    status_.ensure(loc);
     return *this;
   }
-  Result &ensure_error() {
-    status_.ensure_error();
+  Result &ensure_error(std::source_location loc = std::source_location::current()) {
+    status_.ensure_error(loc);
     return *this;
   }
-#else
-  const Result &ensure_impl(CSlice file_name, int line) const {
-    status_.ensure_impl(file_name, line);
-    return *this;
-  }
-  const Result &ensure_error_impl(CSlice file_name, int line) const {
-    status_.ensure_error_impl(file_name, line);
-    return *this;
-  }
-  Result &ensure_impl(CSlice file_name, int line) {
-    status_.ensure_impl(file_name, line);
-    return *this;
-  }
-  Result &ensure_error_impl(CSlice file_name, int line) {
-    status_.ensure_error_impl(file_name, line);
-    return *this;
-  }
-#endif
+
   void ignore() const {
     status_.ignore();
   }
@@ -618,6 +584,12 @@ class Result {
   Status move_as_status() TD_WARN_UNUSED_RESULT {
     if (status_.is_error()) {
       return move_as_error();
+    }
+    return Status::OK();
+  }
+  Status as_status() TD_WARN_UNUSED_RESULT {
+    if (status_.is_error()) {
+      return error().clone();
     }
     return Status::OK();
   }

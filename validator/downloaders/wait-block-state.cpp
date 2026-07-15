@@ -88,7 +88,9 @@ void WaitBlockState::start() {
       }
     });
     td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, handle_, std::move(P));
-  } else if (handle_->id().id.seqno == 0 && next_static_file_attempt_.is_in_past()) {
+    return;
+  }
+  if (handle_->id().id.seqno == 0 && next_static_file_attempt_.is_in_past()) {
     next_static_file_attempt_ = td::Timestamp::in(60.0);
     // id.file_hash contains correct file hash of zero state
     // => if file with this sha256 is found it is guaranteed to be correct
@@ -106,7 +108,9 @@ void WaitBlockState::start() {
       }
     });
     td::actor::send_closure(manager_, &ValidatorManager::try_get_static_file, handle_->id().file_hash, std::move(P));
-  } else if (handle_->id().id.seqno == 0) {
+    return;
+  }
+  if (handle_->id().id.seqno == 0) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &WaitBlockState::failed_to_get_state_from_net,
@@ -117,7 +121,9 @@ void WaitBlockState::start() {
     });
     td::actor::send_closure(manager_, &ValidatorManager::send_get_zero_state_request, handle_->id(), priority_,
                             std::move(P));
-  } else if (check_persistent_state_desc() && !handle_->received_state() && allow_download) {
+    return;
+  }
+  if (check_persistent_state_desc() && !handle_->received_state() && allow_download) {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       if (R.is_error()) {
         LOG(WARNING) << "failed to get persistent state: " << R.move_as_error();
@@ -145,7 +151,26 @@ void WaitBlockState::start() {
                                                   priority_, manager_, timeout_, std::move(P))
           .release();
     }
-  } else if (!handle_->inited_prev() || (!handle_->inited_proof() && !handle_->inited_proof_link())) {
+    return;
+  }
+  if (block_.is_null()) {
+    if (!allow_download && !handle_->received()) {
+      abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full()));
+      return;
+    }
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &WaitBlockState::failed_to_get_block_data,
+                                R.move_as_error_prefix("block wait error: "));
+      } else {
+        td::actor::send_closure(SelfId, &WaitBlockState::got_block_data, R.move_as_ok());
+      }
+    });
+
+    td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, priority_, timeout_, std::move(P));
+    return;
+  }
+  if (!handle_->inited_prev() || (!handle_->inited_proof() && !handle_->inited_proof_link())) {
     if (!allow_download) {
       abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full()));
       return;
@@ -162,7 +187,9 @@ void WaitBlockState::start() {
     waiting_proof_link_ = true;
     td::actor::send_closure(manager_, &ValidatorManager::send_get_block_proof_link_request, handle_->id(), priority_,
                             std::move(P));
-  } else if (state_.is_null()) {
+    return;
+  }
+  if (state_.is_null()) {
     CHECK(handle_->inited_proof() || handle_->inited_proof_link());
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
       if (R.is_error()) {
@@ -175,7 +202,9 @@ void WaitBlockState::start() {
 
     td::actor::send_closure(manager_, &ValidatorManager::wait_prev_block_state, handle_, priority_, timeout_,
                             std::move(P));
-  } else if (handle_->id().is_masterchain() && !handle_->inited_proof()) {
+    return;
+  }
+  if (handle_->id().is_masterchain() && !handle_->inited_proof()) {
     if (!allow_download) {
       abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full()));
       return;
@@ -192,24 +221,9 @@ void WaitBlockState::start() {
     waiting_proof_ = true;
     td::actor::send_closure(manager_, &ValidatorManager::send_get_block_proof_request, handle_->id(), priority_,
                             std::move(P));
-  } else if (block_.is_null()) {
-    if (!allow_download && !handle_->received()) {
-      abort_query(td::Status::Error(PSTRING() << "not monitoring shard " << handle_->id().shard_full()));
-      return;
-    }
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<BlockData>> R) {
-      if (R.is_error()) {
-        td::actor::send_closure(SelfId, &WaitBlockState::failed_to_get_block_data,
-                                R.move_as_error_prefix("block wait error: "));
-      } else {
-        td::actor::send_closure(SelfId, &WaitBlockState::got_block_data, R.move_as_ok());
-      }
-    });
-
-    td::actor::send_closure(manager_, &ValidatorManager::wait_block_data, handle_, priority_, timeout_, std::move(P));
-  } else {
-    apply();
+    return;
   }
+  apply();
 }
 
 void WaitBlockState::failed_to_get_prev_state(td::Status reason) {
@@ -352,15 +366,30 @@ void WaitBlockState::got_state_from_net(td::BufferSlice data) {
   if (force_reading_from_db_) {
     return;
   }
+  if (handle_->id().seqno() == 0 && sha256_bits256(data.as_slice()) != handle_->id().file_hash) {
+    LOG(WARNING) << "received bad state: zerostate file hash mismatch";
+    start();
+    return;
+  }
   auto r_root = vm::std_boc_deserialize(data);
   if (r_root.is_error()) {
-    LOG(WARNING) << "received bad state from net: " << r_root.move_as_error();
+    LOG(WARNING) << "received bad state: " << r_root.move_as_error();
+    start();
+    return;
+  }
+  if (handle_->id().seqno() != 0 && r_root.ok()->get_hash().as_bits256() != handle_->state()) {
+    LOG(WARNING) << "received bad state: root hash mismatch";
+    start();
+    return;
+  }
+  if (handle_->id().seqno() == 0 && r_root.ok()->get_hash().as_bits256() != handle_->id().root_hash) {
+    LOG(WARNING) << "received bad state: root hash mismatch";
     start();
     return;
   }
   auto r_state = create_shard_state(handle_->id(), r_root.move_as_ok());
   if (r_state.is_error()) {
-    LOG(WARNING) << "received bad state from net: " << r_state.move_as_error();
+    LOG(WARNING) << "received bad state: " << r_state.move_as_error();
     start();
     return;
   }
@@ -369,22 +398,11 @@ void WaitBlockState::got_state_from_net(td::BufferSlice data) {
   if (handle_->id().id.seqno == 0) {
     handle_->set_state_root_hash(handle_->id().root_hash);
   }
-  if (state->root_hash() != handle_->state()) {
-    LOG(WARNING) << "received state have bad root hash";
-    start();
-    return;
-  }
 
   if (handle_->id().id.seqno != 0) {
     auto S = state->validate_deep();
     if (S.is_error()) {
-      LOG(WARNING) << "received bad state from net: " << S;
-      start();
-      return;
-    }
-  } else {
-    if (sha256_bits256(data.as_slice()) != handle_->id().file_hash) {
-      LOG(WARNING) << "received bad state from net: file hash mismatch";
+      LOG(WARNING) << "received bad state: " << S;
       start();
       return;
     }

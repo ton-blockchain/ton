@@ -99,10 +99,6 @@ class Db : public td::actor::Actor {
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(td::Promise<BlockIdExt> promise) = 0;
 
-  virtual void update_destroyed_validator_sessions(std::vector<ValidatorSessionId> sessions,
-                                                   td::Promise<td::Unit> promise) = 0;
-  virtual void get_destroyed_validator_sessions(td::Promise<std::vector<ValidatorSessionId>> promise) = 0;
-
   virtual void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) = 0;
   virtual void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) = 0;
 

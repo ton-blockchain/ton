@@ -42,7 +42,7 @@ void CheckProof::alarm() {
 
 void CheckProof::abort_query(td::Status reason) {
   if (promise_) {
-    VLOG(VALIDATOR_WARNING) << "aborting check proof for " << id_ << " query: " << reason;
+    VLOG(validator, WARNING) << "aborting check proof for " << id_ << " query: " << reason;
     promise_.set_error(std::move(reason));
   }
   stop();
@@ -67,7 +67,7 @@ void CheckProof::finish_query() {
     ValidatorInvariants::check_post_check_proof_link(handle_);
   }
   if (promise_) {
-    VLOG(VALIDATOR_DEBUG) << "checked proof for " << handle_->id();
+    VLOG(validator, DEBUG) << "checked proof for " << handle_->id();
     promise_.set_result(handle_);
   }
   stop();
@@ -122,7 +122,6 @@ bool CheckProof::init_parse(bool is_aux) {
     }
   }
   auto keep_cc_seqno = catchain_seqno_;
-  auto keep_utime = created_at_;
   Ref<vm::Cell> sig_root = proof.signatures->prefetch_ref();
   if (sig_root.not_null()) {
     auto r_sig_set = block::BlockSignatureSet::fetch(sig_root, sig_weight_);
@@ -255,7 +254,7 @@ bool CheckProof::init_parse(bool is_aux) {
     if (res.is_error()) {
       return fatal_error(std::move(res));
     }
-    vset_ = vs_comp.get_validator_set(id_.shard_full(), keep_utime, keep_cc_seqno);
+    vset_ = vs_comp.get_validator_set(id_.shard_full(), keep_cc_seqno);
     if (vset_.is_null()) {
       return fatal_error("cannot extract current validator set for block "s + id_.to_str() +
                          " from previous key block " + key_id_.to_str());
@@ -265,7 +264,7 @@ bool CheckProof::init_parse(bool is_aux) {
 }
 
 void CheckProof::start_up() {
-  VLOG(VALIDATOR_DEBUG) << "started check proof for " << id_ << ", mode=" << mode_;
+  VLOG(validator, DEBUG) << "started check proof for " << id_ << ", mode=" << mode_;
   alarm_timestamp() = timeout_;
 
   auto res = vm::std_boc_deserialize(proof_->data());
@@ -319,7 +318,7 @@ void CheckProof::start_up() {
 }
 
 void CheckProof::got_block_handle(BlockHandle handle) {
-  VLOG(VALIDATOR_DEBUG) << "got_block_handle";
+  VLOG(validator, DEBUG) << "got_block_handle";
   handle_ = std::move(handle);
   CHECK(handle_);
   if (!is_proof() || skip_check_signatures_) {
@@ -349,7 +348,7 @@ void CheckProof::got_block_handle(BlockHandle handle) {
 }
 
 void CheckProof::got_masterchain_state(td::Ref<MasterchainState> state) {
-  VLOG(VALIDATOR_DEBUG) << "got_masterchain_state #" << state->get_seqno();
+  VLOG(validator, DEBUG) << "got_masterchain_state #" << state->get_seqno();
   CHECK(is_proof());
   state_ = std::move(state);
 
@@ -363,7 +362,7 @@ void CheckProof::got_masterchain_state(td::Ref<MasterchainState> state) {
 }
 
 void CheckProof::process_masterchain_state() {
-  VLOG(VALIDATOR_DEBUG) << "process_masterchain_state";
+  VLOG(validator, DEBUG) << "process_masterchain_state";
   CHECK(is_proof());
   CHECK(state_.not_null());
 
@@ -389,12 +388,12 @@ void CheckProof::process_masterchain_state() {
   }
   auto state_q = Ref<MasterchainStateQ>(state_);
   CHECK(state_q.not_null());
-  vset_ = state_q->get_validator_set(id_.shard_full(), created_at_, catchain_seqno_);
+  vset_ = state_q->get_validator_set(id_.shard_full(), catchain_seqno_);
   check_signatures();
 }
 
 void CheckProof::check_signatures() {
-  VLOG(VALIDATOR_DEBUG) << "check_signatures";
+  VLOG(validator, DEBUG) << "check_signatures";
   if (sig_set_.is_null()) {
     fatal_error("no block signatures present in proof to check");
     return;
@@ -435,7 +434,7 @@ void CheckProof::check_signatures() {
 }
 
 void CheckProof::got_block_handle_2(BlockHandle handle) {
-  VLOG(VALIDATOR_DEBUG) << "got_block_handle_2 " << handle->id().id;
+  VLOG(validator, DEBUG) << "got_block_handle_2 " << handle->id().id;
   handle_ = std::move(handle);
 
   handle_->set_split(before_split_);
@@ -455,19 +454,19 @@ void CheckProof::got_block_handle_2(BlockHandle handle) {
     // do not save proof if we skipped signatures
     auto proof = Ref<Proof>(proof_);
     CHECK(proof.not_null());
-    VLOG(VALIDATOR_DEBUG) << "set_block_proof";
+    VLOG(validator, DEBUG) << "set_block_proof";
     td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof, handle_, std::move(proof),
                                   std::move(P));
   } else if (is_proof()) {
     auto proof = Ref<Proof>(proof_);
     CHECK(proof.not_null());
     CHECK(sig_ok_);
-    VLOG(VALIDATOR_DEBUG) << "set_block_proof";
+    VLOG(validator, DEBUG) << "set_block_proof";
     td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof, handle_, std::move(proof),
                                   std::move(P));
   } else {
     CHECK(proof_.not_null());
-    VLOG(VALIDATOR_DEBUG) << "set_block_proof_link";
+    VLOG(validator, DEBUG) << "set_block_proof_link";
     td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof_link, handle_, proof_, std::move(P));
   }
 }

@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <optional>
 #include <set>
 #include <tuple>
 #include <utility>
@@ -351,6 +352,22 @@ StringBuilder &operator<<(StringBuilder &stream, const vector<T> &vec) {
 template <Formattable T>
 StringBuilder &operator<<(StringBuilder &stream, const std::set<T> &vec) {
   return stream << format::as_array(vec);
+}
+
+template <Formattable T>
+StringBuilder &operator<<(StringBuilder &sb, const std::optional<T> &v) {
+  if (v.has_value()) {
+    return sb << *v;
+  }
+  return sb << "none";
+}
+
+template <Formattable T>
+StringBuilder &operator<<(StringBuilder &sb, const std::unique_ptr<T> &ptr) {
+  if (ptr) {
+    return sb << *ptr;
+  }
+  return sb << "nullptr";
 }
 
 }  // namespace td

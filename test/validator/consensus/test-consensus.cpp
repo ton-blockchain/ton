@@ -178,12 +178,12 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
 
   void start_up() override {
     instance_idx_ = dynamic_cast<const TestSimplexBus &>(*owning_bus()).instance_idx;
-    td::actor::send_closure(test_overlay, &TestOverlay::register_node, owning_bus()->local_id.idx.value(),
+    td::actor::send_closure(test_overlay, &TestOverlay::register_node, owning_bus()->local_id->idx.value(),
                             instance_idx_, actor_id(this));
   }
 
   void tear_down() override {
-    td::actor::send_closure(test_overlay, &TestOverlay::unregister_node, owning_bus()->local_id.idx.value(),
+    td::actor::send_closure(test_overlay, &TestOverlay::unregister_node, owning_bus()->local_id->idx.value(),
                             instance_idx_);
     for (auto &[_, query] : active_queries_) {
       td::actor::send_closure(query, &Query::set_result, td::Status::Error(ErrorCode::cancelled, "cancelled"));
@@ -197,18 +197,11 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
 
   template <>
   void handle(BusHandle bus, std::shared_ptr<const OutgoingProtocolMessage> message) {
-    if (message->recipient.has_value()) {
-      CHECK(message->recipient.value() != bus->local_id.idx);
-      td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, instance_idx_,
-                     message->recipient->value(), message->message.data.clone())
-          .detach_silent();
-    } else {
-      for (size_t i = 0; i < bus->validator_set.size(); ++i) {
-        if (bus->local_id.idx.value() != i) {
-          td::actor::ask(test_overlay, &TestOverlay::send_message, bus->local_id, instance_idx_, i,
-                         message->message.data.clone())
-              .detach_silent();
-        }
+    for (size_t i = 0; i < bus->validator_set.size(); ++i) {
+      if (bus->local_id->idx.value() != i) {
+        td::actor::ask(test_overlay, &TestOverlay::send_message, *bus->local_id, instance_idx_, i,
+                       message->message.data.clone())
+            .detach_silent();
       }
     }
   }
@@ -216,8 +209,8 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   template <>
   void handle(BusHandle bus, std::shared_ptr<const CandidateGenerated> event) {
     for (size_t i = 0; i < bus->validator_set.size(); ++i) {
-      if (bus->local_id.idx.value() != i) {
-        td::actor::ask(test_overlay, &TestOverlay::send_candidate, bus->local_id, instance_idx_, i, event->candidate)
+      if (bus->local_id->idx.value() != i) {
+        td::actor::ask(test_overlay, &TestOverlay::send_candidate, *bus->local_id, instance_idx_, i, event->candidate)
             .detach_silent();
       }
     }
@@ -225,12 +218,30 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
 
   template <>
   td::actor::Task<ProtocolMessage> process(BusHandle bus, std::shared_ptr<OutgoingOverlayRequest> message) {
+    size_t dst_idx;
+    if (message->destination) {
+      dst_idx = SIZE_MAX;
+      for (const auto &peer : bus->validator_set) {
+        if (peer.adnl_id == *message->destination) {
+          dst_idx = peer.idx.value();
+          break;
+        }
+      }
+      CHECK(dst_idx != SIZE_MAX);
+    } else {
+      size_t peer_idx = td::Random::fast(0, static_cast<int>(bus->validator_set.size()) - 2);
+      if (peer_idx >= bus->local_id->idx.value()) {
+        peer_idx += 1;
+      }
+      dst_idx = peer_idx;
+    }
+
     auto [task, promise] = td::actor::StartedTask<ProtocolMessage>::make_bridge();
     auto query = td::actor::create_actor<Query>("q", std::move(promise), message->timeout).release();
     size_t idx = next_query_idx_++;
     active_queries_[idx] = query;
-    td::actor::send_closure(test_overlay, &TestOverlay::send_query, bus->local_id, instance_idx_,
-                            message->destination.value(), message->request.data.clone(),
+    td::actor::send_closure(test_overlay, &TestOverlay::send_query, *bus->local_id, instance_idx_, dst_idx,
+                            message->request.data.clone(),
                             td::PromiseCreator::lambda([query](td::Result<td::BufferSlice> R) {
                               if (R.is_ok()) {
                                 td::actor::send_closure(query, &Query::set_result, ProtocolMessage{R.move_as_ok()});
@@ -242,7 +253,7 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   }
 
   void receive_message(PeerValidator src, td::BufferSlice data) {
-    owning_bus().publish<IncomingProtocolMessage>(src.idx, std::move(data));
+    owning_bus().publish<IncomingProtocolMessage>(src.idx, src.adnl_id, std::move(data));
   }
 
   void receive_candidate(CandidateRef candidate) {
@@ -250,7 +261,7 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   }
 
   td::actor::Task<td::BufferSlice> receive_query(PeerValidator src, td::BufferSlice query) {
-    auto request = std::make_shared<IncomingOverlayRequest>(src.idx, std::move(query));
+    auto request = std::make_shared<IncomingOverlayRequest>(src.idx, src.adnl_id, std::move(query));
     auto response = co_await owning_bus().publish(std::move(request)).wrap();
     if (response.is_ok()) {
       co_return std::move(response.move_as_ok().data);
@@ -435,8 +446,8 @@ class TestManagerFacade : public ManagerFacade {
   }
 
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
-                                 td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
-                                 bool apply) override;
+                                 td::Ref<block::BlockSignatureSet> signatures, int block_broadcast_mode,
+                                 int finality_broadcast_mode, bool send_shard_block_desc, bool apply) override;
 
   td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override;
   td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override;
@@ -662,6 +673,7 @@ class TestConsensus : public td::actor::Actor {
     simplex::Pool::register_in(runtime);
     simplex::StateResolver::register_in(runtime);
     simplex::Db::register_in(runtime);
+    simplex::DefaultCollatorSchedule::provide_for(runtime);
 
     inst.manager_facade =
         td::actor::create_actor<TestManagerFacade>(PSTRING() << "ManagerFacade." << node_idx << "." << instance_idx,
@@ -687,7 +699,6 @@ class TestConsensus : public td::actor::Actor {
     bus->session_id = SESSION_ID;
     bus->cc_seqno = CC_SEQNO;
     bus->validator_set_hash = validator_set_->get_validator_set_hash();
-    bus->populate_collator_schedule();
     bus->db = std::make_unique<TestDbImpl>(inst.db_inner);
     inst.bus = runtime.start(std::static_pointer_cast<simplex::Bus>(bus),
                              PSTRING() << "consensus." << node_idx << "." << instance_idx);
@@ -876,8 +887,9 @@ class TestConsensus : public td::actor::Actor {
 };
 
 td::actor::Task<> TestManagerFacade::accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
-                                                  td::Ref<block::BlockSignatureSet> signatures, int send_broadcast_mode,
-                                                  bool apply) {
+                                                  td::Ref<block::BlockSignatureSet> signatures,
+                                                  int block_broadcast_mode, int finality_broadcast_mode,
+                                                  bool send_shard_block_desc, bool apply) {
   CHECK(id.shard_full() == SHARD);
   LOG(WARNING) << "Accept block #" << id.seqno() << " (" << (signatures->is_final() ? "final" : "notarize")
                << " signatures), creator_idx=" << creator_idx;

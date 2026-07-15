@@ -30,10 +30,14 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
+  static bool should_be_spawned(const Bus& bus) {
+    return bus.config.enable_block_sync();
+  }
+
   void start_up() override {
     auto& bus = *owning_bus();
     overlays_ = bus.overlays;
-    local_adnl_id_ = bus.local_id.adnl_id;
+    local_adnl_id_ = bus.local_adnl_id;
     adnl_sender_ = bus.adnl_sender;
 
     std::map<PublicKeyHash, td::uint32> authorized_keys;
@@ -51,14 +55,13 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
 
     overlay::OverlayOptions options;
     options.name_ = PSTRING() << "blocksync" << bus.shard << "." << bus.cc_seqno;
-    options.broadcast_speed_multiplier_ = bus.validator_opts->get_catchain_broadcast_speed_multiplier();
     options.private_ping_peers_ = true;
     options.twostep_broadcast_sender_ = adnl_sender_;
     options.send_twostep_broadcast_ = true;
     options.allow_old_broadcasts_ = false;
 
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_adnl_id_,
-                            std::move(overlay_full_id), bus.overlay_members, make_callback(),
+                            std::move(overlay_full_id), bus.all_validators, make_callback(),
                             overlay::OverlayPrivacyRules{0, 0, std::move(authorized_keys)},
                             PSTRING() << R"({ "type": "blocksync", "shard": ")" << bus.shard << R"(", "cc_seqno": )"
                                       << bus.cc_seqno << R"( })",

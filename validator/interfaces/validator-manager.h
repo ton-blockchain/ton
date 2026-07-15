@@ -25,27 +25,22 @@
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "impl/out-msg-queue-proof.hpp"
 #include "td/actor/BackpressureQueue.h"
-#include "validator-session/validator-session-types.h"
+#include "td/utils/logging.h"
 #include "validator/validator.h"
 
 #include "block.h"
 #include "external-message.h"
-#include "ihr-message.h"
 #include "liteserver.h"
 #include "message-queue.h"
 #include "proof.h"
 #include "shard-block.h"
 #include "shard.h"
 
+DECLARE_LOG_CATEGORY(validator)
+
 namespace ton {
 
 namespace validator {
-
-constexpr int VERBOSITY_NAME(VALIDATOR_WARNING) = verbosity_WARNING;
-constexpr int VERBOSITY_NAME(VALIDATOR_NOTICE) = verbosity_INFO;
-constexpr int VERBOSITY_NAME(VALIDATOR_INFO) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(VALIDATOR_DEBUG) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(VALIDATOR_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 
 struct CandidateAccept {
   double ok_from_utime = 0.0;
@@ -267,21 +262,6 @@ struct ValidationStats {
   }
 };
 
-struct CollatorNodeResponseStats {
-  PublicKeyHash self = PublicKeyHash::zero();
-  PublicKeyHash validator_id = PublicKeyHash::zero();
-  double timestamp = -1.0;
-  BlockIdExt block_id, original_block_id;
-  td::Bits256 collated_data_hash = td::Bits256::zero();
-
-  tl_object_ptr<ton_api::validatorStats_collatorNodeResponse> tl() const {
-    return create_tl_object<ton_api::validatorStats_collatorNodeResponse>(
-        self.bits256_value(), validator_id.bits256_value(), timestamp, create_tl_block_id(block_id),
-        create_tl_block_id(original_block_id), collated_data_hash);
-    ;
-  }
-};
-
 using ExtMsgQueue = td::actor::BackpressureQueue<std::pair<td::Ref<ExtMessage>, int>>;
 
 struct ExtMsgCallback {
@@ -353,21 +333,22 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                               td::Promise<td::Ref<MessageQueue>> promise) = 0;
   virtual void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) = 0;
-  virtual void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) = 0;
   virtual void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                              td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) = 0;
   virtual void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                           std::vector<ExtMessage::Hash> to_delete) = 0;
   virtual void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) = 0;
-  virtual void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
-                                     std::vector<IhrMessage::Hash> to_delete) = 0;
 
   //virtual void set_first_block(ZeroStateIdExt state, BlockIdExt block, td::Promise<td::Unit> promise) = 0;
   virtual void set_next_block(BlockIdExt prev, BlockIdExt next, td::Promise<td::Unit> promise) = 0;
 
   virtual void new_block(BlockHandle handle, td::Ref<ShardState> state, td::Promise<td::Unit> promise) = 0;
+  virtual void on_block_accepted(BlockIdExt block_id) {
+  }
 
-  virtual void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) = 0;
+  virtual td::actor::Task<ReceivedBlock> send_get_block_request(BlockIdExt id, td::uint32 priority) {
+    co_return td::Status::Error("not implemented");
+  }
   virtual void send_get_zero_state_request(BlockIdExt id, td::uint32 priority,
                                            td::Promise<td::BufferSlice> promise) = 0;
   virtual void send_get_persistent_state_request(BlockIdExt id, BlockIdExt masterchain_block_id,
@@ -379,9 +360,9 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                  td::Promise<td::BufferSlice> promise) = 0;
   virtual void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                                 td::Promise<std::vector<BlockIdExt>> promise) = 0;
-  virtual void send_ihr_message(td::Ref<IhrMessage> message) = 0;
   virtual void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) = 0;
   virtual void send_block_broadcast(BlockBroadcast broadcast, int mode) = 0;
+  virtual void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) = 0;
   virtual void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                                     block::ImportedMsgQueueLimits limits,
                                                     td::Promise<std::vector<td::Ref<OutMsgQueueProof>>> promise) = 0;
@@ -439,8 +420,6 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void log_collate_query_stats(CollationStats stats) {
   }
   virtual void log_validate_query_stats(ValidationStats stats) {
-  }
-  virtual void log_collator_node_response_stats(CollatorNodeResponseStats stats) {
   }
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;

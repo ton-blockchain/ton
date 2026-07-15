@@ -37,11 +37,11 @@
 #include "dht/dht.h"
 #include "http/http-client.h"
 #include "http/http-server.h"
-#include "rldp/rldp.h"
 #include "rldp2/rldp.h"
 #include "td/actor/MultiPromise.h"
 #include "td/utils/BufferedFd.h"
 #include "td/utils/FileLog.h"
+#include "td/utils/LRUCache.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
 #include "td/utils/filesystem.h"
@@ -58,53 +58,6 @@
 #endif
 
 class RldpHttpProxy;
-
-class RldpDispatcher : public ton::adnl::AdnlSenderInterface {
- public:
-  RldpDispatcher(td::actor::ActorId<ton::rldp::Rldp> rldp, td::actor::ActorId<ton::rldp2::Rldp> rldp2)
-      : rldp_(std::move(rldp)), rldp2_(std::move(rldp2)) {
-  }
-
-  void send_message(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data) override {
-    td::actor::send_closure(dispatch(dst), &ton::adnl::AdnlSenderInterface::send_message, src, dst, std::move(data));
-  }
-
-  void send_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, std::string name,
-                  td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data) override {
-    td::actor::send_closure(dispatch(dst), &ton::adnl::AdnlSenderInterface::send_query, src, dst, std::move(name),
-                            std::move(promise), timeout, std::move(data));
-  }
-  void send_query_ex(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, std::string name,
-                     td::Promise<td::BufferSlice> promise, td::Timestamp timeout, td::BufferSlice data,
-                     td::uint64 max_answer_size) override {
-    td::actor::send_closure(dispatch(dst), &ton::adnl::AdnlSenderInterface::send_query_ex, src, dst, std::move(name),
-                            std::move(promise), timeout, std::move(data), max_answer_size);
-  }
-  void get_conn_ip_str(ton::adnl::AdnlNodeIdShort l_id, ton::adnl::AdnlNodeIdShort p_id,
-                       td::Promise<td::string> promise) override {
-    td::actor::send_closure(rldp_, &ton::adnl::AdnlSenderInterface::get_conn_ip_str, l_id, p_id, std::move(promise));
-  }
-
-  void set_supports_rldp2(ton::adnl::AdnlNodeIdShort dst, bool supports) {
-    if (supports) {
-      supports_rldp2_.insert(dst);
-    } else {
-      supports_rldp2_.erase(dst);
-    }
-  }
-
- private:
-  td::actor::ActorId<ton::rldp::Rldp> rldp_;
-  td::actor::ActorId<ton::rldp2::Rldp> rldp2_;
-  std::set<ton::adnl::AdnlNodeIdShort> supports_rldp2_;
-
-  td::actor::ActorId<ton::adnl::AdnlSenderInterface> dispatch(ton::adnl::AdnlNodeIdShort dst) const {
-    if (supports_rldp2_.count(dst)) {
-      return rldp2_;
-    }
-    return rldp_;
-  }
-};
 
 class HttpRemote : public td::actor::Actor {
  public:
@@ -492,6 +445,7 @@ class TcpToRldpRequestSender : public td::actor::Actor {
 
   void resolve(std::string host);
   void resolved(ton::adnl::AdnlNodeIdShort id);
+  void send_request();
 
   void got_result(td::BufferSlice data) {
     auto F = ton::fetch_tl_object<ton::ton_api::http_response>(data, true);
@@ -1096,21 +1050,12 @@ class RldpHttpProxy : public td::actor::Actor {
                             ton::adnl::Adnl::int_to_bytestring(ton::ton_api::http_proxy_getCapabilities::ID),
                             std::make_unique<AdnlCapabilitiesCb>(actor_id(this)));
 
-    rldp_ = ton::rldp::Rldp::create(adnl_.get());
-    td::actor::send_closure(rldp_, &ton::rldp::Rldp::set_default_mtu, 16 << 10);
-    td::actor::send_closure(rldp_, &ton::rldp::Rldp::add_id, local_id_);
-    for (auto &serv_id : server_ids_) {
-      td::actor::send_closure(rldp_, &ton::rldp::Rldp::add_id, serv_id);
-    }
-
     rldp2_ = ton::rldp2::Rldp::create(adnl_.get());
     td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::set_default_mtu, 16 << 10);
     td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::add_id, local_id_);
     for (auto &serv_id : server_ids_) {
       td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::add_id, serv_id);
     }
-
-    rldp_dispatcher_ = td::actor::create_actor<RldpDispatcher>("RldpDispatcher", rldp_.get(), rldp2_.get());
   }
 
   void receive_http_request(
@@ -1158,9 +1103,9 @@ class RldpHttpProxy : public td::actor::Actor {
       return;
     }
 
-    td::actor::create_actor<TcpToRldpRequestSender>(
-        "outboundreq", local_id_, host, std::move(request), std::move(payload), std::move(promise), adnl_.get(),
-        dht_.get(), rldp_dispatcher_.get(), actor_id(this), dns_resolver_.get(), storage_gateway_)
+    td::actor::create_actor<TcpToRldpRequestSender>("outboundreq", local_id_, host, std::move(request),
+                                                    std::move(payload), std::move(promise), adnl_.get(), dht_.get(),
+                                                    rldp2_.get(), actor_id(this), dns_resolver_.get(), storage_gateway_)
         .release();
   }
 
@@ -1168,7 +1113,6 @@ class RldpHttpProxy : public td::actor::Actor {
                             td::Promise<td::BufferSlice> promise) {
     LOG(INFO) << "got HTTP request over rldp from " << src;
     TRY_RESULT_PROMISE(promise, f, ton::fetch_tl_object<ton::ton_api::http_request>(data, true));
-    ask_peer_capabilities(src);
     std::unique_ptr<ton::http::HttpRequest> request;
     auto S = [&]() {
       TRY_RESULT_ASSIGN(request, ton::http::HttpRequest::create(f->method_, f->url_, f->http_version_));
@@ -1256,8 +1200,8 @@ class RldpHttpProxy : public td::actor::Actor {
 
     LOG(INFO) << "starting HTTP over RLDP request";
     td::actor::create_actor<RldpToTcpRequestSender>("inboundreq", f->id_, dst, src, std::move(request),
-                                                    payload.move_as_ok(), std::move(promise), adnl_.get(),
-                                                    rldp_dispatcher_.get(), actor_id(this), server.http_remote_.get())
+                                                    payload.move_as_ok(), std::move(promise), adnl_.get(), rldp2_.get(),
+                                                    actor_id(this), server.http_remote_.get())
         .release();
   }
 
@@ -1269,7 +1213,7 @@ class RldpHttpProxy : public td::actor::Actor {
       return;
     }
     td::actor::create_actor<RldpTcpTunnel>(td::actor::ActorOptions().with_name("tunnel").with_poll(), id, src, local_id,
-                                           adnl_.get(), rldp_dispatcher_.get(), actor_id(this), fd.move_as_ok())
+                                           adnl_.get(), rldp2_.get(), actor_id(this), fd.move_as_ok())
         .release();
     std::vector<ton::tl_object_ptr<ton::ton_api::http_header>> headers;
     headers.push_back(
@@ -1334,44 +1278,31 @@ class RldpHttpProxy : public td::actor::Actor {
   }
 
   void update_peer_capabilities(ton::adnl::AdnlNodeIdShort peer, td::uint64 capabilities) {
-    auto &c = peer_capabilities_[peer];
-    if (c.capabilities != capabilities) {
+    td::uint64 &c = peer_capabilities_.get(peer);
+    if (c != capabilities) {
       LOG(DEBUG) << "Update capabilities of peer " << peer << " : " << capabilities;
     }
-    c.capabilities = capabilities;
-    c.received = true;
-    td::actor::send_closure(rldp_dispatcher_, &RldpDispatcher::set_supports_rldp2, peer,
-                            capabilities & CAPABILITY_RLDP2);
+    c = capabilities;
   }
 
-  void ask_peer_capabilities(ton::adnl::AdnlNodeIdShort peer) {
-    auto &c = peer_capabilities_[peer];
-    if (!c.received && c.retry_at.is_in_past()) {
-      c.retry_at = td::Timestamp::in(30.0);
-      auto send_query = [&, this, SelfId = actor_id(this)](const ton::adnl::AdnlNodeIdShort &local_id) {
-        td::actor::send_closure(
-            adnl_, &ton::adnl::Adnl::send_query, local_id, peer, "q",
-            [SelfId, peer](td::Result<td::BufferSlice> R) {
-              if (R.is_error()) {
-                return;
-              }
-              auto r_obj = ton::fetch_tl_object<ton::ton_api::http_proxy_capabilities>(R.move_as_ok(), true);
-              if (r_obj.is_error()) {
-                return;
-              }
-              td::actor::send_closure(SelfId, &RldpHttpProxy::update_peer_capabilities, peer,
-                                      r_obj.ok()->capabilities_);
-            },
-            td::Timestamp::in(3.0),
-            ton::create_serialize_tl_object<ton::ton_api::http_proxy_getCapabilities>(CAPABILITIES));
-      };
-      for (const ton::adnl::AdnlNodeIdShort &local_id : server_ids_) {
-        if (local_id != local_id_) {
-          send_query(local_id);
-        }
-      }
-      send_query(local_id_);
+  void get_peer_capabilities(ton::adnl::AdnlNodeIdShort peer, td::Promise<td::uint64> promise) {
+    td::uint64 *c = peer_capabilities_.get_if_exists(peer);
+    if (c) {
+      promise.set_value(td::uint64{*c});
+      return;
     }
+    td::actor::send_closure(
+        adnl_, &ton::adnl::Adnl::send_query, local_id_, peer, "q",
+        [SelfId = actor_id(this), peer, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+          TRY_RESULT_PROMISE(promise, data, std::move(R));
+          TRY_RESULT_PROMISE(promise, r_obj,
+                             ton::fetch_tl_object<ton::ton_api::http_proxy_capabilities>(std::move(data), true));
+          td::uint64 capabilities = r_obj->capabilities_;
+          td::actor::send_closure(SelfId, &RldpHttpProxy::update_peer_capabilities, peer, capabilities);
+          promise.set_value(td::uint64{capabilities});
+        },
+        td::Timestamp::in(3.0),
+        ton::create_serialize_tl_object<ton::ton_api::http_proxy_getCapabilities>(CAPABILITIES));
   }
 
  private:
@@ -1402,9 +1333,7 @@ class RldpHttpProxy : public td::actor::Actor {
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> adnl_network_manager_;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl_;
   td::actor::ActorOwn<ton::dht::Dht> dht_;
-  td::actor::ActorOwn<ton::rldp::Rldp> rldp_;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2_;
-  td::actor::ActorOwn<RldpDispatcher> rldp_dispatcher_;
 
   std::shared_ptr<ton::dht::DhtGlobalConfig> dht_config_;
 
@@ -1419,12 +1348,7 @@ class RldpHttpProxy : public td::actor::Actor {
            std::function<void(ton::tl_object_ptr<ton::ton_api::http_getNextPayloadPart>, td::Promise<td::BufferSlice>)>>
       payload_senders_;
 
-  struct PeerCapabilities {
-    td::uint64 capabilities = 0;
-    bool received = false;
-    td::Timestamp retry_at = td::Timestamp::now();
-  };
-  std::map<ton::adnl::AdnlNodeIdShort, PeerCapabilities> peer_capabilities_;
+  td::LRUCache<ton::adnl::AdnlNodeIdShort, td::uint64> peer_capabilities_{10000};
 };
 
 void TcpToRldpRequestSender::resolve(std::string host) {
@@ -1484,8 +1408,23 @@ void TcpToRldpRequestSender::resolve(std::string host) {
 
 void TcpToRldpRequestSender::resolved(ton::adnl::AdnlNodeIdShort id) {
   dst_ = id;
-  td::actor::send_closure(proxy_, &RldpHttpProxy::ask_peer_capabilities, id);
+  td::actor::send_closure(proxy_, &RldpHttpProxy::get_peer_capabilities, id,
+                          [SelfId = actor_id(this)](td::Result<td::uint64> R) {
+                            if (R.is_error()) {
+                              td::actor::send_closure(SelfId, &TcpToRldpRequestSender::abort_query,
+                                                      R.move_as_error_prefix("failed to fetch peer capabilities: "));
+                              return;
+                            }
+                            if (!(R.move_as_ok() & CAPABILITY_RLDP2)) {
+                              td::actor::send_closure(SelfId, &TcpToRldpRequestSender::abort_query,
+                                                      td::Status::Error("peer does not support RLDP2"));
+                              return;
+                            }
+                            td::actor::send_closure(SelfId, &TcpToRldpRequestSender::send_request);
+                          });
+}
 
+void TcpToRldpRequestSender::send_request() {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &TcpToRldpRequestSender::abort_query, R.move_as_error());

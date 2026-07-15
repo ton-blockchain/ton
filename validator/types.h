@@ -40,4 +40,20 @@ struct BlockBroadcast {
   }
 };
 
+struct BlockFinalityBroadcast {
+  BlockIdExt block_id;
+  td::Ref<block::BlockSignatureSet> sig_set;
+
+  BlockFinalityBroadcast clone() const {
+    return {block_id, sig_set};
+  }
+};
+
+enum class BroadcastSource {
+  public_overlay,
+  fast_sync_overlay,
+  consensus_overlay,
+  custom_overlay,
+};
+
 }  // namespace ton::validator

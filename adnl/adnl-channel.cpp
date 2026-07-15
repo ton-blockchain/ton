@@ -79,7 +79,7 @@ AdnlChannelImpl::AdnlChannelImpl(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_
 
   peer_pair_ = peer_pair;
 
-  VLOG(ADNL_INFO) << this << ": created";
+  VLOG(adnl, INFO) << this << ": created";
 }
 
 void AdnlChannelImpl::decrypt(td::BufferSlice raw_data, td::Promise<AdnlPacket> promise) {
@@ -99,7 +99,7 @@ void AdnlChannelImpl::send_message(td::uint32 priority, td::actor::ActorId<AdnlN
                                    td::BufferSlice data) {
   auto E = encryptor_->encrypt(data.as_slice());
   if (E.is_error()) {
-    VLOG(ADNL_ERROR) << this << ": dropping OUT message: can not encrypt: " << E.move_as_error();
+    VLOG(adnl, ERROR) << this << ": dropping OUT message: can not encrypt: " << E.move_as_error();
     return;
   }
   auto enc = E.move_as_ok();
@@ -115,7 +115,7 @@ void AdnlChannelImpl::receive(td::IPAddress addr, td::BufferSlice data) {
   auto P = td::PromiseCreator::lambda([peer = peer_pair_, channel_id = channel_in_id_, addr, id = print_id(),
                                        size = data.size()](td::Result<AdnlPacket> R) {
     if (R.is_error()) {
-      VLOG(ADNL_WARNING) << id << ": dropping IN message: can not decrypt: " << R.move_as_error();
+      VLOG(adnl, WARNING) << id << ": dropping IN message: can not decrypt: " << R.move_as_error();
     } else {
       auto packet = R.move_as_ok();
       packet.set_remote_addr(addr);

@@ -29,7 +29,6 @@
 #include "collator-impl.h"
 #include "external-message.hpp"
 #include "fabric.h"
-#include "ihr-message.hpp"
 #include "liteserver-cache.hpp"
 #include "liteserver.hpp"
 #include "proof.hpp"
@@ -111,18 +110,14 @@ td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::
   return std::move(res);
 }
 
-td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data) {
-  TRY_RESULT(res, IhrMessageQ::create_ihr_message(std::move(data)));
-  return std::move(res);
-}
-
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
-                            int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
-                            td::Promise<td::Unit> promise) {
+                            int block_broadcast_mode, int finality_broadcast_mode, bool send_shard_block_desc,
+                            bool apply, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
   td::actor::create_actor<AcceptBlockQuery>(PSTRING() << "accept" << (signatures.is_null() ? "-nosign" : "") << id.id,
                                             id, std::move(data), prev, std::move(validator_set), std::move(signatures),
-                                            send_broadcast_mode, apply, manager, std::move(promise))
+                                            block_broadcast_mode, finality_broadcast_mode, send_shard_block_desc, apply,
+                                            manager, std::move(promise))
       .release();
 }
 

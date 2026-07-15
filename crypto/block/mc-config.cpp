@@ -311,60 +311,6 @@ td::Status Config::visit_validator_params() const {
   return td::Status::OK();
 }
 
-ton::ValidatorSessionConfig Config::get_consensus_config() const {
-  auto cc = get_config_param(29);
-  ton::ValidatorSessionConfig c;
-  auto set_v1 = [&](auto& r) {
-    c.catchain_opts.idle_timeout = r.consensus_timeout_ms * 0.001;
-    c.catchain_opts.max_deps = r.catchain_max_deps;
-    c.round_candidates = r.round_candidates;
-    c.next_candidate_delay = r.next_candidate_delay_ms * 0.001;
-    c.round_attempt_duration = r.attempt_duration;
-    c.max_round_attempts = r.fast_attempts;
-    c.max_block_size = r.max_block_bytes;
-    c.max_collated_data_size = r.max_collated_bytes;
-  };
-  auto set_v2 = [&](auto& r) {
-    set_v1(r);
-    c.new_catchain_ids = r.new_catchain_ids;
-  };
-  auto set_v3 = [&](auto& r) {
-    set_v2(r);
-    c.proto_version = r.proto_version;
-  };
-  auto set_v4 = [&](auto& r) {
-    set_v3(r);
-    td::uint64 max_blocks_coeff = r.catchain_max_blocks_coeff;
-    if (max_blocks_coeff == 0) {
-      c.catchain_opts.max_block_height_coeff = 0;
-    } else {
-      auto catchain_config = get_catchain_validators_config();
-      td::uint64 catchain_lifetime = std::max(catchain_config.mc_cc_lifetime, catchain_config.shard_cc_lifetime);
-      c.catchain_opts.max_block_height_coeff = catchain_lifetime * max_blocks_coeff;
-    }
-    c.use_quic = r.use_quic;
-  };
-  if (cc.not_null()) {
-    block::gen::ConsensusConfig::Record_consensus_config_v4 r4;
-    block::gen::ConsensusConfig::Record_consensus_config_v3 r3;
-    block::gen::ConsensusConfig::Record_consensus_config_new r2;
-    block::gen::ConsensusConfig::Record_consensus_config r1;
-    if (tlb::unpack_cell(cc, r4)) {
-      set_v4(r4);
-    } else if (tlb::unpack_cell(cc, r3)) {
-      set_v3(r3);
-    } else if (tlb::unpack_cell(cc, r2)) {
-      set_v2(r2);
-    } else if (tlb::unpack_cell(cc, r1)) {
-      set_v1(r1);
-    }
-  }
-  if (c.proto_version >= ton::ValidatorSessionConfig::BLOCK_HASH_COVERS_DATA_FROM_VERSION) {
-    c.catchain_opts.block_hash_covers_data = true;
-  }
-  return c;
-}
-
 namespace {
 
 template <typename Base, td::uint32(Base::* where)>
@@ -385,47 +331,51 @@ void store_double(Base& base, td::uint32 value) {
   base.*where = fvalue;
 }
 
+void read_block_limits(ton::NewConsensusConfig& config, Ref<vm::Cell> cc) {
+  auto set = [&](auto& r) {
+    config.max_block_size = r.max_block_bytes;
+    config.max_collated_data_size = r.max_collated_bytes;
+  };
+  block::gen::ConsensusConfig::Record_consensus_config_v4 r4;
+  block::gen::ConsensusConfig::Record_consensus_config_v3 r3;
+  block::gen::ConsensusConfig::Record_consensus_config_new r2;
+  block::gen::ConsensusConfig::Record_consensus_config r1;
+  if (tlb::unpack_cell(cc, r4)) {
+    set(r4);
+  } else if (tlb::unpack_cell(cc, r3)) {
+    set(r3);
+  } else if (tlb::unpack_cell(cc, r2)) {
+    set(r2);
+  } else if (tlb::unpack_cell(cc, r1)) {
+    set(r1);
+  }
+}
+
 }  // namespace
 
-td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::WorkchainId wc) const {
+ton::NewConsensusConfig Config::get_new_consensus_config(ton::WorkchainId wc) const {
+  ton::NewConsensusConfig config;
+
+  if (auto cc = get_config_param(29); cc.not_null()) {
+    read_block_limits(config, cc);
+  }
+
   auto c1 = get_config_param(30);
   if (c1.is_null()) {
-    return {};
+    return config;
   }
   gen::NewConsensusConfigAll::Record rec;
   if (!gen::unpack_cell(c1, rec)) {
-    return {};
+    return config;
   }
   auto c2 = (wc == ton::masterchainId ? rec.mc : rec.shard)->prefetch_ref();
   if (c2.is_null()) {
-    return {};
+    return config;
   }
-  auto consensus_config = get_consensus_config();
 
-  if (gen::NewConsensusConfig::Record_simplex_config v1; gen::unpack_cell(c2, v1)) {
-    return ton::NewConsensusConfig{
-        .max_block_size = consensus_config.max_block_size,
-        .max_collated_data_size = consensus_config.max_collated_data_size,
-
-        .use_quic = v1.use_quic,
-        .slots_per_leader_window = v1.slots_per_leader_window,
-
-        .noncritical_params =
-            {
-                .target_rate{v1.target_rate_ms},
-                .first_block_timeout{v1.first_block_timeout_ms},
-                .max_leader_window_desync = v1.max_leader_window_desync,
-            },
-    };
-  } else if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
-    ton::NewConsensusConfig config{
-        .max_block_size = consensus_config.max_block_size,
-        .max_collated_data_size = consensus_config.max_collated_data_size,
-
-        .use_quic = v2.use_quic,
-        .enable_observers = v2.enable_observers,
-        .slots_per_leader_window = v2.slots_per_leader_window,
-    };
+  if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
+    config.protocol_version = v2.protocol_version;
+    config.slots_per_leader_window = v2.slots_per_leader_window;
 
     using NoncriticalParams = ton::NewConsensusConfig::NoncriticalParams;
 
@@ -446,11 +396,9 @@ td::optional<ton::NewConsensusConfig> Config::get_new_consensus_config(ton::Work
         store_func(config.noncritical_params, val);
       }
     }
-
-    return config;
   }
 
-  return {};
+  return config;
 }
 
 bool Config::foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const {
@@ -1201,7 +1149,7 @@ ShardConfig::ShardConfig(const ShardConfig& other)
 
 bool ShardConfig::get_shard_hash_raw_from(vm::Dictionary& dict, vm::CellSlice& cs, ton::ShardIdFull id,
                                           ton::ShardIdFull& true_id, bool exact, Ref<vm::Cell>* leaf) {
-  if (id.is_masterchain() || !id.is_valid()) {
+  if (id.is_masterchain() || !id.is_valid_ext()) {
     return false;
   }
   auto root = dict.lookup_ref(td::BitArray<32>{id.workchain});
@@ -1910,24 +1858,23 @@ ton::CatchainSeqno ConfigInfo::get_shard_cc_seqno(ton::ShardIdFull shard) const 
 }
 
 std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard,
-                                                               const block::TotalValidatorSet& vset, ton::UnixTime time,
+                                                               const block::TotalValidatorSet& vset,
                                                                ton::CatchainSeqno cc_seqno) const {
   return do_compute_validator_set(get_catchain_validators_config(), shard, vset, cc_seqno);
 }
 
-std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard, ton::UnixTime time,
+std::vector<ton::ValidatorDescr> Config::compute_validator_set(ton::ShardIdFull shard,
                                                                ton::CatchainSeqno cc_seqno) const {
   if (!cur_validators_) {
     LOG(DEBUG) << "failed to compute validator set: cur_validators_ is empty";
     return {};
   } else {
-    return compute_validator_set(shard, *cur_validators_, time, cc_seqno);
+    return compute_validator_set(shard, *cur_validators_, cc_seqno);
   }
 }
 
 std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::ShardIdFull shard,
                                                                       const block::TotalValidatorSet& vset,
-                                                                      ton::UnixTime time,
                                                                       ton::CatchainSeqno* cc_seqno_delta) const {
   if (cc_seqno_delta && (*cc_seqno_delta & -2)) {
     return {};
@@ -1942,13 +1889,13 @@ std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::Shard
   return do_compute_validator_set(get_catchain_validators_config(), shard, vset, cc_seqno);
 }
 
-std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::ShardIdFull shard, ton::UnixTime time,
+std::vector<ton::ValidatorDescr> ConfigInfo::compute_validator_set_cc(ton::ShardIdFull shard,
                                                                       ton::CatchainSeqno* cc_seqno_delta) const {
   auto vset = get_cur_validator_set();
   if (!vset) {
     return {};
   } else {
-    return compute_validator_set_cc(shard, *vset, time, cc_seqno_delta);
+    return compute_validator_set_cc(shard, *vset, cc_seqno_delta);
   }
 }
 
@@ -2115,8 +2062,7 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     limits.ext_msg_limits.max_size = rec.max_ext_msg_size;
     limits.ext_msg_limits.max_depth = static_cast<td::uint16>(rec.max_ext_msg_depth);
   };
-
-  auto unpack_v2 = [&](gen::SizeLimitsConfig::Record_size_limits_config_v2& rec) {
+  auto unpack_v2 = [&](auto& rec) {
     unpack_v1(rec);
     limits.max_acc_state_cells = rec.max_acc_state_cells;
     limits.max_mc_acc_state_cells = rec.max_mc_acc_state_cells;
@@ -2129,12 +2075,20 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
       limits.max_transaction_library_loads = (td::uint32)rec.max_transaction_library_loads->prefetch_long(32);
     }
   };
+  auto unpack_v3 = [&](gen::SizeLimitsConfig::Record_size_limits_config_v3& rec) {
+    unpack_v2(rec);
+    limits.max_total_msg_bits = rec.max_total_msg_bits;
+    limits.max_total_msg_cells = rec.max_total_msg_cells;
+  };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;
+  gen::SizeLimitsConfig::Record_size_limits_config_v3 rec_v3;
   if (tlb::csr_unpack(cs, rec_v1)) {
     unpack_v1(rec_v1);
   } else if (tlb::csr_unpack(cs, rec_v2)) {
     unpack_v2(rec_v2);
+  } else if (tlb::csr_unpack(cs, rec_v3)) {
+    unpack_v3(rec_v3);
   } else {
     return td::Status::Error("configuration parameter 43 is invalid");
   }

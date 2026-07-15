@@ -630,6 +630,53 @@ td::Status SetVerbosityQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
+td::Status SetLogCategoryVerbosityQuery::run() {
+  TRY_RESULT_ASSIGN(category_, tokenizer_.get_token<std::string>());
+  TRY_RESULT(level, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  if (level == "default" || level == "reset") {
+    verbosity_ = -1;
+    return td::Status::OK();
+  }
+  TRY_RESULT_ASSIGN(verbosity_, td::to_integer_safe<td::int32>(level));
+  if (verbosity_ < -1 || verbosity_ > 10) {
+    return td::Status::Error("verbosity must be -1, default or in range [0..10]");
+  }
+  return td::Status::OK();
+}
+
+td::Status SetLogCategoryVerbosityQuery::send() {
+  auto b =
+      ton::create_serialize_tl_object<ton::ton_api::engine_validator_setLogCategoryVerbosity>(category_, verbosity_);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetLogCategoryVerbosityQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status GetLogCategoriesQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetLogCategoriesQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getLogCategories>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetLogCategoriesQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_textStats>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << f->data_;
+  return td::Status::OK();
+}
+
 td::Status GetStatsQuery::run() {
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
@@ -889,6 +936,7 @@ void SignCertificateQuery::receive_signature(td::BufferSlice R) {
     return;
   }
   signature_ = std::move(f.move_as_ok()->signature_);
+  has_signature_ = true;
   if (has_pubkey_) {
     save_certificate();
   }
@@ -903,6 +951,7 @@ void SignCertificateQuery::save_certificate() {
     return;
   }
   td::TerminalIO::out() << "saved certificate\n";
+  td::actor::send_closure(console_, &ValidatorEngineConsole::got_result, true);
   stop();
 }
 

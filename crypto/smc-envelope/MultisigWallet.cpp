@@ -33,30 +33,50 @@ MultisigWallet::QueryBuilder::QueryBuilder(td::uint32 wallet_id, td::int64 query
              .finalize();
 }
 void MultisigWallet::QueryBuilder::sign(td::int32 id, td::Ed25519::PrivateKey& pk) {
-  CHECK(id < td::narrow_cast<td::int32>(mask_.size()));
-  auto signature = pk.sign(msg_->get_hash().as_slice()).move_as_ok();
+  if (id < 0 || id >= td::narrow_cast<td::int32>(mask_.size()) || msg_.is_null()) {
+    return;
+  }
+  auto r_signature = pk.sign(msg_->get_hash().as_slice());
+  if (r_signature.is_error()) {
+    return;
+  }
+  auto signature = r_signature.move_as_ok();
   mask_.set(id);
   vm::CellBuilder cb;
   cb.store_bytes(signature.as_slice());
   cb.store_long(id, 8);
-  cb.ensure_throw(cb.store_maybe_ref(std::move(dict_)));
+  if (!cb.store_maybe_ref(std::move(dict_))) {
+    return;
+  }
   dict_ = cb.finalize();
 }
 
 td::Ref<vm::Cell> MultisigWallet::QueryBuilder::create_inner() const {
+  if (msg_.is_null()) {
+    return {};
+  }
   vm::CellBuilder cb;
-  cb.ensure_throw(cb.store_maybe_ref(dict_));
+  if (!cb.store_maybe_ref(dict_)) {
+    return {};
+  }
   return cb.append_cellslice(vm::load_cell_slice(msg_)).finalize();
 }
 
 td::Ref<vm::Cell> MultisigWallet::QueryBuilder::create(td::int32 id, td::Ed25519::PrivateKey& pk) const {
   auto cell = create_inner();
+  if (cell.is_null()) {
+    return {};
+  }
   vm::CellBuilder cb;
   cb.store_long(id, 8);
   cb.append_cellslice(vm::load_cell_slice(cell));
   cell = cb.finalize();
 
-  auto signature = pk.sign(cell->get_hash().as_slice()).move_as_ok();
+  auto r_signature = pk.sign(cell->get_hash().as_slice());
+  if (r_signature.is_error()) {
+    return {};
+  }
+  auto signature = r_signature.move_as_ok();
   vm::CellBuilder cb2;
   cb2.store_bytes(signature.as_slice());
   cb2.append_cellslice(vm::load_cell_slice(cell));
@@ -118,7 +138,9 @@ td::Ref<vm::Cell> MultisigWallet::create_init_data(td::uint32 wallet_id, std::ve
   }
   auto res = run_get_method("create_init_state", {td::make_refint(wallet_id), td::make_refint(public_keys.size()),
                                                   td::make_refint(k), pk.get_root_cell()});
-  CHECK(res.code == 0);
+  if (res.code != 0 || res.stack.is_null()) {
+    return {};
+  }
   return res.stack.write().pop_cell();
 }
 
@@ -133,8 +155,9 @@ td::Ref<vm::Cell> MultisigWallet::create_init_data_fast(td::uint32 wallet_id, st
   vm::CellBuilder cb;
   cb.store_long(wallet_id, 32);
   cb.store_long(public_keys.size(), 8).store_long(k, 8).store_long(0, 64);
-  cb.ensure_throw(cb.store_maybe_ref(pk.get_root_cell()));
-  cb.ensure_throw(cb.store_maybe_ref({}));
+  if (!(cb.store_maybe_ref(pk.get_root_cell()) && cb.store_maybe_ref({}))) {
+    return {};
+  }
   return cb.finalize();
 }
 

@@ -37,9 +37,9 @@ void BlockArchiver::start_up() {
 td::actor::Task<> BlockArchiver::run() {
   auto result = co_await run_inner().wrap();
   if (result.is_error()) {
-    VLOG(VALIDATOR_WARNING) << "failed to archive block " << handle_->id() << ": " << result.error();
+    VLOG(validator, WARNING) << "failed to archive block " << handle_->id() << ": " << result.error();
   } else {
-    VLOG(VALIDATOR_DEBUG) << "finished archiving block in " << timer_.elapsed() << " s";
+    VLOG(validator, DEBUG) << "finished archiving block in " << timer_.elapsed() << " s";
   }
   promise_.set_result(std::move(result));
   stop();
@@ -47,9 +47,9 @@ td::actor::Task<> BlockArchiver::run() {
 }
 
 td::actor::Task<> BlockArchiver::run_inner() {
-  VLOG(VALIDATOR_DEBUG) << "started block archiver for " << handle_->id();
+  VLOG(validator, DEBUG) << "started block archiver for " << handle_->id();
   if (handle_->moved_to_archive()) {
-    VLOG(VALIDATOR_DEBUG) << "already moved";
+    VLOG(validator, DEBUG) << "already moved";
     co_return {};
   }
   if (handle_->id().is_masterchain()) {
@@ -73,9 +73,9 @@ td::actor::Task<> BlockArchiver::run_inner() {
                         .then([ref](td::BufferSlice data) { return std::make_pair(ref, std::move(data)); })
                         .start());
   }
-  VLOG(VALIDATOR_DEBUG) << "loading data";
+  VLOG(validator, DEBUG) << "loading data";
   std::vector<std::pair<FileReference, td::BufferSlice>> files = co_await td::actor::all(std::move(tasks));
-  VLOG(VALIDATOR_DEBUG) << "loaded data";
+  VLOG(validator, DEBUG) << "loaded data";
   co_await td::actor::ask(archive_, &ArchiveManager::move_block_to_archive, handle_, std::move(files));
   co_return {};
 }

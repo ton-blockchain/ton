@@ -21,19 +21,16 @@
 #include <map>
 
 #include "adnl/adnl-query.h"
+#include "td/utils/logging.h"
 #include "tl-utils/tl-utils.hpp"
 
 #include "rldp.h"
 
+DECLARE_LOG_CATEGORY(rldp2)
+
 namespace ton {
 
 namespace rldp2 {
-
-constexpr int VERBOSITY_NAME(RLDP_WARNING) = verbosity_WARNING;
-constexpr int VERBOSITY_NAME(RLDP_NOTICE) = verbosity_INFO;
-constexpr int VERBOSITY_NAME(RLDP_INFO) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(RLDP_DEBUG) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(RLDP_EXTRA_DEBUG) = verbosity_DEBUG + 1;
 
 using TransferId = td::Bits256;
 

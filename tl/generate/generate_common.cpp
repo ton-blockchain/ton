@@ -25,10 +25,14 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
 #include "td/tl/tl_config.h"
+#include "td/tl/tl_core.h"
+#include "td/tl/tl_file_outputer.h"
 #include "td/tl/tl_generate.h"
 #include "td/tl/tl_writer.h"
 
@@ -59,22 +63,22 @@ static void generate_cpp(const std::string &directory, const std::string &tl_nam
 
 int main() {
   generate_cpp("auto/tl", "ton_api", "std::string", "td::BufferSlice", "std::string", "td::BufferSlice",
-               {"\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\"",
+               {"<optional>", "\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\"",
                 "\"crypto/common/bitstring.h\""},
-               {"<string>", "\"td/utils/buffer.h\"", "\"crypto/common/bitstring.h\""});
+               {"<string>", "<optional>", "\"td/utils/buffer.h\"", "\"crypto/common/bitstring.h\""});
 
   generate_cpp("auto/tl", "lite_api", "std::string", "td::BufferSlice", "std::string", "td::BufferSlice",
-               {"\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\"",
+               {"<optional>", "\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\"",
                 "\"crypto/common/bitstring.h\""},
-               {"<string>", "\"td/utils/buffer.h\"", "\"crypto/common/bitstring.h\""});
+               {"<string>", "<optional>", "\"td/utils/buffer.h\"", "\"crypto/common/bitstring.h\""});
   td::gen_json_converter(td::tl::read_tl_config_from_file("scheme/ton_api.tlo"), "auto/tl/ton_api_json", "ton_api",
                          td::tl::TL_writer::Mode::All);
 
 #ifdef TONLIB_ENABLE_JNI
   generate_cpp<td::TD_TL_writer_jni_cpp, td::TD_TL_writer_jni_h>(
       "auto/tl", "tonlib_api", "std::string", "std::string", "td::SecureString", "td::SecureString",
-      {"\"tl/tl_jni_object.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\""},
-      {"<string>", "\"td/utils/SharedSlice.h\"", "\"crypto/common/bitstring.h\""});
+      {"<optional>", "\"tl/tl_jni_object.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\""},
+      {"<string>", "<optional>", "\"td/utils/SharedSlice.h\"", "\"crypto/common/bitstring.h\""});
 #else
   generate_cpp<>("auto/tl", "tonlib_api", "std::string", "std::string", "td::SecureString", "td::SecureString",
                  {"\"tl/tl_object_parse.h\"", "\"tl/tl_object_store.h\"", "\"td/utils/int_types.h\""},

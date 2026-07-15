@@ -486,6 +486,9 @@ bool ValidateQuery::unpack_block_candidate() {
     return reject_query(PSTRING() << "block candidate has invalid root hash: declared " << id_.root_hash.to_hex()
                                   << ", actual " << rhash.to_hex());
   }
+  if (block_root_->get_level() != 0) {
+    return reject_query("block candidate has non-zero root level");
+  }
   // 3. initial block parse
   {
     auto guard = error_ctx_add_guard("parsing block header");
@@ -1042,6 +1045,7 @@ bool ValidateQuery::try_unpack_mc_state() {
     if (!is_masterchain() && !check_this_shard_mc_info()) {
       return fatal_error("masterchain configuration does not admit creating block "s + id_.to_str());
     }
+    short_dequeue_records_ = config_->has_capability(ton::capShortDequeue);
     store_out_msg_queue_size_ = config_->has_capability(ton::capStoreOutMsgQueueSize);
     msg_metadata_enabled_ = config_->has_capability(ton::capMsgMetadata);
     deferring_messages_enabled_ = config_->has_capability(ton::capDeferMessages);
@@ -1981,6 +1985,9 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
     if (!info.fees_collected_.is_zero()) {
       return reject_query("newly-created shard "s + shard.to_str() + " has non-zero fees_collected");
     }
+    if (!info.funds_created_.is_zero()) {
+      return reject_query("newly-created shard "s + shard.to_str() + " has non-zero funds_created");
+    }
     cc_seqno = 0;
   } else if (old->top_block_id() == info.top_block_id()) {
     // shard unchanged ?
@@ -2321,7 +2328,7 @@ bool ValidateQuery::register_shard_block_creators(std::vector<td::Bits256> creat
  */
 bool ValidateQuery::check_cur_validator_set() {
   CatchainSeqno cc_seqno = 0;
-  auto nodes = config_->compute_validator_set_cc(shard_, now_, &cc_seqno);
+  auto nodes = config_->compute_validator_set_cc(shard_, &cc_seqno);
   if (nodes.empty()) {
     return reject_query("cannot compute validator set for shard "s + shard_.to_str() + " from old masterchain state");
   }
@@ -2372,7 +2379,7 @@ bool ValidateQuery::check_mc_validator_info(bool update_mc_cc) {
     return reject_query(cc_updated ? "masterchain catchain seqno increased without any reason"
                                    : "masterchain catchain seqno unchanged while it had to");
   }
-  auto nodes = new_config_->compute_validator_set(shard_, now_, val_info.catchain_seqno);
+  auto nodes = new_config_->compute_validator_set(shard_, val_info.catchain_seqno);
   if (nodes.empty()) {
     return reject_query("cannot compute next masterchain validator set from new masterchain state");
   }
@@ -2875,7 +2882,7 @@ bool ValidateQuery::unpack_precheck_value_flow(Ref<vm::Cell> value_flow_root) {
   if (value_flow_.minted.is_zero() && mint_msg_.not_null()) {
     return reject_query("ValueFlow of block "s + id_.to_str() + " has a zero minted value, but there is a mint InMsg");
   }
-  if (!value_flow_.minted.is_zero()) {
+  if (is_masterchain()) {
     block::CurrencyCollection to_mint;
     if (!compute_minted_amount(to_mint) || !to_mint.is_valid()) {
       return reject_query("cannot compute the correct amount of extra currencies to be minted");
@@ -2962,6 +2969,9 @@ bool ValidateQuery::compute_minted_amount(block::CurrencyCollection& to_mint) {
     return to_mint.set_zero();
   }
   to_mint.set_zero();
+  if (config_->get_config_param(2, 0).is_null()) {
+    return true;
+  }
   auto cell = config_->get_config_param(7);
   if (cell.is_null()) {
     return true;
@@ -3357,6 +3367,7 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
   if (new_value.not_null() && new_value->size_ext() != 0x10040) {
     return reject_query("new EnqueuedMsg with key "s + out_msg_id.to_hex(352) + " is invalid");
   }
+  LogicalTime enqueued_lt = 0;
   if (new_value.not_null()) {
     ++new_out_msg_queue_size_;
     if (!block::gen::t_EnqueuedMsg.validate_csr(new_value)) {
@@ -3367,7 +3378,7 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
       return reject_query("new EnqueuedMsg with key "s + out_msg_id.to_hex(352) +
                           " failed to pass hand-written validity checks");
     }
-    ton::LogicalTime enqueued_lt = new_value->prefetch_ulong(64);
+    enqueued_lt = new_value->prefetch_ulong(64);
     if (enqueued_lt < start_lt_ || enqueued_lt >= end_lt_) {
       return reject_query(PSTRING() << "new EnqueuedMsg with key "s + out_msg_id.to_hex(352) + " has enqueued_lt="
                                     << enqueued_lt << " outside of this block's range " << start_lt_ << " .. "
@@ -3384,7 +3395,7 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
       return reject_query("old EnqueuedMsg with key "s + out_msg_id.to_hex(352) +
                           " failed to pass hand-written validity checks");
     }
-    ton::LogicalTime enqueued_lt = old_value->prefetch_ulong(64);
+    enqueued_lt = old_value->prefetch_ulong(64);
     if (enqueued_lt >= start_lt_) {
       return reject_query(PSTRING() << "old EnqueuedMsg with key "s + out_msg_id.to_hex(352) + " has enqueued_lt="
                                     << enqueued_lt << " greater than or equal to this block's start_lt=" << start_lt_);
@@ -3466,11 +3477,11 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
       }
       auto import_cs = vm::load_cell_slice(std::move(import));
       int import_tag = (int)import_cs.prefetch_ulong(3);
-      if (import_tag != 4) {
-        // must be msg_import_tr$100
+      if (import_tag != 5) {
+        // must be msg_import_tr$101
         return reject_query(PSTRING() << "OutMsgDescr for " << out_msg_id.to_hex(352)
                                       << " refers to a reimport InMsgDescr with invalid tag " << import_tag
-                                      << " instead of msg_import_tr$100");
+                                      << " instead of msg_import_tr$101");
       }
       auto in_msg_env = import_cs.prefetch_ref();
       if (in_msg_env.is_null()) {
@@ -3493,6 +3504,11 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
                           out_msg_id.to_hex(352) +
                           " contains a MsgEnvelope distinct from that stored in the new queue");
     }
+    unsigned long long emitted_lt;
+    REJECT_UNLESS(block::tlb::t_MsgEnvelope.get_emitted_lt(vm::load_cell_slice(q_msg_env), emitted_lt));
+    REJECT_UNLESS_MSG(emitted_lt <= enqueued_lt, PSTRING() << "EnqueuedMsg with key " << out_msg_id.to_hex(352)
+                                                           << " has emitted_lt " << emitted_lt
+                                                           << " greater than enqueued_lt " << enqueued_lt);
   }
   // in all cases above, we have to check that all 352-bit key is correct (including first 96 bits)
   // otherwise we might not be able to correctly recover OutMsgQueue entries starting from OutMsgDescr later
@@ -4010,11 +4026,13 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
       return reject_query(PSTRING() << "InMsg with key " << key.to_hex(256) << " has impossible tag " << tag);
   }
   if (have_unprocessed_account_dispatch_queue_ && tag != block::gen::InMsg::msg_import_ext &&
-      tag != block::gen::InMsg::msg_import_deferred_tr && tag != block::gen::InMsg::msg_import_deferred_fin) {
+      tag != block::gen::InMsg::msg_import_deferred_tr && tag != block::gen::InMsg::msg_import_deferred_fin &&
+      !is_special_in_msg(*in_msg)) {
     // Collator is required to take at least one message from each AccountDispatchQueue
     // (unless the block is full or unless out_msg_queue_size is big)
     // If some AccountDispatchQueue is unprocessed then it's not allowed to import other messages except for externals
-    return reject_query("required DispatchQueue processing is not done, but some other internal messages are imported");
+    return reject_query(
+        PSTRING() << "required DispatchQueue processing is not done, but some other internal messages are imported");
   }
   // common checks for all (non-external) inbound messages
   REJECT_UNLESS(msg.not_null());
@@ -4340,6 +4358,11 @@ bool ValidateQuery::check_in_msg(td::ConstBitPtr key, Ref<vm::CellSlice> in_msg)
                             " while the correct values dictated by hypercube routing are " + new_cur_prefix.to_str() +
                             "... and " + new_next_prefix.to_str() + "...");
       }
+      if (tr_env.cur_addr != route_info.first || tr_env.next_addr != route_info.second) {
+        return reject_query(PSTRING() << "InMsg for transit message with hash " << key.to_hex(256)
+                                      << " has non-canonical raw route (" << tr_env.cur_addr << "," << tr_env.next_addr
+                                      << "), expected (" << route_info.first << "," << route_info.second << ")");
+      }
       // check that the collected transit fee with new fwd_fee_remaining equal the original fwd_fee_remaining
       // (correctness of fwd_fee itself will be checked later)
       if (tr_env.fwd_fee_remaining > orig_fwd_fee || *(tr_env.fwd_fee_remaining + fwd_fee) != *env.fwd_fee_remaining) {
@@ -4539,6 +4562,7 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
       msg = env.msg;
       import_lt = out.import_block_lt;
       mode = 1;  // removed from OutMsgQueue
+      REJECT_UNLESS(!short_dequeue_records_);
       // ...
       break;
     }
@@ -4551,6 +4575,7 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
       import_lt = out.import_block_lt;
       is_short = true;
       mode = 1;  // removed from OutMsgQueue
+      REJECT_UNLESS(short_dequeue_records_);
       // ...
       break;
     }
@@ -4851,6 +4876,11 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
         return reject_query("msg_export_imm OutMsg record with key "s + key.to_hex(256) +
                             " refers to a message that has not been routed to its final destination");
       }
+      if (env.cur_addr != 96 || env.next_addr != 96) {
+        return reject_query(PSTRING() << "msg_export_imm OutMsg record with key " << key.to_hex(256)
+                                      << " has non-canonical raw route (" << env.cur_addr << "," << env.next_addr
+                                      << "), expected (96,96)");
+      }
       // ...
       break;
     }
@@ -4870,6 +4900,11 @@ bool ValidateQuery::check_out_msg(td::ConstBitPtr key, Ref<vm::CellSlice> out_ms
                             "... and hext hop address " + next_prefix.to_str() +
                             " while the correct values dictated by hypercube routing are " + new_cur_prefix.to_str() +
                             "... and " + new_next_prefix.to_str() + "...");
+      }
+      if (env.cur_addr != route_info.first || env.next_addr != route_info.second) {
+        return reject_query(PSTRING() << "OutMsg for new message with hash " << key.to_hex(256)
+                                      << " has non-canonical raw route (" << env.cur_addr << "," << env.next_addr
+                                      << "), expected (" << route_info.first << "," << route_info.second << ")");
       }
       REJECT_UNLESS(shard_contains(shard_, src_prefix));
       if (shard_contains(shard_, dest_prefix)) {
@@ -6511,6 +6546,12 @@ bool ValidateQuery::check_special_message(Ref<vm::Cell> in_msg_root, const block
   if (env.fwd_fee_remaining->sgn()) {
     return reject_query("special message with hash "s + msg_hash.to_hex() + " has a non-zero fwd_fee_remaining");
   }
+  if (env.metadata) {
+    return reject_query("special message with hash "s + msg_hash.to_hex() + " has metadata");
+  }
+  if (env.emitted_lt) {
+    return reject_query("special message with hash "s + msg_hash.to_hex() + " has emitted_lt");
+  }
   auto fwd_fee = block::tlb::t_Grams.as_integer(info.fwd_fee);
   if (fwd_fee.is_null() || fwd_fee->sgn()) {
     return reject_query("special message with hash "s + msg_hash.to_hex() + " has a non-zero or invalid fwd_fee");
@@ -6530,6 +6571,15 @@ bool ValidateQuery::check_special_message(Ref<vm::Cell> in_msg_root, const block
   if (value != amount) {
     return reject_query("special message with hash "s + msg_hash.to_hex() + " carries an incorrect amount " +
                         value.to_str() + " instead of " + amount.to_str() + " postulated by ValueFlow");
+  }
+  if (!info.ihr_disabled || !info.bounce || info.bounced) {
+    return reject_query("special message with hash "s + msg_hash.to_hex() + " has invalid flags");
+  }
+  if (info.created_at != now_) {
+    return reject_query("special message with hash "s + msg_hash.to_hex() + " has invalid created_at");
+  }
+  if (info.created_lt != start_lt_) {
+    return reject_query("special message with hash "s + msg_hash.to_hex() + " has invalid created_lt");
   }
   WorkchainId src_wc, dest_wc;
   StdSmcAddress src_addr, dest_addr, correct_addr;

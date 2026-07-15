@@ -18,11 +18,11 @@
 */
 #pragma once
 
-#include "adnl/adnl-ext-client.h"
-#include "overlay/overlays.h"
 #include "td/utils/port/FileFd.h"
 #include "ton/ton-types.h"
 #include "validator/validator.h"
+
+#include "full-node.h"
 
 namespace ton {
 
@@ -33,19 +33,15 @@ namespace fullnode {
 class DownloadArchiveSlice : public td::actor::Actor {
  public:
   DownloadArchiveSlice(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix, std::string tmp_dir,
-                       adnl::AdnlNodeIdShort local_id, overlay::OverlayIdShort overlay_id,
-                       adnl::AdnlNodeIdShort download_from, td::Timestamp timeout,
+                       QuerySender query_sender, td::Timestamp timeout,
                        td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                       td::actor::ActorId<adnl::AdnlSenderInterface> rldp,
-                       td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<adnl::Adnl> adnl,
-                       td::actor::ActorId<adnl::AdnlExtClient> client, td::Promise<std::string> promise);
+                       td::Promise<std::string> promise);
 
   void abort_query(td::Status reason);
   void alarm() override;
   void finish_query();
 
   void start_up() override;
-  void got_node_to_download(adnl::AdnlNodeIdShort node);
   void got_archive_info(td::BufferSlice data);
   void get_archive_slice();
   void got_archive_slice(td::BufferSlice data);
@@ -60,19 +56,12 @@ class DownloadArchiveSlice : public td::actor::Actor {
   std::string tmp_dir_;
   std::string tmp_name_;
   td::FileFd fd_;
-  adnl::AdnlNodeIdShort local_id_;
-  overlay::OverlayIdShort overlay_id_;
   td::uint64 offset_ = 0;
   td::uint64 archive_id_;
 
-  adnl::AdnlNodeIdShort download_from_ = adnl::AdnlNodeIdShort::zero();
-
+  QuerySender query_sender_;
   td::Timestamp timeout_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
-  td::actor::ActorId<adnl::AdnlSenderInterface> rldp_;
-  td::actor::ActorId<overlay::Overlays> overlays_;
-  td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<adnl::AdnlExtClient> client_;
   td::Promise<std::string> promise_;
 
   td::uint64 prev_logged_sum_ = 0;

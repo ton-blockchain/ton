@@ -65,6 +65,10 @@ class WaitBlockData : public td::actor::Actor {
 
   void got_static_file(td::BufferSlice data);
 
+  static td::Result<td::Ref<vm::Cell>> generate_block_proof_root(BlockIdExt id, td::Ref<vm::Cell> block_root);
+  static td::Result<td::BufferSlice> generate_proof(BlockIdExt id, td::Ref<vm::Cell> block_root,
+                                                    td::Ref<block::BlockSignatureSet> signatures,
+                                                    td::Ref<MasterchainState> state);
   static td::Result<td::BufferSlice> generate_proof_link(BlockIdExt id, td::Ref<vm::Cell> block_root);
 
  private:

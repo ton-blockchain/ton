@@ -524,9 +524,12 @@ void CellDbIn::store_block_state_from_data(td::Ref<BlockData> block, td::Promise
   vm::StoreCellHint hint;
   Ref<vm::Cell> new_root;
   if (opts_->get_celldb_in_memory()) {
-    TRY_RESULT_PROMISE_ASSIGN(promise, new_root, apply_block_to_prev_states(block, std::move(prev_roots), &hint));
+    TRY_RESULT_PROMISE_PREFIX_ASSIGN(promise, new_root, apply_block_to_prev_states(block, std::move(prev_roots), &hint),
+                                     "apply block to prev states: ");
   } else {
-    new_root = build_next_state(block, *boc_->get_cell_db_reader(), std::move(prev_roots), &hint);
+    TRY_RESULT_PROMISE_PREFIX_ASSIGN(promise, new_root,
+                                     build_next_state(block, *boc_->get_cell_db_reader(), std::move(prev_roots), &hint),
+                                     "build next state: ");
   }
   store_cell(block->block_id(), std::move(new_root), std::move(hint), std::move(promise));
 }

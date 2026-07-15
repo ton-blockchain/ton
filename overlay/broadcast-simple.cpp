@@ -211,13 +211,13 @@ void BroadcastsSimple::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay
                                      td::Promise<td::BufferSlice> promise) {
   auto it = broadcasts_.find(query.hash_);
   if (it == broadcasts_.end()) {
-    VLOG(OVERLAY_NOTICE) << this << ": received getBroadcastQuery(" << query.hash_ << ") from " << src
-                         << " but broadcast is unknown";
+    VLOG(overlay, INFO) << this << ": received getBroadcastQuery(" << query.hash_ << ") from " << src
+                        << " but broadcast is unknown";
     promise.set_value(create_serialize_tl_object<ton_api::overlay_broadcastNotFound>());
     return;
   }
-  VLOG(OVERLAY_DEBUG) << this << ": received getBroadcastQuery(" << query.hash_ << ") from " << src
-                      << " sending broadcast";
+  VLOG(overlay, DEBUG) << this << ": received getBroadcastQuery(" << query.hash_ << ") from " << src
+                       << " sending broadcast";
   promise.set_value(it->second->serialize());
 }
 

@@ -60,12 +60,7 @@ void ValidatorManagerImpl::validate_block_proof_link(BlockIdExt block_id, td::Bu
   UNREACHABLE();
 }
 
-void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
-  UNREACHABLE();
-}
-
-void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
-                                               td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
   UNREACHABLE();
 }
 
@@ -300,13 +295,6 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::Buffe
   auto msg = co_await create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
   ext_messages_.emplace_back(std::move(msg));
   co_return td::Unit{};
-}
-
-void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
-  auto R = create_ihr_message(std::move(data));
-  if (R.is_ok()) {
-    ihr_messages_.emplace_back(R.move_as_ok());
-  }
 }
 
 void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
@@ -556,10 +544,6 @@ void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_
   }
 }
 
-void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) {
-  promise.set_result(ihr_messages_);
-}
-
 void ValidatorManagerImpl::get_shard_blocks_for_collator(
     BlockIdExt masterchain_block_id, td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) {
   if (!last_masterchain_block_handle_) {
@@ -585,10 +569,6 @@ void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Ha
 }
 
 void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) {
-}
-
-void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
-                                                 std::vector<IhrMessage::Hash> to_delete) {
 }
 
 void ValidatorManagerImpl::get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
@@ -944,11 +924,6 @@ void ValidatorManagerImpl::get_last_liteserver_state_block(
 void ValidatorManagerImpl::get_shard_client_state_block(
     td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) {
   return get_top_masterchain_state_block(std::move(promise));
-}
-
-void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 priority,
-                                                  td::Promise<ReceivedBlock> promise) {
-  UNREACHABLE();
 }
 
 void ValidatorManagerImpl::send_get_zero_state_request(BlockIdExt id, td::uint32 priority,

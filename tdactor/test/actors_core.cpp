@@ -452,8 +452,9 @@ TEST(Actor2, scheduler_simple) {
   core::Scheduler scheduler{group_info, SchedulerId{0}, 2};
   scheduler.start();
   scheduler.run_in_context([] {
-    global_cnt = 1000;
-    for (int i = 0; i < global_cnt; i++) {
+    const int masters_count = 1000;
+    global_cnt = masters_count;
+    for (int i = 0; i < masters_count; i++) {
       detail::create_actor<Master>(ActorOptions().with_name("Master"), std::make_unique<Master>());
     }
   });

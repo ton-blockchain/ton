@@ -22,6 +22,7 @@
 
 #include "td/utils/Slice.h"
 #include "td/utils/Time.h"
+#include "td/utils/TimestampFormat.h"
 #include "td/utils/date.h"
 #include "td/utils/logging.h"
 #include "td/utils/port/Clocks.h"
@@ -53,6 +54,7 @@ int VERBOSITY_NAME(actor) = VERBOSITY_NAME(DEBUG) + 10;
 int VERBOSITY_NAME(sqlite) = VERBOSITY_NAME(DEBUG) + 10;
 
 LogOptions log_options;
+std::atomic<int> log_disable_count{0};
 
 TD_THREAD_LOCAL const char *Logger::tag_ = nullptr;
 TD_THREAD_LOCAL const char *Logger::tag2_ = nullptr;
@@ -94,9 +96,9 @@ Logger::Logger(LogInterface &log, const LogOptions &options, int log_level, Slic
   }
   sb_ << thread_id << ']';
 
-  // timestamp
-  //sb_ << '[' << StringBuilder::FixedDouble(Clocks::system(), 9) << ']';
-  sb_ << '[' << date::format("%F %T", std::chrono::system_clock::now()) << ']';
+  // timestamp (no-alloc, locale-free; byte-identical to date::format("%F %T", ...) but cheap and scalable)
+  char ts_buf[TIMESTAMP_BUF_SIZE];
+  sb_ << '[' << format_system_clock(MutableSlice(ts_buf, sizeof(ts_buf)), std::chrono::system_clock::now()) << ']';
 
   // file : line
   if (!file_name.empty()) {
@@ -298,6 +300,41 @@ void set_log_fatal_error_callback(OnFatalErrorCallback callback) {
   on_fatal_error_callback = callback;
 }
 
+namespace {
+std::mutex log_category_mutex;
+LogCategory *log_category_head = nullptr;
+}  // namespace
+
+LogCategory::LogCategory(const char *name, int default_level) : name_(name), default_level_(default_level) {
+  std::lock_guard<std::mutex> guard(log_category_mutex);
+  next_ = log_category_head;
+  log_category_head = this;
+}
+
+const LogCategory *first_log_category() {
+  std::lock_guard<std::mutex> guard(log_category_mutex);
+  return log_category_head;
+}
+
+LogCategory *find_log_category(Slice name) {
+  std::lock_guard<std::mutex> guard(log_category_mutex);
+  for (auto *c = log_category_head; c != nullptr; c = c->next()) {
+    if (c->name() == name) {
+      return c;
+    }
+  }
+  return nullptr;
+}
+
+bool set_log_category_level(Slice name, int level) {
+  auto *c = find_log_category(name);
+  if (c == nullptr) {
+    return false;
+  }
+  c->set_level(level);
+  return true;
+}
+
 void process_fatal_error(CSlice message) {
   auto callback = on_fatal_error_callback;
   if (callback) {
@@ -306,25 +343,12 @@ void process_fatal_error(CSlice message) {
   std::abort();
 }
 
-namespace {
-std::mutex sdl_mutex;
-int sdl_cnt = 0;
-int sdl_verbosity = 0;
-
-}  // namespace
 ScopedDisableLog::ScopedDisableLog() {
-  std::unique_lock<std::mutex> guard(sdl_mutex);
-  if (sdl_cnt == 0) {
-    sdl_verbosity = set_verbosity_level(std::numeric_limits<int>::min());
-  }
-  sdl_cnt++;
+  log_disable_count.fetch_add(1, std::memory_order_relaxed);
 }
 
 ScopedDisableLog::~ScopedDisableLog() {
-  std::unique_lock<std::mutex> guard(sdl_mutex);
-  sdl_cnt--;
-  if (sdl_cnt == 0) {
-    set_verbosity_level(sdl_verbosity);
-  }
+  auto old_count = log_disable_count.fetch_sub(1, std::memory_order_relaxed);
+  CHECK(old_count > 0);
 }
 }  // namespace td

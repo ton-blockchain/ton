@@ -342,7 +342,7 @@ td::Status MasterchainStateQ::mc_init() {
   if (err.is_error()) {
     return err;
   }
-  return mc_reinit();
+  return TRY_VM(mc_reinit());
 }
 
 td::Status MasterchainStateQ::mc_reinit() {
@@ -376,7 +376,7 @@ td::Status MasterchainStateQ::apply_block(BlockIdExt id, td::Ref<BlockData> bloc
     return err;
   }
   config_.reset();
-  err = mc_reinit();
+  err = TRY_VM(mc_reinit());
   if (err.is_error()) {
     LOG(ERROR) << "cannot extract masterchain-specific state data from newly-computed state for block " << id.id
                << " : " << err.to_string();
@@ -384,21 +384,14 @@ td::Status MasterchainStateQ::apply_block(BlockIdExt id, td::Ref<BlockData> bloc
   return err;
 }
 
-td::Status MasterchainStateQ::prepare() {
-  if (config_) {
-    return td::Status::OK();
-  }
-  return mc_reinit();
-}
-
 Ref<block::ValidatorSet> MasterchainStateQ::compute_validator_set(ShardIdFull shard,
-                                                                  const block::TotalValidatorSet& vset, UnixTime time,
+                                                                  const block::TotalValidatorSet& vset,
                                                                   CatchainSeqno ccseqno) const {
   if (!config_) {
     return {};
   }
   LOG(DEBUG) << "in compute_validator_set() for " << shard;
-  auto nodes = config_->compute_validator_set_cc(shard, vset, time, &ccseqno);
+  auto nodes = config_->compute_validator_set_cc(shard, vset, &ccseqno);
   if (nodes.empty()) {
     return {};
   }
@@ -410,16 +403,26 @@ Ref<block::ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard)
     LOG(ERROR) << "MasterchainStateQ::get_validator_set() : no config or no cur_validators";
     return {};
   }
-  return compute_validator_set(shard, *cur_validators_, config_->utime, 0);
+  return compute_validator_set(shard, *cur_validators_, 0);
 }
 
-Ref<block::ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard, UnixTime ts,
-                                                              CatchainSeqno cc_seqno) const {
+Ref<block::ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard, CatchainSeqno cc_seqno) const {
   if (!config_ || !cur_validators_) {
     LOG(ERROR) << "MasterchainStateQ::get_validator_set() : no config or no cur_validators";
     return {};
   }
-  auto nodes = config_->compute_validator_set(shard, *cur_validators_, ts, cc_seqno);
+  auto nodes = config_->compute_validator_set(shard, *cur_validators_, cc_seqno);
+  if (nodes.empty()) {
+    return {};
+  }
+  return Ref<block::ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};
+}
+
+Ref<block::ValidatorSet> MasterchainStateQ::get_next_validator_set(ShardIdFull shard, CatchainSeqno cc_seqno) const {
+  if (!config_ || !next_validators_) {
+    return {};
+  }
+  auto nodes = config_->compute_validator_set(shard, *next_validators_, cc_seqno);
   if (nodes.empty()) {
     return {};
   }
@@ -445,15 +448,15 @@ Ref<block::ValidatorSet> MasterchainStateQ::get_next_validator_set(ShardIdFull s
     return {};
   }
   if (!next_validators_) {
-    return compute_validator_set(shard, *cur_validators_, config_->utime, 1);
+    return compute_validator_set(shard, *cur_validators_, 1);
   }
   bool is_mc = shard.is_masterchain();
   auto ccv_cfg = config_->get_catchain_validators_config();
   unsigned cc_lifetime = is_mc ? ccv_cfg.mc_cc_lifetime : ccv_cfg.shard_cc_lifetime;
   if (next_validators_->utime_since > (config_->utime / cc_lifetime + 1) * cc_lifetime) {
-    return compute_validator_set(shard, *cur_validators_, config_->utime, 1);
+    return compute_validator_set(shard, *cur_validators_, 1);
   } else {
-    return compute_validator_set(shard, *next_validators_, config_->utime, 1);
+    return compute_validator_set(shard, *next_validators_, 1);
   }
 }
 

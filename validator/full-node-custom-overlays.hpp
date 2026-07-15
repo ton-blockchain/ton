@@ -18,6 +18,8 @@
 
 #include <fstream>
 
+#include "td/utils/DecTree.h"
+
 #include "full-node.h"
 #include "validator-telemetry.hpp"
 
@@ -29,6 +31,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query);
 
   void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
   void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
@@ -44,12 +47,14 @@ class FullNodeCustomOverlay : public td::actor::Actor {
 
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
-    VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
+    VLOG(full_node, WARNING) << "dropping unknown broadcast";
   }
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
+  void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
 
   void send_external_message(td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
+  void send_block_finality_broadcast(BlockFinalityBroadcast finality);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
@@ -58,8 +63,11 @@ class FullNodeCustomOverlay : public td::actor::Actor {
     opts_.config_ = std::move(config);
   }
 
+  td::actor::Task<QuerySender> get_query_sender();
+
   void start_up() override;
   void tear_down() override;
+  void alarm() override;
 
   FullNodeCustomOverlay(adnl::AdnlNodeIdShort local_id, CustomOverlayParams params, FileHash zero_state_file_hash,
                         FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
@@ -72,6 +80,8 @@ class FullNodeCustomOverlay : public td::actor::Actor {
       , nodes_(std::move(params.nodes_))
       , msg_senders_(std::move(params.msg_senders_))
       , block_senders_(std::move(params.block_senders_))
+      , accept_queries_(std::move(params.accept_queries_))
+      , send_queries_(params.send_queries_)
       , zero_state_file_hash_(zero_state_file_hash)
       , opts_(opts)
       , keyring_(keyring)
@@ -88,6 +98,8 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   std::vector<adnl::AdnlNodeIdShort> nodes_;
   std::map<adnl::AdnlNodeIdShort, int> msg_senders_;
   std::set<adnl::AdnlNodeIdShort> block_senders_;
+  std::set<adnl::AdnlNodeIdShort> accept_queries_;
+  bool send_queries_;
   FileHash zero_state_file_hash_;
   FullNodeOptions opts_;
 
@@ -104,6 +116,20 @@ class FullNodeCustomOverlay : public td::actor::Actor {
 
   void try_init();
   void init();
+
+  struct PeerInfo {
+    std::pair<td::uint32, td::uint32> proto_version{0, 0};
+    bool responds = false;
+    td::Timestamp ignore_until = td::Timestamp::never();
+    bool alive = false;
+  };
+  std::map<adnl::AdnlNodeIdShort, PeerInfo> peers_info_;
+  td::DecTree<adnl::AdnlNodeIdShort, td::Unit> alive_peers_;  // alive == responds && ignore_until in past
+  adnl::AdnlNodeIdShort last_pinged_peer_ = adnl::AdnlNodeIdShort::zero();
+
+  td::actor::Task<> on_peer_query_error(adnl::AdnlNodeIdShort peer_id);
+  td::actor::Task<> ping_peer(adnl::AdnlNodeIdShort peer_id);
+  void update_peer_alive(adnl::AdnlNodeIdShort peer_id, PeerInfo &info);
 };
 
 }  // namespace ton::validator::fullnode

@@ -42,11 +42,6 @@ set(RLDP_SOURCE
 
 add_library(rldp2 STATIC ${RLDP_SOURCE})
 
-target_include_directories(rldp PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>/..
-  ${OPENSSL_INCLUDE_DIR}
-)
 if (GSL_FOUND AND BLAS_FOUND)
   target_link_libraries(rldp2 PRIVATE gsl blas)
   target_compile_definitions(rldp2 PRIVATE -DTON_HAVE_GSL=1)

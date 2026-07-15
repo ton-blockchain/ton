@@ -52,7 +52,9 @@ td::Ref<vm::Cell> Config::serialize() const {
   rec.min_A_extra = pack_grams(min_A_extra);
 
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 
@@ -65,7 +67,9 @@ td::Ref<vm::Cell> MsgInit::serialize() const {
   rec.channel_id = channel_id;
 
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 
@@ -75,24 +79,39 @@ td::Ref<vm::Cell> Promise::serialize() const {
   rec.promise_A = pack_grams(promise_A);
   rec.promise_B = pack_grams(promise_B);
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 
 td::SecureString sign(const td::Ref<vm::Cell>& msg, const td::Ed25519::PrivateKey* key) {
-  return key->sign(msg->get_hash().as_slice()).move_as_ok();
+  if (!key || msg.is_null()) {
+    return {};
+  }
+  auto r_signature = key->sign(msg->get_hash().as_slice());
+  if (r_signature.is_error()) {
+    return {};
+  }
+  return r_signature.move_as_ok();
 }
 
 td::Ref<vm::Cell> maybe_sign(const td::Ref<vm::Cell>& msg, const td::Ed25519::PrivateKey* key) {
   if (!key) {
     return {};
   }
-  return vm::CellBuilder().store_bytes(sign(msg, key).as_slice()).finalize();
+  auto signature = sign(msg, key);
+  if (signature.empty()) {
+    return {};
+  }
+  return vm::CellBuilder().store_bytes(signature.as_slice()).finalize();
 }
 
 td::Ref<vm::CellSlice> maybe_ref(td::Ref<vm::Cell> msg) {
   vm::CellBuilder cb;
-  CHECK(cb.store_maybe_ref(msg));
+  if (!cb.store_maybe_ref(msg)) {
+    return {};
+  }
   return vm::load_cell_slice_ref(cb.finalize());
 }
 
@@ -103,21 +122,27 @@ td::Ref<vm::Cell> MsgClose::serialize() const {
   rec.promise = signed_promise;
 
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 
 td::Ref<vm::Cell> MsgTimeout::serialize() const {
   block::gen::ChanMsg::Record_chan_msg_timeout rec;
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 
 td::Ref<vm::Cell> MsgPayout::serialize() const {
   block::gen::ChanMsg::Record_chan_msg_payout rec;
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 
@@ -125,27 +150,42 @@ td::SecureString SignedPromise::signature(const td::Ed25519::PrivateKey* key, co
   return sign(promise, key);
 }
 td::Ref<vm::Cell> SignedPromise::create_and_serialize(td::Slice signature, const td::Ref<vm::Cell>& promise) {
+  if (promise.is_null()) {
+    return {};
+  }
   block::gen::ChanSignedPromise::Record rec;
   rec.promise = vm::load_cell_slice_ref(promise);
-  LOG(ERROR) << "signature.size() = " << signature.size();
+  if (signature.size() != 64) {
+    return {};
+  }
   rec.sig = maybe_ref(vm::CellBuilder().store_bytes(signature).finalize());
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 td::Ref<vm::Cell> SignedPromise::create_and_serialize(const td::Ed25519::PrivateKey* key,
                                                       const td::Ref<vm::Cell>& promise) {
+  if (promise.is_null()) {
+    return {};
+  }
   block::gen::ChanSignedPromise::Record rec;
   rec.promise = vm::load_cell_slice_ref(promise);
   rec.sig = maybe_ref(maybe_sign(promise, key));
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 
 bool SignedPromise::unpack(td::Ref<vm::Cell> cell) {
   block::gen::ChanSignedPromise::Record rec;
   if (!tlb::unpack_cell(cell, rec)) {
+    return false;
+  }
+  if (rec.promise.is_null() || rec.sig.is_null()) {
     return false;
   }
   block::gen::ChanPromise::Record rec_promise;
@@ -163,9 +203,12 @@ bool SignedPromise::unpack(td::Ref<vm::Cell> cell) {
   if (!rec.sig->prefetch_maybe_ref(sig_cell)) {
     return false;
   }
+  if (sig_cell.is_null()) {
+    return false;
+  }
   td::SecureString signature(64);
   vm::CellSlice cs = vm::load_cell_slice(sig_cell);
-  if (!cs.prefetch_bytes(signature.as_mutable_slice())) {
+  if (!cs.fetch_bytes(signature.as_mutable_slice()) || !cs.empty_ext()) {
     return false;
   }
   o_signature = std::move(signature);
@@ -182,7 +225,9 @@ td::Ref<vm::Cell> StateInit::serialize() const {
   rec.signed_A = signed_A;
   rec.signed_B = signed_B;
   td::Ref<vm::Cell> res;
-  CHECK(tlb::pack_cell(res, rec));
+  if (!tlb::pack_cell(res, rec)) {
+    return {};
+  }
   return res;
 }
 
@@ -191,7 +236,9 @@ td::Ref<vm::Cell> Data::serialize() const {
   rec.config = config;
   rec.state = state;
   td::Ref<vm::Cell> res;
-  CHECK(block::gen::t_ChanData.cell_pack(res, rec));
+  if (!block::gen::t_ChanData.cell_pack(res, rec)) {
+    return {};
+  }
   return res;
 }
 

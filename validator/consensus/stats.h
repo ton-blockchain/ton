@@ -39,21 +39,21 @@ class MetricCollector;
 
 class Id : public Event {
  public:
-  static std::unique_ptr<Id> create(ShardIdFull shard, td::uint32 cc_seqno, size_t idx, size_t total_validators,
-                                    ValidatorWeight weight, ValidatorWeight total_weight,
+  static std::unique_ptr<Id> create(ShardIdFull shard, td::uint32 cc_seqno, std::optional<size_t> idx,
+                                    size_t total_validators, ValidatorWeight weight, ValidatorWeight total_weight,
                                     td::uint32 slots_per_leader_window);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
 
  private:
-  Id(WorkchainId workchain, ShardId shard, td::uint32 cc_seqno, size_t idx, size_t total_validators,
+  Id(WorkchainId workchain, ShardId shard, td::uint32 cc_seqno, std::optional<size_t> idx, size_t total_validators,
      ValidatorWeight weight, ValidatorWeight total_weight, td::uint32 slots_per_leader_window);
 
   WorkchainId workchain_;
   ShardId shard_;
   td::uint32 cc_seqno_;
-  size_t idx_;
+  std::optional<size_t> idx_;
   size_t total_validators_;
   ValidatorWeight weight_;
   ValidatorWeight total_weight_;

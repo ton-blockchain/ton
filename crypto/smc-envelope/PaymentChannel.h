@@ -145,14 +145,20 @@ struct MsgBuilder {
   td::Ref<vm::Cell> finalize() && {
     block::gen::ChanSignedMsg::Record rec;
     auto msg = static_cast<T&&>(*this).msg.serialize();
+    if (msg.is_null()) {
+      return {};
+    }
     rec.msg = vm::load_cell_slice_ref(msg);
     rec.sig_A = maybe_ref(maybe_sign(msg, a_key));
     rec.sig_B = maybe_ref(maybe_sign(msg, b_key));
     block::gen::ChanOp::Record op_rec;
-    CHECK(tlb::csr_pack(op_rec.msg, rec));
-    LOG(ERROR) << op_rec.msg->size();
+    if (!tlb::csr_pack(op_rec.msg, rec)) {
+      return {};
+    }
     td::Ref<vm::Cell> res;
-    CHECK(tlb::pack_cell(res, op_rec));
+    if (!tlb::pack_cell(res, op_rec)) {
+      return {};
+    }
     return res;
   }
 };
@@ -234,17 +240,28 @@ struct SignedPromiseBuilder {
   }
 
   bool check_signature(td::Slice signature, const td::Ed25519::PublicKey& pk) {
-    return pk.verify_signature(promise.serialize()->get_hash().as_slice(), signature).is_ok();
+    auto promise_cell = promise.serialize();
+    if (promise_cell.is_null()) {
+      return false;
+    }
+    return pk.verify_signature(promise_cell->get_hash().as_slice(), signature).is_ok();
   }
   td::SecureString calc_signature() {
-    CHECK(key);
-    return SignedPromise::signature(key, promise.serialize());
+    auto promise_cell = promise.serialize();
+    if (!key || promise_cell.is_null()) {
+      return {};
+    }
+    return SignedPromise::signature(key, promise_cell);
   }
   td::Ref<vm::Cell> finalize() {
+    auto promise_cell = promise.serialize();
+    if (promise_cell.is_null()) {
+      return {};
+    }
     if (o_signature) {
-      return SignedPromise::create_and_serialize(o_signature.value().copy(), promise.serialize());
+      return SignedPromise::create_and_serialize(o_signature.value().copy(), std::move(promise_cell));
     } else {
-      return SignedPromise::create_and_serialize(key, promise.serialize());
+      return SignedPromise::create_and_serialize(key, std::move(promise_cell));
     }
   }
 };

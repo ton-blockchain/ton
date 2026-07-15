@@ -38,9 +38,14 @@ td::StringBuilder& operator<<(td::StringBuilder& sb, const ManualDns::EntryData&
     case ManualDns::EntryData::Type::NextResolver:
       return sb << "NEXT:" << data.data.get<ManualDns::EntryDataNextResolver>().resolver.rserialize();
     case ManualDns::EntryData::Type::AdnlAddress:
-      return sb << "ADNL:"
-                << td::adnl_id_encode(data.data.get<ManualDns::EntryDataAdnlAddress>().adnl_address.as_slice())
-                       .move_as_ok();
+      sb << "ADNL:";
+      {
+        auto encoded = td::adnl_id_encode(data.data.get<ManualDns::EntryDataAdnlAddress>().adnl_address.as_slice());
+        if (encoded.is_error()) {
+          return sb << "<invalid>";
+        }
+        return sb << encoded.move_as_ok();
+      }
     case ManualDns::EntryData::Type::SmcAddress:
       return sb << "SMC:" << data.data.get<ManualDns::EntryDataSmcAddress>().smc_address.rserialize();
     case ManualDns::EntryData::Type::StorageAddress:
@@ -69,20 +74,26 @@ td::Result<td::Ref<vm::Cell>> DnsInterface::EntryData::as_cell() const {
         vm::CellBuilder cb;
         vm::CellText::store(cb, text.text);
         dns.x = vm::load_cell_slice_ref(cb.finalize());
-        tlb::pack_cell(res, dns);
+        if (!tlb::pack_cell(res, dns)) {
+          error = td::Status::Error("Failed to pack dns_text");
+        }
       },
       [&](const EntryDataNextResolver& resolver) {
         block::gen::DNSRecord::Record_dns_next_resolver dns;
         vm::CellBuilder cb;
         block::tlb::t_MsgAddressInt.store_std_address(cb, resolver.resolver.workchain, resolver.resolver.addr);
         dns.resolver = vm::load_cell_slice_ref(cb.finalize());
-        tlb::pack_cell(res, dns);
+        if (!tlb::pack_cell(res, dns)) {
+          error = td::Status::Error("Failed to pack dns_next_resolver");
+        }
       },
       [&](const EntryDataAdnlAddress& adnl_address) {
         block::gen::DNSRecord::Record_dns_adnl_address dns;
         dns.adnl_addr = adnl_address.adnl_address;
         dns.flags = 0;
-        tlb::pack_cell(res, dns);
+        if (!tlb::pack_cell(res, dns)) {
+          error = td::Status::Error("Failed to pack dns_adnl_address");
+        }
       },
       [&](const EntryDataSmcAddress& smc_address) {
         block::gen::DNSRecord::Record_dns_smc_address dns;
@@ -90,12 +101,16 @@ td::Result<td::Ref<vm::Cell>> DnsInterface::EntryData::as_cell() const {
         block::tlb::t_MsgAddressInt.store_std_address(cb, smc_address.smc_address.workchain,
                                                       smc_address.smc_address.addr);
         dns.smc_addr = vm::load_cell_slice_ref(cb.finalize());
-        tlb::pack_cell(res, dns);
+        if (!tlb::pack_cell(res, dns)) {
+          error = td::Status::Error("Failed to pack dns_smc_address");
+        }
       },
       [&](const EntryDataStorageAddress& storage_address) {
         block::gen::DNSRecord::Record_dns_storage_address dns;
         dns.bag_id = storage_address.bag_id;
-        tlb::pack_cell(res, dns);
+        if (!tlb::pack_cell(res, dns)) {
+          error = td::Status::Error("Failed to pack dns_storage_address");
+        }
       }));
   if (error.is_error()) {
     return error;
@@ -164,8 +179,11 @@ td::Result<DnsInterface::EntryData> DnsInterface::EntryData::from_cellslice(vm::
   return td::Status::Error("Unknown entry data");
 }
 
-SmartContract::Args DnsInterface::resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
-                                                   block::StdAddress address) {
+td::Result<SmartContract::Args> DnsInterface::resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
+                                                               block::StdAddress address) {
+  if (encoded_name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   SmartContract::Args res;
   res.set_method_id("dnsresolve");
   res.set_stack({vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()),
@@ -260,6 +278,9 @@ td::Result<td::uint32> ManualDns::get_wallet_id_or_throw() const {
 
 td::Result<td::Ref<vm::Cell>> ManualDns::create_set_value_unsigned(td::Bits256 category, td::Slice name,
                                                                    td::Ref<vm::Cell> data) const {
+  if (name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   //11 VSet: set specified value to specified subdomain->category (x=2)
   //[Int<256b>:category] [Name<?>:subdomain] [Cell<1r>:value]
   vm::CellBuilder cb;
@@ -274,10 +295,15 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_value_unsigned(td::Bits256 c
     cb.store_long(1, 1);
     cb.store_ref(vm::CellBuilder().store_bytes(name).finalize());
   }
-  cb.store_maybe_ref(std::move(data));
+  if (!cb.store_maybe_ref(std::move(data))) {
+    return td::Status::Error("Failed to store DNS record data");
+  }
   return cb.finalize();
 }
 td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_value_unsigned(td::Bits256 category, td::Slice name) const {
+  if (name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   //12 VDel: delete specified subdomain->category (x=2)
   //[Int<256b>:category] [Name<?>:subdomain]
   vm::CellBuilder cb;
@@ -306,13 +332,20 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_all_unsigned(td::Span<Action
   vm::PrefixDictionary pdict(1023);
   for (auto& action : entries) {
     auto name_key = encode_name(action.name);
+    if (name_key.size() > 127) {
+      return td::Status::Error("DNS encoded name is too long");
+    }
     int zero_cnt = 0;
     for (auto c : name_key) {
       if (c == 0) {
         zero_cnt++;
       }
     }
-    auto new_name_key = vm::load_cell_slice(vm::CellBuilder().store_long(zero_cnt, 7).store_bytes(name_key).finalize());
+    vm::CellBuilder key_builder;
+    if (!(key_builder.store_long_bool(zero_cnt, 7) && key_builder.store_bytes_bool(name_key))) {
+      return td::Status::Error("Failed to store DNS name key");
+    }
+    auto new_name_key = vm::load_cell_slice(key_builder.finalize());
     auto ptr = new_name_key.data_bits();
     auto ptr_size = new_name_key.size();
     auto o_dict = pdict.lookup(ptr, ptr_size);
@@ -321,7 +354,10 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_all_unsigned(td::Span<Action
       o_dict->prefetch_maybe_ref(dict_root);
     }
     vm::Dictionary dict(dict_root, 256);
-    if (!action.data.value().is_null()) {
+    if (!action.data || !action.data.value().is_null()) {
+      if (!action.data) {
+        return td::Status::Error("DNS action data is empty");
+      }
       dict.set_ref(action.category.bits(), 256, action.data.value());
     }
     pdict.set(ptr, ptr_size, dict.get_root());
@@ -330,7 +366,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_all_unsigned(td::Span<Action
   vm::CellBuilder cb;
   cb.store_long(31, 6);
 
-  cb.store_maybe_ref(pdict.get_root_cell());
+  if (!cb.store_maybe_ref(pdict.get_root_cell())) {
+    return td::Status::Error("Failed to store DNS domain table");
+  }
 
   return cb.finalize();
 }
@@ -340,6 +378,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_all_unsigned(td::Span<Action
 //22 DDel: delete entire category dictionary of specified domain (x=0)
 //[Name<?>:subdomain]
 td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_name_unsigned(td::Slice name) const {
+  if (name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   vm::CellBuilder cb;
   cb.store_long(22, 6);
   if (name.size() <= 58) {
@@ -353,6 +394,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_delete_name_unsigned(td::Slice n
   return cb.finalize();
 }
 td::Result<td::Ref<vm::Cell>> ManualDns::create_set_name_unsigned(td::Slice name, td::Span<Action> entries) const {
+  if (name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   vm::CellBuilder cb;
   cb.store_long(21, 6);
   if (name.size() <= 58) {
@@ -367,40 +411,57 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_set_name_unsigned(td::Slice name
   vm::Dictionary dict(256);
 
   for (auto& action : entries) {
+    if (!action.data) {
+      return td::Status::Error("DNS action data is empty");
+    }
     if (action.data.value().is_null()) {
       continue;
     }
     dict.set_ref(action.category.cbits(), 256, action.data.value());
   }
-  cb.store_maybe_ref(dict.get_root_cell());
+  if (!cb.store_maybe_ref(dict.get_root_cell())) {
+    return td::Status::Error("Failed to store DNS category table");
+  }
 
   return cb.finalize();
 }
 
 td::Result<td::Ref<vm::Cell>> ManualDns::prepare(td::Ref<vm::Cell> data, td::uint32 valid_until) const {
+  if (data.is_null()) {
+    return td::Status::Error("DNS query body is empty");
+  }
   TRY_RESULT(wallet_id, get_wallet_id());
   auto hash = data->get_hash().as_slice().substr(28, 4).str();
 
   vm::CellBuilder cb;
-  cb.store_long(wallet_id, 32).store_long(valid_until, 32);
+  if (!(cb.store_long_bool(wallet_id, 32) && cb.store_long_bool(valid_until, 32))) {
+    return td::Status::Error("Failed to store DNS query header");
+  }
   //cb.store_bytes(hash);
-  cb.store_long(td::Random::secure_uint32(), 32);
-  cb.append_cellslice(vm::load_cell_slice(data));
+  if (!(cb.store_long_bool(td::Random::secure_uint32(), 32) && cb.append_cellslice_bool(vm::load_cell_slice(data)))) {
+    return td::Status::Error("Failed to store DNS query body");
+  }
   return cb.finalize();
 }
 
 td::Result<td::Ref<vm::Cell>> ManualDns::sign(const td::Ed25519::PrivateKey& private_key, td::Ref<vm::Cell> data) {
-  auto signature = private_key.sign(data->get_hash().as_slice()).move_as_ok();
+  if (data.is_null()) {
+    return td::Status::Error("DNS query body is empty");
+  }
+  TRY_RESULT(signature, private_key.sign(data->get_hash().as_slice()));
   vm::CellBuilder cb;
-  cb.store_bytes(signature.as_slice());
-  cb.append_cellslice(vm::load_cell_slice(data));
+  if (!(cb.store_bytes_bool(signature.as_slice()) && cb.append_cellslice_bool(vm::load_cell_slice(data)))) {
+    return td::Status::Error("Failed to store signed DNS query");
+  }
   return cb.finalize();
 }
 
 td::Result<td::Ref<vm::Cell>> ManualDns::create_init_query(const td::Ed25519::PrivateKey& private_key,
                                                            td::uint32 valid_until) const {
   vm::CellBuilder cb;
-  cb.store_long(0, 6);
+  if (!cb.store_long_bool(0, 6)) {
+    return td::Status::Error("Failed to store DNS init query");
+  }
 
   TRY_RESULT(prepared, prepare(cb.finalize(), valid_until));
   return sign(private_key, std::move(prepared));
@@ -409,8 +470,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_init_query(const td::Ed25519::Pr
 td::Ref<vm::Cell> ManualDns::create_init_data_fast(const td::Ed25519::PublicKey& public_key, td::uint32 wallet_id) {
   vm::CellBuilder cb;
   cb.store_long(wallet_id, 32).store_long(0, 64).store_bytes(public_key.as_octet_string());
-  CHECK(cb.store_maybe_ref({}));
-  CHECK(cb.store_maybe_ref({}));
+  if (!(cb.store_maybe_ref({}) && cb.store_maybe_ref({}))) {
+    return {};
+  }
   return cb.finalize();
 }
 
@@ -427,7 +489,8 @@ td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td:
     return td::Status::Error("Name is too long");
   }
   auto encoded_name = encode_name(name);
-  auto res = run_get_method(resolve_args_raw(encoded_name, category, address_));
+  TRY_RESULT(args, resolve_args_raw(encoded_name, category, address_));
+  auto res = run_get_method(std::move(args));
   if (!res.success) {
     return td::Status::Error("get method failed");
   }
@@ -450,15 +513,23 @@ td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td:
   } else {
     if (category.is_zero()) {
       vm::Dictionary dict(std::move(data), 256);
-      dict.check_for_each([&](td::Ref<vm::CellSlice> cs, td::ConstBitPtr key, int n) {
-        CHECK(n == 256);
-        if (cs.is_null() || cs->size_ext() != 0x10000) {
-          return true;
-        }
-        cs = vm::load_cell_slice_ref(cs->prefetch_ref());
-        vec.push_back({name.str(), td::Bits256(key), cs});
-        return true;
-      });
+      if (!dict.check_for_each([&](td::Ref<vm::CellSlice> cs, td::ConstBitPtr key, int n) {
+            if (n != 256) {
+              return false;
+            }
+            if (cs.is_null() || cs->size_ext() != 0x10000) {
+              return true;
+            }
+            auto value = cs->prefetch_ref();
+            if (value.is_null()) {
+              return false;
+            }
+            cs = vm::load_cell_slice_ref(std::move(value));
+            vec.push_back({name.str(), td::Bits256(key), cs});
+            return true;
+          })) {
+        return td::Status::Error("Invalid DNS category dictionary");
+      }
     } else {
       vec.push_back({name.str(), category, vm::load_cell_slice_ref(data)});
     }
@@ -480,7 +551,9 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_update_query(CombinedActions<Act
     }
     return create_set_name_unsigned(encode_name(combined.name), combined.actions.value());
   }
-  CHECK(combined.actions.value().size() == 1);
+  if (!combined.actions || combined.actions.value().size() != 1) {
+    return td::Status::Error("DNS update query has invalid action count");
+  }
   auto& action = combined.actions.value()[0];
   if (action.data) {
     return create_set_value_unsigned(action.category, encode_name(action.name), action.data.value());
@@ -500,14 +573,24 @@ td::Result<td::Ref<vm::Cell>> ManualDns::create_update_query(td::Ed25519::Privat
 
   td::Ref<vm::Cell> combined_query;
   for (auto& query : td::reversed(queries)) {
+    if (query.is_null()) {
+      return td::Status::Error("DNS update query is empty");
+    }
     if (combined_query.is_null()) {
       combined_query = std::move(query);
     } else {
       auto next = vm::load_cell_slice(combined_query);
-      combined_query = vm::CellBuilder()
-                           .append_cellslice(vm::load_cell_slice(query))
-                           .store_ref(vm::CellBuilder().append_cellslice(next).finalize())
-                           .finalize();
+      vm::CellBuilder next_builder;
+      if (!next_builder.append_cellslice_bool(next)) {
+        return td::Status::Error("Failed to store chained DNS query");
+      }
+      auto next_cell = next_builder.finalize();
+      vm::CellBuilder query_builder;
+      if (!(query_builder.append_cellslice_bool(vm::load_cell_slice(query)) &&
+            query_builder.store_ref_bool(std::move(next_cell)))) {
+        return td::Status::Error("Failed to chain DNS update query");
+      }
+      combined_query = query_builder.finalize();
     }
   }
 

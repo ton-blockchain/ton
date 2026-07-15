@@ -15,6 +15,7 @@
 #include "ngtcp2/ngtcp2.h"
 #include "ngtcp2/ngtcp2_crypto.h"
 #include "ngtcp2/ngtcp2_crypto_ossl.h"
+#include "td/utils/Badge.h"
 #include "td/utils/Time.h"
 #include "td/utils/port/UdpSocketFd.h"
 
@@ -42,7 +43,7 @@ struct QuicConnectionOptions {
   static constexpr size_t DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL = 4 << 20;
   static constexpr size_t DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE = 256 << 10;
   static constexpr size_t DEFAULT_MAX_STREAM_WINDOW = 6 << 20;
-  static constexpr size_t DEFAULT_MAX_STREAMS_BIDI = 1024;
+  static constexpr size_t DEFAULT_MAX_STREAMS_BIDI = 4096;
   static constexpr ngtcp2_duration DEFAULT_IDLE_TIMEOUT = 15 * NGTCP2_SECONDS;
   static constexpr ngtcp2_duration DEFAULT_KEEP_ALIVE_TIMEOUT = 5 * NGTCP2_SECONDS;
 
@@ -162,10 +163,9 @@ struct QuicConnectionPImpl {
     virtual ~Callback() = default;
   };
 
-  struct PrivateTag {};
-
-  QuicConnectionPImpl(PrivateTag, const td::IPAddress& local_address, const td::IPAddress& remote_address,
-                      std::unique_ptr<Callback> callback, QuicConnectionOptions options)
+  QuicConnectionPImpl(td::Badge<QuicConnectionPImpl>, const td::IPAddress& local_address,
+                      const td::IPAddress& remote_address, std::unique_ptr<Callback> callback,
+                      QuicConnectionOptions options)
       : local_address_(local_address)
       , remote_address_(remote_address)
       , callback_(std::move(callback))

@@ -377,5 +377,5 @@ setLogTagVerbosityLevel tag:string new_verbosity_level:int32 = Ok;
 getLogTagVerbosityLevel tag:string = LogVerbosityLevel;
 
 //@description Adds a message to tonlib internal log. This is an offline method. Can be called before authorization. Can be called synchronously
-//@verbosity_level Minimum verbosity level needed for the message to be logged, 0-1023 @text Text of a message to log
+//@verbosity_level Minimum verbosity level needed for the message to be logged, 1-1024; value 0 is reserved for fatal errors and is not accepted @text Text of a message to log
 addLogMessage verbosity_level:int32 text:string = Ok;

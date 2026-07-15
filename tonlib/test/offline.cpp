@@ -94,6 +94,25 @@ TEST(Tonlib, Address) {
   CHECK(block::StdAddress::parse(a.rserialize()).move_as_ok() == a);
 }
 
+TEST(Tonlib, AddLogMessageValidation) {
+  auto execute = [](tonlib_api::object_ptr<tonlib_api::Function> request) {
+    return Client::execute({1, std::move(request)}).object;
+  };
+  auto expect_error = [&](td::int32 verbosity_level) {
+    auto response = execute(tonlib_api::make_object<tonlib_api::addLogMessage>(verbosity_level, ""));
+    CHECK(response->get_id() == tonlib_api::error::ID);
+    auto error = tonlib_api::move_object_as<tonlib_api::error>(response);
+    CHECK(error->message_.find("INVALID_FIELD") != std::string::npos);
+  };
+
+  expect_error(0);
+  expect_error(-1);
+  expect_error(1025);
+
+  auto response = execute(tonlib_api::make_object<tonlib_api::addLogMessage>(1024, ""));
+  CHECK(response->get_id() == tonlib_api::ok::ID);
+}
+
 static auto sync_send = [](auto &client, auto query) {
   using ReturnTypePtr = typename std::decay_t<decltype(*query)>::ReturnType;
   using ReturnType = typename ReturnTypePtr::element_type;
@@ -288,7 +307,7 @@ TEST(Tonlib, Mnemonic) {
 TEST(Tonlib, Keys) {
   auto a = Mnemonic::create(td::SecureString(" Hello, . $^\n# World!   "), td::SecureString("cucumber")).move_as_ok();
   DecryptedKey decrypted_key(std::move(a));
-  EncryptedKey encrypted_key = decrypted_key.encrypt("qwerty");
+  EncryptedKey encrypted_key = decrypted_key.encrypt("qwerty").ensure().move_as_ok();
   auto other_decrypted_key = encrypted_key.decrypt("qwerty").move_as_ok();
   encrypted_key.decrypt("abcde").ensure_error();
   CHECK(decrypted_key.mnemonic_words == other_decrypted_key.mnemonic_words);

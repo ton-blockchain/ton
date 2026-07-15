@@ -43,7 +43,7 @@ void KeyStorage::set_key_value(std::shared_ptr<KeyValue> kv) {
 }
 
 td::Result<KeyStorage::Key> KeyStorage::save_key(const DecryptedKey &decrypted_key, td::Slice local_password) {
-  auto encrypted_key = decrypted_key.encrypt(local_password);
+  TRY_RESULT(encrypted_key, decrypted_key.encrypt(local_password));
 
   Key res;
   res.public_key = encrypted_key.public_key.as_octet_string();
@@ -82,11 +82,16 @@ td::Result<DecryptedKey> KeyStorage::export_decrypted_key(InputKey input_key) {
       LOG(WARNING) << "Restore private from deprecated encryption " << to_file_name(input_key.key);
       auto decrypted_key = r_decrypted_key.move_as_ok();
       auto key = Key{encrypted_key.public_key.as_octet_string(), encrypted_key.secret.copy()};
-      auto new_encrypted_key = decrypted_key.encrypt(input_key.local_password.copy(), encrypted_key.secret);
-      CHECK(new_encrypted_key.public_key.as_octet_string() == encrypted_key.public_key.as_octet_string());
-      CHECK(new_encrypted_key.secret == encrypted_key.secret);
-      CHECK(new_encrypted_key.decrypt(input_key.local_password.copy()).ok().private_key.as_octet_string() ==
-            decrypted_key.private_key.as_octet_string());
+      TRY_RESULT(new_encrypted_key, decrypted_key.encrypt(input_key.local_password.copy(), encrypted_key.secret));
+      if (new_encrypted_key.public_key.as_octet_string() != encrypted_key.public_key.as_octet_string() ||
+          new_encrypted_key.secret != encrypted_key.secret) {
+        return TonlibError::Internal("Failed to restore deprecated encrypted key");
+      }
+      TRY_RESULT_PREFIX(new_decrypted_key, new_encrypted_key.decrypt(input_key.local_password.copy()),
+                        TonlibError::KeyDecrypt());
+      if (new_decrypted_key.private_key.as_octet_string() != decrypted_key.private_key.as_octet_string()) {
+        return TonlibError::Internal("Failed to validate restored deprecated encrypted key");
+      }
       kv_->set(to_file_name(key), new_encrypted_key.encrypted_data);
       return std::move(decrypted_key);
     }
@@ -173,7 +178,7 @@ td::SecureString get_dummy_secret() {
 td::Result<KeyStorage::ExportedEncryptedKey> KeyStorage::export_encrypted_key(InputKey input_key,
                                                                               td::Slice key_password) {
   TRY_RESULT(decrypted_key, export_decrypted_key(std::move(input_key)));
-  auto res = decrypted_key.encrypt(key_password, get_dummy_secret());
+  TRY_RESULT(res, decrypted_key.encrypt(key_password, get_dummy_secret()));
   return ExportedEncryptedKey{std::move(res.encrypted_data)};
 }
 

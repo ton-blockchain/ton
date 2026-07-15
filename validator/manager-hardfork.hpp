@@ -42,7 +42,6 @@ class WaitBlockDataDisk;
 class ValidatorManagerImpl : public ValidatorManager {
  private:
   std::vector<td::Ref<ExtMessage>> ext_messages_;
-  std::vector<td::Ref<IhrMessage>> ihr_messages_;
   struct Compare {
     bool operator()(const td::Ref<ShardTopBlockDescription> &l, const td::Ref<ShardTopBlockDescription> &r) const {
       return l->block_id() < r->block_id();
@@ -78,13 +77,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
     callback_->initial_read_complete(nullptr);
   }
-  void add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
   void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    UNREACHABLE();
-  }
-  void del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
   void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
@@ -105,10 +98,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                 td::Promise<td::Unit> promise) override {
     UNREACHABLE();
   }
-  void validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override {
-    UNREACHABLE();
-  }
-  void new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, td::Promise<td::Unit> promise) override {
+  void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override {
     UNREACHABLE();
   }
   void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
@@ -163,7 +153,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_key_block_proof_link(BlockIdExt block_id, td::Promise<td::BufferSlice> promise) override;
 
   td::actor::Task<> new_external_message_broadcast(td::BufferSlice data, int priority) override;
-  void new_ihr_message(td::BufferSlice data) override;
   void new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                              td::BufferSlice data) override {
     UNREACHABLE();
@@ -262,15 +251,12 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_message_queue_short(BlockIdExt id, td::uint32 priority, td::Timestamp timeout,
                                       td::Promise<td::Ref<MessageQueue>> promise) override;
   void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) override;
-  void get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) override;
   void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                      td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
                                   std::vector<ExtMessage::Hash> to_delete) override {
   }
   void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) override {
-  }
-  void complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay, std::vector<IhrMessage::Hash> to_delete) override {
   }
 
   //void set_first_block(ZeroStateIdExt state, BlockIdExt block, td::Promise<td::Unit> promise) override;
@@ -321,9 +307,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
 
-  void send_get_block_request(BlockIdExt id, td::uint32 priority, td::Promise<ReceivedBlock> promise) override {
-    UNREACHABLE();
-  }
   void send_get_zero_state_request(BlockIdExt id, td::uint32 priority, td::Promise<td::BufferSlice> promise) override {
     UNREACHABLE();
   }
@@ -343,13 +326,12 @@ class ValidatorManagerImpl : public ValidatorManager {
                                         td::Promise<std::vector<BlockIdExt>> promise) override {
     UNREACHABLE();
   }
-  void send_ihr_message(td::Ref<IhrMessage> message) override {
-    new_ihr_message(message->serialize());
-  }
   void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override {
     UNREACHABLE();
   }
   void send_block_broadcast(BlockBroadcast broadcast, int mode) override {
+  }
+  void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override {
   }
   void send_get_out_msg_queue_proof_request(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks,
                                             block::ImportedMsgQueueLimits limits,

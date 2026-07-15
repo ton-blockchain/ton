@@ -247,6 +247,7 @@ struct ActionPhase {
   ton::LogicalTime end_lt;
   unsigned long long tot_msg_bits{0}, tot_msg_cells{0};
   td::RefInt256 action_fine;
+  td::RefInt256 fail_action_fine = td::zero_refint();  // Collected if action phase fails
   bool need_bounce_on_fail = false;
   bool bounce = false;
 };
@@ -457,7 +458,7 @@ struct Transaction {
   bool serialize_compute_phase(vm::CellBuilder& cb);
   bool serialize_action_phase(vm::CellBuilder& cb);
   bool serialize_bounce_phase(vm::CellBuilder& cb);
-  bool unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only = false, bool forbid_public_libs = false);
+  bool unpack_msg_state(const ComputePhaseConfig& cfg, bool lib_only = false);
 
  public:
   static Ref<vm::Tuple> prepare_in_msg_params_tuple(const gen::CommonMsgInfo::Record_int_msg_info* info,

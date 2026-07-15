@@ -33,6 +33,7 @@
 #include "fec/fec.h"
 #include "keys/encryptor.h"
 #include "rldp2/rldp.h"
+#include "td/actor/SharedFuture.h"
 #include "td/utils/DecTree.h"
 #include "td/utils/LRUCache.h"
 #include "td/utils/List.h"
@@ -45,6 +46,7 @@
 #include "tl-utils/common-utils.hpp"
 
 #include "broadcast-fec.hpp"
+#include "broadcast-plumtree.hpp"
 #include "broadcast-simple.hpp"
 #include "broadcast-twostep.hpp"
 #include "overlay-id.hpp"
@@ -99,6 +101,12 @@ class OverlayPeer {
   }
   void set_neighbour(bool value) {
     is_neighbour_ = value;
+  }
+  bool is_plumtree_neighbour() const {
+    return is_plumtree_neighbour_;
+  }
+  void set_plumtree_neighbour(bool value) {
+    is_plumtree_neighbour_ = value;
   }
   td::int32 get_version() const {
     return node_.version();
@@ -158,6 +166,7 @@ class OverlayPeer {
   adnl::AdnlNodeIdShort id_;
 
   bool is_neighbour_ = false;
+  bool is_plumtree_neighbour_ = false;
   size_t missed_pings_ = 0;
   bool is_alive_ = true;
   bool is_permanent_member_ = false;
@@ -215,10 +224,15 @@ class OverlayImpl : public Overlay {
   void send_broadcast(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
   void send_broadcast_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data,
                           td::BufferSlice extra) override;
+  void send_broadcast_plumtree_fec(PublicKeyHash send_as, td::uint32 flags, td::BufferSlice data) override;
+  void send_broadcast_plumtree(PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
+                               td::BufferSlice data) override;
   void receive_nodes_from_db(tl_object_ptr<ton_api::overlay_nodes> nodes) override;
   void receive_nodes_from_db_v2(tl_object_ptr<ton_api::overlay_nodesV2> nodes) override;
 
   void get_self_node(td::Promise<OverlayNode> promise);
+  td::actor::Task<OverlayNode> get_self_node_coro();
+  td::actor::Task<OverlayNode> get_self_node_inner();
 
   void alarm() override;
   void start_up() override;
@@ -267,6 +281,9 @@ class OverlayImpl : public Overlay {
   void deliver_broadcast(PublicKeyHash source, td::BufferSlice data, td::BufferSlice extra);
   void register_delivered_broadcast(const BroadcastHash &hash);
   bool is_delivered(const BroadcastHash &hash);
+  void receive_plumtree_repair_response(adnl::AdnlNodeIdShort from, td::Bits256 expected_broadcast_id,
+                                        td::uint32 expected_part_index, td::uint32 expected_tree_index,
+                                        td::Result<td::BufferSlice> R);
   void check_broadcast(PublicKeyHash src, td::BufferSlice data, td::Promise<td::Unit> promise);
   void precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra, bool signature_checked,
                           td::Promise<td::Unit> promise);
@@ -287,9 +304,16 @@ class OverlayImpl : public Overlay {
                                        td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
   void broadcast_twostep_signed_fec(BroadcastTwostepDataFec &&data,
                                     td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void broadcast_plumtree_signed_fec(PlumtreeOutboundFecPayload &&payload,
+                                     td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
+  void broadcast_plumtree_signed_simple(PlumtreeOutboundSimplePayload &&payload,
+                                        td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
 
   void update_peer_err_ctr(adnl::AdnlNodeIdShort peer_id, bool is_fec);
   std::vector<adnl::AdnlNodeIdShort> get_neighbours(td::uint32 max_size = 0) const;
+  std::vector<adnl::AdnlNodeIdShort> get_plumtree_neighbours(td::uint32 max_size = 0) const;
+  bool peer_receives_broadcasts(adnl::AdnlNodeIdShort peer_id);
+  void set_plumtree_eager_mtu_peers(std::vector<adnl::AdnlNodeIdShort> peers);
   td::actor::ActorId<OverlayManager> overlay_manager() const {
     return manager_;
   }
@@ -320,6 +344,9 @@ class OverlayImpl : public Overlay {
 
   void update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids, std::vector<PublicKeyHash> root_public_keys,
                                OverlayMemberCertificate cert) override;
+  void set_test_plumtree_neighbours(std::vector<adnl::AdnlNodeIdShort> neighbours) override;
+  void get_plumtree_stats_records(
+      td::Promise<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> promise) override;
 
   bool check_src_peer(const adnl::AdnlNodeIdShort &id, const ton_api::overlay_MemberCertificate *certificate);
   bool is_persistent_node(const adnl::AdnlNodeIdShort &id);
@@ -341,6 +368,10 @@ class OverlayImpl : public Overlay {
 
   td::uint32 max_neighbours() const {
     return opts_.max_neighbours_;
+  }
+
+  td::uint32 max_plumtree_neighbours() const {
+    return opts_.enable_plumtree_broadcast_ ? opts_.plumtree_fec_options_.active_neighbours_ : 0;
   }
 
   td::uint32 max_peers() const {
@@ -366,7 +397,11 @@ class OverlayImpl : public Overlay {
   td::Status check_signature_from_peer(PublicKey key, td::Slice message, td::Slice signature,
                                        adnl::AdnlNodeIdShort message_from = adnl::AdnlNodeIdShort::zero());
 
+  bool can_send_broadcast_plumtree(PublicKeyHash send_as, size_t data_size, td::uint32 flags);
   BroadcastsLimiter &get_broadcasts_limiter(PublicKeyHash source, const Certificate *certificate);
+  void relax_plumtree_alarm(td::Timestamp at) {
+    alarm_timestamp().relax(at);
+  }
 
  private:
   template <class T>
@@ -382,6 +417,8 @@ class OverlayImpl : public Overlay {
   void process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getBroadcast &query,
                      td::Promise<td::BufferSlice> promise);
   void process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_getBroadcastList &query,
+                     td::Promise<td::BufferSlice> promise);
+  void process_query(adnl::AdnlNodeIdShort src, ton_api::overlay_repairPlumtreePart &query,
                      td::Promise<td::BufferSlice> promise);
   //void process_query(adnl::AdnlNodeIdShort src, adnl::AdnlQueryId query_id, ton_api::overlay_customQuery &query);
 
@@ -402,6 +439,18 @@ class OverlayImpl : public Overlay {
                                       tl_object_ptr<ton_api::overlay_broadcastTwostepSimple> bcast);
   td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
                                       tl_object_ptr<ton_api::overlay_broadcastTwostepFec> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreeFec> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreeSimple> bcast);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreeIHave> msg);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreePrune> msg);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_broadcastPlumtreeUseful> msg);
+  td::actor::Task<> process_broadcast(adnl::AdnlNodeIdShort message_from,
+                                      tl_object_ptr<ton_api::overlay_plumtreeStatsPush> msg);
 
   td::Status validate_peer_certificate(const adnl::AdnlNodeIdShort &node, const OverlayMemberCertificate &cert,
                                        bool received_from_node = false);
@@ -417,10 +466,14 @@ class OverlayImpl : public Overlay {
   void del_peer(const adnl::AdnlNodeIdShort &id);
   void del_from_neighbour_list(OverlayPeer *P);
   void del_from_neighbour_list(const adnl::AdnlNodeIdShort &id);
+  void del_from_plumtree_neighbour_list(OverlayPeer *P);
+  void del_from_all_neighbour_lists(OverlayPeer *P);
   OverlayPeer *get_random_peer(bool only_alive = false);
+  OverlayPeer *get_random_neighbour_peer();
   bool is_root_public_key(const PublicKeyHash &key) const;
   bool has_good_peers() const;
   size_t neighbours_cnt() const;
+  size_t plumtree_neighbours_cnt() const;
   void update_peers_mtu();
 
   void finish_dht_query() {
@@ -455,9 +508,12 @@ class OverlayImpl : public Overlay {
   BroadcastsSimple broadcasts_simple_;
   BroadcastsFec broadcasts_fec_;
   BroadcastsTwostep broadcasts_twostep_;
+  BroadcastsPlumtree broadcasts_plumtree_;
   std::set<BroadcastHash> delivered_broadcasts_;
 
   std::queue<BroadcastHash> bcast_lru_;
+
+  std::shared_ptr<td::actor::SharedFuture<OverlayNode>> self_node_future_;
 
   void bcast_gc();
 
@@ -513,6 +569,7 @@ class OverlayImpl : public Overlay {
     td::DecTree<adnl::AdnlNodeIdShort, OverlayPeer> peers_;
     size_t persistent_node_count_ = 0;
     std::vector<adnl::AdnlNodeIdShort> neighbours_;
+    std::vector<adnl::AdnlNodeIdShort> plumtree_neighbours_;
     td::DecTree<adnl::AdnlNodeIdShort, OverlayNode> pending_peers_;
 
     td::Timestamp local_cert_is_valid_until_;
@@ -523,6 +580,7 @@ class OverlayImpl : public Overlay {
 
   OverlayOptions opts_;
   adnl::PeersMtuGuard peers_mtu_guard_;
+  adnl::PeersMtuGuard plumtree_eager_mtu_guard_;
   adnl::Adnl::ProtectedPeersGuard protected_peers_guard_;
 
   std::map<PublicKeyHash, AuthorizedKeyLimiter> authorized_key_limiters_;

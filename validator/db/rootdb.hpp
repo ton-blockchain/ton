@@ -105,10 +105,6 @@ class RootDb : public Db {
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(td::Promise<BlockIdExt> promise) override;
 
-  void update_destroyed_validator_sessions(std::vector<ValidatorSessionId> sessions,
-                                           td::Promise<td::Unit> promise) override;
-  void get_destroyed_validator_sessions(td::Promise<std::vector<ValidatorSessionId>> promise) override;
-
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) override;
   void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) override;
 

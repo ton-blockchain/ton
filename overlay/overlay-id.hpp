@@ -148,7 +148,7 @@ class OverlayNode {
     return obj;
   }
   OverlayNode clone() const {
-    auto res = OverlayNode{source_, overlay_, version_, signature_.clone()};
+    auto res = OverlayNode{source_, overlay_, flags_, version_, signature_.clone()};
     if (cert_) {
       res.cert_ = td::make_unique<OverlayMemberCertificate>(*cert_);
     }

@@ -1522,7 +1522,7 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   if (config->get_libraries_root().not_null()) {
     libraries.push_back(config->get_libraries_root());
   }
-  if (acc_libs.not_null()) {
+  if (acc_libs.not_null() && config->get_global_version() < 15) {
     libraries.push_back(acc_libs);
   }
   vm::GasLimits gas{gas_limit, gas_limit};
@@ -2980,7 +2980,7 @@ bool LiteQuery::construct_proof_link_forward_cont(ton::BlockIdExt cur, ton::Bloc
     }
     // compute validator set
     ShardIdFull shard{masterchainId};
-    auto nodes = config->compute_validator_set(shard, info.gen_utime, info.gen_catchain_seqno);
+    auto nodes = config->compute_validator_set(shard, info.gen_catchain_seqno);
     if (nodes.empty()) {
       return fatal_error(PSTRING() << "cannot compute validator set for block " << next << " with utime "
                                    << info.gen_utime << " and cc_seqno " << info.gen_catchain_seqno

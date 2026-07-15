@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <exception>
+
 #include "block/block-auto.h"
 #include "block/block.h"
 #include "td/utils/crypto.h"
@@ -38,6 +40,23 @@ unsigned SmartContract::Answer::output_actions_count(td::Ref<vm::Cell> list) {
   return static_cast<unsigned>(i);
 }
 namespace {
+constexpr td::uint32 max_smc_library_loads = 8;
+
+SmartContract::Answer make_error_answer(const SmartContract::State& state, td::int32 code, td::Slice message) {
+  SmartContract::Answer res;
+  res.new_state = state;
+  res.accepted = false;
+  res.success = false;
+  res.stack = td::Ref<vm::Stack>(true);
+  res.actions = {};
+  res.code = code;
+  res.gas_used = 0;
+  res.vm_log = message.str();
+  if (!res.vm_log.empty() && res.vm_log.back() != '\n') {
+    res.vm_log.push_back('\n');
+  }
+  return res;
+}
 
 td::Ref<vm::Cell> build_internal_message(td::RefInt256 amount, td::Ref<vm::CellSlice> body, SmartContract::Args args) {
   vm::CellBuilder cb;
@@ -269,23 +288,47 @@ SmartContract::Answer run_smartcont(SmartContract::State state, td::Ref<vm::Stac
   if (!libraries.is_null()) {
     vm.register_library_collection(libraries);
   }
+  td::uint32 max_library_loads = max_smc_library_loads;
   if (config) {
     auto r_limits = config->get_size_limits_config();
     if (r_limits.is_ok()) {
       vm.set_max_data_depth(r_limits.ok().max_vm_data_depth);
+      if (r_limits.ok().max_transaction_library_loads &&
+          r_limits.ok().max_transaction_library_loads.value() < max_library_loads) {
+        max_library_loads = r_limits.ok().max_transaction_library_loads.value();
+      }
     }
   }
+  vm.set_max_library_loads(max_library_loads);
+  bool unhandled_exception = false;
+  auto set_unhandled_exception = [&](int exit_code, const char* message) {
+    unhandled_exception = true;
+    res.code = ~exit_code;
+    logger.res.append("Unhandled VM exception: ");
+    logger.res.append(message ? message : "unknown exception");
+    logger.res.push_back('\n');
+  };
   try {
     res.code = ~vm.run();
+  } catch (const vm::VmError& err) {
+    set_unhandled_exception(err.get_errno(), err.get_msg());
+  } catch (const vm::VmVirtError& err) {
+    set_unhandled_exception(err.get_errno(), err.get_msg());
+  } catch (const vm::VmNoGas& err) {
+    set_unhandled_exception(err.get_errno(), err.get_msg());
+  } catch (const vm::VmFatal&) {
+    set_unhandled_exception(static_cast<int>(vm::Excno::fatal), "fatal error");
+  } catch (const std::exception& err) {
+    set_unhandled_exception(static_cast<int>(vm::Excno::fatal), err.what());
   } catch (...) {
-    LOG(FATAL) << "catch unhandled exception";
+    set_unhandled_exception(static_cast<int>(vm::Excno::fatal), "unknown exception");
   }
   res.new_state = std::move(state);
   res.stack = vm.get_stack_ref();
   gas = vm.get_gas_limits();
   res.gas_used = gas.gas_consumed();
   res.accepted = gas.gas_credit == 0;
-  res.success = (res.accepted && vm.committed());
+  res.success = (!unhandled_exception && res.accepted && vm.committed());
   res.vm_log = logger.res;
   if (GET_VERBOSITY_LEVEL() >= VERBOSITY_NAME(DEBUG)) {
     LOG(DEBUG) << "VM log\n" << logger.res;
@@ -334,10 +377,18 @@ td::Ref<vm::CellSlice> SmartContract::empty_slice() {
 }
 
 size_t SmartContract::code_size() const {
-  return vm::std_boc_serialize(state_.code).ok().size();
+  auto r_data = vm::std_boc_serialize(state_.code);
+  if (r_data.is_error()) {
+    return 0;
+  }
+  return r_data.ok().size();
 }
 size_t SmartContract::data_size() const {
-  return vm::std_boc_serialize(state_.data).ok().size();
+  auto r_data = vm::std_boc_serialize(state_.data);
+  if (r_data.is_error()) {
+    return 0;
+  }
+  return r_data.ok().size();
 }
 
 block::StdAddress SmartContract::get_address(WorkchainId workchain_id) const {
@@ -350,19 +401,31 @@ td::Ref<vm::Cell> SmartContract::get_init_state() const {
 
 SmartContract::Answer SmartContract::run_method(Args args) {
   if (args.c7 && !args.config) {
-    args.config = try_fetch_config_from_c7(args.c7.value());
+    auto r_config = TRY_VM(td::Result<std::shared_ptr<const block::Config>>(try_fetch_config_from_c7(args.c7.value())));
+    if (r_config.is_error()) {
+      return make_error_answer(get_state(), ~static_cast<td::int32>(vm::Excno::fatal), r_config.error().message());
+    }
+    args.config = r_config.move_as_ok();
   }
   if (!args.c7) {
     args.c7 = prepare_vm_c7(args, state_.code);
   }
   if (!args.limits) {
-    bool is_internal = args.get_method_id().ok() == 0;
+    auto r_method_id = args.get_method_id();
+    if (r_method_id.is_error()) {
+      return make_error_answer(get_state(), ~static_cast<td::int32>(vm::Excno::fatal), r_method_id.error().message());
+    }
+    bool is_internal = r_method_id.ok() == 0;
 
     args.limits = vm::GasLimits{is_internal ? (long long)args.amount * 1000 : (long long)0, (long long)1000000,
                                 is_internal ? 0 : (long long)10000};
   }
-  CHECK(args.stack);
-  CHECK(args.method_id);
+  if (!args.stack) {
+    return make_error_answer(get_state(), ~static_cast<td::int32>(vm::Excno::fatal), "Args has no stack");
+  }
+  if (!args.method_id) {
+    return make_error_answer(get_state(), ~static_cast<td::int32>(vm::Excno::fatal), "Args has no method id");
+  }
   args.stack.value().write().push_smallint(args.method_id.unwrap());
   auto res =
       run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
@@ -374,7 +437,11 @@ SmartContract::Answer SmartContract::run_method(Args args) {
 
 SmartContract::Answer SmartContract::run_get_method(Args args) const {
   if (args.c7 && !args.config) {
-    args.config = try_fetch_config_from_c7(args.c7.value());
+    auto r_config = TRY_VM(td::Result<std::shared_ptr<const block::Config>>(try_fetch_config_from_c7(args.c7.value())));
+    if (r_config.is_error()) {
+      return make_error_answer(get_state(), ~static_cast<td::int32>(vm::Excno::fatal), r_config.error().message());
+    }
+    args.config = r_config.move_as_ok();
   }
   if (!args.c7) {
     args.c7 = prepare_vm_c7(args, state_.code);
@@ -385,7 +452,9 @@ SmartContract::Answer SmartContract::run_get_method(Args args) const {
   if (!args.stack) {
     args.stack = td::Ref<vm::Stack>(true);
   }
-  CHECK(args.method_id);
+  if (!args.method_id) {
+    return make_error_answer(get_state(), ~static_cast<td::int32>(vm::Excno::fatal), "Args has no method id");
+  }
   args.stack.value().write().push_smallint(args.method_id.unwrap());
   return run_smartcont(get_state(), args.stack.unwrap(), args.c7.unwrap(), args.limits.unwrap(), args.ignore_chksig,
                        args.libraries ? args.libraries.unwrap().get_root_cell() : td::Ref<vm::Cell>{},

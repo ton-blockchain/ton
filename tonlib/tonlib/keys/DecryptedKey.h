@@ -55,7 +55,7 @@ struct DecryptedKey {
   std::vector<td::SecureString> mnemonic_words;
   td::Ed25519::PrivateKey private_key;
 
-  EncryptedKey encrypt(td::Slice local_password, td::Slice secret = {}) const;
+  td::Result<EncryptedKey> encrypt(td::Slice local_password, td::Slice secret = {}) const;
 };
 
 }  // namespace tonlib

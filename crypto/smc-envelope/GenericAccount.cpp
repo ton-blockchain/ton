@@ -58,73 +58,108 @@ td::Ref<vm::Cell> GenericAccount::get_init_state(const td::Ref<vm::Cell>& code,
 }
 block::StdAddress GenericAccount::get_address(ton::WorkchainId workchain_id,
                                               const td::Ref<vm::Cell>& init_state) noexcept {
+  if (init_state.is_null()) {
+    return {};
+  }
   return block::StdAddress(workchain_id, init_state->get_hash().bits(), true /*bounce*/);
 }
 
-void GenericAccount::store_int_message(vm::CellBuilder& cb, const block::StdAddress& dest_address, td::int64 gramms,
+bool GenericAccount::store_int_message(vm::CellBuilder& cb, const block::StdAddress& dest_address, td::int64 gramms,
                                        td::Ref<vm::Cell> extra_currencies) {
   td::BigInt256 dest_addr;
   dest_addr.import_bits(dest_address.addr.as_bitslice());
-  cb.store_zeroes(1)
-      .store_ones(1)
-      .store_long(dest_address.bounceable, 1)
-      .store_zeroes(3)
-      .store_ones(1)
-      .store_zeroes(2)
-      .store_long(dest_address.workchain, 8)
-      .store_int256(dest_addr, 256);
-  block::tlb::t_Grams.store_integer_value(cb, td::BigInt256(gramms));
-  cb.store_maybe_ref(extra_currencies);
-  cb.store_zeroes(8 + 64 + 32);
+  return cb.store_zeroes_bool(1) && cb.store_ones_bool(1) && cb.store_long_bool(dest_address.bounceable, 1) &&
+         cb.store_zeroes_bool(3) && cb.store_ones_bool(1) && cb.store_zeroes_bool(2) &&
+         cb.store_long_bool(dest_address.workchain, 8) && cb.store_int256_bool(dest_addr, 256) &&
+         block::tlb::t_Grams.store_integer_value(cb, td::BigInt256(gramms)) && cb.store_maybe_ref(extra_currencies) &&
+         cb.store_zeroes_bool(8 + 64 + 32);
 }
 
 td::Ref<vm::Cell> GenericAccount::create_ext_message(const block::StdAddress& address, td::Ref<vm::Cell> new_state,
-                                                     td::Ref<vm::Cell> body) noexcept {
+                                                     td::Ref<vm::Cell> body) {
+  if (body.is_null()) {
+    return {};
+  }
   block::gen::Message::Record message;
   /*info*/ {
     block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
     /* src */
-    tlb::csr_pack(info.src, block::gen::MsgAddressExt::Record_addr_none{});
+    if (!tlb::csr_pack(info.src, block::gen::MsgAddressExt::Record_addr_none{})) {
+      return {};
+    }
     /* dest */ {
       block::gen::MsgAddressInt::Record_addr_std dest;
-      dest.anycast = vm::CellBuilder().store_zeroes(1).as_cellslice_ref();
+      vm::CellBuilder anycast;
+      if (!anycast.store_zeroes_bool(1)) {
+        return {};
+      }
+      dest.anycast = anycast.as_cellslice_ref();
       dest.workchain_id = address.workchain;
       dest.address = address.addr;
 
-      tlb::csr_pack(info.dest, dest);
+      if (!tlb::csr_pack(info.dest, dest)) {
+        return {};
+      }
     }
     /* import_fee */ {
       vm::CellBuilder cb;
-      block::tlb::t_Grams.store_integer_value(cb, td::BigInt256(0));
+      if (!block::tlb::t_Grams.store_integer_value(cb, td::BigInt256(0))) {
+        return {};
+      }
       info.import_fee = cb.as_cellslice_ref();
     }
 
-    tlb::csr_pack(message.info, info);
+    if (!tlb::csr_pack(message.info, info)) {
+      return {};
+    }
   }
   /* init */ {
     if (new_state.not_null()) {
       // Just(Left(new_state))
-      message.init = vm::CellBuilder()
-                         .store_ones(1)
-                         .store_zeroes(1)
-                         .append_cellslice(vm::load_cell_slice(new_state))
-                         .as_cellslice_ref();
+      vm::CellBuilder cb;
+      auto init = vm::load_cell_slice(new_state);
+      if (!(cb.store_ones_bool(1) && cb.store_zeroes_bool(1) && cb.append_cellslice_bool(init))) {
+        return {};
+      }
+      message.init = cb.as_cellslice_ref();
     } else {
-      message.init = vm::CellBuilder().store_zeroes(1).as_cellslice_ref();
-      CHECK(message.init.not_null());
+      vm::CellBuilder cb;
+      if (!cb.store_zeroes_bool(1)) {
+        return {};
+      }
+      message.init = cb.as_cellslice_ref();
     }
   }
+  bool body_stored_by_ref = false;
   /* body */ {
-    message.body = vm::CellBuilder().store_zeroes(1).append_cellslice(vm::load_cell_slice_ref(body)).as_cellslice_ref();
+    vm::CellBuilder cb;
+    auto body_slice = vm::load_cell_slice_ref(body);
+    if (body_slice.not_null() && cb.can_extend_by(1 + body_slice->size(), body_slice->size_refs())) {
+      if (!(cb.store_zeroes_bool(1) && cb.append_cellslice_bool(body_slice))) {
+        return {};
+      }
+    } else if (!(cb.store_ones_bool(1) && cb.store_ref_bool(body))) {
+      return {};
+    } else {
+      body_stored_by_ref = true;
+    }
+    message.body = cb.as_cellslice_ref();
   }
 
   td::Ref<vm::Cell> res;
-  tlb::type_pack_cell(res, block::gen::t_Message_Any, message);
-  if (res.is_null()) {
-    /* body */ { message.body = vm::CellBuilder().store_ones(1).store_ref(std::move(body)).as_cellslice_ref(); }
-    tlb::type_pack_cell(res, block::gen::t_Message_Any, message);
+  if (!tlb::type_pack_cell(res, block::gen::t_Message_Any, message) || res.is_null()) {
+    if (body_stored_by_ref) {
+      return {};
+    }
+    vm::CellBuilder ref_body;
+    if (!(ref_body.store_ones_bool(1) && ref_body.store_ref_bool(body))) {
+      return {};
+    }
+    message.body = ref_body.as_cellslice_ref();
+    if (!tlb::type_pack_cell(res, block::gen::t_Message_Any, message) || res.is_null()) {
+      return {};
+    }
   }
-  CHECK(res.not_null());
 
   return res;
 }

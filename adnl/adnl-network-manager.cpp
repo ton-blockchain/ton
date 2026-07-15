@@ -94,32 +94,32 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t 
     return;
   }
   if (message.error.is_error()) {
-    VLOG(ADNL_WARNING) << this << ": dropping ERROR message: " << message.error;
+    VLOG(adnl, WARNING) << this << ": dropping ERROR message: " << message.error;
     return;
   }
   if (message.data.size() < 32) {
-    VLOG(ADNL_WARNING) << this << ": received too small packet of size " << message.data.size();
+    VLOG(adnl, WARNING) << this << ": received too small packet of size " << message.data.size();
     return;
   }
   if (message.data.size() >= get_mtu() + 128) {
-    VLOG(ADNL_NOTICE) << this << ": received huge packet of size " << message.data.size();
+    VLOG(adnl, INFO) << this << ": received huge packet of size " << message.data.size();
   }
   CHECK(idx < udp_sockets_.size());
   auto &socket = udp_sockets_[idx];
   if (socket.in_desc == std::numeric_limits<size_t>::max()) {
-    VLOG(ADNL_WARNING) << this << ": received packet to port without InDesc";
+    VLOG(adnl, WARNING) << this << ": received packet to port without InDesc";
     return;
   }
   AdnlCategoryMask cat_mask = in_desc_[socket.in_desc].cat_mask;
   if (message.data.size() >= get_mtu()) {
-    VLOG(ADNL_NOTICE) << this << ": received huge packet of size " << message.data.size();
+    VLOG(adnl, INFO) << this << ": received huge packet of size " << message.data.size();
   }
   received_messages_++;
   if (received_messages_ % 64 == 0) {
-    VLOG(ADNL_DEBUG) << this << ": received " << received_messages_ << " udp messages";
+    VLOG(adnl, DEBUG) << this << ": received " << received_messages_ << " udp messages";
   }
 
-  VLOG(ADNL_EXTRA_DEBUG) << this << ": received message of size " << message.data.size();
+  VLOG(adnl, DEBUG) << this << ": received message of size " << message.data.size();
   callback_->receive_packet(message.address, cat_mask, std::move(message.data));
 }
 
@@ -127,13 +127,13 @@ void AdnlNetworkManagerImpl::send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdS
                                              td::uint32 priority, td::BufferSlice data) {
   auto it = adnl_id_2_cat_.find(src_id);
   if (it == adnl_id_2_cat_.end()) {
-    VLOG(ADNL_WARNING) << this << ": dropping OUT message [" << src_id << "->" << dst_id << "]: unknown src";
+    VLOG(adnl, WARNING) << this << ": dropping OUT message [" << src_id << "->" << dst_id << "]: unknown src";
     return;
   }
 
   auto out = choose_out_iface(it->second, priority);
   if (!out) {
-    VLOG(ADNL_WARNING) << this << ": dropping OUT message [" << src_id << "->" << dst_id << "]: no out rules";
+    VLOG(adnl, WARNING) << this << ": dropping OUT message [" << src_id << "->" << dst_id << "]: no out rules";
     return;
   }
 

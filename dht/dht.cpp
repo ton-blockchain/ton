@@ -30,6 +30,8 @@
 #include "dht.h"
 #include "dht.hpp"
 
+DEFINE_LOG_CATEGORY(dht, VERBOSITY_NAME(WARNING))
+
 namespace ton {
 
 namespace dht {
@@ -242,7 +244,7 @@ td::Status DhtMemberImpl::store_in(DhtValue value) {
     return td::Status::Error("ttl is too big");
   }
   if (value.expired()) {
-    VLOG(DHT_INFO) << this << ": dropping expired value: " << value.key_id() << " expire_at = " << value.ttl();
+    VLOG(dht, INFO) << this << ": dropping expired value: " << value.key_id() << " expire_at = " << value.ttl();
     return td::Status::OK();
   }
   TRY_STATUS(value.check());
@@ -260,7 +262,7 @@ td::Status DhtMemberImpl::store_in(DhtValue value) {
     }
     CHECK(values_ttl_order_.insert({it->second.ttl(), it->first}).second);
   } else {
-    VLOG(DHT_INFO) << this << ": dropping too remote value: " << value.key_id() << " distance = " << dist;
+    VLOG(dht, INFO) << this << ": dropping too remote value: " << value.key_id() << " distance = " << dist;
   }
   return td::Status::OK();
 }
@@ -272,7 +274,7 @@ void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_store 
   if (V.is_error()) {
     promise.set_error(td::Status::Error(ErrorCode::protoviolation,
                                         PSTRING() << "dropping invalid dht_store() value: " << V.error().to_string()));
-    VLOG(DHT_INFO) << this << ": dropping invalid value: " << V.move_as_error();
+    VLOG(dht, INFO) << this << ": dropping invalid value: " << V.move_as_error();
     return;
   }
   auto b = store_in(V.move_as_ok());
@@ -280,7 +282,7 @@ void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_store 
   if (b.is_ok()) {
     promise.set_value(create_serialize_tl_object<ton_api::dht_stored>());
   } else {
-    VLOG(DHT_INFO) << this << ": dropping store() query from " << src << ": " << b.move_as_error();
+    VLOG(dht, INFO) << this << ": dropping store() query from " << src << ": " << b.move_as_error();
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "dropping dht_store() query"));
   }
 }
@@ -310,15 +312,17 @@ static td::BufferSlice register_reverse_connection_to_sign(adnl::AdnlNodeIdShort
 
 void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_registerReverseConnection &query,
                                   td::Promise<td::BufferSlice> promise) {
+  promise.set_error(td::Status::Error("reverse ping is not supported"));
+  return;
   td::uint32 ttl = query.ttl_, now = (td::uint32)td::Clocks::system();
   if (ttl <= now) {
     promise.set_error(td::Status::Error("too old ttl"));
     return;
   }
-  PublicKey pub{query.node_};
-  adnl::AdnlNodeIdShort client_id{pub.compute_short_id()};
+  TRY_RESULT_PROMISE(promise, client_id_full, adnl::AdnlNodeIdFull::create(query.node_));
+  adnl::AdnlNodeIdShort client_id{client_id_full.compute_short_id()};
   td::BufferSlice to_sign = register_reverse_connection_to_sign(client_id, src, ttl);
-  TRY_RESULT_PROMISE(promise, encryptor, pub.create_encryptor());
+  TRY_RESULT_PROMISE(promise, encryptor, client_id_full.pubkey().create_encryptor());
   TRY_STATUS_PROMISE(promise, encryptor->check_signature(to_sign, query.signature_));
   DhtKeyId key_id = get_reverse_connection_key(client_id).compute_key_id();
   auto it = reverse_connections_.find(client_id);
@@ -333,11 +337,13 @@ void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_regist
 
 void DhtMemberImpl::process_query(adnl::AdnlNodeIdShort src, ton_api::dht_requestReversePing &query,
                                   td::Promise<td::BufferSlice> promise) {
+  promise.set_error(td::Status::Error("reverse ping is not supported"));
+  return;
   adnl::AdnlNodeIdShort client{query.client_};
   auto it = reverse_connections_.find(client);
   if (it != reverse_connections_.end() && !it->second.ttl_.is_in_past()) {
-    PublicKey pub{query.target_->id_};
-    TRY_RESULT_PROMISE(promise, encryptor, pub.create_encryptor());
+    TRY_RESULT_PROMISE(promise, target, adnl::AdnlNodeIdFull::create(query.target_->id_));
+    TRY_RESULT_PROMISE(promise, encryptor, target.pubkey().create_encryptor());
     TRY_STATUS_PROMISE(promise, encryptor->check_signature(serialize_tl_object(query.target_, true), query.signature_));
     td::actor::send_closure(adnl_, &adnl::Adnl::send_message, id_, it->second.dht_node_,
                             create_serialize_tl_object<ton_api::dht_requestReversePingCont>(
@@ -367,36 +373,36 @@ void DhtMemberImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice dat
           auto key = node.get_key();
           add_full_node(key, std::move(node), true);
         } else {
-          VLOG(DHT_WARNING) << this << ": dropping bad node: unexpected adnl id";
+          VLOG(dht, WARNING) << this << ": dropping bad node: unexpected adnl id";
         }
       } else {
-        VLOG(DHT_WARNING) << this << ": dropping bad node " << N.move_as_error();
+        VLOG(dht, WARNING) << this << ": dropping bad node " << N.move_as_error();
       }
     }
   }
   auto R = fetch_tl_object<ton_api::Function>(std::move(data), true);
 
   if (R.is_error()) {
-    VLOG(DHT_WARNING) << this << ": dropping unknown query to DHT node: " << R.move_as_error();
+    VLOG(dht, WARNING) << this << ": dropping unknown query to DHT node: " << R.move_as_error();
     promise.set_error(td::Status::Error(ErrorCode::protoviolation, "failed to parse dht query"));
     return;
   }
 
   auto Q = R.move_as_ok();
   if (td::Random::fast(0, 127) == 0) {
-    VLOG(DHT_DEBUG) << this << ": ping=" << ping_queries_ << " fnode=" << find_node_queries_
-                    << " fvalue=" << find_value_queries_ << " store=" << store_queries_
-                    << " addrlist=" << get_addr_list_queries_;
-    VLOG(DHT_DEBUG) << this << ": query to DHT from " << src << ": " << ton_api::to_string(Q);
+    VLOG(dht, DEBUG) << this << ": ping=" << ping_queries_ << " fnode=" << find_node_queries_
+                     << " fvalue=" << find_value_queries_ << " store=" << store_queries_
+                     << " addrlist=" << get_addr_list_queries_;
+    VLOG(dht, DEBUG) << this << ": query to DHT from " << src << ": " << ton_api::to_string(Q);
   }
 
-  VLOG(DHT_EXTRA_DEBUG) << this << ": query to DHT from " << src << ": " << ton_api::to_string(Q);
+  VLOG(dht, DEBUG) << this << ": query to DHT from " << src << ": " << ton_api::to_string(Q);
 
   ton_api::downcast_call(*Q, [&](auto &object) { this->process_query(src, object, std::move(promise)); });
 }
 
 void DhtMemberImpl::add_full_node(DhtKeyId key, DhtNode node, bool set_active) {
-  VLOG(DHT_EXTRA_DEBUG) << this << ": adding full node " << key;
+  VLOG(dht, DEBUG) << this << ": adding full node " << key;
 
   auto eid = key ^ key_;
   auto bit = eid.count_leading_zeroes();
@@ -414,7 +420,7 @@ void DhtMemberImpl::add_full_node(DhtKeyId key, DhtNode node, bool set_active) {
 }
 
 void DhtMemberImpl::receive_ping(DhtKeyId key, DhtNode result) {
-  VLOG(DHT_EXTRA_DEBUG) << this << ": received ping from " << key;
+  VLOG(dht, DEBUG) << this << ": received ping from " << key;
 
   auto eid = key ^ key_;
   auto bit = eid.count_leading_zeroes();
@@ -426,6 +432,8 @@ void DhtMemberImpl::receive_ping(DhtKeyId key, DhtNode result) {
 }
 
 void DhtMemberImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data) {
+  VLOG(dht, DEBUG) << "reverse ping is not supported";
+  return;
   auto F = fetch_tl_object<ton_api::dht_requestReversePingCont>(data, true);
   if (F.is_ok()) {
     auto S = [&]() -> td::Status {
@@ -438,13 +446,13 @@ void DhtMemberImpl::receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice d
       TRY_RESULT_PREFIX(encryptor, node.pub_id().pubkey().create_encryptor(), "failed to create encryptor: ");
       TRY_STATUS_PREFIX(encryptor->check_signature(serialize_tl_object(f->target_, true), f->signature_),
                         "invalid signature: ");
-      VLOG(DHT_INFO) << this << ": sending reverse ping to " << node.compute_short_id();
+      VLOG(dht, INFO) << this << ": sending reverse ping to " << node.compute_short_id();
       td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, client, node.pub_id(), node.addr_list());
       td::actor::send_closure(adnl_, &adnl::Adnl::send_message, client, node.compute_short_id(), td::BufferSlice());
       return td::Status::OK();
     }();
     if (S.is_error()) {
-      VLOG(DHT_INFO) << this << ": " << S;
+      VLOG(dht, INFO) << this << ": " << S;
     }
   }
 }
@@ -554,12 +562,12 @@ void DhtMemberImpl::request_reverse_ping_cont(adnl::AdnlNode target, td::BufferS
 }
 
 void DhtMemberImpl::check() {
-  VLOG(DHT_INFO) << this << ": ping=" << ping_queries_ << " fnode=" << find_node_queries_
-                 << " fvalue=" << find_value_queries_ << " store=" << store_queries_
-                 << " addrlist=" << get_addr_list_queries_;
-  VLOG(DHT_INFO) << this << ": values=" << values_.size() << " our_values=" << our_values_.size();
-  VLOG(DHT_INFO) << this << ": reverse_conns=" << reverse_connections_.size()
-                 << " our_reverse_conns=" << our_reverse_connections_.size();
+  VLOG(dht, INFO) << this << ": ping=" << ping_queries_ << " fnode=" << find_node_queries_
+                  << " fvalue=" << find_value_queries_ << " store=" << store_queries_
+                  << " addrlist=" << get_addr_list_queries_;
+  VLOG(dht, INFO) << this << ": values=" << values_.size() << " our_values=" << our_values_.size();
+  VLOG(dht, INFO) << this << ": reverse_conns=" << reverse_connections_.size()
+                  << " our_reverse_conns=" << our_reverse_connections_.size();
   for (auto &bucket : buckets_) {
     bucket.check(client_only_, adnl_, actor_id(this), id_);
   }
@@ -593,7 +601,7 @@ void DhtMemberImpl::check() {
           if (it->second.key().update_rule()->need_republish()) {
             auto P = td::PromiseCreator::lambda([print_id = print_id()](td::Result<td::Unit> R) {
               if (R.is_error()) {
-                VLOG(DHT_INFO) << print_id << ": failed to store: " << R.move_as_error();
+                VLOG(dht, INFO) << print_id << ": failed to store: " << R.move_as_error();
               }
             });
             send_store(it->second.clone(), std::move(P));
@@ -635,7 +643,7 @@ void DhtMemberImpl::check() {
       if (it->second.ttl() > td::Clocks::system() + 60) {
         auto P = td::PromiseCreator::lambda([print_id = print_id()](td::Result<td::Unit> R) {
           if (R.is_error()) {
-            VLOG(DHT_INFO) << print_id << ": failed to store: " << R.move_as_error();
+            VLOG(dht, INFO) << print_id << ": failed to store: " << R.move_as_error();
           }
         });
         send_store(it->second.clone(), std::move(P));
@@ -648,7 +656,7 @@ void DhtMemberImpl::check() {
   if (fill_att_.is_in_past()) {
     auto promise = td::PromiseCreator::lambda([](td::Result<DhtNodesList> R) {
       if (R.is_error()) {
-        VLOG(DHT_WARNING) << "failed find self query: " << R.move_as_error();
+        VLOG(dht, WARNING) << "failed find self query: " << R.move_as_error();
       }
     });
 
@@ -702,26 +710,38 @@ void DhtMemberImpl::send_store(DhtValue value, td::Promise<td::Unit> promise) {
 }
 
 void DhtMemberImpl::get_self_node(td::Promise<DhtNode> promise) {
-  auto P = td::PromiseCreator::lambda([promise = std::move(promise), id = id_, keyring = keyring_,
-                                       client_only = client_only_,
-                                       network_id = network_id_](td::Result<adnl::AdnlNode> R) mutable {
-    R.ensure();
-    auto node = R.move_as_ok();
-    auto version = static_cast<td::int32>(td::Clocks::system());
-    td::BufferSlice B = serialize_tl_object(
-        DhtNode{node.pub_id(), node.addr_list(), version, network_id, td::BufferSlice{}}.tl(), true);
-    if (!client_only) {
-      CHECK(node.addr_list().size() > 0);
+  td::actor::send_closure(actor_id(this), &DhtMemberImpl::get_self_node_coro, std::move(promise));
+}
+
+td::actor::Task<DhtNode> DhtMemberImpl::get_self_node_coro() {
+  for (size_t iter = 0;; ++iter) {
+    if (!self_node_future_) {
+      self_node_future_ = std::make_shared<td::actor::SharedFuture<DhtNode>>(get_self_node_inner().start());
     }
-    auto P = td::PromiseCreator::lambda([promise = std::move(promise), node = std::move(node), version,
-                                         network_id](td::Result<td::BufferSlice> R) mutable {
-      R.ensure();
-      DhtNode n{node.pub_id(), node.addr_list(), version, network_id, R.move_as_ok()};
-      promise.set_result(std::move(n));
-    });
-    td::actor::send_closure(keyring, &keyring::Keyring::sign_message, id.pubkey_hash(), std::move(B), std::move(P));
-  });
-  td::actor::send_closure(adnl_, &adnl::Adnl::get_self_node, id_, std::move(P));
+    auto future = self_node_future_;
+    auto node = co_await future->get();
+    auto now = static_cast<td::int32>(td::Clocks::system());
+    if (node.version() >= now - 5 || iter > 0) {
+      co_return node;
+    }
+    if (self_node_future_ == future) {
+      self_node_future_ = {};
+    }
+  }
+}
+
+td::actor::Task<DhtNode> DhtMemberImpl::get_self_node_inner() {
+  VLOG(dht, DEBUG) << "get_self_node_inner: start";
+  auto node = co_await td::actor::ask(adnl_, &adnl::Adnl::get_self_node, id_);
+  auto version = static_cast<td::int32>(td::Clocks::system());
+  td::BufferSlice B =
+      serialize_tl_object(DhtNode{node.pub_id(), node.addr_list(), version, network_id_, td::BufferSlice{}}.tl(), true);
+  if (!client_only_) {
+    CHECK(node.addr_list().size() > 0);
+  }
+  auto signature = co_await td::actor::ask(keyring_, &keyring::Keyring::sign_message, id_.pubkey_hash(), std::move(B));
+  VLOG(dht, DEBUG) << "get_self_node_inner: signed";
+  co_return DhtNode{node.pub_id(), node.addr_list(), version, network_id_, std::move(signature)};
 }
 
 td::Result<std::shared_ptr<DhtGlobalConfig>> Dht::create_global_config(tl_object_ptr<ton_api::dht_config_Global> conf) {
