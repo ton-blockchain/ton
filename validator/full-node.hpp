@@ -146,11 +146,10 @@ class FullNodeImpl : public FullNode {
     td::actor::ActorOwn<FullNodeShard> actor;
     PublicKeyHash local_id = PublicKeyHash::zero();
     bool active = false;
-    bool enable_plumtree_broadcast = false;
     td::Timestamp delete_at = td::Timestamp::never();
   };
 
-  void update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast);
+  void update_shard_actor(ShardIdFull shard, bool active);
   void set_public_overlays_enabled(bool enabled);
   void update_public_overlay_mode(double fast_sync_authority_until);
   void update_fast_sync_and_public_overlays();
