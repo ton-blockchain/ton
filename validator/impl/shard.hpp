@@ -131,7 +131,6 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   td::uint32 monitor_min_split_depth(WorkchainId workchain_id) const override;
   td::uint32 min_split_depth(WorkchainId workchain_id) const override;
   BlockSeqno min_ref_masterchain_seqno() const override;
-  td::Status prepare() override;
   ZeroStateIdExt get_zerostate_id() const {
     return zerostate_id_;
   }

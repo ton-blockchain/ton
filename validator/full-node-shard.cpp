@@ -224,7 +224,7 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ne
   BlockIdExt block_id = create_block_id(query.block_->block_);
   VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
-                          std::move(query.block_->data_));
+                          std::move(query.block_->data_), false);
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
@@ -262,7 +262,7 @@ void FullNodeShardImpl::process_block_candidate_broadcast(PublicKeyHash src, ton
   }
   VLOG(full_node, DEBUG) << "Received newBlockCandidate from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
-                          validator_set_hash, std::move(data), BroadcastSource::public_overlay);
+                          validator_set_hash, std::move(data), BroadcastSource::public_overlay, false);
 }
 
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
@@ -305,7 +305,7 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_bl
 
   VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in public overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
-                          BroadcastSource::public_overlay);
+                          BroadcastSource::public_overlay, false);
 }
 
 void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
@@ -322,7 +322,7 @@ void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonN
   VLOG(full_node, DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
                          << "from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false,
-                          BroadcastSource::public_overlay);
+                          BroadcastSource::public_overlay, false);
 }
 
 void FullNodeShardImpl::obtain_state_for_decompression(PublicKeyHash src,
@@ -359,7 +359,7 @@ void FullNodeShardImpl::process_block_broadcast_with_state(PublicKeyHash src,
   }
   VLOG(full_node, DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true,
-                          BroadcastSource::public_overlay);
+                          BroadcastSource::public_overlay, false);
 }
 
 void FullNodeShardImpl::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {

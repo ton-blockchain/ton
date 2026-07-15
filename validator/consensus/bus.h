@@ -85,11 +85,12 @@ struct OutgoingProtocolMessage {
   using LogToDebug = std::true_type;
 
   struct BroadcastToAll {};
+  struct BroadcastToValidators {};
   struct BroadcastToRandom {
     size_t count;
   };
 
-  using Recipient = std::variant<BroadcastToAll, BroadcastToRandom>;
+  using Recipient = std::variant<BroadcastToAll, BroadcastToValidators, BroadcastToRandom>;
 
   Recipient recipient;
   ProtocolMessage message;

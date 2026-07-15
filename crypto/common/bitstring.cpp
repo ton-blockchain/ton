@@ -509,11 +509,11 @@ unsigned long long bits_load_long_top(ConstBitPtr from, unsigned top_bits) {
 }
 
 unsigned long long bits_load_ulong(ConstBitPtr from, unsigned bits) {
-  return bits == 0 ? 0 : bits_load_long_top(from, bits) >> (64 - bits);
+  return bits == 0 ? 0ULL : bits_load_long_top(from, bits) >> (64 - bits);
 }
 
 long long bits_load_long(ConstBitPtr from, unsigned bits) {
-  return (long long)bits_load_long_top(from, bits) >> (64 - bits);
+  return bits == 0 ? 0LL : (long long)bits_load_long_top(from, bits) >> (64 - bits);
 }
 
 std::string bits_to_binary(const unsigned char* ptr, int offs, std::size_t len) {

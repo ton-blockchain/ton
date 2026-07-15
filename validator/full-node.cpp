@@ -365,7 +365,7 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
     VLOG(full_node, WARNING) << "dropping OUT shard block info message to unknown shard";
     return;
   }
-  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull(masterchainId)).first;
+  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull(masterchainId), true).first;
   if (!fast_sync_overlay.empty()) {
     td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_shard_block_info, block_id, cc_seqno,
                             data.clone());
@@ -383,7 +383,7 @@ void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_se
     send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   }
   if (mode & broadcast_mode_fast_sync) {
-    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(block_id.shard_full()).first;
+    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(block_id.shard_full(), true).first;
     if (!fast_sync_overlay.empty()) {
       td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_block_candidate, block_id, cc_seqno,
                               validator_set_hash, data.clone());
@@ -417,7 +417,7 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
     send_block_broadcast_to_custom_overlays(broadcast);
   }
   if (mode & broadcast_mode_fast_sync) {
-    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(broadcast.block_id.shard_full()).first;
+    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(broadcast.block_id.shard_full(), true).first;
     if (!fast_sync_overlay.empty()) {
       td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_broadcast, broadcast.clone());
     }
@@ -437,7 +437,7 @@ void FullNodeImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality
     send_block_finality_broadcast_to_custom_overlays(finality);
   }
   if (mode & broadcast_mode_fast_sync) {
-    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(finality.block_id.shard_full()).first;
+    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(finality.block_id.shard_full(), true).first;
     if (!fast_sync_overlay.empty()) {
       td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_block_finality_broadcast,
                               finality.clone());
@@ -796,8 +796,11 @@ void FullNodeImpl::new_key_block(BlockHandle handle) {
   }
 }
 
-void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source) {
-  send_block_broadcast_to_custom_overlays(broadcast);
+void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source,
+                                           bool send_to_custom) {
+  if (send_to_custom) {
+    send_block_broadcast_to_custom_overlays(broadcast);
+  }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_block_broadcast, std::move(broadcast),
                           signatures_checked, source, [](td::Result<td::Unit> R) {
                             if (R.is_error()) {
@@ -810,8 +813,11 @@ void FullNodeImpl::process_block_broadcast(BlockBroadcast broadcast, bool signat
                           });
 }
 
-void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source) {
-  send_block_finality_broadcast_to_custom_overlays(finality);
+void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
+                                                    bool send_to_custom) {
+  if (send_to_custom) {
+    send_block_finality_broadcast_to_custom_overlays(finality);
+  }
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_finality_broadcast, std::move(finality),
                  source)
       .detach();
@@ -819,16 +825,20 @@ void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast final
 
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                      td::uint32 validator_set_hash, td::BufferSlice data,
-                                                     BroadcastSource source) {
-  send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
+                                                     BroadcastSource source, bool send_to_custom) {
+  if (send_to_custom) {
+    send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
+  }
   td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id, cc_seqno,
                  std::move(data), source)
       .detach();
 }
 
-void FullNodeImpl::process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
-                                                      td::BufferSlice data) {
-  send_shard_block_info_to_custom_overlays(block_id, cc_seqno, data);
+void FullNodeImpl::process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
+                                                      bool send_to_custom) {
+  if (send_to_custom) {
+    send_shard_block_info_to_custom_overlays(block_id, cc_seqno, data);
+  }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_shard_block_description_broadcast,
                           block_id, cc_seqno, std::move(data));
 }
@@ -927,7 +937,7 @@ void FullNodeImpl::schedule_plumtree_stats_exchange() {
 }
 
 void FullNodeImpl::start_plumtree_stats_exchange() {
-  auto masterchain_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull{masterchainId}).first;
+  auto masterchain_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull{masterchainId}, true).first;
   if (masterchain_overlay.empty()) {
     return;
   }
@@ -1277,14 +1287,13 @@ std::shared_ptr<RateLimiter<>> FullNodeImpl::make_rate_limiter(const FullNodeOpt
                ton_api::tonNode_downloadNextBlockFull::ID, ton_api::tonNode_downloadNextBlocksFull::ID,
                ton_api::tonNode_downloadBlockProof::ID, ton_api::tonNode_downloadBlockProofLink::ID,
                ton_api::tonNode_downloadKeyBlockProof::ID, ton_api::tonNode_downloadKeyBlockProofLink::ID,
-               ton_api::tonNode_getOutMsgQueueProof::ID},
+               ton_api::tonNode_getOutMsgQueueProof::ID, ton_api::tonNode_prepareKeyBlockProof::ID},
       RateLimit{w_size, params.limit_small_},
       std::set{ton_api::tonNode_getNextBlockDescription::ID, ton_api::tonNode_getNextBlocksDescription::ID,
-               ton_api::tonNode_prepareBlockProof::ID, ton_api::tonNode_prepareKeyBlockProof::ID,
-               ton_api::tonNode_prepareBlock::ID, ton_api::tonNode_prepareZeroState::ID,
-               ton_api::tonNode_getNextKeyBlockIds::ID, ton_api::tonNode_getArchiveInfo::ID,
-               ton_api::tonNode_getShardArchiveInfo::ID, ton_api::tonNode_preparePersistentState::ID,
-               ton_api::tonNode_getPersistentStateSizeV2::ID});
+               ton_api::tonNode_prepareBlockProof::ID, ton_api::tonNode_prepareBlock::ID,
+               ton_api::tonNode_prepareZeroState::ID, ton_api::tonNode_getNextKeyBlockIds::ID,
+               ton_api::tonNode_getArchiveInfo::ID, ton_api::tonNode_getShardArchiveInfo::ID,
+               ton_api::tonNode_preparePersistentState::ID, ton_api::tonNode_getPersistentStateSizeV2::ID});
 }
 
 }  // namespace fullnode

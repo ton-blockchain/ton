@@ -394,6 +394,7 @@ inline StartedTask<td::Unit> coro_sleep(td::Timestamp t) {
     }
     void alarm() override {
       promise_.set_value(td::Unit{});
+      stop();
     }
   };
   create_actor<S>("sleep", std::move(promise), t).release();

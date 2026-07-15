@@ -192,8 +192,8 @@ class DnsInterface {
   static size_t get_default_max_name_size() {
     return 128;
   }
-  static SmartContract::Args resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
-                                              block::StdAddress address = {});
+  static td::Result<SmartContract::Args> resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
+                                                          block::StdAddress address = {});
   static td::Result<SmartContract::Args> resolve_args(td::Slice name, td::Bits256 category,
                                                       block::StdAddress address = {});
 };

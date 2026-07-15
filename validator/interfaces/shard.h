@@ -89,9 +89,6 @@ class MasterchainState : virtual public ShardState {
   virtual bool check_old_mc_block_id(const ton::BlockIdExt& blkid, bool strict = false) const = 0;
   virtual td::Result<td::Ref<ConfigHolder>> get_config_holder() const = 0;
   virtual block::WorkchainSet get_workchain_list() const = 0;
-  virtual td::Status prepare() {
-    return td::Status::OK();
-  }
   virtual block::SizeLimitsConfig::ExtMsgLimits get_ext_msg_limits() const = 0;
   virtual block::ImportedMsgQueueLimits get_imported_msg_queue_limits(bool is_masterchain) const = 0;
 };

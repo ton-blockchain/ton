@@ -120,6 +120,9 @@ td::Status AdnlInboundConnection::process_custom_packet(td::BufferSlice &data, b
       }
 
       auto pub_key = PublicKey{f->key_};
+      if (!pub_key.is_ed25519()) {
+        return td::Status::Error("expected ed25519 key");
+      }
       TRY_RESULT(enc, pub_key.create_encryptor());
       TRY_STATUS(enc->check_signature(nonce_.as_slice(), f->signature_.as_slice()));
 

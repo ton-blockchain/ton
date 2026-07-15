@@ -35,7 +35,7 @@ namespace ton::validator::fullnode {
 namespace {
 
 constexpr const char *k_called_from_fast_sync = "fast-sync";
-constexpr td::uint64 k_plumtree_stats_file_limit = 1 << 20;
+constexpr td::uint64 k_plumtree_stats_file_limit = 64 << 20;
 constexpr std::size_t k_plumtree_stats_records_limit = 128;
 
 template <class T>
@@ -139,7 +139,7 @@ void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api
   VLOG(full_node, DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
                          << "in fast sync overlay from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false,
-                          BroadcastSource::fast_sync_overlay);
+                          BroadcastSource::fast_sync_overlay, true);
 }
 
 void FullNodeFastSyncOverlay::process_block_finality_broadcast(PublicKeyHash src,
@@ -149,7 +149,7 @@ void FullNodeFastSyncOverlay::process_block_finality_broadcast(PublicKeyHash src
 
   VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in fast sync overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
-                          BroadcastSource::fast_sync_overlay);
+                          BroadcastSource::fast_sync_overlay, true);
 }
 
 void FullNodeFastSyncOverlay::obtain_state_for_decompression(PublicKeyHash src,
@@ -186,7 +186,7 @@ void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash s
 
   VLOG(full_node, DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true,
-                          BroadcastSource::fast_sync_overlay);
+                          BroadcastSource::fast_sync_overlay, true);
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast &query) {
@@ -225,7 +225,7 @@ void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonN
   BlockIdExt block_id = create_block_id(query.block_->block_);
   VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast in fast sync overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
-                          std::move(query.block_->data_));
+                          std::move(query.block_->data_), true);
 }
 
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
@@ -263,7 +263,7 @@ void FullNodeFastSyncOverlay::process_block_candidate_broadcast(PublicKeyHash sr
   }
   VLOG(full_node, DEBUG) << "Received newBlockCandidate in fast sync overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
-                          validator_set_hash, std::move(data), BroadcastSource::fast_sync_overlay);
+                          validator_set_hash, std::move(data), BroadcastSource::fast_sync_overlay, true);
 }
 
 void FullNodeFastSyncOverlay::process_telemetry_broadcast(
@@ -298,7 +298,7 @@ void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSli
       }
     }
     if (plumtree_stats_file_.is_open()) {
-      auto R = fetch_tl_prefix<ton_api::overlay_plumtreeStatsExchange>(broadcast, true);
+      auto R = fetch_tl_object<ton_api::overlay_plumtreeStatsExchange>(broadcast, true);
       if (R.is_ok()) {
         auto msg = R.move_as_ok();
         if (!is_valid_plumtree_stats_exchange(*msg)) {
@@ -792,8 +792,11 @@ td::actor::Task<> FullNodeFastSyncOverlay::ping_peer(adnl::AdnlNodeIdShort peer_
 }
 
 std::pair<td::actor::ActorId<FullNodeFastSyncOverlay>, adnl::AdnlNodeIdShort> FullNodeFastSyncOverlays::choose_overlay(
-    ShardIdFull shard) {
+    ShardIdFull shard, bool require_validator) {
   for (auto &p : id_to_overlays_) {
+    if (require_validator && !p.second.is_validator_) {
+      continue;
+    }
     auto &overlays = p.second.overlays_;
     ShardIdFull cur_shard = shard;
     while (true) {

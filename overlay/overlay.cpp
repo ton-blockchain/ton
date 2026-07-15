@@ -430,8 +430,9 @@ void OverlayImpl::alarm() {
       peer.traffic_responses_ctr = {};
 
       auto P = td::PromiseCreator::lambda([SelfId, peer_id = key](td::Result<td::string> result) {
-        result.ensure();
-        td::actor::send_closure(SelfId, &Overlay::update_peer_ip_str, peer_id, result.move_as_ok());
+        if (result.is_ok()) {
+          td::actor::send_closure(SelfId, &Overlay::update_peer_ip_str, peer_id, result.move_as_ok());
+        }
       });
 
       td::actor::send_closure(adnl_, &adnl::AdnlSenderInterface::get_conn_ip_str, local_id_, key, std::move(P));
@@ -840,26 +841,39 @@ BroadcastCheckResult OverlayImpl::check_source_eligible(PublicKey source, const 
 }
 
 void OverlayImpl::get_self_node(td::Promise<OverlayNode> promise) {
+  td::actor::send_closure(actor_id(this), &OverlayImpl::get_self_node_coro, std::move(promise));
+}
+
+td::actor::Task<OverlayNode> OverlayImpl::get_self_node_coro() {
+  for (size_t iter = 0;; ++iter) {
+    if (!self_node_future_) {
+      self_node_future_ = std::make_shared<td::actor::SharedFuture<OverlayNode>>(get_self_node_inner().start());
+    }
+    auto future = self_node_future_;
+    auto node = co_await future->get();
+    auto now = static_cast<td::int32>(td::Clocks::system());
+    if ((node.version() >= now - 5 && node.flags() == peer_list_.local_member_flags_ &&
+         *node.certificate() == peer_list_.cert_) ||
+        iter > 0) {
+      co_return node;
+    }
+    if (self_node_future_ == future) {
+      self_node_future_ = {};
+    }
+  }
+}
+
+td::actor::Task<OverlayNode> OverlayImpl::get_self_node_inner() {
+  VLOG(overlay, DEBUG) << "get_self_node_inner: start";
   OverlayNode s{local_id_, overlay_id_, peer_list_.local_member_flags_};
   auto to_sign = s.to_sign();
-  auto P = td::PromiseCreator::lambda(
-      [oid = print_id(), s = std::move(s), cert = peer_list_.cert_,
-       promise = std::move(promise)](td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
-        if (R.is_error()) {
-          auto S = R.move_as_error();
-          LOG(ERROR) << oid << ": failed to get self node: " << S;
-          promise.set_error(std::move(S));
-          return;
-        }
-        auto V = R.move_as_ok();
-        s.update_signature(std::move(V.first));
-        s.update_adnl_id(adnl::AdnlNodeIdFull{V.second});
-        s.update_certificate(std::move(cert));
-        promise.set_value(std::move(s));
-      });
-
-  td::actor::send_closure(keyring_, &keyring::Keyring::sign_add_get_public_key, local_id_.pubkey_hash(),
-                          std::move(to_sign), std::move(P));
+  auto [signature, key] = co_await td::actor::ask(keyring_, &keyring::Keyring::sign_add_get_public_key,
+                                                  local_id_.pubkey_hash(), std::move(to_sign));
+  s.update_signature(std::move(signature));
+  s.update_adnl_id(adnl::AdnlNodeIdFull{std::move(key)});
+  s.update_certificate(peer_list_.cert_);
+  VLOG(overlay, DEBUG) << "get_self_node_inner: signed";
+  co_return s;
 }
 
 void OverlayImpl::send_new_fec_broadcast_part(PublicKeyHash local_id, Overlay::BroadcastDataHash data_hash,

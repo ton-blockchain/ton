@@ -366,15 +366,30 @@ void WaitBlockState::got_state_from_net(td::BufferSlice data) {
   if (force_reading_from_db_) {
     return;
   }
+  if (handle_->id().seqno() == 0 && sha256_bits256(data.as_slice()) != handle_->id().file_hash) {
+    LOG(WARNING) << "received bad state: zerostate file hash mismatch";
+    start();
+    return;
+  }
   auto r_root = vm::std_boc_deserialize(data);
   if (r_root.is_error()) {
-    LOG(WARNING) << "received bad state from net: " << r_root.move_as_error();
+    LOG(WARNING) << "received bad state: " << r_root.move_as_error();
+    start();
+    return;
+  }
+  if (handle_->id().seqno() != 0 && r_root.ok()->get_hash().as_bits256() != handle_->state()) {
+    LOG(WARNING) << "received bad state: root hash mismatch";
+    start();
+    return;
+  }
+  if (handle_->id().seqno() == 0 && r_root.ok()->get_hash().as_bits256() != handle_->id().root_hash) {
+    LOG(WARNING) << "received bad state: root hash mismatch";
     start();
     return;
   }
   auto r_state = create_shard_state(handle_->id(), r_root.move_as_ok());
   if (r_state.is_error()) {
-    LOG(WARNING) << "received bad state from net: " << r_state.move_as_error();
+    LOG(WARNING) << "received bad state: " << r_state.move_as_error();
     start();
     return;
   }
@@ -383,22 +398,11 @@ void WaitBlockState::got_state_from_net(td::BufferSlice data) {
   if (handle_->id().id.seqno == 0) {
     handle_->set_state_root_hash(handle_->id().root_hash);
   }
-  if (state->root_hash() != handle_->state()) {
-    LOG(WARNING) << "received state have bad root hash";
-    start();
-    return;
-  }
 
   if (handle_->id().id.seqno != 0) {
     auto S = state->validate_deep();
     if (S.is_error()) {
-      LOG(WARNING) << "received bad state from net: " << S;
-      start();
-      return;
-    }
-  } else {
-    if (sha256_bits256(data.as_slice()) != handle_->id().file_hash) {
-      LOG(WARNING) << "received bad state from net: file hash mismatch";
+      LOG(WARNING) << "received bad state: " << S;
       start();
       return;
     }

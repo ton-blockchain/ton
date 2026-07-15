@@ -179,8 +179,11 @@ td::Result<DnsInterface::EntryData> DnsInterface::EntryData::from_cellslice(vm::
   return td::Status::Error("Unknown entry data");
 }
 
-SmartContract::Args DnsInterface::resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
-                                                   block::StdAddress address) {
+td::Result<SmartContract::Args> DnsInterface::resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
+                                                               block::StdAddress address) {
+  if (encoded_name.size() > 127) {
+    return td::Status::Error("DNS encoded name is too long");
+  }
   SmartContract::Args res;
   res.set_method_id("dnsresolve");
   res.set_stack({vm::load_cell_slice_ref(vm::CellBuilder().store_bytes(encoded_name).finalize()),
@@ -486,7 +489,8 @@ td::Result<std::vector<ManualDns::RawEntry>> ManualDns::resolve_raw_or_throw(td:
     return td::Status::Error("Name is too long");
   }
   auto encoded_name = encode_name(name);
-  auto res = run_get_method(resolve_args_raw(encoded_name, category, address_));
+  TRY_RESULT(args, resolve_args_raw(encoded_name, category, address_));
+  auto res = run_get_method(std::move(args));
   if (!res.success) {
     return td::Status::Error("get method failed");
   }

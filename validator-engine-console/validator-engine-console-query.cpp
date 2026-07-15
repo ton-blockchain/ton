@@ -936,6 +936,7 @@ void SignCertificateQuery::receive_signature(td::BufferSlice R) {
     return;
   }
   signature_ = std::move(f.move_as_ok()->signature_);
+  has_signature_ = true;
   if (has_pubkey_) {
     save_certificate();
   }
@@ -950,6 +951,7 @@ void SignCertificateQuery::save_certificate() {
     return;
   }
   td::TerminalIO::out() << "saved certificate\n";
+  td::actor::send_closure(console_, &ValidatorEngineConsole::got_result, true);
   stop();
 }
 

@@ -596,6 +596,9 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
   td::actor::Task<> standstill_resolution_task() {
     auto &bus = *owning_bus();
+    if (!bus.is_validator()) {
+      co_return {};
+    }
 
     // At time `now`, we are allowed to send
     // `egress_quota + (now - quota_time) * max_egress_bytes_per_s` bytes.
@@ -619,7 +622,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
       }
       egress_quota -= msg_size;
 
-      owning_bus().publish<OutgoingProtocolMessage>(OutgoingProtocolMessage::BroadcastToAll{}, std::move(message));
+      owning_bus().publish<OutgoingProtocolMessage>(OutgoingProtocolMessage::BroadcastToValidators{},
+                                                    std::move(message));
       co_return {};
     };
 
@@ -643,7 +647,8 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
 
       auto [begin, end] = state_->tracked_slots_interval();
       for (td::uint32 i = begin; i < end && last_final_cert_ == last_final_cert_copy; ++i) {
-        auto &state = state_->slot_at(i)->state;
+        auto slot = state_->slot_at(i);
+        auto &state = slot->state;
 
         std::vector<ProtocolMessage> messages;
         state->certs.serialize_to(messages);

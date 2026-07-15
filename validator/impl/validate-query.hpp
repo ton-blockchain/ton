@@ -262,6 +262,7 @@ class ValidateQuery : public td::actor::Actor {
   std::function<td::Ref<vm::Cell>(const td::Bits256&)> storage_stat_cache_;
   std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update_;
 
+  bool short_dequeue_records_ = false;
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;
   bool store_out_msg_queue_size_ = false;

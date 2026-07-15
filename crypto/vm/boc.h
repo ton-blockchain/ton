@@ -282,18 +282,18 @@ class BagOfCells {
       valid = false;
     }
     long long parse_serialized_header(const td::Slice& slice);
-    unsigned long long read_int(const unsigned char* ptr, unsigned bytes);
-    unsigned long long read_ref(const unsigned char* ptr) {
+    unsigned long long read_int(const unsigned char* ptr, unsigned bytes) const;
+    unsigned long long read_ref(const unsigned char* ptr) const {
       return read_int(ptr, ref_byte_size);
     }
-    unsigned long long read_offset(const unsigned char* ptr) {
+    unsigned long long read_offset(const unsigned char* ptr) const {
       return read_int(ptr, offset_byte_size);
     }
-    void write_int(unsigned char* ptr, unsigned long long value, int bytes);
-    void write_ref(unsigned char* ptr, unsigned long long value) {
+    void write_int(unsigned char* ptr, unsigned long long value, int bytes) const;
+    void write_ref(unsigned char* ptr, unsigned long long value) const {
       write_int(ptr, value, ref_byte_size);
     }
-    void write_offset(unsigned char* ptr, unsigned long long value) {
+    void write_offset(unsigned char* ptr, unsigned long long value) const {
       write_int(ptr, value, offset_byte_size);
     }
   };

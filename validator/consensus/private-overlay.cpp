@@ -101,9 +101,17 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
                               message->message.data.clone(), adnl_sender_);
     };
 
-    auto broadcast_fn = [&](const OutgoingProtocolMessage::BroadcastToAll&) {
+    auto broadcast_all_fn = [&](const OutgoingProtocolMessage::BroadcastToAll&) {
       for (const auto& adnl_id : other_overlay_nodes_) {
         send_to_peer(adnl_id);
+      }
+    };
+
+    auto broadcast_validators_fn = [&](const OutgoingProtocolMessage::BroadcastToValidators&) {
+      for (const auto& [adnl_id, _] : adnl_id_to_peer_) {
+        if (adnl_id != local_adnl_id_) {
+          send_to_peer(adnl_id);
+        }
       }
     };
 
@@ -117,7 +125,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       }
     };
 
-    std::visit(td::overloaded(broadcast_fn, gossip_fn), message->recipient);
+    std::visit(td::overloaded(broadcast_all_fn, broadcast_validators_fn, gossip_fn), message->recipient);
   }
 
   template <>

@@ -87,7 +87,7 @@ void FullNodeCustomOverlay::process_block_broadcast(PublicKeyHash src, ton_api::
   VLOG(full_node, DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
                          << "in custom overlay \"" << name_ << "\" from " << src << ": " << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false,
-                          BroadcastSource::custom_overlay);
+                          BroadcastSource::custom_overlay, !block_senders_.contains(local_id_));
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
@@ -102,7 +102,7 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
   VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
                          << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
-                          BroadcastSource::custom_overlay);
+                          BroadcastSource::custom_overlay, !block_senders_.contains(local_id_));
 }
 
 void FullNodeCustomOverlay::obtain_state_for_decompression(PublicKeyHash src,
@@ -140,7 +140,7 @@ void FullNodeCustomOverlay::process_block_broadcast_with_state(PublicKeyHash src
   VLOG(full_node, DEBUG) << "Received block broadcast in custom overlay \"" << name_ << "\" from " << src << ": "
                          << B.ok().block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true,
-                          BroadcastSource::custom_overlay);
+                          BroadcastSource::custom_overlay, !block_senders_.contains(local_id_));
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query) {
@@ -198,7 +198,8 @@ void FullNodeCustomOverlay::process_block_candidate_broadcast(PublicKeyHash src,
   VLOG(full_node, DEBUG) << "Received newBlockCandidate in custom overlay \"" << name_ << "\" from " << src << ": "
                          << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_candidate_broadcast, block_id, cc_seqno,
-                          validator_set_hash, std::move(data), BroadcastSource::custom_overlay);
+                          validator_set_hash, std::move(data), BroadcastSource::custom_overlay,
+                          !block_senders_.contains(local_id_));
 }
 
 void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
@@ -211,7 +212,7 @@ void FullNodeCustomOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNod
   VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast in custom overlay \"" << name_ << "\" from " << src << ": "
                          << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
-                          std::move(query.block_->data_));
+                          std::move(query.block_->data_), !block_senders_.contains(local_id_));
 }
 
 void FullNodeCustomOverlay::receive_broadcast(PublicKeyHash src, td::BufferSlice broadcast) {

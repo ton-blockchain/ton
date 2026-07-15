@@ -4822,6 +4822,13 @@ bool Collator::process_new_messages(bool& enqueue_only) {
     stats_.load_fraction_new_msgs = block_limit_status_->load_fraction(block::ParamLimits::cl_normal);
   };
   while (!new_msgs.empty()) {
+    if (!block_limit_status_->fits(block::ParamLimits::cl_normal)) {
+      block_full_ = true;
+    }
+    if (!block_full_ && internal_msg_timeout_.is_in_past()) {
+      LOG(INFO) << "soft timeout reached, enqueue all remaining new messages";
+      block_full_ = true;
+    }
     block::NewOutMsg msg = new_msgs.top();
     new_msgs.pop();
     block_limit_status_->extra_out_msgs--;
@@ -5355,7 +5362,7 @@ bool Collator::update_block_creator_stats() {
  * @returns A Result object containing a reference to the configuration data.
  */
 td::Result<Ref<vm::Cell>> Collator::get_config_data_from_smc(const ton::StdSmcAddress& cfg_addr) {
-  return block::get_config_data_from_smc(account_dict->lookup_ref(cfg_addr));
+  return block::get_config_data_from_smc(account_dict->lookup(cfg_addr));
 }
 
 /**

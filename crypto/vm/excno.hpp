@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include "cells/CellBuilder.h"
 #include "td/utils/Status.h"
 
 namespace vm {
@@ -142,12 +143,20 @@ template <class F>
 auto try_f(F&& f) noexcept -> decltype(f()) {
   try {
     return f();
-  } catch (vm::VmError& error) {
+  } catch (VmError& error) {
     return error.as_status("Got a vm exception: ");
-  } catch (vm::VmVirtError& error) {
+  } catch (VmVirtError& error) {
     return error.as_status("Got a vm virtualization exception: ");
-  } catch (vm::VmNoGas& error) {
+  } catch (VmNoGas& error) {
     return error.as_status("Got a vm no gas exception: ");
+  } catch (CellBuilder::CellCreateError&) {
+    return td::Status::Error("Got cell create error");
+  } catch (CellBuilder::CellWriteError&) {
+    return td::Status::Error("Got cell write error");
+  } catch (const std::exception& err) {
+    return td::Status::Error(PSTRING() << "Got exception: " << err.what());
+  } catch (...) {
+    return td::Status::Error("Got unknown exception");
   }
 }
 

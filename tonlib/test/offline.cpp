@@ -307,7 +307,7 @@ TEST(Tonlib, Mnemonic) {
 TEST(Tonlib, Keys) {
   auto a = Mnemonic::create(td::SecureString(" Hello, . $^\n# World!   "), td::SecureString("cucumber")).move_as_ok();
   DecryptedKey decrypted_key(std::move(a));
-  EncryptedKey encrypted_key = decrypted_key.encrypt("qwerty");
+  EncryptedKey encrypted_key = decrypted_key.encrypt("qwerty").ensure().move_as_ok();
   auto other_decrypted_key = encrypted_key.decrypt("qwerty").move_as_ok();
   encrypted_key.decrypt("abcde").ensure_error();
   CHECK(decrypted_key.mnemonic_words == other_decrypted_key.mnemonic_words);

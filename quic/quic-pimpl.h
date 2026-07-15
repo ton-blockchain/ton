@@ -43,7 +43,7 @@ struct QuicConnectionOptions {
   static constexpr size_t DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_LOCAL = 4 << 20;
   static constexpr size_t DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE = 256 << 10;
   static constexpr size_t DEFAULT_MAX_STREAM_WINDOW = 6 << 20;
-  static constexpr size_t DEFAULT_MAX_STREAMS_BIDI = 1024;
+  static constexpr size_t DEFAULT_MAX_STREAMS_BIDI = 4096;
   static constexpr ngtcp2_duration DEFAULT_IDLE_TIMEOUT = 15 * NGTCP2_SECONDS;
   static constexpr ngtcp2_duration DEFAULT_KEEP_ALIVE_TIMEOUT = 5 * NGTCP2_SECONDS;
 

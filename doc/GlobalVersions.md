@@ -329,3 +329,4 @@ __Enabled in mainnet on 2026-06-05__
   - Private libraries cannot be added and are not used in TVM library context.
   - Account cannot be deployed with non-null libraries dict.
 - When action phase fails, action fine is now collected for all successful messages as well.
+- Total bits/cells in outgoing messages of a transaction are now limited to `5242880`/`20480` (configured in `ConfigParam 43`).
