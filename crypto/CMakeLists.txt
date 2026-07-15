@@ -191,8 +191,6 @@ set(TLB_BLOCK_AUTO
 )
 
 set(BLOCK_SOURCE
-  block/Binlog.h
-  block/Binlog.cpp
   block/block.cpp
   block/block-db.cpp
   block/block-parse.cpp
@@ -205,8 +203,6 @@ set(BLOCK_SOURCE
   block/precompiled-smc/PrecompiledSmartContract.cpp
   ${TLB_BLOCK_AUTO}
 
-  block/block-binlog.h
-  block/block-db-impl.h
   block/block-db.h
   block/block.h
   block/block-parse.h
