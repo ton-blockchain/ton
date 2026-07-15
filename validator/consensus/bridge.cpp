@@ -173,16 +173,36 @@ class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::ac
   }
 
   template <>
-  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
-    if (event->candidate->is_empty()) {
+  void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
+    send_block_candidate(event->candidate);
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const FinalizeBlock> event) {
+    // In case we did not get broadcast (CandidateReceived), but block was finalized
+    if (event->candidate->block_id().seqno() + 4 > last_mc_finalized_seqno_) {
+      send_block_candidate(event->candidate);
+    }
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const BlockFinalizedInMasterchain> event) {
+    last_mc_finalized_seqno_ = std::max(event->block.seqno(), last_mc_finalized_seqno_);
+  }
+
+ private:
+  std::set<BlockIdExt> sent_block_candidates_;
+  BlockSeqno last_mc_finalized_seqno_ = 0;
+
+  void send_block_candidate(const CandidateRef& candidate) {
+    if (candidate->is_empty()) {
       return;
     }
-
-    int mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync |
-               fullnode::FullNode::broadcast_mode_public;
-    const auto& block = std::get<BlockCandidate>(event->candidate->block);
-    td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, block.id, block.data.clone(),
-                            mode);
+    const auto& block = std::get<BlockCandidate>(candidate->block);
+    if (sent_block_candidates_.insert(block.id).second) {
+      td::actor::send_closure(owning_bus()->manager, &ManagerFacade::send_block_candidate_broadcast, block.id,
+                              block.data.clone(), fullnode::FullNode::broadcast_mode_all);
+    }
   }
 };
 
