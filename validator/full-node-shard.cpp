@@ -306,8 +306,8 @@ void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno 
 
 void FullNodeShardImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality) {
   VLOG(full_node, DEBUG) << "Sending Plumtree blockFinalityBroadcast in public overlay: " << finality.block_id;
-  auto broadcast_id = get_tl_object_sha_bits256(
-      create_tl_object<ton_api::tonNode_finalityBroadcastId>(create_tl_block_id(finality.block_id)));
+  auto broadcast_id = get_tl_object_sha_bits256(create_tl_object<ton_api::tonNode_finalityBroadcastId>(
+      create_tl_block_id(finality.block_id), finality.sig_set->is_final()));
   auto payload = create_serialize_tl_object<ton_api::tonNode_blockFinalityBroadcast>(
       create_tl_block_id(finality.block_id), finality.sig_set->tl());
   auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
