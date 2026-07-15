@@ -256,100 +256,12 @@ void FullNodeShardImpl::process_block_candidate_broadcast(PublicKeyHash src, ton
                           validator_set_hash, std::move(data), BroadcastSource::public_overlay, false);
 }
 
-void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
-  process_block_broadcast(src, query);
-}
-
-void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query) {
-  process_block_broadcast(src, query);
-}
-
-void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
-  auto R_requires_state = need_state_for_decompression(query);
-  if (R_requires_state.is_error()) {
-    LOG(DEBUG) << "Failed to check if state is required for broadcast: " << R_requires_state.move_as_error();
-    return;
-  }
-
-  if (R_requires_state.move_as_ok()) {
-    auto block_wo_data = get_block_broadcast_without_data(query);
-    auto P = td::PromiseCreator::lambda(
-        [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Unit> R) mutable {
-          if (R.is_error()) {
-            LOG(DEBUG) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
-            return;
-          }
-
-          td::actor::send_closure(SelfId, &FullNodeShardImpl::obtain_state_for_decompression, src, std::move(query));
-        });
-    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_broadcast_signatures,
-                            std::move(block_wo_data), std::move(P));
-    return;
-  }
-
-  process_block_broadcast(src, query);
-}
-
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
   auto block_id = create_block_id(query.id_);
   BlockFinalityBroadcast finality{block_id, block::BlockSignatureSet::fetch(query.signature_set_)};
 
   VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in public overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
-                          BroadcastSource::public_overlay, false);
-}
-
-void FullNodeShardImpl::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_public);
-  if (B.is_error()) {
-    LOG(DEBUG) << "Failed to deserialize block broadcast: " << B.move_as_error();
-    return;
-  }
-  //if (!shard_is_ancestor(shard_, block_id.shard_full())) {
-  //  VLOG(full_node, WARNING) << "dropping block broadcast: shard mismatch. overlay=" << shard_.to_str()
-  //                         << " block=" << block_id.to_str();
-  //  return;
-  //}
-  VLOG(full_node, DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
-                         << "from " << src << ": " << B.ok().block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false,
-                          BroadcastSource::public_overlay, false);
-}
-
-void FullNodeShardImpl::obtain_state_for_decompression(PublicKeyHash src,
-                                                       ton_api::tonNode_blockBroadcastCompressedV2 query) {
-  auto id = create_block_id(query.id_);
-  auto R_prev = extract_prev_blocks_from_proof(query.proof_.as_slice(), id);
-  if (R_prev.is_error()) {
-    LOG(DEBUG) << "Failed to extract prev blocks for V2 broadcast: " << R_prev.move_as_error();
-    return;
-  }
-  auto prev_blocks = R_prev.move_as_ok();
-  auto P_state = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Ref<ShardState>> R_state) mutable {
-        if (R_state.is_error()) {
-          LOG(DEBUG) << "Failed to get state for V2 broadcast: " << R_state.move_as_error();
-          return;
-        }
-        td::actor::send_closure(SelfId, &FullNodeShardImpl::process_block_broadcast_with_state, src, std::move(query),
-                                R_state.move_as_ok());
-      });
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
-                          std::move(prev_blocks), std::move(P_state));
-}
-
-void FullNodeShardImpl::process_block_broadcast_with_state(PublicKeyHash src,
-                                                           ton_api::tonNode_blockBroadcastCompressedV2 query,
-                                                           td::Ref<ShardState> state) {
-  td::Ref<vm::Cell> state_root = state->root_cell();
-  auto B =
-      deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_public, state_root);
-  if (B.is_error()) {
-    LOG(DEBUG) << "Failed to deserialize block broadcast: " << B.move_as_error();
-    return;
-  }
-  VLOG(full_node, DEBUG) << "Received block broadcast from " << src << ": " << B.ok().block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true,
                           BroadcastSource::public_overlay, false);
 }
 
@@ -411,19 +323,6 @@ void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno 
   auto payload = B.move_as_ok();
   auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
   td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_plumtree_fec, adnl_id_, overlay_id_, source,
-                          overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
-}
-
-void FullNodeShardImpl::send_broadcast(BlockBroadcast broadcast) {
-  VLOG(full_node, DEBUG) << "Sending block broadcast in private overlay: " << broadcast.block_id;
-  auto B = serialize_block_broadcast(broadcast, k_called_from_public);
-  if (B.is_error()) {
-    VLOG(full_node, WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
-    return;
-  }
-  auto payload = B.move_as_ok();
-  auto source = choose_outbound_source(static_cast<td::uint32>(payload.size()), true);
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
                           overlay::Overlays::BroadcastFlagAnySender(), std::move(payload));
 }
 

@@ -2006,10 +2006,6 @@ void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBloc
   }
 }
 
-void ValidatorManagerImpl::send_block_broadcast(BlockBroadcast broadcast, int mode) {
-  callback_->send_broadcast(std::move(broadcast), mode);
-}
-
 void ValidatorManagerImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
   new_block_finality_broadcast(finality.clone(), BroadcastSource::consensus_overlay).start().detach();
   callback_->send_block_finality_broadcast(std::move(finality), mode);

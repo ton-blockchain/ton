@@ -112,12 +112,11 @@ td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
-                            int block_broadcast_mode, int finality_broadcast_mode, bool send_shard_block_desc,
-                            bool apply, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise) {
+                            bool send_finality_broadcast, bool apply, td::actor::ActorId<ValidatorManager> manager,
+                            td::Promise<td::Unit> promise) {
   td::actor::create_actor<AcceptBlockQuery>(PSTRING() << "accept" << (signatures.is_null() ? "-nosign" : "") << id.id,
                                             id, std::move(data), prev, std::move(validator_set), std::move(signatures),
-                                            block_broadcast_mode, finality_broadcast_mode, send_shard_block_desc, apply,
-                                            manager, std::move(promise))
+                                            send_finality_broadcast, apply, manager, std::move(promise))
       .release();
 }
 

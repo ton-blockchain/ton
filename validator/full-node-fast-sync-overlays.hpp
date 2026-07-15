@@ -28,16 +28,9 @@ namespace ton::validator::fullnode {
 
 class FullNodeFastSyncOverlay : public td::actor::Actor {
  public:
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast& query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed& query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2& query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast& query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast& query);
-  void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast& query);
   void process_block_finality_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast& query);
-  void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
-  void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
-                                          td::Ref<ShardState> state);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast& query);
 
@@ -57,7 +50,6 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
 
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
-  void send_broadcast(BlockBroadcast broadcast);
   void send_block_finality_broadcast(BlockFinalityBroadcast finality);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);

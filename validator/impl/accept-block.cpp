@@ -30,6 +30,7 @@
 
 #include "accept-block.hpp"
 #include "fabric.h"
+#include "full-node.h"
 #include "top-shard-descr.hpp"
 
 namespace ton {
@@ -39,9 +40,9 @@ using namespace std::literals::string_literals;
 
 AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                    td::Ref<block::ValidatorSet> validator_set,
-                                   td::Ref<block::BlockSignatureSet> signatures, int block_broadcast_mode,
-                                   int finality_broadcast_mode, bool send_shard_block_desc, bool apply,
-                                   td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise)
+                                   td::Ref<block::BlockSignatureSet> signatures, bool send_finality_broadcast,
+                                   bool apply, td::actor::ActorId<ValidatorManager> manager,
+                                   td::Promise<td::Unit> promise)
     : id_(id)
     , data_(std::move(data))
     , prev_(std::move(prev))
@@ -49,9 +50,7 @@ AcceptBlockQuery::AcceptBlockQuery(BlockIdExt id, td::Ref<BlockData> data, std::
     , signatures_(std::move(signatures))
     , is_fake_(false)
     , is_fork_(false)
-    , block_broadcast_mode_(block_broadcast_mode)
-    , finality_broadcast_mode_(finality_broadcast_mode)
-    , send_shard_block_desc_(send_shard_block_desc)
+    , send_finality_broadcast_(send_finality_broadcast)
     , apply_(apply)
     , manager_(manager)
     , promise_(std::move(promise))
@@ -418,7 +417,7 @@ void AcceptBlockQuery::got_block_handle(BlockHandle handle) {
       handle_->inited_state_root_hash() &&
       (is_masterchain() ? handle_->inited_proof() && handle_->is_applied() && handle_->inited_is_key_block()
                         : handle_->inited_proof_link()) &&
-      block_broadcast_mode_ == 0 && finality_broadcast_mode_ == 0) {
+      !send_finality_broadcast_) {
     finish_query();
     return;
   }
@@ -846,9 +845,6 @@ void AcceptBlockQuery::top_block_descr_validated(td::Result<Ref<ShardTopBlockDes
   } else {
     top_block_descr_ = R.move_as_ok();
     CHECK(top_block_descr_.not_null());
-    if (send_shard_block_desc_) {
-      td::actor::send_closure_later(manager_, &ValidatorManager::send_top_shard_block_description, top_block_descr_);
-    }
   }
   written_block_next();
 }
@@ -882,37 +878,12 @@ void AcceptBlockQuery::applied() {
 }
 
 void AcceptBlockQuery::send_broadcasts() {
-  if (block_broadcast_mode_ == 0 && finality_broadcast_mode_ == 0) {
+  if (!send_finality_broadcast_) {
     return;
   }
-  VLOG(validator, DEBUG) << "send_broadcasts block_mode=" << block_broadcast_mode_
-                         << " finality_mode=" << finality_broadcast_mode_;
-  if (finality_broadcast_mode_ != 0) {
-    td::actor::send_closure_later(manager_, &ValidatorManager::send_block_finality_broadcast,
-                                  BlockFinalityBroadcast{id_, signatures_}, finality_broadcast_mode_);
-  }
-
-  if (block_broadcast_mode_ == 0) {
-    return;
-  }
-
-  BlockBroadcast b;
-  b.data = data_->data();
-  b.block_id = id_;
-  b.sig_set = signatures_;
-  if (is_masterchain()) {
-    b.proof = proof_->data();
-  } else {
-    b.proof = proof_link_->data();
-  }
-
-  // do not wait for answer
-  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_broadcast, std::move(b), block_broadcast_mode_);
-
-  // Do this for shard blocks later:
-  // td::actor::send_closure(manager_, &ValidatorManager::send_block_candidate_broadcast, id_,
-  //                         validator_set_->get_catchain_seqno(), validator_set_->get_validator_set_hash(),
-  //                         std::move(b.data), block_broadcast_mode_);
+  VLOG(validator, DEBUG) << "send finality broadcasts";
+  td::actor::send_closure_later(manager_, &ValidatorManager::send_block_finality_broadcast,
+                                BlockFinalityBroadcast{id_, signatures_}, fullnode::FullNode::broadcast_mode_all);
 }
 
 }  // namespace validator

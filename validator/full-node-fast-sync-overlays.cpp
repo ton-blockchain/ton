@@ -92,54 +92,8 @@ bool is_valid_plumtree_stats_exchange(const ton_api::overlay_plumtreeStatsExchan
 
 }  // namespace
 
-void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query) {
-  process_block_broadcast(src, query);
-}
-
-void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query) {
-  process_block_broadcast(src, query);
-}
-
-void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query) {
-  auto R_requires_state = need_state_for_decompression(query);
-  if (R_requires_state.is_error()) {
-    LOG(DEBUG) << "Failed to check if state is required for broadcast: " << R_requires_state.move_as_error();
-    return;
-  }
-
-  if (R_requires_state.move_as_ok()) {
-    auto block_wo_data = get_block_broadcast_without_data(query);
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), src,
-                                         query = std::move(query)](td::Result<td::Unit> R) mutable {
-      if (R.is_error()) {
-        LOG(DEBUG) << "Dropped V2 broadcast because of signatures validation error: " << R.move_as_error();
-        return;
-      }
-
-      td::actor::send_closure(SelfId, &FullNodeFastSyncOverlay::obtain_state_for_decompression, src, std::move(query));
-    });
-    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::validate_block_broadcast_signatures,
-                            std::move(block_wo_data), std::move(P));
-    return;
-  }
-
-  process_block_broadcast(src, query);
-}
-
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query) {
   process_block_finality_broadcast(src, query);
-}
-
-void FullNodeFastSyncOverlay::process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query) {
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_fast_sync);
-  if (B.is_error()) {
-    LOG(DEBUG) << "dropped broadcast: " << B.move_as_error();
-    return;
-  }
-  VLOG(full_node, DEBUG) << "Received block broadcast " << (B.ok().sig_set->is_final() ? "" : "(approve signatures) ")
-                         << "in fast sync overlay from " << src << ": " << B.ok().block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), false,
-                          BroadcastSource::fast_sync_overlay, true);
 }
 
 void FullNodeFastSyncOverlay::process_block_finality_broadcast(PublicKeyHash src,
@@ -149,43 +103,6 @@ void FullNodeFastSyncOverlay::process_block_finality_broadcast(PublicKeyHash src
 
   VLOG(full_node, DEBUG) << "Received blockFinalityBroadcast in fast sync overlay from " << src << ": " << block_id;
   td::actor::send_closure(full_node_, &FullNode::process_block_finality_broadcast, std::move(finality),
-                          BroadcastSource::fast_sync_overlay, true);
-}
-
-void FullNodeFastSyncOverlay::obtain_state_for_decompression(PublicKeyHash src,
-                                                             ton_api::tonNode_blockBroadcastCompressedV2 query) {
-  auto id = create_block_id(query.id_);
-  auto R_prev = extract_prev_blocks_from_proof(query.proof_.as_slice(), id);
-  if (R_prev.is_error()) {
-    LOG(DEBUG) << "Failed to extract prev blocks for V2 broadcast: " << R_prev.move_as_error();
-    return;
-  }
-  auto prev_blocks = R_prev.move_as_ok();
-  auto P_state = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), src, query = std::move(query)](td::Result<td::Ref<ShardState>> R_state) mutable {
-        if (R_state.is_error()) {
-          LOG(DEBUG) << "Failed to get state for V2 broadcast: " << R_state.move_as_error();
-          return;
-        }
-        td::actor::send_closure(SelfId, &FullNodeFastSyncOverlay::process_block_broadcast_with_state, src,
-                                std::move(query), R_state.move_as_ok());
-      });
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::wait_state_by_prev_blocks, id,
-                          std::move(prev_blocks), std::move(P_state));
-}
-
-void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash src,
-                                                                 ton_api::tonNode_blockBroadcastCompressedV2 query,
-                                                                 td::Ref<ShardState> state) {
-  auto B = deserialize_block_broadcast(query, overlay::Overlays::max_fec_broadcast_size(), k_called_from_fast_sync,
-                                       state->root_cell());
-  if (B.is_error()) {
-    LOG(DEBUG) << "Failed to deserialize V2 broadcast: " << B.move_as_error();
-    return;
-  }
-
-  VLOG(full_node, DEBUG) << "Received V2 block broadcast in fast sync overlay from " << src << ": " << B.ok().block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_block_broadcast, B.move_as_ok(), true,
                           BroadcastSource::fast_sync_overlay, true);
 }
 
@@ -336,20 +253,6 @@ void FullNodeFastSyncOverlay::send_shard_block_info(BlockIdExt block_id, Catchai
         overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_, local_id_.pubkey_hash(),
         overlay::Overlays::BroadcastFlagAnySender() | overlay::Overlays::BroadcastFlagNoTwostep(), std::move(B));
   }
-}
-
-void FullNodeFastSyncOverlay::send_broadcast(BlockBroadcast broadcast) {
-  if (!inited_) {
-    return;
-  }
-  VLOG(full_node, DEBUG) << "Sending block broadcast in fast sync overlay (with compression): " << broadcast.block_id;
-  auto B = serialize_block_broadcast(broadcast, k_called_from_fast_sync);
-  if (B.is_error()) {
-    VLOG(full_node, WARNING) << "failed to serialize block broadcast: " << B.move_as_error();
-    return;
-  }
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), B.move_as_ok());
 }
 
 void FullNodeFastSyncOverlay::send_block_finality_broadcast(BlockFinalityBroadcast finality) {
