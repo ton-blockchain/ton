@@ -210,7 +210,7 @@ void WaitBlockData::start() {
                                 td::actor::send_closure(SelfId, &WaitBlockData::start);
                               } else {
                                 td::actor::send_closure(SelfId, &WaitBlockData::loaded_data,
-                                                        ReceivedBlock{id, R.move_as_ok()});
+                                                        ReceivedBlock{id, R.move_as_ok()}, false);
                               }
                             });
   } else {
@@ -219,7 +219,7 @@ void WaitBlockData::start() {
         td::actor::send_closure(SelfId, &WaitBlockData::failed_to_get_block_data_from_net,
                                 R.move_as_error_prefix("net error: "));
       } else {
-        td::actor::send_closure(SelfId, &WaitBlockData::loaded_data, R.move_as_ok());
+        td::actor::send_closure(SelfId, &WaitBlockData::loaded_data, R.move_as_ok(), false);
       }
     });
 
@@ -244,10 +244,14 @@ void WaitBlockData::failed_to_get_block_data_from_net(td::Status reason) {
                td::Timestamp::in(0.1));
 }
 
-void WaitBlockData::loaded_data(ReceivedBlock block) {
+void WaitBlockData::loaded_data(ReceivedBlock block, bool from_manager) {
   auto X = create_block(std::move(block));
   if (X.is_error()) {
-    failed_to_get_block_data_from_net(X.move_as_error_prefix("bad block from net: "));
+    if (from_manager) {
+      LOG(WARNING) << "bad block from cache: " << X.move_as_error();
+    } else {
+      failed_to_get_block_data_from_net(X.move_as_error_prefix("bad block from net: "));
+    }
     return;
   }
   loaded_block_data(X.move_as_ok());
@@ -347,29 +351,15 @@ void WaitBlockData::got_static_file(td::BufferSlice data) {
 }
 
 td::Result<td::BufferSlice> WaitBlockData::generate_proof(BlockIdExt id, td::Ref<vm::Cell> block_root,
-                                                          td::Ref<block::BlockSignatureSet> signatures,
-                                                          td::Ref<MasterchainState> state) {
+                                                          td::Ref<vm::Cell> serialized_signatures) {
   if (!id.is_masterchain()) {
     return td::Status::Error("cannot create proof for non-masterchain block");
   }
-  if (signatures.is_null()) {
+  if (serialized_signatures.is_null()) {
     return td::Status::Error("block signatures are null");
   }
-  if (!signatures->is_final()) {
-    return td::Status::Error("cannot create masterchain proof with non-final signatures");
-  }
-  if (state.is_null()) {
-    return td::Status::Error(ErrorCode::notready, "masterchain state is not ready");
-  }
-
   TRY_RESULT(proof_root, generate_block_proof_root(id, std::move(block_root)));
-  TRY_RESULT(config, state->get_config_holder());
-  auto vset = config->get_validator_set(id.shard_full(), signatures->get_catchain_seqno());
-  if (vset.is_null()) {
-    return td::Status::Error(ErrorCode::notready, "failed to compute validator set for masterchain proof");
-  }
-  TRY_RESULT(signatures_cell, signatures->serialize(vset));
-  return serialize_block_proof(id, std::move(proof_root), true, std::move(signatures_cell));
+  return serialize_block_proof(id, std::move(proof_root), true, std::move(serialized_signatures));
 }
 
 td::Result<td::BufferSlice> WaitBlockData::generate_proof_link(BlockIdExt id, td::Ref<vm::Cell> block_root) {

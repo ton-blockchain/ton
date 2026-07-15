@@ -747,9 +747,13 @@ void FullNodeImpl::process_block_finality_broadcast(BlockFinalityBroadcast final
   if (send_to_custom) {
     send_block_finality_broadcast_to_custom_overlays(finality);
   }
-  td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_finality_broadcast, std::move(finality),
-                 source)
-      .detach();
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::got_block_finality, finality.block_id,
+                          finality.sig_set, source, [id = finality.block_id](td::Result<> R) {
+                            if (R.is_error()) {
+                              VLOG(full_node, DEBUG)
+                                  << "Block finality broadcast for " << id << " : " << R.move_as_error();
+                            }
+                          });
 }
 
 void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
@@ -758,9 +762,13 @@ void FullNodeImpl::process_block_candidate_broadcast(BlockIdExt block_id, Catcha
   if (send_to_custom) {
     send_block_candidate_broadcast_to_custom_overlays(block_id, cc_seqno, validator_set_hash, data);
   }
-  td::actor::ask(validator_manager_, &ValidatorManagerInterface::new_block_candidate_broadcast, block_id, cc_seqno,
-                 std::move(data), source)
-      .detach();
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::add_cached_block_data, block_id, cc_seqno,
+                          std::move(data), source, [block_id](td::Result<> R) {
+                            if (R.is_error()) {
+                              VLOG(full_node, DEBUG)
+                                  << "Block candidate broadcast for " << block_id << " : " << R.move_as_error();
+                            }
+                          });
 }
 
 void FullNodeImpl::get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) {
