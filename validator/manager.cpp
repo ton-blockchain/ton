@@ -819,11 +819,11 @@ void ValidatorManagerImpl::wait_block_state(BlockHandle handle, td::uint32 prior
     auto P2 = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle, std::move(R), false);
     });
-    auto id =
-        td::actor::create_actor<WaitBlockState>("waitstate", handle, priority, opts_, last_masterchain_state_,
-                                                actor_id(this), td::Timestamp::at(timeout.at() + 10.0), std::move(P1),
-                                                std::move(P2), get_block_persistent_state_to_download(handle->id()))
-            .release();
+    auto id = td::actor::create_actor<WaitBlockState>(
+                  PSTRING() << "waitstate" << handle->id().id, handle, priority, opts_, last_masterchain_state_,
+                  actor_id(this), td::Timestamp::at(timeout.at() + 10.0), std::move(P1), std::move(P2),
+                  get_block_persistent_state_to_download(handle->id()))
+                  .release();
     wait_state_[handle->id()].actor_ = id;
     it = wait_state_.find(handle->id());
   }
@@ -922,8 +922,8 @@ void ValidatorManagerImpl::wait_block_data(BlockHandle handle, td::uint32 priori
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<BlockData>> R) {
       td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_data, handle, std::move(R));
     });
-    auto id = td::actor::create_actor<WaitBlockData>("waitdata", handle, priority, actor_id(this),
-                                                     td::Timestamp::at(timeout.at() + 10.0),
+    auto id = td::actor::create_actor<WaitBlockData>(PSTRING() << "waitdata" << handle->id().id, handle, priority,
+                                                     actor_id(this), td::Timestamp::at(timeout.at() + 10.0),
                                                      is_shard_collator(handle->id().shard_full()), std::move(P))
                   .release();
     wait_block_data_[handle->id()].actor_ = id;
@@ -951,8 +951,8 @@ void ValidatorManagerImpl::wait_block_data_short(BlockIdExt block_id, td::uint32
 
 void ValidatorManagerImpl::wait_block_state_merge(BlockIdExt left_id, BlockIdExt right_id, td::uint32 priority,
                                                   td::Timestamp timeout, td::Promise<td::Ref<ShardState>> promise) {
-  td::actor::create_actor<WaitBlockStateMerge>("merge", left_id, right_id, priority, actor_id(this), timeout,
-                                               std::move(promise))
+  td::actor::create_actor<WaitBlockStateMerge>(PSTRING() << "merge" << left_id.id << "." << right_id, left_id, right_id,
+                                               priority, actor_id(this), timeout, std::move(promise))
       .release();
 }
 
@@ -1272,10 +1272,11 @@ void ValidatorManagerImpl::finished_wait_state(BlockHandle handle, td::Result<td
       auto P2 = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<ShardState>> R) {
         td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_state, handle, std::move(R), false);
       });
-      auto id = td::actor::create_actor<WaitBlockState>("waitstate", handle, X.second, opts_, last_masterchain_state_,
-                                                        actor_id(this), X.first, std::move(P1), std::move(P2),
-                                                        get_block_persistent_state_to_download(handle->id()))
-                    .release();
+      auto id =
+          td::actor::create_actor<WaitBlockState>(PSTRING() << "waitstate" << handle->id().id, handle, X.second, opts_,
+                                                  last_masterchain_state_, actor_id(this), X.first, std::move(P1),
+                                                  std::move(P2), get_block_persistent_state_to_download(handle->id()))
+              .release();
       it->second.actor_ = id;
       return;
     }
@@ -1297,7 +1298,8 @@ void ValidatorManagerImpl::finished_wait_data(BlockHandle handle, td::Result<td:
         auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Ref<BlockData>> R) {
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::finished_wait_data, handle, std::move(R));
         });
-        auto id = td::actor::create_actor<WaitBlockData>("waitdata", handle, X.second, actor_id(this), X.first,
+        auto id = td::actor::create_actor<WaitBlockData>(PSTRING() << "waitdata" << handle->id().id, handle, X.second,
+                                                         actor_id(this), X.first,
                                                          is_shard_collator(handle->id().shard_full()), std::move(P))
                       .release();
         it->second.actor_ = id;
