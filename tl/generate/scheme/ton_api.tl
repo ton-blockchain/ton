@@ -354,8 +354,6 @@ tonNode.data data:bytes = tonNode.Data;
 
 tonNode.externalMessage data:bytes = tonNode.ExternalMessage;
 
-tonNode.newShardBlock block:tonNode.blockIdExt cc_seqno:int data:bytes = tonNode.NewShardBlock;
-
 tonNode.blockBroadcastCompressed.data signatures:(vector tonNode.blockSignature) proof_data:bytes = tonNode.blockBroadcaseCompressed.Data;
 
 tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int

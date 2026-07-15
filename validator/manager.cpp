@@ -2310,16 +2310,6 @@ void ValidatorManagerImpl::update_shard_blocks() {
     }
     ++it;
   }
-
-  for (auto it = out_shard_blocks_.begin(); it != out_shard_blocks_.end();) {
-    auto &B = it->second;
-    if (!B->may_be_valid(last_masterchain_block_handle_, last_masterchain_state_)) {
-      auto it2 = it++;
-      out_shard_blocks_.erase(it2);
-    } else {
-      ++it;
-    }
-  }
 }
 
 void ValidatorManagerImpl::updated_init_block(BlockIdExt last_rotate_block_id) {

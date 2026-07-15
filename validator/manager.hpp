@@ -674,7 +674,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::Timestamp check_shard_clients_;
   td::Timestamp log_status_at_;
   void alarm() override;
-  std::map<ShardTopBlockDescriptionId, td::Ref<ShardTopBlockDescription>> out_shard_blocks_;
 
  private:
   td::actor::ActorOwn<TokenManager> token_manager_;
