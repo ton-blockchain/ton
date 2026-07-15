@@ -397,14 +397,6 @@ void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_se
   }
 }
 
-void FullNodeImpl::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) {
-  auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(broadcast->dst_shard).first;
-  if (!fast_sync_overlay.empty()) {
-    td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_out_msg_queue_proof_broadcast,
-                            std::move(broadcast));
-  }
-}
-
 void FullNodeImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
   if (mode & broadcast_mode_custom) {
     send_block_finality_broadcast_to_custom_overlays(finality);
@@ -979,9 +971,6 @@ void FullNodeImpl::start_up() {
                               td::BufferSlice data, int mode) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_block_candidate, block_id, cc_seqno, validator_set_hash,
                               std::move(data), mode);
-    }
-    void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) override {
-      td::actor::send_closure(id_, &FullNodeImpl::send_out_msg_queue_proof_broadcast, std::move(broadcast));
     }
     void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override {
       td::actor::send_closure(id_, &FullNodeImpl::send_block_finality_broadcast, std::move(finality), mode);

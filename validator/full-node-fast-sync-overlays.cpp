@@ -106,38 +106,6 @@ void FullNodeFastSyncOverlay::process_block_finality_broadcast(PublicKeyHash src
                           BroadcastSource::fast_sync_overlay, true);
 }
 
-void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast &query) {
-  // Not supported yet
-  /*if (src == local_id_.pubkey_hash()) {
-    return;  // dropping broadcast from self
-  }
-  BlockIdExt block_id = create_block_id(query.block_);
-  ShardIdFull shard_id = create_shard_id(query.dst_shard_);
-  if (query.proof_->get_id() != ton_api::tonNode_outMsgQueueProof::ID) {
-    LOG(ERROR) << "got tonNode.outMsgQueueProofBroadcast with proof not tonNode.outMsgQueueProof";
-    return;
-  }
-  auto tl_proof = move_tl_object_as<ton_api::tonNode_outMsgQueueProof>(query.proof_);
-  auto R = OutMsgQueueProof::fetch(shard_id, {block_id},
-                                   block::ImportedMsgQueueLimits{.max_bytes = td::uint32(query.limits_->max_bytes_),
-                                                                 .max_msgs = td::uint32(query.limits_->max_msgs_)},
-                                   *tl_proof);
-  if (R.is_error()) {
-    LOG(ERROR) << "got tonNode.outMsgQueueProofBroadcast with invalid proof: " << R.error();
-    return;
-  }
-  if (R.ok().size() != 1) {
-    LOG(ERROR) << "got tonNode.outMsgQueueProofBroadcast with invalid proofs count=" << R.ok().size();
-    return;
-  }
-  auto proof = std::move(R.move_as_ok()[0]);
-
-  LOG(INFO) << "got tonNode.outMsgQueueProofBroadcast to " << shard_id.to_str() << " from " << block_id.to_str()
-            << ", msgs=" << proof->msg_count_ << ", size=" << tl_proof->queue_proofs_.size();
-  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::add_out_msg_queue_proof, shard_id,
-                          std::move(proof));*/
-}
-
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
   BlockIdExt block_id = create_block_id(query.block_->block_);
   VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast in fast sync overlay from " << src << ": " << block_id;
@@ -383,24 +351,6 @@ void FullNodeFastSyncOverlay::send_plumtree_stats_to(td::actor::ActorId<FullNode
                             td::actor::send_closure(collector, &FullNodeFastSyncOverlay::send_plumtree_stats,
                                                     stats_overlay, std::string{"fast-sync"}, shard, std::move(records));
                           });
-}
-
-void FullNodeFastSyncOverlay::send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast) {
-  // Not supported yet
-  /*if (!inited_) {
-    return;
-  }
-  auto B = create_serialize_tl_object<ton_api::tonNode_outMsgQueueProofBroadcast>(
-      create_tl_shard_id(broadcast->dst_shard), create_tl_block_id(broadcast->block_id),
-      create_tl_object<ton_api::tonNode_importedMsgQueueLimits>(broadcast->max_bytes, broadcast->max_msgs),
-      create_tl_object<ton_api::tonNode_outMsgQueueProof>(broadcast->queue_proofs.clone(),
-                                                          broadcast->block_state_proofs.clone(),
-                                                          std::vector<td::int32>(1, broadcast->msg_count)));
-  VLOG(full_node, DEBUG) << "Sending outMsgQueueProof in fast sync overlay to " << broadcast->dst_shard.to_str()
-                        << " from " << broadcast->block_id.to_str() << ", msgs=" << broadcast->msg_count
-                        << " bytes=" << broadcast->queue_proofs.size();
-  td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_,
-                          local_id_.pubkey_hash(), overlay::Overlays::BroadcastFlagAnySender(), std::move(B));*/
 }
 
 void FullNodeFastSyncOverlay::start_up() {

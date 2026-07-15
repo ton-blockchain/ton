@@ -250,8 +250,6 @@ class ValidatorManagerInterface : public td::actor::Actor {
     }
     virtual void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) {
     }
-    virtual void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcats) {
-    }
     virtual void download_block(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout,
                                 td::Promise<ReceivedBlock> promise) {
     }

@@ -29,7 +29,6 @@ namespace ton::validator::fullnode {
 class FullNodeFastSyncOverlay : public td::actor::Actor {
  public:
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast& query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast& query);
   void process_block_finality_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast& query);
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast& query);
@@ -53,7 +52,6 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void send_block_finality_broadcast(BlockFinalityBroadcast finality);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
-  void send_out_msg_queue_proof_broadcast(td::Ref<OutMsgQueueProofBroadcast> broadcast);
   void send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry);
 
   void collect_validator_telemetry(std::string filename);
