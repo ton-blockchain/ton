@@ -29,6 +29,11 @@ Result<BufferSlice> read_file(CSlice path, int64 size = -1, int64 offset = 0);
 Result<string> read_file_str(CSlice path, int64 size = -1, int64 offset = 0);
 Result<SecureString> read_file_secure(CSlice path, int64 size = -1, int64 offset = 0);
 
+// mmap-backed read of the whole file. Returns a BufferSlice whose underlying storage
+// is a read-only mmap(MAP_PRIVATE) of the file. Freeing the BufferSlice munmaps.
+// Only available on POSIX; falls back to read_file on other platforms.
+Result<BufferSlice> read_file_mmap(CSlice path);
+
 Status copy_file(CSlice from, CSlice to, int64 size = -1) TD_WARN_UNUSED_RESULT;
 
 struct WriteFileOptions {
