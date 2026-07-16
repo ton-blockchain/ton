@@ -289,12 +289,17 @@ Result<size_t> RocksDb::count(Slice prefix) {
 }
 
 Status RocksDb::for_each(std::function<Status(Slice, Slice)> f) {
+  return for_each(std::move(f), {});
+}
+
+Status RocksDb::for_each(std::function<Status(Slice, Slice)> f, ForEachOptions for_each_options) {
   if (options_.no_reads) {
     return td::Status::Error("trying to read from write-only database");
   }
   rocksdb::ReadOptions options;
   options.auto_prefix_mode = true;
   options.snapshot = snapshot_.get();
+  options.fill_cache = for_each_options.fill_cache;
   std::unique_ptr<rocksdb::Iterator> iterator;
   if (snapshot_ || !transaction_) {
     iterator.reset(db_->NewIterator(options));

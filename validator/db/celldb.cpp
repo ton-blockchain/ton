@@ -304,19 +304,22 @@ void CellDbIn::start_up() {
   }
 
   if (opts_->get_celldb_preload_all()) {
-    // Iterate whole DB in a separate thread
+    // Iterate whole DB in a separate thread without filling RocksDb block cache.
+    // This avoids turning preload into an aggressive RAM-filling operation when CellDb cache is large.
     delay_action(
         [snapshot = cell_db_->snapshot()]() {
-          LOG(WARNING) << "CellDb: pre-loading all keys";
+          LOG(WARNING) << "CellDb: pre-loading all keys without filling RocksDb block cache";
           td::uint64 total = 0;
           td::Timer timer;
-          auto S = snapshot->for_each([&](td::Slice, td::Slice) {
-            ++total;
-            if (total % 1000000 == 0) {
-              LOG(INFO) << "CellDb: iterated " << total << " keys";
-            }
-            return td::Status::OK();
-          });
+          auto S = snapshot->for_each(
+              [&](td::Slice, td::Slice) {
+                ++total;
+                if (total % 1000000 == 0) {
+                  LOG(INFO) << "CellDb: iterated " << total << " keys";
+                }
+                return td::Status::OK();
+              },
+              {.fill_cache = false});
           if (S.is_error()) {
             LOG(ERROR) << "CellDb: pre-load failed: " << S.move_as_error();
           } else {
