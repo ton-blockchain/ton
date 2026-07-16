@@ -42,7 +42,7 @@ variable Actions
 { @end? abort"subdomain name expected" @next dup $len 127 > abort"subdomain name too long"
 } : parse-domain
 { @end? abort"category number expected" @next (number) 1 <> abort"category must be integer"
-  dup 256 fits not abort"category does not fit into 256 bit integer"
+  dup 256 ufits not abort"category does not fit into 256 bit unsigned integer"
   dup 0= abort"category must be non-zero"
 } : parse-cat-num
 { @end? abort"`cat` expected" @next "cat" $= not abort"`cat` expected" parse-cat-num
