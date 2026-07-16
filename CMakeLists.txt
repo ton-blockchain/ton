@@ -674,9 +674,6 @@ if (USE_LIBRAPTORQ)
   target_compile_definitions(test-fec PRIVATE "USE_LIBRAPTORQ=1")
 endif()
 
-add_executable(test-hello-world test/test-hello-world.cpp )
-target_link_libraries(test-hello-world tl_api ton_crypto)
-
 add_executable(test-adnl test/test-adnl.cpp)
 target_link_libraries(test-adnl adnl adnltest dht tl_api)
 add_executable(test-dht test/test-dht.cpp)

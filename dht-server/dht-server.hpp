@@ -103,7 +103,6 @@ class DhtServer : public td::actor::Actor {
   ton::PublicKeyHash default_dht_node_ = ton::PublicKeyHash::zero();
   td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server_;
 
-  std::string local_config_ = "";
   std::string global_config_ = "ton-global.config";
   std::string config_file_;
   std::string temp_config_file() const {
@@ -142,7 +141,6 @@ class DhtServer : public td::actor::Actor {
     return 256;
   }
 
-  void set_local_config(std::string str);
   void set_global_config(std::string str);
   void set_db_root(std::string db_root);
   void add_ip(td::IPAddress addr) {
@@ -155,7 +153,6 @@ class DhtServer : public td::actor::Actor {
   // load config
   td::Status load_global_config();
   void load_empty_local_config(td::Promise<td::Unit> promise);
-  void load_local_config(td::Promise<td::Unit> promise);
   void load_config(td::Promise<td::Unit> promise);
 
   void start();

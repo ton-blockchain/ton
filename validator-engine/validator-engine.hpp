@@ -180,7 +180,6 @@ class ValidatorEngine : public td::actor::Actor {
   td::actor::ActorOwn<ton::adnl::AdnlExtServer> control_ext_server_;
   td::actor::ActorOwn<ton::PrometheusExporter> exporter_;
 
-  std::string local_config_ = "";
   std::string global_config_ = "ton-global.config";
   std::string config_file_;
   std::string temp_config_file() const {
@@ -294,7 +293,6 @@ class ValidatorEngine : public td::actor::Actor {
   void add_unsafe_catchain_rotation(ton::BlockSeqno b_seqno, ton::CatchainSeqno cc_seqno, td::uint32 value) {
     unsafe_catchain_rotations_.insert({b_seqno, {cc_seqno, value}});
   }
-  void set_local_config(std::string str);
   void set_global_config(std::string str);
   void set_fift_dir(std::string str) {
     fift_dir_ = str;
@@ -447,7 +445,6 @@ class ValidatorEngine : public td::actor::Actor {
   // load config
   td::Status load_global_config();
   void load_empty_local_config(td::Promise<td::Unit> promise);
-  void load_local_config(td::Promise<td::Unit> promise);
   void load_config(td::Promise<td::Unit> promise);
   void set_shard_check_function();
   void load_collators_list();
