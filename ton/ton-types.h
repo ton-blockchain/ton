@@ -488,6 +488,7 @@ struct NewConsensusConfig {
   duration_fn(7, candidate_resolve_cooldown, 10)                        \
   duration_fn(8, standstill_timeout, 10'000)                            \
   uint32_fn(9, standstill_max_egress_bytes_per_s, 50 << 17)             \
+  uint32_fn(16, standstill_min_egress_bytes_per_s, 1 << 17)             \
   uint32_fn(10, max_leader_window_desync, 250)                          \
   duration_fn(11, bad_signature_ban_duration, 5'000)                    \
   uint32_fn(12, candidate_resolve_rate_limit, 10)                       \
