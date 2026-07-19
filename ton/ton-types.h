@@ -508,10 +508,6 @@ struct NewConsensusConfig {
   td::uint32 protocol_version = 2;
   td::uint32 slots_per_leader_window = 4;
 
-  bool enable_block_sync() const {
-    return protocol_version == 1;
-  }
-
   bool use_new_db_names() const {
     return protocol_version >= 2;
   }

@@ -152,34 +152,6 @@ class DbImpl : public Db {
   std::unique_ptr<td::KeyValueReader> reader_;
 };
 
-class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
- public:
-  TON_RUNTIME_DEFINE_EVENT_HANDLER();
-
-  static bool should_be_spawned(const Bus& bus) {
-    return !bus.is_validator() && bus.config.enable_block_sync();
-  }
-
-  template <>
-  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
-    stop();
-  }
-
-  template <>
-  td::actor::Task<> process(BusHandle, std::shared_ptr<PrecheckCandidateBroadcast>) {
-    co_return {};
-  }
-
-  template <>
-  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
-    if (event->candidate->is_empty()) {
-      return;
-    }
-    const BlockCandidate& candidate = std::get<BlockCandidate>(event->candidate->block);
-    td::actor::send_closure(bus->manager, &ManagerFacade::cache_block_candidate, candidate.clone());
-  }
-};
-
 class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
@@ -308,9 +280,7 @@ class BridgeImpl final : public IValidatorGroup {
 
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);
-    runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
     runtime.register_actor<CandidateBroadcastRelay>("CandidateBroadcastRelay");
-    BlockSyncOverlay::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);
     TraceCollector::register_in(runtime);

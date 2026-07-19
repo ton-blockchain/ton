@@ -153,10 +153,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
     auto& bus = *owning_bus();
-    if (bus.config.enable_block_sync()) {
-      return;
-    }
-
     CHECK(bus.is_validator());
     td::BufferSlice extra = create_serialize_tl_object<ton_api::consensus_broadcastExtra>(event->candidate->id.slot);
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_with_extra, local_adnl_id_, overlay_id_,
@@ -211,10 +207,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   void on_overlay_broadcast(PublicKeyHash src, td::BufferSlice data, td::BufferSlice extra) {
     auto& bus = *owning_bus();
 
-    if (bus.config.enable_block_sync()) {
-      LOG(WARNING) << "Dropping candidate broadcast from " << src << " in private overlay: protocol violation";
-      return;
-    }
     if (bus.is_validator() && src == bus.local_id->short_id) {
       return;
     }
@@ -243,9 +235,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
-    if (owning_bus()->config.enable_block_sync()) {
-      co_return td::Status::Error("Precheck failed: Candidate broadcasts in private overlay are disabled");
-    }
     auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true);
     if (parsed_extra.is_error()) {
       co_return parsed_extra.move_as_error_prefix("Precheck failed: Failed to parse broadcast extra: ");

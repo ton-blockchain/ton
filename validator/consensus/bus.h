@@ -223,10 +223,6 @@ struct BlockProducer {
   static void register_in(td::actor::Runtime&);
 };
 
-struct BlockSyncOverlay {
-  static void register_in(td::actor::Runtime&);
-};
-
 struct BlockValidator {
   static void register_in(td::actor::Runtime&);
 };
