@@ -472,7 +472,7 @@ struct NewConsensusConfig {
   td::uint32 max_block_size = (4 << 20);
   td::uint32 max_collated_data_size = (4 << 20);
 
-  td::uint32 protocol_version = 0;
+  td::uint32 protocol_version = 2;
   td::uint32 slots_per_leader_window = 4;
 
   // When adding a new noncritical parameters, also add it to consensus.simplex.noncriticalParams TL scheme

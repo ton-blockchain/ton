@@ -374,7 +374,7 @@ ton::NewConsensusConfig Config::get_new_consensus_config(ton::WorkchainId wc) co
   }
 
   if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
-    config.protocol_version = v2.protocol_version;
+    config.protocol_version = std::max<td::uint32>(v2.protocol_version, 2);
     config.slots_per_leader_window = v2.slots_per_leader_window;
 
     using NoncriticalParams = ton::NewConsensusConfig::NoncriticalParams;
