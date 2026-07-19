@@ -249,6 +249,7 @@ void AdnlPeerPairImpl::receive_packet_from_channel(AdnlChannelIdShort id, AdnlPa
       td::actor::send_closure(actor_id(this), &AdnlPeerPairImpl::send_messages_from_queue);
     }
   }
+  td::actor::send_closure(local_actor_, &AdnlLocalId::add_inbound_peer, packet.remote_addr(), packet.from_short());
   receive_packet_checked(std::move(packet));
 }
 
@@ -268,6 +269,7 @@ void AdnlPeerPairImpl::receive_packet(AdnlPacket packet, td::uint64 serialized_s
     return;
   }
 
+  td::actor::send_closure(local_actor_, &AdnlLocalId::add_inbound_peer, packet.remote_addr(), packet.from_short());
   receive_packet_checked(std::move(packet));
 }
 

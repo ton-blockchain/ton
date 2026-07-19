@@ -52,6 +52,7 @@ class AdnlLocalId : public td::actor::Actor {
   void deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise);
   void receive(td::IPAddress addr, td::BufferSlice data);
   td::actor::Task<> receive_coro(td::IPAddress addr, td::BufferSlice data);
+  void add_inbound_peer(td::IPAddress addr, AdnlNodeIdShort peer);
 
   void subscribe(std::string prefix, std::unique_ptr<AdnlPeerTable::Callback> callback);
   void unsubscribe(std::string prefix);
