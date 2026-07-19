@@ -142,6 +142,19 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
       return;
     }
 
+    auto R = packet.from().pubkey().create_encryptor();
+    if (R.is_error()) {
+      VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
+                       << "]: failed to create encryptor: " << R.move_as_error();
+      return;
+    }
+    auto S = R.move_as_ok()->check_signature(packet.to_sign().as_slice(), packet.signature().as_slice());
+    if (S.is_error()) {
+      VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
+                       << "]: bad signature: " << S;
+      return;
+    }
+
     it = peers_.try_emplace(src).first;
   }
 
