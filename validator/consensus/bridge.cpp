@@ -163,9 +163,6 @@ class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::ac
 
   template <>
   void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
-    if (!bus->config.enable_plumtree_broadcast()) {
-      return;
-    }
     if (event->candidate->is_empty()) {
       return;
     }
