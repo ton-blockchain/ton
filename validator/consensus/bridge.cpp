@@ -310,10 +310,6 @@ class BridgeImpl final : public IValidatorGroup {
       if (had_db) {
         auto path = db_path();
         auto S = td::RocksDb::destroy(path);
-
-        if (!params_.identity.suffix_db) {
-          path = path.substr(0, path.size() - 3);
-        }
         td::rmrf(path).ignore();
 
         if (S.is_ok()) {
@@ -349,17 +345,12 @@ class BridgeImpl final : public IValidatorGroup {
 
   std::string db_path() const {
     td::StringBuilder sb;
-    if (!params_.identity.suffix_db) {
-      sb << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "." << params_.shard.shard << "."
-         << params_.validator_set->get_catchain_seqno() << "." << params_.session_id.to_hex() << "/db/";
-    } else {
-      auto hash =
-          create_hash_tl_object<tl::dbId>(params_.session_id, params_.identity.is_validator(),
-                                          params_.identity.short_id.value_or(PublicKeyHash::zero()).bits256_value(),
-                                          params_.identity.adnl_id.bits256_value());
-      sb << params_.db_root << "/consensus/" << params_.shard.workchain << "." << params_.shard.shard << "."
-         << params_.validator_set->get_catchain_seqno() << "." << hash.to_hex();
-    }
+    auto hash =
+        create_hash_tl_object<tl::dbId>(params_.session_id, params_.identity.is_validator(),
+                                        params_.identity.short_id.value_or(PublicKeyHash::zero()).bits256_value(),
+                                        params_.identity.adnl_id.bits256_value());
+    sb << params_.db_root << "/consensus/" << params_.shard.workchain << "." << params_.shard.shard << "."
+       << params_.validator_set->get_catchain_seqno() << "." << hash.to_hex();
     return sb.as_cslice().str();
   }
 };
