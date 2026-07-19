@@ -602,7 +602,9 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
     td::Timestamp quota_time;
 
     auto send = [&](ProtocolMessage message) -> td::actor::Task<> {
-      auto max_bytes_per_s = params_.standstill_max_egress_bytes_per_s;
+      auto max_bytes_per_s = std::max<double>(
+          params_.standstill_min_egress_bytes_per_s,
+          params_.standstill_max_egress_bytes_per_s / static_cast<double>(1ull << bus.shard.pfx_len()));
 
       double msg_size = static_cast<double>(message.data.size() * bus.validator_set.size());
       if (egress_quota < msg_size) {

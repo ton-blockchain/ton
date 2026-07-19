@@ -1176,6 +1176,7 @@ consensus.simplex.noncriticalParams
     min_block_interval_ms:flags.13?int
     no_empty_blocks_on_error_timeout_ms:flags.14?int
     certificate_gossip_neighbors:flags.15?int
+    standstill_min_egress_bytes_per_s:flags.16?int
     = consensus.NoncriticalParams;
 
 consensus.noncriticalParamsOverride
