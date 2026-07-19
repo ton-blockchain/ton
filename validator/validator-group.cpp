@@ -140,20 +140,13 @@ ValidatorSessionId session_id_for(const Context &ctx, ShardIdFull shard, const t
 SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set) {
   auto config = ctx.state.get_new_consensus_config(shard.workchain);
 
-  std::vector<GroupIdentity> identities;
-  for (auto &identity : identities_for(ctx, validator_set)) {
-    if (identity.is_validator() || config.observers_in_private_overlay()) {
-      identities.push_back(identity);
-    }
-  }
-
   return {
       .shard = shard,
       .validator_set = validator_set,
       .session_id = session_id_for(ctx, shard, validator_set),
       .config = config,
       .overlay_members = ctx.overlay_members.all,
-      .identities = std::move(identities),
+      .identities = identities_for(ctx, validator_set),
   };
 }
 
