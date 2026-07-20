@@ -1096,7 +1096,6 @@ quic.answer data:bytes = quic.Response;
 engineConsoleClient.config address:string server_public_key:PublicKey client_private_key:PrivateKey = engineConsoleClient.Config;
 
 consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;
-consensus.blockSyncOverlayId session_id:int256 = consensus.BlockOverlayId;
 consensus.dbId session_id:int256 is_validator:Bool validator_key:int256 adnl_id:int256 = consensus.DbId;
 consensus.dataToSign session_id:int256 data:bytes = consensus.DataToSign;
 
@@ -1110,7 +1109,13 @@ consensus.candidateHashDataEmpty block:tonNode.blockIdExt parent:consensus.candi
 consensus.block slot:int parent:consensus.CandidateParent candidate:bytes signature:bytes = consensus.CandidateData;
 consensus.empty slot:int parent:consensus.CandidateId block:tonNode.blockIdExt signature:bytes = consensus.CandidateData;
 
-consensus.broadcastExtra slot:int = consensus.BroadcastExtra;
+consensus.collationWindow window_start_slot:int collator_id:int256 = consensus.CollationWindow;
+consensus.delegation collator_key:PublicKey signature:bytes = consensus.Delegation;
+consensus.candidate flags:# data:consensus.CandidateData delegation:flags.0?consensus.Delegation = consensus.Candidate;
+consensus.pleaseCollate window_start_slot:int signature:bytes = consensus.PleaseCollate;
+
+consensus.broadcastExtraLegacy#921297fa slot:int = consensus.BroadcastExtra;
+consensus.broadcastExtra flags:# slot:int delegation:flags.0?consensus.Delegation = consensus.BroadcastExtra;
 
 consensus.requestError = consensus.RequestError;
 
@@ -1177,6 +1182,7 @@ consensus.simplex.noncriticalParams
     min_block_interval_ms:flags.13?int
     no_empty_blocks_on_error_timeout_ms:flags.14?int
     certificate_gossip_neighbors:flags.15?int
+    standstill_min_egress_bytes_per_s:flags.16?int
     = consensus.NoncriticalParams;
 
 consensus.noncriticalParamsOverride

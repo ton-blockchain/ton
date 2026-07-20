@@ -505,23 +505,15 @@ struct NewConsensusConfig {
   td::uint32 max_block_size = (4 << 20);
   td::uint32 max_collated_data_size = (4 << 20);
 
-  td::uint32 protocol_version = 0;
+  td::uint32 protocol_version = 2;
   td::uint32 slots_per_leader_window = 4;
 
-  bool enable_block_sync() const {
-    return protocol_version == 1;
+  bool validator_key_was_a_bad_idea() const {
+    return protocol_version >= 3;
   }
 
-  bool use_new_db_names() const {
-    return protocol_version >= 2;
-  }
-
-  bool observers_in_private_overlay() const {
-    return protocol_version >= 2;
-  }
-
-  bool enable_plumtree_broadcast() const {
-    return protocol_version >= 2;
+  bool enable_collators() const {
+    return protocol_version >= 3;
   }
 
   // When adding a new noncritical parameters, also add it to consensus.simplex.noncriticalParams TL scheme
@@ -537,6 +529,7 @@ struct NewConsensusConfig {
   duration_fn(7, candidate_resolve_cooldown, 10)                        \
   duration_fn(8, standstill_timeout, 10'000)                            \
   uint32_fn(9, standstill_max_egress_bytes_per_s, 50 << 17)             \
+  uint32_fn(16, standstill_min_egress_bytes_per_s, 1 << 17)             \
   uint32_fn(10, max_leader_window_desync, 250)                          \
   duration_fn(11, bad_signature_ban_duration, 5'000)                    \
   uint32_fn(12, candidate_resolve_rate_limit, 10)                       \

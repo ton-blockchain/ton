@@ -374,7 +374,7 @@ ton::NewConsensusConfig Config::get_new_consensus_config(ton::WorkchainId wc) co
   }
 
   if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
-    config.protocol_version = v2.protocol_version;
+    config.protocol_version = std::max<td::uint32>(v2.protocol_version, 2);
     config.slots_per_leader_window = v2.slots_per_leader_window;
 
     using NoncriticalParams = ton::NewConsensusConfig::NoncriticalParams;
@@ -2093,6 +2093,21 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     return td::Status::Error("configuration parameter 43 is invalid");
   }
   return limits;
+}
+
+td::Result<ValidatorRegistryConfig> Config::get_validator_registry_config() const {
+  Ref<vm::Cell> param = get_config_param(46);
+  if (param.is_null()) {
+    return td::Status::Error("configuration parameter 46 is absent");
+  }
+  gen::ValRegistryConfig::Record rec;
+  if (!gen::unpack_cell(param, rec)) {
+    return td::Status::Error("configuration parameter 46 is invalid");
+  }
+  return ValidatorRegistryConfig{
+      .contract_address = rec.contract_address,
+      .max_collators_per_validator = rec.max_collators_per_validator,
+  };
 }
 
 std::unique_ptr<vm::Dictionary> Config::get_suspended_addresses(ton::UnixTime now) const {

@@ -40,6 +40,15 @@ using empty = ton_api::consensus_empty;
 using CandidateData = ton_api::consensus_CandidateData;
 using CandidateDataRef = tl_object_ptr<CandidateData>;
 
+using delegation = ton_api::consensus_delegation;
+using DelegationRef = tl_object_ptr<delegation>;
+using collationWindow = ton_api::consensus_collationWindow;
+using candidate = ton_api::consensus_candidate;
+using pleaseCollate = ton_api::consensus_pleaseCollate;
+using broadcastExtra = ton_api::consensus_broadcastExtra;
+using broadcastExtraLegacy = ton_api::consensus_broadcastExtraLegacy;
+using BroadcastExtra = ton_api::consensus_BroadcastExtra;
+
 }  // namespace tl
 
 class Bus;
@@ -66,6 +75,13 @@ class PeerValidatorId {
 };
 
 td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidatorId& id);
+
+[[nodiscard]] bool check_consensus_signature(const PublicKey& key, ValidatorSessionId session, td::Slice data,
+                                             td::Slice signature);
+
+struct Delegation;
+[[nodiscard]] td::Status check_delegation(const Delegation& delegation, const PeerValidator& leader, td::uint32 slot,
+                                          const Bus& bus);
 
 struct PeerValidator {
   [[nodiscard]] bool check_signature(ValidatorSessionId session, td::Slice data, td::Slice signature) const;
@@ -143,31 +159,58 @@ struct CandidateHashData {
   ParentId parent;
 };
 
+struct Delegation {
+  static std::optional<Delegation> from_tl(tl::DelegationRef tl_delegation);
+
+  tl::DelegationRef to_tl() const;
+  Delegation clone() const {
+    return {collator_key, signature.clone()};
+  }
+
+  PublicKey collator_key;
+  td::BufferSlice signature;
+};
+
 struct Candidate : td::CntObject {
+  using Signer = std::variant<PeerValidatorId, Delegation>;
+
   static td::Result<td::Ref<Candidate>> deserialize(td::Slice data, const Bus& bus,
-                                                    std::optional<PeerValidatorId> src = std::nullopt,
                                                     std::optional<td::uint32> expected_slot = std::nullopt);
+  static td::Result<td::Ref<Candidate>> deserialize_from_broadcast(td::Slice data, Signer signer, const Bus& bus,
+                                                                   td::uint32 expected_slot);
 
   Candidate(CandidateId id, ParentId parent_id, PeerValidatorId leader, std::variant<BlockIdExt, BlockCandidate> block,
-            td::BufferSlice signature)
+            td::BufferSlice signature, std::optional<Delegation> delegation = std::nullopt)
       : id(id)
       , parent_id(std::move(parent_id))
       , leader(leader)
       , block(std::move(block))
-      , signature(std::move(signature)) {
+      , signature(std::move(signature))
+      , delegation(std::move(delegation)) {
     CHECK(std::holds_alternative<BlockCandidate>(this->block) || this->parent_id.has_value());
   }
 
   BlockIdExt block_id() const;
   CandidateHashData hash_data() const;
   td::BufferSlice serialize() const;
+  td::BufferSlice serialize_for_broadcast() const;
   bool is_empty() const;
 
+ private:
+  static td::Result<td::Ref<Candidate>> deserialize_data(tl::CandidateDataRef data,
+                                                         std::optional<Delegation> delegation, const Bus& bus,
+                                                         std::optional<PeerValidatorId> src,
+                                                         std::optional<td::uint32> expected_slot);
+
+  tl::CandidateDataRef to_data_tl() const;
+
+ public:
   CandidateId id;
   ParentId parent_id;
   PeerValidatorId leader;
   std::variant<BlockIdExt, BlockCandidate> block;
   td::BufferSlice signature;
+  std::optional<Delegation> delegation;
 };
 
 using CandidateRef = td::Ref<Candidate>;

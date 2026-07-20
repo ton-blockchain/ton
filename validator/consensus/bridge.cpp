@@ -152,42 +152,10 @@ class DbImpl : public Db {
   std::unique_ptr<td::KeyValueReader> reader_;
 };
 
-class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
- public:
-  TON_RUNTIME_DEFINE_EVENT_HANDLER();
-
-  static bool should_be_spawned(const Bus& bus) {
-    return !bus.is_validator() && bus.config.enable_block_sync();
-  }
-
-  template <>
-  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
-    stop();
-  }
-
-  template <>
-  td::actor::Task<> process(BusHandle, std::shared_ptr<PrecheckCandidateBroadcast>) {
-    co_return {};
-  }
-
-  template <>
-  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
-    if (event->candidate->is_empty()) {
-      return;
-    }
-    const BlockCandidate& candidate = std::get<BlockCandidate>(event->candidate->block);
-    td::actor::send_closure(bus->manager, &ManagerFacade::cache_block_candidate, candidate.clone());
-  }
-};
-
 class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  static bool should_be_spawned(const Bus& bus) {
-    return bus.is_validator() || bus.config.observers_in_private_overlay();
-  }
-
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
@@ -195,9 +163,6 @@ class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::ac
 
   template <>
   void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
-    if (!bus->config.enable_plumtree_broadcast()) {
-      return;
-    }
     if (event->candidate->is_empty()) {
       return;
     }
@@ -257,6 +222,9 @@ class BridgeImpl final : public IValidatorGroup {
     bus->keyring = params_.keyring;
     bus->validator_opts = params_.validator_opts;
     bus->all_validators = params_.all_validators;
+    bus->collators_by_validator = params_.collators_by_validator;
+    bus->collator_scoreboard = params_.collator_scoreboard;
+    bus->is_collator = params_.identity.is_collator;
 
     bool found = false;
     size_t idx = 0;
@@ -308,13 +276,12 @@ class BridgeImpl final : public IValidatorGroup {
 
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);
-    runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
     runtime.register_actor<CandidateBroadcastRelay>("CandidateBroadcastRelay");
-    BlockSyncOverlay::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);
     TraceCollector::register_in(runtime);
     simplex::CandidateResolver::register_in(runtime);
+    simplex::CollatorProducer::register_in(runtime);
     simplex::Consensus::register_in(runtime);
     simplex::Db::register_in(runtime);
     simplex::Pool::register_in(runtime);
@@ -340,10 +307,6 @@ class BridgeImpl final : public IValidatorGroup {
       if (had_db) {
         auto path = db_path();
         auto S = td::RocksDb::destroy(path);
-
-        if (!params_.identity.suffix_db) {
-          path = path.substr(0, path.size() - 3);
-        }
         td::rmrf(path).ignore();
 
         if (S.is_ok()) {
@@ -379,17 +342,12 @@ class BridgeImpl final : public IValidatorGroup {
 
   std::string db_path() const {
     td::StringBuilder sb;
-    if (!params_.identity.suffix_db) {
-      sb << params_.db_root << "/consensus/consensus." << params_.shard.workchain << "." << params_.shard.shard << "."
-         << params_.validator_set->get_catchain_seqno() << "." << params_.session_id.to_hex() << "/db/";
-    } else {
-      auto hash =
-          create_hash_tl_object<tl::dbId>(params_.session_id, params_.identity.is_validator(),
-                                          params_.identity.short_id.value_or(PublicKeyHash::zero()).bits256_value(),
-                                          params_.identity.adnl_id.bits256_value());
-      sb << params_.db_root << "/consensus/" << params_.shard.workchain << "." << params_.shard.shard << "."
-         << params_.validator_set->get_catchain_seqno() << "." << hash.to_hex();
-    }
+    auto hash =
+        create_hash_tl_object<tl::dbId>(params_.session_id, params_.identity.is_validator(),
+                                        params_.identity.short_id.value_or(PublicKeyHash::zero()).bits256_value(),
+                                        params_.identity.adnl_id.bits256_value());
+    sb << params_.db_root << "/consensus/" << params_.shard.workchain << "." << params_.shard.shard << "."
+       << params_.validator_set->get_catchain_seqno() << "." << hash.to_hex();
     return sb.as_cslice().str();
   }
 };

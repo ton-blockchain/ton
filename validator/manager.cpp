@@ -2240,7 +2240,7 @@ void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
 
   shard_client_ = std::move(R.clients);
 
-  network_state_ = NetworkState::create(R.start_groups_from_seqno);
+  network_state_ = NetworkState::create(R.start_groups_from_seqno, R.previous_rotation);
 
   auto Q = td::PromiseCreator::lambda(
       [SelfId = actor_id(this)](td::Result<std::vector<td::Ref<PersistentStateDescription>>> R) {
@@ -2463,6 +2463,9 @@ void ValidatorManagerImpl::new_masterchain_block() {
     td::actor::send_closure(actor, &ShardBlockRetainer::update_masterchain_state, last_masterchain_state_);
   }
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::update_last_masterchain_state, last_masterchain_state_);
+  for (auto &[_, actor] : validator_registry_watchers_) {
+    td::actor::send_closure(actor, &ValidatorRegistryWatcher::update, last_masterchain_state_, opts_);
+  }
   if (last_masterchain_seqno_ % 1024 == 0) {
     LOG(WARNING) << "applied masterchain block " << last_masterchain_block_id_;
   } else {
@@ -2501,8 +2504,10 @@ void ValidatorManagerImpl::update_shards() {
       .quic = quic_,
       .db_root = db_root_,
       .validator_keys = validator_keys_,
+      .local_collator_adnl_ids = local_collator_adnl_ids_,
+      .collator_scoreboard = collator_scoreboard_.get(),
   };
-  network_state_->update(*last_masterchain_state_, ctx);
+  network_state_->update(last_masterchain_state_, ctx);
 
   if (last_masterchain_state_->rotated_all_shards()) {
     CHECK(last_masterchain_block_handle_->received_state());
@@ -3276,11 +3281,11 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
 }
 
 void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
-  LOG(ERROR) << "add_collator is not implemented";
+  local_collator_adnl_ids_.insert(id);
 }
 
 void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
-  LOG(ERROR) << "del_collator is not implemented";
+  local_collator_adnl_ids_.erase(id);
 }
 
 void ValidatorManagerImpl::get_collation_manager_stats(

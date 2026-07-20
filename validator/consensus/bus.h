@@ -11,6 +11,7 @@
 #include "overlay/overlays.h"
 #include "td/actor/BusRuntime.h"
 #include "ton/ton-types.h"
+#include "validator/collator-scoreboard.hpp"
 
 #include "chain-state.h"
 #include "manager-facade.h"
@@ -43,6 +44,12 @@ struct OurLeaderWindowStarted {
   td::uint32 start_slot;
   td::uint32 end_slot;
   td::Timestamp start_time;
+
+  std::string contents_to_string() const;
+};
+
+struct OurLeaderWindowUpcoming {
+  td::uint32 start_slot;
 
   std::string contents_to_string() const;
 };
@@ -89,8 +96,11 @@ struct OutgoingProtocolMessage {
   struct BroadcastToRandom {
     size_t count;
   };
+  struct SendToPeer {
+    adnl::AdnlNodeIdShort peer;
+  };
 
-  using Recipient = std::variant<BroadcastToAll, BroadcastToValidators, BroadcastToRandom>;
+  using Recipient = std::variant<BroadcastToAll, BroadcastToValidators, BroadcastToRandom, SendToPeer>;
 
   Recipient recipient;
   ProtocolMessage message;
@@ -171,10 +181,11 @@ class Db {
 
 class Bus : public td::actor::Bus {
  public:
-  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, CandidateGenerated,
-                              CandidateReceived, ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage,
-                              IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
-                              MisbehaviorReport, TraceEvent, NoncriticalParamsUpdated, PrecheckCandidateBroadcast>;
+  using Events =
+      td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowUpcoming,
+                   CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
+                   OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
+                   MisbehaviorReport, TraceEvent, NoncriticalParamsUpdated, PrecheckCandidateBroadcast>;
 
   Bus() = default;
   ~Bus() override {
@@ -200,7 +211,11 @@ class Bus : public td::actor::Bus {
   std::optional<PeerValidator> local_id;
 
   adnl::AdnlNodeIdShort local_adnl_id;
+  bool is_collator = false;
+
   std::vector<adnl::AdnlNodeIdShort> all_validators;
+  std::map<PublicKeyHash, std::vector<adnl::AdnlNodeIdShort>> collators_by_validator;
+  td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
 
   NewConsensusConfig config;
 
@@ -220,10 +235,6 @@ struct BlockAccepter {
 };
 
 struct BlockProducer {
-  static void register_in(td::actor::Runtime&);
-};
-
-struct BlockSyncOverlay {
   static void register_in(td::actor::Runtime&);
 };
 
