@@ -50,7 +50,6 @@ struct OurLeaderWindowStarted {
 
 struct CandidateGenerated {
   CandidateRef candidate;
-  std::optional<adnl::AdnlNodeIdShort> collator_id;
 
   std::string contents_to_string() const;
 };

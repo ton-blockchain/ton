@@ -86,8 +86,7 @@ std::string OurLeaderWindowStarted::contents_to_string() const {
 }
 
 std::string CandidateGenerated::contents_to_string() const {
-  return PSTRING() << "{candidate=" << candidate_to_string(candidate)
-                   << ", collator_id=" << (collator_id.has_value() ? (PSTRING() << *collator_id) : "none") << "}";
+  return PSTRING() << "{candidate=" << candidate_to_string(candidate) << "}";
 }
 
 std::string CandidateReceived::contents_to_string() const {
