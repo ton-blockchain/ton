@@ -23,6 +23,7 @@ class SimplexConsensusConfig:
     first_block_timeout_ms: int = 1000
     max_leader_window_desync: int = 2
     use_quic: bool = False
+    protocol_version: int = 2
 
 
 @dataclass
@@ -197,6 +198,22 @@ Masterchain swap
 
 /*
  *
+ * SmartContract (validator registry)
+ *
+ */
+"validator-registry.fif" include
+<b x{{9bc722a8}} s, 0 1 u, 0 32 u, b>  // data
+empty_cell  // libraries
+GR$1  // balance
+0 // split_depth
+0 // ticktock
+AllOnes 6 * // address: -1:666...666
+6 // mode: create + setaddr
+register_smc
+dup make_special constant registry_addr
+
+/*
+ *
  * Configuration Parameters
  *
  */
@@ -272,6 +289,9 @@ now dup 3600 + {mc_validators} config.validators!
 {new_consensus_config}
 config.new_consensus_params_all!
 
+<b x{{3601163e}} s, registry_addr 256 u, 5 32 u, 0 1 u, b>
+46 config!
+
 {{
   =: data
   <b @' data B, b> <s
@@ -329,7 +349,7 @@ def create_zerostate(
                 f"<b {consensus_config.target_block_rate_ms} 32 u, b> <s 0 rot 8 udict! drop\n"
                 f"<b {consensus_config.first_block_timeout_ms} 32 u, b> <s 1 rot 8 udict! drop\n"
                 f"<b {consensus_config.max_leader_window_desync} 32 u, b> <s 10 rot 8 udict! drop\n"
-                "<b x{22} s, 0 5 u, 2 2 u, "
+                f"<b x{{22}} s, 0 5 u, {consensus_config.protocol_version} 2 u, "
                 f"{int(consensus_config.use_quic)} 1 u, "
                 f"{consensus_config.slots_per_leader_window} 32 u, "
                 "swap dict, b>\n"
