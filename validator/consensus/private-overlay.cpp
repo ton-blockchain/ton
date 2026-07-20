@@ -49,6 +49,8 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       } else {
         local_broadcast_id_ = bus.local_id->short_id;
       }
+    } else if (bus.is_collator) {
+      local_broadcast_id_ = bus.local_adnl_id.pubkey_hash();
     }
 
     td::uint32 max_broadcast_size = bus.config.max_block_size + bus.config.max_collated_data_size + (1 << 20);
@@ -167,8 +169,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
-    auto& bus = *owning_bus();
-    CHECK(bus.is_validator());
+    CHECK(local_broadcast_id_.has_value());
     td::BufferSlice extra;
     if (event->candidate->delegation.has_value()) {
       extra = create_serialize_tl_object<tl::broadcastExtra>(1, event->candidate->id.slot,

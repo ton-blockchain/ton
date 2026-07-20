@@ -121,6 +121,10 @@ struct CandidateResolver {
   static void register_in(td::actor::Runtime&);
 };
 
+struct CollatorProducer {
+  static void register_in(td::actor::Runtime&);
+};
+
 struct StateResolver {
   static void register_in(td::actor::Runtime&);
 };
