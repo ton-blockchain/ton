@@ -218,6 +218,7 @@ td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const Sessio
       .db_root = ctx.deps.db_root,
       .all_validators = info.overlay_members,
       .collators_by_validator = info.collators_by_validator,
+      .collator_scoreboard = ctx.deps.collator_scoreboard,
   };
   return IValidatorGroup::create_bridge(PSTRING() << "valgroup" << info.shard, params);
 }

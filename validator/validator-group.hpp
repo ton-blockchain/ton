@@ -27,6 +27,7 @@ namespace ton {
 
 namespace validator {
 
+class CollatorScoreboard;
 class ValidatorManager;
 
 using CollatorsByValidator = std::map<PublicKeyHash, std::vector<adnl::AdnlNodeIdShort>>;
@@ -63,6 +64,7 @@ struct GroupParams {
 
   std::vector<adnl::AdnlNodeIdShort> all_validators;
   CollatorsByValidator collators_by_validator;
+  td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
 };
 
 class IValidatorGroup : public td::actor::Actor {
@@ -88,6 +90,7 @@ struct ManagerContext {
 
   std::set<PublicKeyHash> validator_keys;
   std::set<adnl::AdnlNodeIdShort> local_collator_adnl_ids;
+  td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
 };
 
 struct ValidatorGroupCount {

@@ -223,6 +223,7 @@ class BridgeImpl final : public IValidatorGroup {
     bus->validator_opts = params_.validator_opts;
     bus->all_validators = params_.all_validators;
     bus->collators_by_validator = params_.collators_by_validator;
+    bus->collator_scoreboard = params_.collator_scoreboard;
     bus->is_collator = params_.identity.is_collator;
 
     bool found = false;

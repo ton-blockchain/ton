@@ -42,6 +42,7 @@
 #include "td/utils/port/StdStreams.h"
 #include "ton/ton-io.hpp"
 
+#include "collator-scoreboard.hpp"
 #include "manager-init.h"
 #include "queue-size-counter.hpp"
 #include "shard-block-retainer.hpp"
@@ -709,6 +710,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::set<PublicKeyHash> validator_keys_;
   std::map<PublicKeyHash, td::actor::ActorOwn<ValidatorRegistryWatcher>> validator_registry_watchers_;
   std::set<adnl::AdnlNodeIdShort> local_collator_adnl_ids_;
+  td::actor::ActorOwn<CollatorScoreboard> collator_scoreboard_ =
+      td::actor::create_actor<CollatorScoreboard>("CollatorScoreboard");
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;

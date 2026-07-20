@@ -2505,6 +2505,7 @@ void ValidatorManagerImpl::update_shards() {
       .db_root = db_root_,
       .validator_keys = validator_keys_,
       .local_collator_adnl_ids = local_collator_adnl_ids_,
+      .collator_scoreboard = collator_scoreboard_.get(),
   };
   network_state_->update(last_masterchain_state_, ctx);
 
