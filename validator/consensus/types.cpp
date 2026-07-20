@@ -22,10 +22,18 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidatorId& 
   return stream << "validator " << id.value();
 }
 
-bool PeerValidator::check_signature(ValidatorSessionId session, td::Slice data, td::Slice signature) const {
+bool check_consensus_signature(const PublicKey& key, ValidatorSessionId session, td::Slice data, td::Slice signature) {
   auto signed_data = create_serialize_tl_object<tl::dataToSign>(session, td::BufferSlice(data));
   TD_PERF_COUNTER(check_signature_consensus);
-  return key.create_encryptor().move_as_ok()->check_signature(signed_data, signature).is_ok();
+  auto encryptor = key.create_encryptor();
+  if (encryptor.is_error()) {
+    return false;
+  }
+  return encryptor.move_as_ok()->check_signature(signed_data, signature).is_ok();
+}
+
+bool PeerValidator::check_signature(ValidatorSessionId session, td::Slice data, td::Slice signature) const {
+  return check_consensus_signature(key, session, data, signature);
 }
 
 td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidator& peer_validator) {
@@ -104,10 +112,58 @@ tl::CandidateHashDataRef CandidateHashData::to_tl() const {
   return std::visit(td::overloaded(empty_fn, full_fn), candidate);
 }
 
-td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, std::optional<PeerValidatorId> src,
-                                                std::optional<td::uint32> expected_slot) {
-  TRY_RESULT(broadcast, fetch_tl_object<tl::CandidateData>(data, true));
+td::Status check_delegation(const Delegation& delegation, const PeerValidator& leader, td::uint32 slot,
+                            const Bus& bus) {
+  if (!bus.config.enable_collators()) {
+    return td::Status::Error("Delegated candidate, but collators are disabled");
+  }
 
+  auto collator_id = adnl::AdnlNodeIdShort{delegation.collator_key.compute_short_id()};
+  td::uint32 window_start = slot - slot % bus.config.slots_per_leader_window;
+  auto to_sign = create_serialize_tl_object<tl::delegationToSign>(window_start, collator_id.bits256_value());
+  if (!leader.check_signature(bus.session_id, to_sign, delegation.signature)) {
+    return td::Status::Error("Delegation signature is not valid");
+  }
+  return td::Status::OK();
+}
+
+std::optional<Delegation> Delegation::from_tl(tl::DelegationRef tl_delegation) {
+  if (!tl_delegation) {
+    return std::nullopt;
+  }
+  return Delegation{PublicKey{tl_delegation->collator_key_}, std::move(tl_delegation->signature_)};
+}
+
+tl::DelegationRef Delegation::to_tl() const {
+  return create_tl_object<tl::delegation>(collator_key.tl(), signature.clone());
+}
+
+td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus,
+                                                std::optional<td::uint32> expected_slot) {
+  if (auto maybe_broadcast = fetch_tl_object<tl::CandidateData>(data, true); maybe_broadcast.is_ok()) {
+    return deserialize_data(maybe_broadcast.move_as_ok(), std::nullopt, bus, std::nullopt, expected_slot);
+  }
+  TRY_RESULT(wrapper, fetch_tl_object<tl::candidate>(data, true));
+  return deserialize_data(std::move(wrapper->data_), Delegation::from_tl(std::move(wrapper->delegation_)), bus,
+                          std::nullopt, expected_slot);
+}
+
+td::Result<CandidateRef> Candidate::deserialize_from_broadcast(td::Slice data, Signer signer, const Bus& bus,
+                                                               td::uint32 expected_slot) {
+  TRY_RESULT(broadcast, fetch_tl_object<tl::CandidateData>(data, true));
+  auto validator_fn = [&](PeerValidatorId validator) {
+    return deserialize_data(std::move(broadcast), std::nullopt, bus, validator, expected_slot);
+  };
+  auto delegation_fn = [&](Delegation delegation) {
+    return deserialize_data(std::move(broadcast), std::move(delegation), bus, std::nullopt, expected_slot);
+  };
+  return std::visit(td::overloaded(validator_fn, delegation_fn), std::move(signer));
+}
+
+td::Result<CandidateRef> Candidate::deserialize_data(tl::CandidateDataRef broadcast,
+                                                     std::optional<Delegation> delegation, const Bus& bus,
+                                                     std::optional<PeerValidatorId> src,
+                                                     std::optional<td::uint32> expected_slot) {
   struct ExtractedData {
     td::uint32 slot;
     ParentId parent_id;
@@ -191,14 +247,19 @@ td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, 
   TRY_RESULT(parsed, std::move(maybe_data));
 
   auto id = parsed.hash_builder.build_id_with(parsed.slot);
-
   auto signed_data = serialize_tl_object(id.to_tl(), true);
-  if (!leader.check_signature(bus.session_id, signed_data, parsed.signature)) {
+
+  if (delegation.has_value()) {
+    TRY_STATUS(check_delegation(*delegation, leader, parsed.slot, bus));
+    if (!check_consensus_signature(delegation->collator_key, bus.session_id, signed_data, parsed.signature)) {
+      return td::Status::Error("Delegated candidate broadcast signature is not valid");
+    }
+  } else if (!leader.check_signature(bus.session_id, signed_data, parsed.signature)) {
     return td::Status::Error("Candidate broadcast signature is not valid");
   }
 
-  return td::make_ref<Candidate>(id, parsed.parent_id, leader.idx, std::move(parsed.block),
-                                 std::move(parsed.signature));
+  return td::make_ref<Candidate>(id, parsed.parent_id, leader.idx, std::move(parsed.block), std::move(parsed.signature),
+                                 std::move(delegation));
 }
 
 BlockIdExt Candidate::block_id() const {
@@ -215,20 +276,31 @@ CandidateHashData Candidate::hash_data() const {
   return std::visit(td::overloaded(empty_fn, block_fn), block);
 }
 
-td::BufferSlice Candidate::serialize() const {
-  auto empty_fn = [&](const BlockIdExt& referenced_block) {
-    return create_serialize_tl_object<tl::empty>(id.slot, parent_id->to_tl(), create_tl_block_id(referenced_block),
-                                                 signature.clone());
+tl::CandidateDataRef Candidate::to_data_tl() const {
+  auto empty_fn = [&](const BlockIdExt& referenced_block) -> tl::CandidateDataRef {
+    return create_tl_object<tl::empty>(id.slot, parent_id->to_tl(), create_tl_block_id(referenced_block),
+                                       signature.clone());
   };
-  auto block_fn = [&](const BlockCandidate& candidate) {
+  auto block_fn = [&](const BlockCandidate& candidate) -> tl::CandidateDataRef {
     auto candidate_tl = create_tl_object<ton_api::validatorSession_candidate>(
         td::Bits256{}, candidate.id.seqno(), candidate.id.root_hash, candidate.data.clone(),
         candidate.collated_data.clone());
 
-    return create_serialize_tl_object<tl::block>(id.slot, CandidateId::parent_id_to_tl(parent_id),
-                                                 serialize_payload(candidate_tl).move_as_ok(), signature.clone());
+    return create_tl_object<tl::block>(id.slot, CandidateId::parent_id_to_tl(parent_id),
+                                       serialize_payload(candidate_tl).move_as_ok(), signature.clone());
   };
   return std::visit(td::overloaded(empty_fn, block_fn), block);
+}
+
+td::BufferSlice Candidate::serialize() const {
+  if (!delegation.has_value()) {
+    return serialize_for_broadcast();
+  }
+  return create_serialize_tl_object<tl::candidate>(1, to_data_tl(), delegation->to_tl());
+}
+
+td::BufferSlice Candidate::serialize_for_broadcast() const {
+  return serialize_tl_object(to_data_tl(), true);
 }
 
 bool Candidate::is_empty() const {
