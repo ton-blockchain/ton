@@ -136,6 +136,11 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       }
     }
 
+    td::uint32 next_window_start = (new_window + 1) * slots_per_leader_window_;
+    if (bus.collator_schedule->is_expected_collator(bus.local_id->idx, next_window_start)) {
+      owning_bus().publish<OurLeaderWindowUpcoming>(next_window_start);
+    }
+
     if (timeout_slot_ <= event->start_slot) {
       timeout_slot_ = event->start_slot + 1;
       timeout_base_ = td::Timestamp::in(std::chrono::round<std::chrono::nanoseconds>(first_block_timeout_));

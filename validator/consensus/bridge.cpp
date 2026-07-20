@@ -259,6 +259,7 @@ class BridgeImpl final : public IValidatorGroup {
     bus->all_overlay_nodes = params_.all_overlay_nodes;
     bus->is_collator = params_.is_collator;
     bus->collators_by_validator = params_.collators_by_validator;
+    bus->collator_scoreboard = params_.collator_scoreboard;
 
     bool found = false;
     size_t idx = 0;
