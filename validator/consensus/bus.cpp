@@ -66,8 +66,12 @@ static td::StringBuilder& operator<<(td::StringBuilder& sb, const OutgoingProtoc
   auto broadcast_to_random_fn = [&](const OutgoingProtocolMessage::BroadcastToRandom& r) {
     sb << "BroadcastToRandom{count=" << r.count << "}";
   };
+  auto send_to_peer_fn = [&](const OutgoingProtocolMessage::SendToPeer& p) {
+    sb << "SendToPeer{peer=" << p.peer << "}";
+  };
 
-  std::visit(td::overloaded(broadcast_to_all_fn, broadcast_to_validators_fn, broadcast_to_random_fn), recipient);
+  std::visit(td::overloaded(broadcast_to_all_fn, broadcast_to_validators_fn, broadcast_to_random_fn, send_to_peer_fn),
+             recipient);
   return sb;
 }
 
@@ -83,6 +87,10 @@ std::string FinalizeBlock::contents_to_string() const {
 std::string OurLeaderWindowStarted::contents_to_string() const {
   return PSTRING() << "{base=" << base << ", state=" << state << ", start_slot=" << start_slot
                    << ", end_slot=" << end_slot << ", start_time=" << start_time.at_unix() << "}";
+}
+
+std::string OurLeaderWindowUpcoming::contents_to_string() const {
+  return PSTRING() << "{start_slot=" << start_slot << "}";
 }
 
 std::string CandidateGenerated::contents_to_string() const {

@@ -62,6 +62,15 @@ td::Status CollatorsList::unpack(const ton_api::engine_validator_collatorsList& 
   return td::Status::OK();
 }
 
+const CollatorsList::Shard* CollatorsList::get_shard(ShardIdFull shard_id) const {
+  for (const Shard& shard : shards) {
+    if (shard_intersects(shard_id, shard.shard_id)) {
+      return &shard;
+    }
+  }
+  return nullptr;
+}
+
 CollatorsList CollatorsList::default_list() {
   CollatorsList list;
   list.shards.push_back({

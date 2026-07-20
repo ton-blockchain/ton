@@ -177,6 +177,7 @@ td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const Sessio
       .adnl_sender = ctx.deps.quic,
       .db_root = ctx.deps.db_root,
       .all_overlay_nodes = info.overlay_members,
+      .collator_scoreboard = ctx.deps.collator_scoreboard,
   };
   return IValidatorGroup::create_bridge(PSTRING() << "valgroup" << info.shard, params);
 }

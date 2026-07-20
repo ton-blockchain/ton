@@ -91,6 +91,7 @@ struct CollatorsList : public td::CntObject {
   bool self_collate = false;
 
   td::Status unpack(const ton_api::engine_validator_collatorsList& obj);
+  const Shard* get_shard(ShardIdFull shard_id) const;
   static CollatorsList default_list();
 };
 

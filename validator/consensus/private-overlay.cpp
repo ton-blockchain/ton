@@ -133,7 +133,10 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       }
     };
 
-    std::visit(td::overloaded(broadcast_all_fn, broadcast_validators_fn, gossip_fn), message->recipient);
+    auto send_to_single_peer_fn = [&](const OutgoingProtocolMessage::SendToPeer& p) { send_to_peer(p.peer); };
+
+    std::visit(td::overloaded(broadcast_all_fn, broadcast_validators_fn, gossip_fn, send_to_single_peer_fn),
+               message->recipient);
   }
 
   template <>

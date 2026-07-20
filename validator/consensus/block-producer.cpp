@@ -6,6 +6,7 @@
 
 #include "td/actor/coro_task.h"
 #include "td/utils/CancellationToken.h"
+#include "validator/collator-scoreboard.hpp"
 
 #include "bus.h"
 #include "window-producer.h"
@@ -23,8 +24,25 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   }
 
   void start_up() override {
-    target_rate_ = owning_bus()->config.noncritical_params.target_rate;
-    no_empty_blocks_on_error_timeout_ = owning_bus()->config.noncritical_params.no_empty_blocks_on_error_timeout;
+    auto& bus = *owning_bus();
+    target_rate_ = bus.config.noncritical_params.target_rate;
+    no_empty_blocks_on_error_timeout_ = bus.config.noncritical_params.no_empty_blocks_on_error_timeout;
+
+    if (!bus.shard.is_masterchain() && bus.config.enable_collators()) {
+      auto list = bus.validator_opts->get_collators_list();
+      auto shard = list->get_shard(bus.shard);
+      if (shard != nullptr) {
+        for (const adnl::AdnlNodeIdShort& collator_id : shard->collators) {
+          if (std::find(bus.all_overlay_nodes.begin(), bus.all_overlay_nodes.end(), collator_id) !=
+              bus.all_overlay_nodes.end()) {
+            collator_nodes_.push_back(collator_id);
+            LOG(INFO) << "Configured collator node " << collator_id;
+          } else {
+            LOG(WARNING) << "Collator node " << collator_id << " is not in overlay!";
+          }
+        }
+      }
+    }
   }
 
   template <>
@@ -57,8 +75,31 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     CHECK(current_leader_window_ < event->start_slot);
 
     current_leader_window_ = event->start_slot;
+    if (delegated_windows_.contains(event->start_slot)) {
+      LOG(INFO) << "Window " << event->start_slot << " is delegated to "
+                << delegated_windows_.at(event->start_slot).collator << ", not producing";
+      return;
+    }
     cancellation_source_ = td::CancellationTokenSource();
     generate_candidates(event).start().detach();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const OurLeaderWindowUpcoming> event) {
+    conclude_delegations_before(event->start_slot);
+    prepare_delegation(event->start_slot).start().detach();
+  }
+
+  template <>
+  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
+    if (event->candidate->leader != bus->local_id->idx || !event->candidate->delegation.has_value()) {
+      return;
+    }
+    td::uint32 slot = event->candidate->id.slot;
+    auto it = delegated_windows_.find(slot - slot % bus->config.slots_per_leader_window);
+    if (it != delegated_windows_.end()) {
+      it->second.produced = true;
+    }
   }
 
   template <>
@@ -67,6 +108,47 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   }
 
  private:
+  td::actor::Task<> prepare_delegation(td::uint32 start_slot) {
+    auto& bus = *owning_bus();
+
+    if (collator_nodes_.empty()) {
+      co_return {};
+    }
+    auto maybe_collator =
+        co_await td::actor::ask(bus.collator_scoreboard, &CollatorScoreboard::pick_collator, collator_nodes_).wrap();
+    if (maybe_collator.is_error()) {
+      LOG(INFO) << "Not delegating window " << start_slot << ": " << maybe_collator.error();
+      co_return {};
+    }
+    auto collator = maybe_collator.move_as_ok();
+
+    auto to_sign = create_serialize_tl_object<tl::delegationToSign>(start_slot, collator.bits256_value());
+    to_sign = create_serialize_tl_object<tl::dataToSign>(bus.session_id, std::move(to_sign));
+    auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id->short_id,
+                                             std::move(to_sign));
+
+    if (current_leader_window_.has_value() && *current_leader_window_ >= start_slot) {
+      co_return {};
+    }
+
+    LOG(INFO) << "Delegating window " << start_slot << " to " << collator;
+    owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(
+        OutgoingProtocolMessage::SendToPeer{collator},
+        create_serialize_tl_object<tl::pleaseCollate>(start_slot, std::move(signature))));
+    delegated_windows_[start_slot] = DelegatedWindow{collator, false};
+    co_return {};
+  }
+
+  void conclude_delegations_before(td::uint32 boundary_slot) {
+    auto& bus = *owning_bus();
+    while (!delegated_windows_.empty() && delegated_windows_.begin()->first < boundary_slot) {
+      auto& [start_slot, window] = *delegated_windows_.begin();
+      td::actor::send_closure(bus.collator_scoreboard, &CollatorScoreboard::report_outcome, window.collator,
+                              window.produced);
+      delegated_windows_.erase(delegated_windows_.begin());
+    }
+  }
+
   td::actor::Task<> generate_candidates(std::shared_ptr<const OurLeaderWindowStarted> event) {
     auto& bus = *owning_bus();
 
@@ -104,8 +186,16 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     co_return {};
   }
 
+  struct DelegatedWindow {
+    adnl::AdnlNodeIdShort collator;
+    bool produced = false;
+  };
+
   std::optional<td::uint32> current_leader_window_;
   td::CancellationTokenSource cancellation_source_;
+
+  std::vector<adnl::AdnlNodeIdShort> collator_nodes_;
+  std::map<td::uint32, DelegatedWindow> delegated_windows_;
 
   EmptyBlockPolicy empty_block_policy_;
   std::chrono::milliseconds target_rate_;
