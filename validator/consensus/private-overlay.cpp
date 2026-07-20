@@ -170,9 +170,16 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       return;
     }
 
-    td::BufferSlice extra = create_serialize_tl_object<ton_api::consensus_broadcastExtra>(event->candidate->id.slot);
+    td::BufferSlice extra;
+    if (event->candidate->delegation) {
+      extra = create_serialize_tl_object<tl::broadcastExtra>(1, event->candidate->id.slot,
+                                                             event->candidate->delegation->to_tl());
+    } else {
+      // extra = create_serialize_tl_object<tl::broadcastExtra>(0, event->candidate->id.slot, nullptr);
+      extra = create_serialize_tl_object<tl::broadcastExtraLegacy>(event->candidate->id.slot);
+    }
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_with_extra, local_adnl_id_, overlay_id_,
-                            local_broadcast_src_, 0, event->candidate->serialize(), std::move(extra));
+                            local_broadcast_src_, 0, event->candidate->serialize_for_broadcast(), std::move(extra));
   }
 
  private:
@@ -231,14 +238,21 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       return;
     }
 
-    auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true).move_as_ok();
+    auto parsed_extra = parse_broadcast_extra(extra).move_as_ok();
 
-    if (!broadcast_src_to_peer_.contains(src)) {
-      LOG(WARNING) << "Dropping candidate broadcast from " << src << " in private overlay: not a validator";
-      return;
+    Candidate::Signer signer;
+    if (parsed_extra.delegation) {
+      signer = std::move(*parsed_extra.delegation);
+    } else {
+      auto it = broadcast_src_to_peer_.find(src);
+      if (it == broadcast_src_to_peer_.end()) {
+        LOG(WARNING) << "Dropping candidate broadcast from unknown source " << src;
+        return;
+      }
+      signer = it->second.idx;
     }
-    auto peer = broadcast_src_to_peer_.at(src);
-    auto maybe_candidate = Candidate::deserialize(std::move(data), bus, peer.idx, parsed_extra->slot_);
+    auto maybe_candidate =
+        Candidate::deserialize_from_broadcast(std::move(data), std::move(signer), bus, parsed_extra.slot);
 
     if (maybe_candidate.is_error()) {
       // FIXME: If we actually collected signed broadcast parts, we could have produced a
@@ -259,26 +273,29 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
-    if (owning_bus()->config.enable_block_sync()) {
-      co_return td::Status::Error("Precheck failed: Candidate broadcasts in private overlay are disabled");
-    }
-    auto parsed_extra = fetch_tl_object<ton_api::consensus_broadcastExtra>(extra, true);
-    if (parsed_extra.is_error()) {
-      co_return parsed_extra.move_as_error_prefix("Precheck failed: Failed to parse broadcast extra: ");
-    }
-
+    auto parsed_extra = CO_TRY(parse_broadcast_extra(extra).trace("Precheck failed: Failed to parse broadcast extra"));
     auto& bus = *owning_bus();
-    if (!broadcast_src_to_peer_.contains(src)) {
-      co_return td::Status::Error("Precheck failed: Src is not a validator");
-    }
-    auto peer = broadcast_src_to_peer_.at(src).idx;
-    td::uint32 slot = parsed_extra.move_as_ok()->slot_;
-    if (peer != bus.collator_schedule->expected_collator_for(slot)) {
-      co_return td::Status::Error("Precheck failed: Broadcast is not from the expected collator");
+    auto expected_leader = bus.collator_schedule->expected_collator_for(parsed_extra.slot);
+    if (parsed_extra.delegation.has_value()) {
+      if (parsed_extra.delegation->collator_key.compute_short_id() != src) {
+        co_return td::Status::Error("Precheck failed: Delegation collator key does not match the broadcast source");
+      }
+      if (signature_checked) {
+        CO_TRY(check_delegation(*parsed_extra.delegation, expected_leader.get_using(bus), parsed_extra.slot, bus)
+                   .trace("Precheck failed"));
+      }
+    } else {
+      auto it = broadcast_src_to_peer_.find(src);
+      if (it == broadcast_src_to_peer_.end()) {
+        co_return td::Status::Error("Precheck failed: Broadcast is from an unknown source");
+      }
+      if (it->second.idx != expected_leader) {
+        co_return td::Status::Error("Precheck failed: Broadcast is not from the expected collator");
+      }
     }
 
     co_return co_await owning_bus()
-        .publish<PrecheckCandidateBroadcast>(slot, broadcast_id, signature_checked)
+        .publish<PrecheckCandidateBroadcast>(parsed_extra.slot, broadcast_id, signature_checked)
         .trace("Precheck failed");
   }
 
@@ -308,6 +325,25 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   adnl::AdnlNodeIdShort local_adnl_id_;
   std::vector<adnl::AdnlNodeIdShort> overlay_nodes_;
   std::vector<adnl::AdnlNodeIdShort> other_overlay_nodes_;
+
+  struct ParsedExtra {
+    td::uint32 slot;
+    std::optional<Delegation> delegation;
+  };
+
+  static td::Result<ParsedExtra> parse_broadcast_extra(td::Slice extra) {
+    TRY_RESULT(parsed, fetch_tl_object<tl::BroadcastExtra>(extra, true));
+    ParsedExtra result;
+    auto legacy_fn = [&](tl::broadcastExtraLegacy& legacy) {
+      result = ParsedExtra{static_cast<td::uint32>(legacy.slot_), std::nullopt};
+    };
+    auto current_fn = [&](tl::broadcastExtra& current) {
+      result = ParsedExtra{static_cast<td::uint32>(current.slot_), Delegation::from_tl(std::move(current.delegation_))};
+    };
+    ton_api::downcast_call(*parsed, td::overloaded(legacy_fn, current_fn));
+    return result;
+  }
+
   std::map<adnl::AdnlNodeIdShort, PeerValidator> adnl_id_to_peer_;
   std::map<PublicKeyHash, PeerValidator> broadcast_src_to_peer_;
   PublicKeyHash local_broadcast_src_;
