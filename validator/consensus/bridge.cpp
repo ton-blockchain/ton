@@ -310,6 +310,7 @@ class BridgeImpl final : public IValidatorGroup {
     PrivateOverlay::register_in(runtime);
     TraceCollector::register_in(runtime);
     simplex::CandidateResolver::register_in(runtime);
+    simplex::CollatorProducer::register_in(runtime);
     simplex::Consensus::register_in(runtime);
     simplex::Db::register_in(runtime);
     simplex::Pool::register_in(runtime);
