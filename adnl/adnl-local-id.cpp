@@ -92,6 +92,9 @@ td::actor::Task<> AdnlLocalId::receive_coro(td::IPAddress addr, td::BufferSlice 
 
 void AdnlLocalId::add_inbound_peer(td::IPAddress addr, AdnlNodeIdShort peer, td::Promise<td::Unit> promise) {
   auto &rate_limiter = inbound_rate_limiter_[remove_port(addr)];
+  if (!cleanup_rate_limiter_at_) {
+    alarm_timestamp().relax(cleanup_rate_limiter_at_ = td::Timestamp::in(1.0));
+  }
   if (rate_limiter.recent_inbound_peers.size() >= UNIQUE_PEERS_PER_IP_LIMIT &&
       !rate_limiter.recent_inbound_peers.contains(peer)) {
     promise.set_error(td::Status::Error("too many unique peer ids from a single ip"));
