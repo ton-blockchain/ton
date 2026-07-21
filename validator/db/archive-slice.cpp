@@ -473,6 +473,9 @@ void ArchiveSlice::get_handle(BlockIdExt block_id, td::Promise<BlockHandle> prom
   if (!temp_) {
     handle->set_handle_moved_to_archive();
   }
+  if (handle->is_applied()) {
+    handle->set_applied_stored();
+  }
   promise.set_value(std::move(handle));
 }
 
