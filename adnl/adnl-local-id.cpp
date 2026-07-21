@@ -90,15 +90,18 @@ td::actor::Task<> AdnlLocalId::receive_coro(td::IPAddress addr, td::BufferSlice 
   co_return {};
 }
 
-void AdnlLocalId::add_inbound_peer(td::IPAddress addr, AdnlNodeIdShort peer) {
+void AdnlLocalId::add_inbound_peer(td::IPAddress addr, AdnlNodeIdShort peer, td::Promise<td::Unit> promise) {
   auto &rate_limiter = inbound_rate_limiter_[remove_port(addr)];
-  if (rate_limiter.recent_inbound_peers.size() >= UNIQUE_PEERS_PER_IP_LIMIT) {
+  if (rate_limiter.recent_inbound_peers.size() >= UNIQUE_PEERS_PER_IP_LIMIT &&
+      !rate_limiter.recent_inbound_peers.contains(peer)) {
+    promise.set_error(td::Status::Error("too many unique peer ids from a single ip"));
     return;
   }
   rate_limiter.recent_inbound_peers.insert(peer);
   if (!cleanup_recent_inbound_peers_at_) {
     alarm_timestamp().relax(cleanup_recent_inbound_peers_at_ = td::Timestamp::in(UNIQUE_PEERS_PER_IP_WINDOW));
   }
+  promise.set_value(td::Unit());
 }
 
 void AdnlLocalId::deliver(AdnlNodeIdShort src, td::BufferSlice data) {

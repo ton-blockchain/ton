@@ -249,8 +249,14 @@ void AdnlPeerPairImpl::receive_packet_from_channel(AdnlChannelIdShort id, AdnlPa
       td::actor::send_closure(actor_id(this), &AdnlPeerPairImpl::send_messages_from_queue);
     }
   }
-  td::actor::send_closure(local_actor_, &AdnlLocalId::add_inbound_peer, packet.remote_addr(), peer_id_short_);
-  receive_packet_checked(std::move(packet));
+  auto addr = packet.remote_addr();
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), packet = std::move(packet)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      return;
+    }
+    td::actor::send_closure(SelfId, &AdnlPeerPairImpl::receive_packet_checked, std::move(packet));
+  });
+  td::actor::send_closure(local_actor_, &AdnlLocalId::add_inbound_peer, addr, peer_id_short_, std::move(P));
 }
 
 void AdnlPeerPairImpl::receive_packet(AdnlPacket packet, td::uint64 serialized_size) {
@@ -269,8 +275,15 @@ void AdnlPeerPairImpl::receive_packet(AdnlPacket packet, td::uint64 serialized_s
     return;
   }
 
-  td::actor::send_closure(local_actor_, &AdnlLocalId::add_inbound_peer, packet.remote_addr(), packet.from_short());
-  receive_packet_checked(std::move(packet));
+  auto addr = packet.remote_addr();
+  auto peer = packet.from_short();
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), packet = std::move(packet)](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      return;
+    }
+    td::actor::send_closure(SelfId, &AdnlPeerPairImpl::receive_packet_checked, std::move(packet));
+  });
+  td::actor::send_closure(local_actor_, &AdnlLocalId::add_inbound_peer, addr, peer, std::move(P));
 }
 
 void AdnlPeerPairImpl::deliver_message(AdnlMessage message) {
