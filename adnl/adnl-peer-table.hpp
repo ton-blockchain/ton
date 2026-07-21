@@ -160,6 +160,7 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void gc_peer_pairs(AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);
 
   static void update_id(PeerInfo &peer_info, AdnlNodeIdFull &&peer_id);
+  void dispatch_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket packet, td::uint64 serialized_size);
   td::actor::ActorOwn<AdnlPeerPair> &get_peer_pair(AdnlNodeIdShort peer_id, PeerInfo &peer_info,
                                                    AdnlNodeIdShort local_id, LocalIdInfo &local_id_info);
   PeerPair *get_peer_pair_if_exists(AdnlNodeIdShort peer_id, AdnlNodeIdShort local_id);

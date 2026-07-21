@@ -129,22 +129,6 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
   }
   AdnlNodeIdShort src = packet.from_short();
 
-  auto it = peers_.find(src);
-  if (it == peers_.end()) {
-    if (!packet.inited_from()) {
-      VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
-                       << "]: unknown peer and no full src in packet";
-      return;
-    }
-    if (network_manager_.empty()) {
-      VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
-                       << "]: unknown peer and network manager uninitialized";
-      return;
-    }
-
-    it = peers_.try_emplace(src).first;
-  }
-
   auto it2 = local_ids_.find(dst);
   if (it2 == local_ids_.end()) {
     VLOG(adnl, ERROR) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
@@ -152,6 +136,65 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
     return;
   }
 
+  auto it = peers_.find(src);
+  if (it != peers_.end() && it->second.peers.count(dst) != 0) {
+    dispatch_decrypted_packet(dst, std::move(packet), serialized_size);
+    return;
+  }
+
+  if (it == peers_.end()) {
+    if (network_manager_.empty()) {
+      VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
+                       << "]: unknown peer and network manager uninitialized";
+      return;
+    }
+  }
+
+  AdnlNodeIdFull peer_id;
+  if (packet.inited_from()) {
+    peer_id = packet.from();
+  } else if (it != peers_.end() && !it->second.peer_id.empty()) {
+    peer_id = it->second.peer_id;
+  } else {
+    VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
+                     << "]: unknown peer and no full src in packet";
+    return;
+  }
+
+  auto R = peer_id.pubkey().create_encryptor();
+  if (R.is_error()) {
+    VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
+                     << "]: failed to create encryptor: " << R.move_as_error();
+    return;
+  }
+  auto S = R.move_as_ok()->check_signature(packet.to_sign().as_slice(), packet.signature().as_slice());
+  if (S.is_error()) {
+    VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
+                     << "]: bad signature: " << S;
+    return;
+  }
+
+  auto addr = packet.remote_addr();
+  auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), dst, packet = std::move(packet),
+                                       serialized_size](td::Result<td::Unit> R) mutable {
+    if (R.is_error()) {
+      return;
+    }
+    td::actor::send_closure(SelfId, &AdnlPeerTableImpl::dispatch_decrypted_packet, dst, std::move(packet),
+                            serialized_size);
+  });
+  td::actor::send_closure(it2->second.local_id, &AdnlLocalId::add_inbound_peer, addr, src, std::move(P));
+}
+
+void AdnlPeerTableImpl::dispatch_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket packet,
+                                                  td::uint64 serialized_size) {
+  auto it2 = local_ids_.find(dst);
+  if (it2 == local_ids_.end()) {
+    return;
+  }
+
+  AdnlNodeIdShort src = packet.from_short();
+  auto it = peers_.try_emplace(src).first;
   if (packet.inited_from()) {
     update_id(it->second, packet.from());
   }

@@ -83,16 +83,28 @@ td::actor::Task<> AdnlLocalId::receive_coro(td::IPAddress addr, td::BufferSlice 
     if (!rate_limiter.recent_inbound_peers.contains(packet.from_short())) {
       co_return td::Status::Error("too many unique peer ids from a single ip");
     }
-  } else {
-    rate_limiter.recent_inbound_peers.insert(packet.from_short());
-    if (!cleanup_recent_inbound_peers_at_) {
-      alarm_timestamp().relax(cleanup_recent_inbound_peers_at_ = td::Timestamp::in(UNIQUE_PEERS_PER_IP_WINDOW));
-    }
   }
 
   td::actor::send_closure(peer_table_, &AdnlPeerTable::receive_decrypted_packet, short_id_, std::move(packet),
                           data_size);
   co_return {};
+}
+
+void AdnlLocalId::add_inbound_peer(td::IPAddress addr, AdnlNodeIdShort peer, td::Promise<td::Unit> promise) {
+  auto &rate_limiter = inbound_rate_limiter_[remove_port(addr)];
+  if (!cleanup_rate_limiter_at_) {
+    alarm_timestamp().relax(cleanup_rate_limiter_at_ = td::Timestamp::in(1.0));
+  }
+  if (rate_limiter.recent_inbound_peers.size() >= UNIQUE_PEERS_PER_IP_LIMIT &&
+      !rate_limiter.recent_inbound_peers.contains(peer)) {
+    promise.set_error(td::Status::Error("too many unique peer ids from a single ip"));
+    return;
+  }
+  rate_limiter.recent_inbound_peers.insert(peer);
+  if (!cleanup_recent_inbound_peers_at_) {
+    alarm_timestamp().relax(cleanup_recent_inbound_peers_at_ = td::Timestamp::in(UNIQUE_PEERS_PER_IP_WINDOW));
+  }
+  promise.set_value(td::Unit());
 }
 
 void AdnlLocalId::deliver(AdnlNodeIdShort src, td::BufferSlice data) {
