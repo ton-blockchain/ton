@@ -247,6 +247,7 @@ class Network:
 
             process_env = os.environ.copy()
             process_env.update(start_options.env)
+            process_env["TON_TONTESTER"] = "1"
 
             match start_options.debug:
                 case None:

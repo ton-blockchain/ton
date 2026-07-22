@@ -90,7 +90,11 @@ void WaitBlockState::start() {
     td::actor::send_closure(manager_, &ValidatorManager::get_shard_state_from_db, handle_, std::move(P));
     return;
   }
-  if (handle_->id().id.seqno == 0 && !checked_celldb_) {
+  static bool tontester_mode = []() -> bool {
+    const char* s = std::getenv("TON_TONTESTER");
+    return s != nullptr && !strcmp(s, "1");
+  }();
+  if (tontester_mode && handle_->id().id.seqno == 0 && !checked_celldb_) {
     checked_celldb_ = true;
     auto P = td::PromiseCreator::lambda(
         [SelfId = actor_id(this)](td::Result<std::shared_ptr<vm::CellDbReader>> R) {
