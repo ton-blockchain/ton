@@ -34,7 +34,7 @@ namespace validator {
 
 void AsyncStateSerializer::start_up() {
   if (!opts_->get_state_serializer_enabled()) {
-    LOG(ERROR) << "Persistent state serializer is disabled";
+    VLOG(validator, ERROR) << "Persistent state serializer is disabled";
   }
   alarm_timestamp() = td::Timestamp::in(1.0 + td::Random::fast(0, 10) * 1.0);
   running_ = true;
@@ -175,7 +175,7 @@ void AsyncStateSerializer::next_iteration() {
   if (attempt_ < max_attempt() && last_key_block_id_.id.seqno < last_block_id_.id.seqno &&
       need_serialize(masterchain_handle_)) {
     if (!stored_persistent_state_description_) {
-      LOG(INFO) << "storing persistent state description for " << masterchain_handle_->id().id;
+      VLOG(validator, INFO) << "storing persistent state description for " << masterchain_handle_->id().id;
       running_ = true;
       auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
         if (R.is_error()) {
@@ -190,21 +190,21 @@ void AsyncStateSerializer::next_iteration() {
       return;
     }
     if (!have_masterchain_state_ && !opts_->get_state_serializer_enabled()) {
-      LOG(ERROR) << "skipping serializing persistent state for " << masterchain_handle_->id().id
-                 << ": serializer is disabled (by user)";
+      VLOG(validator, ERROR) << "skipping serializing persistent state for " << masterchain_handle_->id().id
+                             << ": serializer is disabled (by user)";
     } else if (!have_masterchain_state_ && auto_disabled_) {
-      LOG(ERROR) << "skipping serializing persistent state for " << masterchain_handle_->id().id
-                 << ": serializer is disabled (automatically)";
+      VLOG(validator, ERROR) << "skipping serializing persistent state for " << masterchain_handle_->id().id
+                             << ": serializer is disabled (automatically)";
     } else if (!have_masterchain_state_ && have_newer_persistent_state(masterchain_handle_->unix_time())) {
-      LOG(ERROR) << "skipping serializing persistent state for " << masterchain_handle_->id().id
-                 << ": newer key block with ts=" << last_known_key_block_ts_ << " exists";
+      VLOG(validator, ERROR) << "skipping serializing persistent state for " << masterchain_handle_->id().id
+                             << ": newer key block with ts=" << last_known_key_block_ts_ << " exists";
     } else {
       if (!have_masterchain_state_) {
-        LOG(ERROR) << "started serializing persistent state for " << masterchain_handle_->id().id;
+        VLOG(validator, ERROR) << "started serializing persistent state for " << masterchain_handle_->id().id;
         // block next attempts immediately, but send actual request later
         running_ = true;
         double delay = td::Random::fast(0, 3600 * 6);
-        LOG(WARNING) << "serializer delay = " << delay << "s";
+        VLOG(validator, WARNING) << "serializer delay = " << delay << "s";
         delay_action(
             [SelfId = actor_id(this)]() {
               td::actor::send_closure(SelfId, &AsyncStateSerializer::request_previous_state_files);
@@ -220,7 +220,7 @@ void AsyncStateSerializer::next_iteration() {
         request_shard_state(shards_[next_idx_].block_id);
         return;
       }
-      LOG(ERROR) << "finished serializing persistent state for " << masterchain_handle_->id().id;
+      VLOG(validator, ERROR) << "finished serializing persistent state for " << masterchain_handle_->id().id;
     }
     last_key_block_ts_ = masterchain_handle_->unix_time();
     last_key_block_id_ = masterchain_handle_->id();
@@ -332,8 +332,8 @@ class CachedCellDbReader : public vm::CellDbReader {
     return res;
   };
   void print_stats() const {
-    LOG(WARNING) << "CachedCellDbReader stats : " << total_reqs_ << " reads, " << cached_reqs_ << " cached, "
-                 << bulk_reqs_ << " bulk reqs";
+    VLOG(validator, WARNING) << "CachedCellDbReader stats : " << total_reqs_ << " reads, " << cached_reqs_
+                             << " cached, " << bulk_reqs_ << " bulk reqs";
   }
   Ref<vm::Cell> create_unloaded_cell(const Ref<vm::Cell>& cell, int merkle_depth) override {
     return parent_->create_unloaded_cell(cell, merkle_depth);
@@ -372,7 +372,8 @@ void AsyncStateSerializer::PreviousStateCache::prepare_cache(ShardIdFull shard, 
     return;
   }
   td::Timer timer;
-  LOG(WARNING) << "Preloading previous persistent state for shard " << shard << " (" << cur_shards.size() << " files)";
+  VLOG(validator, WARNING) << "Preloading previous persistent state for shard " << shard << " (" << cur_shards.size()
+                           << " files)";
   vm::CellHashSet cells;
   std::function<void(td::Ref<vm::Cell>)> dfs = [&](td::Ref<vm::Cell> cell) {
     if (!cells.insert(cell).second) {
@@ -390,19 +391,19 @@ void AsyncStateSerializer::PreviousStateCache::prepare_cache(ShardIdFull shard, 
     }
     auto r_data = td::read_file(file);
     if (r_data.is_error()) {
-      LOG(INFO) << "Reading " << file << " : " << r_data.move_as_error();
+      VLOG(validator, INFO) << "Reading " << file << " : " << r_data.move_as_error();
       continue;
     }
-    LOG(INFO) << "Reading " << file << " : " << td::format::as_size(r_data.ok().size());
+    VLOG(validator, INFO) << "Reading " << file << " : " << td::format::as_size(r_data.ok().size());
     auto r_root = vm::std_boc_deserialize(r_data.move_as_ok());
     if (r_root.is_error()) {
-      LOG(WARNING) << "Deserialize error : " << r_root.move_as_error();
+      VLOG(validator, WARNING) << "Deserialize error : " << r_root.move_as_error();
       continue;
     }
     r_data.clear();
     dfs(r_root.move_as_ok());
   }
-  LOG(WARNING) << "Preloaded previous state: " << cells.size() << " cells in " << timer.elapsed() << "s";
+  VLOG(validator, WARNING) << "Preloaded previous state: " << cells.size() << " cells in " << timer.elapsed() << "s";
   cache = std::make_shared<vm::CellHashSet>(std::move(cells));
 }
 
@@ -442,7 +443,7 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
     stored_masterchain_state();
     return;
   }
-  LOG(ERROR) << "serializing masterchain state " << masterchain_handle_->id().id;
+  VLOG(validator, ERROR) << "serializing masterchain state " << masterchain_handle_->id().id;
   have_masterchain_state_ = true;
   CHECK(next_idx_ == 0);
   CHECK(shards_.size() == 0);
@@ -472,7 +473,7 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
   };
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Unit> R) {
     if (R.is_error() && R.error().code() == cancelled) {
-      LOG(ERROR) << "Persistent state serialization cancelled";
+      VLOG(validator, ERROR) << "Persistent state serialization cancelled";
     } else {
       R.ensure();
     }
@@ -489,7 +490,7 @@ void AsyncStateSerializer::got_masterchain_state(td::Ref<MasterchainState> state
 void AsyncStateSerializer::stored_masterchain_state() {
   current_status_ = "pending";
   current_status_ts_ = {};
-  LOG(ERROR) << "finished serializing masterchain state " << masterchain_handle_->id().id;
+  VLOG(validator, ERROR) << "finished serializing masterchain state " << masterchain_handle_->id().id;
   running_ = false;
   next_iteration();
 }
@@ -588,7 +589,7 @@ void AsyncStateSerializer::got_shard_state(BlockHandle handle, td::Ref<ShardStat
     success_handler();
     return;
   }
-  LOG(ERROR) << "serializing shard state " << handle->id().id;
+  VLOG(validator, ERROR) << "serializing shard state " << handle->id().id;
 
   auto parts = split_shard_state(state->get_shard().shard, state->root_cell(), archive_split_depth);
   CHECK(!parts.empty());
@@ -612,8 +613,8 @@ void AsyncStateSerializer::write_shard_state(BlockHandle handle, ShardIdFull sha
                      cancellation_token = cancellation_token_source_.get_cancellation_token()](td::FileFd& fd) mutable {
     CHECK(running_);
 
-    LOG(ERROR) << "serializing shard state " << handle->id().id << " (" << persistent_state_type_to_string(shard, type)
-               << ")";
+    VLOG(validator, ERROR) << "serializing shard state " << handle->id().id << " ("
+                           << persistent_state_type_to_string(shard, type) << ")";
     if (!cell_db_reader) {
       return vm::std_boc_serialize_to_file(cell, fd, 31, std::move(cancellation_token));
     }
@@ -630,14 +631,14 @@ void AsyncStateSerializer::write_shard_state(BlockHandle handle, ShardIdFull sha
   };
   auto P = td::PromiseCreator::lambda([=, SelfId = actor_id(this)](td::Result<td::Unit> R) {
     if (R.is_error() && R.error().code() == cancelled) {
-      LOG(ERROR) << "Persistent state serialization cancelled";
+      VLOG(validator, ERROR) << "Persistent state serialization cancelled";
       td::actor::send_closure(SelfId, &AsyncStateSerializer::success_handler);
       return;
     }
 
     R.ensure();
-    LOG(ERROR) << "finished serializing shard state " << handle->id().id << " ("
-               << persistent_state_type_to_string(shard, type) << ")";
+    VLOG(validator, ERROR) << "finished serializing shard state " << handle->id().id << " ("
+                           << persistent_state_type_to_string(shard, type) << ")";
     if (idx + 1 == parts->size()) {
       td::actor::send_closure(SelfId, &AsyncStateSerializer::success_handler);
     } else {
