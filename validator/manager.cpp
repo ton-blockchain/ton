@@ -249,7 +249,7 @@ td::actor::Task<> ValidatorManagerImpl::generate_shard_block_description(BlockId
     co_return td::Status::Error("too old block");
   }
   auto data =
-      co_await validator::generate_shard_block_description(block_id, sig_set, td::Timestamp::in(30.0), actor_id(this))
+      co_await validator::generate_shard_block_description(block_id, sig_set, td::Timestamp::in(300.0), actor_id(this))
           .trace("generate");
   VLOG(validator, DEBUG) << "Generated shard block description for " << block_id;
 
