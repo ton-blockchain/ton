@@ -341,55 +341,10 @@ void emit_subtree(CellSink &sink, const Ref<vm::Cell> &root) {
 }
 
 // ---------------------------------------------------------------------------
-// Bundling
-// ---------------------------------------------------------------------------
-
-void BundleTracker::retain(const Ref<vm::DataCell> &cell) {
-  retained_.emplace(cell->get_hash(), cell);
-}
-
-void BundleTracker::close_out(const vm::CellHash &hash) {
-  auto it = retained_.find(hash);
-  LOG_CHECK(it != retained_.end()) << "bundle root not retained: " << hash.to_hex();
-  auto root = std::move(it->second);
-  retained_.erase(it);
-  std::vector<vm::CellHash> claimed;
-  auto value =
-      vm::CellStorer::serialize_value_bundle(refcnt_, root, [&](const vm::CellHash &h) -> Ref<vm::DataCell> {
-        auto it2 = retained_.find(h);
-        if (it2 == retained_.end()) {
-          return {};
-        }
-        claimed.push_back(h);
-        return it2->second;
-      });
-  for (const auto &h : claimed) {
-    retained_.erase(h);
-  }
-  sink_.emit_raw(td::Bits256{root->get_hash().bits()}, std::move(value));
-}
-
-std::vector<Ref<vm::DataCell>> BundleTracker::take_retained() {
-  std::vector<Ref<vm::DataCell>> res;
-  res.reserve(retained_.size());
-  for (auto &it : retained_) {
-    res.push_back(std::move(it.second));
-  }
-  retained_.clear();
-  return res;
-}
-
-void BundleTracker::adopt(std::vector<Ref<vm::DataCell>> cells) {
-  for (auto &cell : cells) {
-    retain(cell);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Streaming ShardAccounts builder
 // ---------------------------------------------------------------------------
 
-Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, int edge_start, BundleTracker *tracker) {
+Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, int edge_start) {
   CHECK(node.type != DictNode::Type::Empty);
   vm::CellBuilder cb;
   if (node.type == DictNode::Type::Leaf) {
@@ -407,19 +362,6 @@ Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, in
   }
   auto cell = cb.finalize_novm();
   sink.emit(cell);
-  if (tracker != nullptr) {
-    tracker->retain(cell);
-    if (node.type == DictNode::Type::Fork) {
-      // Children edges start right after the fork bit; if that crosses into the
-      // next bit window, both children are bundle roots — close them out now
-      // (their subtrees are complete: the dict is built bottom-up).
-      int child_start = node.fork_pos + 1;
-      if (tracker->window(child_start) != tracker->window(edge_start)) {
-        tracker->close_out(node.left->get_hash());
-        tracker->close_out(node.right->get_hash());
-      }
-    }
-  }
   return cell;
 }
 
@@ -455,7 +397,7 @@ void ShardAccountsStreamBuilder::add_node(DictNode node) {
     auto fork = std::move(stack_.back());
     stack_.pop_back();
     CHECK(fork.pos != fork_pos);
-    auto right = materialize_dict_node(sink_, carry_, fork.pos + 1, tracker_);
+    auto right = materialize_dict_node(sink_, carry_, fork.pos + 1);
     DictNode merged;
     merged.type = DictNode::Type::Fork;
     merged.key = carry_.key;
@@ -466,7 +408,7 @@ void ShardAccountsStreamBuilder::add_node(DictNode node) {
     carry_ = std::move(merged);
   }
   // Open the new fork: its left child is now complete.
-  auto left = materialize_dict_node(sink_, carry_, fork_pos + 1, tracker_);
+  auto left = materialize_dict_node(sink_, carry_, fork_pos + 1);
   stack_.push_back(OpenFork{fork_pos, make_standin(left), carry_.balance});
   carry_ = std::move(node);
 }
@@ -479,7 +421,7 @@ DictNode ShardAccountsStreamBuilder::finish() {
   while (!stack_.empty()) {
     auto fork = std::move(stack_.back());
     stack_.pop_back();
-    auto right = materialize_dict_node(sink_, carry_, fork.pos + 1, tracker_);
+    auto right = materialize_dict_node(sink_, carry_, fork.pos + 1);
     DictNode merged;
     merged.type = DictNode::Type::Fork;
     merged.key = carry_.key;

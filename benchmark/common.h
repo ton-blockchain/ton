@@ -122,9 +122,7 @@ class CellSink {
  public:
   virtual ~CellSink() = default;
   virtual void emit(const Ref<vm::DataCell> &cell) = 0;
-  // Emit a record with a custom serialized value (e.g. a bundle record) keyed by
-  // `hash`. The same hash may also be emitted as a plain cell; the merge phase
-  // keeps the bundle value (see merge_runs_to_sst in state-gen.cpp).
+  // Emit a record with a custom serialized value keyed by `hash`. The same hash may also be emitted as a plain cell.
   virtual void emit_raw(const td::Bits256 &hash, std::string value) = 0;
 };
 
@@ -149,48 +147,6 @@ inline Ref<vm::Cell> emit_and_standin(CellSink &sink, const Ref<vm::DataCell> &c
 void emit_subtree(CellSink &sink, const Ref<vm::Cell> &root);
 
 // ---------------------------------------------------------------------------
-// Dictionary-layer bundling (celldb "bundle" records, vm::CellStorer::kBundleTag)
-// ---------------------------------------------------------------------------
-
-// Groups the accounts-dict interior into bundle records so that one celldb read
-// materializes ~`bits_per_bundle` levels of the dictionary descent (plus, at the
-// leaves, the ShardAccount -> Account -> data-root chain). A dict node whose edge
-// starts at key bit s belongs to the bit window floor(s / bits_per_bundle); a node
-// is a bundle ROOT iff its window differs from its parent's (the dict root always
-// is one). Within a bundle everything `retain`ed and reachable is stored inline;
-// shared cells (contract code, chained ballast data) are never retained, so they
-// stay external hash references.
-//
-// Usage: retain() every cell that may be inlined (dict nodes are retained by
-// materialize_dict_node, account/data cells by the caller); close_out(h) when a
-// node is known to be a bundle root — this serializes the bundle, emits it via
-// emit_raw and releases the slab. take_retained()/adopt() hand pending cells from
-// per-bucket builders to the top-level builder.
-class BundleTracker {
- public:
-  BundleTracker(CellSink &sink, int bits_per_bundle, td::int32 refcnt)
-      : sink_(sink), bits_(bits_per_bundle), refcnt_(refcnt) {
-    CHECK(bits_ > 0);
-  }
-  int window(int bit_pos) const {
-    return bit_pos / bits_;
-  }
-  void retain(const Ref<vm::DataCell> &cell);
-  void close_out(const vm::CellHash &hash);
-  std::vector<Ref<vm::DataCell>> take_retained();
-  void adopt(std::vector<Ref<vm::DataCell>> cells);
-  size_t retained_count() const {
-    return retained_.size();
-  }
-
- private:
-  CellSink &sink_;
-  int bits_;
-  td::int32 refcnt_;
-  td::HashMap<vm::CellHash, Ref<vm::DataCell>> retained_;
-};
-
-// ---------------------------------------------------------------------------
 // Streaming ShardAccounts (HashmapAug 256 ShardAccount DepthBalanceInfo) builder
 // ---------------------------------------------------------------------------
 
@@ -209,10 +165,7 @@ struct DictNode {
 
 // Store the label of `node` for an edge starting at bit `edge_start`, then the
 // node body; emit the resulting cell. Does not emit/alter children.
-// With a tracker: retains the cell for bundling and, if this node's children fall
-// into the next bit window, closes out their bundles (they are bundle roots).
-Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, int edge_start,
-                                        BundleTracker *tracker = nullptr);
+Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, int edge_start);
 
 // Builds the accounts dictionary from a strictly increasing key stream with
 // O(depth) live cells; every finished cell is emitted bottom-up via the sink.
@@ -220,8 +173,8 @@ Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, in
 // for accounts with fixed_prefix_length 0 and no extra currencies.
 class ShardAccountsStreamBuilder {
  public:
-  explicit ShardAccountsStreamBuilder(CellSink &sink, BundleTracker *tracker = nullptr)
-      : sink_(sink), tracker_(tracker) {
+  explicit ShardAccountsStreamBuilder(CellSink &sink)
+      : sink_(sink) {
   }
   // Leaf value: account_descr$_ account:^Account last_trans_hash:0 last_trans_lt:0
   void add_account(const td::Bits256 &addr, Ref<vm::Cell> account_cell, Uint128 balance);
@@ -240,7 +193,6 @@ class ShardAccountsStreamBuilder {
   void add_node(DictNode node);
 
   CellSink &sink_;
-  BundleTracker *tracker_{nullptr};
   std::vector<OpenFork> stack_;
   DictNode carry_;  // most recently completed subtree, label still unknown
 };
