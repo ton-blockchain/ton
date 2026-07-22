@@ -758,7 +758,7 @@ void CellDbIn::gc_cont(BlockIdExt block_id, td::Result<BlockHandle> R) {
   if (R.is_ok()) {
     auto handle = R.move_as_ok();
     if (!handle->inited_state_boc()) {
-      LOG(WARNING) << "inited_state_boc=false, but state in db. blockid=" << block_id;
+      LOG(DEBUG) << "inited_state_boc=false, but state in db. blockid=" << block_id;
     }
     handle->set_deleted_state_boc();
     td::actor::send_closure(root_db_, &RootDb::store_block_handle, handle,
@@ -767,7 +767,7 @@ void CellDbIn::gc_cont(BlockIdExt block_id, td::Result<BlockHandle> R) {
                               td::actor::send_closure(SelfId, &CellDbIn::gc_cont2, block_id);
                             });
   } else {
-    LOG(WARNING) << "handle not found, but state in db. blockid=" << block_id;
+    LOG(DEBUG) << "handle not found, but state in db. blockid=" << block_id;
     gc_cont2(block_id);
   }
 }
