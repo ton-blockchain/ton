@@ -1871,9 +1871,37 @@ bool check_one_config_param(Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, td::
     return true;
   }
   unsigned cfg_idx = static_cast<unsigned>(idx);
-  bool ok = block::gen::ConfigParam{cfg_idx}.validate_ref(1024, std::move(cell));
+  bool ok = block::gen::ConfigParam{cfg_idx}.validate_ref(1024, cell);
   if (!ok) {
     LOG(ERROR) << "configuration parameter #" << idx << " is invalid";
+    return false;
+  }
+  if (idx == 30) {
+    block::gen::NewConsensusConfigAll::Record rec;
+    if (block::gen::NewConsensusConfigAll{}.cell_unpack(std::move(cell), rec)) {
+      auto check_consensus_config = [](Ref<vm::CellSlice> config_cs) -> bool {
+        if (config_cs.is_null()) {
+          return true;
+        }
+        auto cs = config_cs->prefetch_ref();
+        if (cs.is_null()) {
+          return true;
+        }
+        block::gen::NewConsensusConfig::Record_simplex_config v1;
+        if (block::gen::NewConsensusConfig{}.cell_unpack(cs, v1)) {
+          return v1.slots_per_leader_window >= 1;
+        }
+        block::gen::NewConsensusConfig::Record_simplex_config_v2 v2;
+        if (block::gen::NewConsensusConfig{}.cell_unpack(cs, v2)) {
+          return v2.slots_per_leader_window >= 1;
+        }
+        return false;
+      };
+      if (!check_consensus_config(rec.mc) || !check_consensus_config(rec.shard)) {
+        LOG(ERROR) << "configuration parameter #30 has invalid slots_per_leader_window (< 1)";
+        return false;
+      }
+    }
   }
   return ok;
 }

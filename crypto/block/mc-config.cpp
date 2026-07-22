@@ -374,6 +374,10 @@ ton::NewConsensusConfig Config::get_new_consensus_config(ton::WorkchainId wc) co
   }
 
   if (gen::NewConsensusConfig::Record_simplex_config_v2 v2; gen::unpack_cell(c2, v2)) {
+    if (v2.slots_per_leader_window == 0) {
+      LOG(ERROR) << "Invalid slots_per_leader_window = 0 in config param 30";
+      return config;
+    }
     config.protocol_version = v2.protocol_version;
     config.slots_per_leader_window = v2.slots_per_leader_window;
 

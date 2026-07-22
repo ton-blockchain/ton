@@ -955,6 +955,9 @@ int main(int argc, char *argv[]) {
   });
   p.add_checked_option('\0', "slots-per-leader-window", "slots per leader window (default: 4)", [&](td::Slice arg) {
     TRY_RESULT_ASSIGN(SLOTS_PER_LEADER_WINDOW, td::to_integer_safe<td::uint32>(arg));
+    if (SLOTS_PER_LEADER_WINDOW == 0) {
+      return td::Status::Error("slots-per-leader-window must be at least 1");
+    }
     return td::Status::OK();
   });
   p.add_checked_option('\0', "net-ping", "network ping (range, default: 0.05:0.1)", [&](td::Slice arg) {
