@@ -1,0 +1,17 @@
+// Sole-constructor named type — exercises both "type alias" and "constructor"
+// imports in consumers.
+currency$_ amount:uint64 = Currency;
+
+// Multi-constructor type — exercises union-type + TypeInfo class imports,
+// without exposing individual constructor names to consumers.
+red$00 = Color;
+green$01 = Color;
+blue$1 = Color;
+
+// Sole-constructor unnamed type — type name IS the constructor name.
+_ x:uint16 y:uint16 = Point;
+
+// Generic type used to exercise inference-chain extraction across modules:
+// a consumer can write `m:(Pair (Unary ~n) uint32)` and have `n` extracted
+// through Pair's first generic param.
+pair$_ {X:Type} {Y:Type} first:X second:Y = Pair X Y;

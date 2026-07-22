@@ -1,0 +1,22 @@
+// Inline records
+
+// Simple inline record
+with_inline$_ inner:[a:uint32 b:uint8] = WithInline;
+
+// Cell ref to inline record
+ref_inline$_ inner:^[x:uint32 y:uint32] = RefInline;
+
+// Generic inline record: inner record is parameterized, applied to outer T
+generic_inline$_ {T:Type} inner:^([{X:Type} a:X] T) = GenericInline T;
+
+// Unnamed bare inline record — fields are inlined as properties
+bare_unnamed$_ tag:uint8 _:[x:uint32 y:uint32] = BareUnnamed;
+
+// Unnamed cell-ref inline record — fields are inlined as properties
+ref_unnamed$_ tag:uint8 _:^[a:uint32 b:uint32] = RefUnnamed;
+
+// Inline record with internal nat param — n inferred from Unary, used for data width
+unary_zero$0 = Unary ~0;
+unary_succ$1 {n:#} x:(Unary ~n) = Unary ~(n + 1);
+bit$_ (## 1) = Bit;
+nat_inline$_ x:[{n:#} len:(Unary ~n) data:(n * Bit)] = NatInline;

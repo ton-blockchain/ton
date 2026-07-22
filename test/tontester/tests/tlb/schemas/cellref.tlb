@@ -1,0 +1,20 @@
+// Cell references: ^Type
+bool_false$0 = Bool;
+bool_true$1 = Bool;
+
+simple_ref$_ x:^uint32 = SimpleRef;
+
+nested_ref$_ a:uint32 b:^uint64 c:int8 = NestedRef;
+
+ref_to_record$_ inner:^TickTock = RefToRecord;
+tick_tock$_ tick:Bool tock:Bool = TickTock;
+
+// Double cell ref
+double_ref$_ x:^^uint8 = DoubleRef;
+
+// Distinct ref wrappers for same type with different nat args
+nw$_ {n:#} x:(## n) = Nw n;
+two_refs$_ a:^(Nw 8) b:^(Nw 16) = TwoRefs;
+
+// Opaque ^Cell (never parsed, stored as raw Cell)
+opaque_ref$_ data:uint32 child:^Cell = OpaqueRef;

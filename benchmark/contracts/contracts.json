@@ -1,0 +1,11 @@
+{
+  "w5_code_hash_hex": "20834b7b72b112147e1b2fb457b84e74d1a30f04f737d4f62a668e9552d2b72f",
+  "jw_code_hash_hex": "beb0683ebeb8927fe9fc8ec0a18bc7dd17899689825a121eab46c5a3a860d0ce",
+  "minter_code_hash_hex": "13f5d7a316c6d76e1053e88ac59b5de65a072a388451371dc5c5becbba13f50e",
+  "op_transfer": "0xf8a7ea5",
+  "op_internal_transfer": "0x178d4519",
+  "op_excesses": "0xd53276db",
+  "op_transfer_notification": "0x7362d09c",
+  "op_burn": "0x595f07bc",
+  "op_burn_notification": "0x7bdd97de"
+}

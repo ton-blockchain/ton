@@ -1,0 +1,29 @@
+// Generic types
+nothing$0 {X:Type} = Maybe X;
+just$1 {X:Type} value:X = Maybe X;
+
+left$0 {X:Type} {Y:Type} value:X = Either X Y;
+right$1 {X:Type} {Y:Type} value:Y = Either X Y;
+
+pair$_ {X:Type} {Y:Type} first:X second:Y = Pair X Y;
+
+// Generic field: field whose type is a generic user type applied to a type param
+wrapper$_ {T:Type} inner:(Maybe T) = Wrapper T;
+
+// Nested generic: concrete type as generic arg
+maybe_uint32$_ inner:(Maybe uint32) = MaybeUint32;
+
+// Nested generic: generic type applied to generic type param as arg
+pair_maybe$_ {T:Type} value:(Pair (Maybe T) uint32) = PairMaybe T;
+
+// Cell ref as generic arg (concrete)
+maybe_ref$_ inner:(Maybe ^uint8) = MaybeRef;
+
+// Cell ref to generic type
+ref_maybe$_ {T:Type} inner:^(Maybe T) = RefMaybe T;
+
+// Generic with cell ref param
+pair_ref$_ {T:Type} value:(Pair ^T uint32) = PairRef T;
+
+// Type params in reverse field order (fields use Y before X)
+swapped$_ {X:Type} {Y:Type} second:Y first:X = Swapped X Y;

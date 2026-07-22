@@ -1,0 +1,31 @@
+// Types with output params (~)
+
+// Unary encoding: the classic output param example
+unary_zero$0 = Unary ~0;
+unary_succ$1 {n:#} x:(Unary ~n) = Unary ~(n + 1);
+
+// Type that uses Unary to determine a field width
+sized$_ {n:#} len:(Unary ~n) data:(n * Bit) = Sized;
+bit$_ (## 1) = Bit;
+
+// Output param via inference chain through a generic type
+// n is extracted through Pair's first type param (inference-capable)
+pair$_ {X:Type} {Y:Type} first:X second:Y = Pair X Y;
+inferred$_ {n:#} x:(Pair (Unary ~n) uint32) y:(## n) = Inferred ~n;
+
+// Output param that is just a field value (NatFieldValue)
+// ~n is the value of the explicit field n
+label$_ {m:#} n:(#<= m) s:(n * Bit) = Label ~n m;
+
+// Compound SolveConstraint: m = type_arg_0 - 1
+// HashmapNode (n+1) X means the constructor's n = type_arg_0 - 1
+hm_node_leaf#_ {X:Type} value:X = HmNode 0 X;
+hm_node_fork#_ {n:#} {X:Type} left:^(HmNode n X) right:^(HmNode n X) = HmNode (n + 1) X;
+
+// Inference chain with keyword field name (regression: field renamed but chain used raw name)
+kw_wrapper$_ {X:Type} {Y:Type} return:X second:Y = KwWrapper X Y;
+kw_inferred$_ {n:#} x:(KwWrapper (Unary ~n) uint32) = KwInferred ~n;
+
+mc_left$0 {X:Type} {Y:Type} first:X other:Y = McPair X Y;
+mc_right$1 {X:Type} {Y:Type} val:X extra:Y = McPair X Y;
+mc_inferred$_ {n:#} x:(McPair (Unary ~n) uint32) y:(## n) = McInferred ~n;

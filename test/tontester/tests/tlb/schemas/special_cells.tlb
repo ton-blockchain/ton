@@ -1,0 +1,11 @@
+// Special (exotic) cell types
+
+// Merkle proof: special cell containing a hash and a reference
+!merkle_proof#03 {X:Type} virtual_hash:bits256 depth:uint16 virtual_root:^X = MerkleProof X;
+
+// Merkle update: two refs
+!merkle_update#04 {X:Type} old_hash:bits256 new_hash:bits256 old_depth:uint16 new_depth:uint16 old:^X new:^X = MerkleUpdate X;
+
+// Multi-constructor special type: either a merkle proof or a merkle update
+!either_proof#03 {X:Type} virtual_hash:bits256 depth:uint16 virtual_root:^X = EitherProofUpdate X;
+!either_update#04 {X:Type} old_hash:bits256 new_hash:bits256 old_depth:uint16 new_depth:uint16 old:^X new:^X = EitherProofUpdate X;
