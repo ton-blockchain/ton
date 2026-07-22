@@ -287,6 +287,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     td::Ref<ShardTopBlockDescription> latest_desc;
   };
   std::map<ShardTopBlockDescriptionId, ShardTopBlock> shard_blocks_;
+  std::set<BlockIdExt> active_shard_block_desc_generation_;
 
   td::LRUCache<BlockIdExt, td::BufferSlice> cached_block_data_{/* max_size = */ 256};
   td::LRUCache<BlockIdExt, PendingBlockFinality> pending_block_finality_{/* max_size = */ 256};
@@ -370,6 +371,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void validate_block_proof_rel(BlockIdExt block_id, BlockIdExt rel_block_id, td::BufferSlice proof,
                                 td::Promise<td::Unit> promise) override;
   void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
+  td::Status check_need_generate_shard_block_description(BlockIdExt block_id, CatchainSeqno cc_seqno);
   td::actor::Task<> generate_shard_block_description(BlockIdExt block_id, Ref<block::BlockSignatureSet> sig_set);
 
   //void create_validate_block(BlockId block, td::BufferSlice data, td::Promise<Block> promise) = 0;
@@ -557,7 +559,7 @@ class ValidatorManagerImpl : public ValidatorManager {
     promise.set_result(opts_->get_vertical_seqno(seqno));
   }
 
-  td::actor::Task<> check_pending_block_needed(BlockIdExt block_id);
+  td::actor::Task<> check_pending_block_needed(BlockIdExt block_id, bool check_block_received = true);
   td::actor::Task<> add_cached_block_data(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
                                           BroadcastSource source) override;
   td::actor::Task<> try_process_pending_block_finality(BlockIdExt block_id);

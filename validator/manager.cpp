@@ -38,11 +38,9 @@
 #include "tl-utils/lite-utils.hpp"
 #include "tl/tl_json.h"
 #include "ton/lite-tl.hpp"
-#include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 #include "validator/stats-merger.h"
 
-#include "checksum.h"
 #include "fabric.h"
 #include "get-next-key-blocks.h"
 #include "import-db-slice-local.hpp"
@@ -217,19 +215,32 @@ void ValidatorManagerImpl::got_next_masterchain_block(ReceivedBlock block, td::P
   run_apply_block_query(block.id, pp.move_as_ok(), block.id, actor_id(this), td::Timestamp::in(10.0), std::move(P));
 }
 
-td::actor::Task<> ValidatorManagerImpl::generate_shard_block_description(BlockIdExt block_id,
-                                                                         Ref<block::BlockSignatureSet> sig_set) {
+td::Status ValidatorManagerImpl::check_need_generate_shard_block_description(BlockIdExt block_id,
+                                                                             CatchainSeqno cc_seqno) {
   if (!last_masterchain_block_handle_ || !started_) {
-    co_return td::Status::Error(ErrorCode::notready, "not started");
+    return td::Status::Error(ErrorCode::notready, "not started");
   }
   if (!shard_client_handle_ || shard_client_handle_->unix_time() <= (UnixTime)td::Clocks::system() - 60) {
-    co_return td::Status::Error(ErrorCode::notready, "out of sync");
+    return td::Status::Error(ErrorCode::notready, "out of sync");
   }
-  CatchainSeqno cc_seqno = sig_set->get_catchain_seqno();
   auto it = shard_blocks_.find(ShardTopBlockDescriptionId{block_id.shard_full(), cc_seqno});
   if (it != shard_blocks_.end() && block_id.id.seqno <= it->second.latest_desc->block_id().id.seqno) {
-    co_return td::Status::Error("duplicate shard block description");
+    return td::Status::Error("duplicate shard block description (1)");
   }
+  if (active_shard_block_desc_generation_.contains(block_id)) {
+    return td::Status::Error("duplicate shard block description (2)");
+  }
+  return td::Status::OK();
+}
+
+td::actor::Task<> ValidatorManagerImpl::generate_shard_block_description(BlockIdExt block_id,
+                                                                         Ref<block::BlockSignatureSet> sig_set) {
+  CatchainSeqno cc_seqno = sig_set->get_catchain_seqno();
+  CO_TRY(check_need_generate_shard_block_description(block_id, cc_seqno));
+  active_shard_block_desc_generation_.insert(block_id);
+  SCOPE_EXIT {
+    active_shard_block_desc_generation_.erase(block_id);
+  };
 
   ShardIdFull shard = block_id.shard_full();
   auto shard_desc =
@@ -251,7 +262,7 @@ td::actor::Task<> ValidatorManagerImpl::generate_shard_block_description(BlockId
   if (!desc->may_be_valid(last_masterchain_block_handle_, last_masterchain_state_)) {
     co_return td::Status::Error("outdated shard block desc");
   }
-  it = shard_blocks_.find(ShardTopBlockDescriptionId{desc->shard(), desc->catchain_seqno()});
+  auto it = shard_blocks_.find(ShardTopBlockDescriptionId{desc->shard(), desc->catchain_seqno()});
   if (it != shard_blocks_.end() && desc->block_id().id.seqno <= it->second.latest_desc->block_id().id.seqno) {
     co_return td::Status::Error("duplicate shard block description");
   }
@@ -498,15 +509,12 @@ td::actor::Task<> ValidatorManagerImpl::got_block_finality(BlockIdExt block_id, 
       cached && cached->sig_set->is_final() >= sig_set->is_final()) {
     co_return {};
   }
-  co_await check_pending_block_needed(block_id);
+  bool need_shard_block_description =
+      !block_id.is_masterchain() && sig_set->is_final() && is_validator() &&
+      check_need_generate_shard_block_description(block_id, sig_set->get_catchain_seqno()).is_ok();
+  co_await check_pending_block_needed(block_id, /* check_block_received = */ !need_shard_block_description);
   auto serialized_final = co_await check_finality_signatures(block_id, sig_set, last_masterchain_state_);
-  co_await check_pending_block_needed(block_id);
-
-  if (auto cached = pending_block_finality_.get_if_exists(block_id, false);
-      cached && cached->sig_set->is_final() >= sig_set->is_final()) {
-    co_return {};
-  }
-  if (!block_id.is_masterchain() && sig_set->is_final() && is_validator()) {
+  if (need_shard_block_description) {
     td::actor::send_closure(actor_id(this), &ValidatorManagerImpl::generate_shard_block_description, block_id, sig_set,
                             [block_id](td::Result<> R) {
                               if (R.is_error()) {
@@ -514,6 +522,12 @@ td::actor::Task<> ValidatorManagerImpl::got_block_finality(BlockIdExt block_id, 
                                                        << R.move_as_error();
                               }
                             });
+  }
+  co_await check_pending_block_needed(block_id, /* check_block_received = */ true);
+
+  if (auto cached = pending_block_finality_.get_if_exists(block_id, false);
+      cached && cached->sig_set->is_final() >= sig_set->is_final()) {
+    co_return {};
   }
   pending_block_finality_.put(block_id, PendingBlockFinality{sig_set, serialized_final, source});
   try_process_pending_block_finality(block_id).start().detach();
@@ -527,7 +541,7 @@ td::actor::Task<> ValidatorManagerImpl::got_block_finality(BlockIdExt block_id, 
   co_return td::Unit{};
 }
 
-td::actor::Task<> ValidatorManagerImpl::check_pending_block_needed(BlockIdExt block_id) {
+td::actor::Task<> ValidatorManagerImpl::check_pending_block_needed(BlockIdExt block_id, bool check_block_received) {
   if (last_masterchain_state_.is_null() || shard_client_state_.is_null()) {
     co_return td::Status::Error(ErrorCode::notready, "not inited");
   }
@@ -549,11 +563,14 @@ td::actor::Task<> ValidatorManagerImpl::check_pending_block_needed(BlockIdExt bl
       co_return td::Status::Error("too old");
     }
   }
-  auto r_handle = co_await td::actor::ask(actor_id(this), &ValidatorManager::get_block_handle, block_id, false).wrap();
-  if (r_handle.is_ok()) {
-    auto handle = r_handle.move_as_ok();
-    if (handle->received() && (handle->inited_proof() || handle->inited_proof_link())) {
-      co_return td::Status::Error("block already in db");
+  if (check_block_received) {
+    auto r_handle =
+        co_await td::actor::ask(actor_id(this), &ValidatorManager::get_block_handle, block_id, false).wrap();
+    if (r_handle.is_ok()) {
+      auto handle = r_handle.move_as_ok();
+      if (handle->received() && (handle->inited_proof() || handle->inited_proof_link())) {
+        co_return td::Status::Error("block already in db");
+      }
     }
   }
   co_return {};
