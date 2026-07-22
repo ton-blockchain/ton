@@ -156,6 +156,19 @@ void AsyncStateSerializer::next_iteration() {
   }
   if (!masterchain_handle_->inited_unix_time() || !masterchain_handle_->inited_is_key_block() ||
       !masterchain_handle_->is_applied()) {
+    if (last_known_key_block_.is_valid() && masterchain_handle_->inited_unix_time() &&
+        masterchain_handle_->unix_time() + 86400 < last_known_key_block_ts_) {
+      VLOG(validator, ERROR) << "ERROR: Corrupted masterchain handle " << last_block_id_.id
+                             << ". Advancing to last known key block " << last_known_key_block_.id;
+      last_block_id_ = last_known_key_block_;
+      have_masterchain_state_ = false;
+      stored_persistent_state_description_ = false;
+      masterchain_handle_ = nullptr;
+      saved_to_db_ = false;
+      shards_.clear();
+      next_idx_ = 0;
+      next_iteration();
+    }
     return;
   }
   CHECK(masterchain_handle_->id() == last_block_id_);
