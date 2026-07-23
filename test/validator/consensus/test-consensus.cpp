@@ -351,8 +351,8 @@ class TestManagerFacade : public ManagerFacade {
       , test_consensus_(test_consensus) {
   }
 
-  td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
-                                                    td::CancellationToken cancellation_token) override {
+  td::actor::Task<BlockCandidate> collate_block(CollateParams params,
+                                                td::CancellationToken cancellation_token) override {
     CHECK(params.prev.size() == 1);
     uint32_t prev_seqno = params.prev[0].seqno();
     LOG(WARNING) << "Collate block #" << prev_seqno + 1;
@@ -428,7 +428,7 @@ class TestManagerFacade : public ManagerFacade {
         params.creator,
         BlockIdExt(BlockId(params.shard, prev_seqno + 1), block_root->get_hash().bits(), td::sha256_bits256(data)),
         td::sha256_bits256(collated_data), data.clone(), collated_data.clone());
-    co_return GeneratedCandidate{.candidate = std::move(candidate), .is_cached = false, .self_collated = true};
+    co_return std::move(candidate);
   }
 
   td::actor::Task<ValidateCandidateResult> validate_block_candidate(BlockCandidate candidate, ValidateParams params,

@@ -19,7 +19,7 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
   ChainStateRef state = ctx.state;
   ParentId parent = ctx.base;
   bool block_generation_active = false;
-  td::actor::SharedFuture<GeneratedCandidate> block_generation;
+  td::actor::SharedFuture<BlockCandidate> block_generation;
 
   std::chrono::milliseconds hard_timeout = std::max(ctx.target_rate * 3, std::chrono::milliseconds(60'000));
   std::chrono::milliseconds start_collate_before =
@@ -59,7 +59,7 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
     }
     co_await td::actor::coro_sleep(slot_start);
 
-    std::optional<GeneratedCandidate> generated_candidate;
+    std::optional<BlockCandidate> generated_candidate;
     if (block_generation_active) {
       auto r_candidate =
           co_await td::actor::await_with_timeout(block_generation.get(), slot_start + ctx.target_rate).wrap();
@@ -101,11 +101,10 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
     CandidateId id;
     std::variant<BlockIdExt, BlockCandidate> block;
     if (generated_candidate.has_value()) {
-      td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate,
-                              generated_candidate->candidate.clone());
-      state = state->apply(generated_candidate->candidate);
-      block = std::move(generated_candidate->candidate);
-      id = CandidateHashData::create_full(generated_candidate->candidate, parent).build_id_with(slot);
+      td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate, generated_candidate->clone());
+      state = state->apply(*generated_candidate);
+      block = std::move(*generated_candidate);
+      id = CandidateHashData::create_full(*generated_candidate, parent).build_id_with(slot);
       bus_handle.publish<TraceEvent>(stats::CollateFinished::create(slot, id));
     } else {
       CHECK(parent.has_value());

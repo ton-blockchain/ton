@@ -12,8 +12,8 @@ namespace ton::validator::consensus {
 
 class ManagerFacade : public td::actor::Actor {
  public:
-  virtual td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
-                                                            td::CancellationToken cancellation_token) = 0;
+  virtual td::actor::Task<BlockCandidate> collate_block(CollateParams params,
+                                                        td::CancellationToken cancellation_token) = 0;
 
   virtual td::actor::Task<ValidateCandidateResult> validate_block_candidate(BlockCandidate candidate,
                                                                             ValidateParams params,
