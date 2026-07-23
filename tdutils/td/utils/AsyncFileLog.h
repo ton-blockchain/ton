@@ -29,7 +29,7 @@ namespace td {
 // rotatable file. LOG(FATAL) asks the writer to flush pending data and then writes the fatal line synchronously.
 class AsyncFileLog : public LogInterface {
  public:
-  static constexpr int64 DEFAULT_ROTATE_THRESHOLD = 10 * (1 << 20);
+  static constexpr int64 DEFAULT_ROTATE_THRESHOLD = 1LL << 30;
   static constexpr uint32 DEFAULT_RING_CAPACITY = 1u << 20;  // 1 MB per thread (allocated 2x, see SpscRing)
 
   AsyncFileLog();
