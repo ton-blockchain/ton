@@ -150,7 +150,11 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     auto& bus = *owning_bus();
 
     auto own_key = co_await own_key_.get();
-    Delegation delegation{own_key, delegation_signatures_.at(window_start).clone()};
+    auto it = delegation_signatures_.find(window_start);
+    if (it == delegation_signatures_.end()) {
+      co_return td::Status::Error(PSTRING() << "No delegation for slot " << window_start);
+    }
+    Delegation delegation{own_key, it->second.clone()};
 
     auto parent = co_await owning_bus().publish<ResolveState>(base);
     td::Timestamp start_time = td::Timestamp::now();
