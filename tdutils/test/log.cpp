@@ -40,6 +40,11 @@
 #include "td/utils/port/thread_local.h"
 #include "td/utils/tests.h"
 
+#if TD_PORT_POSIX
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 char disable_linker_warning_about_empty_file_tdutils_test_log_cpp TD_UNUSED;
 
 DEFINE_LOG_CATEGORY(test_xyz, VERBOSITY_NAME(INFO))
@@ -71,6 +76,34 @@ TEST(Log, LogCategory) {
   cat.set_level(-1);
   ASSERT_EQ(VERBOSITY_NAME(INFO), cat.get_level());
   td::set_verbosity_level(old_level);
+}
+
+#if TD_PORT_POSIX
+TEST(Log, FileLogMode) {
+  const std::string path = "tmp_file_log_mode";
+  td::unlink(path).ignore();
+  auto old_umask = ::umask(0000);
+  SCOPE_EXIT {
+    ::umask(old_umask);
+    td::unlink(path).ignore();
+    td::unlink(path + ".old").ignore();
+  };
+
+  auto log = td::FileLog::create(path, 0, false).move_as_ok();
+  struct stat stat_buf;
+  ASSERT_EQ(0, ::stat(path.c_str(), &stat_buf));
+  ASSERT_EQ(0644, static_cast<int>(stat_buf.st_mode & 0777));
+
+  log->append("rotate\n", VERBOSITY_NAME(INFO));
+  ASSERT_EQ(0, ::stat(path.c_str(), &stat_buf));
+  ASSERT_EQ(0644, static_cast<int>(stat_buf.st_mode & 0777));
+  ASSERT_EQ(0, ::stat((path + ".old").c_str(), &stat_buf));
+  ASSERT_EQ(0644, static_cast<int>(stat_buf.st_mode & 0777));
+}
+#endif
+
+TEST(Log, AsyncFileLogDefaultRotateThreshold) {
+  ASSERT_EQ(1LL << 30, td::AsyncFileLog::DEFAULT_ROTATE_THRESHOLD);
 }
 
 #if !TD_THREAD_UNSUPPORTED
