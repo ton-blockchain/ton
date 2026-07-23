@@ -510,6 +510,9 @@ td::actor::Task<Ref<MasterchainState>> ValidatorManagerMasterchainStarter::get_p
     co_return state;
   }
   do {
+    if (handle->is_key_block()) {
+      break;
+    }
     CHECK(handle->inited_prev());
     handle = co_await td::actor::ask(manager_, &ValidatorManager::get_block_handle, handle->one_prev(true), false);
     CHECK(handle->received_state());
