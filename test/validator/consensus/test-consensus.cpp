@@ -686,7 +686,7 @@ class TestConsensus : public td::actor::Actor {
     bus->shard = SHARD;
     bus->manager = inst.manager_facade.get();
     bus->keyring = keyring_.get();
-    bus->validator_opts = ValidatorManagerOptions::create(BlockIdExt{}, BlockIdExt{});
+    bus->validator_opts.store(ValidatorManagerOptions::create(BlockIdExt{}, BlockIdExt{}));
     bus->validator_set = validators_;
     bus->total_weight = total_weight_;
     bus->local_id = validators_[node_idx];

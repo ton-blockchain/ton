@@ -171,6 +171,11 @@ class AtomicRefLockfree {
     }
   }
 
+  void store(const Ref<T>& ref) {
+    Ref<T> copy = ref;
+    store(std::move(copy));
+  }
+
  private:
   struct Ptr {
    public:
