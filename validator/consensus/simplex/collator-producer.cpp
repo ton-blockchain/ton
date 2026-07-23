@@ -79,6 +79,10 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
       LOG(WARNING) << "Dropping pleaseCollate from " << message->source << " who is not a validator";
       return;
     }
+    if (!bus.validator_opts.load()->check_collator_node_whitelist(message->source)) {
+      LOG(WARNING) << "Dropping pleaseCollate from " << message->source << " who is not whitelisted";
+      return;
+    }
 
     auto window_start = static_cast<td::uint32>(request->window_start_slot_);
     if (window_start % slots_per_leader_window_ != 0) {
