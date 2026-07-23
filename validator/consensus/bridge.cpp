@@ -229,6 +229,7 @@ class BridgeImpl final : public IValidatorGroup {
       bus_.publish<NoncriticalParamsUpdated>(new_noncritical_params);
       current_noncritical_params_ = new_noncritical_params;
     }
+    bus_->validator_opts.store(opts);
   }
 
   virtual void notify_mc_finalized(BlockIdExt block) override {
@@ -251,7 +252,7 @@ class BridgeImpl final : public IValidatorGroup {
     bus->shard = params_.shard;
     bus->manager = manager_facade_.get();
     bus->keyring = params_.keyring;
-    bus->validator_opts = params_.validator_opts;
+    bus->validator_opts.store(params_.validator_opts);
     bus->all_overlay_nodes = params_.all_overlay_nodes;
     bus->is_collator = params_.identity.is_collator;
     bus->collator_scoreboard = params_.collator_scoreboard;

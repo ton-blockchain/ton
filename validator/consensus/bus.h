@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "common/AtomicRef.h"
 #include "consensus/misbehavior.h"
 #include "keyring/keyring.h"
 #include "overlay/overlays.h"
@@ -201,7 +202,7 @@ class Bus : public td::actor::Bus {
   ShardIdFull shard;
   td::actor::ActorId<ManagerFacade> manager;
   td::actor::ActorId<keyring::Keyring> keyring;
-  td::Ref<ValidatorManagerOptions> validator_opts;
+  mutable td::AtomicRef<ValidatorManagerOptions> validator_opts;
 
   std::vector<PeerValidator> validator_set;
   ValidatorWeight total_weight;

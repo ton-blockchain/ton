@@ -29,7 +29,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     no_empty_blocks_on_error_timeout_ = bus.config.noncritical_params.no_empty_blocks_on_error_timeout;
 
     if (!bus.shard.is_masterchain() && bus.config.enable_collators()) {
-      auto list = bus.validator_opts->get_collators_list();
+      auto list = bus.validator_opts.load()->get_collators_list();
       auto shard = list->get_shard(bus.shard);
       if (shard != nullptr) {
         for (const adnl::AdnlNodeIdShort& collator_id : shard->collators) {
