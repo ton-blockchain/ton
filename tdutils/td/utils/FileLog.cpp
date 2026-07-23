@@ -37,7 +37,7 @@ Status FileLog::init(string path, int64 rotate_threshold, bool redirect_stderr) 
     return Status::OK();
   }
 
-  TRY_RESULT(fd, FileFd::open(path, FileFd::Create | FileFd::Write | FileFd::Append));
+  TRY_RESULT(fd, FileFd::open(path, FileFd::Create | FileFd::Write | FileFd::Append, 0644));
 
   fd_.close();
   fd_ = std::move(fd);
@@ -118,7 +118,7 @@ void FileLog::do_rotate() {
   td::ScopedDisableLog disable_log;  // to ensure that nothing will be printed to the closed log
   CHECK(!path_.empty());
   fd_.close();
-  auto r_fd = FileFd::open(path_, FileFd::Create | FileFd::Truncate | FileFd::Write);
+  auto r_fd = FileFd::open(path_, FileFd::Create | FileFd::Truncate | FileFd::Write, 0644);
   if (r_fd.is_error()) {
     process_fatal_error(PSLICE() << r_fd.error() << " in " << __FILE__ << " at " << __LINE__);
   }
