@@ -469,7 +469,7 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_query_cont(td::Ref<
 static td::actor::Task<Ref<vm::Cell>> check_finality_signatures(BlockIdExt block_id,
                                                                 Ref<block::BlockSignatureSet> sig_set,
                                                                 Ref<MasterchainState> mc_state) {
-  co_await td::actor::become_lightweight();
+  co_await td::actor::detach_from_actor();
   auto try_val_set = [&](Ref<block::ValidatorSet> val_set) -> td::Result<Ref<vm::Cell>> {
     if (val_set.is_null()) {
       return td::Status::Error("no validator set");
@@ -645,7 +645,7 @@ td::actor::Task<> ValidatorManagerImpl::try_process_pending_block_finality(Block
 static td::actor::Task<BlockBroadcast> create_broadcast(BlockIdExt block_id, td::BufferSlice data,
                                                         Ref<block::BlockSignatureSet> signatures,
                                                         Ref<vm::Cell> serialized_signatures) {
-  co_await td::actor::become_lightweight();
+  co_await td::actor::detach_from_actor();
   Ref<BlockData> block = CO_TRY(create_block(block_id, data.clone()));
   td::BufferSlice proof = CO_TRY(
       block_id.is_masterchain() ? WaitBlockData::generate_proof(block_id, block->root_cell(), serialized_signatures)
