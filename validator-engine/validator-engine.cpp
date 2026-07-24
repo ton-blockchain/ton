@@ -161,9 +161,8 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
     }
   }
   for (auto &col : config.collators_) {
-    auto id = ton::adnl::AdnlNodeIdShort{col->adnl_id_};
-    ton::ShardIdFull shard = ton::create_shard_id(col->shard_);
-    config_add_collator(id, shard).ensure();
+    auto id = ton::adnl::AdnlNodeIdShort{col};
+    config_add_collator(id).ensure();
   }
   config_add_full_node_adnl_id(ton::PublicKeyHash{config.fullnode_}).ensure();
 
@@ -190,7 +189,7 @@ Config::Config(const ton::ton_api::engine_validator_config &config) {
       }
     }
     if (config.extraconfig_->collator_node_whitelist_) {
-      collator_node_whiltelist_enabled = config.extraconfig_->collator_node_whitelist_->enabled_;
+      collator_node_whitelist_enabled = config.extraconfig_->collator_node_whitelist_->enabled_;
       for (const auto &id : config.extraconfig_->collator_node_whitelist_->adnl_ids_) {
         collator_node_whitelist.emplace(id);
       }
@@ -263,12 +262,9 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
     val_vec.push_back(ton::create_tl_object<ton::ton_api::engine_validator>(
         val.first.tl(), std::move(temp_vec), std::move(adnl_val_vec), val.second.election_date, val.second.expire_at));
   }
-  std::vector<ton::tl_object_ptr<ton::ton_api::engine_collator>> col_vec;
-  for (auto &[col, shards] : collators) {
-    for (auto &shard : shards) {
-      col_vec.push_back(
-          ton::create_tl_object<ton::ton_api::engine_collator>(col.bits256_value(), ton::create_tl_shard_id(shard)));
-    }
+  std::vector<td::Bits256> col_vec;
+  for (auto &col : collators) {
+    col_vec.push_back(col.bits256_value());
   }
 
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave>> full_node_slaves_vec;
@@ -288,9 +284,9 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   }
 
   ton::tl_object_ptr<ton::ton_api::engine_validator_collatorNodeWhitelist> collator_node_whitelist_obj = {};
-  if (collator_node_whiltelist_enabled || !collator_node_whitelist.empty()) {
+  if (collator_node_whitelist_enabled || !collator_node_whitelist.empty()) {
     collator_node_whitelist_obj = ton::create_tl_object<ton::ton_api::engine_validator_collatorNodeWhitelist>();
-    collator_node_whitelist_obj->enabled_ = collator_node_whiltelist_enabled;
+    collator_node_whitelist_obj->enabled_ = collator_node_whitelist_enabled;
     for (const auto &id : collator_node_whitelist) {
       collator_node_whitelist_obj->adnl_ids_.push_back(id.bits256_value());
     }
@@ -512,36 +508,12 @@ td::Result<bool> Config::config_add_validator_adnl_id(ton::PublicKeyHash perm_ke
   }
 }
 
-td::Result<bool> Config::config_add_collator(ton::adnl::AdnlNodeIdShort addr, ton::ShardIdFull shard) {
-  if (!shard.is_valid_ext()) {
-    return td::Status::Error(PSTRING() << "invalid shard: " << shard);
-  }
-  auto &shards = collators[addr];
-  if (std::find(shards.begin(), shards.end(), shard) != shards.end()) {
-    return false;
-  }
-  shards.push_back(shard);
-  return true;
+td::Result<bool> Config::config_add_collator(ton::adnl::AdnlNodeIdShort addr) {
+  return collators.insert(addr).second;
 }
 
-td::Result<bool> Config::config_del_collator(ton::adnl::AdnlNodeIdShort addr, ton::ShardIdFull shard) {
-  if (!shard.is_valid_ext()) {
-    return td::Status::Error(PSTRING() << "invalid shard: " << shard);
-  }
-  auto it = collators.find(addr);
-  if (it == collators.end()) {
-    return false;
-  }
-  auto &shards = it->second;
-  auto it2 = std::find(shards.begin(), shards.end(), shard);
-  if (it2 == shards.end()) {
-    return false;
-  }
-  shards.erase(it2);
-  if (shards.empty()) {
-    collators.erase(it);
-  }
-  return true;
+td::Result<bool> Config::config_del_collator(ton::adnl::AdnlNodeIdShort addr) {
+  return collators.erase(addr) == 1;
 }
 
 td::Result<bool> Config::config_add_full_node_adnl_id(ton::PublicKeyHash id) {
@@ -1707,7 +1679,7 @@ td::Status ValidatorEngine::load_global_config() {
   for (auto &id : config_.collator_node_whitelist) {
     validator_options_.write().set_collator_node_whitelisted_validator(id, true);
   }
-  validator_options_.write().set_collator_node_whitelist_enabled(config_.collator_node_whiltelist_enabled);
+  validator_options_.write().set_collator_node_whitelist_enabled(config_.collator_node_whitelist_enabled);
 
   return td::Status::OK();
 }
@@ -1720,11 +1692,6 @@ void ValidatorEngine::set_shard_check_function() {
         });
   } else {
     std::vector<ton::ShardIdFull> shards = {ton::ShardIdFull(ton::masterchainId)};
-    for (const auto &[_, collator_shards] : config_.collators) {
-      for (const auto &shard : collator_shards) {
-        shards.push_back(shard);
-      }
-    }
     for (const auto &s : config_.shards_to_monitor) {
       shards.push_back(s);
     }
@@ -2394,10 +2361,8 @@ void ValidatorEngine::start_full_node() {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_permanent_key, v.first,
                               [](td::Result<>) {});
     }
-    for (auto &[c, shards] : config_.collators) {
-      for (auto &_ : shards) {
-        td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_collator_adnl_id, c);
-      }
+    for (auto &c : config_.collators) {
+      td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_collator_adnl_id, c);
     }
     for (auto &x : config_.fast_sync_member_certificates) {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::import_fast_sync_member_certificate,
@@ -2446,10 +2411,8 @@ void ValidatorEngine::started_lite_server() {
 }
 
 void ValidatorEngine::start_collator() {
-  for (auto &[id, shards] : config_.collators) {
-    for (auto &shard : shards) {
-      td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_collator, id, shard);
-    }
+  for (auto &id : config_.collators) {
+    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_collator, id);
   }
 
   started_collator();
@@ -4941,11 +4904,11 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_collatorN
     promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
     return;
   }
-  if (config_.collator_node_whiltelist_enabled == query.enabled_) {
+  if (config_.collator_node_whitelist_enabled == query.enabled_) {
     promise.set_value(ton::create_serialize_tl_object<ton::ton_api::engine_validator_success>());
     return;
   }
-  config_.collator_node_whiltelist_enabled = query.enabled_;
+  config_.collator_node_whitelist_enabled = query.enabled_;
   validator_options_.write().set_collator_node_whitelist_enabled(query.enabled_);
   td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
                           validator_options_);
@@ -4972,7 +4935,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showColla
   }
   ton::tl_object_ptr<ton::ton_api::engine_validator_collatorNodeWhitelist> result = {};
   result = ton::create_tl_object<ton::ton_api::engine_validator_collatorNodeWhitelist>();
-  result->enabled_ = config_.collator_node_whiltelist_enabled;
+  result->enabled_ = config_.collator_node_whitelist_enabled;
   for (const auto &id : config_.collator_node_whitelist) {
     result->adnl_ids_.push_back(id.bits256_value());
   }
@@ -5196,8 +5159,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCollat
   }
 
   auto id = ton::adnl::AdnlNodeIdShort{query.adnl_id_};
-  auto shard = ton::create_shard_id(query.shard_);
-  auto R = config_.config_add_collator(id, shard);
+  auto R = config_.config_add_collator(id);
   if (R.is_error()) {
     promise.set_value(create_control_query_error(R.move_as_error()));
     return;
@@ -5206,11 +5168,10 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCollat
     promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
     return;
   }
-  set_shard_check_function();
   if (!validator_manager_.empty()) {
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
                             validator_options_);
-    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_collator, id, shard);
+    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::add_collator, id);
   }
   if (!full_node_.empty()) {
     td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::add_collator_adnl_id, id);
@@ -5237,8 +5198,7 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCollat
   }
 
   auto id = ton::adnl::AdnlNodeIdShort{query.adnl_id_};
-  auto shard = ton::create_shard_id(query.shard_);
-  auto R = config_.config_del_collator(id, shard);
+  auto R = config_.config_del_collator(id);
   if (R.is_error()) {
     promise.set_value(create_control_query_error(R.move_as_error()));
     return;
@@ -5247,15 +5207,10 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_delCollat
     promise.set_value(create_control_query_error(td::Status::Error("No such collator")));
     return;
   }
-  if (!R.move_as_ok()) {
-    promise.set_value(ton::serialize_tl_object(ton::create_tl_object<ton::ton_api::engine_validator_success>(), true));
-    return;
-  }
-  set_shard_check_function();
   if (!validator_manager_.empty()) {
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::update_options,
                             validator_options_);
-    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::del_collator, id, shard);
+    td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::del_collator, id);
   }
   if (!full_node_.empty()) {
     td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::del_collator_adnl_id, id);

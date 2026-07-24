@@ -122,7 +122,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   }
 
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator>> val_vec;
-  std::vector<ton::tl_object_ptr<ton::ton_api::engine_collator>> col_vec;
+  std::vector<td::Bits256> col_vec;
 
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeSlave>> full_node_slaves_vec;
   std::vector<ton::tl_object_ptr<ton::ton_api::engine_validator_fullNodeMaster>> full_node_masters_vec;

@@ -3037,11 +3037,11 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
   opts_ = std::move(opts);
 }
 
-void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
+void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id) {
   local_collator_adnl_ids_.insert(id);
 }
 
-void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) {
+void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id) {
   local_collator_adnl_ids_.erase(id);
 }
 

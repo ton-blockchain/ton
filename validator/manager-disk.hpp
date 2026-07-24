@@ -395,13 +395,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override {
   }
 
-  void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
-    UNREACHABLE();
-  }
-  void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
-    UNREACHABLE();
-  }
-
   void get_collation_manager_stats(
       td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) override {
     UNREACHABLE();

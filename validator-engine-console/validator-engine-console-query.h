@@ -1538,7 +1538,7 @@ class AddCollatorQuery : public Query {
     return "add-collator";
   }
   static std::string get_help() {
-    return "add-collator <adnl_id> <workchain> <shard>\tadd collator with given adnl_id and shard";
+    return "add-collator <adnl_id>\tadd collator with given adnl_id";
   }
   std::string name() const override {
     return get_name();
@@ -1546,7 +1546,6 @@ class AddCollatorQuery : public Query {
 
  private:
   ton::PublicKeyHash adnl_id_;
-  ton::ShardIdFull shard_;
 };
 
 class DelCollatorQuery : public Query {
@@ -1561,7 +1560,7 @@ class DelCollatorQuery : public Query {
     return "del-collator";
   }
   static std::string get_help() {
-    return "del-collator <adnl_id> <workchain> <shard>\tremove collator with given adnl_id and shard";
+    return "del-collator <adnl_id>\tremove collator with given adnl_id";
   }
   std::string name() const override {
     return get_name();
@@ -1569,7 +1568,6 @@ class DelCollatorQuery : public Query {
 
  private:
   ton::PublicKeyHash adnl_id_;
-  ton::ShardIdFull shard_;
 };
 
 class CollatorNodeAddWhitelistedValidatorQuery : public Query {
@@ -1628,7 +1626,7 @@ class CollatorNodeEnableWhitelistQuery : public Query {
     return "collator-whitelist-enable";
   }
   static std::string get_help() {
-    return "collator-whitelist-enable <value>\tenable or disable collator node whiltelist (value is 0 or 1)";
+    return "collator-whitelist-enable <value>\tenable or disable collator node whitelist (value is 0 or 1)";
   }
   std::string name() const override {
     return get_name();

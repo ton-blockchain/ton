@@ -588,7 +588,6 @@ engine.dht id:int256 = engine.Dht;
 engine.validatorTempKey key:int256 expire_at:int = engine.ValidatorTempKey;
 engine.validatorAdnlAddress id:int256 expire_at:int = engine.ValidatorAdnlAddress;
 engine.validator id:int256 temp_keys:(vector engine.validatorTempKey) adnl_addrs:(vector engine.validatorAdnlAddress) election_date:int expire_at:int = engine.Validator;
-engine.collator adnl_id:int256 shard:tonNode.shardId = engine.Collator;
 engine.liteServer id:int256 port:int = engine.LiteServer;
 engine.controlProcess id:int256 permissions:int = engine.ControlProcess;
 engine.controlInterface id:int256 port:int allowed:(vector engine.controlProcess) = engine.ControlInterface;
@@ -606,7 +605,7 @@ engine.validator.extraConfig state_serializer_enabled:Bool fast_sync_member_cert
     fast_sync_overlay_clients:(vector engine.validator.fastSyncOverlayClient) = engine.validator.ExtraConfig;
 engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
-        validators:(vector engine.validator) collators:(vector engine.collator)
+        validators:(vector engine.validator) collators:(vector int256)
         fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)
         fullnodemasters:(vector engine.validator.fullNodeMaster)
         fullnodeconfig:engine.validator.fullNodeConfig
@@ -779,8 +778,8 @@ engine.validator.getActorTextStats = engine.validator.TextStats;
 engine.validator.addShard shard:tonNode.shardId = engine.validator.Success;
 engine.validator.delShard shard:tonNode.shardId = engine.validator.Success;
 
-engine.validator.addCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
-engine.validator.delCollator adnl_id:int256 shard:tonNode.shardId = engine.validator.Success;
+engine.validator.addCollator adnl_id:int256 = engine.validator.Success;
+engine.validator.delCollator adnl_id:int256 = engine.validator.Success;
 
 engine.validator.collatorNodeSetWhitelistedValidator adnl_id:int256 add:Bool = engine.validator.Success;
 engine.validator.collatorNodeSetWhitelistEnabled enabled:Bool = engine.validator.Success;

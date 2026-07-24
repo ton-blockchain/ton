@@ -625,8 +625,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override;
 
-  void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
-  void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
+  void add_collator(adnl::AdnlNodeIdShort id) override;
+  void del_collator(adnl::AdnlNodeIdShort id) override;
   void add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) override;
 
   void get_collation_manager_stats(

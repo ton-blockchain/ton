@@ -405,8 +405,10 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void unregister_stats_provider(td::uint64 idx) {
   }
 
-  virtual void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
-  virtual void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
+  virtual void add_collator(adnl::AdnlNodeIdShort id) {
+  }
+  virtual void del_collator(adnl::AdnlNodeIdShort id) {
+  }
 
   virtual void add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) {
     LOG(ERROR) << "Unimplemented add_out_msg_queu_proof - ignore broadcast";
