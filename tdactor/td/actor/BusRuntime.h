@@ -142,7 +142,9 @@ class BusEventPublishImpl<B, E> : public BusEventPublishImplBase<B, E> {
 
  public:
   td::actor::Task<ReturnType> publish(std::shared_ptr<E> event, BusHandle<B> handle) {
-    CHECK(dispatcher_fn != nullptr);
+    if (dispatcher_fn == nullptr) {
+      co_return td::Status::Error("no handler for query");
+    }
     auto result = co_await td::actor::ask(actor, dispatcher_fn, handle, event).wrap();
     log_response(*event, result);
     if (result.is_ok()) {
