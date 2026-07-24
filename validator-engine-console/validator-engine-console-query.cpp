@@ -1896,7 +1896,6 @@ td::Status ShowCollatorsListQuery::receive(td::BufferSlice data) {
   for (const auto &shard : list->shards_) {
     td::TerminalIO::out() << "Shard " << create_shard_id(shard->shard_id_).to_str() << "\n";
     td::TerminalIO::out() << "  Self collate = " << shard->self_collate_ << "\n";
-    td::TerminalIO::out() << "  Select mode = " << shard->select_mode_ << "\n";
     for (const auto &collator : shard->collators_) {
       td::TerminalIO::out() << "  Collator " << collator->adnl_id_ << "\n";
     }

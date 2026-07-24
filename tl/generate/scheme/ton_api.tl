@@ -628,7 +628,7 @@ engine.validator.collatorOptions
 
 engine.validator.collatorsList.collator adnl_id:int256 = engine.validator.collatorsList.Collator;
 engine.validator.collatorsList.shard shard_id:tonNode.shardId collators:(vector engine.validator.collatorsList.collator)
-    self_collate:Bool select_mode:string = engine.validator.collatorsList.Shard;
+    self_collate:Bool = engine.validator.collatorsList.Shard;
 engine.validator.collatorsList shards:(vector engine.validator.collatorsList.shard) = engine.validator.CollatorsList;
 
 engine.validator.shardBlockVerifierConfig.shard shard_id:(tonNode.shardId) trusted_nodes:(vector int256)

@@ -41,6 +41,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
             LOG(WARNING) << "Collator node " << collator_id << " is not in overlay!";
           }
         }
+        allow_self_collate_ = shard->self_collate;
       }
     }
   }
@@ -78,6 +79,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     if (delegated_windows_.contains(event->start_slot)) {
       LOG(INFO) << "Window " << event->start_slot << " is delegated to "
                 << delegated_windows_.at(event->start_slot).collator << ", not producing";
+      return;
+    }
+    if (!allow_self_collate_) {
+      LOG(WARNING) << "Window " << event->start_slot << " is not delegated to collator, self collation is not allowed";
       return;
     }
     cancellation_source_ = td::CancellationTokenSource();
@@ -195,6 +200,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   td::CancellationTokenSource cancellation_source_;
 
   std::vector<adnl::AdnlNodeIdShort> collator_nodes_;
+  bool allow_self_collate_ = true;
   std::map<td::uint32, DelegatedWindow> delegated_windows_;
 
   EmptyBlockPolicy empty_block_policy_;
