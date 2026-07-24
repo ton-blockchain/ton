@@ -137,10 +137,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     }
 
     LOG(INFO) << "Delegating window " << start_slot << " to " << collator;
-    owning_bus().publish(std::make_shared<OutgoingProtocolMessage>(
-        OutgoingProtocolMessage::SendToPeer{collator},
-        create_serialize_tl_object<tl::pleaseCollate>(start_slot, std::move(signature))));
     delegated_windows_[start_slot] = DelegatedWindow{collator, false};
+    co_await owning_bus().publish(std::make_shared<OutgoingOverlayRequest>(
+        collator, td::Timestamp::in(0.5),
+        create_serialize_tl_object<tl::pleaseCollate>(start_slot, std::move(signature))));
     co_return {};
   }
 
