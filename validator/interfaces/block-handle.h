@@ -59,7 +59,6 @@ struct BlockHandleInterface {
   virtual bool deleted_state_boc() const = 0;
   virtual bool need_flush() const = 0;
   virtual bool is_zero() const = 0;
-  virtual bool is_archived() const = 0;
   virtual bool is_applied() const = 0;
   virtual BlockSeqno masterchain_ref_block() const = 0;
   virtual std::vector<BlockIdExt> prev() const = 0;
@@ -71,6 +70,8 @@ struct BlockHandleInterface {
 
   virtual bool processed() const = 0;
   virtual void set_processed() = 0;
+  virtual bool applied_stored() const = 0;
+  virtual void set_applied_stored() = 0;
 
   virtual void flush(td::actor::ActorId<ValidatorManagerInterface> manager, std::shared_ptr<BlockHandleInterface> self,
                      td::Promise<td::Unit> promise) = 0;
@@ -96,7 +97,6 @@ struct BlockHandleInterface {
   virtual void set_state_root_hash(RootHash hash) = 0;
   virtual void set_state_boc() = 0;
   virtual void set_deleted_state_boc() = 0;
-  virtual void set_archived() = 0;
   virtual void set_applied() = 0;
   virtual void set_masterchain_ref_block(BlockSeqno seqno) = 0;
 

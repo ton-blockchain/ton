@@ -2260,7 +2260,7 @@ td::actor::Task<> ValidatorManagerImpl::finish_start_up() {
 
   serializer_ =
       td::actor::create_actor<AsyncStateSerializer>("serializer", last_key_block_handle_->id(), opts_, actor_id(this));
-  td::actor::send_closure(serializer_, &AsyncStateSerializer::update_last_known_key_block_ts,
+  td::actor::send_closure(serializer_, &AsyncStateSerializer::update_last_known_key_block, last_key_block_handle_->id(),
                           last_key_block_handle_->unix_time());
 
   if (last_masterchain_block_handle_->inited_next_left()) {
@@ -2442,8 +2442,8 @@ void ValidatorManagerImpl::new_masterchain_block() {
       callback_->new_key_block(last_key_block_handle_);
     }
     if (!serializer_.empty()) {
-      td::actor::send_closure(serializer_, &AsyncStateSerializer::update_last_known_key_block_ts,
-                              last_key_block_handle_->unix_time());
+      td::actor::send_closure(serializer_, &AsyncStateSerializer::update_last_known_key_block,
+                              last_key_block_handle_->id(), last_key_block_handle_->unix_time());
     }
   }
 

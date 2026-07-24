@@ -491,6 +491,7 @@ void DownloadShardState::written_shard_state(td::Ref<ShardState> state) {
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::Unit> R) {
     CHECK(handle->handle_moved_to_archive());
     CHECK(handle->moved_to_archive())
+    handle->set_applied_stored();
     R.ensure();
     td::actor::send_closure(SelfId, &DownloadShardState::written_block_handle);
   });
