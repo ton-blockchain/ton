@@ -1,0 +1,12 @@
+// Types with nat parameters
+
+// Basic: type parameterized by a natural number
+fixed_array$_ {n:#} {X:Type} items:(n * X) = FixedArray n X;
+
+// Concrete nat param instantiation
+three_ints$_ items:(FixedArray 3 uint32) = ThreeInts;
+
+// Tuple as a generic arg (exercises TupleTypeConstructor through type_info_expr)
+nothing$0 {X:Type} = Maybe X;
+just$1 {X:Type} value:X = Maybe X;
+maybe_tuple$_ inner:(Maybe (3 * uint8)) = MaybeTuple;

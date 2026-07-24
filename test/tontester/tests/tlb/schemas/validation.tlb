@@ -1,0 +1,43 @@
+// Validation test schema: types for testing serialize/deserialize assertions
+
+// Multi-constructor type with nat param
+val_zero$0 = Val 0;
+val_n$1 {n:#} x:(## n) = Val n;
+
+// Parent that stores a Val with nat param from its own field
+val_parent$_ n:# inner:(Val n) = ValParent;
+
+// Field constraint
+constrained$_ flags:(## 8) { flags <= 1 } x:uint32 = Constrained;
+
+// Field-to-field constraint
+ordered$_ a:# b:# { b >= a } = Ordered;
+
+// Nat field as output type-level param
+nat_field$_ m:# = NatField ~m;
+
+// Implicit param constrained equal to explicit field
+eq_field$_ {m:#} n:# { m = n } = EqField m;
+
+// Constant-width bits field
+fixed_bits$_ s:(bits 8) = FixedBits;
+
+// Variable-width bits field
+var_bits_field$_ {n:#} s:(bits n) = VarBitsField n;
+
+// Inline record as generic type argument
+nothing$0 {X:Type} = Maybe X;
+just$1 {X:Type} value:X = Maybe X;
+inline_generic$_ x:(Maybe [a:uint32 b:uint64]) = InlineGeneric;
+
+// Parent with concrete type arg for check_type testing
+pair$_ {X:Type} {Y:Type} first:X second:Y = Pair X Y;
+typed_parent$_ inner:(Pair uint32 uint64) = TypedParent;
+
+// Union where one constructor doesn't use all type params (like ahme_empty)
+container_empty$0 {X:Type} {Y:Type} extra:Y = Container X Y;
+container_full$1 {X:Type} {Y:Type} value:X extra:Y = Container X Y;
+container_parent$_ inner:(Container uint32 uint64) = ContainerParent;
+
+// Conditional field used in constraint — should be rejected by sema
+// cond_constraint$_ flag:(## 1) n:flag?# { n = 1 } = CondConstraint;

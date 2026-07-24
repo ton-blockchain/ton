@@ -1,0 +1,64 @@
+// Test schema for type simplifications
+nothing$0 {X:Type} = Maybe X;
+just$1 {X:Type} value:X = Maybe X;
+
+// Enum literal types
+bool_false$0 = Bool;
+bool_true$1 = Bool;
+unit$_ = Unit;
+true$_ = True;
+
+// Using simplified enums as fields
+enum_fields$_ a:Bool b:Unit c:True x:uint32 = EnumFields;
+
+// Unary simplification
+unary_zero$0 = Unary ~0;
+unary_succ$1 {n:#} x:(Unary ~n) = Unary ~(n + 1);
+bit$_ (## 1) = Bit;
+
+// Sized: output param from Unary
+sized$_ {n:#} len:(Unary ~n) data:(n * Bit) = Sized ~n;
+
+// Inferred: output param through inference chain (Pair first field)
+pair$_ {X:Type} {Y:Type} first:X second:Y = Pair X Y;
+inferred_unary$_ {n:#} x:(Pair (Unary ~n) uint32) y:(## n) = InferredUnary ~n;
+
+// Hashmap simplification
+hm_edge#_ {n:#} {X:Type} {l:#} {m:#} label:(HmLabel ~l n)
+          {n = (~m) + l} node:(HashmapNode m X) = Hashmap n X;
+hmn_leaf#_ {X:Type} value:X = HashmapNode 0 X;
+hmn_fork#_ {n:#} {X:Type} left:^(Hashmap n X)
+           right:^(Hashmap n X) = HashmapNode (n + 1) X;
+hml_short$0 {m:#} {n:#} len:(Unary ~n) {n <= m} s:(n * Bit) = HmLabel ~n m;
+hml_long$10 {m:#} n:(#<= m) s:(n * Bit) = HmLabel ~n m;
+hml_same$11 {m:#} v:Bit n:(#<= m) = HmLabel ~n m;
+hme_empty$0 {n:#} {X:Type} = HashmapE n X;
+hme_root$1 {n:#} {X:Type} root:^(Hashmap n X) = HashmapE n X;
+
+// Using simplified dict as a field
+dict_field$_ data:(HashmapE 8 uint32) extra:uint16 = DictField;
+
+// Non-empty hashmap (allow_empty=False)
+nonempty_dict$_ data:(Hashmap 8 uint32) = NonemptyDict;
+
+// Simple Maybe field
+simple_maybe$_ x:(Maybe uint32) = SimpleMaybe;
+
+// Maybe in a record with other fields
+mixed$_ a:uint32 b:(Maybe uint64) c:int8 = Mixed;
+
+// Nested Maybe — should NOT simplify the outer (inner is nullable)
+nested_maybe$_ x:(Maybe (Maybe uint32)) = NestedMaybe;
+
+// Maybe with ^Type
+maybe_ref$_ x:(Maybe ^uint32) = MaybeRef;
+
+// Conditional Maybe — cond?(Maybe X): simplified Maybe is nullable, so
+// the conditional's None (absent) and Maybe's None (nothing) coexist.
+cond_maybe$_ flag:(## 1) x:flag?(Maybe uint32) = CondMaybe;
+
+// VarUInteger/VarInteger simplification
+var_uint$_ {n:#} len:(#< n) value:(uint (len * 8)) = VarUInteger n;
+var_int$_ {n:#} len:(#< n) value:(int (len * 8)) = VarInteger n;
+coins$_ amount:(VarUInteger 16) = Coins;
+signed_val$_ x:(VarInteger 4) = SignedVal;

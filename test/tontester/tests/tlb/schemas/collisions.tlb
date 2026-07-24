@@ -1,0 +1,37 @@
+// Name collision stress test: names that collide with Python keywords,
+// builtins, runtime library names, and each other.
+
+// Constructor name same as a Python keyword
+pass$0 = Pass;
+return$1 = Pass;
+
+// Type name that could collide with builtins
+int$_ value:uint32 = Int;
+
+// Field name is a Python keyword
+class$_ for:uint32 import:int8 = Class;
+
+// Constructor and type sharing names across types
+foo$0 x:uint32 = Foo;
+bar$1 x:uint32 = Foo;
+foo$_ y:uint64 = Bar;
+
+// Field name collides with load_from parameters
+cs_field$_ a:# cs:# b:# = CsField;
+cls_field$_ cls:# = ClsField;
+
+// Field name collides with TLBRecord methods
+method_field$_ serialize_to:uint32 b:uint32 = MethodField;
+
+// Nat param named after Python builtin (len)
+len_type$_ {len:#} x:(## len) = LenType len;
+len_user$_ t:(LenType 8) = LenUser;
+
+// Type param named after Python keyword/builtin
+kw_generic$_ {int:Type} value:int = KwGeneric int;
+
+// User type whose name collides with the auto-derived TypeInfo class name
+// of a sibling multi-cons type (here `Tag`'s TypeInfo would be `TagType`).
+tag_red$0 = Tag;
+tag_blue$1 = Tag;
+tt$_ payload:uint32 = TagType;

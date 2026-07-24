@@ -29,6 +29,10 @@ class Provider(Protocol):
     async def send_external(self, message: MessageAny) -> None: ...
 
 
+class Zerostate(Protocol):
+    def deploy(self, address: Address, state_init: StateInit, balance: CurrencyCollection): ...
+
+
 class StateReader(Protocol):
     async def fetch[T](self, address: Address, parser: Callable[[Cell], T]) -> T: ...
 
