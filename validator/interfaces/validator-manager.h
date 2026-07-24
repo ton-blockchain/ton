@@ -98,8 +98,8 @@ struct CollationStats {
   // 0 = none/normal, 1 = load (a block-limit axis hit soft), 2 = out_msg_queue force-split,
   // 3 = long_collation, 4 = dispatch_queue.
   int overload_reason = 0;
-  bool want_split = false;             // the collator's final want_split decision for this block
-  int peak_block_limit_class = 0;      // running-max block_limit_class_ (cat_* only approximates this)
+  bool want_split = false;         // the collator's final want_split decision for this block
+  int peak_block_limit_class = 0;  // running-max block_limit_class_ (cat_* only approximates this)
   double total_time = 0.0;
   std::string time_stats;
 
