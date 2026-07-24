@@ -941,7 +941,7 @@ void ValidatorManagerImpl::wait_block_data(BlockHandle handle, td::uint32 priori
     });
     auto id = td::actor::create_actor<WaitBlockData>(PSTRING() << "waitdata" << handle->id().id, handle, priority,
                                                      actor_id(this), td::Timestamp::at(timeout.at() + 10.0),
-                                                     is_shard_collator(handle->id().shard_full()), std::move(P))
+                                                     cached_block_data_.contains(handle->id()), std::move(P))
                   .release();
     wait_block_data_[handle->id()].actor_ = id;
     it = wait_block_data_.find(handle->id());
@@ -1317,7 +1317,7 @@ void ValidatorManagerImpl::finished_wait_data(BlockHandle handle, td::Result<td:
         });
         auto id = td::actor::create_actor<WaitBlockData>(PSTRING() << "waitdata" << handle->id().id, handle, X.second,
                                                          actor_id(this), X.first,
-                                                         is_shard_collator(handle->id().shard_full()), std::move(P))
+                                                         cached_block_data_.contains(handle->id()), std::move(P))
                       .release();
         it->second.actor_ = id;
         return;
@@ -2659,13 +2659,6 @@ PublicKeyHash ValidatorManagerImpl::get_validator(ShardIdFull shard, td::Ref<blo
   return PublicKeyHash::zero();
 }
 
-bool ValidatorManagerImpl::is_shard_collator(ShardIdFull shard) {
-  if (shard.is_masterchain()) {
-    return validating_masterchain();
-  }
-  return is_validator() && opts_->get_collators_list()->self_collate;
-}
-
 void ValidatorManagerImpl::got_next_key_blocks(std::vector<BlockIdExt> r) {
   if (r.size() == 0) {
     delay_action([SelfId = actor_id(
@@ -3043,19 +3036,6 @@ void ValidatorManagerImpl::add_collator(adnl::AdnlNodeIdShort id) {
 
 void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id) {
   local_collator_adnl_ids_.erase(id);
-}
-
-void ValidatorManagerImpl::add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) {
-  if (is_shard_collator(dst_shard)) {
-    if (out_msg_queue_importer_.empty()) {
-      out_msg_queue_importer_ = td::actor::create_actor<OutMsgQueueImporter>("outmsgqueueimporter", actor_id(this),
-                                                                             opts_, last_masterchain_state_);
-    }
-    td::actor::send_closure(out_msg_queue_importer_, &OutMsgQueueImporter::add_out_msg_queue_proof, dst_shard,
-                            std::move(proof));
-  } else {
-    VLOG(validator, DEBUG) << "Dropping unneeded out msg queue proof to shard " << dst_shard;
-  }
 }
 
 void ValidatorManagerImpl::add_persistent_state_description(td::Ref<PersistentStateDescription> desc) {

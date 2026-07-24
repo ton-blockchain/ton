@@ -583,7 +583,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   bool is_validator();
   bool validating_masterchain();
   PublicKeyHash get_validator(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set);
-  bool is_shard_collator(ShardIdFull shard);
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
@@ -627,7 +626,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_collator(adnl::AdnlNodeIdShort id) override;
   void del_collator(adnl::AdnlNodeIdShort id) override;
-  void add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) override;
 
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {
