@@ -80,15 +80,12 @@ struct CollatorOptions : public td::CntObject {
 };
 
 struct CollatorsList : public td::CntObject {
-  enum SelectMode { mode_random, mode_ordered, mode_round_robin };
   struct Shard {
     ShardIdFull shard_id;
-    SelectMode select_mode = mode_random;
     std::vector<adnl::AdnlNodeIdShort> collators;
     bool self_collate = false;
   };
   std::vector<Shard> shards;
-  bool self_collate = false;
 
   td::Status unpack(const ton_api::engine_validator_collatorsList& obj);
   const Shard* get_shard(ShardIdFull shard_id) const;
