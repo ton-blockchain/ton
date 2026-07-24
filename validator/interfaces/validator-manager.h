@@ -94,6 +94,12 @@ struct CollationStats {
   td::uint32 estimated_bytes = 0, gas = 0, lt_delta = 0, estimated_collated_data_bytes = 0;
   int cat_bytes = 0, cat_gas = 0, cat_lt_delta = 0, cat_collated_data_bytes = 0;
   std::string limits_log;
+  // Machine-readable attribution of why this block set its overload bit (feeds shard-split analysis):
+  // 0 = none/normal, 1 = load (a block-limit axis hit soft), 2 = out_msg_queue force-split,
+  // 3 = long_collation, 4 = dispatch_queue.
+  int overload_reason = 0;
+  bool want_split = false;             // the collator's final want_split decision for this block
+  int peak_block_limit_class = 0;      // running-max block_limit_class_ (cat_* only approximates this)
   double total_time = 0.0;
   std::string time_stats;
 
@@ -189,7 +195,8 @@ struct CollationStats {
         create_tl_object<ton_api::validatorStats_blockLimitsStatus>(
             estimated_bytes, gas, lt_delta, estimated_collated_data_bytes, cat_bytes, cat_gas, cat_lt_delta,
             cat_collated_data_bytes, load_fraction_queue_cleanup, load_fraction_dispatch, load_fraction_internals,
-            load_fraction_externals, load_fraction_new_msgs, limits_log),
+            load_fraction_externals, load_fraction_new_msgs, limits_log, overload_reason, want_split,
+            peak_block_limit_class),
         std::move(block_stats), storage_stat_cache.tl());
   }
 };
