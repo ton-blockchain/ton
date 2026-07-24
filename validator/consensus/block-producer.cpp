@@ -119,28 +119,68 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     if (collator_nodes_.empty()) {
       co_return {};
     }
-    auto maybe_collator =
-        co_await td::actor::ask(bus.collator_scoreboard, &CollatorScoreboard::pick_collator, collator_nodes_).wrap();
-    if (maybe_collator.is_error()) {
-      LOG(INFO) << "Not delegating window " << start_slot << ": " << maybe_collator.error();
-      co_return {};
-    }
-    auto collator = maybe_collator.move_as_ok();
 
-    auto to_sign = create_serialize_tl_object<tl::delegationToSign>(start_slot, collator.bits256_value());
+    adnl::AdnlNodeIdShort selected_collator;
+    while (true) {
+      std::vector<td::actor::StartedTask<ProtocolMessage>> prepare_requests;
+      td::Timestamp timeout = td::Timestamp::in(COLLATE_REQUEST_TIMEOUT);
+      for (const adnl::AdnlNodeIdShort& collator_id : collator_nodes_) {
+        prepare_requests.push_back(
+            owning_bus()
+                .publish(std::make_shared<OutgoingOverlayRequest>(
+                    collator_id, timeout, create_serialize_tl_object<tl::pleaseCollatePrepare>(start_slot)))
+                .start());
+      }
+      auto prepare_responses = co_await td::actor::all_wrap(std::move(prepare_requests));
+      std::vector<adnl::AdnlNodeIdShort> alive_collator_nodes;
+      for (size_t i = 0; i < collator_nodes_.size(); ++i) {
+        if (prepare_responses[i].is_ok()) {
+          alive_collator_nodes.push_back(collator_nodes_[i]);
+        }
+      }
+      if (alive_collator_nodes.empty()) {
+        LOG(INFO) << "Trying to delegate window " << start_slot << ": no alive collators";
+        co_await td::actor::coro_sleep(timeout);
+        continue;
+      }
+      auto maybe_collator = co_await td::actor::ask(bus.collator_scoreboard, &CollatorScoreboard::pick_collator,
+                                                    std::move(alive_collator_nodes))
+                                .wrap();
+      if (maybe_collator.is_error()) {
+        LOG(INFO) << "Trying to delegate window " << start_slot << ": " << maybe_collator.move_as_error();
+        co_await td::actor::coro_sleep(timeout);
+        continue;
+      }
+      if (current_leader_window_.has_value() && *current_leader_window_ >= start_slot) {
+        LOG(INFO) << "Not delegating window " << start_slot << ": window already started";
+        co_return {};
+      }
+      selected_collator = maybe_collator.move_as_ok();
+      break;
+    }
+
+    auto to_sign = create_serialize_tl_object<tl::delegationToSign>(start_slot, selected_collator.bits256_value());
     to_sign = create_serialize_tl_object<tl::dataToSign>(bus.session_id, std::move(to_sign));
     auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id->short_id,
                                              std::move(to_sign));
 
     if (current_leader_window_.has_value() && *current_leader_window_ >= start_slot) {
+      LOG(INFO) << "Not delegating window " << start_slot << ": window already started";
       co_return {};
     }
 
-    LOG(INFO) << "Delegating window " << start_slot << " to " << collator;
-    delegated_windows_[start_slot] = DelegatedWindow{collator, false};
-    co_await owning_bus().publish(std::make_shared<OutgoingOverlayRequest>(
-        collator, td::Timestamp::in(0.5),
-        create_serialize_tl_object<tl::pleaseCollate>(start_slot, std::move(signature))));
+    delegated_windows_[start_slot] = DelegatedWindow{selected_collator, false};
+    auto response = co_await owning_bus()
+                        .publish(std::make_shared<OutgoingOverlayRequest>(
+                            selected_collator, td::Timestamp::in(COLLATE_REQUEST_TIMEOUT),
+                            create_serialize_tl_object<tl::pleaseCollate>(start_slot, std::move(signature))))
+                        .wrap();
+    if (response.is_ok()) {
+      LOG(INFO) << "Delegating window " << start_slot << " to " << selected_collator << " : success";
+    } else {
+      LOG(WARNING) << "Delegating window " << start_slot << " to " << selected_collator << " : "
+                   << response.move_as_error();
+    }
     co_return {};
   }
 
@@ -206,6 +246,8 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   EmptyBlockPolicy empty_block_policy_;
   std::chrono::milliseconds target_rate_;
   std::chrono::milliseconds no_empty_blocks_on_error_timeout_;
+
+  static constexpr double COLLATE_REQUEST_TIMEOUT = 0.5;
 };
 
 }  // namespace
