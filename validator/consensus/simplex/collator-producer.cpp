@@ -13,6 +13,11 @@
 
 namespace ton::validator::consensus::simplex {
 
+namespace tl {
+using db_key_delegationSignature = ton_api::consensus_simplex_db_key_delegationSignature;
+using db_delegationSignature = ton_api::consensus_simplex_db_delegationSignature;
+}  // namespace tl
+
 namespace {
 
 class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
@@ -29,6 +34,13 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     no_empty_blocks_on_error_timeout_ = bus.config.noncritical_params.no_empty_blocks_on_error_timeout;
     slots_per_leader_window_ = bus.config.slots_per_leader_window;
     own_key_ = td::actor::ask(bus.keyring, &keyring::Keyring::get_public_key, bus.local_adnl_id.pubkey_hash());
+
+    auto signatures = bus.db->get_by_prefix(tl::db_key_delegationSignature::ID);
+    for (auto& [key_str, value_str] : signatures) {
+      auto key = fetch_tl_object<tl::db_key_delegationSignature>(key_str, true).move_as_ok();
+      auto value = fetch_tl_object<tl::db_delegationSignature>(value_str, true).move_as_ok();
+      delegation_signatures_[key->start_slot_] = std::move(value->signature_);
+    }
   }
 
   template <>
@@ -124,11 +136,13 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     }
 
     LOG(INFO) << "Window " << window_start << " is delegated to us by " << leader;
-    delegation_signatures_[window_start] = std::move(delegation_signature);
+    delegation_signatures_[window_start] = delegation_signature.clone();
 
     if (last_window_.has_value() && last_window_->start_slot == window_start) {
       start_production(window_start, last_window_->base);
     }
+    co_await bus.db->set(create_serialize_tl_object<tl::db_key_delegationSignature>(window_start),
+                         create_serialize_tl_object<tl::db_delegationSignature>(delegation_signature.clone()));
     co_return ProtocolMessage{create_tl_object<ton_api::tonNode_success>()};
   }
 
