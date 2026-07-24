@@ -128,7 +128,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
         prepare_requests.push_back(
             owning_bus()
                 .publish(std::make_shared<OutgoingOverlayRequest>(
-                    collator_id, timeout, create_serialize_tl_object<tl::pleaseCollatePrepare>(start_slot)))
+                    collator_id, timeout, create_serialize_tl_object<tl::pleaseCollatePrepare>(start_slot), 1024))
                 .start());
       }
       auto prepare_responses = co_await td::actor::all_wrap(std::move(prepare_requests));
@@ -173,7 +173,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     auto response = co_await owning_bus()
                         .publish(std::make_shared<OutgoingOverlayRequest>(
                             selected_collator, td::Timestamp::in(COLLATE_REQUEST_TIMEOUT),
-                            create_serialize_tl_object<tl::pleaseCollate>(start_slot, std::move(signature))))
+                            create_serialize_tl_object<tl::pleaseCollate>(start_slot, std::move(signature)), 1024))
                         .wrap();
     if (response.is_ok()) {
       LOG(INFO) << "Delegating window " << start_slot << " to " << selected_collator << " : success";

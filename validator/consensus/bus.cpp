@@ -142,7 +142,8 @@ std::string IncomingCollatorRequest::response_to_string(const ReturnType& respon
 
 std::string OutgoingOverlayRequest::contents_to_string() const {
   return PSTRING() << "{destination=" << destination << ", timeout=" << timeout.in()
-                   << " remaining, request=" << message_to_string(request) << "}";
+                   << " remaining, request=" << message_to_string(request) << ", max_answer_size=" << max_answer_size
+                   << "}";
 }
 
 std::string OutgoingOverlayRequest::response_to_string(const ReturnType& response) {
