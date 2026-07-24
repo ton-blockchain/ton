@@ -68,7 +68,6 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
 
   template <>
   td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingCollatorRequest> message) {
-    auto request = CO_TRY(fetch_tl_object<consensus::tl::pleaseCollate>(message->request.data, true));
     auto& bus = *owning_bus();
 
     if (!message->source_validator.has_value()) {
@@ -78,7 +77,22 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
       co_return td::Status::Error("Validator is not whitelisted");
     }
 
-    auto window_start = static_cast<td::uint32>(request->window_start_slot_);
+    td::uint32 window_start;
+    bool is_prepare;
+    td::BufferSlice delegation_signature;
+    if (auto R = fetch_tl_object<consensus::tl::pleaseCollatePrepare>(message->request.data, true); R.is_ok()) {
+      auto request = R.move_as_ok();
+      is_prepare = true;
+      window_start = request->window_start_slot_;
+    } else if (auto R = fetch_tl_object<consensus::tl::pleaseCollate>(message->request.data, true); R.is_ok()) {
+      auto request = R.move_as_ok();
+      is_prepare = false;
+      window_start = request->window_start_slot_;
+      delegation_signature = std::move(request->signature_);
+    } else {
+      co_return td::Status::Error(ErrorCode::protoviolation, "Cannot parse request");
+    }
+
     if (window_start % slots_per_leader_window_ != 0) {
       co_return td::Status::Error(ErrorCode::protoviolation, PSTRING()
                                                                  << "Misaligned window start slot " << window_start);
@@ -90,19 +104,27 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     if (last_window_.has_value() && window_start < last_window_->start_slot) {
       co_return td::Status::Error(PSTRING() << "Too old slot" << window_start << " < " << last_window_->start_slot);
     }
+    td::uint32 first_too_new_slot =
+        (last_window_ ? last_window_->start_slot : 0) + MAX_FUTURE_WINDOW * slots_per_leader_window_;
+    if (window_start >= first_too_new_slot) {
+      co_return td::Status::Error(PSTRING() << "Too new slot" << window_start << " > " << first_too_new_slot);
+    }
     if (delegation_signatures_.contains(window_start)) {
       co_return td::Status::Error(PSTRING() << "Duplicate delegation for slot " << window_start);
+    }
+    if (is_prepare) {
+      co_return ProtocolMessage{create_tl_object<ton_api::tonNode_success>()};
     }
 
     const PeerValidator& leader = message->source_validator->get_using(bus);
     auto to_sign =
         create_serialize_tl_object<consensus::tl::delegationToSign>(window_start, bus.local_adnl_id.bits256_value());
-    if (!leader.check_signature(bus.session_id, to_sign, request->signature_)) {
+    if (!leader.check_signature(bus.session_id, to_sign, delegation_signature)) {
       co_return td::Status::Error(ErrorCode::protoviolation, "Invalid delegation signature");
     }
 
     LOG(INFO) << "Window " << window_start << " is delegated to us by " << leader;
-    delegation_signatures_[window_start] = std::move(request->signature_);
+    delegation_signatures_[window_start] = std::move(delegation_signature);
 
     if (last_window_.has_value() && last_window_->start_slot == window_start) {
       start_production(window_start, last_window_->base);
@@ -195,6 +217,8 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   td::CancellationTokenSource cancellation_source_;
 
   EmptyBlockPolicy empty_block_policy_;
+
+  static constexpr td::uint32 MAX_FUTURE_WINDOW = 20;
 };
 
 }  // namespace

@@ -1184,6 +1184,7 @@ consensus.noncriticalParamsOverrideList
 ---functions---
 consensus.simplex.requestCandidate id:consensus.CandidateId want_candidate:Bool want_notar:Bool = consensus.simplex.CandidateAndCert;
 
+consensus.pleaseCollatePrepare window_start_slot:int = tonNode.Success;
 consensus.pleaseCollate window_start_slot:int signature:bytes = tonNode.Success;
 
 engine.validator.setConsensusNoncriticalParamsOverrides overrides:consensus.noncriticalParamsOverrideList = engine.validator.Success;

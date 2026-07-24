@@ -44,6 +44,7 @@ using delegation = ton_api::consensus_delegation;
 using DelegationRef = tl_object_ptr<delegation>;
 using delegationToSign = ton_api::consensus_delegationToSign;
 using candidate = ton_api::consensus_candidate;
+using pleaseCollatePrepare = ton_api::consensus_pleaseCollatePrepare;
 using pleaseCollate = ton_api::consensus_pleaseCollate;
 using broadcastExtra = ton_api::consensus_broadcastExtra;
 using broadcastExtraLegacy = ton_api::consensus_broadcastExtraLegacy;

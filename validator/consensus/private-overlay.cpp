@@ -308,7 +308,8 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
         name = "candidate";
         break;
       }
-      case ton_api::consensus_pleaseCollate::ID: {
+      case tl::pleaseCollatePrepare::ID:
+      case tl::pleaseCollate::ID: {
         auto request = std::make_shared<IncomingCollatorRequest>(peer_idx, src, std::move(data));
         response = co_await owning_bus().publish(std::move(request)).wrap();
         name = "collator";
