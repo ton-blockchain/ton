@@ -208,7 +208,7 @@ class TestTags:
 
     def test_auto_tag_matches_cpp_reference(self):
         """CRC32 auto-tags match the C++ tlbc reference implementation (block-auto.cpp)."""
-        with open("/home/danklishch/code/ton/src/crypto/block/block.tlb") as f:
+        with open("crypto/block/block.tlb") as f:
             types = analyze_text(f.read(), current_module=_TEST_MODULE).types
         by_name = {t.name: t for t in types}
 

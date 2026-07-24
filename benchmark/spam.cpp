@@ -83,10 +83,10 @@ struct SpamOptions {
   std::string out_path = "results.json";
   std::string blocks_csv_path = "blocks.csv";
   std::string timeline_csv_path;
-  int connections = 1;   // parallel send connections (one extra is used for watching)
-  td::uint64 presign = 0;  // presign buffer size; 0 = auto
-  int signer_threads = 0;  // 0 = auto
-  td::uint64 index = 0;    // for the addr subcommand
+  int connections = 1;          // parallel send connections (one extra is used for watching)
+  td::uint64 presign = 0;       // presign buffer size; 0 = auto
+  int signer_threads = 0;       // 0 = auto
+  td::uint64 index = 0;         // for the addr subcommand
   bool force_fallback = false;  // start in listBlockTransactions mode (testing)
 };
 
@@ -255,8 +255,7 @@ class SignerPool {
     TRY_RESULT(ext, build_signed_external(manifest_.seed, index, recipient, manifest_, contracts_));
     msg.msg_hash = ext->get_hash().bits();
     TRY_RESULT(boc, vm::std_boc_serialize(ext, 31));
-    msg.query = envelope(
-        ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMessage>(std::move(boc)));
+    msg.query = envelope(ton::create_serialize_tl_object<ton::lite_api::liteServer_sendMessage>(std::move(boc)));
     return std::move(msg);
   }
 
@@ -310,8 +309,7 @@ class BlockParser : public td::actor::Actor {
     }
   }
 
-  void parse_block(ton::BlockIdExt blkid, td::BufferSlice data, double observed_at,
-                   td::Promise<Summary> promise) {
+  void parse_block(ton::BlockIdExt blkid, td::BufferSlice data, double observed_at, td::Promise<Summary> promise) {
     promise.set_result([&]() -> td::Result<Summary> {
       try {
         return do_parse(blkid, std::move(data), observed_at);
@@ -502,11 +500,11 @@ class SpamRunner : public td::actor::Actor {
       LOG(WARNING) << "wallet range clamped to " << target_total_ << " messages (num_v5=" << manifest_.num_v5
                    << ", offset=" << opts_.wallet_offset << ")";
     }
-    td::uint64 buffer = opts_.presign ? opts_.presign
-                                      : std::min<td::uint64>(std::max<td::uint64>(td::uint64(opts_.rate * 2), 1000),
-                                                             target_total_);
-    int threads = opts_.signer_threads ? opts_.signer_threads
-                                       : td::clamp(static_cast<int>(opts_.rate / 2500) + 1, 1, 8);
+    td::uint64 buffer =
+        opts_.presign ? opts_.presign
+                      : std::min<td::uint64>(std::max<td::uint64>(td::uint64(opts_.rate * 2), 1000), target_total_);
+    int threads =
+        opts_.signer_threads ? opts_.signer_threads : td::clamp(static_cast<int>(opts_.rate / 2500) + 1, 1, 8);
     signer_ = std::make_unique<SignerPool>(manifest_, contracts_, opts_.wallet_offset, target_total_, buffer,
                                            opts_.track_sample);
     signer_->start(threads);
@@ -789,8 +787,7 @@ class SpamRunner : public td::actor::Actor {
   // on the same seqno, NOT counted toward the >16MB fallback heuristic.
   static bool is_transient_block_error(const td::Status &s) {
     auto msg = s.message();
-    return msg.str().find("not found") != std::string::npos ||
-           msg.str().find("out of sync") != std::string::npos ||
+    return msg.str().find("not found") != std::string::npos || msg.str().find("out of sync") != std::string::npos ||
            msg.str().find("notready") != std::string::npos;
   }
 
@@ -801,8 +798,7 @@ class SpamRunner : public td::actor::Actor {
         return;
       }
       fetch_attempts_++;
-      LOG(WARNING) << "getBlock(" << blkid.id.seqno << ") failed (attempt " << fetch_attempts_
-                   << "): " << R.error();
+      LOG(WARNING) << "getBlock(" << blkid.id.seqno << ") failed (attempt " << fetch_attempts_ << "): " << R.error();
       if (fetch_attempts_ >= 2) {
         // Most likely the block exceeds the ADNL ext-protocol packet limit
         // (1<<24 bytes, adnl/adnl-ext-connection.cpp); switch permanently to
@@ -901,9 +897,8 @@ class SpamRunner : public td::actor::Actor {
         pending_by_account_.erase(it);
       }
       if (f->incomplete_ && !f->ids_.empty()) {
-        list_more(blkid,
-                  ton::create_tl_object<ton::lite_api::liteServer_transactionId3>(last_account,
-                                                                                  static_cast<td::int64>(last_lt)));
+        list_more(blkid, ton::create_tl_object<ton::lite_api::liteServer_transactionId3>(
+                             last_account, static_cast<td::int64>(last_lt)));
         return td::Status::OK();
       }
       blocks_.push_back(BlockRec{blkid.id.seqno, cur_utime_, cur_observed_at_, fb_n_txs_, fb_matched_});
@@ -974,8 +969,8 @@ class SpamRunner : public td::actor::Actor {
               << "), included " << inclusion_ms_.size() << ", blocks " << blocks_.size() << " (tip seqno "
               << (blocks_.empty() ? 0u : blocks_.back().seqno) << ")"
               << " | inst " << td::StringBuilder::FixedDouble(inst_jtps, 1) << " jTPS ("
-              << td::StringBuilder::FixedDouble(inst_tps, 1) << " tx/s, last " << td::StringBuilder::FixedDouble(span, 1)
-              << "s)" << (fallback_mode_ ? " [fallback mode]" : "");
+              << td::StringBuilder::FixedDouble(inst_tps, 1) << " tx/s, last "
+              << td::StringBuilder::FixedDouble(span, 1) << "s)" << (fallback_mode_ ? " [fallback mode]" : "");
   }
 
   void check_done(double now) {
@@ -1069,10 +1064,9 @@ class SpamRunner : public td::actor::Actor {
     os.precision(3);
     os << "{\"mode\":\"" << (fallback_mode_ ? "listBlockTransactions" : "getBlock") << "\"";
     os << ",\"sent\":" << sent_ << ",\"send_ok\":" << send_ok_ << ",\"send_errors\":" << send_err_;
-    os << ",\"included\":" << inclusion_ms_.size()
-       << ",\"unmatched\":" << pending_by_hash_.size();
-    os << ",\"rate_target\":" << opts_.rate << ",\"duration_s\":" << send_span
-       << ",\"warmup_s\":" << opts_.warmup << ",\"window_s\":" << window;
+    os << ",\"included\":" << inclusion_ms_.size() << ",\"unmatched\":" << pending_by_hash_.size();
+    os << ",\"rate_target\":" << opts_.rate << ",\"duration_s\":" << send_span << ",\"warmup_s\":" << opts_.warmup
+       << ",\"window_s\":" << window;
     os << ",\"wallet_offset\":" << opts_.wallet_offset;
     os << ",\"tps_included\":" << tps_included << ",\"jetton_tps\":" << jetton_tps << ",";
     append_latency_json(os, "inclusion_latency_ms", inc);
@@ -1092,8 +1086,8 @@ class SpamRunner : public td::actor::Actor {
     first = true;
     for (const auto &b : blocks_) {
       os << (first ? "" : ",") << "{\"seqno\":" << b.seqno << ",\"utime\":" << b.utime
-         << ",\"observed_at_unix_ms\":" << static_cast<td::int64>(to_unix_ms(b.observed_at))
-         << ",\"n_txs\":" << b.n_txs << ",\"n_ext_matched\":" << b.n_matched << "}";
+         << ",\"observed_at_unix_ms\":" << static_cast<td::int64>(to_unix_ms(b.observed_at)) << ",\"n_txs\":" << b.n_txs
+         << ",\"n_ext_matched\":" << b.n_matched << "}";
       first = false;
     }
     os << "]}\n";
@@ -1209,8 +1203,7 @@ td::Result<std::pair<Manifest, ContractSet>> load_inputs(const SpamOptions &opts
   TRY_RESULT(manifest_data, td::read_file(opts.manifest_path));
   TRY_RESULT(manifest, Manifest::from_json(manifest_data.as_slice()));
   TRY_RESULT(contracts, load_contracts(opts.contracts_dir));
-  if (td::Bits256{contracts.w5_code->get_hash().bits()} != manifest.w5_code_hash &&
-      !manifest.w5_code_hash.is_zero()) {
+  if (td::Bits256{contracts.w5_code->get_hash().bits()} != manifest.w5_code_hash && !manifest.w5_code_hash.is_zero()) {
     return td::Status::Error("w5 code hash in manifest does not match --contracts-dir");
   }
   return std::make_pair(std::move(manifest), std::move(contracts));
@@ -1381,11 +1374,10 @@ int main(int argc, char *argv[]) {
     opts.duration = td::to_double(arg);
     return opts.duration > 0 ? td::Status::OK() : td::Status::Error("--duration must be positive");
   });
-  p.add_checked_option('\0', "warmup", "seconds excluded from the start of the measurement window",
-                       [&](td::Slice arg) {
-                         opts.warmup = td::to_double(arg);
-                         return opts.warmup >= 0 ? td::Status::OK() : td::Status::Error("--warmup must be >= 0");
-                       });
+  p.add_checked_option('\0', "warmup", "seconds excluded from the start of the measurement window", [&](td::Slice arg) {
+    opts.warmup = td::to_double(arg);
+    return opts.warmup >= 0 ? td::Status::OK() : td::Status::Error("--warmup must be >= 0");
+  });
   p.add_checked_option('\0', "drain", "seconds to keep watching blocks after the send phase (default 10)",
                        [&](td::Slice arg) {
                          opts.drain = td::to_double(arg);
@@ -1395,13 +1387,12 @@ int main(int argc, char *argv[]) {
     TRY_RESULT_ASSIGN(opts.wallet_offset, td::to_integer_safe<td::uint64>(arg));
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "track-sample", "fraction of transfers to trace through the full tx chain",
-                       [&](td::Slice arg) {
-                         opts.track_sample = td::to_double(arg);
-                         return opts.track_sample >= 0 && opts.track_sample <= 1
-                                    ? td::Status::OK()
-                                    : td::Status::Error("--track-sample must be in [0,1]");
-                       });
+  p.add_checked_option(
+      '\0', "track-sample", "fraction of transfers to trace through the full tx chain", [&](td::Slice arg) {
+        opts.track_sample = td::to_double(arg);
+        return opts.track_sample >= 0 && opts.track_sample <= 1 ? td::Status::OK()
+                                                                : td::Status::Error("--track-sample must be in [0,1]");
+      });
   p.add_option('\0', "out", "results json path (default results.json)",
                [&](td::Slice arg) { opts.out_path = arg.str(); });
   p.add_option('\0', "blocks-csv", "per-block csv path (default blocks.csv)",

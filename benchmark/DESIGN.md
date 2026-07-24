@@ -79,7 +79,7 @@ Hardware: /mnt/bench = 4TB Samsung 990 PRO (ext4, noatime). All big artifacts li
   - `"desc" + hex_upper(z)` where `z = sha256(boxed tonNode.blockIdExt(B0))`,
     `B0 = {wc=0, shard=0x8000000000000000, seqno=0, root_hash=R, file_hash=F}` →
     `db.celldb.value{block_id=B0, prev=0, next=0, root_hash=R}`.
-  Build these with `create_serialize_tl_object<ton_api::db_celldb_value>` + 
+  Build these with `create_serialize_tl_object<ton_api::db_celldb_value>` +
   `get_tl_object_sha_bits256(create_tl_block_id(B0))` — never hand-roll.
 - F (fake file hash) = SHA256("tonbench-fake-file" || R).
 - Pipeline: phase 1 parallel address derivation → 256 bucket files by addr[0];

@@ -173,8 +173,7 @@ Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, in
 // for accounts with fixed_prefix_length 0 and no extra currencies.
 class ShardAccountsStreamBuilder {
  public:
-  explicit ShardAccountsStreamBuilder(CellSink &sink)
-      : sink_(sink) {
+  explicit ShardAccountsStreamBuilder(CellSink &sink) : sink_(sink) {
   }
   // Leaf value: account_descr$_ account:^Account last_trans_hash:0 last_trans_lt:0
   void add_account(const td::Bits256 &addr, Ref<vm::Cell> account_cell, Uint128 balance);

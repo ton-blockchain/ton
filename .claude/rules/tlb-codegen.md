@@ -8,7 +8,7 @@ paths:
 
 ## Commands
 
-All commands run from `/home/danklishch/code/ton/src` (the repo root).
+All commands run from the repo root.
 
 **Check source:**
 ```

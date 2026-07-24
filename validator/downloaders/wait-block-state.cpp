@@ -96,14 +96,13 @@ void WaitBlockState::start() {
   }();
   if (tontester_mode && handle_->id().id.seqno == 0 && !checked_celldb_) {
     checked_celldb_ = true;
-    auto P = td::PromiseCreator::lambda(
-        [SelfId = actor_id(this)](td::Result<std::shared_ptr<vm::CellDbReader>> R) {
-          if (R.is_error()) {
-            td::actor::send_closure(SelfId, &WaitBlockState::start);
-          } else {
-            td::actor::send_closure(SelfId, &WaitBlockState::try_load_zero_state_from_celldb, R.move_as_ok());
-          }
-        });
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::shared_ptr<vm::CellDbReader>> R) {
+      if (R.is_error()) {
+        td::actor::send_closure(SelfId, &WaitBlockState::start);
+      } else {
+        td::actor::send_closure(SelfId, &WaitBlockState::try_load_zero_state_from_celldb, R.move_as_ok());
+      }
+    });
     td::actor::send_closure(manager_, &ValidatorManager::get_cell_db_reader, std::move(P));
     return;
   }
