@@ -92,6 +92,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
         }
       }
     }
+
+    if (bus.first_nonannounced_window == 0 && bus.collator_schedule->is_expected_collator(bus.local_id->idx, 0)) {
+      owning_bus().publish<OurLeaderWindowUpcoming>(0);
+    }
   }
 
   template <>

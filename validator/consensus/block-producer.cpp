@@ -186,6 +186,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
   void conclude_delegations_before(td::uint32 boundary_slot) {
     auto& bus = *owning_bus();
+    if (boundary_slot < bus.config.slots_per_leader_window) {
+      return;
+    }
+    boundary_slot -= bus.config.slots_per_leader_window;
     while (!delegated_windows_.empty() && delegated_windows_.begin()->first < boundary_slot) {
       auto& [start_slot, window] = *delegated_windows_.begin();
       td::actor::send_closure(bus.collator_scoreboard, &CollatorScoreboard::report_outcome, window.collator,
