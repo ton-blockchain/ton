@@ -298,7 +298,7 @@ async def _run_spam(install: Install, repo_root: Path, node: FullNode, params: B
 
 
 async def _amain(params: BenchParams) -> int:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[1]
     install = Install(repo_root / "build", repo_root)
     install.tonlibjson.client_set_verbosity_level(1)
 
