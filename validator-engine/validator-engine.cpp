@@ -5124,29 +5124,6 @@ void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_showColla
   }
 }
 
-void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_getCollationManagerStats &query,
-                                        td::BufferSlice data, ton::PublicKeyHash src, td::uint32 perm,
-                                        td::Promise<td::BufferSlice> promise) {
-  if (!(perm & ValidatorEnginePermissions::vep_default)) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::error, "not authorized")));
-    return;
-  }
-  if (!started_) {
-    promise.set_value(create_control_query_error(td::Status::Error(ton::ErrorCode::notready, "not started")));
-    return;
-  }
-  td::actor::send_closure(
-      validator_manager_, &ton::validator::ValidatorManagerInterface::get_collation_manager_stats,
-      [promise = std::move(promise)](
-          td::Result<ton::tl_object_ptr<ton::ton_api::engine_validator_collationManagerStats>> R) mutable {
-        if (R.is_ok()) {
-          promise.set_value(ton::serialize_tl_object(R.move_as_ok(), true));
-        } else {
-          promise.set_value(create_control_query_error(R.move_as_error()));
-        }
-      });
-}
-
 void ValidatorEngine::run_control_query(ton::ton_api::engine_validator_addCollator &query, td::BufferSlice data,
                                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise) {
   if (!(perm & ValidatorEnginePermissions::vep_modify)) {

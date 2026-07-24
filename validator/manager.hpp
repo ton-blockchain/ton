@@ -629,9 +629,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void del_collator(adnl::AdnlNodeIdShort id) override;
   void add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) override;
 
-  void get_collation_manager_stats(
-      td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) override;
-
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {
       if (last_masterchain_state_.is_null()) {

@@ -414,9 +414,6 @@ class ValidatorManagerInterface : public td::actor::Actor {
     LOG(ERROR) << "Unimplemented add_out_msg_queu_proof - ignore broadcast";
   }
 
-  virtual void get_collation_manager_stats(
-      td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) = 0;
-
   virtual void add_shard_block_retainer(adnl::AdnlNodeIdShort id) {
     LOG(ERROR) << "Unimplemented add_shard_block_retainer";
   }

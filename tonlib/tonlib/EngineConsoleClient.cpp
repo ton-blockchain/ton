@@ -45,7 +45,6 @@ bool is_engine_console_query(const ton::tl_object_ptr<ton::ton_api::Function>& f
     case ton::ton_api::engine_validator_generateKeyPair::ID:
     case ton::ton_api::engine_validator_getActorTextStats::ID:
     case ton::ton_api::engine_validator_getAdnlStats::ID:
-    case ton::ton_api::engine_validator_getCollationManagerStats::ID:
     case ton::ton_api::engine_validator_getCollatorOptionsJson::ID:
     case ton::ton_api::engine_validator_getConfig::ID:
     case ton::ton_api::engine_validator_getConsensusNoncriticalParamsOverrides::ID:

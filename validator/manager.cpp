@@ -3045,42 +3045,6 @@ void ValidatorManagerImpl::del_collator(adnl::AdnlNodeIdShort id) {
   local_collator_adnl_ids_.erase(id);
 }
 
-void ValidatorManagerImpl::get_collation_manager_stats(
-    td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) {
-  class Cb : public td::actor::Actor {
-   public:
-    explicit Cb(td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise)
-        : promise_(std::move(promise)) {
-    }
-
-    void got_stats(tl_object_ptr<ton_api::engine_validator_collationManagerStats_localId> s) {
-      result_.push_back(std::move(s));
-      dec_pending();
-    }
-
-    void inc_pending() {
-      ++pending_;
-    }
-
-    void dec_pending() {
-      CHECK(pending_ > 0);
-      --pending_;
-      if (pending_ == 0) {
-        promise_.set_result(create_tl_object<ton_api::engine_validator_collationManagerStats>(std::move(result_)));
-        stop();
-      }
-    }
-
-   private:
-    td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise_;
-    size_t pending_ = 1;
-    std::vector<tl_object_ptr<ton_api::engine_validator_collationManagerStats_localId>> result_;
-  };
-  auto callback = td::actor::create_actor<Cb>("stats", std::move(promise)).release();
-
-  td::actor::send_closure(callback, &Cb::dec_pending);
-}
-
 void ValidatorManagerImpl::add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) {
   if (is_shard_collator(dst_shard)) {
     if (out_msg_queue_importer_.empty()) {

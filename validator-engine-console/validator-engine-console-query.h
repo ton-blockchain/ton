@@ -1715,25 +1715,6 @@ class ShowCollatorsListQuery : public Query {
   }
 };
 
-class GetCollationManagerStatsQuery : public Query {
- public:
-  GetCollationManagerStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
-      : Query(console, std::move(tokenizer)) {
-  }
-  td::Status run() override;
-  td::Status send() override;
-  td::Status receive(td::BufferSlice data) override;
-  static std::string get_name() {
-    return "collation-manager-stats";
-  }
-  static std::string get_help() {
-    return "collation-manager-stats\tshow stats of collation manager";
-  }
-  std::string name() const override {
-    return get_name();
-  }
-};
-
 class SignOverlayMemberCertificateQuery : public Query {
  public:
   SignOverlayMemberCertificateQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
