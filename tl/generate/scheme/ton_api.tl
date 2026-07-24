@@ -1131,6 +1131,9 @@ consensus.simplex.db.candidateResolver.candidateInfo leader_id:int candidate_has
 consensus.simplex.db.key.candidateResolver.notarCert candidateId:consensus.candidateId = consensus.simplex.db.key.candidateResolver.NotarCert;
 consensus.simplex.db.candidateResolver.notarCert notar:consensus.simplex.voteSignatureSet = consensus.simplex.db.candidateResolver.NotarCert;
 
+consensus.simplex.db.key.delegationSignature start_slot:int = consensus.simplex.db.key.DelegationSignature;
+consensus.simplex.db.delegationSignature signature:bytes = consensus.simplex.db.DelegationSignature;
+
 consensus.db.key.delegatedWindow start_slot:int = consensus.db.key.DelegatedWindow;
 consensus.db.delegatedWindow collator_id:int256 = consensus.db.DelegatedWindow;
 
