@@ -124,11 +124,19 @@ std::string OutgoingProtocolMessage::contents_to_string() const {
   return PSTRING() << "{recipient=" << recipient << ", message=" << message_to_string(message) << "}";
 }
 
-std::string IncomingOverlayRequest::contents_to_string() const {
+std::string IncomingCandidateRequest::contents_to_string() const {
   return PSTRING() << "{source=" << source << ", request=" << message_to_string(request) << "}";
 }
 
-std::string IncomingOverlayRequest::response_to_string(const ReturnType& response) {
+std::string IncomingCandidateRequest::response_to_string(const ReturnType& response) {
+  return PSTRING() << message_to_string(response);
+}
+
+std::string IncomingCollatorRequest::contents_to_string() const {
+  return PSTRING() << "{source=" << source << ", request=" << message_to_string(request) << "}";
+}
+
+std::string IncomingCollatorRequest::response_to_string(const ReturnType& response) {
   return PSTRING() << message_to_string(response);
 }
 

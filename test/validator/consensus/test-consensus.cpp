@@ -261,7 +261,7 @@ class TestOverlayNode : public td::actor::SpawnsWith<Bus>, public td::actor::Con
   }
 
   td::actor::Task<td::BufferSlice> receive_query(PeerValidator src, td::BufferSlice query) {
-    auto request = std::make_shared<IncomingOverlayRequest>(src.idx, src.adnl_id, std::move(query));
+    auto request = std::make_shared<IncomingCandidateRequest>(src.idx, src.adnl_id, std::move(query));
     auto response = co_await owning_bus().publish(std::move(request)).wrap();
     if (response.is_ok()) {
       co_return std::move(response.move_as_ok().data);

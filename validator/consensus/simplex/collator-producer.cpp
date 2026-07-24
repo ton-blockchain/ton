@@ -67,50 +67,38 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   }
 
   template <>
-  void handle(BusHandle, std::shared_ptr<const IncomingProtocolMessage> message) {
-    auto maybe_request = fetch_tl_object<consensus::tl::pleaseCollate>(message->message.data, true);
-    if (maybe_request.is_error()) {
-      return;
-    }
-    auto request = maybe_request.move_as_ok();
+  td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingCollatorRequest> message) {
+    auto request = CO_TRY(fetch_tl_object<consensus::tl::pleaseCollate>(message->request.data, true));
     auto& bus = *owning_bus();
 
     if (!message->source_validator.has_value()) {
-      LOG(WARNING) << "Dropping pleaseCollate from " << message->source << " who is not a validator";
-      return;
+      co_return td::Status::Error(ErrorCode::protoviolation, "Node is not a validator");
     }
     if (!bus.validator_opts.load()->check_collator_node_whitelist(message->source)) {
-      LOG(WARNING) << "Dropping pleaseCollate from " << message->source << " who is not whitelisted";
-      return;
+      co_return td::Status::Error("Validator is not whitelisted");
     }
 
     auto window_start = static_cast<td::uint32>(request->window_start_slot_);
     if (window_start % slots_per_leader_window_ != 0) {
-      LOG(WARNING) << "Dropping pleaseCollate from " << *message->source_validator
-                   << " with misaligned window start slot " << window_start;
-      return;
+      co_return td::Status::Error(ErrorCode::protoviolation, PSTRING()
+                                                                 << "Misaligned window start slot " << window_start);
     }
     if (bus.collator_schedule->expected_collator_for(window_start) != *message->source_validator) {
-      LOG(WARNING) << "Dropping pleaseCollate from " << *message->source_validator << " who is not the leader of slot "
-                   << window_start;
-      return;
+      co_return td::Status::Error(ErrorCode::protoviolation, PSTRING()
+                                                                 << "Src is not the leader of slot " << window_start);
     }
     if (last_window_.has_value() && window_start < last_window_->start_slot) {
-      LOG(DEBUG) << "Dropping pleaseCollate from " << *message->source_validator << ": too old slot " << window_start
-                 << " < " << last_window_->start_slot;
-      return;
+      co_return td::Status::Error(PSTRING() << "Too old slot" << window_start << " < " << last_window_->start_slot);
     }
     if (delegation_signatures_.contains(window_start)) {
-      LOG(DEBUG) << "Dropping pleaseCollate from " << *message->source_validator << ": duplicate";
-      return;
+      co_return td::Status::Error(PSTRING() << "Duplicate delegation for slot " << window_start);
     }
 
     const PeerValidator& leader = message->source_validator->get_using(bus);
     auto to_sign =
         create_serialize_tl_object<consensus::tl::delegationToSign>(window_start, bus.local_adnl_id.bits256_value());
     if (!leader.check_signature(bus.session_id, to_sign, request->signature_)) {
-      LOG(WARNING) << "Dropping pleaseCollate from " << *message->source_validator << " with an invalid signature";
-      return;
+      co_return td::Status::Error(ErrorCode::protoviolation, "Invalid delegation signature");
     }
 
     LOG(INFO) << "Window " << window_start << " is delegated to us by " << leader;
@@ -119,6 +107,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     if (last_window_.has_value() && last_window_->start_slot == window_start) {
       start_production(window_start, last_window_->base);
     }
+    co_return ProtocolMessage{create_tl_object<ton_api::tonNode_success>()};
   }
 
   template <>

@@ -1097,7 +1097,6 @@ consensus.empty slot:int parent:consensus.CandidateId block:tonNode.blockIdExt s
 consensus.delegationToSign window_start_slot:int collator_id:int256 = consensus.DelegationToSign;
 consensus.delegation collator_key:PublicKey signature:bytes = consensus.Delegation;
 consensus.candidate flags:# data:consensus.CandidateData delegation:flags.0?consensus.Delegation = consensus.Candidate;
-consensus.pleaseCollate window_start_slot:int signature:bytes = consensus.PleaseCollate;
 
 consensus.broadcastExtraLegacy#921297fa slot:int = consensus.BroadcastExtra;
 consensus.broadcastExtra flags:# slot:int delegation:flags.0?consensus.Delegation = consensus.BroadcastExtra;
@@ -1184,6 +1183,8 @@ consensus.noncriticalParamsOverrideList
 
 ---functions---
 consensus.simplex.requestCandidate id:consensus.CandidateId want_candidate:Bool want_notar:Bool = consensus.simplex.CandidateAndCert;
+
+consensus.pleaseCollate window_start_slot:int signature:bytes = tonNode.Success;
 
 engine.validator.setConsensusNoncriticalParamsOverrides overrides:consensus.noncriticalParamsOverrideList = engine.validator.Success;
 engine.validator.getConsensusNoncriticalParamsOverrides = consensus.NoncriticalParamsOverrideList;

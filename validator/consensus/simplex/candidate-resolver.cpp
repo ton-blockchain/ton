@@ -138,7 +138,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   }
 
   template <>
-  td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingOverlayRequest> event) {
+  td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingCandidateRequest> event) {
     auto request = co_await fetch_tl_object<tl::requestCandidate>(event->request.data, true);
     auto id = CandidateId::from_tl(request->id_);
 

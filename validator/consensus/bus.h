@@ -108,7 +108,19 @@ struct OutgoingProtocolMessage {
   std::string contents_to_string() const;
 };
 
-struct IncomingOverlayRequest {
+struct IncomingCandidateRequest {
+  using LogToDebug = std::true_type;
+  using ReturnType = ProtocolMessage;
+
+  std::optional<PeerValidatorId> source_validator;
+  adnl::AdnlNodeIdShort source;
+  ProtocolMessage request;
+
+  std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
+};
+
+struct IncomingCollatorRequest {
   using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
@@ -181,11 +193,11 @@ class Db {
 
 class Bus : public td::actor::Bus {
  public:
-  using Events =
-      td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowUpcoming,
-                   CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
-                   OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
-                   MisbehaviorReport, TraceEvent, NoncriticalParamsUpdated, PrecheckCandidateBroadcast>;
+  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowUpcoming,
+                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
+                              OutgoingProtocolMessage, IncomingCandidateRequest, IncomingCollatorRequest,
+                              OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent,
+                              NoncriticalParamsUpdated, PrecheckCandidateBroadcast>;
 
   Bus() = default;
   ~Bus() override {

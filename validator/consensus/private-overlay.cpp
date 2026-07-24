@@ -294,24 +294,37 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
         .trace("Precheck failed");
   }
 
-  void on_query(adnl::AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
+  td::actor::Task<td::BufferSlice> on_query(adnl::AdnlNodeIdShort src, td::BufferSlice data) {
     auto peer = adnl_id_to_peer_.find(src);
     auto peer_idx = peer != adnl_id_to_peer_.end() ? std::optional{peer->second.idx} : std::nullopt;
 
-    auto request = std::make_shared<IncomingOverlayRequest>(peer_idx, src, std::move(data));
-
-    auto task = [](BusHandle bus, auto message, auto promise) -> td::actor::Task<> {
-      auto response = co_await bus.publish(message).wrap();
-      if (response.is_ok()) {
-        promise.set_value(response.move_as_ok().data);
-      } else {
-        LOG(WARNING) << "Failed to process overlay request from " << message->source << ": "
-                     << response.move_as_error();
-        promise.set_value(create_serialize_tl_object<tl::requestError>());
+    td::int32 tag = data.size() >= 4 ? td::as<td::int32>(data.data()) : 0;
+    const char* name;
+    td::Result<ProtocolMessage> response;
+    switch (tag) {
+      case ton_api::consensus_simplex_requestCandidate::ID: {
+        auto request = std::make_shared<IncomingCandidateRequest>(peer_idx, src, std::move(data));
+        response = co_await owning_bus().publish(std::move(request)).wrap();
+        name = "candidate";
+        break;
       }
-      co_return {};
-    };
-    task(owning_bus(), request, std::move(promise)).start().detach();
+      case ton_api::consensus_pleaseCollate::ID: {
+        auto request = std::make_shared<IncomingCollatorRequest>(peer_idx, src, std::move(data));
+        response = co_await owning_bus().publish(std::move(request)).wrap();
+        name = "collator";
+        break;
+      }
+      default:
+        response = td::Status::Error(ErrorCode::protoviolation, PSTRING() << "unknown request id=" << tag);
+        name = "unknown";
+    }
+
+    if (response.is_ok()) {
+      co_return std::move(response.move_as_ok().data);
+    }
+    LOG(WARNING) << "Failed to process " << name << " request from " << src << " (" << peer_idx << ")" << ": "
+                 << response.move_as_error();
+    co_return create_serialize_tl_object<tl::requestError>();
   }
 
   td::actor::ActorId<overlay::Overlays> overlays_;
