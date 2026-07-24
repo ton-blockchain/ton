@@ -13,6 +13,11 @@
 
 namespace ton::validator::consensus {
 
+namespace tl {
+using db_key_delegatedWindow = ton_api::consensus_db_key_delegatedWindow;
+using db_delegatedWindow = ton_api::consensus_db_delegatedWindow;
+}  // namespace tl
+
 namespace {
 
 class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
@@ -42,6 +47,14 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
           }
         }
         allow_self_collate_ = shard->self_collate;
+      }
+
+      auto delegated_windows = bus.db->get_by_prefix(tl::db_key_delegatedWindow::ID);
+      for (auto& [key_str, value_str] : delegated_windows) {
+        auto key = fetch_tl_object<tl::db_key_delegatedWindow>(key_str, true).move_as_ok();
+        auto value = fetch_tl_object<tl::db_delegatedWindow>(value_str, true).move_as_ok();
+        delegated_windows_[key->start_slot_] =
+            DelegatedWindow{.collator = adnl::AdnlNodeIdShort{value->collator_id_}, .from_db = true};
       }
     }
   }
@@ -116,6 +129,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   td::actor::Task<> prepare_delegation(td::uint32 start_slot) {
     auto& bus = *owning_bus();
 
+    if (auto it = delegated_windows_.find(start_slot); it != delegated_windows_.end()) {
+      LOG(INFO) << "Window " << start_slot << " already delegated to " << it->second.collator;
+      co_return {};
+    }
     if (collator_nodes_.empty()) {
       co_return {};
     }
@@ -159,6 +176,8 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       break;
     }
 
+    co_await bus.db->set(create_serialize_tl_object<tl::db_key_delegatedWindow>(start_slot),
+                         create_serialize_tl_object<tl::db_delegatedWindow>(selected_collator.bits256_value()));
     auto to_sign = create_serialize_tl_object<tl::delegationToSign>(start_slot, selected_collator.bits256_value());
     to_sign = create_serialize_tl_object<tl::dataToSign>(bus.session_id, std::move(to_sign));
     auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id->short_id,
@@ -192,8 +211,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     boundary_slot -= bus.config.slots_per_leader_window;
     while (!delegated_windows_.empty() && delegated_windows_.begin()->first < boundary_slot) {
       auto& [start_slot, window] = *delegated_windows_.begin();
-      td::actor::send_closure(bus.collator_scoreboard, &CollatorScoreboard::report_outcome, window.collator,
-                              window.produced);
+      if (!window.from_db) {
+        td::actor::send_closure(bus.collator_scoreboard, &CollatorScoreboard::report_outcome, window.collator,
+                                window.produced);
+      }
       delegated_windows_.erase(delegated_windows_.begin());
     }
   }
@@ -238,6 +259,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   struct DelegatedWindow {
     adnl::AdnlNodeIdShort collator;
     bool produced = false;
+    bool from_db = false;
   };
 
   std::optional<td::uint32> current_leader_window_;
