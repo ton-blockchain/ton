@@ -32,6 +32,7 @@ class NetworkConfig:
     split: int = 0
     global_version: int = 13
     shard_validators: int = 1
+    mc_validators: int = 0  # 0 - all validators
     block_limit_mul: int = 1
     mc_valgroup_lifetime: int = 250
     mc_consensus: SimplexConsensusConfig | None = None
@@ -335,7 +336,7 @@ hashu dup =: zerostate_rhash 256 u>B "zerostate.rhash" B>file
 
 
 def create_zerostate(
-    install: Install, state_dir: Path, config: NetworkConfig, validator_keys: list[Key]
+        install: Install, state_dir: Path, config: NetworkConfig, validator_keys: list[Key]
 ) -> Zerostate:
     keys: list[str] = []
     for key in validator_keys:
@@ -366,7 +367,7 @@ def create_zerostate(
             shard_val=config.shard_validators,
             block_limit_mul=config.block_limit_mul,
             validators="\n".join(keys),
-            mc_validators=len(keys),
+            mc_validators=config.mc_validators,
             mc_valgroup_lifetime=config.mc_valgroup_lifetime,
             shard_valgroup_lifetime=config.shard_valgroup_lifetime,
             new_consensus_config=new_consensus_config,

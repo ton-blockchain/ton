@@ -58,6 +58,7 @@ async def main():
             validators.append(node)
 
         collator = network.create_full_node()
+        collator.enable_blockchain_explorer()
         collator.announce_to(dht)
 
         delegated = LogWatcher("Delegating window")
@@ -73,7 +74,7 @@ async def main():
 
         collator_id = collator.fullnode_key.id
         _ = await collator.engine_console.request(
-            ton_api.Engine_validator_addCollatorRequest(adnl_id=collator_id, shard=BASECHAIN_SHARD)
+            ton_api.Engine_validator_addCollatorRequest(adnl_id=collator_id)
         )
         collators_list = ton_api.Engine_validator_collatorsList(
             shards=[
@@ -83,7 +84,6 @@ async def main():
                         ton_api.Engine_validator_collatorsList_collator(adnl_id=collator_id)
                     ],
                     self_collate=False,
-                    select_mode="random",
                 )
             ]
         )
