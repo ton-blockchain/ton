@@ -139,6 +139,7 @@ struct OutgoingOverlayRequest {
   std::optional<adnl::AdnlNodeIdShort> destination;
   td::Timestamp timeout;
   ProtocolMessage request;
+  td::uint64 max_answer_size;
 
   std::string contents_to_string() const;
   static std::string response_to_string(const ReturnType&);

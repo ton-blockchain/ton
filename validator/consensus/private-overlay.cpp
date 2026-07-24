@@ -149,11 +149,9 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     }
 
     auto [awaiter, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
-    // FIXME: Pass max response size from the caller.
-    td::actor::send_closure(
-        overlays_, &overlay::Overlays::send_query_via, *destination, local_adnl_id_, overlay_id_, "",
-        std::move(promise), message->timeout, std::move(message->request.data),
-        owning_bus()->config.max_block_size + owning_bus()->config.max_collated_data_size + (1 << 20), adnl_sender_);
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_query_via, *destination, local_adnl_id_, overlay_id_,
+                            "", std::move(promise), message->timeout, std::move(message->request.data),
+                            message->max_answer_size, adnl_sender_);
     auto response = co_await std::move(awaiter);
     if (fetch_tl_object<tl::requestError>(response, true).is_ok()) {
       co_return td::Status::Error("Peer returned an error");

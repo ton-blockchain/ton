@@ -328,8 +328,11 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       ProtocolMessage request{serialize_tl_object(request_tl, true)};
 
       auto timeout_ts = td::Timestamp::in(std::chrono::round<std::chrono::nanoseconds>(timeout));
-      auto maybe_response =
-          co_await owning_bus().publish<OutgoingOverlayRequest>(std::nullopt, timeout_ts, std::move(request)).wrap();
+      auto maybe_response = co_await owning_bus()
+                                .publish<OutgoingOverlayRequest>(
+                                    std::nullopt, timeout_ts, std::move(request),
+                                    bus.config.max_block_size + bus.config.max_collated_data_size + (1 << 20))
+                                .wrap();
 
       if (maybe_response.is_ok()) {
         auto response = maybe_response.move_as_ok();
