@@ -882,7 +882,8 @@ validatorStats.blockLimitsStatus
     load_fraction_queue_cleanup:double load_fraction_dispatch:double
     load_fraction_internals:double load_fraction_externals:double
     load_fraction_new_msgs:double
-    limits_log:string = validatorStats.BlockLimitsStatus;
+    limits_log:string
+    overload_reason:int want_split:Bool peak_block_limit_class:int = validatorStats.BlockLimitsStatus;
 validatorStats.blockStats.extMsgsStats
     ext_msgs_total:int ext_msgs_filtered:int ext_msgs_accepted:int ext_msgs_rejected:int = validatorStats.ExtMsgsStats;
 validatorStats.blockStats.neighborStats shard:tonNode.shardId is_trivial:Bool is_local:Bool msg_limit:int
