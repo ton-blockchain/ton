@@ -90,7 +90,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) override;
-  void validate_block_broadcast_signatures(BlockBroadcast broadcast, td::Promise<td::Unit> promise) override;
   void wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
                                  td::Promise<td::Ref<ShardState>> promise) override;
 
@@ -253,9 +252,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void send_get_next_key_blocks_request(BlockIdExt block_id, td::uint32 priority,
                                         td::Promise<std::vector<BlockIdExt>> promise) override {
     UNREACHABLE();
-  }
-  void send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) override;
-  void send_block_broadcast(BlockBroadcast broadcast, int mode) override {
   }
   void send_block_finality_broadcast(BlockFinalityBroadcast finality, int mode) override {
   }

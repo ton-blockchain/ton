@@ -421,35 +421,6 @@ struct Ed25519_PublicKey {
 
 // represents (the contents of) a block
 
-struct OutMsgQueueProofBroadcast : public td::CntObject {
-  OutMsgQueueProofBroadcast(ShardIdFull dst_shard, BlockIdExt block_id, td::int32 max_bytes, td::int32 max_msgs,
-                            td::BufferSlice queue_proof, td::BufferSlice block_state_proof, int msg_count)
-      : dst_shard(std::move(dst_shard))
-      , block_id(block_id)
-      , max_bytes(max_bytes)
-      , max_msgs(max_msgs)
-      , queue_proofs(std::move(queue_proof))
-      , block_state_proofs(std::move(block_state_proof))
-      , msg_count(std::move(msg_count)) {
-  }
-  ShardIdFull dst_shard;
-  BlockIdExt block_id;
-
-  // importedMsgQueueLimits
-  td::uint32 max_bytes;
-  td::uint32 max_msgs;
-
-  // outMsgQueueProof
-  td::BufferSlice queue_proofs;
-  td::BufferSlice block_state_proofs;
-  int msg_count;
-
-  OutMsgQueueProofBroadcast* make_copy() const override {
-    return new OutMsgQueueProofBroadcast(dst_shard, block_id, max_bytes, max_msgs, queue_proofs.clone(),
-                                         block_state_proofs.clone(), msg_count);
-  }
-};
-
 struct BlockCandidate {
   Ed25519_PublicKey pubkey;
   BlockIdExt id;
@@ -457,12 +428,8 @@ struct BlockCandidate {
   td::BufferSlice data;
   td::BufferSlice collated_data;
 
-  // used only locally
-  std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_proof_broadcasts = {};
-
   BlockCandidate clone() const {
-    return BlockCandidate{
-        pubkey, id, collated_file_hash, data.clone(), collated_data.clone(), out_msg_queue_proof_broadcasts};
+    return BlockCandidate{pubkey, id, collated_file_hash, data.clone(), collated_data.clone()};
   }
 };
 
@@ -507,22 +474,6 @@ struct NewConsensusConfig {
 
   td::uint32 protocol_version = 0;
   td::uint32 slots_per_leader_window = 4;
-
-  bool enable_block_sync() const {
-    return protocol_version == 1;
-  }
-
-  bool use_new_db_names() const {
-    return protocol_version >= 2;
-  }
-
-  bool observers_in_private_overlay() const {
-    return protocol_version >= 2;
-  }
-
-  bool enable_plumtree_broadcast() const {
-    return protocol_version >= 2;
-  }
 
   // When adding a new noncritical parameters, also add it to consensus.simplex.noncriticalParams TL scheme
   // clang-format off

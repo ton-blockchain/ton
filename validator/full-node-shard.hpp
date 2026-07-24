@@ -85,30 +85,22 @@ class FullNodeShardImpl : public FullNodeShard {
   void set_config(FullNodeConfig config) override {
     opts_.config_ = config;
   }
-  void set_params(bool active, bool enable_plumtree_broadcast) override;
 
   void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
   void receive_message(adnl::AdnlNodeIdShort src, td::BufferSlice data);
 
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query);
-  void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
-  void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
-  void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
-                                          td::Ref<ShardState> state);
-
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query);
-  void process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast &query) {
-    LOG(ERROR) << "Ignore outMsgQueueProofBroadcast";
-  }
 
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressed &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcastCompressedV2 &query);
   void process_block_candidate_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+
+  template <class T>
+  void process_broadcast(PublicKeyHash, T &) {
+    VLOG(full_node, WARNING) << "dropping unknown broadcast";
+  }
 
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
   void check_broadcast(PublicKeyHash src, td::BufferSlice query, td::Promise<td::Unit> promise);
@@ -118,10 +110,8 @@ class FullNodeShardImpl : public FullNodeShard {
   void remove_neighbour(adnl::AdnlNodeIdShort id);
 
   void send_external_message(td::BufferSlice data) override;
-  void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data) override;
-  void send_broadcast(BlockBroadcast broadcast) override;
   void send_block_finality_broadcast(BlockFinalityBroadcast finality) override;
 
   void start_up() override;
@@ -157,7 +147,7 @@ class FullNodeShardImpl : public FullNodeShard {
                     td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
                     td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-                    td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast);
+                    td::actor::ActorId<FullNode> full_node, bool active);
 
  private:
   bool use_new_download() const {
@@ -193,7 +183,6 @@ class FullNodeShardImpl : public FullNodeShard {
   adnl::AdnlNodeIdShort last_pinged_neighbour_ = adnl::AdnlNodeIdShort::zero();
 
   bool active_;
-  bool enable_plumtree_broadcast_;
   bool is_original_sender_ = false;
 
   FullNodeOptions opts_;

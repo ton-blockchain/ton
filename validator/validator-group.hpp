@@ -32,7 +32,6 @@ class ValidatorManager;
 struct GroupIdentity {
   adnl::AdnlNodeIdShort adnl_id;
   std::optional<PublicKeyHash> short_id;
-  bool suffix_db = true;
 
   std::strong_ordering operator<=>(const GroupIdentity&) const = default;
 

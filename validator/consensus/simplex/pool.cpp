@@ -314,10 +314,6 @@ class PoolImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  static bool should_be_spawned(const Bus &bus) {
-    return bus.is_validator() || !bus.config.enable_block_sync();
-  }
-
   void start_up() override {
     auto &bus = *owning_bus();
 

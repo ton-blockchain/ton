@@ -151,15 +151,11 @@ class FullNode : public td::actor::Actor {
   virtual void add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) = 0;
   virtual void del_custom_overlay(std::string name, td::Promise<td::Unit> promise) = 0;
 
-  virtual void process_block_broadcast(BlockBroadcast broadcast, bool signatures_checked, BroadcastSource source,
-                                       bool send_to_custom) = 0;
   virtual void process_block_finality_broadcast(BlockFinalityBroadcast finality, BroadcastSource source,
                                                 bool send_to_custom) = 0;
   virtual void process_block_candidate_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
                                                  td::uint32 validator_set_hash, td::BufferSlice data,
                                                  BroadcastSource source, bool send_to_custom) = 0;
-  virtual void process_shard_block_info_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data,
-                                                  bool send_to_custom) = 0;
   virtual void get_out_msg_queue_query_token(td::Promise<std::unique_ptr<ActionToken>> promise) = 0;
 
   virtual void set_validator_telemetry_filename(std::string value) = 0;
@@ -180,7 +176,7 @@ class FullNode : public td::actor::Actor {
   static constexpr td::uint64 max_zerostate_size() {
     return 16 << 20;
   }
-  enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4 };
+  enum { broadcast_mode_public = 1, broadcast_mode_fast_sync = 2, broadcast_mode_custom = 4, broadcast_mode_all = 7 };
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
   static constexpr td::uint32 PROTO_VERSION_MAJOR = 3;

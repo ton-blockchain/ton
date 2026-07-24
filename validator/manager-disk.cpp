@@ -64,11 +64,6 @@ void ValidatorManagerImpl::got_next_masterchain_block(ReceivedBlock block, td::P
   UNREACHABLE();
 }
 
-void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
-                                                               td::Promise<td::Unit> promise) {
-  UNREACHABLE();
-}
-
 void ValidatorManagerImpl::wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
                                                      td::Promise<td::Ref<ShardState>> promise) {
   if (prev_blocks.empty() || prev_blocks.size() > 2) {
@@ -935,10 +930,6 @@ void ValidatorManagerImpl::send_get_persistent_state_request(BlockIdExt id, Bloc
                                                              PersistentStateType type, td::uint32 priority,
                                                              td::Promise<td::BufferSlice> promise) {
   UNREACHABLE();
-}
-
-void ValidatorManagerImpl::send_top_shard_block_description(td::Ref<ShardTopBlockDescription> desc) {
-  callback_->send_shard_block_info(desc->block_id(), desc->catchain_seqno(), desc->serialize());
 }
 
 void ValidatorManagerImpl::start_up() {
