@@ -54,6 +54,7 @@ class WaitBlockState : public td::actor::Actor {
   void start_up() override;
   void start();
   void got_state_from_db(td::Ref<ShardState> data, bool force_reading);
+  void try_load_zero_state_from_celldb(std::shared_ptr<vm::CellDbReader> reader);
   void got_state_from_static_file(td::Ref<ShardState> state, td::BufferSlice data);
   void got_prev_state(td::Ref<ShardState> state);
   void failed_to_get_prev_state(td::Status reason);
@@ -106,6 +107,7 @@ class WaitBlockState : public td::actor::Actor {
   td::Ref<BlockData> block_;
 
   bool reading_from_db_ = false;
+  bool checked_celldb_ = false;
   bool force_reading_from_db_ = false;
   bool waiting_proof_link_ = false;
   bool waiting_proof_ = false;
