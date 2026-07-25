@@ -1,0 +1,14 @@
+//@import imports_base.tlb
+
+// Local type referencing every flavor of foreign type:
+//   Currency — sole-cons named (imports both Currency and currency)
+//   Color    — multi-cons      (imports Color and ColorType)
+//   Point    — unnamed sole    (imports Point as the constructor)
+wallet$_ bal:Currency tag:Color origin:Point = Wallet;
+
+// Inference chain crossing the module boundary: `n` is extracted by drilling
+// from `m` into the foreign Pair constructor's `first` field, then through
+// the well-known Unary at the leaf.
+unary_zero$0 = Unary ~0;
+unary_succ$1 {n:#} x:(Unary ~n) = Unary ~(n + 1);
+sized$_ {n:#} m:(Pair (Unary ~n) uint32) tail:(## n) = Sized;

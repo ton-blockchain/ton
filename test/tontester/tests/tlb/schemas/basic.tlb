@@ -1,0 +1,15 @@
+// Basic types: tags, fields, multiple constructors
+bool_false$0 = Bool;
+bool_true$1 = Bool;
+
+unit$_ = Unit;
+
+tick_tock$_ tick:Bool tock:Bool = TickTock;
+
+// Mixed field types
+mixed$_ a:uint32 b:int8 c:uint64 d:int32 = Mixed;
+
+// Three-way tag dispatch
+msg_a$00 x:uint32 = Msg;
+msg_b$01 y:int8 = Msg;
+msg_c$1 z:uint64 = Msg;

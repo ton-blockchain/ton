@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import functools
 import logging
 import os
@@ -14,7 +15,7 @@ from enum import IntEnum, auto
 from ipaddress import IPv4Address
 from itertools import chain
 from pathlib import Path
-from typing import Literal, final, override
+from typing import Literal, NamedTuple, final, override
 
 from tonapi import ton_api
 
@@ -24,7 +25,7 @@ from tonlib import EngineConsoleClient, TonlibClient, TonlibError, TonlibEventLo
 from .install import Install
 from .key import Key
 from .log_streamer import LogStreamer
-from .zerostate import NetworkConfig, Zerostate, create_zerostate
+from .zerostate import ExternalBasechainState, NetworkConfig, Zerostate, create_zerostate
 
 l = logging.getLogger(__name__)
 
@@ -47,6 +48,19 @@ class _Status(IntEnum):
 
 def _write_model(file: Path, model: TLObject):
     _ = file.write_text(model.to_json())
+
+
+_TRANSIENT_LITESERVER_MARKERS = (
+    "LITE_SERVER_NETWORK",  # node is not listening / adnl query timed out
+    "LITE_SERVER_NOTREADY",  # node is not synced yet
+    "LITE_SERVER_UNKNOWN",  # block not yet available
+    "timeout for adnl query",  # tonlib-wrapped variants of the above
+)
+
+
+def _is_transient_liteserver_error(e: TonlibError) -> bool:
+    """Liteserver errors that just mean "retry later" during node startup / block waits."""
+    return any(marker in e.result.message for marker in _TRANSIENT_LITESERVER_MARKERS)
 
 
 type DebugType = None | Literal["rr"]
@@ -163,6 +177,16 @@ class Network:
             return self._network._event_loop
 
         @property
+        def directory(self) -> Path:
+            """The node's working directory.
+
+            It is created when the node object is constructed, and the engine is
+            started with ``--db .`` and ``cwd=directory``, so files pre-placed here
+            (e.g. a checkpointed celldb) are picked up exactly like on a restart.
+            """
+            return self._directory
+
+        @property
         def log_path(self):
             return self._directory / "log"
 
@@ -223,6 +247,7 @@ class Network:
 
             process_env = os.environ.copy()
             process_env.update(start_options.env)
+            process_env["TON_TONTESTER"] = "1"
 
             match start_options.debug:
                 case None:
@@ -304,6 +329,7 @@ class Network:
         self.__nodes: list[Network.Node] = []
         self.__full_nodes: list[FullNode] = []
         self.__network_config: NetworkConfig = NetworkConfig()
+        self.__external_basechain: ExternalBasechainState | None = None
         self.__zerostate: Zerostate | None = None
 
     @property
@@ -315,6 +341,15 @@ class Network:
     def config(self):
         assert self._status < _Status.ZEROSTATE_GENERATED
         return self.__network_config
+
+    @property
+    def external_basechain(self) -> ExternalBasechainState | None:
+        return self.__external_basechain
+
+    @external_basechain.setter
+    def external_basechain(self, value: ExternalBasechainState | None):
+        assert self._status < _Status.ZEROSTATE_GENERATED
+        self.__external_basechain = value
 
     @property
     def install(self):
@@ -345,10 +380,10 @@ class Network:
         state_dir.mkdir()
 
         self.__zerostate = create_zerostate(
-            self._install,
             state_dir,
             self.__network_config,
             [node.validator_key for node in self.__full_nodes if node.is_initial_validator],
+            external_basechain=self.__external_basechain,
         )
         self._status = _Status.ZEROSTATE_GENERATED
         return self.__zerostate
@@ -381,20 +416,9 @@ class Network:
                 mc_info = await client.get_masterchain_info()
             except TonlibError as e:
                 # FIXME: We should really let node notify us that it is ready.
-                try:
-                    if (
-                        e.result.code == 500
-                        and (
-                            e.result.message
-                            == "LITE_SERVER_NETWORKtimeout for adnl query query"  # node is not synced yet
-                            or e.result.message
-                            == "LITE_SERVER_NETWORK"  # node is not listening the socket
-                        )
-                    ):
-                        await asyncio.sleep(0.2)
-                        continue
-                except Exception:
-                    pass
+                if _is_transient_liteserver_error(e):
+                    await asyncio.sleep(0.2)
+                    continue
                 raise
 
             assert mc_info.last is not None
@@ -411,15 +435,9 @@ class Network:
             try:
                 return await client.lookup_block(workchain=workchain, shard=shard, seqno=seqno)
             except TonlibError as e:
-                try:
-                    if e.result.code == 500 and (
-                        "LITE_SERVER_UNKNOWN:" in e.result.message
-                        or "LITE_SERVER_NOTREADY:" in e.result.message
-                    ):
-                        await asyncio.sleep(0.2)
-                        continue
-                except Exception:
-                    pass
+                if _is_transient_liteserver_error(e):
+                    await asyncio.sleep(0.2)
+                    continue
                 raise
 
 
@@ -484,6 +502,12 @@ class DHTNode(Network.Node):
             None,
             options,
         )
+
+
+class LiteserverEndpoint(NamedTuple):
+    host: str
+    port: int
+    pubkey_b64: str
 
 
 @final
@@ -610,6 +634,10 @@ class FullNode(Network.Node):
             static_dir = self._directory / "static"
             static_dir.mkdir()
             for state in (zerostate.masterchain, zerostate.shardchain):
+                if state.file is None:
+                    # Externally generated state: cells live in a pre-placed celldb,
+                    # there is no static BoC file to serve.
+                    continue
                 (static_dir / state.file_hash.hex().upper()).symlink_to(state.file)
             self._static_populated = True
 
@@ -658,6 +686,14 @@ class FullNode(Network.Node):
                 ),
             ],
             validator=self._get_or_generate_zerostate().as_validator_config(),
+        )
+
+    def liteserver_endpoint(self) -> LiteserverEndpoint:
+        """The node's liteserver address and base64-encoded ed25519 public key."""
+        return LiteserverEndpoint(
+            host=str(self._liteserver_addr.ip),
+            port=self._liteserver_addr.port,
+            pubkey_b64=base64.b64encode(self._liteserver_key.public_key.key).decode("ascii"),
         )
 
     async def tonlib_client(self) -> TonlibClient:

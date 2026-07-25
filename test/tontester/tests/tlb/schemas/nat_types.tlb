@@ -1,0 +1,22 @@
+// Nat builtin types: #, ##, #<, #<=
+hash32$_ n:# = Hash32;
+
+hash_width$_ n:(## 5) = HashWidth;
+
+leq_test$_ n:(#<= 100) = LeqTest;
+
+lt_test$_ n:(#< 16) = LtTest;
+
+// Multiple nat fields
+multi_nat$_ a:(## 3) b:(#<= 7) c:# = MultiNat;
+
+// Zero-width nat (regression: store_uint crashes with width 0)
+zero_width$_ n:(#<= 0) = ZeroWidth;
+
+// #< with nat param (implicit constraint: n > 0)
+lt_param$_ {n:#} x:(#< n) = LtParam n;
+
+// #< n nested in a generic
+nothing$0 {X:Type} = Maybe X;
+just$1 {X:Type} value:X = Maybe X;
+lt_nested$_ {n:#} x:(Maybe (#< n)) = LtNested n;

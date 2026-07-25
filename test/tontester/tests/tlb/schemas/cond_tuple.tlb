@@ -1,0 +1,21 @@
+// Conditional fields and tuples
+bool_false$0 = Bool;
+bool_true$1 = Bool;
+
+// Conditional: flag?Type
+optional$_ has_x:(## 1) x:has_x?uint32 = Optional;
+
+// Multiple conditionals
+multi_opt$_ flags:(## 8) a:flags.0?uint32 b:flags.1?int8 = MultiOpt;
+
+// Tuple: n * Type
+bit$_ (## 1) = Bit;
+fixed_bits$_ s:(3 * Bit) = FixedBits;
+
+// Parameterized tuple with nat field
+var_bits$_ n:(## 4) s:(n * Bit) = VarBits;
+
+// Generic conditional: flag?X where X could be nullable (e.g. Maybe)
+nothing$0 {X:Type} = Maybe X;
+just$1 {X:Type} value:X = Maybe X;
+generic_opt$_ {X:Type} has_x:(## 1) x:has_x?X = GenericOpt X;
