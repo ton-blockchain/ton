@@ -5451,6 +5451,14 @@ bool Collator::check_block_overload() {
                 << out_msg_queue_size_ << " > " << SPLIT_MAX_QUEUE_SIZE << ")";
     } else {
       overload_history_ |= 1;
+      // Record which cause set the overload bit, mirroring the message priority above.
+      if (block_limit_class_ >= block::ParamLimits::cl_soft) {
+        stats_.overload_reason = 1;  // load: a block-limit axis hit soft
+      } else if (long_collation_overload) {
+        stats_.overload_reason = 3;  // collation took too long
+      } else {
+        stats_.overload_reason = 4;  // long dispatch queue processing
+      }
       LOG(INFO) << message;
     }
   } else if (block_limit_class_ <= block::ParamLimits::cl_underload) {
@@ -5470,6 +5478,7 @@ bool Collator::check_block_overload() {
   if (!(overload_history_ & 1) && out_msg_queue_size_ >= FORCE_SPLIT_QUEUE_SIZE &&
       out_msg_queue_size_ <= SPLIT_MAX_QUEUE_SIZE) {
     overload_history_ |= 1;
+    stats_.overload_reason = 2;  // out_msg_queue reached the force-split limit
     LOG(INFO) << "setting overload history because out_msg_queue reached force split limit (" << out_msg_queue_size_
               << " >= " << FORCE_SPLIT_QUEUE_SIZE << ")";
   }
@@ -5483,6 +5492,9 @@ bool Collator::check_block_overload() {
     LOG(INFO) << "want_merge set because of underload history " << buffer;
     want_merge_ = true;
   }
+  // Record the final want_split decision and the peak block-limit class for session-stats attribution.
+  stats_.want_split = want_split_;
+  stats_.peak_block_limit_class = block_limit_class_;
   return true;
 }
 
