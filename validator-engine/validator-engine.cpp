@@ -509,11 +509,22 @@ td::Result<bool> Config::config_add_validator_adnl_id(ton::PublicKeyHash perm_ke
 }
 
 td::Result<bool> Config::config_add_collator(ton::adnl::AdnlNodeIdShort addr) {
-  return collators.insert(addr).second;
+  if (!adnl_ids.contains(addr.pubkey_hash())) {
+    return td::Status::Error(ton::ErrorCode::notready, "to-be-added collator address not in adnl nodes list");
+  }
+  if (collators.insert(addr).second) {
+    incref(addr.pubkey_hash());
+    return true;
+  }
+  return false;
 }
 
 td::Result<bool> Config::config_del_collator(ton::adnl::AdnlNodeIdShort addr) {
-  return collators.erase(addr) == 1;
+  if (collators.erase(addr) == 0) {
+    return false;
+  }
+  decref(addr.pubkey_hash());
+  return true;
 }
 
 td::Result<bool> Config::config_add_full_node_adnl_id(ton::PublicKeyHash id) {
@@ -734,6 +745,9 @@ td::Result<bool> Config::config_del_adnl_addr(ton::PublicKeyHash addr) {
     return td::Status::Error(ton::ErrorCode::error, "adnl addr still in use");
   }
   if (full_node == addr) {
+    return td::Status::Error(ton::ErrorCode::error, "adnl addr still in use");
+  }
+  if (collators.contains(ton::adnl::AdnlNodeIdShort{addr})) {
     return td::Status::Error(ton::ErrorCode::error, "adnl addr still in use");
   }
 
