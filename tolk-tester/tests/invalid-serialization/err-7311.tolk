@@ -13,12 +13,12 @@ type AllowedMessageToVault =
     | TransferNotificationForRecipient
 
 fun main() {
-    var m = lazy AllowedMessageToVault.fromSlice("");
+    var m = lazy AllowedMessageToVault.fromSlice(createEmptySlice());
     match (m) {
         AskToTransfer => {
         }
         TransferNotificationForRecipient => {
-            m = AskToTransfer{jettonAmount: ton("0.1"), another: 0};
+            m = AskToTransfer{jettonAmount: grams("0.1"), another: 0};
             m.another = 1;
         }
     }

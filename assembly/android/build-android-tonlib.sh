@@ -46,7 +46,7 @@ cd "${ROOT_DIR}/example/android/" || exit
 rm -f CMakeCache.txt build.ninja rules.ninja .ninja_*
 rm -rf CMakeFiles
 cmake -GNinja . \
--DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
 -DTON_ONLY_TONLIB=ON
 
 test $? -eq 0 || { echo "Can't configure TON"; exit 1; }

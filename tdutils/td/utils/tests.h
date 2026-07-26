@@ -19,6 +19,8 @@
 #pragma once
 
 #include <atomic>
+#include <charconv>
+#include <cmath>
 #include <functional>
 #include <optional>
 #include <sstream>
@@ -192,6 +194,13 @@ inline vector<string> rand_split(Slice str) {
 namespace detail {
 
 std::optional<std::string> stringify(const auto &value) {
+  if constexpr (std::is_floating_point_v<std::remove_cvref_t<decltype(value)>>) {
+    char buffer[64];
+    auto [ptr, ec] = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    if (ec == std::errc()) {
+      return std::string(buffer, ptr);
+    }
+  }
   if constexpr (requires(std::ostringstream builder) { builder << value; }) {
     std::ostringstream builder;
     builder << value;
@@ -210,13 +219,34 @@ inline std::optional<std::string> check(bool condition, const char *msg) {
   return PSTRING() << "Expectation failed: " << msg << "!";
 }
 
-std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, const char *a_expr, const char *b_expr) {
+std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, const char *a_expr, const char *b_expr)
+  requires requires {
+    { a_value == b_value } -> std::same_as<bool>;
+  }
+{
   if (a_value == b_value) {
     return std::nullopt;
   }
 
   std::ostringstream builder;
   builder << "Expectation failed: " << a_expr << " is not equal to " << b_expr;
+  if (auto a_str = stringify(a_value), b_str = stringify(b_value); a_str.has_value() && b_str.has_value()) {
+    builder << " (" << *a_str << " != " << *b_str << ")";
+  }
+  return builder.str();
+}
+
+std::optional<std::string> check_approx(const std::floating_point auto &a_value,
+                                        const std::floating_point auto &b_value, const char *a_expr,
+                                        const char *b_expr) {
+  if (std::isfinite(a_value) && std::isfinite(b_value)) {
+    if (std::abs(a_value - b_value) <= 1e-6 * std::max<double>({std::abs(a_value), std::abs(b_value), 1})) {
+      return std::nullopt;
+    }
+  }
+
+  std::ostringstream builder;
+  builder << "Expectation failed: " << a_expr << " is not approximately equal to " << b_expr;
   if (auto a_str = stringify(a_value), b_str = stringify(b_value); a_str.has_value() && b_str.has_value()) {
     builder << " (" << *a_str << " != " << *b_str << ")";
   }
@@ -264,6 +294,14 @@ std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, co
     }                                                                \
   } while (0)
 
+#define EXPECT_APPROX(a, b)                                              \
+  do {                                                                   \
+    if (auto error_message = ::td::detail::check_approx(a, b, #a, #b)) { \
+      LOG(ERROR) << *error_message;                                      \
+      ::td::TestContext::get()->register_test_failure();                 \
+    }                                                                    \
+  } while (0)
+
 #define REGRESSION_VERIFY(data) ::td::TestContext::get()->verify(data).ensure()
 
 #define TEST_NAME(test_case_name, test_name) \
@@ -279,3 +317,7 @@ std::optional<std::string> check_eq(const auto &a_value, const auto &b_value, co
   };                                                                                                                 \
   ::td::RegisterTest<test_name> TD_CONCAT(test_instance_, TD_CONCAT(test_name, __LINE__))(TD_DEFINE_STR(test_name)); \
   void test_name::run()
+
+#define REGISTER_TEST(test_case_name, test_name)          \
+  ::td::RegisterTest<test_name> TD_CONCAT(test_instance_, \
+                                          __LINE__)(TD_DEFINE_STR(TD_CONCAT(test_case_name, TD_CONCAT(_, test_name))))

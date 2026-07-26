@@ -22,7 +22,7 @@ class ConsensusTraceTag : public ton::stats::Tag {
 
 ConsensusTraceTag consensus_trace;
 
-class TraceCollectorImpl : public runtime::SpawnsWith<Bus>, public runtime::ConnectsTo<Bus> {
+class TraceCollectorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
@@ -66,7 +66,7 @@ class TraceCollectorImpl : public runtime::SpawnsWith<Bus>, public runtime::Conn
 
 }  // namespace
 
-void TraceCollector::register_in(runtime::Runtime& runtime) {
+void TraceCollector::register_in(td::actor::Runtime& runtime) {
   runtime.register_actor<TraceCollectorImpl>("TraceCollector");
 }
 

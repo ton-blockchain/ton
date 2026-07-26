@@ -25,7 +25,6 @@
 #include "td/utils/port/IPAddress.h"
 
 #include "adnl-node-id.hpp"
-#include "adnl-proxy-types.h"
 
 namespace td {
 class UdpServer;
@@ -70,8 +69,6 @@ class AdnlNetworkManager : public td::actor::Actor {
   virtual void install_callback(std::unique_ptr<Callback> callback) = 0;
 
   virtual void add_self_addr(td::IPAddress addr, AdnlCategoryMask cat_mask, td::uint32 priority) = 0;
-  virtual void add_proxy_addr(td::IPAddress addr, td::uint16 local_port, std::shared_ptr<AdnlProxy> proxy,
-                              AdnlCategoryMask cat_mask, td::uint32 priority) = 0;
   virtual void send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdShort dst_id, td::IPAddress dst_addr,
                                td::uint32 priority, td::BufferSlice data) = 0;
   //virtual void send_tcp_packet(AdnlNodeIdShort src_id, AdnlNodeIdShort dst_id, td::IPAddress dst_addr,

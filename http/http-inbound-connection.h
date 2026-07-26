@@ -32,6 +32,10 @@ class HttpInboundConnection : public HttpConnection {
       : HttpConnection(std::move(fd), nullptr, false), http_callback_(std::move(http_callback)) {
   }
 
+  ~HttpInboundConnection() override {
+    http_callback_->on_connection_close();
+  }
+
   td::Status receive_eof() override {
     if (found_eof_) {
       return td::Status::OK();

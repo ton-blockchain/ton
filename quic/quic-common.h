@@ -3,7 +3,10 @@
 #include <compare>
 #include <cstdint>
 #include <cstring>
+#include <string>
 
+#include "adnl/adnl-node-id.hpp"
+#include "crypto/Ed25519.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
@@ -13,6 +16,39 @@
 
 namespace ton::quic {
 using QuicStreamID = int64_t;
+
+struct ServerIdentity {
+  [[nodiscard]] static std::string sni(adnl::AdnlNodeIdShort local_id) {
+    auto hex = td::to_lower(local_id.bits256_value().to_hex());
+    return hex.substr(0, 32) + "." + hex.substr(32) + ".adnl";
+  }
+
+  [[nodiscard]] std::string sni() const {
+    return sni(local_id);
+  }
+
+  adnl::AdnlNodeIdShort local_id;
+  td::Ed25519::PrivateKey key;
+};
+
+struct QuicConnectionStats {
+  td::uint64 bytes_rx = 0, bytes_tx = 0, bytes_lost = 0;
+  td::uint64 bytes_unacked = 0, bytes_unsent = 0;
+  td::uint64 total_sids = 0, open_sids = 0;
+  double mean_rtt = 0;
+
+  QuicConnectionStats operator+(const QuicConnectionStats& other) const {
+    return {
+        .bytes_rx = bytes_rx + other.bytes_rx,
+        .bytes_tx = bytes_tx + other.bytes_tx,
+        .bytes_lost = bytes_lost + other.bytes_lost,
+        .bytes_unacked = bytes_unacked + other.bytes_unacked,
+        .bytes_unsent = bytes_unsent + other.bytes_unsent,
+        .total_sids = total_sids + other.total_sids,
+        .open_sids = open_sids + other.open_sids,
+    };
+  }
+};
 
 enum class CongestionControlAlgo {
   Cubic,  // default
@@ -44,6 +80,7 @@ struct QuicConnectionId {
   }
 
   static QuicConnectionId random(size_t size = MAX_SIZE) {
+    CHECK(size <= MAX_SIZE);
     QuicConnectionId cid;
     cid.datalen_ = size;
     td::Random::secure_bytes(cid.as_mutable_slice());

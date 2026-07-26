@@ -1,0 +1,67 @@
+"Asm.fif" include
+
+// In TVM 14, SETCONTCTRX became spec-compliant: if a control register already exists in savelist,
+// it does nothing. Before, it threw type_chk exception.
+<{
+  CONT:<{
+    CONT:<{ 101 PUSHINT }>
+    CONT:<{ }>
+    0 PUSHINT
+    SETCONTCTRX
+    CONT:<{ 202 PUSHINT }>
+    SWAP
+    0 PUSHINT
+    SETCONTCTRX
+    DROP
+    123 PUSHINT
+  }>
+  CONT:<{ }>
+  TRY
+}>s constant setcontctrx-duplicate-bytecode
+
+{
+  // TVM 13: expect: 0 = exception value, 7 = Excno::type_chk
+  ."SETCONTCTRX duplicate savelist write (v13 legacy)" cr
+  setcontctrx-duplicate-bytecode 13 1024 runvmx
+  abort"Exitcode != 0"
+  7 <> abort"v13: expected Excno::type_chk on top of stack"
+  abort"v13: expected exception value 0"
+
+  // TVM 14: expect 123 from `123 PUSHINT`
+  ."SETCONTCTRX duplicate savelist write (v14 spec-compliant)" cr
+  setcontctrx-duplicate-bytecode 14 1024 runvmx
+  abort"Exitcode != 0"
+  123 <> abort"Expected 123"
+} : test-setcontctrx-duplicate-savelist
+
+// Negative test: writing a value of the wrong type into a savelist slot raises type_chk.
+// We push an integer into `c0` instead of continuation.
+<{
+  CONT:<{
+    42 PUSHINT
+    CONT:<{ }>
+    0 PUSHINT
+    SETCONTCTRX
+    DROP
+    0 PUSHINT
+  }>
+  CONT:<{ }>
+  TRY
+}>s constant setcontctrx-wrong-type-bytecode
+
+{
+  ."SETCONTCTRX type_chk v13" cr
+  setcontctrx-wrong-type-bytecode 13 1024 runvmx
+  abort"Exitcode != 0"
+  7 <> abort"Expected type_chk"
+  abort"Expected 0"
+
+  ."SETCONTCTRX type_chk v14" cr
+  setcontctrx-wrong-type-bytecode 14 1024 runvmx
+  abort"Exitcode != 0"
+  7 <> abort"Expected type_chk"
+  abort"Expected 0"
+} : test-setcontctrx-wrong-type
+
+test-setcontctrx-duplicate-savelist
+test-setcontctrx-wrong-type

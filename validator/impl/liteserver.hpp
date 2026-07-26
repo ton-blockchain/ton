@@ -75,15 +75,16 @@ class LiteQuery : public td::actor::Actor {
   td::BufferSlice lookup_prev_header_proof_;
 
  public:
+  constexpr static double default_timeout_msec = 4500;  // 4.5 seconds
   enum {
-    default_timeout_msec = 4500,      // 4.5 seconds
     max_transaction_count = 16,       // fetch at most 16 transactions in one query
     client_method_gas_limit = 300000  // gas limit for liteServer.runSmcMethod
   };
   enum {
     ls_version = 0x101,
-    ls_capabilities = 7
-  };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt, +4 = runSmcMethod
+    ls_capabilities = 15
+  };  // version 1.1; +1 = build block proof chains, +2 = masterchainInfoExt, +4 = runSmcMethod, +8 = shard client state masterchainInfoExt
+  enum { get_masterchain_info_ext_shard_client_state = 1 };
   LiteQuery(td::BufferSlice data, td::actor::ActorId<ton::validator::ValidatorManager> manager,
             td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
   LiteQuery(WorkchainId wc, StdSmcAddress acc_addr, td::actor::ActorId<ton::validator::ValidatorManager> manager,
@@ -186,8 +187,6 @@ class LiteQuery : public td::actor::Actor {
                                         int max_messages);
   void finish_getDispatchQueueMessages(StdSmcAddress addr, LogicalTime lt, int max_messages);
 
-  void perform_nonfinal_getCandidate(td::Bits256 source, BlockIdExt blkid, td::Bits256 collated_data_hash);
-  void perform_nonfinal_getValidatorGroups(int mode, ShardIdFull shard);
   void perform_nonfinal_getPendingShardBlocks(int mode, ShardIdFull shard);
 
   void load_prevKeyBlock(ton::BlockIdExt blkid, td::Promise<std::pair<BlockIdExt, Ref<BlockQ>>>);

@@ -64,10 +64,8 @@ def tonlib_client() -> TonlibClient:
     install = Install(repo_root / "build", repo_root)
 
     return TonlibClient(
-        verbosity_level=5,
         config=ton_api.Liteclient_config_global.from_dict(config),
-        ls_index=0,
-        cdll_path=install.tonlibjson,
+        tonlib=install.tonlibjson,
     )
 
 
@@ -107,15 +105,15 @@ async def test_request(tonlib_client: TonlibClient, monkeypatch: pytest.MonkeyPa
             },
         }
         monkeypatch.setattr(
-            tonlib_client._tonlib_wrapper,
-            "_tonlib_json_client_receive",
+            tonlib_client._tonlib_wrapper._tonlib,  # pyright: ignore[reportOptionalMemberAccess]
+            "client_json_receive",
             lambda *_: json.dumps(res).encode("utf-8"),  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
     async with tonlib_client:
         monkeypatch.setattr(
-            tonlib_client._tonlib_wrapper,
-            "_tonlib_json_client_send",
+            tonlib_client._tonlib_wrapper._tonlib,  # pyright: ignore[reportOptionalMemberAccess]
+            "client_json_send",
             mock_send,  # pyright: ignore[reportUnknownArgumentType]
         )
         blk = await tonlib_client.get_masterchain_info()
@@ -129,8 +127,8 @@ async def test_request(tonlib_client: TonlibClient, monkeypatch: pytest.MonkeyPa
 async def test_timeout(tonlib_client: TonlibClient, monkeypatch: pytest.MonkeyPatch):
     async with tonlib_client:
         monkeypatch.setattr(
-            tonlib_client._tonlib_wrapper,
-            "_tonlib_json_client_send",
+            tonlib_client._tonlib_wrapper._tonlib,  # pyright: ignore[reportOptionalMemberAccess]
+            "client_json_send",
             lambda *_: None,  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
         with pytest.raises(TimeoutError):
@@ -146,15 +144,15 @@ async def test_error_response(tonlib_client: TonlibClient, monkeypatch: pytest.M
         assert q["@type"] == "blocks.getMasterchainInfo"
         res = {"@type": "error", "@extra": q["@extra"], "code": 504, "message": "Timeout"}
         monkeypatch.setattr(
-            tonlib_client._tonlib_wrapper,
-            "_tonlib_json_client_receive",
+            tonlib_client._tonlib_wrapper._tonlib,  # pyright: ignore[reportOptionalMemberAccess]
+            "client_json_receive",
             lambda *_: json.dumps(res).encode("utf-8"),  # pyright: ignore[reportUnknownLambdaType, reportUnknownArgumentType]
         )
 
     async with tonlib_client:
         monkeypatch.setattr(
-            tonlib_client._tonlib_wrapper,
-            "_tonlib_json_client_send",
+            tonlib_client._tonlib_wrapper._tonlib,  # pyright: ignore[reportOptionalMemberAccess]
+            "client_json_send",
             mock_send,  # pyright: ignore[reportUnknownArgumentType]
         )
         with pytest.raises(TonlibError) as e:
@@ -186,13 +184,13 @@ async def test_read_results_error_cancels_inflight_requests(
 
     async with tonlib_client:
         monkeypatch.setattr(
-            tonlib_client._tonlib_wrapper,
-            "_tonlib_json_client_send",
+            tonlib_client._tonlib_wrapper._tonlib,  # pyright: ignore[reportOptionalMemberAccess]
+            "client_json_send",
             mock_send,  # pyright: ignore[reportUnknownArgumentType]
         )
         monkeypatch.setattr(
-            tonlib_client._tonlib_wrapper,
-            "_tonlib_json_client_receive",
+            tonlib_client._tonlib_wrapper._tonlib,  # pyright: ignore[reportOptionalMemberAccess]
+            "client_json_receive",
             mock_receive,  # pyright: ignore[reportUnknownArgumentType]
         )
 
@@ -229,8 +227,8 @@ async def test_aclose_cancels_requests(
 
     async with tonlib_client:
         monkeypatch.setattr(
-            tonlib_client._tonlib_wrapper,
-            "_tonlib_json_client_send",
+            tonlib_client._tonlib_wrapper._tonlib,  # pyright: ignore[reportOptionalMemberAccess]
+            "client_json_send",
             mock_send,  # pyright: ignore[reportUnknownArgumentType]
         )
 

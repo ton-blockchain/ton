@@ -22,6 +22,7 @@
 #include <cstring>
 #include <memory>
 #include <new>
+#include <source_location>
 #include <type_traits>
 #include <utility>
 
@@ -48,22 +49,22 @@
     }                                                 \
   }
 
-#define TRY_STATUS_PROMISE(promise_name, status)     \
-  {                                                  \
-    auto try_status = (status);                      \
-    if (try_status.is_error()) {                     \
-      promise_name.set_error(std::move(try_status)); \
-      return;                                        \
-    }                                                \
+#define TRY_STATUS_PROMISE(promise_name, status)       \
+  {                                                    \
+    auto try_status = (status);                        \
+    if (try_status.is_error()) {                       \
+      (promise_name).set_error(std::move(try_status)); \
+      return;                                          \
+    }                                                  \
   }
 
-#define TRY_STATUS_PROMISE_PREFIX(promise_name, status, prefix)        \
-  {                                                                    \
-    auto try_status = (status);                                        \
-    if (try_status.is_error()) {                                       \
-      promise_name.set_error(try_status.move_as_error_prefix(prefix)); \
-      return;                                                          \
-    }                                                                  \
+#define TRY_STATUS_PROMISE_PREFIX(promise_name, status, prefix)          \
+  {                                                                      \
+    auto try_status = (status);                                          \
+    if (try_status.is_error()) {                                         \
+      (promise_name).set_error(try_status.move_as_error_prefix(prefix)); \
+      return;                                                            \
+    }                                                                    \
   }
 
 #define TRY_RESULT(name, result) TRY_RESULT_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result)
@@ -74,7 +75,7 @@
 #define TRY_RESULT_ASSIGN(name, result) TRY_RESULT_IMPL(TD_CONCAT(r_response, __LINE__), name, result)
 
 #define TRY_RESULT_PROMISE_ASSIGN(promise_name, name, result) \
-  TRY_RESULT_PROMISE_IMPL(promise_name, TD_CONCAT(TD_CONCAT(r_, name), __LINE__), name, result)
+  TRY_RESULT_PROMISE_IMPL(promise_name, TD_CONCAT(r_response, __LINE__), name, result)
 
 #define TRY_RESULT_PREFIX(name, result, prefix) \
   TRY_RESULT_PREFIX_IMPL(TD_CONCAT(TD_CONCAT(r_, name), __LINE__), auto name, result, prefix)
@@ -125,11 +126,6 @@
       LOG(ERROR) << log_status.move_as_error(); \
     }                                           \
   }
-
-#ifndef TD_STATUS_NO_ENSURE
-#define ensure() ensure_impl(__FILE__, __LINE__)
-#define ensure_error() ensure_error_impl(__FILE__, __LINE__)
-#endif
 
 #if TD_PORT_POSIX
 #define OS_ERROR(message)                                    \
@@ -256,29 +252,17 @@ class Status {
     return ptr_ != nullptr;
   }
 
-#ifdef TD_STATUS_NO_ENSURE
-  void ensure() const {
+  void ensure(std::source_location loc = std::source_location::current()) const {
     if (!is_ok()) {
-      LOG(FATAL) << "Unexpected Status " << to_string();
+      LOG(FATAL) << "Unexpected Status " << to_string() << " in file " << loc.file_name() << " at line " << loc.line();
     }
   }
-  void ensure_error() const {
+
+  void ensure_error(std::source_location loc = std::source_location::current()) const {
     if (is_ok()) {
-      LOG(FATAL) << "Unexpected Status::OK";
+      LOG(FATAL) << "Unexpected Status::OK in file " << loc.file_name() << " at line " << loc.line();
     }
   }
-#else
-  void ensure_impl(CSlice file_name, int line) const {
-    if (!is_ok()) {
-      LOG(FATAL) << "Unexpected Status " << to_string() << " in file " << file_name << " at line " << line;
-    }
-  }
-  void ensure_error_impl(CSlice file_name, int line) const {
-    if (is_ok()) {
-      LOG(FATAL) << "Unexpected Status::OK in file " << file_name << " at line " << line;
-    }
-  }
-#endif
 
   void ignore() const {
     // nop
@@ -454,6 +438,11 @@ inline StringBuilder &operator<<(StringBuilder &string_builder, const Status &st
   return status.print(string_builder);
 }
 
+template <class T>
+concept Cloneable = requires(const T &x) {
+  { x.clone() } -> std::same_as<T>;
+};
+
 // Forward declarations for Result wrappers
 template <class T>
 struct ResultUnwrap;
@@ -466,11 +455,13 @@ class Result {
   using ValueT = T;
   Result() : status_(Status::Error<-1>()) {
   }
-  template <class S, std::enable_if_t<!std::is_same<std::decay_t<S>, Result>::value, int> = 0>
+  template <typename S>
+    requires(!std::same_as<std::decay_t<S>, Result> && std::constructible_from<T, S &&>)
   Result(S &&x) : status_(), value_(std::forward<S>(x)) {
   }
   struct emplace_t {};
   template <class... ArgsT>
+    requires std::constructible_from<T, ArgsT...>
   Result(emplace_t, ArgsT &&...args) : status_(), value_(std::forward<ArgsT>(args)...) {
   }
   Result(Status &&status) : status_(std::move(status)) {
@@ -514,9 +505,8 @@ class Result {
     status_ = Status::OK();
   }
   template <typename S>
-  Result &operator=(Result<S> &&other)
-    requires(!std::is_same_v<S, T>)
-  {
+    requires(!std::is_same_v<S, T> && !std::is_same_v<Result<S>, T> && requires(T &t, S &&s) { t = std::move(s); })
+  Result &operator=(Result<S> &&other) {
     if (other.is_error()) {
       *this = other.move_as_error();
     } else {
@@ -530,41 +520,23 @@ class Result {
     }
   }
 
-#ifdef TD_STATUS_NO_ENSURE
-  const Result &ensure() const {
-    status_.ensure();
+  const Result &ensure(std::source_location loc = std::source_location::current()) const {
+    status_.ensure(loc);
     return *this;
   }
-  const Result &ensure_error() const {
-    status_.ensure_error();
+  const Result &ensure_error(std::source_location loc = std::source_location::current()) const {
+    status_.ensure_error(loc);
     return *this;
   }
-  Result &ensure() {
-    status_.ensure();
+  Result &ensure(std::source_location loc = std::source_location::current()) {
+    status_.ensure(loc);
     return *this;
   }
-  Result &ensure_error() {
-    status_.ensure_error();
+  Result &ensure_error(std::source_location loc = std::source_location::current()) {
+    status_.ensure_error(loc);
     return *this;
   }
-#else
-  const Result &ensure_impl(CSlice file_name, int line) const {
-    status_.ensure_impl(file_name, line);
-    return *this;
-  }
-  const Result &ensure_error_impl(CSlice file_name, int line) const {
-    status_.ensure_error_impl(file_name, line);
-    return *this;
-  }
-  Result &ensure_impl(CSlice file_name, int line) {
-    status_.ensure_impl(file_name, line);
-    return *this;
-  }
-  Result &ensure_error_impl(CSlice file_name, int line) {
-    status_.ensure_error_impl(file_name, line);
-    return *this;
-  }
-#endif
+
   void ignore() const {
     status_.ignore();
   }
@@ -615,6 +587,12 @@ class Result {
     }
     return Status::OK();
   }
+  Status as_status() TD_WARN_UNUSED_RESULT {
+    if (status_.is_error()) {
+      return error().clone();
+    }
+    return Status::OK();
+  }
   const T &ok() const {
     LOG_CHECK(status_.is_ok()) << status_;
     return value_;
@@ -632,9 +610,19 @@ class Result {
     return std::move(value_);
   }
 
-  Result<T> clone() const TD_WARN_UNUSED_RESULT {
+  TD_WARN_UNUSED_RESULT Result<T> clone() const
+    requires(Cloneable<T>)
+  {
     if (is_ok()) {
-      return Result<T>(ok());  // TODO: return clone(ok());
+      return Result<T>(ok().clone());
+    }
+    return error().clone();
+  }
+  TD_WARN_UNUSED_RESULT Result<T> clone() const
+    requires(!Cloneable<T> && std::is_copy_constructible_v<T>)
+  {
+    if (is_ok()) {
+      return Result<T>(ok());
     }
     return error().clone();
   }

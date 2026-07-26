@@ -60,12 +60,7 @@ void ValidatorManagerImpl::validate_block_proof_link(BlockIdExt block_id, td::Bu
   UNREACHABLE();
 }
 
-void ValidatorManagerImpl::validate_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
-  UNREACHABLE();
-}
-
-void ValidatorManagerImpl::new_block_broadcast(BlockBroadcast broadcast, bool signatures_checked,
-                                               td::Promise<td::Unit> promise) {
+void ValidatorManagerImpl::got_next_masterchain_block(ReceivedBlock block, td::Promise<BlockHandle> promise) {
   UNREACHABLE();
 }
 
@@ -82,13 +77,13 @@ void ValidatorManagerImpl::wait_state_by_prev_blocks(BlockIdExt block_id, std::v
   }
 
   if (prev_blocks.size() == 1) {
-    LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0].to_str() << " for " << block_id.to_str();
+    LOG(DEBUG) << "Requesting state for single prev block " << prev_blocks[0] << " for " << block_id;
     wait_block_state_short(prev_blocks[0], 0, td::Timestamp::in(10.0), false, std::move(promise));
     return;
   }
 
-  LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0].to_str() << " and "
-             << prev_blocks[1].to_str() << " for " << block_id.to_str();
+  LOG(DEBUG) << "Requesting merged state for prev blocks " << prev_blocks[0] << " and " << prev_blocks[1] << " for "
+             << block_id;
   wait_block_state_merge(prev_blocks[0], prev_blocks[1], 0, td::Timestamp::in(10.0), std::move(promise));
 }
 
@@ -157,7 +152,7 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
                                   .prev = prev,
                                   .creator = created_by,
                                   .validator_set = val_set},
-                    actor_id(this), td::Timestamp::in(10.0), {}, std::move(P));
+                    actor_id(this), {}, std::move(P));
 }
 
 void ValidatorManagerImpl::validate_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
@@ -205,7 +200,7 @@ void ValidatorManagerImpl::write_fake(BlockCandidate candidate, std::vector<Bloc
 }
 
 void ValidatorManagerImpl::complete_fake(BlockIdExt block_id) {
-  LOG(ERROR) << "success, block " << block_id << " = " << block_id.to_str() << " saved to disk";
+  LOG(ERROR) << "success, block " << block_id << " saved to disk";
   std::exit(0);
 }
 
@@ -300,13 +295,6 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::Buffe
   auto msg = co_await create_ext_message(std::move(data), last_masterchain_state_->get_ext_msg_limits());
   ext_messages_.emplace_back(std::move(msg));
   co_return td::Unit{};
-}
-
-void ValidatorManagerImpl::new_ihr_message(td::BufferSlice data) {
-  auto R = create_ihr_message(std::move(data));
-  if (R.is_ok()) {
-    ihr_messages_.emplace_back(R.move_as_ok());
-  }
 }
 
 void ValidatorManagerImpl::new_shard_block_description_broadcast(BlockIdExt block_id, CatchainSeqno cc_seqno,
@@ -542,17 +530,18 @@ void ValidatorManagerImpl::wait_block_message_queue_short(BlockIdExt block_id, t
   get_block_handle(block_id, true, std::move(P));
 }
 
-void ValidatorManagerImpl::get_external_messages(
-    ShardIdFull shard, td::Promise<std::vector<std::pair<td::Ref<ExtMessage>, int>>> promise) {
-  std::vector<std::pair<td::Ref<ExtMessage>, int>> res;
-  for (const auto &x : ext_messages_) {
-    res.emplace_back(x, 0);
+void ValidatorManagerImpl::get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) {
+  if (callback) {
+    auto task = [](std::vector<td::Ref<ExtMessage>> messages,
+                   std::unique_ptr<ExtMsgCallback> callback) -> td::actor::Task<> {
+      for (const auto &x : messages) {
+        co_await callback->queue.try_push(std::make_pair(x, 0));
+      }
+      callback->queue.close();
+      co_return {};
+    };
+    task(ext_messages_, std::move(callback)).start().detach();
   }
-  promise.set_result(std::move(res));
-}
-
-void ValidatorManagerImpl::get_ihr_messages(ShardIdFull shard, td::Promise<std::vector<td::Ref<IhrMessage>>> promise) {
-  promise.set_result(ihr_messages_);
 }
 
 void ValidatorManagerImpl::get_shard_blocks_for_collator(
@@ -579,8 +568,7 @@ void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Ha
                                                       std::vector<ExtMessage::Hash> to_delete) {
 }
 
-void ValidatorManagerImpl::complete_ihr_messages(std::vector<IhrMessage::Hash> to_delay,
-                                                 std::vector<IhrMessage::Hash> to_delete) {
+void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) {
 }
 
 void ValidatorManagerImpl::get_block_data_from_db(ConstBlockHandle handle, td::Promise<td::Ref<BlockData>> promise) {
@@ -616,17 +604,6 @@ void ValidatorManagerImpl::get_shard_state_from_db_short(BlockIdExt block_id,
         }
       });
   get_block_handle(block_id, false, std::move(P));
-}
-
-void ValidatorManagerImpl::get_block_candidate_from_db(PublicKey source, BlockIdExt id,
-                                                       FileHash collated_data_file_hash,
-                                                       td::Promise<BlockCandidate> promise) {
-  td::actor::send_closure(db_, &Db::get_block_candidate, source, id, collated_data_file_hash, std::move(promise));
-}
-
-void ValidatorManagerImpl::get_candidate_data_by_block_id_from_db(BlockIdExt id, td::Promise<td::BufferSlice> promise) {
-  td::actor::send_closure(db_, &Db::get_block_candidate_by_block_id, id,
-                          promise.wrap([](BlockCandidate &&b) { return std::move(b.data); }));
 }
 
 void ValidatorManagerImpl::get_block_proof_from_db(ConstBlockHandle handle, td::Promise<td::Ref<Proof>> promise) {
@@ -731,9 +708,9 @@ void ValidatorManagerImpl::set_block_state_from_data(BlockHandle handle, td::Ref
   td::actor::send_closure(db_, &Db::store_block_state_from_data, handle, block, std::move(promise));
 }
 
-void ValidatorManagerImpl::set_block_state_from_data_preliminary(std::vector<td::Ref<BlockData>> blocks,
-                                                                 td::Promise<td::Unit> promise) {
-  td::actor::send_closure(db_, &Db::store_block_state_from_data_preliminary, std::move(blocks), std::move(promise));
+void ValidatorManagerImpl::set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks,
+                                                          td::Promise<td::Unit> promise) {
+  td::actor::send_closure(db_, &Db::store_block_state_from_data_bulk, std::move(blocks), std::move(promise));
 }
 
 void ValidatorManagerImpl::get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) {
@@ -831,11 +808,6 @@ void ValidatorManagerImpl::set_next_block(BlockIdExt block_id, BlockIdExt next, 
         }
       });
   get_block_handle(block_id, true, std::move(P));
-}
-
-void ValidatorManagerImpl::set_block_candidate(BlockIdExt id, BlockCandidate candidate, CatchainSeqno cc_seqno,
-                                               td::uint32 validator_set_hash, td::Promise<td::Unit> promise) {
-  td::actor::send_closure(db_, &Db::store_block_candidate, std::move(candidate), std::move(promise));
 }
 
 void ValidatorManagerImpl::send_block_candidate_broadcast(BlockIdExt id, CatchainSeqno cc_seqno,
@@ -949,9 +921,9 @@ void ValidatorManagerImpl::get_last_liteserver_state_block(
   return get_top_masterchain_state_block(std::move(promise));
 }
 
-void ValidatorManagerImpl::send_get_block_request(BlockIdExt id, td::uint32 priority,
-                                                  td::Promise<ReceivedBlock> promise) {
-  UNREACHABLE();
+void ValidatorManagerImpl::get_shard_client_state_block(
+    td::Promise<std::pair<td::Ref<MasterchainState>, BlockIdExt>> promise) {
+  return get_top_masterchain_state_block(std::move(promise));
 }
 
 void ValidatorManagerImpl::send_get_zero_state_request(BlockIdExt id, td::uint32 priority,

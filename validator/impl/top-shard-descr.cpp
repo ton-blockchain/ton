@@ -21,6 +21,8 @@
 #include "block/signature-set.h"
 #include "block/validator-set.h"
 #include "common/errorcode.h"
+#include "downloaders/wait-block-data.hpp"
+#include "ton/ton-io.hpp"
 #include "vm/boc.h"
 #include "vm/cells.h"
 #include "vm/cells/MerkleProof.h"
@@ -39,12 +41,7 @@ ShardTopBlockDescrQ* ShardTopBlockDescrQ::make_copy() const {
 }
 
 td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cell> proof_root, bool is_head) {
-  auto virt_root = vm::MerkleProof::virtualize(proof_root);
-  if (virt_root.is_null()) {
-    return td::Status::Error(-666, "link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
-                                       block_id_.to_str() +
-                                       " does not contain a valid Merkle proof for the block header");
-  }
+  TRY_RESULT(virt_root, vm::MerkleProof::virtualize(proof_root));
   RootHash virt_hash{virt_root->get_hash().bits()};
   if (virt_hash != cur_id.root_hash) {
     return td::Status::Error(-666, "link for block "s + cur_id.to_str() + " inside ShardTopBlockDescr of " +
@@ -76,19 +73,18 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
     }
   } catch (vm::VmVirtError& err) {
     // backward compatibility with older Proofs / ProofLinks
-    LOG(WARNING) << "virtualization error while parsing BlockExtra in proof link of " << cur_id.to_str()
+    LOG(WARNING) << "virtualization error while parsing BlockExtra in proof link of " << cur_id
                  << ", setting creator_id to zero: " << err.get_msg();
     extra.created_by.set_zero();
   }
   CHECK(after_split == info.after_split);
   if (info.gen_catchain_seqno != catchain_seqno_) {
     return td::Status::Error(
-        -666, PSTRING() << "link for block " << cur_id.to_str()
-                        << " is invalid because block header has catchain_seqno = " << info.gen_catchain_seqno
-                        << " while ShardTopBlockDescr declares " << catchain_seqno_);
+        -666, PSTRING() << "link for block " << cur_id << " is invalid because block header has catchain_seqno = "
+                        << info.gen_catchain_seqno << " while ShardTopBlockDescr declares " << catchain_seqno_);
   }
   if (info.gen_validator_list_hash_short != validator_set_hash_) {
-    return td::Status::Error(-666, PSTRING() << "link for block " << cur_id.to_str()
+    return td::Status::Error(-666, PSTRING() << "link for block " << cur_id
                                              << " is invalid because block header has validator_set_hash = "
                                              << info.gen_validator_list_hash_short
                                              << " while ShardTopBlockDescr declares " << validator_set_hash_);
@@ -117,14 +113,14 @@ td::Status ShardTopBlockDescrQ::unpack_one_proof(BlockIdExt& cur_id, Ref<vm::Cel
     }
     if (info.gen_utime > first_gen_utime_) {
       return td::Status::Error(-666, PSTRING() << "block creation unixtime goes back from " << info.gen_utime << " to "
-                                               << first_gen_utime_ << " in intermediate link for blocks "
-                                               << cur_id.to_str() << " and " << chain_blk_ids_.back().to_str());
+                                               << first_gen_utime_ << " in intermediate link for blocks " << cur_id
+                                               << " and " << chain_blk_ids_.back());
     }
     first_gen_utime_ = info.gen_utime;
     if (vert_seqno_ != BlockSeqno(info.vert_seq_no)) {
-      return td::Status::Error(-666, PSTRING() << "intermediate link for block " << cur_id.to_str()
-                                               << " has vertical seqno " << info.vert_seq_no
-                                               << " distinct from the final value in chain " << vert_seqno_);
+      return td::Status::Error(-666, PSTRING() << "intermediate link for block " << cur_id << " has vertical seqno "
+                                               << info.vert_seq_no << " distinct from the final value in chain "
+                                               << vert_seqno_);
     }
   }
   chain_mc_blk_ids_.push_back(mc_blkid);
@@ -178,11 +174,11 @@ td::Status ShardTopBlockDescrQ::unpack() {
     FLOG(INFO) {
       sb << "invalid ShardTopBlockDescr: ";
       block::gen::t_TopBlockDescr.print_ref(sb, root_);
-      vm::load_cell_slice(root_).print_rec(sb);
+      vm::load_cell_slice_special(root_).print_rec(sb);
     };
     return td::Status::Error(-666, "Shard top block description is not a valid TopBlockDescr TL-B object");
   }
-  LOG(DEBUG) << "unpacking a ShardTopBlockDescr for " << block_id_.to_str() << " with " << rec.len << " links";
+  LOG(DEBUG) << "unpacking a ShardTopBlockDescr for " << block_id_ << " with " << rec.len << " links";
   CHECK(rec.len > 0 && rec.len <= 8);
   // unpack signatures
   Ref<vm::Cell> sig_root = rec.signatures->prefetch_ref();
@@ -210,15 +206,15 @@ td::Status ShardTopBlockDescrQ::unpack() {
   // unpack proof link chain
   auto chain = std::move(rec.chain);
   BlockIdExt cur_id = block_id_;
-  for (int i = 0; i < rec.len; i++) {
-    CHECK(chain->size_ext() == (i == rec.len - 1 ? 0x10000u : 0x20000u));
-    auto proof = chain->prefetch_ref();
-    proof_roots_.push_back(proof);
-    if (i < rec.len - 1) {
-      chain = vm::load_cell_slice_ref(chain->prefetch_ref(1));
-    }
+  for (unsigned i = 0; i < rec.len; i++) {
     try {
-      auto res = unpack_one_proof(cur_id, std::move(proof), i == rec.len - 1);
+      CHECK(chain->size_ext() == (i + 1 == rec.len ? 0x10000u : 0x20000u));
+      auto proof = chain->prefetch_ref();
+      proof_roots_.push_back(proof);
+      if (i + 1 < rec.len) {
+        chain = vm::load_cell_slice_ref(chain->prefetch_ref(1));
+      }
+      auto res = unpack_one_proof(cur_id, std::move(proof), i + 1 == rec.len);
       if (res.is_error()) {
         return res;
       }
@@ -273,6 +269,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
   if (state.is_null()) {
     return td::Status::Error(-666, "cannot validate ShardTopBlockDescr: no masterchain state given");
   }
+  bool too_new = false;
   if (last_mc_block_id.id.seqno < chain_mc_blk_ids_[0].id.seqno) {
     BlockSeqno delta = chain_mc_blk_ids_[0].id.seqno - last_mc_block_id.id.seqno;
     // too new
@@ -282,34 +279,35 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
                                          chain_mc_blk_ids_[0].id.to_str() + " but we know only " +
                                          last_mc_block_id.to_str());
     }
-    return -1;  // valid, but too new
+    too_new = true;
   }
   auto config = state->get_config();
   if (config->get_vert_seqno() != vert_seqno_) {
     if (vert_seqno_ < config->get_vert_seqno()) {
-      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
+      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_
                                                << " is too old: it has vertical seqno " << vert_seqno_
                                                << " but we already know about " << config->get_vert_seqno());
     }
-    if (mode & Mode::fail_new) {
-      return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
-                                               << " is too new for us: it has vertical seqno " << vert_seqno_
-                                               << " but we know only about " << config->get_vert_seqno());
-    }
+    return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_
+                                             << " is too new for us: it has vertical seqno " << vert_seqno_
+                                             << " but we know only about " << config->get_vert_seqno());
   }
   BlockSeqno next_mc_seqno = ~BlockSeqno(0);
   for (const auto& mcid : chain_mc_blk_ids_) {
     if (mcid.id.seqno > next_mc_seqno) {
-      res_flags |= 1;  // permanently invalid
+      res_flags |= ResFlags::invalid;
       return td::Status::Error(
           -666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
                     " is invalid because its chain refers to masterchain blocks with non-monotonic seqno");
     }
     next_mc_seqno = mcid.id.seqno;
+    if (too_new && mcid.seqno() > last_mc_block_id.seqno()) {
+      continue;
+    }
     auto valid =
         (mcid.id.seqno == last_mc_block_id.id.seqno) ? (mcid == last_mc_block_id) : config->check_old_mc_block_id(mcid);
     if (!valid) {
-      res_flags |= 1;  // permanently invalid
+      res_flags |= ResFlags::invalid;
       return td::Status::Error(-666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
                                          " is invalid because it refers to masterchain block " + mcid.to_str() +
                                          " which is not an ancestor of our block " + last_mc_block_id.to_str());
@@ -324,7 +322,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
   if (oldl->seqno() >= block_id_.id.seqno) {
     // we know a shardchain block that it is at least as new as this one
     if (!(mode & allow_old)) {
-      res_flags |= 1;  // permanently invalidate unless old ShardTopBlockDescr are allowed
+      res_flags |= ResFlags::invalid;  // permanently invalidate unless old ShardTopBlockDescr are allowed
     }
     return td::Status::Error(-666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
                                        " is too old: we already know a newer shardchain block " + oldl->blk_.to_str());
@@ -335,7 +333,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
                                          " is too new for us: it starts from shardchain block " +
                                          link_prev_[0].id.to_str() + " but we know only " + oldl->blk_.to_str());
     }
-    return -1;  // valid, but too new
+    too_new = true;
   }
   auto oldr = oldl;
   if (ton::shard_is_proper_ancestor(shard(), oldl->shard())) {
@@ -347,7 +345,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
     }
     if (oldr->seqno() >= block_id_.id.seqno) {
       // we know a shardchain block that it is at least as new as this one
-      res_flags |= 1;  // permanently invalidate unless old ShardTopBlockDescr are allowed
+      res_flags |= ResFlags::invalid;  // permanently invalidate unless old ShardTopBlockDescr are allowed
       return td::Status::Error(-666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
                                          " is invalid in a strange fashion: we already know a newer shardchain block " +
                                          oldr->blk_.to_str() +
@@ -364,60 +362,71 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
                                          " is too new for us: it starts from shardchain block " +
                                          link_prev_.back().id.to_str() + " but we know only " + oldr->blk_.to_str());
     }
-    return -1;  // valid, but too new
+    too_new = true;
   }
-  unsigned clen = block_id_.id.seqno - std::max(oldl->seqno(), oldr->seqno());
-  CHECK(clen > 0 && clen <= 8);
-  CHECK(clen <= size());
-  if (clen < size()) {
-    if (chain_blk_ids_[clen] != oldl->blk_) {
-      res_flags |= 1;
-      return td::Status::Error(-666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
-                                         " is invalid: it contains a reference to its ancestor " +
-                                         chain_blk_ids_[clen].to_str() +
-                                         " but the masterchain refers to another shardchain block " +
-                                         (oldl->seqno() < oldr->seqno() ? oldr->blk_.to_str() : oldl->blk_.to_str()) +
-                                         " of the same height");
-    }
-    CHECK(oldl->shard() == shard());
-    CHECK(oldl == oldr);
+  int res;
+  if (too_new) {
+    res = -1;
   } else {
-    if (link_prev_[0] != oldl->blk_) {
-      res_flags |= 1;
-      return td::Status::Error(
-          -666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
-                    " is invalid: it contains a reference to its ancestor " + link_prev_[0].to_str() +
-                    " but the masterchain instead refers to another shardchain block " + oldl->blk_.to_str());
+    unsigned clen = block_id_.id.seqno - std::max(oldl->seqno(), oldr->seqno());
+    res = (int)clen;
+    CHECK(clen > 0 && clen <= 8);
+    CHECK(clen <= size());
+    if (clen < size()) {
+      if (chain_blk_ids_[clen] != oldl->blk_) {
+        res_flags |= ResFlags::invalid;
+        return td::Status::Error(-666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
+                                           " is invalid: it contains a reference to its ancestor " +
+                                           chain_blk_ids_[clen].to_str() +
+                                           " but the masterchain refers to another shardchain block " +
+                                           (oldl->seqno() < oldr->seqno() ? oldr->blk_.to_str() : oldl->blk_.to_str()) +
+                                           " of the same height");
+      }
+      CHECK(oldl->shard() == shard());
+      CHECK(oldl == oldr);
+    } else {
+      if (link_prev_[0] != oldl->blk_) {
+        res_flags |= ResFlags::invalid;
+        return td::Status::Error(
+            -666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
+                      " is invalid: it contains a reference to its ancestor " + link_prev_[0].to_str() +
+                      " but the masterchain instead refers to another shardchain block " + oldl->blk_.to_str());
+      }
+      if (link_prev_.back() != oldr->blk_) {
+        res_flags |= ResFlags::invalid;
+        return td::Status::Error(
+            -666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
+                      " is invalid: it contains a reference to its ancestor " + link_prev_.back().to_str() +
+                      " but the masterchain instead refers to another shardchain block " + oldr->blk_.to_str());
+      }
     }
-    if (link_prev_.back() != oldr->blk_) {
-      res_flags |= 1;
-      return td::Status::Error(
-          -666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
-                    " is invalid: it contains a reference to its ancestor " + link_prev_.back().to_str() +
-                    " but the masterchain instead refers to another shardchain block " + oldr->blk_.to_str());
-    }
+    LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_ << " appears to have a valid chain of " << clen
+               << " new links out of " << size();
   }
-  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_.to_str() << " appears to have a valid chain of " << clen
-             << " new links out of " << size();
   // check validator_set_{ts,hash}
   int vset_ok = 0;
   auto vset = state->get_validator_set(shard());
-  CHECK(vset.not_null());
+  if (vset.is_null()) {
+    return td::Status::Error(-666, PSTRING() << "Failed to get validator set for " << shard());
+  }
   if (vset->get_catchain_seqno() == catchain_seqno_ && vset->get_validator_set_hash() == validator_set_hash_) {
-    res_flags |= 4;
+    res_flags |= ResFlags::vset_cur;
     vset_ok = 1;
   } else if (mode & allow_next_vset) {
     auto nvset = state->get_next_validator_set(shard());
+    if (nvset.is_null()) {
+      return td::Status::Error(-666, PSTRING() << "Failed to get validator set for " << shard());
+    }
     if (nvset->get_catchain_seqno() == catchain_seqno_ && nvset->get_validator_set_hash() == validator_set_hash_) {
       vset = std::move(nvset);
-      res_flags |= 8;
+      res_flags |= ResFlags::vset_next;
       vset_ok = 2;
     }
   }
   if (!vset_ok) {
-    res_flags |= 1;
+    res_flags |= ResFlags::invalid;
     return td::Status::Error(-666, PSTRING()
-                                       << "ShardTopBlockDescr for " << block_id_.to_str()
+                                       << "ShardTopBlockDescr for " << block_id_
                                        << " is invalid because it refers to shard validator set with hash "
                                        << validator_set_hash_ << " and catchain_seqno " << catchain_seqno_
                                        << " while the current masterchain configuration expects "
@@ -425,7 +434,7 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
   }
   // check signatures
   if ((mode & skip_check_sig) || is_fake_ || sig_ok_) {
-    return (int)clen;
+    return res;
   }
   if (sig_bad_) {
     return td::Status::Error(
@@ -434,21 +443,21 @@ td::Result<int> ShardTopBlockDescrQ::validate_internal(BlockIdExt last_mc_block_
   CHECK(sig_set_.not_null());
   auto result = sig_set_->check_signatures(vset, block_id_);
   if (result.is_error()) {
-    res_flags |= 0x21;
+    res_flags |= (ResFlags::invalid | ResFlags::sig_bad);
     return td::Status::Error(-666, std::string{"ShardTopBlockDescr for "} + block_id_.to_str() +
                                        " does not have valid signatures: " + result.move_as_error().to_string());
   }
-  res_flags |= 0x10;  // signatures checked ok
+  res_flags |= ResFlags::sig_ok;
   auto wt = result.move_as_ok();
   if (wt != sig_weight_) {
-    res_flags |= 1;
-    return td::Status::Error(-666, PSTRING() << "ShardTopBlockDescr for " << block_id_.to_str()
-                                             << " has incorrect signature weight " << sig_weight_
-                                             << " (actual weight is " << wt << ")");
+    res_flags |= ResFlags::invalid;
+    return td::Status::Error(-666, PSTRING()
+                                       << "ShardTopBlockDescr for " << block_id_ << " has incorrect signature weight "
+                                       << sig_weight_ << " (actual weight is " << wt << ")");
   }
-  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_.to_str() << " has valid validator signatures of total weight "
+  LOG(DEBUG) << "ShardTopBlockDescr for " << block_id_ << " has valid validator signatures of total weight "
              << sig_weight_ << " out of " << vset->get_total_weight();
-  return (int)clen;
+  return res;
 }
 
 td::Result<int> ShardTopBlockDescrQ::prevalidate(BlockIdExt last_mc_block_id, Ref<MasterchainState> last_mc_state,
@@ -459,23 +468,23 @@ td::Result<int> ShardTopBlockDescrQ::prevalidate(BlockIdExt last_mc_block_id, Re
 }
 
 td::Result<int> ShardTopBlockDescrQ::validate(BlockIdExt last_mc_block_id, Ref<MasterchainState> last_mc_state,
-                                              int mode, int& res_flags) {
-  res_flags = 0;
+                                              int mode) {
+  int res_flags = 0;
   auto res = validate_internal(last_mc_block_id, last_mc_state, res_flags, mode);
-  if (res_flags & 1) {
+  if (res_flags & ResFlags::invalid) {
     // permanently invalid
     is_valid_ = false;
   }
-  if (res_flags & 0x10) {
+  if (res_flags & ResFlags::sig_ok) {
     sig_ok_ = true;
   }
-  if (res_flags & 0x20) {
+  if (res_flags & ResFlags::sig_bad) {
     sig_bad_ = true;
   }
-  if (res_flags & 4) {
+  if (res_flags & ResFlags::vset_cur) {
     vset_cur_ = true;
     vset_next_ = false;
-  } else if (res_flags & 8) {
+  } else if (res_flags & ResFlags::vset_next) {
     vset_cur_ = false;
     vset_next_ = true;
   }
@@ -498,8 +507,11 @@ Ref<block::McShardHash> ShardTopBlockDescrQ::get_prev_descr(int pos, int sum_cnt
       (unsigned)(pos + sum_cnt) > size()) {
     return {};
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof_roots_.at(pos));
-  auto res = block::McShardHash::from_block(std::move(virt_root), chain_blk_ids_.at(pos).file_hash);
+  auto r_virt_root = vm::MerkleProof::virtualize(proof_roots_.at(pos));
+  if (r_virt_root.is_error()) {
+    return {};
+  }
+  auto res = block::McShardHash::from_block(r_virt_root.move_as_ok(), chain_blk_ids_.at(pos).file_hash);
   if (res.not_null()) {
     auto& total_fees = res.write().fees_collected_;
     auto& funds_created = res.write().funds_created_;
@@ -559,14 +571,119 @@ void ValidateShardTopBlockDescr::start_up() {
   }
   descr_ = res.move_as_ok();
   CHECK(descr_->is_valid());
-  int res_flags = 0;
-  auto val_res = descr_.write().validate(mc_blkid_, state_, ShardTopBlockDescrQ::Mode::allow_next_vset, res_flags);
+  auto val_res = descr_.write().validate(mc_blkid_, state_, ShardTopBlockDescrQ::Mode::allow_next_vset);
   if (val_res.is_error()) {
     abort_query(val_res.move_as_error());
     return;
   }
   CHECK(descr_->is_valid());
   finish_query();
+}
+
+static td::actor::Task<Ref<vm::Cell>> get_proof_root(BlockHandle handle, td::Timestamp timeout,
+                                                     td::actor::ActorId<ValidatorManager> manager) {
+  auto proof = co_await td::actor::ask(manager, &ValidatorManager::wait_block_proof_link, handle, timeout);
+  block::gen::BlockProof::Record rec;
+  CHECK(block::gen::unpack_cell(CO_TRY(proof->get_root_cell()), rec));
+  Ref<vm::Cell> proof_root = rec.root;
+  Ref<vm::Cell> block_root = CO_TRY(vm::MerkleProof::virtualize(rec.root));
+  try {
+    block::gen::Block::Record block;
+    block::gen::BlockExtra::Record extra;
+    if (!(block::gen::unpack_cell(block_root, block) && block::gen::unpack_cell(block.extra, extra))) {
+      co_return td::Status::Error("failed to unpack block header");
+    }
+    co_return proof_root;
+  } catch (vm::VmVirtError&) {
+    // There's legacy block proof format that does not have BlockExtra
+    // It's tricky to enforce new proof format everywhere, so we just rebuild proof from block
+  }
+  auto block = co_await td::actor::ask(manager, &ValidatorManager::wait_block_data, handle, 0, timeout);
+  auto new_proof_root = CO_TRY(WaitBlockData::generate_block_proof_root(block->block_id(), block->root_cell()));
+  co_return new_proof_root;
+}
+
+td::actor::Task<td::BufferSlice> generate_shard_block_description(BlockIdExt block_id,
+                                                                  Ref<block::BlockSignatureSet> signatures,
+                                                                  td::Timestamp timeout,
+                                                                  td::actor::ActorId<ValidatorManager> manager) {
+  co_await td::actor::become_lightweight();
+  if (block_id.is_masterchain()) {
+    co_return td::Status::Error("block is from masterchain");
+  }
+  if (!signatures->is_final()) {
+    co_return td::Status::Error("signatures are not final");
+  }
+  auto handle = co_await td::actor::ask(manager, &ValidatorManager::get_block_handle, block_id, true);
+  co_await td::actor::ask(manager, &ValidatorManager::wait_block_state, handle, 0, timeout, false);
+  auto proof_root = co_await get_proof_root(handle, timeout, manager);
+  Ref<vm::Cell> block_root = CO_TRY(vm::MerkleProof::virtualize(proof_root));
+  BlockIdExt mc_ref = CO_TRY(block::get_block_header_info(block_root, block_id)).mc_blkid;
+
+  Ref<MasterchainState> mc_state = co_await td::actor::ask(manager, &ValidatorManager::get_top_masterchain_state);
+  if (mc_state->get_seqno() < mc_ref.seqno()) {
+    mc_state = Ref<MasterchainState>{
+        co_await td::actor::ask(manager, &ValidatorManager::wait_block_state_short, mc_ref, 0, timeout, false)};
+  }
+  ShardIdFull shard = block_id.shard_full();
+  auto config = CO_TRY(mc_state->get_config_holder());
+  Ref<block::ValidatorSet> validator_set = config->get_validator_set(shard, signatures->get_catchain_seqno());
+  if (validator_set->get_catchain_seqno() != signatures->get_catchain_seqno() ||
+      validator_set->get_validator_set_hash() != signatures->get_validator_set_hash()) {
+    co_return td::Status::Error("validator set mismatch");
+  }
+
+  auto ancestor = mc_state->get_shard_from_config(shard, false);
+  BlockSeqno ancestors_seqno;
+  if (ancestor.is_null()) {
+    ancestor = mc_state->get_shard_from_config(shard_child(shard, true));
+    auto ancestor2 = mc_state->get_shard_from_config(shard_child(shard, false));
+    if (ancestor.is_null() || ancestor2.is_null()) {
+      co_return td::Status::Error("cannot retrieve information about block ancestors");
+    }
+    ancestors_seqno = std::max(ancestor->top_block_id().seqno(), ancestor2->top_block_id().seqno());
+  } else if (ancestor->shard() == shard || shard_is_parent(ancestor->shard(), shard)) {
+    ancestors_seqno = ancestor->top_block_id().seqno();
+  } else {
+    co_return td::Status::Error("cannot retrieve information about block ancestors");
+  }
+  if (block_id.seqno() <= ancestors_seqno) {
+    co_return td::Status::Error("block already finalized in masterchain");
+  }
+
+  std::vector<Ref<vm::Cell>> proof_roots = {proof_root};
+  while (true) {
+    if (!handle->inited_prev()) {
+      co_return td::Status::Error(PSTRING() << "prev block for " << handle->id() << " is not known");
+    }
+    handle = co_await td::actor::ask(manager, &ValidatorManager::get_block_handle, handle->one_prev(true), true);
+    if (handle->id().seqno() <= ancestors_seqno) {
+      break;
+    }
+    proof_roots.push_back(co_await get_proof_root(handle, timeout, manager));
+    if (proof_roots.size() > 8) {
+      co_return td::Status::Error("too long chain");
+    }
+  }
+
+  Ref<vm::Cell> root;
+  for (size_t i = proof_roots.size() - 1; i > 0; --i) {
+    vm::CellBuilder cb;
+    CHECK(cb.store_ref_bool(proof_roots[i]) && (root.is_null() || cb.store_ref_bool(root)) && cb.finalize_to(root));
+  }
+
+  Ref<vm::Cell> signatures_cell = CO_TRY(signatures->serialize(validator_set));
+  vm::CellBuilder cb;
+  Ref<vm::Cell> td_cell;
+  CHECK(cb.store_long_bool(0xd5, 8)                     // top_block_descr#d5
+        && block::tlb::t_BlockIdExt.pack(cb, block_id)  // proof_for:BlockIdExt
+        && cb.store_bool_bool(true)                     // signatures:(Maybe
+        && cb.store_ref_bool(signatures_cell)           //   ^BlockSignatures)
+        && cb.store_long_bool(proof_roots.size(), 8)    // len:(## 8)
+        && cb.store_ref_bool(proof_roots[0])            // chain:(ProofChain len)
+        && (root.is_null() || cb.store_ref_bool(std::move(root))) && cb.finalize_to(td_cell));
+  CHECK(block::gen::t_TopBlockDescr.validate_ref(td_cell));
+  co_return CO_TRY(vm::std_boc_serialize(td_cell, 0));
 }
 
 }  // namespace validator

@@ -24,7 +24,7 @@ namespace adnl {
 
 void AdnlExtConnection::send_uninit(td::BufferSlice data) {
   buffered_fd_.output_buffer().append(std::move(data));
-  loop();
+  yield();
 }
 
 void AdnlExtConnection::send(td::BufferSlice data) {
@@ -53,7 +53,7 @@ void AdnlExtConnection::send(td::BufferSlice data) {
   out_ctr_.encrypt(d.as_slice(), e.as_slice());
 
   buffered_fd_.output_buffer().append(std::move(e));
-  loop();
+  yield();
 }
 
 td::Status AdnlExtConnection::receive(td::ChainBufferReader &input, bool &exit_loop) {

@@ -1,6 +1,8 @@
+#include <algorithm>
 #include <cstring>
 #include <limits>
 #include <openssl/ssl.h>
+#include <openssl/x509.h>
 
 #include "td/utils/Random.h"
 #include "td/utils/Timer.h"
@@ -30,30 +32,43 @@ static td::Timestamp from_ngtcp2_tstamp(ngtcp2_tstamp ns) {
   return td::Timestamp::at(static_cast<double>(ns) * 1e-9);
 }
 
+static void apply_platform_pmtu_policy(ngtcp2_settings& settings) {
+  if (td::UdpSocketFd::has_pmtudisc_probe()) {
+    return;
+  }
+  // Without socket-level PMTU probe mode, stay at QUIC's safe minimum and avoid PMTUD growth.
+  settings.max_tx_udp_payload_size = NGTCP2_MAX_UDP_PAYLOAD_SIZE;
+  settings.no_pmtud = 1;
+}
+
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_client(
     const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& client_key,
-    td::Slice alpn, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
-  auto p_impl =
-      std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
+    td::Slice alpn, td::Slice sni, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
+  auto p_impl = std::make_unique<QuicConnectionPImpl>(td::Badge<QuicConnectionPImpl>{}, local_address, remote_address,
+                                                      std::move(callback), options);
 
-  TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn));
+  TRY_STATUS(p_impl->init_tls_client_rpk(client_key, alpn, sni));
   TRY_STATUS(p_impl->init_quic_client());
 
-  p_impl->callback_->set_connection_id(p_impl->get_primary_scid());
+  p_impl->callback_->set_connection_id(p_impl->primary_scid_);
 
   return std::move(p_impl);
 }
 
 td::Result<std::unique_ptr<QuicConnectionPImpl>> QuicConnectionPImpl::create_server(
-    const td::IPAddress& local_address, const td::IPAddress& remote_address, const td::Ed25519::PrivateKey& server_key,
-    td::Slice alpn, const VersionCid& vc, std::unique_ptr<Callback> callback, QuicConnectionOptions options) {
-  auto p_impl =
-      std::make_unique<QuicConnectionPImpl>(PrivateTag{}, local_address, remote_address, std::move(callback), options);
+    const td::IPAddress& local_address, const td::IPAddress& remote_address, td::Ref<ServerIdentities> identities,
+    td::Slice alpn, const ServerInitialInfo& initial, std::unique_ptr<Callback> callback,
+    QuicConnectionOptions options) {
+  CHECK(identities.not_null());
+  CHECK(identities->has_default());
 
-  TRY_STATUS(p_impl->init_tls_server_rpk(server_key, alpn));
-  TRY_STATUS(p_impl->init_quic_server(vc));
+  auto p_impl = std::make_unique<QuicConnectionPImpl>(td::Badge<QuicConnectionPImpl>{}, local_address, remote_address,
+                                                      std::move(callback), options);
 
-  p_impl->callback_->set_connection_id(p_impl->get_primary_scid());
+  TRY_STATUS(p_impl->init_tls_server_rpk(std::move(identities), alpn));
+  TRY_STATUS(p_impl->init_quic_server(initial));
+
+  p_impl->callback_->set_connection_id(p_impl->primary_scid_);
 
   return std::move(p_impl);
 }
@@ -89,6 +104,35 @@ td::Status QuicConnectionPImpl::finish_tls_setup(openssl_ptr<SSL, &SSL_free> ssl
   return td::Status::OK();
 }
 
+using Ed25519EvpKeyPtr = openssl_ptr<EVP_PKEY, &EVP_PKEY_free>;
+
+static td::Result<Ed25519EvpKeyPtr> make_ed25519_evp_key(const td::Ed25519::PrivateKey& key) {
+  auto key_bytes = key.as_octet_string();
+  OPENSSL_MAKE_PTR(evp_key, EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
+                   EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
+  return std::move(evp_key);
+}
+
+// Builds a minimal self-signed X.509 that wraps the same Ed25519 public key as `key`.
+static td::Result<openssl_ptr<X509, &X509_free>> make_self_signed_rpk_cert(EVP_PKEY* key) {
+  OPENSSL_MAKE_PTR(cert, X509_new(), X509_free, "Failed to allocate X509");
+  OPENSSL_CHECK_OK(X509_set_version(cert.get(), X509_VERSION_3), "Failed to set X509 version");
+  OPENSSL_CHECK_OK(ASN1_INTEGER_set(X509_get_serialNumber(cert.get()), 1), "Failed to set serial");
+  // RPK ignores validity, and our verify callback is permissive; set a wide, 32-bit-safe window anyway.
+  OPENSSL_CHECK_PTR(X509_gmtime_adj(X509_getm_notBefore(cert.get()), 0), "Failed to set notBefore");
+  OPENSSL_CHECK_PTR(X509_gmtime_adj(X509_getm_notAfter(cert.get()), 60L * 60 * 24 * 365 * 20),
+                    "Failed to set notAfter");
+  OPENSSL_CHECK_OK(X509_set_pubkey(cert.get(), key), "Failed to set public key");
+  X509_NAME* name = X509_get_subject_name(cert.get());
+  OPENSSL_CHECK_OK(X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+                                              reinterpret_cast<const unsigned char*>("ton-rpk"), -1, -1, 0),
+                   "Failed to set subject name");
+  OPENSSL_CHECK_OK(X509_set_issuer_name(cert.get(), name), "Failed to set issuer name");
+  // Ed25519 is one-shot: the digest passed to X509_sign must be NULL.
+  OPENSSL_CHECK_OK(X509_sign(cert.get(), key, nullptr), "Failed to self-sign RPK certificate");
+  return std::move(cert);
+}
+
 static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::PrivateKey& key) {
   SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
   SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
@@ -100,11 +144,35 @@ static td::Status setup_rpk_context(SSL_CTX* ssl_ctx, const td::Ed25519::Private
   OPENSSL_CHECK_OK(SSL_CTX_set1_client_cert_type(ssl_ctx, cert_types, sizeof(cert_types)),
                    "Failed to enable client RPK");
 
-  auto key_bytes = key.as_octet_string();
-  OPENSSL_MAKE_PTR(evp_key, EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, nullptr, key_bytes.as_slice().ubegin(), 32),
-                   EVP_PKEY_free, "Failed to create Ed25519 key from raw bytes");
+  TRY_RESULT(evp_key, make_ed25519_evp_key(key));
   OPENSSL_CHECK_OK(SSL_CTX_use_PrivateKey(ssl_ctx, evp_key.get()), "Failed to set private key");
+  TRY_RESULT(cert, make_self_signed_rpk_cert(evp_key.get()));
+  OPENSSL_CHECK_OK(SSL_CTX_use_certificate(ssl_ctx, cert.get()), "Failed to set certificate");
   return td::Status::OK();
+}
+
+static td::Status use_rpk_private_key(SSL* ssl, const td::Ed25519::PrivateKey& key) {
+  TRY_RESULT(evp_key, make_ed25519_evp_key(key));
+  TRY_RESULT(cert, make_self_signed_rpk_cert(evp_key.get()));
+  // Swap certificate and key atomically (override=1): the SSL already carries the default identity's
+  // cert+key inherited from the SSL_CTX, so installing either one alone would trip OpenSSL's
+  // consistency check against the stale counterpart. SSL_use_cert_and_key only checks the supplied
+  // pair against each other, and they match by construction.
+  OPENSSL_CHECK_OK(SSL_use_cert_and_key(ssl, cert.get(), evp_key.get(), nullptr, 1),
+                   "Failed to set RPK certificate and key");
+  return td::Status::OK();
+}
+
+static int sni_alert(int* ad, int alert, td::Slice reason) {
+  // UNRECOGNIZED_NAME is fully attacker-controlled, so keep it out of the warning log to avoid flooding.
+  if (alert == SSL_AD_UNRECOGNIZED_NAME) {
+    LOG(DEBUG) << "SNI dispatch: " << reason;
+  } else {
+    LOG(WARNING) << "SNI dispatch: " << reason;
+  }
+  CHECK(ad != nullptr);
+  *ad = alert;
+  return SSL_TLSEXT_ERR_ALERT_FATAL;
 }
 
 int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigned char* outlen, const unsigned char* in,
@@ -119,7 +187,8 @@ int QuicConnectionPImpl::alpn_select_cb(SSL*, const unsigned char** out, unsigne
   return SSL_TLSEXT_ERR_NOACK;
 }
 
-td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn) {
+td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKey& client_key, td::Slice alpn,
+                                                    td::Slice sni) {
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_client_method()), SSL_CTX_free, "Failed to create TLS client context");
   TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), client_key));
   setup_alpn_wire(alpn);
@@ -130,15 +199,81 @@ td::Status QuicConnectionPImpl::init_tls_client_rpk(const td::Ed25519::PrivateKe
   SSL_set_alpn_protos(ssl_ptr.get(), reinterpret_cast<const unsigned char*>(alpn_wire_.c_str()),
                       static_cast<unsigned int>(alpn_wire_.size()));
 
+  if (!sni.empty()) {
+    std::string sni_str = sni.str();
+    if (SSL_set_tlsext_host_name(ssl_ptr.get(), sni_str.c_str()) != 1) {
+      return td::Status::Error("SSL_set_tlsext_host_name failed");
+    }
+  }
+
   return finish_tls_setup(std::move(ssl_ptr), std::move(ssl_ctx_ptr), true);
 }
 
-td::Status QuicConnectionPImpl::init_tls_server_rpk(const td::Ed25519::PrivateKey& server_key, td::Slice alpn) {
+bool ServerIdentities::add_identity(ServerIdentity identity) {
+  auto sni = identity.sni();
+  if (by_sni.contains(sni)) {
+    return false;
+  }
+  auto [it, inserted] = by_sni.emplace(std::move(sni), std::move(identity));
+  CHECK(inserted);
+  if (default_sni.empty()) {
+    default_sni = it->first;
+  }
+  return true;
+}
+
+ServerIdentities* ServerIdentities::make_copy() const {
+  auto* copy = new ServerIdentities;
+  for (const auto& [sni, identity] : by_sni) {
+    copy->by_sni.emplace(sni, ServerIdentity{.local_id = identity.local_id, .key{identity.key.as_octet_string()}});
+  }
+  copy->default_sni = default_sni;
+  return copy;
+}
+
+int QuicConnectionPImpl::sni_select_cb(SSL* ssl, int* ad, void* arg) {
+  const char* name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+  if (name == nullptr) {
+    // No SNI from the client — handshake proceeds with the default key that was installed on the
+    // SSL by init_tls_server_rpk.
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  // arg is a non-owning pointer to the identity snapshot pinned for the duration of the handshake.
+  auto* identities = static_cast<const ServerIdentities*>(arg);
+  CHECK(identities != nullptr);
+
+  std::string normalized_name = td::to_lower(td::CSlice(name));
+  auto it = identities->by_sni.find(normalized_name);
+  if (it == identities->by_sni.end()) {
+    return sni_alert(ad, SSL_AD_UNRECOGNIZED_NAME, PSLICE() << "unknown identity " << name);
+  }
+
+  if (it->first == identities->default_sni) {
+    // SNI resolves to the default identity anyway, so no key swap is needed.
+    return SSL_TLSEXT_ERR_OK;
+  }
+
+  auto status = use_rpk_private_key(ssl, it->second.key);
+  if (status.is_error()) {
+    return sni_alert(ad, SSL_AD_INTERNAL_ERROR, PSLICE() << "failed to install key for " << name << ": " << status);
+  }
+  return SSL_TLSEXT_ERR_OK;
+}
+
+td::Status QuicConnectionPImpl::init_tls_server_rpk(td::Ref<ServerIdentities> identities, td::Slice alpn) {
+  CHECK(identities.not_null());
+  server_identities_ = std::move(identities);
+
+  const auto& default_entry = server_identities_->by_sni.at(server_identities_->default_sni);
   OPENSSL_MAKE_PTR(ssl_ctx_ptr, SSL_CTX_new(TLS_server_method()), SSL_CTX_free, "Failed to create TLS server context");
-  TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), server_key));
+  TRY_STATUS(setup_rpk_context(ssl_ctx_ptr.get(), default_entry.key));
   setup_alpn_wire(alpn);
 
   SSL_CTX_set_alpn_select_cb(ssl_ctx_ptr.get(), alpn_select_cb, &alpn_wire_);
+
+  SSL_CTX_set_tlsext_servername_callback(ssl_ctx_ptr.get(), sni_select_cb);
+  SSL_CTX_set_tlsext_servername_arg(ssl_ctx_ptr.get(), const_cast<ServerIdentities*>(server_identities_.get()));
 
   OPENSSL_MAKE_PTR(ssl_ptr, SSL_new(ssl_ctx_ptr.get()), SSL_free, "Failed to create SSL session");
   SSL_set_accept_state(ssl_ptr.get());
@@ -154,14 +289,17 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   settings.max_stream_window = options.max_stream_window;
 
   static constexpr ngtcp2_cc_algo CC_ALGO_MAP[] = {NGTCP2_CC_ALGO_CUBIC, NGTCP2_CC_ALGO_RENO, NGTCP2_CC_ALGO_BBR};
-  settings.cc_algo = CC_ALGO_MAP[static_cast<int>(options.cc_algo)];
+  auto cc_alg_id = static_cast<size_t>(options.cc_algo);
+  CHECK(cc_alg_id < std::size(CC_ALGO_MAP));
+  settings.cc_algo = CC_ALGO_MAP[cc_alg_id];
+  apply_platform_pmtu_policy(settings);
 
   ngtcp2_transport_params_default(&params);
   params.max_idle_timeout = options.idle_timeout;
   params.initial_max_streams_bidi = options.max_streams_bidi;
-  params.initial_max_stream_data_bidi_remote = options.max_stream_window;
-  params.initial_max_stream_data_bidi_local = options.max_stream_window;
-  params.initial_max_data = options.max_window;
+  params.initial_max_stream_data_bidi_remote = options.initial_max_stream_data_bidi_remote;
+  params.initial_max_stream_data_bidi_local = options.initial_max_stream_data_bidi_local;
+  params.initial_max_data = options.initial_max_data;
 }
 
 void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bool is_client) {
@@ -183,6 +321,7 @@ void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bo
 
   callbacks.rand = rand_cb;
   callbacks.get_new_connection_id = get_new_connection_id_cb;
+  callbacks.remove_connection_id = remove_connection_id_cb;
   callbacks.handshake_completed = handshake_completed_cb;
   callbacks.recv_stream_data = recv_stream_data_cb;
   callbacks.acked_stream_data_offset = acked_stream_data_offset_cb;
@@ -223,7 +362,7 @@ td::Status QuicConnectionPImpl::init_quic_client() {
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
+td::Status QuicConnectionPImpl::init_quic_server(const ServerInitialInfo& initial) {
   ngtcp2_callbacks callbacks{};
   setup_ngtcp2_callbacks(callbacks, false);
 
@@ -232,17 +371,21 @@ td::Status QuicConnectionPImpl::init_quic_server(const VersionCid& vc) {
   setup_settings_and_params(settings, params, options_);
 
   params.original_dcid_present = 1;
-  params.original_dcid = QuicConnectionIdAccess::to_ngtcp2(vc.dcid);
+  params.original_dcid = QuicConnectionIdAccess::to_ngtcp2(initial.original_dcid);
+  if (initial.retry_scid.has_value()) {
+    params.retry_scid_present = 1;
+    params.retry_scid = QuicConnectionIdAccess::to_ngtcp2(*initial.retry_scid);
+  }
 
-  auto client_scid = QuicConnectionIdAccess::to_ngtcp2(vc.scid);
+  auto client_scid = QuicConnectionIdAccess::to_ngtcp2(initial.packet.scid);
   auto server_scid = QuicConnectionId::random();
   auto server_scid_raw = QuicConnectionIdAccess::to_ngtcp2(server_scid);
 
   ngtcp2_path path = make_path();
 
   ngtcp2_conn* new_conn = nullptr;
-  int rv = ngtcp2_conn_server_new(&new_conn, &client_scid, &server_scid_raw, &path, vc.version, &callbacks, &settings,
-                                  &params, nullptr, this);
+  int rv = ngtcp2_conn_server_new(&new_conn, &client_scid, &server_scid_raw, &path, initial.packet.version, &callbacks,
+                                  &settings, &params, nullptr, this);
   if (rv != 0) {
     return td::Status::Error(PSTRING() << "ngtcp2_conn_server_new failed: " << rv);
   }
@@ -301,18 +444,23 @@ void QuicConnectionPImpl::try_enqueue_stream(QuicStreamID sid) {
 }
 
 ngtcp2_path QuicConnectionPImpl::make_path() const {
+  return make_path(remote_address_);
+}
+
+ngtcp2_path QuicConnectionPImpl::make_path(const td::IPAddress& remote) const {
   return {
       .local = {.addr = const_cast<ngtcp2_sockaddr*>(local_address_.get_sockaddr()),
                 .addrlen = static_cast<ngtcp2_socklen>(local_address_.get_sockaddr_len())},
-      .remote = {.addr = const_cast<ngtcp2_sockaddr*>(remote_address_.get_sockaddr()),
-                 .addrlen = static_cast<ngtcp2_socklen>(remote_address_.get_sockaddr_len())},
+      .remote = {.addr = const_cast<ngtcp2_sockaddr*>(remote.get_sockaddr()),
+                 .addrlen = static_cast<ngtcp2_socklen>(remote.get_sockaddr_len())},
       .user_data = nullptr,
   };
 }
 
-void QuicConnectionPImpl::commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size) {
+void QuicConnectionPImpl::commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size,
+                                       const ngtcp2_path& path) {
   msg_out.storage.truncate(n_write);
-  msg_out.address = remote_address_;
+  msg_out.address.init_sockaddr(reinterpret_cast<sockaddr*>(path.remote.addr), path.remote.addrlen).ignore();
   msg_out.gso_size = gso_size;
 }
 
@@ -433,7 +581,7 @@ ngtcp2_ssize QuicConnectionPImpl::write_pkt_cb(ngtcp2_conn* /*conn*/, ngtcp2_pat
 
 ngtcp2_ssize QuicConnectionPImpl::write_pkt_aggregate(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
                                                       size_t destlen, ngtcp2_tstamp ts) {
-  return write_streams_to_packet(path, pi, dest, destlen, true, ts);
+  return write_streams_to_packet(path, pi, dest, destlen, false, ts);
 }
 
 td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool use_gso, size_t max_packets) {
@@ -460,23 +608,52 @@ td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool u
   }
 
   ngtcp2_conn_update_pkt_tx_time(conn(), ts);
-  commit_write(msg_out, static_cast<size_t>(n_write), gso_size);
+  commit_write(msg_out, static_cast<size_t>(n_write), gso_size, path);
 
   return td::Status::OK();
 }
 
-td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in) {
-  ngtcp2_path path = make_path();
+// Writes a terminal CONNECTION_CLOSE for `liberr` into `close_out`, or leaves it empty if ngtcp2 has
+// nothing to send (e.g. buffer/amplification limits). Only call for errors that warrant a close.
+void QuicConnectionPImpl::write_connection_close(UdpMessageBuffer& close_out, int liberr) {
+  ngtcp2_ccerr err{};
+  if (liberr == NGTCP2_ERR_CRYPTO) {
+    ngtcp2_ccerr_set_tls_alert(&err, ngtcp2_conn_get_tls_alert(conn()), nullptr, 0);
+  } else {
+    ngtcp2_ccerr_set_liberr(&err, liberr, nullptr, 0);
+  }
+  auto path = make_path();
+  ngtcp2_pkt_info pi{};
+  auto n = ngtcp2_conn_write_connection_close(conn(), &path, &pi, reinterpret_cast<uint8_t*>(close_out.storage.data()),
+                                              close_out.storage.size(), &err, now_ts());
+  if (n > 0) {
+    commit_write(close_out, static_cast<size_t>(n), 0, path);
+  } else {
+    close_out.storage.truncate(0);
+  }
+}
+
+// On entry `close_out.storage` is a full-capacity buffer; on return it holds a CONNECTION_CLOSE
+// datagram to send to msg_in.address, or is empty if there is nothing to send.
+td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in, UdpMessageBuffer& close_out) {
+  ngtcp2_path path = make_path(msg_in.address);
   ngtcp2_pkt_info pi{};
   int rv = ngtcp2_conn_read_pkt(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
   if (rv == 0) {
+    close_out.storage.truncate(0);
     return td::Status::OK();
   }
-  if (rv == NGTCP2_ERR_DROP_CONN || ngtcp2_err_is_fatal(rv)) {
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv);
+  // ngtcp2 read_pkt contract: DROP_CONN/RETRY are discarded silently and DRAINING/CLOSING forbid any
+  // further packet; every other error (including CRYPTO from a rejected SNI) gets a terminal close.
+  if (rv == NGTCP2_ERR_DROP_CONN || rv == NGTCP2_ERR_RETRY || rv == NGTCP2_ERR_DRAINING || rv == NGTCP2_ERR_CLOSING) {
+    close_out.storage.truncate(0);
+  } else {
+    write_connection_close(close_out, rv);
   }
-  return td::Status::OK();
+  // Carry rv as the status code so the caller can classify it (ngtcp2_err_is_fatal) for logging.
+  return td::Status::Error(rv, PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv
+                                         << " tls_alert=" << (int)ngtcp2_conn_get_tls_alert(conn()));
 }
 
 ngtcp2_conn_info QuicConnectionPImpl::get_conn_info() const {
@@ -485,12 +662,39 @@ ngtcp2_conn_info QuicConnectionPImpl::get_conn_info() const {
   return info;
 }
 
-QuicConnectionId QuicConnectionPImpl::get_primary_scid() const {
-  return primary_scid_;
+td::Result<QuicConnectionPImpl::InitialCidState> QuicConnectionPImpl::take_initial_cid_state() {
+  LOG_CHECK(!local_cid_callbacks_enabled_) << "Initial CID state already taken";
+
+  td::vector<QuicConnectionId> scids;
+  auto num_scids = ngtcp2_conn_get_scid(conn(), nullptr);
+  if (num_scids == 0) {
+    local_cid_callbacks_enabled_ = true;
+    return InitialCidState{.primary_scid = primary_scid_, .scids = {}};
+  }
+
+  std::vector<ngtcp2_cid> scids_raw(num_scids);
+  CHECK(ngtcp2_conn_get_scid(conn(), scids_raw.data()) == num_scids);
+
+  scids.reserve(scids_raw.size());
+  for (const auto& scid : scids_raw) {
+    TRY_RESULT(cid, QuicConnectionId::from_raw(scid.data, scid.datalen));
+    scids.push_back(cid);
+  }
+
+  local_cid_callbacks_enabled_ = true;
+  return InitialCidState{.primary_scid = primary_scid_, .scids = std::move(scids)};
 }
 
 void QuicConnectionPImpl::shutdown_stream(QuicStreamID sid) {
   ngtcp2_conn_shutdown_stream(conn(), 0, sid, 1);
+}
+
+void QuicConnectionPImpl::set_stream_receive_credit_from_max_size(QuicStreamID sid, td::uint64 max_size) {
+  td::uint64 target_credit =
+      std::clamp<td::uint64>(max_size, options_.initial_max_stream_data_bidi_local, options_.max_stream_window);
+  if (target_credit > options_.initial_max_stream_data_bidi_local) {
+    ngtcp2_conn_extend_max_stream_offset(conn(), sid, target_credit - options_.initial_max_stream_data_bidi_local);
+  }
 }
 
 td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
@@ -522,6 +726,26 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice 
   }
   mark_stream_ready(sid, st);
   return td::Status::OK();
+}
+
+QuicConnectionStats QuicConnectionPImpl::get_stats() {
+  ngtcp2_conn_info info;
+  ngtcp2_conn_get_conn_info(conn(), &info);
+  size_t bytes_unacked = 0, bytes_unsent = 0;
+  for (auto& [_, stream] : streams_) {
+    bytes_unacked += stream.pin_.size();
+    bytes_unsent += stream.reader_.size();
+  }
+  return {
+      .bytes_rx = info.bytes_recv,
+      .bytes_tx = info.bytes_sent,
+      .bytes_lost = info.bytes_lost,
+      .bytes_unacked = bytes_unacked,
+      .bytes_unsent = bytes_unsent,
+      .total_sids = sids_encountered,
+      .open_sids = streams_.size(),
+      .mean_rtt = static_cast<double>(info.smoothed_rtt),
+  };
 }
 
 ngtcp2_tstamp QuicConnectionPImpl::now_ts() {
@@ -570,8 +794,32 @@ td::SecureString QuicConnectionPImpl::extract_peer_ed25519_key() const {
   return key;
 }
 
+td::SecureString QuicConnectionPImpl::extract_local_ed25519_key() const {
+  // For the server side this reflects the post-SNI-dispatch key actually used in the handshake.
+  // For the client side this is just the client's RPK.
+  EVP_PKEY* local_pkey = SSL_get_privatekey(ssl_.get());
+  if (!local_pkey || EVP_PKEY_id(local_pkey) != EVP_PKEY_ED25519) {
+    return {};
+  }
+  size_t len = td::Ed25519::PublicKey::LENGTH;
+  td::SecureString key(len);
+  if (EVP_PKEY_get_raw_public_key(local_pkey, key.as_mutable_slice().ubegin(), &len) != 1 ||
+      len != td::Ed25519::PublicKey::LENGTH) {
+    return {};
+  }
+  return key;
+}
+
 int QuicConnectionPImpl::on_handshake_completed() {
-  callback_->on_handshake_completed({.peer_public_key = extract_peer_ed25519_key()});
+  callback_->on_handshake_completed({
+      .peer_public_key = extract_peer_ed25519_key(),
+      .local_public_key = extract_local_ed25519_key(),
+  });
+  if (ssl_ctx_) {
+    // Paranoia: clear OpenSSL's server_identities pointer to not potentially access freed memory.
+    SSL_CTX_set_tlsext_servername_arg(ssl_ctx_.get(), nullptr);
+  }
+  server_identities_.clear();
   return 0;
 }
 
@@ -579,7 +827,6 @@ int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, 
   Callback::StreamDataEvent event{
       .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
 
-  ngtcp2_conn_extend_max_stream_offset(conn(), stream_id, data.size());
   ngtcp2_conn_extend_max_offset(conn(), data.size());
 
   auto status = callback_->on_stream_data(std::move(event));
@@ -588,10 +835,13 @@ int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, 
     return 0;
   }
 
+  ngtcp2_conn_extend_max_stream_offset(conn(), stream_id, data.size());
+
   // bidi stream initiated by other party
   if (ngtcp2_is_bidi_stream(stream_id) && !ngtcp2_conn_is_local_stream(conn(), stream_id)) {
     // allow to write into this stream
     streams_.emplace(stream_id, OutboundStreamState{});
+    sids_encountered++;
   }
 
   return 0;
@@ -619,7 +869,9 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
 
 int QuicConnectionPImpl::on_stream_close(int64_t stream_id) {
   streams_.erase(stream_id);
-  ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
+  if (ngtcp2_is_bidi_stream(stream_id) && !ngtcp2_conn_is_local_stream(conn(), stream_id)) {
+    ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
+  }
   callback_->on_stream_closed(stream_id);
   return 0;
 }
@@ -635,15 +887,41 @@ int QuicConnectionPImpl::on_extend_max_stream_data(QuicStreamID sid) {
   return 0;
 }
 
+int QuicConnectionPImpl::on_get_new_connection_id(ngtcp2_cid* cid, uint8_t* token, size_t cidlen) {
+  QuicConnectionId new_cid = QuicConnectionId::random(cidlen);
+  *cid = QuicConnectionIdAccess::to_ngtcp2(new_cid);
+  if (local_cid_callbacks_enabled_) {
+    callback_->on_local_cid_issued(new_cid);
+  }
+  td::Random::secure_bytes(td::MutableSlice(token, NGTCP2_STATELESS_RESET_TOKENLEN));
+  return 0;
+}
+
+int QuicConnectionPImpl::on_remove_connection_id(const ngtcp2_cid* cid) {
+  auto cid_r = QuicConnectionId::from_raw(cid->data, cid->datalen);
+  if (cid_r.is_error()) {
+    LOG(ERROR) << "remove_connection_id received invalid cid";
+    return NGTCP2_ERR_CALLBACK_FAILURE;
+  }
+  if (local_cid_callbacks_enabled_) {
+    callback_->on_local_cid_retired(cid_r.move_as_ok());
+  }
+  return 0;
+}
+
 void QuicConnectionPImpl::rand_cb(uint8_t* dest, size_t destlen, const ngtcp2_rand_ctx* rand_ctx) {
   td::Random::secure_bytes(td::MutableSlice(dest, destlen));
 }
 
-int QuicConnectionPImpl::get_new_connection_id_cb(ngtcp2_conn* conn, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
+int QuicConnectionPImpl::get_new_connection_id_cb(ngtcp2_conn* /*conn*/, ngtcp2_cid* cid, uint8_t* token, size_t cidlen,
                                                   void* user_data) {
-  *cid = QuicConnectionIdAccess::to_ngtcp2(QuicConnectionId::random(cidlen));
-  td::Random::secure_bytes(td::MutableSlice(token, NGTCP2_STATELESS_RESET_TOKENLEN));
-  return 0;
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  return pimpl->on_get_new_connection_id(cid, token, cidlen);
+}
+
+int QuicConnectionPImpl::remove_connection_id_cb(ngtcp2_conn* /*conn*/, const ngtcp2_cid* cid, void* user_data) {
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  return pimpl->on_remove_connection_id(cid);
 }
 
 int QuicConnectionPImpl::handshake_completed_cb(ngtcp2_conn* conn, void* user_data) {

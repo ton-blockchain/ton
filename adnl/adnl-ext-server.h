@@ -26,8 +26,8 @@ namespace adnl {
 
 class AdnlExtServerCreator {
  public:
-  static td::actor::ActorOwn<AdnlExtServer> create(td::actor::ActorId<AdnlPeerTable> adnl,
-                                                   std::vector<AdnlNodeIdShort> ids, std::vector<td::uint16> ports);
+  static void create(td::actor::ActorId<AdnlPeerTable> adnl, std::vector<AdnlNodeIdShort> ids,
+                     std::vector<td::uint16> ports, td::Promise<td::actor::ActorOwn<AdnlExtServer>> promise);
 };
 
 }  // namespace adnl

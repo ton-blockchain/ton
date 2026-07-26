@@ -96,6 +96,8 @@ class VmState final : public VmStateInterface {
   VmLog log;
   GasLimits gas;
   std::vector<Ref<Cell>> libraries;
+  td::HashSet<CellHash> loaded_libraries;
+  td::optional<td::uint32> max_library_loads;
   td::HashSet<CellHash> loaded_cells;
   int stack_trace{0}, debug_off{0};
   bool chksig_always_succeed{false};
@@ -179,6 +181,7 @@ class VmState final : public VmStateInterface {
   }
   VmState(const VmState&) = delete;
   VmState(VmState&&) = default;
+  ~VmState() override;
   VmState& operator=(const VmState&) = delete;
   VmState& operator=(VmState&&) = default;
   bool set_gas_limits(long long _max, long long _limit, long long _credit = 0);
@@ -353,6 +356,9 @@ class VmState final : public VmStateInterface {
   int get_global_version() const override {
     return global_version;
   }
+  bool is_actual_tvm() const override {
+    return true;
+  }
   int call(Ref<Continuation> cont);
   int call(Ref<Continuation> cont, int pass_args, int ret_args = -1);
   int jump(Ref<Continuation> cont);
@@ -442,6 +448,10 @@ class VmState final : public VmStateInterface {
 
   td::HashSet<CellHash> extract_loaded_cells() {
     return std::move(loaded_cells);
+  }
+
+  void set_max_library_loads(td::uint32 value) {
+    max_library_loads = value;
   }
 
  private:

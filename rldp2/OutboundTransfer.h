@@ -44,17 +44,17 @@ struct OutboundTransfer {
   Part *get_part(td::uint32 part_i);
   bool is_done() const;
 
- private:
-  td::BufferSlice data_;
-  std::map<td::uint32, Part> parts_;
-  td::uint32 next_part_{0};
-
   static size_t part_size() {
     return 2000000;
   }
   static size_t symbol_size() {
     return 768;
   }
+
+ private:
+  td::BufferSlice data_;
+  std::map<td::uint32, Part> parts_;
+  td::uint32 next_part_{0};
 };
 }  // namespace rldp2
 }  // namespace ton

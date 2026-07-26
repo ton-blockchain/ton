@@ -182,7 +182,7 @@ struct SchedulerGroupInfo {
 class Scheduler {
  public:
   static constexpr int32 max_thread_count() {
-    return 256;
+    return MAX_THREADS;
   }
 
   static int32 get_thread_id() {
@@ -202,24 +202,7 @@ class Scheduler {
 
   void start();
 
-  template <class F>
-  void run_in_context(F &&f) {
-    run_in_context_impl(*info_->io_worker, std::forward<F>(f));
-  }
-
-  template <class F>
-  void run_in_context_external(F &&f) {
-    WorkerInfo info;
-    info.type = WorkerInfo::Type::Cpu;
-    run_in_context_impl(*info_->io_worker, std::forward<F>(f));
-  }
-
   bool run(double timeout);
-
-  // Just syntactic sugar
-  void stop() {
-    run_in_context([] { SchedulerContext::get().stop(); });
-  }
 
   SchedulerId get_scheduler_id() const {
     return info_->id;
@@ -231,14 +214,14 @@ class Scheduler {
   std::vector<td::thread> cpu_threads_;
   bool is_stopped_{false};
   Poll poll_;
-  KHeap<double> heap_;
+  KHeap<Timestamp> heap_;
   std::unique_ptr<IoWorker> io_worker_;
   bool skip_timeouts_{false};
 
   class ContextImpl : public SchedulerContext {
    public:
     ContextImpl(ActorInfoCreator *creator, SchedulerId scheduler_id, CpuWorkerId cpu_worker_id,
-                SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<double> *heap, Debug *debug);
+                SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<Timestamp> *heap, Debug *debug);
 
     SchedulerId get_scheduler_id() const override;
     void add_to_queue(ActorInfoPtr actor_info_ptr, SchedulerId scheduler_id, bool need_poll) override;
@@ -250,7 +233,7 @@ class Scheduler {
     Poll &get_poll() override;
 
     bool has_heap() override;
-    KHeap<double> &get_heap() override;
+    KHeap<Timestamp> &get_heap() override;
 
     Debug &get_debug() override;
 
@@ -270,13 +253,13 @@ class Scheduler {
     SchedulerGroupInfo *scheduler_group_;
     Poll *poll_;
 
-    KHeap<double> *heap_;
+    KHeap<Timestamp> *heap_;
 
     Debug *debug_;
   };
 
   template <class F>
-  void run_in_context_impl(WorkerInfo &worker_info, F &&f) {
+  auto run_in_context_impl(WorkerInfo &worker_info, F &&f) {
 #if TD_PORT_WINDOWS
     td::detail::Iocp::Guard iocp_guard(&scheduler_group_info_->iocp);
 #endif
@@ -285,12 +268,22 @@ class Scheduler {
                         scheduler_group_info_.get(), is_io_worker ? &poll_ : nullptr, is_io_worker ? &heap_ : nullptr,
                         &worker_info.debug);
     SchedulerContext::Guard guard(&context);
-    f();
+    return f();
   }
 
   void do_stop();
 
  public:
+  template <class F>
+  auto run_in_context(F &&f) {
+    return run_in_context_impl(*info_->io_worker, std::forward<F>(f));
+  }
+
+  // Just syntactic sugar
+  void stop() {
+    run_in_context([] { SchedulerContext::get().stop(); });
+  }
+
   static void close_scheduler_group(SchedulerGroupInfo &group_info);
 };
 

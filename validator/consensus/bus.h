@@ -7,16 +7,13 @@
 #pragma once
 
 #include "consensus/misbehavior.h"
-#include "keyring/keyring.hpp"
+#include "keyring/keyring.h"
 #include "overlay/overlays.h"
-#include "quic/quic-sender.h"
-#include "rldp2/rldp.h"
-#include "td/db/KeyValueAsync.h"
+#include "td/actor/BusRuntime.h"
 #include "ton/ton-types.h"
 
 #include "chain-state.h"
 #include "manager-facade.h"
-#include "runtime.h"
 #include "types.h"
 
 namespace ton::validator::consensus {
@@ -50,12 +47,6 @@ struct OurLeaderWindowStarted {
   std::string contents_to_string() const;
 };
 
-struct OurLeaderWindowAborted {
-  td::uint32 start_slot;
-
-  std::string contents_to_string() const;
-};
-
 struct CandidateGenerated {
   CandidateRef candidate;
   std::optional<adnl::AdnlNodeIdShort> collator_id;
@@ -83,7 +74,8 @@ struct ValidationRequest {
 struct IncomingProtocolMessage {
   using LogToDebug = std::true_type;
 
-  PeerValidatorId source;
+  std::optional<PeerValidatorId> source_validator;
+  adnl::AdnlNodeIdShort source;
   ProtocolMessage message;
 
   std::string contents_to_string() const;
@@ -92,7 +84,15 @@ struct IncomingProtocolMessage {
 struct OutgoingProtocolMessage {
   using LogToDebug = std::true_type;
 
-  std::optional<PeerValidatorId> recipient;
+  struct BroadcastToAll {};
+  struct BroadcastToValidators {};
+  struct BroadcastToRandom {
+    size_t count;
+  };
+
+  using Recipient = std::variant<BroadcastToAll, BroadcastToValidators, BroadcastToRandom>;
+
+  Recipient recipient;
   ProtocolMessage message;
 
   std::string contents_to_string() const;
@@ -102,7 +102,8 @@ struct IncomingOverlayRequest {
   using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
-  PeerValidatorId source;
+  std::optional<PeerValidatorId> source_validator;
+  adnl::AdnlNodeIdShort source;
   ProtocolMessage request;
 
   std::string contents_to_string() const;
@@ -113,7 +114,7 @@ struct OutgoingOverlayRequest {
   using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
-  PeerValidatorId destination;
+  std::optional<adnl::AdnlNodeIdShort> destination;
   td::Timestamp timeout;
   ProtocolMessage request;
 
@@ -140,6 +141,22 @@ struct TraceEvent {
   std::string contents_to_string() const;
 };
 
+struct NoncriticalParamsUpdated {
+  NewConsensusConfig::NoncriticalParams params;
+
+  std::string contents_to_string() const;
+};
+
+struct PrecheckCandidateBroadcast {
+  using ReturnType = td::Unit;
+
+  td::uint32 slot;
+  td::Bits256 broadcast_id;
+  bool signature_checked;
+
+  std::string contents_to_string() const;
+};
+
 class Db {
  public:
   virtual ~Db() = default;
@@ -149,21 +166,25 @@ class Db {
   virtual std::optional<td::BufferSlice> get(td::Slice key) const = 0;
   virtual std::vector<std::pair<td::BufferSlice, td::BufferSlice>> get_by_prefix(td::uint32 prefix) const = 0;
   virtual td::actor::Task<> set(td::BufferSlice key, td::BufferSlice value) = 0;
+  virtual td::actor::Task<> close() = 0;
 };
 
-class Bus : public runtime::Bus {
+class Bus : public td::actor::Bus {
  public:
-  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowAborted,
-                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
-                              OutgoingProtocolMessage, IncomingOverlayRequest, OutgoingOverlayRequest,
-                              BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent>;
+  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, CandidateGenerated,
+                              CandidateReceived, ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage,
+                              IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
+                              MisbehaviorReport, TraceEvent, NoncriticalParamsUpdated, PrecheckCandidateBroadcast>;
 
   Bus() = default;
   ~Bus() override {
+    db = {};
     stop_promise.set_value(td::Unit());
   }
 
-  virtual void populate_collator_schedule() = 0;
+  bool is_validator() const {
+    return local_id.has_value();
+  }
 
   ValidatorSessionId session_id;
 
@@ -176,40 +197,46 @@ class Bus : public runtime::Bus {
   ValidatorWeight total_weight;
   ton::CatchainSeqno cc_seqno;
   td::uint32 validator_set_hash;
-  PeerValidator local_id;
+  std::optional<PeerValidator> local_id;
+
+  adnl::AdnlNodeIdShort local_adnl_id;
+  std::vector<adnl::AdnlNodeIdShort> all_validators;
 
   NewConsensusConfig config;
 
   td::Ref<CollatorSchedule> collator_schedule;
 
   td::actor::ActorId<overlay::Overlays> overlays;
-  td::actor::ActorId<rldp2::Rldp> rldp2;
-  td::actor::ActorId<quic::QuicSender> quic;
+  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender;
   std::unique_ptr<Db> db;
 
   td::Promise<td::Unit> stop_promise;
 };
 
-using BusHandle = runtime::BusHandle<Bus>;
+using BusHandle = td::actor::BusHandle<Bus>;
 
 struct BlockAccepter {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct BlockProducer {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
+};
+
+struct BlockSyncOverlay {
+  static void register_in(td::actor::Runtime&);
 };
 
 struct BlockValidator {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct PrivateOverlay {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct TraceCollector {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 }  // namespace ton::validator::consensus

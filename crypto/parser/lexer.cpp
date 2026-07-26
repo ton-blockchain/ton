@@ -253,7 +253,7 @@ const Lexem& Lexer::next() {
     return lexem.clear(src.here(), Lexem::Eof);
   }
   if (is_multiline_quote(src.get_ptr(), src.get_end_ptr())) {
-    src.advance(multiline_quote.size());
+    src.advance(static_cast<int>(multiline_quote.size()));
     const char* end = nullptr;
     SrcLocation here = src.here();
     std::string body;
@@ -265,7 +265,7 @@ const Lexem& Lexer::next() {
       }
       if (is_multiline_quote(src.get_ptr(), src.get_end_ptr())) {
         end = src.get_ptr();
-        src.advance(multiline_quote.size());
+        src.advance(static_cast<int>(multiline_quote.size()));
         break;
       }
       body.push_back(src.cur_char());

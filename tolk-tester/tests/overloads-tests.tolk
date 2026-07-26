@@ -39,12 +39,12 @@ fun test1() {
 
 fun T.doSome2(self): int { return 0 }
 fun int8.doSome2(self): cell { return createEmptyCell() }
-fun int16.doSome2(self): slice { return "" }
+fun int16.doSome2(self) { return "" }
 
 fun test2() {
     __expect_type(5.doSome2(), "int");
     __expect_type((5 as int8).doSome2(), "cell");
-    __expect_type(((5 as int8) as int16).doSome2(), "slice");
+    __expect_type(((5 as int8) as int16).doSome2(), "string");
     __expect_type((5 as int?).doSome2(), "int");
     __expect_type(5.doSome2().doSome2(), "int");
     __expect_type((1, 2).doSome2(), "int");
@@ -65,13 +65,14 @@ fun test3() {
     __expect_type(MyPair<never, (slice,slice)>{}.mapFn(), "int4");
 }
 
-fun (int|slice).unionMix(self): slice { return "" }
+fun (int|slice).unionMix(self): slice { return createEmptySlice() }
 fun int.unionMix(self): bool { return true }
 
 fun test4() {
     __expect_type((5 as int).unionMix(), "bool");
-    __expect_type(("".unionMix()), "slice");
+    __expect_type((createEmptySlice().unionMix()), "slice");
     __expect_type(((5 as int|slice).unionMix()), "slice");
+    __expect_type(((5 as slice|int).unionMix()), "slice");
 }
 
 fun WrapA<T>.dup(self): WrapA<T> { return self }
@@ -186,20 +187,20 @@ fun T.p(self): int3 { return 0 }
 fun test11() {
     __expect_type((5, "").p(), "int1");
     __expect_type((5 as int8, "").p(), "int8");
-    __expect_type(("", "").p(), "slice");
+    __expect_type(("", "").p(), "string");
     __expect_type((1, 2, 3).p(), "int3");
 }
 
-fun Wrapper<T|slice>.w(self): int1 { return 0 }
+fun Wrapper<T|string>.w(self): int1 { return 0 }
 fun Wrapper<T>.w(self): int2 { return 0 }
 
 fun test12() {
-    __expect_type(Wrapper<int|slice>{item:0}.w(), "int1");
-    __expect_type(Wrapper<PointAlias|slice>{item:""}.w(), "int1");
+    __expect_type(Wrapper<int|string>{item:0}.w(), "int1");
+    __expect_type(Wrapper<PointAlias|string>{item:""}.w(), "int1");
     __expect_type(Wrapper<Wrapper<int>>{item:{item:0}}.w(), "int2");
-    // here the compiler finds T=slice resulting in Wrapper<slice|slice> (it's correct)
+    // here the compiler finds T=string resulting in Wrapper<string|string> (it's correct)
     // and chooses (1) due to a deeper shape
-    __expect_type(Wrapper<slice>{item:""}.w(), "int1");
+    __expect_type(Wrapper{item:""}.w(), "int1");
 }
 
 type MyCell<T> = cell
@@ -255,6 +256,9 @@ fun map<int8, V>.mySize(self): int3 { return 0 }
 fun map<int8, map<K, V>>.mySize(self): int4 { return 0 }
 fun map<int8, map<int16, V>>.mySize(self): int5 { return 0 }
 
+fun map<K, V|slice>.whichSlice(self): int2 { return 0 }
+fun map<K, slice>.whichSlice(self): int3 { return 0 }
+
 type MInt16 = int16
 type MInt16ov = MInt16
 type MMap32 = map<int32, map<bool, varint16>>
@@ -263,9 +267,10 @@ type MMap8Of32 = map<int8, MMap32>
 fun test14(
     m1: map<int8, map<int16, int32>>, m2: map<int8, map<MInt16ov, MInt16ov>>,
     m3: map<int8, map<Point, slice>>, m4: map<int8, MMap32>, m5: MMap8Of32,
-    m6: map<int8, map<int8,int8>?>,
+    m6: map<int8, map<int8,int8>?>, 
     m7: map<int8, bool|cell>, m8: map<MInt16, ()|cell|Point>,
     m9: map<address, address>,
+    m10: map<int8, slice>,
 ) {
     __expect_type(m1.mySize(), "int5");
     __expect_type(m2.mySize(), "int5");
@@ -276,6 +281,138 @@ fun test14(
     __expect_type(m7.mySize(), "int2");
     __expect_type(m8.mySize(), "int2");
     __expect_type(m9.mySize(), "int1");
+    __expect_type(m10.whichSlice(), "int3");
+}
+
+type ArrAlias<T> = array<T>
+type ArrArrInt8 = array<array<int8>>
+
+fun ArrAlias<T>.mySize(self): int1 { return self.size() }
+fun array<array<T>>.mySize(self): int2 { return self.size() }
+fun array<array<int8>>.mySize(self): int3 { return self.size() }
+
+fun test15(
+    arrInt: array<int>,
+    arrArrInt: array<array<int>>,
+    arrArrArrInt: array<array<array<int>>>,
+    tup: array<unknown>,
+    aliasInt: ArrAlias<int>,
+    aliasArrInt: ArrAlias<array<int>>,
+    arrArrInt8_1: array<array<int8>>,
+    arrArrInt8_2: ArrAlias<array<int8>>,
+    arrArrInt8_3: ArrAlias<ArrAlias<int8>>,
+) {
+    __expect_type(arrInt.mySize(), "int1");
+    __expect_type(arrArrInt.mySize(), "int2");
+    __expect_type(arrArrArrInt.mySize(), "int2");
+    __expect_type(tup.mySize(), "int1");
+    __expect_type(aliasInt.mySize(), "int1");
+    __expect_type(aliasArrInt.mySize(), "int2");
+    __expect_type(arrArrInt8_1.mySize(), "int3");
+    __expect_type(arrArrInt8_2.mySize(), "int3");
+    __expect_type(arrArrInt8_3.mySize(), "int3");
+}
+
+type AA<T> = cell
+type BB<T> = cell
+
+fun AA <T> .pick(self): int1 { return 111 }
+fun BB<int>.pick(self): int2 { return 222 }
+
+fun AA<slice>.calc(self): int3 { return 333 }
+fun BB<slice>.calc(self): int4 { return 444 }
+
+fun AA<slice>.calcStatic(): int5 { return 555 }
+fun BB<slice>.calcStatic(): int6 { return 666 }
+
+@method_id(116)
+fun test16(): int {
+    var a = createEmptyCell() as AA<int>;
+    var b = createEmptyCell() as BB<int>;
+    __expect_type(a.pick(), "int1");
+    __expect_type(b.pick(), "int2");
+    return a.pick() * 1000 + b.pick();
+}
+
+fun test17(a: AA<slice>, b: BB<slice>) {
+    __expect_type(a.calc(), "int3");
+    __expect_type(b.calc(), "int4");
+    __expect_type(AA<slice>.calcStatic(), "int5");
+    __expect_type(BB<slice>.calcStatic(), "int6");
+}
+
+type BoxForHash<T> = cell
+
+fun BoxForHash<T>.hash(self): int {
+    return 123;
+}
+
+@method_id(118)
+fun test18(): int {
+    var b: BoxForHash<int> = beginCell().endCell();
+    __expect_type(b.hash(), "int");
+    return b.hash();        // not `cell.hash`
+}
+
+type GenericCellForWhich<T> = cell
+type GenericCellForWhichInt = GenericCellForWhich<int>
+
+fun GenericCellForWhich<T>.which(self): int1 {
+    return 1;
+}
+
+fun T.which(self): int3 {
+    return 3;
+}
+
+@method_id(119)
+fun test19() {
+    val direct: GenericCellForWhich<int> = createEmptyCell();
+    val throughAlias: GenericCellForWhichInt = createEmptyCell();
+    __expect_type(direct.which(), "int1");
+    __expect_type(throughAlias.which(), "int1");
+}
+
+type TaggedCellForPick<T> = cell
+
+fun TaggedCellForPick<(T, T)>.pickSpecialized(self): int22 {
+    return 22;
+}
+
+fun TaggedCellForPick<T | (U, V)>.pickSpecialized(self): int33 {
+    return 33;
+}
+
+@method_id(120)
+fun test20(): int {
+    val c: TaggedCellForPick<(int, int)> = createEmptyCell();
+    __expect_type(c.pickSpecialized(), "int22");
+    return c.pickSpecialized();
+}
+
+struct BoxForPick<T> { value: T }
+
+fun (T | BoxForPick<T>).pickT(self): int { return 111; }
+
+@method_id(121)
+fun test21(): int {
+    val order1 = 7 as int | BoxForPick<int>;
+    val order2 = 7 as BoxForPick<int> | int;
+    __expect_type(order2.pickT(), "int");
+    return order1.pickT() + order2.pickT();
+}
+
+struct OkRes<T> { v: T }
+struct ErrRes<E> { e: E }
+
+fun (OkRes<T> | ErrRes<E>).tagRes(self): int { return 222; }
+
+@method_id(122)
+fun test22(): int {
+    val order1 = ErrRes<slice>{ e: createEmptySlice() } as OkRes<int> | ErrRes<slice>;
+    val order2 = OkRes<int>{ v: 9 } as ErrRes<slice> | OkRes<int>;
+    __expect_type(order2.tagRes(), "int");
+    return order1.tagRes() + order2.tagRes();
 }
 
 fun main() {
@@ -286,4 +423,19 @@ fun main() {
 /**
 @testcase | 0   |   | 0
 @testcase | 113 |   | [ 1 2 258 1 2 -777 ]
+@testcase | 116 |   | 111222
+@testcase | 118 |   | 123
+@testcase | 120 |   | 22
+@testcase | 121 |   | 222
+@testcase | 122 |   | 444
+
+@fif_codegen
+"""
+  test16() PROC:<{
+    111222 PUSHINT
+  }>
+  test18() PROC:<{
+    123 PUSHINT
+  }>
+"""
  */

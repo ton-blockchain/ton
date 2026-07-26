@@ -135,7 +135,9 @@ struct promise_value : promise_common {
   [[no_unique_address]] ResultT result;
 
   template <class TT>
-  void return_value(TT&& v) noexcept {
+  void return_value(TT&& v) noexcept
+    requires requires { result = std::forward<TT>(v); }
+  {
     result = std::forward<TT>(v);
   }
 
@@ -153,9 +155,6 @@ struct promise_value : promise_common {
     return std::move(result);
   }
 };
-
-template <class T>
-struct Task;
 
 template <class T>
 struct StartedTask;
@@ -439,6 +438,19 @@ struct [[nodiscard]] StartedTask {
     }
     sm().on_detach(h);
     h = {};
+  }
+  void detach_ensure(std::string description = "UnknownTask") && {
+    if (!h) {
+      return;
+    }
+    [](auto self, std::string description) -> Task<> {
+      co_await become_lightweight();
+      auto r = co_await std::move(self).wrap();
+      LOG_IF(FATAL, r.is_error()) << "Detached task <" << description << "> failed: " << r.error();
+      co_return {};
+    }(std::move(*this), std::move(description))
+                                                  .start_immediate()
+                                                  .detach_silent();
   }
   bool await_ready() noexcept {
     return sm().is_ready();

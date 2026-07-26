@@ -84,7 +84,7 @@ class ActorInfoCreator {
   ActorInfoCreator(ActorInfoCreator &&other) = delete;
   ActorInfoCreator &operator=(ActorInfoCreator &&other) = delete;
   void clear() {
-    pool_.for_each([](auto &actor_info) { actor_info.destroy_actor(); });
+    pool_.for_each([](auto &actor_info) { actor_info.dec_ref(); });
   }
   ~ActorInfoCreator() {
     clear();

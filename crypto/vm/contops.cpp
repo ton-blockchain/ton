@@ -814,7 +814,10 @@ int exec_setcont_ctr(VmState* st, unsigned args) {
   VM_LOG(st) << "execute SETCONTCTR c" << idx;
   stack.check_underflow(2);
   auto cont = stack.pop_cont();
-  throw_typechk(force_cregs(cont)->define(idx, stack.pop_chk()));
+  // Before TVM 14, writing into an already-set savelist slot incorrectly raised type_chk
+  // instead of silent no-op (as required by TVM whitepaper).
+  bool silent_if_set = st->get_global_version() >= 14;
+  throw_typechk(force_cregs(cont)->define(idx, stack.pop_chk(), silent_if_set));
   st->get_stack().push_cont(std::move(cont));
   return 0;
 }
@@ -823,7 +826,8 @@ int exec_setret_ctr(VmState* st, unsigned args) {
   unsigned idx = args & 15;
   VM_LOG(st) << "execute SETRETCTR c" << idx;
   auto cont = st->get_c0();
-  throw_typechk(force_cregs(cont)->define(idx, st->get_stack().pop_chk()));
+  bool silent_if_set = st->get_global_version() >= 14;
+  throw_typechk(force_cregs(cont)->define(idx, st->get_stack().pop_chk(), silent_if_set));
   st->set_c0(std::move(cont));
   return 0;
 }
@@ -832,7 +836,8 @@ int exec_setalt_ctr(VmState* st, unsigned args) {
   unsigned idx = args & 15;
   VM_LOG(st) << "execute SETALTCTR c" << idx;
   auto cont = st->get_c1();
-  throw_typechk(force_cregs(cont)->define(idx, st->get_stack().pop_chk()));
+  bool silent_if_set = st->get_global_version() >= 14;
+  throw_typechk(force_cregs(cont)->define(idx, st->get_stack().pop_chk(), silent_if_set));
   st->set_c1(std::move(cont));
   return 0;
 }
@@ -858,7 +863,8 @@ int exec_save_ctr(VmState* st, unsigned args) {
   unsigned idx = args & 15;
   VM_LOG(st) << "execute SAVECTR c" << idx;
   auto c0 = st->get_c0();
-  throw_typechk(force_cregs(c0)->define(idx, st->get(idx)));
+  bool silent_if_set = st->get_global_version() >= 14;
+  throw_typechk(force_cregs(c0)->define(idx, st->get(idx), silent_if_set));
   st->set_c0(std::move(c0));
   return 0;
 }
@@ -878,7 +884,8 @@ int exec_savealt_ctr(VmState* st, unsigned args) {
   unsigned idx = args & 15;
   VM_LOG(st) << "execute SAVEALTCTR c" << idx;
   auto c1 = st->get_c1();
-  throw_typechk(force_cregs(c1)->define(idx, st->get(idx)));
+  bool silent_if_set = st->get_global_version() >= 14;
+  throw_typechk(force_cregs(c1)->define(idx, st->get(idx), silent_if_set));
   st->set_c1(std::move(c1));
   return 0;
 }
@@ -922,7 +929,8 @@ int exec_setcont_ctr_var(VmState* st) {
   unsigned idx = stack.pop_smallint_range(16);
   throw_rangechk(ControlRegs::valid_idx(idx));
   auto cont = stack.pop_cont();
-  throw_typechk(force_cregs(cont)->define(idx, stack.pop_chk()));
+  bool silent_if_set = st->get_global_version() >= 14;
+  throw_typechk(force_cregs(cont)->define(idx, stack.pop_chk(), silent_if_set));
   st->get_stack().push_cont(std::move(cont));
   return 0;
 }
@@ -935,9 +943,10 @@ int exec_setcont_ctr_many(VmState* st, unsigned args) {
   }
   Stack& stack = st->get_stack();
   auto cont = stack.pop_cont();
+  bool silent_if_set = st->get_global_version() >= 14;
   for (int i = 0; i < 8; ++i) {
     if (mask & (1 << i)) {
-      throw_typechk(force_cregs(cont)->define(i, st->get(i)));
+      throw_typechk(force_cregs(cont)->define(i, st->get(i), silent_if_set));
     }
   }
   st->get_stack().push_cont(std::move(cont));
@@ -953,9 +962,10 @@ int exec_setcont_ctr_many_var(VmState* st) {
     throw VmError{Excno::range_chk, "no control register c6"};
   }
   auto cont = stack.pop_cont();
+  bool silent_if_set = st->get_global_version() >= 14;
   for (int i = 0; i < 8; ++i) {
     if (mask & (1 << i)) {
-      throw_typechk(force_cregs(cont)->define(i, st->get(i)));
+      throw_typechk(force_cregs(cont)->define(i, st->get(i), silent_if_set));
     }
   }
   st->get_stack().push_cont(std::move(cont));

@@ -72,6 +72,18 @@ class DataFilter:
         return result
 
 
+def _format_source(e: EventData) -> str:
+    if e.source_valgroup_id is None:
+        return ""
+    parts = f"<br>source_valgroup={e.source_valgroup_id}"
+    if e.source_slot is not None:
+        parts += f"<br>source_slot={e.source_slot}"
+    if e.source_block_id is not None:
+        bid = e.source_block_id.split(":")[0] if e.source_block_id else None
+        parts += f"<br>source_block={bid}"
+    return parts
+
+
 @final
 class SummaryFigureBuilder:
     def __init__(self, valgroup_id: str, slot_dict: dict[int, SlotData]):
@@ -85,9 +97,12 @@ class SummaryFigureBuilder:
         markers: list[EventData],
         slot_from: int,
         slot_to: int,
+        time_from: float | None = None,
+        time_until: float | None = None,
     ) -> go.Figure:
         self._add_bars(segments)
         self._add_markers(markers)
+        self._add_period_bounds(time_from, time_until)
         self._configure_layout(slot_from, slot_to)
         return self._fig
 
@@ -142,10 +157,11 @@ class SummaryFigureBuilder:
                             e.slot,
                             to_datetime(e.t_ms).strftime("%H:%M:%S.%f"),
                             self._slot_dict[e.slot].block_id(),
+                            _format_source(e),
                         ]
                         for e in events
                     ],
-                    hovertemplate=f"valgroup={self._valgroup_id}<br>slot=%{{customdata[1]}}<br>marker={label}<br>t=%{{customdata[2]}}<br>block_id=%{{customdata[3]}}<extra></extra>",
+                    hovertemplate=f"valgroup={self._valgroup_id}<br>slot=%{{customdata[1]}}<br>marker={label}<br>t=%{{customdata[2]}}<br>block_id=%{{customdata[3]}}%{{customdata[4]}}<extra></extra>",
                 )
             )
 
@@ -172,6 +188,21 @@ class SummaryFigureBuilder:
             ),
             dragmode="pan",
         )
+
+    def _add_period_bounds(self, time_from: float | None, time_until: float | None) -> None:
+        for ts, label in ((time_from, "time from"), (time_until, "time until")):
+            if ts is None:
+                continue
+
+            _ = self._fig.add_vrect(  # pyright: ignore[reportUnknownMemberType]
+                x0=datetime.fromtimestamp(ts, tz=timezone.utc),
+                x1=datetime.fromtimestamp(ts, tz=timezone.utc),
+                line_width=2,
+                line_dash="dash",
+                line_color="red",
+                annotation_text=label,
+                annotation_position="top left",
+            )
 
 
 @final
@@ -211,6 +242,7 @@ class DetailFigureBuilder:
                         symbol=m.get_symbol(),
                         color=m.get_color(),
                     ),
+                    opacity=0.8,
                     name=m.label,
                     legendgroup=f"slot:{m.label}",
                     showlegend=True,
@@ -225,18 +257,72 @@ class DetailFigureBuilder:
                 )
             )
 
+    @staticmethod
+    def _format_time_stats(entries: list[tuple[str, float]]) -> str:
+        regular: list[tuple[str, float]] = []
+        wt_real: dict[str, float] = {}
+        wt_cpu: dict[str, float] = {}
+        ssc: dict[str, int] = {}
+        for name, value in entries:
+            if name.startswith("wt_real:"):
+                wt_real[name[8:]] = value
+            elif name.startswith("wt_cpu:"):
+                wt_cpu[name[7:]] = value
+            elif name.startswith("ssc:"):
+                ssc[name[4:]] = int(value)
+            else:
+                regular.append((name, value))
+
+        parts = "<br>time_stats:"
+        for name, value in regular:
+            parts += f"<br>  {name}: {value * 1000:.3f} ms"
+
+        all_keys = list(dict.fromkeys(list(wt_real) + list(wt_cpu)))
+        if all_keys:
+            parts += "<br>work_time (real/cpu):"
+            for key in all_keys:
+                real = wt_real.get(key)
+                cpu = wt_cpu.get(key)
+                if real is not None and cpu is not None:
+                    parts += f"<br>  {key}: {real * 1000:.3f}/{cpu * 1000:.3f} ms"
+                elif real is not None:
+                    parts += f"<br>  {key}: {real * 1000:.3f}/- ms"
+                else:
+                    assert cpu is not None
+                    parts += f"<br>  {key}: -/{cpu * 1000:.3f} ms"
+
+        if ssc:
+            parts += "<br>storage_stat_cache (cnt/cells):"
+            for label in ("small", "hit", "miss"):
+                cnt = ssc.get(label)
+                cells = ssc.get(f"{label}_cells")
+                if cnt is not None and cells is not None:
+                    parts += f"<br>  {label}: {cnt}/{cells}"
+
+        return parts
+
+    def _event_hover_text(self, label: str, validator: int | None) -> str:
+        if label == "collation":
+            parts = ""
+            if self._slot.collate_target_slot is not None:
+                parts += f"<br>target_slot={self._slot.collate_target_slot}"
+            if self._slot.time_stats:
+                parts += self._format_time_stats(self._slot.time_stats)
+            return parts
+        if (
+            label == "block_validation"
+            and self._slot.validation_time_stats
+            and validator is not None
+        ):
+            v_ts = self._slot.validation_time_stats.get(validator)
+            if v_ts:
+                return self._format_time_stats(v_ts)
+        return ""
+
     def _add_validator_events(self, events: list[EventData]) -> None:
         events_by_label = DataFilter.group_events_by_label(events)
 
         for label in sorted(events_by_label.keys()):
-            if label not in (
-                "block_validation",
-                "finalization",
-                "collation",
-                "skip_observed",
-                "candidate_received",
-            ):
-                continue
             label_events = events_by_label[label]
 
             if self._time_mode == "abs":
@@ -258,12 +344,13 @@ class DetailFigureBuilder:
                         e.kind,
                         e.t1_ms - e.t_ms if e.t1_ms else 0,
                         b,
+                        self._event_hover_text(label, e.validator),
                     ]
                     for e, b in zip(label_events, base)
                 ],
             )
 
-            if label not in ("skip_observed", "candidate_received"):
+            if label_events[0].t1_ms:  # event has end time
                 _ = self._fig.add_trace(  # pyright: ignore[reportUnknownMemberType]
                     go.Bar(
                         orientation="h",
@@ -271,6 +358,7 @@ class DetailFigureBuilder:
                         x=x,
                         y=[e.validator for e in label_events],
                         marker=dict(color=label_events[0].get_color()),
+                        opacity=0.8,
                         hovertemplate=(
                             f"valgroup={self._valgroup_id}<br>slot={self._slot.slot}<br>"
                             + f"validator=%{{customdata[2]}}<br>event={label} (kind=%{{customdata[4]}})<br>"
@@ -279,7 +367,7 @@ class DetailFigureBuilder:
                                 if self._time_mode == "abs"
                                 else "start=%{base}ms<br>"
                             )
-                            + "dt=%{customdata[5]:.3f}ms<extra></extra>"
+                            + "dt=%{customdata[5]:.3f}ms%{customdata[7]}<extra></extra>"
                         ),
                         **kwargs,
                     )
@@ -295,13 +383,14 @@ class DetailFigureBuilder:
                             symbol=label_events[0].get_symbol(),
                             color=label_events[0].get_color(),
                         ),
+                        opacity=0.8,
                         hovertemplate=(
                             f"valgroup={self._valgroup_id}<br>slot={self._slot.slot}<br>"
                             + f"validator=%{{customdata[2]}}<br>event={label} (kind=%{{customdata[4]}})<br>"
                             + (
-                                "t=%{customdata[6]|%H:%M:%S.%f}<br><extra></extra>"
+                                "t=%{customdata[6]|%H:%M:%S.%f}%{customdata[7]}<br><extra></extra>"
                                 if self._time_mode == "abs"
-                                else "t=%{x}ms<br><extra></extra>"
+                                else "t=%{x}ms%{customdata[7]}<br><extra></extra>"
                             )
                         ),
                         **kwargs,
@@ -315,10 +404,6 @@ class DetailFigureBuilder:
         title = f"Detail — valgroup ({self._valgroup_id}) slot {self._slot.slot}"
         if self._slot.is_empty:
             title += " · empty"
-        if self._slot.collator is not None:
-            title += f" · collator={self._slot.collator}"
-        if self._slot.block_id_ext:
-            title += f"<br>block={self._slot.block_id_ext}"
 
         validators = sorted({e.validator for e in events if e.validator is not None})
         x_title = "t - slot_start_est (ms)" if self._time_mode == "rel" else "Time (UTC)"
@@ -345,7 +430,6 @@ class DetailFigureBuilder:
                 categoryorder="array",
                 categoryarray=["__slot__"] + validators,
             ),
-            margin=dict(l=130, r=20, t=60, b=55),
             dragmode="pan",
         )
 
@@ -354,12 +438,17 @@ class FigureBuilder:
     def __init__(self, data: ConsensusData):
         self._filter: DataFilter = DataFilter(data)
 
+    def get_slot(self, valgroup_id: str, slot: int) -> SlotData | None:
+        return self._filter.get_slot(valgroup_id, slot)
+
     def build_summary(
         self,
         valgroup_id: str,
         slot_from: int,
         slot_to: int,
         show_empty: bool,
+        time_from: float | None = None,
+        time_until: float | None = None,
     ) -> go.Figure:
         slots = self._filter.filter_slots(valgroup_id, slot_from, slot_to, show_empty)
         slot_set = {s.slot for s in slots}
@@ -375,11 +464,11 @@ class FigureBuilder:
             valgroup_id=valgroup_id,
             slots=slot_set,
             has_validator=False,
-            kinds={"estimate", "observed"},
+            kinds={"estimate", "observed", "crosslink"},
         )
 
         builder = SummaryFigureBuilder(valgroup_id, slot_dict)
-        return builder.build(segments, markers, slot_from, slot_to)
+        return builder.build(segments, markers, slot_from, slot_to, time_from, time_until)
 
     def build_detail(
         self,

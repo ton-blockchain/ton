@@ -16,6 +16,8 @@
 
     Copyright 2019-2020 Telegram Systems LLP
 */
+#pragma once
+
 #include "td/utils/Random.h"
 
 #include "http-client.h"

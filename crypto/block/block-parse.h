@@ -41,10 +41,14 @@ using namespace ::tlb;
 
 struct Anycast final : TLB {
   int get_size(const vm::CellSlice& cs) const override {
-    return cs.have(5) ? 5 + (int)cs.prefetch_ulong(5) : -1;
+    if (!cs.have(5)) {
+      return -1;
+    }
+    int depth = (int)cs.prefetch_ulong(5);
+    return (1 <= depth && depth <= 30 && cs.have(5 + depth)) ? 5 + depth : -1;
   }
   bool skip_get_depth(vm::CellSlice& cs, int& depth) const {
-    return cs.fetch_uint_leq(30, depth) && cs.advance(depth);
+    return cs.fetch_uint_leq(30, depth) && 1 <= depth && cs.advance(depth);
   }
 };
 

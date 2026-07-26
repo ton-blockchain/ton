@@ -135,7 +135,7 @@ class PrepareLsSliceConfig : public td::actor::Actor {
     res->seqno_ = block_id.seqno();
 
     auto root = vm::std_boc_deserialize(obj.header_proof_).move_as_ok();
-    root = vm::MerkleProof::virtualize(root);
+    root = vm::MerkleProof::virtualize(root).move_as_ok();
     block::gen::Block::Record blk;
     block::gen::BlockInfo::Record info;
     CHECK(tlb::unpack_cell(root, blk) && tlb::unpack_cell(blk.info, info));

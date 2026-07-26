@@ -46,16 +46,15 @@ class BroadcastsTwostep {
  public:
   BroadcastsTwostep();
   ~BroadcastsTwostep();
-  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::BufferSlice data, td::uint32 flags);
+  void send(OverlayImpl *overlay, PublicKeyHash send_as, td::BufferSlice data, td::BufferSlice extra, td::uint32 flags);
   void signed_simple(OverlayImpl *overlay, BroadcastTwostepDataSimple &&data,
                      td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
   void signed_fec(OverlayImpl *overlay, BroadcastTwostepDataFec &&data,
                   td::Result<std::pair<td::BufferSlice, PublicKey>> &&R);
-  td::Status process_broadcast(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id,
-                               tl_object_ptr<ton_api::overlay_broadcastTwostepSimple> broadcast);
-  td::Status process_broadcast(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id,
-                               tl_object_ptr<ton_api::overlay_broadcastTwostepFec> broadcast);
-  void checked(OverlayImpl *overlay, PublicKeyHash &&src, td::BufferSlice &&data, td::Result<td::Unit> &&R);
+  td::actor::Task<> process_broadcast(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id,
+                                      tl_object_ptr<ton_api::overlay_broadcastTwostepSimple> broadcast);
+  td::actor::Task<> process_broadcast(OverlayImpl *overlay, adnl::AdnlNodeIdShort src_peer_id,
+                                      tl_object_ptr<ton_api::overlay_broadcastTwostepFec> broadcast);
   void gc(OverlayImpl *overlay);
 
   void init_sender(td::actor::ActorId<adnl::AdnlSenderInterface> sender) {
@@ -67,7 +66,8 @@ class BroadcastsTwostep {
   std::map<Overlay::BroadcastHash, std::unique_ptr<BroadcastTwostep>> broadcasts_;
   td::ListNode lru_;
 
-  void rebroadcast(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &bcast_src_adnl_id, const td::BufferSlice &data);
+  td::uint64 rebroadcast(OverlayImpl *overlay, const adnl::AdnlNodeIdShort &bcast_src_adnl_id,
+                         const td::BufferSlice &data);
 };
 }  // namespace overlay
 

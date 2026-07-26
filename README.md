@@ -1,8 +1,8 @@
 <div align="center">
   <a href="https://ton.org">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://ton.org/download/ton_logo_dark_background.svg">
-      <img alt="TON logo" src="https://ton.org/download/ton_logo_light_background.svg">
+      <source media="(prefers-color-scheme: dark)" srcset="./doc/assets/logo_dark.svg">
+      <img alt="TON logo" src="./doc/assets/logo_light.svg" width="200">
     </picture>
   </a>
   <h3>Reference implementation of TON Node and tools</h3>
@@ -112,18 +112,18 @@ Open an elevated (Run as Administrator) `x86-64 Native Tools Command Prompt for 
 ### MSYS2 MinGW64 (x86-64)
 Execute from MinGW64 shell
 ```bash
-  cp assembly/msys2/build-mingw64-clang21.sh .
-  chmod +x build-mingw64-clang21.sh
-  ./build-mingw64-clang21.sh -a
+  cp assembly/msys2/build-mingw64.sh .
+  chmod +x build-mingw64.sh
+  ./build-mingw64.sh -a
 ```
 As a result, you will get fully statically compiled TON windows binaries.
 
 ### MSYS2 UCRT64 (x86-64)
 Execute from ucrt64 shell
 ```bash
-  cp assembly/msys2/build-ucrt64-clang21.sh .
-  chmod +x build-ucrt64-clang21.sh
-  ./build-ucrt64-clang21.sh -a
+  cp assembly/msys2/build-ucrt64.sh .
+  chmod +x build-ucrt64.sh
+  ./build-ucrt64.sh -a
 ```
 As a result, you will get fully statically compiled TON windows binaries.
 

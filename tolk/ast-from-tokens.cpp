@@ -17,6 +17,7 @@
 #include "ast.h"
 #include "compilation-errors.h"
 #include "type-system.h"
+#include "contract-directive.h"
 #include "tolk-version.h"
 
 /*
@@ -54,14 +55,14 @@ static bool is_add_or_sub_binary_op(TokenType tok) {
 static Error err_lower_precedence(std::string_view op_lower, std::string_view op_higher) {
   return err("{} has lower precedence than {}"
               ", probably this code won't work as you expected.  "
-              "Use parenthesis: either (... {} ...) to evaluate it first, or (... {} ...) to suppress this error.",
+              "Use parentheses: either (... {} ...) to evaluate it first, or (... {} ...) to suppress this error.",
               op_lower, op_higher, op_lower, op_higher);
 }
 
 // make an error for a case "arg1 & arg2 | arg3"
 static Error err_mix_and_or_no_parenthesis(std::string_view op1, std::string_view op2) {
-  return err("mixing {} with {} without parenthesis may lead to accidental errors.  "
-              "Use parenthesis to emphasize operator precedence.",
+  return err("mixing {} with {} without parentheses may lead to accidental errors.  "
+              "Use parentheses to emphasize operator precedence.",
               op1, op2);
 }
 
@@ -77,26 +78,29 @@ static Error err_no_decrement_operator() {
 
 // diagnose when bitwise operators are used in a probably wrong way due to tricky precedence
 // example: "flags & 0xFF != 0" is equivalent to "flags & 1", most likely it's unexpected
-// the only way to suppress this error for the programmer is to use parenthesis
-// (how do we detect presence of parenthesis? simple: (0!=1) is ast_parenthesized_expr{ast_binary_operator},
-//  that's why if rhs->type == ast_binary_operator, it's not surrounded by parenthesis)
+// the only way to suppress this error for the programmer is to use parentheses
+// (how do we detect presence of parentheses? by checking `vertex->was_parenthesized` flag)
 static void diagnose_bitwise_precedence(SrcRange range, std::string_view operator_name, AnyExprV lhs, AnyExprV rhs) {
   // handle "flags & 0xFF != 0" (rhs = "0xFF != 0")
-  if (rhs->kind == ast_binary_operator && is_comparison_binary_op(rhs->as<ast_binary_operator>()->tok)) {
-    err_lower_precedence(operator_name, rhs->as<ast_binary_operator>()->operator_name).fire(range);
+  if (auto rhs_op = rhs->try_as<ast_binary_operator>(); rhs_op && !rhs->was_parenthesized) {
+    if (is_comparison_binary_op(rhs_op->tok)) {
+      err_lower_precedence(operator_name, rhs_op->operator_name).fire(range);
+    }
   }
 
   // handle "0 != flags & 0xFF" (lhs = "0 != flags")
-  if (lhs->kind == ast_binary_operator && is_comparison_binary_op(lhs->as<ast_binary_operator>()->tok)) {
-    err_lower_precedence(operator_name, lhs->as<ast_binary_operator>()->operator_name).fire(range);
+  if (auto lhs_op = lhs->try_as<ast_binary_operator>(); lhs_op && !lhs->was_parenthesized) {
+    if (is_comparison_binary_op(lhs_op->tok)) {
+      err_lower_precedence(operator_name, lhs_op->operator_name).fire(range);
+    }
   }
 }
 
 // similar to above, but detect potentially invalid usage of && and ||
-// since anyway, using parenthesis when both && and || occur in the same expression,
+// since anyway, using parentheses when both && and || occur in the same expression,
 // && and || have equal operator precedence in Tolk
 static void diagnose_and_or_precedence(SrcRange range, AnyExprV lhs, TokenType rhs_tok, std::string_view rhs_operator_name) {
-  if (auto lhs_op = lhs->try_as<ast_binary_operator>()) {
+  if (auto lhs_op = lhs->try_as<ast_binary_operator>(); lhs_op && !lhs->was_parenthesized) {
     // handle "arg1 & arg2 | arg3" (lhs = "arg1 & arg2")
     if (is_bitwise_binary_op(lhs_op->tok) && is_bitwise_binary_op(rhs_tok) && lhs_op->tok != rhs_tok) {
       err_mix_and_or_no_parenthesis(lhs_op->operator_name, rhs_operator_name).fire(range);
@@ -111,8 +115,10 @@ static void diagnose_and_or_precedence(SrcRange range, AnyExprV lhs, TokenType r
 
 // diagnose "a << 8 + 1" (equivalent to "a << 9", probably unexpected)
 static void diagnose_addition_in_bitshift(SrcRange range, std::string_view bitshift_operator_name, AnyExprV rhs) {
-  if (rhs->kind == ast_binary_operator && is_add_or_sub_binary_op(rhs->as<ast_binary_operator>()->tok)) {
-    err_lower_precedence(bitshift_operator_name, rhs->as<ast_binary_operator>()->operator_name).fire(range);
+  if (auto rhs_op = rhs->try_as<ast_binary_operator>(); rhs_op && !rhs->was_parenthesized) {
+    if (is_add_or_sub_binary_op(rhs_op->tok)) {
+      err_lower_precedence(bitshift_operator_name, rhs_op->operator_name).fire(range);
+    }
   }
 }
 
@@ -131,26 +137,121 @@ static AnyExprV maybe_replace_eq_null_with_isNull_check(V<ast_binary_operator> v
   return createV<ast_is_type_operator>(v->range, v_nullable, rhs_null_type, v->tok == tok_neq);
 }
 
-// parse `123` / `0xFF` / `0b10001` to td::RefInt256
+// parse `123` / `1_000_000` / `0xFF` / `0xFF_FF_` / `0b10001` / `0b_0____1` to td::RefInt256
 static td::RefInt256 parse_tok_int_const(std::string_view text, SrcRange cur_range) {
   bool bin = text[0] == '0' && text[1] == 'b';
+  bool has_underscores = text.find('_') != std::string_view::npos;
   if (!bin) {
-    // this function parses decimal and hex numbers
-    td::RefInt256 intval = td::string_to_int256(static_cast<std::string>(text));
+    // parse decimal and hex numbers; lexer allows `1_000_000`, strip them to `1000000`
+    td::RefInt256 intval;
+    if (has_underscores) {
+      std::string cleaned;
+      cleaned.reserve(text.size());
+      for (char c : text) {
+        if (c != '_') {
+          cleaned += c;
+        }
+      }
+      intval = td::string_to_int256(td::Slice{cleaned});
+    } else {
+      intval = td::string_to_int256(td::Slice{text.data(), text.size()});
+    }
     if (intval.is_null() || !intval->signed_fits_bits(257)) {
       err("invalid integer constant").fire(cur_range);
     }
     return intval;
   }
+
   // parse a binary number; to make it simpler, don't allow too long numbers, it's impractical
-  if (text.size() > 64 + 2) {
-    return {};
-  }
   uint64_t result = 0;
+  int digit_count = 0;
   for (char c : text.substr(2)) { // skip "0b"
-    result = (result << 1) | static_cast<uint64_t>(c - '0');
+    if (c != '_') {
+      result = (result << 1) | static_cast<uint64_t>(c - '0');
+      digit_count++;
+    }
+  }
+  if (digit_count < 1 || digit_count > 64) {
+    err("invalid binary integer").fire(cur_range);
   }
   return td::make_refint(result);
+}
+
+// parse and un-escape a string token; for text `"with\"quotes"`, return `with"quotes`: just contents
+static std::string parse_tok_string_const(std::string_view text, SrcRange cur_range) {
+  // trim surrounding quotes
+  int trim_n = text.starts_with(R"(""")") ? 3 : 1;    // multi-line literal: 3 quotes outside
+  text = text.substr(trim_n, text.size() - 2 * trim_n);
+  if (text.size() >= 32768) {
+    err("too long string literal").fire(cur_range);
+  }
+  // unescape contents within
+  std::string unescaped;
+  unescaped.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] == '\r') {   // normalize CR/CRLF line endings to LF
+      unescaped += '\n';
+      if (i + 1 < text.size() && text[i + 1] == '\n') {
+        i++;
+      }
+      continue;
+    }
+    if (text[i] != '\\') {
+      unescaped += text[i];
+      continue;
+    }
+    switch (text[++i]) {
+      case 'n':  unescaped += '\n'; break;
+      case 'r':  unescaped += '\r'; break;
+      case 't':  unescaped += '\t'; break;
+      case '\\': unescaped += '\\'; break;
+      case '\'': unescaped += '\''; break;
+      case '"':  unescaped += '"';  break;
+      default:
+        err("invalid escape sequence \\{}", std::string_view(&text[i], 1)).fire(cur_range);
+    }
+  }
+  return unescaped;
+}
+
+// parse asm "HERE"; unlike regular strings, keep \n, \t, and other backslash sequences original
+static std::string parse_tok_asm_instruction(std::string_view text) {
+  int trim_n = text.starts_with(R"(""")") ? 3 : 1;
+  text = text.substr(trim_n, text.size() - 2 * trim_n);
+
+  std::string asm_str;
+  asm_str.reserve(text.size());
+  for (size_t i = 0; i < text.size(); ++i) {
+    if (text[i] == '\r') {   // normalize CR/CRLF line endings to LF
+      asm_str += '\n';
+      if (i + 1 < text.size() && text[i + 1] == '\n') {
+        i++;
+      }
+      continue;
+    }
+    if (text[i] != '\\') {
+      asm_str += text[i];
+      continue;
+    }
+    char after_slash = text[++i];
+    switch (after_slash) {
+      case '\'':
+      case '"':   asm_str += after_slash; break;
+      default:    asm_str += '\\'; asm_str += after_slash; break;
+    }
+  }
+  return asm_str;
+}
+
+// when we meet `(expr)` in parentheses, we keep `expr` in AST,
+// but mark it with a boolean flag `was_parenthesized` (used for precedence diagnostics)
+// and extend its range to include outer parentheses (for underline in error messages)
+// (previously we had ast_parenthesized_expression which caused bugs when forgotten to handle)
+static AnyExprV create_parenthesized_expression(SrcRange parens_range, AnyExprV v_in_parens) {
+  // okay to use const_cast — we inject into existing vertex instead of creating a new one
+  const_cast<SrcRange&>(v_in_parens->mutate()->range) = parens_range;
+  v_in_parens->mutate()->was_parenthesized = true;
+  return v_in_parens;
 }
 
 
@@ -211,8 +312,8 @@ static AnyTypeV parse_simple_type(Lexer& lex) {
     }
     case tok_opbracket: {
       SrcRange range = lex.range_start();
-      std::vector tuple_items = parse_nested_type_list(lex, tok_opbracket, "`[`", tok_clbracket, "`]` or `,`", range);
-      return createV<ast_type_bracket_tuple>(range, std::move(tuple_items));
+      std::vector shaped_items = parse_nested_type_list(lex, tok_opbracket, "`[`", tok_clbracket, "`]` or `,`", range);
+      return createV<ast_type_brackets_shape>(range, std::move(shaped_items));
     }
     default:
       lex.unexpected("<type>");
@@ -283,12 +384,139 @@ static AnyTypeV parse_type_from_tokens(Lexer& lex) {
 
 
 // --------------------------------------------
-//    parsing expressions and statements
+//    parsing @annotations and /// doc comments above declarations
 //
 
 
 AnyExprV parse_expr(Lexer& lex);
 AnyV parse_statement(Lexer& lex);
+
+static AnyExprV parse_annotation_expr_arg(Lexer& lex, SrcRange& out_range) {
+  out_range = lex.range_start();
+  lex.expect(tok_oppar, "`(`");
+  std::vector<AnyExprV> args;
+  args.push_back(parse_expr(lex));
+  while (lex.tok() == tok_comma) {
+    lex.next();
+    if (lex.tok() == tok_clpar) {   // trailing comma
+      break;
+    }
+    args.push_back(parse_expr(lex));
+  }
+  lex.check(tok_clpar, "`)`");
+  out_range.end(lex.cur_range());
+  lex.next();
+  return args.size() == 1 ? args.front() : createV<ast_tensor>(out_range, std::move(args));
+}
+
+static AnyTypeV parse_annotation_type_arg(Lexer& lex, SrcRange& out_range) {
+  out_range = lex.range_start();
+  lex.expect(tok_oppar, "`(`");
+  AnyTypeV arg = parse_type_from_tokens(lex);
+  lex.check(tok_clpar, "`)`");
+  out_range.end(lex.cur_range());
+  lex.next();
+  return arg;
+}
+
+static V<ast_annotation> parse_annotation(Lexer& lex) {
+  SrcRange range = lex.cur_range();
+  lex.check(tok_annotation_at, "`@`");
+  std::string_view name = lex.cur_str();
+  AnnotationKind kind = Vertex<ast_annotation>::parse_kind(name);
+  lex.next();
+
+  SrcRange range_args = SrcRange::empty_at_end(range);
+  bool parse_as_type = kind == AnnotationKind::abi_clientType;
+  AnyExprV v_expr_arg = !parse_as_type && lex.tok() == tok_oppar ? parse_annotation_expr_arg(lex, range_args) : nullptr;
+  AnyTypeV v_type_arg =  parse_as_type && lex.tok() == tok_oppar ? parse_annotation_type_arg(lex, range_args) : nullptr;
+
+  switch (kind) {
+    case AnnotationKind::unknown:
+      err("unknown annotation {}", name).fire(range);
+    case AnnotationKind::inline_simple:
+    case AnnotationKind::inline_ref:
+    case AnnotationKind::noinline:
+    case AnnotationKind::pure:
+      if (v_expr_arg || v_type_arg) {
+        err("arguments aren't allowed for {}", name).fire(range);
+      }
+      break;
+    case AnnotationKind::custom:
+      // allowed with and without arguments; it's for IDE and tooling, not for the compiler
+      break;
+    case AnnotationKind::method_id:
+      if (!v_expr_arg || v_expr_arg->kind != ast_int_const) {
+        err("expecting `(number)` after {}", name).fire(range);
+      }
+      break;
+    case AnnotationKind::overflow1023_policy:
+    case AnnotationKind::on_bounced_policy:
+      if (!v_expr_arg || v_expr_arg->kind != ast_string_const) {
+        err("expecting `(\"policy_name\")` after {}", name).fire(range);
+      }
+      break;
+    case AnnotationKind::abi_clientType:
+      if (!v_type_arg) {
+        err("expecting `(<type>)` after {}", name).fire(range);
+      }
+      break;
+  }
+
+  range.end(range_args);
+  return createV<ast_annotation>(range, name, kind, v_expr_arg, v_type_arg);
+}
+
+struct AnnotationsAbove {
+  std::vector<V<ast_annotation>> above;
+  std::string_view doc_lines_buf[100];
+  int n_doc_lines = 0;
+
+  bool empty() const {
+    return above.empty();
+  }
+
+  void collect_doc_comment(Lexer& lex) {
+    if (n_doc_lines < 100) {
+      doc_lines_buf[n_doc_lines++] = lex.cur_str();
+    }
+    lex.next();
+  }
+
+  // return doc_lines in source order and reset all accumulated state
+  DocCommentLines flush() {
+    DocCommentLines result;   // it's std::forward_list
+    for (int i = n_doc_lines - 1; i >= 0; --i) {
+      result.push_front(doc_lines_buf[i]);
+    }
+    above.clear();
+    n_doc_lines = 0;
+    return result;
+  }
+
+  void parse_and_append(Lexer& lex) {
+    V<ast_annotation> v_annotation = parse_annotation(lex);
+
+    bool deny_duplicates = v_annotation->kind == AnnotationKind::abi_clientType;
+    if (deny_duplicates) {
+      for (V<ast_annotation> existing : above) {
+        if (existing->kind == v_annotation->kind) {
+          err("duplicated {} annotation", existing->name).fire(v_annotation->keyword_range());
+        }
+      }
+    }
+
+    if (v_annotation->kind != AnnotationKind::custom) {   // totally ignore @custom, @deprecated, etc.
+      above.push_back(v_annotation);                      // allow any arguments, don't analyze
+    }                                                     // don't even store them in AST tree
+  }
+};
+
+
+// --------------------------------------------
+//    parsing expressions and statements
+//
+
 
 static V<ast_identifier> parse_identifier(Lexer& lex, const char* str_expected) {
   lex.check(tok_identifier, str_expected);
@@ -298,26 +526,30 @@ static V<ast_identifier> parse_identifier(Lexer& lex, const char* str_expected) 
   return createV<ast_identifier>(range, name);
 }
 
+static V<ast_genericsT_item> parse_genericsT_item(Lexer& lex) {
+  lex.check(tok_identifier, "T");
+  SrcRange rangeT = lex.cur_range();
+  std::string_view nameT = lex.cur_str();
+  lex.next();
+  AnyTypeV default_type = nullptr;
+  if (lex.tok() == tok_assign) {          // <T = int?>
+    lex.next();
+    default_type = parse_type_expression(lex);
+    rangeT.end(default_type->range);
+  }
+  return createV<ast_genericsT_item>(rangeT, nameT, default_type);
+}
+
 static V<ast_genericsT_list> parse_genericsT_list(Lexer& lex) {
   SrcRange range = lex.range_start();
-  std::vector<AnyV> genericsT_items;
   lex.expect(tok_lt, "`<`");
-  while (true) {
-    lex.check(tok_identifier, "T");
-    SrcRange rangeT = lex.cur_range();
-    std::string_view nameT = lex.cur_str();
+  std::vector<AnyV> genericsT_items(1, parse_genericsT_item(lex));
+  while (lex.tok() == tok_comma) {
     lex.next();
-    AnyTypeV default_type = nullptr;
-    if (lex.tok() == tok_assign) {          // <T = int?>
-      lex.next();
-      default_type = parse_type_expression(lex);
-      rangeT.end(default_type->range);
-    }
-    genericsT_items.emplace_back(createV<ast_genericsT_item>(rangeT, nameT, default_type));
-    if (lex.tok() != tok_comma) {
+    if (lex.tok() == tok_gt) {   // trailing comma
       break;
     }
-    lex.next();
+    genericsT_items.push_back(parse_genericsT_item(lex));
   }
 
   lex.check(tok_gt, "`>`");
@@ -343,6 +575,9 @@ static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type, bool in_lambda) {
   V<ast_identifier> v_ident = nullptr;
   bool is_self = false;
   if (lex.tok() == tok_identifier) {
+    if (lex.cur_str() == "self") {    // smb cheated "fun f(`self`: T)" in backticks
+      lex.error("`self` can not be used as a parameter name");
+    }
     v_ident = parse_identifier(lex, "parameter name");
   } else if (lex.tok() == tok_self) {
     if (!self_type) {
@@ -386,7 +621,7 @@ static AnyV parse_parameter(Lexer& lex, AnyTypeV self_type, bool in_lambda) {
   return createV<ast_parameter>(range, v_ident, param_type, default_value, declared_as_mutate);
 }
 
-static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+static AnyV parse_global_var_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_global, "`global`");
   auto v_ident = parse_identifier(lex, "global variable name");
@@ -400,20 +635,18 @@ static AnyV parse_global_var_declaration(Lexer& lex, const std::vector<V<ast_ann
     lex.error("assigning to a global is not allowed at declaration");
   }
 
-  for (auto v_annotation : annotations) {
+  for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
-      case AnnotationKind::custom:
-        break;
       default:
-        err("this annotation is not applicable to global").fire(v_annotation);
+        err("this annotation is not applicable to a global").fire(v_annotation);
     }
   }
 
+  annotations.flush();
   return createV<ast_global_var_declaration>(range, v_ident, declared_type);
 }
 
-static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+static AnyV parse_constant_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_const, "`const`");
   auto v_ident = parse_identifier(lex, "constant name");
@@ -428,21 +661,19 @@ static AnyV parse_constant_declaration(Lexer& lex, const std::vector<V<ast_annot
     lex.error("multiple declarations are not allowed, split constants on separate lines");
   }
 
-  for (auto v_annotation : annotations) {
+  for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
-      case AnnotationKind::custom:
-        break;
       default:
-        err("this annotation is not applicable to constant").fire(v_annotation);
+        err("this annotation is not applicable to a constant").fire(v_annotation);
     }
   }
 
   range.end(init_value->range);
-  return createV<ast_constant_declaration>(range, v_ident, declared_type, init_value);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_constant_declaration>(range, v_ident, declared_type, init_value, doc_lines);
 }
 
-static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+static AnyV parse_type_alias_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_type, "`type`");
   auto v_ident = parse_identifier(lex, "type name");
@@ -454,6 +685,7 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
 
   lex.expect(tok_assign, "`=`");
   if (lex.tok() == tok_builtin) {   // type map<K, V> = builtin
+    annotations.flush();
     range.end(lex.cur_range());
     lex.next();
     return createV<ast_empty_statement>(range);
@@ -462,17 +694,15 @@ static AnyV parse_type_alias_declaration(Lexer& lex, const std::vector<V<ast_ann
   AnyTypeV underlying_type = parse_type_from_tokens(lex);
   range.end(underlying_type->range);
 
-  for (auto v_annotation : annotations) {
+  for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
-      case AnnotationKind::custom:
-        break;
       default:
-        err("this annotation is not applicable to type alias").fire(v_annotation);
+        err("this annotation is not applicable to a type alias").fire(v_annotation);
     }
   }
 
-  return createV<ast_type_alias_declaration>(range, v_ident, genericsT_list, underlying_type);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_type_alias_declaration>(range, v_ident, genericsT_list, underlying_type, doc_lines);
 }
 
 static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool allow_lateinit) {
@@ -511,22 +741,18 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
     lex.check(tok_clbracket, "`]`");
     range.end(lex.cur_range());
     lex.next();
-    return createV<ast_bracket_tuple>(range, std::move(args));
+    return createV<ast_square_brackets>(range, std::move(args), nullptr);
   }
   if (lex.tok() == tok_identifier) {
     SrcRange range = lex.range_start();
     auto v_ident = parse_identifier(lex, "variable name");
     range.end(v_ident->range);
     AnyTypeV declared_type = nullptr;
-    bool marked_as_redef = false;
     bool is_lateinit = false;
     if (lex.tok() == tok_colon) {
       lex.next();
       declared_type = parse_type_from_tokens(lex);
       range.end(declared_type->range);
-    } else if (lex.tok() == tok_redef) {
-      lex.next();
-      marked_as_redef = true;
     }
     if (lex.tok() == tok_semicolon && allow_lateinit) {
       if (declared_type == nullptr) {
@@ -534,7 +760,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
       }
       is_lateinit = true;
     }
-    return createV<ast_local_var_lhs>(range, v_ident, declared_type, is_immutable, is_lateinit, marked_as_redef);
+    return createV<ast_local_var_lhs>(range, v_ident, declared_type, is_immutable, is_lateinit);
   }
   if (lex.tok() == tok_underscore) {
     SrcRange range = lex.cur_range();
@@ -545,7 +771,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
       declared_type = parse_type_from_tokens(lex);
       range.end(declared_type->range);
     }
-    return createV<ast_local_var_lhs>(range, createV<ast_identifier>(range, ""), declared_type, true, false, false);
+    return createV<ast_local_var_lhs>(range, createV<ast_identifier>(range, ""), declared_type, true, false);
   }
   lex.unexpected("variable name");
 }
@@ -715,6 +941,30 @@ static V<ast_object_body> parse_object_body(Lexer& lex) {
   return createV<ast_object_body>(range, std::move(fields));
 }
 
+static V<ast_square_brackets> parse_square_brackets(Lexer& lex, AnyTypeV type_node) {
+  SrcRange range = lex.range_start();
+  lex.next();
+  if (lex.tok() == tok_clbracket) {
+    range.end(lex.cur_range());
+    lex.next();
+    return createV<ast_square_brackets>(range, {}, type_node);
+  }
+
+  std::vector<AnyExprV> items(1, parse_expr(lex));
+  while (lex.tok() == tok_comma) {
+    lex.next();
+    if (lex.tok() == tok_clbracket) {   // trailing comma
+      break;
+    }
+    items.emplace_back(parse_expr(lex));
+  }
+  lex.check(tok_clbracket, "`]`");
+
+  range.end(lex.cur_range());
+  lex.next();
+  return createV<ast_square_brackets>(range, std::move(items), type_node);
+}
+
 // `throw code` / `throw (code)` / `throw (code, arg)`
 // it's technically a statement (can't occur "in any place of expression"),
 // but inside `match` arm it can appear without semicolon: `pattern => throw 123`
@@ -778,31 +1028,21 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
   }
   lex.expect(tok_double_arrow, "`=>`");
 
-  V<ast_braced_expression> body = nullptr;
-  if (lex.tok() == tok_opbrace) {         // pattern => { ... }
-    AnyV v_block = parse_statement(lex);
-    body = createV<ast_braced_expression>(v_block->range, v_block);
-  } else if (lex.tok() == tok_throw) {    // pattern => throw 123 (allow without braces)
-    AnyV v_throw = parse_throw_expression(lex);
-    AnyV v_block = createV<ast_block_statement>(v_throw->range, {v_throw});
-    body = createV<ast_braced_expression>(v_block->range, v_block);
-  } else if (lex.tok() == tok_return) {   // pattern => return 123 (allow without braces, like throw)
-    SrcRange block_range = lex.range_start();
-    lex.next();
-    AnyExprV return_value = parse_expr(lex);
-    block_range.end(return_value->range);
-    AnyV v_return = createV<ast_return_statement>(block_range, return_value);
-    AnyV v_block = createV<ast_block_statement>(v_return->range, {v_return});
-    body = createV<ast_braced_expression>(v_block->range, v_block);
-  } else {
-    AnyExprV unbraced_expr = parse_expr(lex);
-    AnyV v_block = createV<ast_block_statement>(unbraced_expr->range, {createV<ast_braced_yield_result>(unbraced_expr->range, unbraced_expr)});
-    body = createV<ast_braced_expression>(unbraced_expr->range, v_block);
+  V<ast_block_statement> v_block = nullptr;
+  if (lex.tok() == tok_opbrace) {       // `1 => { ... }`
+    v_block = parse_block_statement(lex);
+  } else try {                          // `1 => x + y` and other expressions
+    AnyExprV inner_expr = parse_expr(lex);
+    v_block = createV<ast_block_statement>(inner_expr->range, {createV<ast_braced_yield_result>(inner_expr->range, inner_expr)});
+  } catch (const ThrownParseError&) {   // `1 => throw 123` and other statements (without semicolon!)
+    AnyV inner_stmt = parse_statement(lex);
+    v_block = createV<ast_block_statement>(inner_stmt->range, {inner_stmt});
   }
+  auto body = createV<ast_braced_expression>(v_block->range, v_block);
 
   range.end(body->range);
   if (pattern_expr == nullptr) {  // for match by type / default case, empty vertex, not nullptr
-    pattern_expr = createV<ast_empty_expression>(SrcRange::empty_at_start(range));
+    pattern_expr = createV<ast_empty_expression>(SrcRange::span(range, 4));
   }
   return createV<ast_match_arm>(range, pattern_kind, exact_type, pattern_expr, body);
 }
@@ -846,7 +1086,7 @@ static V<ast_match_expression> parse_match_expression(Lexer& lex) {
 static V<ast_lambda_fun> parse_lambda_fun_expression(Lexer& lex) {
   SrcRange range = lex.range_start();
   lex.expect(tok_fun, "`fun`");
-
+  
   V<ast_parameter_list> v_param_list = parse_parameter_list(lex, nullptr, true);
 
   AnyTypeV ret_type = nullptr;
@@ -857,7 +1097,7 @@ static V<ast_lambda_fun> parse_lambda_fun_expression(Lexer& lex) {
 
   auto v_body = parse_block_statement(lex);
   range.end(v_body->range);
-  return createV<ast_lambda_fun>(range, v_param_list, v_body, ret_type);
+  return createV<ast_lambda_fun>(range, v_param_list, v_body, ret_type); 
 }
 
 static V<ast_lazy_operator> parse_lazy_operator(Lexer& lex) {
@@ -884,7 +1124,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
       if (lex.tok() == tok_clpar) {
         range.end(lex.cur_range());
         lex.next();
-        return createV<ast_parenthesized_expression>(range, first);
+        return create_parenthesized_expression(range, first);
       }
       std::vector<AnyExprV> items(1, first);
       while (lex.tok() == tok_comma) {
@@ -897,31 +1137,13 @@ static AnyExprV parse_expr100(Lexer& lex) {
       lex.check(tok_clpar, "`)`");
       range.end(lex.cur_range());
       lex.next();
-      if (items.size() == 1) {      // we can reach here for 1 element with trailing comma: `(item, )`
-        return items[0];            // then just return item, not a 1-element tensor,
-      }                             // since 1-element tensors won't be type compatible with item's type
+      if (items.size() == 1) {
+        return create_parenthesized_expression(range, items[0]);  // treat `(item,)` like `(item)`
+      }
       return createV<ast_tensor>(range, std::move(items));
     }
-    case tok_opbracket: {
-      SrcRange range = lex.range_start();
-      lex.next();
-      if (lex.tok() == tok_clbracket) {
-        range.end(lex.cur_range());
-        lex.next();
-        return createV<ast_bracket_tuple>(range, {});
-      }
-      std::vector<AnyExprV> items(1, parse_expr(lex));
-      while (lex.tok() == tok_comma) {
-        lex.next();
-        if (lex.tok() == tok_clbracket) {   // trailing comma
-          break;
-        }
-        items.emplace_back(parse_expr(lex));
-      }
-      lex.check(tok_clbracket, "`]`");
-      range.end(lex.cur_range());
-      lex.next();
-      return createV<ast_bracket_tuple>(range, std::move(items));
+    case tok_opbracket: {           // `[1, 2]` (not `array<int> [1, 2]`)
+      return parse_square_brackets(lex, nullptr);
     }
     case tok_int_const: {
       SrcRange range = lex.cur_range();
@@ -932,14 +1154,9 @@ static AnyExprV parse_expr100(Lexer& lex) {
     }
     case tok_string_const: {
       SrcRange range = lex.cur_range();
-      std::string_view str_val = lex.cur_str();     // with surrounding quotes, remove them
-      if (str_val.starts_with(R"(""")")) {        // multi-line literal: begins-ends with 3 quotes
-        str_val = str_val.substr(3, str_val.size() - 6);
-      } else {
-        str_val = str_val.substr(1, str_val.size() - 2);
-      }
+      std::string_view orig_str = lex.cur_str();  // with surrounding quotes and non-escaped symbols
       lex.next();
-      return createV<ast_string_const>(range, str_val);
+      return createV<ast_string_const>(range, parse_tok_string_const(orig_str, range));
     }
     case tok_underscore: {
       SrcRange range = lex.cur_range();
@@ -977,7 +1194,7 @@ static AnyExprV parse_expr100(Lexer& lex) {
           range.end(v_instantiationTs->range);
         }
       }
-      if (lex.tok() == tok_opbrace) {
+      if (lex.tok() == tok_opbrace || lex.tok() == tok_opbracket) {     // `Pair { ... }` or `array [ ... ]`
         AnyTypeV type_node = createV<ast_type_leaf_text>(v_ident->range, v_ident->name);  // `Pair { ... }`
         if (v_instantiationTs) {                                                          // `Pair<int> { ... }`
           std::vector<AnyTypeV> ident_and_args;
@@ -988,6 +1205,9 @@ static AnyExprV parse_expr100(Lexer& lex) {
           }
           SrcRange tri_range = SrcRange::overlap(v_ident->range, v_instantiationTs->range);
           type_node = createV<ast_type_triangle_args>(tri_range, std::move(ident_and_args));
+        }
+        if (lex.tok() == tok_opbracket) {       // `array<int> []` / `lisp_list<int> [ 1,2,3 ]`
+          return parse_square_brackets(lex, type_node);
         }
         auto body = parse_object_body(lex);
         range.end(body->range);
@@ -1084,7 +1304,7 @@ static AnyExprV parse_expr75(Lexer& lex) {
     AnyExprV rhs = parse_expr75(lex);
     range.end(rhs->range);
 
-    // convert `-1` to `int(-1)`, not to a tree `unary(-) > int(1)` right here
+    // convert `-1` to `int(-1)`, not to a tree `unary(-) > int(1)` right here 
     if (auto rhs_int = rhs->try_as<ast_int_const>(); rhs_int && (t == tok_minus || t == tok_plus)) {
       td::RefInt256 intval = rhs_int->intval;
       tolk_assert(!intval.is_null());
@@ -1108,18 +1328,14 @@ static AnyExprV parse_expr75(Lexer& lex) {
 static AnyExprV parse_expr40(Lexer& lex) {
   AnyExprV lhs = parse_expr75(lex);
   TokenType t = lex.tok();
-  while (t == tok_as || t == tok_is) {
+  while (t == tok_as || t == tok_is || t == tok_not_is) {
     lex.next();
     AnyTypeV rhs_type = parse_type_from_tokens(lex);
     SrcRange range = SrcRange::overlap(lhs->range, rhs_type->range);
     if (t == tok_as) {
       lhs = createV<ast_cast_as_operator>(range, lhs, rhs_type);
     } else {
-      bool is_negated = lhs->kind == ast_not_null_operator;   // `a !is ...`, now lhs = `a!`
-      if (is_negated) {
-        lhs = lhs->as<ast_not_null_operator>()->get_expr();
-      }
-      lhs = createV<ast_is_type_operator>(range, lhs, rhs_type, is_negated);
+      lhs = createV<ast_is_type_operator>(range, lhs, rhs_type, t == tok_not_is);
     }
     t = lex.tok();
   }
@@ -1228,7 +1444,7 @@ static AnyExprV parse_expr13(Lexer& lex) {
   return lhs;
 }
 
-// parse E = += -= E and E ? E : E (right-to-left)
+// parse E = += -= E and E ? E : E and E ?? E (right-to-left)
 static AnyExprV parse_expr10(Lexer& lex) {
   AnyExprV lhs = parse_expr13(lex);
   TokenType t = lex.tok();
@@ -1255,6 +1471,12 @@ static AnyExprV parse_expr10(Lexer& lex) {
     AnyExprV when_false = parse_expr10(lex);
     SrcRange range = SrcRange::overlap(lhs->range, when_false->range);
     return createV<ast_ternary_operator>(range, lhs, when_true, when_false);
+  }
+  if (t == tok_double_question) {
+    lex.next();
+    AnyExprV rhs = parse_expr10(lex);
+    SrcRange range = SrcRange::overlap(lhs->range, rhs->range);
+    return createV<ast_null_coalesce_operator>(range, lhs, rhs);
   }
   return lhs;
 }
@@ -1471,9 +1693,12 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
     }
     if (lex.tok() == tok_arrow) {
       lex.next();
-      while (lex.tok() == tok_int_const && lex.cur_str().size() < 6) {
-        int ret_idx = std::stoi(static_cast<std::string>(lex.cur_str()));
-        ret_order.push_back(ret_idx);
+      while (lex.tok() == tok_int_const) {
+        td::RefInt256 ret_idx = parse_tok_int_const(lex.cur_str(), lex.cur_range());
+        if (ret_idx < 0 || ret_idx >= 256) {
+          err("invalid asm index").fire(lex.cur_range());
+        }
+        ret_order.push_back(static_cast<int>(ret_idx->to_long()));
         lex.next();
       }
     }
@@ -1482,76 +1707,18 @@ static AnyV parse_asm_func_body(Lexer& lex, V<ast_identifier> name_ident, V<ast_
   std::vector<AnyV> asm_commands;
   lex.check(tok_string_const, "\"ASM COMMAND\"");
   while (lex.tok() == tok_string_const) {
-    asm_commands.push_back(parse_expr(lex));
+    auto v_asm_str = createV<ast_string_const>(lex.cur_range(), parse_tok_asm_instruction(lex.cur_str()));
+    lex.next();
+    if (v_asm_str->str_val.empty()) {
+      err("invalid asm instruction").fire(v_asm_str);
+    }
+    asm_commands.push_back(v_asm_str);
   }
   range.end(asm_commands.back()->range);
   return createV<ast_asm_body>(range, std::move(arg_order), std::move(ret_order), std::move(asm_commands));
 }
 
-static V<ast_annotation> parse_annotation(Lexer& lex) {
-  SrcRange range = lex.cur_range();
-  lex.check(tok_annotation_at, "`@`");
-  std::string_view name = lex.cur_str();
-  AnnotationKind kind = Vertex<ast_annotation>::parse_kind(name);
-  lex.next();
-
-  V<ast_tensor> v_arg = nullptr;
-  if (lex.tok() == tok_oppar) {
-    SrcRange range_args = lex.range_start();
-    lex.next();
-    std::vector<AnyExprV> args;
-    args.push_back(parse_expr(lex));
-    while (lex.tok() == tok_comma) {
-      lex.next();
-      if (lex.tok() == tok_clpar) {   // trailing comma
-        break;
-      }
-      args.push_back(parse_expr(lex));
-    }
-    lex.check(tok_clpar, "`)`");
-    range_args.end(lex.cur_range());
-    v_arg = createV<ast_tensor>(range_args, std::move(args));
-    lex.next();
-  }
-
-  switch (kind) {
-    case AnnotationKind::unknown:
-      err("unknown annotation {}", name).fire(range);
-    case AnnotationKind::inline_simple:
-    case AnnotationKind::inline_ref:
-    case AnnotationKind::noinline:
-    case AnnotationKind::pure:
-      if (v_arg) {
-        err("arguments aren't allowed for {}", name).fire(range);
-      }
-      v_arg = createV<ast_tensor>(range, {});
-      break;
-    case AnnotationKind::deprecated:
-    case AnnotationKind::custom:
-      // allowed with and without arguments; it's IDE-only, the compiler doesn't analyze @deprecated
-      break;
-    case AnnotationKind::method_id:
-      if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_int_const) {
-        err("expecting `(number)` after {}", name).fire(range);
-      }
-      break;
-    case AnnotationKind::overflow1023_policy:
-    case AnnotationKind::on_bounced_policy: {
-      if (!v_arg || v_arg->size() != 1 || v_arg->get_item(0)->kind != ast_string_const) {
-        err("expecting `(\"policy_name\")` after {}", name).fire(range);
-      }
-      break;
-    }
-  }
-
-  if (v_arg == nullptr) {
-    v_arg = createV<ast_tensor>(SrcRange::empty_at_end(range), {});
-  }
-  range.end(v_arg->range);
-  return createV<ast_annotation>(range, name, kind, v_arg);
-}
-
-static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations, bool is_contract_getter) {
+static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations, bool is_contract_getter) {
   SrcRange range = lex.range_start();
   lex.expect(tok_fun, "`fun`");
 
@@ -1606,12 +1773,13 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
       ret_type = parse_type_from_tokens(lex);
     }
   }
+  bool is_code_function = lex.tok() == tok_opbrace;
 
-  if (is_entrypoint && (is_contract_getter || genericsT_list || n_mutate_params)) {
-    err("invalid declaration of a reserved function").fire(range);
+  if (is_entrypoint && (is_contract_getter || genericsT_list || n_mutate_params || !is_code_function)) {
+    err("invalid declaration of a reserved function").fire(v_ident);
   }
-  if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type)) {
-    err("invalid declaration of a get method").fire(range);
+  if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type || !is_code_function)) {
+    err("invalid declaration of a get method").fire(v_ident);
   }
 
   AnyV v_body = nullptr;
@@ -1646,33 +1814,42 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
 
   int tvm_method_id = FunctionData::EMPTY_TVM_METHOD_ID;
   FunctionInlineMode inline_mode = FunctionInlineMode::notCalculated;
-  for (auto v_annotation : annotations) {
+  for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
       case AnnotationKind::inline_simple:
+        if (v_body->kind == ast_asm_body) {
+          err("inline annotations are not applicable to asm functions").fire(v_annotation);
+        }
         inline_mode = FunctionInlineMode::inlineViaFif;   // maybe will be replaced by inlineInPlace later
         break;
       case AnnotationKind::inline_ref:
+        if (v_body->kind == ast_asm_body) {
+          err("inline annotations are not applicable to asm functions").fire(v_annotation);
+        }
         inline_mode = FunctionInlineMode::inlineRef;
         break;
       case AnnotationKind::noinline:
+        if (v_body->kind == ast_asm_body) {
+          err("inline annotations are not applicable to asm functions").fire(v_annotation);
+        }
         inline_mode = FunctionInlineMode::noInline;
         break;
       case AnnotationKind::pure:
         flags |= FunctionData::flagMarkedAsPure;
         break;
       case AnnotationKind::method_id: {
-        if (is_contract_getter || genericsT_list || receiver_type || is_entrypoint || n_mutate_params || accepts_self) {
+        if (is_contract_getter || genericsT_list || receiver_type || is_entrypoint || n_mutate_params || accepts_self || !is_code_function) {
           err("@method_id can be specified only for regular functions").fire(v_annotation);
         }
-        auto v_int = v_annotation->get_arg()->get_item(0)->as<ast_int_const>();
-        if (v_int->intval.is_null() || !v_int->intval->signed_fits_bits(32)) {
-          err("invalid integer constant").fire(v_int);
+        auto v_int = v_annotation->expr_arg->as<ast_int_const>();
+        if (v_int->intval.is_null() || v_int->intval < 0 || v_int->intval >= 262144) {
+          err("invalid @method_id").fire(v_int);
         }
         tvm_method_id = static_cast<int>(v_int->intval->to_long());
         break;
       }
       case AnnotationKind::on_bounced_policy: {
-        std::string_view str = v_annotation->get_arg()->get_item(0)->as<ast_string_const>()->str_val;
+        std::string_view str = v_annotation->expr_arg->as<ast_string_const>()->str_val;
         if (str == "manual") {
           flags |= FunctionData::flagManualOnBounce;
         } else {
@@ -1683,21 +1860,64 @@ static AnyV parse_function_declaration(Lexer& lex, const std::vector<V<ast_annot
         }
         break;
       }
-      case AnnotationKind::deprecated:
-      case AnnotationKind::custom:
-        break;
 
       default:
-        err("this annotation is not applicable to functions").fire(v_annotation);
+        err("this annotation is not applicable to a function").fire(v_annotation);
     }
   }
 
   range.end(v_body->range);
-  return createV<ast_function_declaration>(range, v_ident, v_param_list, v_body, receiver_type, ret_type, genericsT_list, tvm_method_id, flags, inline_mode);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_function_declaration>(range, v_ident, v_param_list, v_body, receiver_type, ret_type, genericsT_list, doc_lines, tvm_method_id, flags, inline_mode);
+}
+
+static AnyV parse_contract_directive(Lexer& lex, AnnotationsAbove& annotations) {
+  SrcRange range = lex.range_start();
+  lex.expect(tok_identifier, "`contract`");
+
+  std::vector<AnyV> name_and_items;
+  name_and_items.push_back(parse_identifier(lex, "contract name"));
+  lex.expect(tok_opbrace, "`{`");
+
+  while (lex.tok() != tok_clbrace) {
+    SrcRange ith_range = lex.range_start();
+    V<ast_identifier> prop_ident = parse_identifier(lex, "property name");
+    lex.expect(tok_colon, "`:`");
+
+    bool should_parse_as_type = is_contract_property_type_node(prop_ident->name);
+    AnyTypeV v_as_type = should_parse_as_type ? parse_type_from_tokens(lex) : nullptr;
+    AnyExprV v_as_expr = should_parse_as_type ? nullptr : parse_expr(lex);
+    ith_range.end(should_parse_as_type ? v_as_type->range : v_as_expr->range);
+
+    AnyV ith_item = createV<ast_contract_directive_item>(ith_range, prop_ident->name, v_as_expr, v_as_type);
+    name_and_items.push_back(ith_item);
+
+    if (lex.tok() == tok_comma) {   // optional comma
+      lex.next();
+    }
+  }
+
+  if (!annotations.above.empty()) {
+    err("annotations are not applicable to a contract").fire(annotations.above.front());
+  }
+
+  range.end(lex.cur_range());
+  lex.next();
+  annotations.flush();
+  return createV<ast_contract_directive>(range, std::move(name_and_items));
 }
 
 static AnyV parse_struct_field(Lexer& lex) {
   SrcRange range = lex.range_start();
+
+  AnnotationsAbove annotations;
+  while (lex.tok() == tok_annotation_at || lex.tok() == tok_doc_comment) {
+    if (lex.tok() == tok_doc_comment) {
+      annotations.collect_doc_comment(lex);
+    } else {
+      annotations.parse_and_append(lex);
+    }
+  }
 
   bool is_private = false;
   if (lex.tok() == tok_private) {
@@ -1710,7 +1930,7 @@ static AnyV parse_struct_field(Lexer& lex) {
     lex.next();
     is_readonly = true;
   }
-
+  
   auto v_ident = parse_identifier(lex, "field name");
   lex.expect(tok_colon, "`: <type>`");
   AnyTypeV declared_type = parse_type_from_tokens(lex);
@@ -1723,7 +1943,19 @@ static AnyV parse_struct_field(Lexer& lex) {
     range.end(default_value->range);
   }
 
-  return createV<ast_struct_field>(range, v_ident, is_private, is_readonly, default_value, declared_type);
+  AnyTypeV abi_type_node = nullptr;
+  for (auto v_annotation : annotations.above) {
+    switch (v_annotation->kind) {
+      case AnnotationKind::abi_clientType:
+        abi_type_node = v_annotation->type_arg;
+        break;
+      default:
+        err("this annotation is not applicable to a field").fire(v_annotation);
+    }
+  }
+
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_struct_field>(range, v_ident, doc_lines, is_private, is_readonly, default_value, declared_type, abi_type_node);
 }
 
 static V<ast_struct_body> parse_struct_body(Lexer& lex, V<ast_identifier> name_ident) {
@@ -1748,7 +1980,7 @@ static V<ast_struct_body> parse_struct_body(Lexer& lex, V<ast_identifier> name_i
   return createV<ast_struct_body>(range, std::move(fields));
 }
 
-static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+static AnyV parse_struct_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_struct, "`struct`");
 
@@ -1777,13 +2009,10 @@ static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotat
   }
 
   StructData::Overflow1023Policy overflow1023_policy = StructData::Overflow1023Policy::not_specified;
-  for (auto v_annotation : annotations) {
+  for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
-      case AnnotationKind::custom:
-        break;
       case AnnotationKind::overflow1023_policy: {
-        std::string_view str = v_annotation->get_arg()->get_item(0)->as<ast_string_const>()->str_val;
+        std::string_view str = v_annotation->expr_arg->as<ast_string_const>()->str_val;
         if (str == "suppress") {
           overflow1023_policy = StructData::Overflow1023Policy::suppress;
         } else {
@@ -1792,16 +2021,17 @@ static AnyV parse_struct_declaration(Lexer& lex, const std::vector<V<ast_annotat
         break;
       }
       default:
-        err("this annotation is not applicable to struct").fire(v_annotation);
+        err("this annotation is not applicable to a struct").fire(v_annotation);
     }
   }
 
   auto body = parse_struct_body(lex, v_ident);
   range.end(body->range);
-  return createV<ast_struct_declaration>(range, v_ident, genericsT_list, overflow1023_policy, opcode, body);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_struct_declaration>(range, v_ident, genericsT_list, doc_lines, overflow1023_policy, opcode, body);
 }
 
-static AnyV parse_enum_member(Lexer& lex) {
+static AnyV parse_enum_member(Lexer& lex, DocCommentLines doc_lines) {
   SrcRange range = lex.range_start();
   auto v_ident = parse_identifier(lex, "member name");
   range.end(v_ident->range);
@@ -1813,16 +2043,20 @@ static AnyV parse_enum_member(Lexer& lex) {
     range.end(init_value->range);
   }
 
-  return createV<ast_enum_member>(range, v_ident, init_value);
+  return createV<ast_enum_member>(range, v_ident, std::move(doc_lines), init_value);
 }
 
 static V<ast_enum_body> parse_enum_body(Lexer& lex) {
   SrcRange range = lex.range_start();
   lex.expect(tok_opbrace, "`{`");
 
+  AnnotationsAbove annotations;
   std::vector<AnyV> members;
   while (lex.tok() != tok_clbrace) {
-    members.push_back(parse_enum_member(lex));
+    while (lex.tok() == tok_doc_comment) {
+      annotations.collect_doc_comment(lex);
+    }
+    members.push_back(parse_enum_member(lex, annotations.flush()));
     if (lex.tok() == tok_comma || lex.tok() == tok_semicolon) {
       lex.next();
     }
@@ -1834,7 +2068,7 @@ static V<ast_enum_body> parse_enum_body(Lexer& lex) {
   return createV<ast_enum_body>(range, std::move(members));
 }
 
-static AnyV parse_enum_declaration(Lexer& lex, const std::vector<V<ast_annotation>>& annotations) {
+static AnyV parse_enum_declaration(Lexer& lex, AnnotationsAbove& annotations) {
   SrcRange range = lex.range_start();
   lex.expect(tok_enum, "`enum`");
 
@@ -1846,44 +2080,67 @@ static AnyV parse_enum_declaration(Lexer& lex, const std::vector<V<ast_annotatio
     colon_type = parse_type_expression(lex);
   }
 
-  for (auto v_annotation : annotations) {
+  for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
-      case AnnotationKind::deprecated:
-      case AnnotationKind::custom:
-        break;
       default:
-        err("this annotation is not applicable to enum").fire(v_annotation);
+        err("this annotation is not applicable to an enum").fire(v_annotation);
     }
   }
 
   auto body = parse_enum_body(lex);
   range.end(body->range);
-  return createV<ast_enum_declaration>(range, v_ident, colon_type, body);
+  DocCommentLines doc_lines = annotations.flush();
+  return createV<ast_enum_declaration>(range, v_ident, colon_type, doc_lines, body);
+}
+
+// for `tolk 1.4.0`, check for every "1","4","0" that it's a decimal token, not "0x..."
+static bool is_decimal_semver_part(std::string_view str) {
+  bool all_digits = true;
+  for (char c : str) {
+    all_digits &= c >= '0' && c <= '9';
+  }
+  return all_digits;
 }
 
 static AnyV parse_tolk_required_version(Lexer& lex) {
   SrcRange range = lex.range_start();
-  lex.next_special(tok_semver, "semver");   // syntax: "tolk 0.6"
+  lex.expect(tok_tolk, "`tolk`");
+
+  if (lex.tok() != tok_int_const || !is_decimal_semver_part(lex.cur_str())) {
+    lex.unexpected("semver, like `tolk 1.2`");
+  }
+
   std::string semver = static_cast<std::string>(lex.cur_str());
   range.end(lex.cur_range());
   lex.next();
+  while (lex.tok() == tok_dot) {      // allow `tolk 1.4`, `tolk 1.4.1`, etc.
+    lex.next();
+    if (lex.tok() != tok_int_const || !is_decimal_semver_part(lex.cur_str())) {
+      lex.unexpected("semver, like `tolk 1.2`");
+    }
+
+    semver += '.';
+    semver += lex.cur_str();
+    range.end(lex.cur_range());
+    lex.next();
+  }
 
   // for simplicity, there is no syntax ">= version" and so on, just strict compare
   if (TOLK_VERSION != semver && TOLK_VERSION != semver + ".0") {    // 0.6 = 0.6.0
     err("the contract is written in Tolk v{}, but you use Tolk compiler v{}; probably, it will lead to compilation errors or hash changes", semver, TOLK_VERSION).warning(range, nullptr);
   }
 
-  return createV<ast_tolk_required_version>(range, semver);  // semicolon is not necessary
+  return createV<ast_tolk_required_version>(range, std::move(semver));
 }
 
 static AnyV parse_import_directive(Lexer& lex) {
   SrcRange range = lex.range_start();
   lex.expect(tok_import, "`import`");
   lex.check(tok_string_const, "source file name");
-  auto v_str = parse_expr(lex)->as<ast_string_const>();
+  auto v_str = parse_expr100(lex)->as<ast_string_const>();
   std::string_view rel_filename = v_str->str_val;
   if (rel_filename.empty()) {
-    lex.error("imported file name is an empty string");
+    err("imported file name is an empty string").fire(v_str);
   }
   range.end(v_str->range);
   return createV<ast_import_directive>(range, v_str);
@@ -1895,59 +2152,59 @@ static AnyV parse_import_directive(Lexer& lex) {
 //    (the main, exported, function)
 //
 
-AnyV parse_src_file_to_ast(const SrcFile* file) {
+AnyV parse_src_file_to_ast(SrcFilePtr file) {
   std::vector<AnyV> toplevel_declarations;
-  std::vector<V<ast_annotation>> annotations;
+  AnnotationsAbove annotations;   // collected above the next declaration and flushed after creating it
   Lexer lex(file);
   SrcRange range = lex.range_start();
 
-  while (!lex.is_eof()) {
+  while (lex.tok() != tok_eof) {
     switch (lex.tok()) {
       case tok_tolk:
         if (!annotations.empty()) {
           lex.unexpected("declaration after @annotations");
         }
         toplevel_declarations.push_back(parse_tolk_required_version(lex));
+        annotations.flush();
         break;
       case tok_import:
         if (!annotations.empty()) {
           lex.unexpected("declaration after @annotations");
         }
         toplevel_declarations.push_back(parse_import_directive(lex));
+        annotations.flush();
         break;
       case tok_semicolon:
         if (!annotations.empty()) {
           lex.unexpected("declaration after @annotations");
         }
         lex.next();  // don't add ast_empty, no need
+        annotations.flush();
         break;
 
+      case tok_doc_comment:
+        annotations.collect_doc_comment(lex);
+        break;
       case tok_annotation_at:
-        annotations.push_back(parse_annotation(lex));
+        annotations.parse_and_append(lex);
         break;
       case tok_global:
         toplevel_declarations.push_back(parse_global_var_declaration(lex, annotations));
-        annotations.clear();
         break;
       case tok_const:
         toplevel_declarations.push_back(parse_constant_declaration(lex, annotations));
-        annotations.clear();
         break;
       case tok_type:
         toplevel_declarations.push_back(parse_type_alias_declaration(lex, annotations));
-        annotations.clear();
         break;
       case tok_fun:
         toplevel_declarations.push_back(parse_function_declaration(lex, annotations, false));
-        annotations.clear();
         break;
       case tok_struct:
         toplevel_declarations.push_back(parse_struct_declaration(lex, annotations));
-        annotations.clear();
         break;
       case tok_enum:
         toplevel_declarations.push_back(parse_enum_declaration(lex, annotations));
-        annotations.clear();
         break;
 
       case tok_export:
@@ -1959,13 +2216,20 @@ AnyV parse_src_file_to_ast(const SrcFile* file) {
         if (lex.cur_str() == "get") {     // top-level "get", contract getter
           lex.next();
           toplevel_declarations.push_back(parse_function_declaration(lex, annotations, true));
-          annotations.clear();
+          break;
+        }
+        if (lex.cur_str() == "contract") {    // contract header, it's also not a keyword
+          toplevel_declarations.push_back(parse_contract_directive(lex, annotations));
           break;
         }
         // fallthrough
       default:
         lex.unexpected("top-level declaration");
     }
+  }
+
+  if (!annotations.empty()) {
+    lex.error("unexpected end of file");
   }
 
   range.end(toplevel_declarations.empty() ? lex.cur_range() : toplevel_declarations.back()->range);

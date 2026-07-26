@@ -7,6 +7,7 @@
 #include "crypto/block/block-auto.h"
 #include "crypto/vm/cells/MerkleUpdate.h"
 #include "td/utils/format.h"
+#include "ton/ton-io.hpp"
 #include "validator/fabric.h"
 
 #include "chain-state.h"
@@ -16,15 +17,11 @@ namespace ton::validator::consensus {
 td::actor::Task<td::Ref<ChainState>> ChainState::from_manager(td::actor::ActorId<ManagerFacade> manager,
                                                               ShardIdFull shard, std::vector<BlockIdExt> blocks,
                                                               BlockIdExt min_mc_block_id) {
-  auto make_from = [&](Tip tip) {
-    return td::Ref<ChainState>(new ChainState{tip, min_mc_block_id}, td::Ref<ChainState>::acquire_t{});
-  };
-
   if (blocks.size() == 1 && blocks[0].seqno() == 0) {
     CHECK(blocks[0].shard_full() == shard);
     auto state =
         co_await td::actor::ask(manager, &ManagerFacade::wait_block_state_root, blocks[0], td::Timestamp::in(10.0));
-    co_return make_from(ZerostateTip{blocks[0], state});
+    co_return td::make_ref<ChainState>(ZerostateTip{blocks[0], state}, min_mc_block_id);
   }
 
   std::vector<td::actor::StartedTask<td::Ref<vm::Cell>>> wait_state_root;
@@ -45,25 +42,21 @@ td::actor::Task<td::Ref<ChainState>> ChainState::from_manager(td::actor::ActorId
     auto shard_1 = shard_child(shard_parent(blocks[0].shard_full()), false);
     CHECK(blocks[0].shard_full() == shard_0 && blocks[1].shard_full() == shard_1);
 
-    co_return make_from(BeforeMergeTip{
-        .left = NormalTip{blocks_data[0], states[0]},
-        .right = NormalTip{blocks_data[1], states[1]},
-    });
+    co_return td::make_ref<ChainState>(
+        BeforeMergeTip{
+            .left = NormalTip{blocks_data[0], states[0]},
+            .right = NormalTip{blocks_data[1], states[1]},
+        },
+        min_mc_block_id);
   } else {
     CHECK(blocks.size() == 1);
     if (shard == blocks[0].shard_full()) {
-      co_return make_from(NormalTip{blocks_data[0], states[0]});
+      co_return td::make_ref<ChainState>(NormalTip{blocks_data[0], states[0]}, min_mc_block_id);
     } else {
       CHECK(shard_is_parent(blocks[0].shard_full(), shard));
-      co_return make_from(BeforeSplitTip{NormalTip{blocks_data[0], states[0]}});
+      co_return td::make_ref<ChainState>(BeforeSplitTip{NormalTip{blocks_data[0], states[0]}}, min_mc_block_id);
     }
   }
-}
-
-td::Ref<ChainState> ChainState::from_zerostate(BlockIdExt zerostate, td::Ref<vm::Cell> state,
-                                               BlockIdExt min_mc_block_id) {
-  return td::Ref<ChainState>(new ChainState{ZerostateTip{zerostate, state}, min_mc_block_id},
-                             td::Ref<ChainState>::acquire_t{});
 }
 
 std::vector<BlockIdExt> ChainState::block_ids() const {
@@ -126,21 +119,20 @@ td::Ref<ChainState> ChainState::apply(const BlockCandidate& candidate) const {
 
     block::gen::Block::Record rec;
     bool rc = block::gen::unpack_cell(block->root_cell(), rec);
-    LOG_CHECK(rc) << "Failed to unpack block " << candidate.id.to_str();
+    LOG_CHECK(rc) << "Failed to unpack block " << candidate.id;
 
-    auto state = vm::MerkleUpdate::apply(root_, rec.state_update);
-    LOG_CHECK(!state.is_null()) << "Failed to apply Merkle update of " << candidate.id.to_str();
+    auto state = vm::MerkleUpdate::apply(root_, rec.state_update).ensure().move_as_ok();
 
     return td::Ref<ChainState>(new ChainState{NormalTip{block, state}, min_mc_block_id_},
                                td::Ref<ChainState>::acquire_t{});
   } catch (vm::CellBuilder::CellCreateError& e) {
-    LOG(FATAL) << "Failed to apply Merkle update of " << candidate.id.to_str() << ": CellCreateError";
+    LOG(FATAL) << "Failed to apply Merkle update of " << candidate.id << ": CellCreateError";
     unreachable();
   } catch (vm::CellBuilder::CellWriteError& e) {
-    LOG(FATAL) << "Failed to apply Merkle update of " << candidate.id.to_str() << ": CellWriteError";
+    LOG(FATAL) << "Failed to apply Merkle update of " << candidate.id << ": CellWriteError";
     unreachable();
   } catch (vm::VmError& e) {
-    LOG(FATAL) << "Failed to apply block " << candidate.id.to_str() << ": VmError: " << e.as_status();
+    LOG(FATAL) << "Failed to apply block " << candidate.id << ": VmError: " << e.as_status();
     unreachable();
   }
 }

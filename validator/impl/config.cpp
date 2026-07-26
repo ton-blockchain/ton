@@ -41,13 +41,12 @@ td::Ref<block::ValidatorSet> ConfigHolderQ::get_total_validator_set(int next) co
   return Ref<block::ValidatorSet>{true, 0, ton::ShardIdFull{}, std::move(nodes)};
 }
 
-td::Ref<block::ValidatorSet> ConfigHolderQ::get_validator_set(ShardIdFull shard, UnixTime utime,
-                                                              CatchainSeqno cc_seqno) const {
+td::Ref<block::ValidatorSet> ConfigHolderQ::get_validator_set(ShardIdFull shard, CatchainSeqno cc_seqno) const {
   if (!config_) {
     LOG(ERROR) << "MasterchainStateQ::get_validator_set() : no config";
     return {};
   }
-  auto nodes = config_->compute_validator_set(shard, utime, cc_seqno);
+  auto nodes = config_->compute_validator_set(shard, cc_seqno);
   if (nodes.empty()) {
     return {};
   }

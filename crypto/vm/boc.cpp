@@ -88,11 +88,19 @@ td::Result<int> CellSerializationInfo::get_bits(td::Slice cell) const {
 }
 
 // TODO: check usage when result is empty
-td::Result<Ref<DataCell>> CellSerializationInfo::create_data_cell(td::Slice cell_slice,
-                                                                  td::Span<Ref<Cell>> refs) const {
+td::Result<Ref<DataCell>> CellSerializationInfo::create_data_cell(td::Slice cell_slice, td::Span<Ref<Cell>> refs,
+                                                                  bool trust_hashes) const {
   DCHECK(refs_cnt == (td::int64)refs.size());
   TRY_RESULT(bits, get_bits(cell_slice));
-  TRY_RESULT(res, DataCell::create(cell_slice.substr(data_offset), bits, refs, special));
+  DataCell::HashHint hash_hint;
+  if (trust_hashes && with_hashes) {
+    hash_hint = [&](unsigned level, const Cell::LevelMask& level_mask, CellHash& hash) {
+      unsigned hash_i = level_mask.apply(level).get_hash_i();
+      hash.as_slice().copy_from(cell_slice.substr(hashes_offset + Cell::hash_bytes * hash_i, Cell::hash_bytes));
+      return true;
+    };
+  }
+  TRY_RESULT(res, DataCell::create(cell_slice.substr(data_offset), bits, refs, special, std::move(hash_hint)));
   CHECK(!res.is_null());
   if (res->is_special() != special) {
     return td::Status::Error("is_special mismatch");
@@ -629,7 +637,7 @@ td::Status BagOfCells::serialize_to_file(td::FileFd& fd, int mode) {
   return td::Status::OK();
 }
 
-unsigned long long BagOfCells::Info::read_int(const unsigned char* ptr, unsigned bytes) {
+unsigned long long BagOfCells::Info::read_int(const unsigned char* ptr, unsigned bytes) const {
   unsigned long long res = 0;
   while (bytes > 0) {
     res = (res << 8) + *ptr++;
@@ -638,7 +646,7 @@ unsigned long long BagOfCells::Info::read_int(const unsigned char* ptr, unsigned
   return res;
 }
 
-void BagOfCells::Info::write_int(unsigned char* ptr, unsigned long long value, int bytes) {
+void BagOfCells::Info::write_int(unsigned char* ptr, unsigned long long value, int bytes) const {
   ptr += bytes;
   while (bytes) {
     *--ptr = value & 0xff;
@@ -799,22 +807,18 @@ td::Result<td::Ref<vm::DataCell>> BagOfCells::deserialize_cell(int idx, td::Slic
 td::Result<long long> BagOfCells::deserialize(const td::Slice& data, int max_roots) {
   clear();
   long long size_est = info.parse_serialized_header(data);
-  //LOG(INFO) << "estimated size " << size_est << ", true size " << data.size();
   if (size_est == 0) {
     return td::Status::Error(PSLICE() << "cannot deserialize bag-of-cells: invalid header, error " << size_est);
   }
   if (size_est < 0) {
-    //LOG(ERROR) << "cannot deserialize bag-of-cells: not enough bytes (" << data.size() << " present, " << -size_est
-    //<< " required)";
-    return size_est;
+    return td::Status::Error(PSLICE() << "cannot deserialize bag-of-cells: not enough bytes (" << data.size()
+                                      << " present, " << -size_est << " required)");
   }
 
   if (size_est > (long long)data.size()) {
-    //LOG(ERROR) << "cannot deserialize bag-of-cells: not enough bytes (" << data.size() << " present, " << size_est
-    //<< " required)";
-    return -size_est;
+    return td::Status::Error(PSLICE() << "cannot deserialize bag-of-cells: not enough bytes (" << data.size()
+                                      << " present, " << size_est << " required)");
   }
-  //LOG(INFO) << "estimated size " << size_est << ", true size " << data.size();
   if (info.root_count > max_roots) {
     return td::Status::Error("Bag-of-cells has more root cells than expected");
   }
@@ -1266,7 +1270,7 @@ bool VmStorageStat::add_storage(const CellSlice& cs) {
 }
 
 void ProofStorageStat::add_loaded_cell(const Ref<DataCell>& cell, td::uint8 max_level) {
-  max_level = std::min<td::uint32>(max_level, Cell::max_level);
+  max_level = std::min<td::uint8>(max_level, Cell::max_level);
   auto& [status, size] = cells_[cell->get_hash(max_level)];
   if (status == c_loaded) {
     return;

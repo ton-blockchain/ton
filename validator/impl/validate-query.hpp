@@ -151,11 +151,11 @@ class ValidateQuery : public td::actor::Actor {
   bool full_collated_data_{false};
   bool prev_key_block_exists_{false};
   bool debug_checks_{false};
-  bool outq_cleanup_partial_{false};
   bool parallel_accounts_validation_{false};
   bool parallel_accounts_validation_pending_{false};
   bool check_account_failed_{false};
-  td::RealCpuTimer parallel_work_timer_{/*is_paused=*/true};
+  td::Timer parallel_work_timer_{/*is_paused=*/true};
+  double parallel_total_real_time_ = 0.0;
   std::optional<td::Status> check_account_fatal_error_ = std::nullopt;
   std::optional<std::string> check_account_reject_error_ = std::nullopt;
   std::optional<td::BufferSlice> check_account_reject_reason_ = std::nullopt;
@@ -165,8 +165,6 @@ class ValidateQuery : public td::actor::Actor {
   int shard_pfx_len_;
   td::Bits256 created_by_;
   std::vector<Ref<vm::Cell>> preloaded_prev_block_state_roots_;
-  bool skip_store_candidate_ = false;
-  bool is_new_consensus_ = false;
 
   Ref<vm::Cell> prev_state_root_;
   Ref<vm::Cell> state_root_;
@@ -198,6 +196,7 @@ class ValidateQuery : public td::actor::Actor {
   Ref<vm::Cell> old_mparams_;
   bool accept_msgs_{true};
 
+  ton::BlockSeqno min_ref_mc_seqno_{~0U};
   ton::BlockSeqno min_shard_ref_mc_seqno_{~0U};
   ton::UnixTime max_shard_utime_{0};
   ton::LogicalTime max_shard_lt_{0};
@@ -234,8 +233,8 @@ class ValidateQuery : public td::actor::Actor {
   std::unique_ptr<vm::AugmentedDictionary> sibling_out_msg_queue_;
   std::shared_ptr<block::MsgProcessedUptoCollection> sibling_processed_upto_;
 
-  std::map<td::Bits256, int> block_create_count_;
-  unsigned block_create_total_{0};
+  std::map<td::Bits256, int> shard_block_create_count_;
+  unsigned shard_block_create_total_{0};
 
   block::tlb::InMsgDescr t_InMsgDescr{0};
   block::tlb::OutMsgDescr t_OutMsgDescr{0};
@@ -250,10 +249,11 @@ class ValidateQuery : public td::actor::Actor {
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_proc_lt_;
   std::vector<std::tuple<Bits256, LogicalTime, LogicalTime>> msg_emitted_lt_;
 
-  std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers_, lib_publishers2_;
+  std::set<std::tuple<Bits256, Bits256, bool>> lib_publishers_, lib_publishers2_;
 
   std::map<std::pair<StdSmcAddress, td::uint64>, Ref<vm::Cell>> removed_dispatch_queue_messages_;
   std::map<std::pair<StdSmcAddress, td::uint64>, Ref<vm::Cell>> new_dispatch_queue_messages_;
+  std::set<StdSmcAddress> accounts_with_dispatch_queue_diff_;
   std::set<StdSmcAddress> account_expected_defer_all_messages_;
   td::uint64 old_out_msg_queue_size_ = 0, new_out_msg_queue_size_ = 0;
   bool out_msg_queue_size_known_ = false;
@@ -262,6 +262,7 @@ class ValidateQuery : public td::actor::Actor {
   std::function<td::Ref<vm::Cell>(const td::Bits256&)> storage_stat_cache_;
   std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update_;
 
+  bool short_dequeue_records_ = false;
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;
   bool store_out_msg_queue_size_ = false;
@@ -288,9 +289,6 @@ class ValidateQuery : public td::actor::Actor {
   void start_up() override;
 
   void load_prev_states();
-
-  bool save_candidate();
-  void written_candidate(td::PerfLogAction token);
 
   bool fatal_error(td::Status error);
   bool fatal_error(int err_code, std::string err_msg);
@@ -463,7 +461,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_one_library_update(td::ConstBitPtr key, Ref<vm::CellSlice> old_value, Ref<vm::CellSlice> new_value);
   bool check_shard_libraries();
   bool check_new_state();
-  bool check_config_update(Ref<vm::CellSlice> old_conf_params, Ref<vm::CellSlice> new_conf_params);
+  bool check_config_update();
   bool check_one_prev_dict_update(ton::BlockSeqno seqno, Ref<vm::CellSlice> old_val_extra,
                                   Ref<vm::CellSlice> new_val_extra);
   bool check_mc_state_extra();
@@ -486,9 +484,8 @@ class ValidateQuery : public td::actor::Actor {
     return true;
   }
 
-  td::RealCpuTimer work_timer_{true};
   ValidationStats stats_;
-  void record_stats(bool valid, std::string error_message = "");
+  void record_stats_and_stop(bool valid, std::string error_message = "");
 };
 
 }  // namespace validator

@@ -7,10 +7,10 @@
 #include "auto/tl/ton_api.hpp"
 #include "keys/encryptor.h"
 #include "td/utils/overloaded.h"
-#include "validator-session/candidate-serializer.h"
 
 #include "bus.h"
 #include "checksum.h"
+#include "payload.h"
 
 namespace ton::validator::consensus {
 
@@ -24,6 +24,7 @@ td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidatorId& 
 
 bool PeerValidator::check_signature(ValidatorSessionId session, td::Slice data, td::Slice signature) const {
   auto signed_data = create_serialize_tl_object<tl::dataToSign>(session, td::BufferSlice(data));
+  TD_PERF_COUNTER(check_signature_consensus);
   return key.create_encryptor().move_as_ok()->check_signature(signed_data, signature).is_ok();
 }
 
@@ -103,7 +104,8 @@ tl::CandidateHashDataRef CandidateHashData::to_tl() const {
   return std::visit(td::overloaded(empty_fn, full_fn), candidate);
 }
 
-td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, std::optional<PeerValidatorId> src) {
+td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, std::optional<PeerValidatorId> src,
+                                                std::optional<td::uint32> expected_slot) {
   TRY_RESULT(broadcast, fetch_tl_object<tl::CandidateData>(data, true));
 
   struct ExtractedData {
@@ -117,6 +119,9 @@ td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, 
 
   PeerValidator leader;
   auto set_check_leader = [&](td::uint32 slot) -> td::Status {
+    if (expected_slot.has_value() && expected_slot != slot) {
+      return td::Status::Error("Candidate broadcast has unexpected slot");
+    }
     leader = bus.collator_schedule->expected_collator_for(slot).get_using(bus);
     if (leader.idx != src.value_or(leader.idx)) {
       return td::Status::Error("Candidate broadcast source does not match expected leader");
@@ -143,9 +148,8 @@ td::Result<CandidateRef> Candidate::deserialize(td::Slice data, const Bus& bus, 
     auto slot = static_cast<td::uint32>(block_broadcast.slot_);
     TRY_STATUS(set_check_leader(slot));
 
-    TRY_RESULT(candidate, validatorsession::deserialize_candidate(
-                              block_broadcast.candidate_, true,
-                              bus.config.max_block_size + bus.config.max_collated_data_size + 1024));
+    TRY_RESULT(candidate, deserialize_payload(block_broadcast.candidate_,
+                                              bus.config.max_block_size + bus.config.max_collated_data_size + 1024));
 
     if (!candidate->src_.is_zero()) {
       return td::Status::Error("src field of the candidate broadcast must be null");
@@ -222,8 +226,7 @@ td::BufferSlice Candidate::serialize() const {
         candidate.collated_data.clone());
 
     return create_serialize_tl_object<tl::block>(id.slot, CandidateId::parent_id_to_tl(parent_id),
-                                                 validatorsession::serialize_candidate(candidate_tl, true).move_as_ok(),
-                                                 signature.clone());
+                                                 serialize_payload(candidate_tl).move_as_ok(), signature.clone());
   };
   return std::visit(td::overloaded(empty_fn, block_fn), block);
 }

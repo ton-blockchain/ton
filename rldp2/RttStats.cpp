@@ -27,11 +27,11 @@ namespace rldp2 {
 void RttStats::on_rtt_sample(double rtt_sample, double ack_delay, td::Timestamp now) {
   // Accept RTT samples from 1ms to 10s
   if (rtt_sample < 0.001 || rtt_sample > 10) {
-    VLOG(RLDP_INFO) << "Suspicious rtt sample " << rtt_sample;
+    VLOG(rldp2, INFO) << "Suspicious rtt sample " << rtt_sample;
     return;
   }
   if (ack_delay < -1e-9 || ack_delay > 10) {
-    VLOG(RLDP_INFO) << "Suspicious ack_delay " << ack_delay;
+    VLOG(rldp2, INFO) << "Suspicious ack_delay " << ack_delay;
     return;
   }
   // Floor at 1ms - prevents issues with near-zero RTT

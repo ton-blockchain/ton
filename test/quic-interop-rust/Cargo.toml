@@ -1,0 +1,24 @@
+[package]
+name = "quic-interop-rust"
+version = "0.1.0"
+edition = "2021"
+autobins = false
+
+[[bin]]
+name = "rpk-client"
+path = "src/client.rs"
+
+[[bin]]
+name = "rpk-server"
+path = "src/server.rs"
+
+[dependencies]
+quinn = { version = "0.11", default-features = false, features = ["rustls-ring", "runtime-tokio"] }
+quinn-proto = { version = "0.11", default-features = false, features = ["rustls-ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "std"] }
+ring = "0.17"
+base64 = "0.22"
+hex = "0.4"
+log = "0.4"
+env_logger = "0.11"
+tokio = { version = "1", features = ["full"] }

@@ -18,7 +18,7 @@
 
 #include <fstream>
 
-#include "rldp2/rldp-utils.h"
+#include "td/utils/DecTree.h"
 
 #include "full-node.h"
 #include "validator-telemetry.hpp"
@@ -31,6 +31,7 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressed &query);
   void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 &query);
   void process_block_broadcast(PublicKeyHash src, ton_api::tonNode_Broadcast &query);
+  void process_broadcast(PublicKeyHash src, ton_api::tonNode_blockFinalityBroadcast &query);
 
   void obtain_state_for_decompression(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query);
   void process_block_broadcast_with_state(PublicKeyHash src, ton_api::tonNode_blockBroadcastCompressedV2 query,
@@ -46,12 +47,14 @@ class FullNodeCustomOverlay : public td::actor::Actor {
 
   template <class T>
   void process_broadcast(PublicKeyHash, T &) {
-    VLOG(FULL_NODE_WARNING) << "dropping unknown broadcast";
+    VLOG(full_node, WARNING) << "dropping unknown broadcast";
   }
   void receive_broadcast(PublicKeyHash src, td::BufferSlice query);
+  void receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query, td::Promise<td::BufferSlice> promise);
 
   void send_external_message(td::BufferSlice data);
   void send_broadcast(BlockBroadcast broadcast);
+  void send_block_finality_broadcast(BlockFinalityBroadcast finality);
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data);
   void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data);
@@ -60,13 +63,16 @@ class FullNodeCustomOverlay : public td::actor::Actor {
     opts_.config_ = std::move(config);
   }
 
+  td::actor::Task<QuerySender> get_query_sender();
+
   void start_up() override;
   void tear_down() override;
+  void alarm() override;
 
   FullNodeCustomOverlay(adnl::AdnlNodeIdShort local_id, CustomOverlayParams params, FileHash zero_state_file_hash,
                         FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
-                        td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp::Rldp> rldp,
-                        td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<overlay::Overlays> overlays,
+                        td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
+                        td::actor::ActorId<overlay::Overlays> overlays,
                         td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                         td::actor::ActorId<FullNode> full_node)
       : local_id_(local_id)
@@ -74,12 +80,13 @@ class FullNodeCustomOverlay : public td::actor::Actor {
       , nodes_(std::move(params.nodes_))
       , msg_senders_(std::move(params.msg_senders_))
       , block_senders_(std::move(params.block_senders_))
+      , accept_queries_(std::move(params.accept_queries_))
+      , send_queries_(params.send_queries_)
       , zero_state_file_hash_(zero_state_file_hash)
       , opts_(opts)
       , keyring_(keyring)
       , adnl_(adnl)
-      , rldp_(rldp)
-      , rldp2_(rldp2)
+      , adnl_sender_(adnl_sender)
       , overlays_(overlays)
       , validator_manager_(validator_manager)
       , full_node_(full_node) {
@@ -91,13 +98,14 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   std::vector<adnl::AdnlNodeIdShort> nodes_;
   std::map<adnl::AdnlNodeIdShort, int> msg_senders_;
   std::set<adnl::AdnlNodeIdShort> block_senders_;
+  std::set<adnl::AdnlNodeIdShort> accept_queries_;
+  bool send_queries_;
   FileHash zero_state_file_hash_;
   FullNodeOptions opts_;
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp::Rldp> rldp_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
+  td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
   td::actor::ActorId<FullNode> full_node_;
@@ -105,10 +113,23 @@ class FullNodeCustomOverlay : public td::actor::Actor {
   bool inited_ = false;
   overlay::OverlayIdFull overlay_id_full_;
   overlay::OverlayIdShort overlay_id_;
-  rldp2::PeersMtuLimitGuard rldp_limit_guard_;
 
   void try_init();
   void init();
+
+  struct PeerInfo {
+    std::pair<td::uint32, td::uint32> proto_version{0, 0};
+    bool responds = false;
+    td::Timestamp ignore_until = td::Timestamp::never();
+    bool alive = false;
+  };
+  std::map<adnl::AdnlNodeIdShort, PeerInfo> peers_info_;
+  td::DecTree<adnl::AdnlNodeIdShort, td::Unit> alive_peers_;  // alive == responds && ignore_until in past
+  adnl::AdnlNodeIdShort last_pinged_peer_ = adnl::AdnlNodeIdShort::zero();
+
+  td::actor::Task<> on_peer_query_error(adnl::AdnlNodeIdShort peer_id);
+  td::actor::Task<> ping_peer(adnl::AdnlNodeIdShort peer_id);
+  void update_peer_alive(adnl::AdnlNodeIdShort peer_id, PeerInfo &info);
 };
 
 }  // namespace ton::validator::fullnode

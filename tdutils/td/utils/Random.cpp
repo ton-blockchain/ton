@@ -125,24 +125,26 @@ static unsigned int rand_device_helper() {
   return (*rd)();
 }
 
+std::mt19937 Random::fast_gen() {
+  auto &rg = rand_device_helper;
+  std::seed_seq seq{rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg()};
+  return std::mt19937{seq};
+}
+
 uint32 Random::fast_uint32() {
-  static TD_THREAD_LOCAL std::mt19937 *gen;
-  if (!gen) {
-    auto &rg = rand_device_helper;
-    std::seed_seq seq{rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg()};
-    init_thread_local<std::mt19937>(gen, seq);
-  }
-  return static_cast<uint32>((*gen)());
+  static thread_local std::mt19937 gen = fast_gen();
+  return static_cast<uint32>(gen());
+}
+
+std::mt19937_64 Random::fast_gen_64() {
+  auto &rg = rand_device_helper;
+  std::seed_seq seq{rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg()};
+  return std::mt19937_64{seq};
 }
 
 uint64 Random::fast_uint64() {
-  static TD_THREAD_LOCAL std::mt19937_64 *gen;
-  if (!gen) {
-    auto &rg = rand_device_helper;
-    std::seed_seq seq{rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg(), rg()};
-    init_thread_local<std::mt19937_64>(gen, seq);
-  }
-  return static_cast<uint64>((*gen)());
+  static thread_local std::mt19937_64 gen = fast_gen_64();
+  return static_cast<uint64>(gen());
 }
 
 int Random::fast(int min, int max) {

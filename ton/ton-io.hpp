@@ -29,19 +29,19 @@ inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::Bits2
 }
 
 inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::ShardIdFull &x) {
-  return stream << "[ w=" << x.workchain << " s=" << x.shard << " ]";
+  return stream << x.to_str();
 }
 
 inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::AccountIdPrefixFull &x) {
-  return stream << "[ w=" << x.workchain << " s=" << x.account_id_prefix << " ]";
+  return stream << x.to_str();
 }
 
 inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::BlockId &x) {
-  return stream << "[ w=" << x.workchain << " s=" << x.shard << " seq=" << x.seqno << " ]";
+  return stream << x.to_str();
 }
+
 inline td::StringBuilder &operator<<(td::StringBuilder &stream, const ton::BlockIdExt &x) {
-  return stream << "[ w=" << x.id.workchain << " s=" << x.id.shard << " seq=" << x.id.seqno << " " << x.root_hash << " "
-                << x.file_hash << " ]";
+  return stream << x.to_str();
 }
 
 }  // namespace td

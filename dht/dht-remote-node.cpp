@@ -95,7 +95,7 @@ void DhtRemoteNode::send_ping(bool client_only, td::actor::ActorId<adnl::Adnl> a
     }
     auto P = td::PromiseCreator::lambda([key, node, adnl, our_network_id](td::Result<td::BufferSlice> R) {
       if (R.is_error()) {
-        VLOG(DHT_INFO) << "[dht]: received error for query to " << key << ": " << R.move_as_error();
+        VLOG(dht, INFO) << "[dht]: received error for query to " << key << ": " << R.move_as_error();
         return;
       }
       auto F = fetch_tl_object<ton_api::dht_node>(R.move_as_ok(), true);
@@ -105,12 +105,12 @@ void DhtRemoteNode::send_ping(bool client_only, td::actor::ActorId<adnl::Adnl> a
         if (N.is_ok()) {
           td::actor::send_closure(node, &DhtMember::receive_ping, key, N.move_as_ok());
         } else {
-          VLOG(DHT_WARNING) << "[dht]: bad answer from " << key
-                            << ": dropping bad getSignedAddressList() query answer: " << N.move_as_error();
+          VLOG(dht, WARNING) << "[dht]: bad answer from " << key
+                             << ": dropping bad getSignedAddressList() query answer: " << N.move_as_error();
         }
       } else {
-        VLOG(DHT_WARNING) << "[dht]: bad answer from " << key
-                          << ": dropping invalid getSignedAddressList() query answer: " << F.move_as_error();
+        VLOG(dht, WARNING) << "[dht]: bad answer from " << key
+                           << ": dropping invalid getSignedAddressList() query answer: " << F.move_as_error();
       }
     });
     auto Q = create_serialize_tl_object<ton_api::dht_getSignedAddressList>();

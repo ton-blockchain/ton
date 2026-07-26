@@ -132,3 +132,13 @@
 #endif
 
 // clang-format on
+
+#if TD_CLANG || TD_GCC
+#define TD_SUPPRESS_IMPL_PRAGMA_IMPL(x) _Pragma(x)
+#define TD_SUPPRESS_IMPL_PRAGMA(x) TD_SUPPRESS_IMPL_PRAGMA_IMPL(#x)
+#define TD_SUPPRESS(x, code)                   \
+  TD_SUPPRESS_IMPL_PRAGMA(GCC diagnostic push) \
+  TD_SUPPRESS_IMPL_PRAGMA(GCC diagnostic ignored x) code TD_SUPPRESS_IMPL_PRAGMA(GCC diagnostic pop)
+#else
+#define TD_SUPPRESS(x, code) code
+#endif

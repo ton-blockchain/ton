@@ -96,11 +96,15 @@ class AdnlNodeIdFull {
   explicit AdnlNodeIdFull(PublicKey &&pub) : pub_(std::move(pub)) {
   }
   static td::Result<AdnlNodeIdFull> create(const tl_object_ptr<ton_api::PublicKey> &pub) {
-    return AdnlNodeIdFull{pub};
+    auto id = AdnlNodeIdFull{pub};
+    if (!id.pubkey().is_ed25519()) {
+      return td::Status::Error("bad public key");
+    }
+    return id;
   }
   AdnlNodeIdFull() {
   }
-  const auto &pubkey() const {
+  const PublicKey &pubkey() const {
     return pub_;
   }
   bool empty() const {

@@ -780,6 +780,21 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
     throw VmError{Excno::range_chk, "Ed25519 public key must fit in an unsigned 256-bit integer"};
   }
   st->register_chksgn_call();
+  // Starting with TVM 14, reject the canonical Ed25519 identity public key
+  // encoding `01 00..00` and zero public key before handing it to the verifier.
+  // The reason for that is to forbid most popular footguns (setting all bytes to 0)
+  // Other 6 torsion points are not planned to be forbidden: they are no worse than
+  // using pubkey with publicly known private key and hard to set by accident
+  if (st->get_global_version() >= 14) {
+    bool reject = (key[0] == 0x00 || key[0] == 0x01);
+    for (unsigned int i = 1; reject && i < 32; ++i) {
+      reject = (key[i] == 0x00);
+    }
+    if (reject) {
+      stack.push_bool(st->get_chksig_always_succeed());
+      return 0;
+    }
+  }
   td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, 32})};
   auto res = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, 64});
   stack.push_bool(res.is_ok() || st->get_chksig_always_succeed());
@@ -801,6 +816,11 @@ int exec_ecrecover(VmState* st) {
   }
   if (!s->export_bytes(signature + 32, 32, false)) {
     throw VmError{Excno::range_chk, "s must fit in an unsigned 256-bit integer"};
+  }
+  // Ethereum legacy signatures encode raw recovery ids 0/1 as v=27/28;
+  // they were not accepted until TVM 14
+  if (st->get_global_version() >= 14 && (v == 27 || v == 28)) {
+    v -= 27;
   }
   signature[64] = v;
   unsigned char hash_bytes[32];
@@ -1009,14 +1029,34 @@ int exec_ristretto255_mul(VmState* st, bool quiet) {
   auto n = stack.pop_int() % get_ristretto256_l();
   auto x = stack.pop_int();
   st->consume_gas(VmState::rist255_mul_gas_price);
-  if (n->sgn() == 0) {
+  unsigned char xb[32], nb[32], rb[32];
+  if (st->get_global_version() >= 14 && !(n->is_valid() && x->is_valid())) {
+    if (quiet) {
+      stack.push_bool(false);
+      return 0;
+    }
+    throw VmError{Excno::range_chk, "invalid x or n"};
+  }
+  // libsodium's `crypto_scalarmult_ristretto255` returns -1 BOTH when the input point is invalid
+  // AND when the result is the identity element (0).
+  // Before TVM 14, result=0 was rejected: `RIST255_MUL(0, 1)` led to `range_chk`.
+  if (n->sgn() == 0 || (st->get_global_version() >= 14 && x->sgn() == 0)) {
+    // fast skip "n%l==0" should also validate the point, but before TVM 14 it did not
+    bool invalid_point =
+        x->sgn() != 0 && (!x->export_bytes(xb, 32, false) || !crypto_core_ristretto255_is_valid_point(xb));
+    if (st->get_global_version() >= 14 && invalid_point) {
+      if (quiet) {
+        stack.push_bool(false);
+        return 0;
+      }
+      throw VmError{Excno::range_chk, "invalid x or n"};
+    }
     stack.push_smallint(0);
     if (quiet) {
       stack.push_bool(true);
     }
     return 0;
   }
-  unsigned char xb[32], nb[32], rb[32];
   if (!x->export_bytes(xb, 32, false) || !export_bytes_little(n, nb) || crypto_scalarmult_ristretto255(rb, nb, xb)) {
     if (quiet) {
       stack.push_bool(false);
@@ -1038,10 +1078,19 @@ int exec_ristretto255_mul_base(VmState* st, bool quiet) {
   Stack& stack = st->get_stack();
   auto n = stack.pop_int() % get_ristretto256_l();
   st->consume_gas(VmState::rist255_mulbase_gas_price);
+  // Mirror exec_ristretto255_mul above: early exit, because `std::all_of` below (previous implementation)
+  // is system-dependent (libsodium api does not guarantee to not change rb)
+  if (st->get_global_version() >= 14 && n->sgn() == 0) {
+    stack.push_smallint(0);
+    if (quiet) {
+      stack.push_bool(true);
+    }
+    return 0;
+  }
   unsigned char nb[32], rb[32];
   memset(rb, 255, sizeof(rb));
   if (!export_bytes_little(n, nb) || crypto_scalarmult_ristretto255_base(rb, nb)) {
-    if (std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
+    if (st->get_global_version() >= 14 || std::all_of(rb, rb + 32, [](unsigned char c) { return c == 255; })) {
       if (quiet) {
         stack.push_bool(false);
         return 0;
@@ -1432,6 +1481,26 @@ void register_ton_crypto_ops(OpcodeTable& cp0) {
                   ->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93003, 24, "BLS_AGGREGATEVERIFY", exec_bls_aggregate_verify)->require_version(4))
 
+      // SECURITY: Low-level BLS12-381 arithmetic and pairing opcodes do not
+      // provide comprehensive implicit subgroup validation. This is intentional:
+      // these instructions are expert primitives for custom on-chain protocols.
+      //
+      // IMPORTANT FOR EVM MIGRATIONS: unlike Ethereum EIP-2537 precompiles,
+      // which perform subgroup checks and fail for points outside G1/G2, TON
+      // leaves subgroup validation to the caller for these low-level opcodes.
+      //
+      // In particular, BLS_PAIRING evaluates pairing equations on provided
+      // points without enforcing subgroup checks by itself. Callers that rely
+      // on subgroup soundness MUST validate inputs explicitly (for example,
+      // with BLS_G1_INGROUP / BLS_G2_INGROUP) before pairing-based checks.
+      //
+      // Some arithmetic paths may reject certain out-of-subgroup operands as
+      // an implementation detail, but callers MUST NOT rely on this.
+      //
+      // NOTE: subgroup checks are necessary but not sufficient for secure
+      // aggregate BLS verification. Protocols also need rogue-key defenses
+      // appropriate to the scheme (for example, distinct messages, message
+      // augmentation, or proof of possession).
       .insert(OpcodeInstr::mksimple(0xf93010, 24, "BLS_G1_ADD", exec_bls_g1_add)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93011, 24, "BLS_G1_SUB", exec_bls_g1_sub)->require_version(4))
       .insert(OpcodeInstr::mksimple(0xf93012, 24, "BLS_G1_NEG", exec_bls_g1_neg)->require_version(4))
@@ -1925,7 +1994,11 @@ int exec_store_opt_std_address(VmState* st, bool quiet) {
     if (!quiet) {
       throw VmError{Excno::type_chk, "not a cell slice"};
     }
-    stack.push_cellslice(std::move(cs));
+    if (st->get_global_version() >= 14) {
+      stack.push(std::move(cs_or_null));
+    } else {
+      stack.push_cellslice(std::move(cs));
+    }
     stack.push_builder(std::move(builder));
     stack.push_bool(true);
     return 0;
@@ -2032,8 +2105,9 @@ int parse_addr_workchain(CellSlice cs) {
   bool is_var = cs.fetch_ulong(1);
   if (cs.fetch_ulong(1) == 1) {  // Anycast
     unsigned depth;
-    cs.fetch_uint_leq(30, depth);
-    cs.skip_first(depth);
+    if (cs.fetch_uint_leq(30, depth)) {
+      cs.skip_first(depth);
+    }
   }
 
   if (is_var) {
@@ -2099,6 +2173,12 @@ int exec_send_message(VmState* st) {
     } else {
       // Legacy: extra_flags was previously ihr_fee
       user_ihr_fee = block::tlb::t_Grams.as_integer(info.extra_flags);
+    }
+    if (user_fwd_fee.is_null()) {
+      user_fwd_fee = td::zero_refint();
+    }
+    if (user_ihr_fee.is_null()) {
+      user_ihr_fee = td::zero_refint();
     }
   }
 
@@ -2196,9 +2276,13 @@ int exec_send_message(VmState* st) {
     }
     fwd_fee = td::RefInt256{true, fwd_fee_short};
     ihr_fee = td::RefInt256{true, ihr_fee_short};
-    fwd_fee = std::max(fwd_fee, user_fwd_fee);
-    if (!ihr_disabled) {
-      ihr_fee = std::max(ihr_fee, user_ihr_fee);
+    // Since the action phase ignores user-provided `fwd_fee`/`ihr_fee` for internal messages (transaction.cpp),
+    // mirror that here so the SENDMSG doesn't change estimation by writing a large `fwd_fee` into the message cell.
+    if (st->get_global_version() < 14) {
+      fwd_fee = std::max(fwd_fee, user_fwd_fee);
+      if (!ihr_disabled) {
+        ihr_fee = std::max(ihr_fee, user_ihr_fee);
+      }
     }
   };
   compute_fees();

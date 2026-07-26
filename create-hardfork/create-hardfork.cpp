@@ -28,7 +28,6 @@
 #include "adnl/adnl.h"
 #include "adnl/utils.hpp"
 #include "auto/tl/ton_api_json.h"
-#include "catchain/catchain.h"
 #include "common/errorlog.h"
 #include "crypto/block/block-db.h"
 #include "crypto/vm/vm.h"
@@ -45,9 +44,7 @@
 #include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 #include "ton/ton-types.h"
-#include "validator-session/validator-session.h"
 #include "validator/fabric.h"
-#include "validator/impl/collator.h"
 #include "validator/manager-hardfork.h"
 
 #if TD_DARWIN || TD_LINUX
@@ -98,7 +95,7 @@ class HardforkCreator : public td::actor::Actor {
     global_config_ = path;
   }
   void set_shard(ton::ShardIdFull shard) {
-    LOG(DEBUG) << "setting shard to " << shard.to_str();
+    LOG(DEBUG) << "setting shard to " << shard;
     shard_ = shard;
   }
   void set_shard_top_block(ton::BlockIdExt block_id) {
@@ -107,9 +104,6 @@ class HardforkCreator : public td::actor::Actor {
   void set_top_descr_prefix(std::string tdescr_pfx) {
     tdescr_pfx_ = tdescr_pfx;
     tdescr_save_ = true;
-  }
-  void set_collator_flags(int flags) {
-    ton::collator_settings |= flags;
   }
   void start_up() override {
   }
@@ -233,13 +227,13 @@ class HardforkCreator : public td::actor::Actor {
 
       void initial_read_complete(ton::validator::BlockHandle handle) override {
         td::actor::send_closure(id_, &ton::validator::ValidatorManager::sync_complete,
-                                td::PromiseCreator::lambda([](td::Unit) {}));
+                                td::PromiseCreator::lambda([](td::Result<>) {}));
       }
     };
 
     td::actor::send_closure(validator_manager_, &ton::validator::ValidatorManagerInterface::install_callback,
                             std::make_unique<Callback>(validator_manager_.get(), tdescr_save_, tdescr_pfx_),
-                            td::PromiseCreator::lambda([](td::Unit) {}));
+                            td::PromiseCreator::lambda([](td::Result<>) {}));
   }
 };
 
@@ -321,7 +315,7 @@ int main(int argc, char *argv[]) {
                        [&](td::Slice arg) {
                          ton::BlockIdExt block_id;
                          if (block::parse_block_id_ext(arg, block_id)) {
-                           LOG(INFO) << "setting previous block to " << block_id.to_str();
+                           LOG(INFO) << "setting previous block to " << block_id;
                            td::actor::send_closure(x, &HardforkCreator::set_shard_top_block, block_id);
 
                            return td::Status::OK();

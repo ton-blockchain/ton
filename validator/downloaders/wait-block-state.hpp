@@ -53,7 +53,7 @@ class WaitBlockState : public td::actor::Actor {
 
   void start_up() override;
   void start();
-  void got_state_from_db(td::Ref<ShardState> data);
+  void got_state_from_db(td::Ref<ShardState> data, bool force_reading);
   void got_state_from_static_file(td::Ref<ShardState> state, td::BufferSlice data);
   void got_prev_state(td::Ref<ShardState> state);
   void failed_to_get_prev_state(td::Status reason);
@@ -102,10 +102,11 @@ class WaitBlockState : public td::actor::Actor {
   td::Promise<td::Ref<ShardState>> promise_final_;
   td::Ref<PersistentStateDescription> persistent_state_desc_;
 
-  td::Ref<ShardState> prev_state_;
+  td::Ref<ShardState> state_;
   td::Ref<BlockData> block_;
 
   bool reading_from_db_ = false;
+  bool force_reading_from_db_ = false;
   bool waiting_proof_link_ = false;
   bool waiting_proof_ = false;
   td::Timestamp next_static_file_attempt_;

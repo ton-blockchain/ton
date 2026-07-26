@@ -7,32 +7,32 @@ const someN_u128: uint128 = 128;
 const someN_i32: int32 = 20 + (12 as int32) * (1 as uint8);
 const someN_coins = 10 as coins;
 
-const cost1 = ton("1.234");
-const cost2 = ton("0.05") + ton("0.001");
+const cost1 = grams("1.234");
+const cost2 = grams("0.05") + grams("0.001");
 
 fun rand(): uint256 { return random.uint256(); }
 
 fun autoInferInt8(x: int8) {
-    if (rand()) { return x; }
-    else if (rand()) { return 0 as int8; }
-    else if (rand()) { return x!; }
+    if (rand() != 0) { return x; }
+    else if (rand() != 0) { return 0 as int8; }
+    else if (rand() != 0) { return x!; }
     else { return x += x; }
 }
 
 fun autoInferUInt16Opt(x: uint16) {
-    if (rand()) { return autoInferInt8(x as int8) as uint16; }
+    if (rand() != 0) { return autoInferInt8(x as int8) as uint16; }
     return null;
 }
 
 fun inferInt_v1(): int {
-    if (rand()) { return 0; }
-    else if (rand()) { return 0 as uint16; }
+    if (rand() != 0) { return 0; }
+    else if (rand() != 0) { return 0 as uint16; }
     else { return 0 as int8; }
 }
 
 fun inferInt_v2(): int {
-    if (rand()) { return 0 as uint1; }
-    else if (rand()) { return 0 as int123; }
+    if (rand() != 0) { return 0 as uint1; }
+    else if (rand() != 0) { return 0 as int123; }
     else { return 0 as int8; }
 }
 
@@ -51,10 +51,10 @@ fun test1(x: int8) {
 
     var a1: uint8 = 0;
     var a2: uint8? = 0;
-    var a3: uint8? = 0 as int?;
+    var a3: uint8? = (0 as int?)!;
     __expect_type(a1, "uint8");
     __expect_type(a2, "uint8");
-    __expect_type(a3, "uint8?");
+    __expect_type(a3, "uint8");
 
     var z = x + y;
     __expect_type(z, "int");
@@ -80,7 +80,7 @@ fun test3(op: int32, qid: uint64) {
     if (op == qid) {}
     if ((op as int32?)! == qid) {}
     if (op == (qid as uint64)) {}
-    if ((op as int257?)! != (qid as uint256?)!) {}
+    if ((op as int257 as int257?)! != (qid as uint256 as uint256?)!) {}
     __expect_type(op << qid, "int");
 
     takeAnyInt(op);
@@ -124,8 +124,8 @@ fun test5() {
 
 fun test6() {
     var x: int11 = ~(0 as int22);
-    while (x) {}
-    return x ? x as int : 0;
+    while (x != 0) {}
+    return x != 0 ? x as int : 0;
 }
 
 fun test7() {
@@ -171,7 +171,7 @@ fun test9(c: coins, i: int8) {
     var new = amount * percent / 100;
     amount = new;
     __expect_type(amount, "coins");
-    if (!amount) { while (amount) { amount -= 1; } }
+    if (amount == 0) { while (amount != 0) { amount -= 1; } }
 
     takeAnyInt(amount);
     takeAnyInt(percent);
@@ -183,32 +183,38 @@ fun test9(c: coins, i: int8) {
 
 @method_id(110)
 fun test10() {
-    return (ton("0.05"), ton("0.05") + 100, cost1, cost2);
+    return (grams("0.05"), grams("0.05") + 100, cost1, cost2);
 }
 
 @method_id(111)
 fun test11() {
-    __expect_type(ton("0"), "coins");
-    __expect_type(ton("0") + ton("0"), "coins");
-    __expect_type(ton("0") * 20, "int");
+    __expect_type(grams("0"), "coins");
+    __expect_type(grams("0") + grams("0"), "coins");
+    __expect_type(grams("0") * 20, "int");
     return [
-        ton("1"),
-        ton("1.0"),
-        ton("1.00000"),
-        ton("-321.123456789"),
-        ton("+321.123456789876"),
-        ton("0001.1000")
+        grams("1"),
+        grams("1.0"),
+        grams("1.00000"),
+        grams("-321.123456789"),
+        grams("+321.123456798"),
+        grams("0001.1000")
     ];
 }
 
 @method_id(112)
 fun test12() {
-    var a = ton("1") + ton("2");    // check absence in fif codegen
-    return ton("0.1");
+    var a = grams("1") + grams("2");    // check absence in fif codegen
+    return grams("0.1");
+}
+
+@method_id(113)
+fun test13_deprecatedTonAlias() {
+    __expect_type(ton("0"), "coins");
+    return ton("0.05");
 }
 
 fun test13(x1: int?, x2: int8?, x3: int, x4: int8): (int8?, int8?, int8?, int8?, int32?, int32?) {
-    return (x1, x2, x3, x4, x4 as int32, x4 as int32?);
+    return (x1!, x2, x3, x4, x4 as int32, x4 as int32 as int32?);
 }
 
 @method_id(114)
@@ -216,43 +222,29 @@ fun test14(firstComponent: int8?): (int, int16)? {
     return firstComponent! < 10 ? null : (firstComponent! as int, 2 as int16);
 }
 
-@noinline
-fun assign0<T>(mutate v: T) { v = 0; }
-
 fun main() {
     var t = createEmptyTuple();
-    t.push(1);
-    t.push(2);
-    t.push(3);
-    assign0(mutate t.0 as int8);
-    assign0(mutate t.1 as uint16);
-    assign0(mutate t.2 as int);
-    __expect_type(t.0 as int1, "int1");
-    __expect_type(t.0 as int257, "int257");
+    __expect_type(t.get(0) as int1, "int1");
+    __expect_type(t.get(0) as int257, "int257");
     __expect_type(0 as int32, "int32");
-    __expect_type((0 as int32) as uint64?, "uint64?");
+    __expect_type(0 as int32 as uint64 as uint64?, "uint64?");
     __expect_type(null as (int8, [uint16?])?, "(int8, [uint16?])?");
     __expect_type(0 as coins, "coins");
     __expect_type(someN_coins as coins?, "coins?");
-    __expect_type(someN_coins as int8?, "int8?");
+    __expect_type(someN_coins as int8 as int8?, "int8?");
     __expect_type(10>3 ? (0 as uint8) as uint8 | uint16 : 0 as uint16, "uint8 | uint16");
-    return t;
 }
 
 /**
-@testcase | 0 |        | [ 0 0 0 ]
 @testcase | 101 | 0    | 129
 @testcase | 104 |      | 64 64 -1 0
 @testcase | 105 |      | 3 -1 0
 @testcase | 109 | 4  4 | 500 -1
 @testcase | 110 |      | 50000000 50000100 1234000000 51000000
-@testcase | 111 |      | [ 1000000000 1000000000 1000000000 -321123456789 321123456789 1100000000 ]
+@testcase | 111 |      | [ 1000000000 1000000000 1000000000 -321123456789 321123456798 1100000000 ]
+@testcase | 113 |      | 50000000
 @testcase | 114 | 5    | (null) (null) 0
 @testcase | 114 | 15   | 15 2 typeid-1
-
-@fif_codegen DECLPROC assign0<int8>()
-@fif_codegen DECLPROC assign0<uint16>()
-@fif_codegen DECLPROC assign0<int>()
 
 @fif_codegen
 """

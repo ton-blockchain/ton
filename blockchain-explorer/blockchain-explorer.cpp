@@ -100,24 +100,25 @@ class HttpQueryRunner {
         Self->finish(nullptr);
       }
     });
-    scheduler_ptr->run_in_context_external([&]() { func(std::move(P)); });
+    scheduler_ptr->run_in_context([&]() { func(std::move(P)); });
   }
   void finish(MHD_Response* response) {
     std::unique_lock<std::mutex> lock(mutex_);
     response_ = response;
-    cond.notify_all();
+    done_ = true;
+    cond_.notify_all();
   }
   MHD_Response* wait() {
     std::unique_lock<std::mutex> lock(mutex_);
-    cond.wait(lock, [&]() { return response_ != nullptr; });
+    cond_.wait(lock, [&]() { return done_; });
     return response_;
   }
 
  private:
-  std::function<void(td::Promise<MHD_Response*>)> func_;
   MHD_Response* response_ = nullptr;
+  bool done_ = false;
   std::mutex mutex_;
-  std::condition_variable cond;
+  std::condition_variable cond_;
 };
 
 class CoreActor : public CoreActorInterface {

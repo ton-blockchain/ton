@@ -16,7 +16,13 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+
+// FIXME: Remove once RocksDB stops triggering this warning.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
 #include "rocksdb/db.h"
+#pragma GCC diagnostic pop
+
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/statistics.h"
 #include "rocksdb/table.h"

@@ -5,7 +5,7 @@ struct Wrapper<T> {
 type WrapperAlias<T> = Wrapper<T>;
 
 fun main() {
-    var w1 = WrapperAlias<int16> { value: 10 } as WrapperAlias<int8> | int | Wrapper<int16>;
+    var w1 = Wrapper<int16> { value: 10 } as WrapperAlias<int8> | int | Wrapper<int16>;
     w1 is Wrapper;
 }
 

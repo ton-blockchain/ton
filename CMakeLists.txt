@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.16 FATAL_ERROR)
 
 project(TON VERSION 0.5 LANGUAGES C CXX)
+
+#Compilation database
+set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
+
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Define the two required variables before including the source code for watching a git repository.
@@ -88,16 +92,7 @@ option(TON_USE_UBSAN "Use \"ON\" to enable UndefinedBehaviorSanitizer." OFF)
 option(TON_USE_COVERAGE "Use \"ON\" to enable code coverage with gcov." OFF)
 set(TON_ARCH "native" CACHE STRING "Architecture, will be passed to -march=")
 
-option(TON_PRINT_BACKTRACE_ON_CRASH "Attempt to print a backtrace when a fatal signal is caught" ON)
 option(TON_INSERT_GDB_HOOKS "Insert GDB hooks" OFF)
-
-option(TON_USE_LLD "Use LLD for linking" OFF)
-
-if (TON_USE_LLD)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fuse-ld=lld")
-    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -fuse-ld=lld")
-endif()
 
 #BEGIN M1 support
 EXECUTE_PROCESS( COMMAND uname -m COMMAND tr -d '\n' OUTPUT_VARIABLE ARCHITECTURE )
@@ -108,16 +103,24 @@ if ((ARCHITECTURE MATCHES "arm64") AND (CMAKE_SYSTEM_NAME STREQUAL "Darwin") AND
 endif()
 #END M1 support
 
-if (CLANG AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "20")
-  add_compile_options(--warning-suppression-mappings=${CMAKE_CURRENT_SOURCE_DIR}/suppression_mappings.txt)
-endif()
-
 option(TON_WERROR_BUILD "Use -Werror" OFF)
 
 # If we want to check -Werror build in CI, we want to use it for third party projects as well but we
 # don't want to force our warning options on them.
 if (TON_WERROR_BUILD)
   add_compile_options(-Werror)
+endif()
+
+# Configure CCache before any bundled dependencies are configured or built.
+find_program(CCACHE_FOUND ccache)
+if (CCACHE_FOUND)
+  if (NOT DEFINED CMAKE_C_COMPILER_LAUNCHER AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
+    message(STATUS "Using ccache")
+    set(CMAKE_C_COMPILER_LAUNCHER ccache)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
+  endif()
+else()
+  message(STATUS "Could NOT find ccache")
 endif()
 
 # Ensure custom build modules (including OpenSSL/Sodium) are available early for QUIC/crypto checks.
@@ -127,7 +130,7 @@ include(BuildSodium)
 include(BuildLZ4)
 
 if (USE_EMSCRIPTEN OR EMSCRIPTEN)
-  set(SODIUM_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3pp_emscripten/libsodium CACHE PATH "Sodium root directory" FORCE)
+  set(SODIUM_ROOT_DIR ${CMAKE_BINARY_DIR}/3pp_emscripten/libsodium CACHE PATH "Sodium root directory" FORCE)
   if (EXISTS ${SODIUM_ROOT_DIR}/lib/libsodium.a)
     set(SODIUM_LIBRARY_PATH ${SODIUM_ROOT_DIR}/lib/libsodium.a)
     set(SODIUM_INCLUDE_PATH ${SODIUM_ROOT_DIR}/include)
@@ -147,7 +150,7 @@ endif()
 if (TON_USE_ROCKSDB)
   message("Add rocksdb")
   function(rocksdb_scope)
-    if (ANDROID)
+    if (ANDROID OR (TON_ARCH AND NOT TON_ARCH STREQUAL "native"))
       set(PORTABLE ON CACHE BOOL "")
     endif()
     set(WITH_GFLAGS OFF CACHE BOOL "")
@@ -208,23 +211,32 @@ set(CRC32C_INSTALL OFF CACHE BOOL "Install CRC32C's header and library")
 message("Add crc32c")
 function(crc32_scope)
   set(CMAKE_POLICY_VERSION_MINIMUM "3.10")
+  set(CRC32C_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third-party/crc32c")
+  set(CRC32C_SUBDIR_SOURCE "${CRC32C_SOURCE_DIR}")
+  set(CRC32C_SUBDIR_BINARY "")
+  if (WIN32 AND CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
+    set(CRC32C_PATCHED_SOURCE_PARENT "${CMAKE_CURRENT_BINARY_DIR}/third-party-src")
+    set(CRC32C_PATCHED_SOURCE_DIR "${CRC32C_PATCHED_SOURCE_PARENT}/crc32c")
+    set(CRC32C_SUBDIR_BINARY "${CMAKE_CURRENT_BINARY_DIR}/third-party/crc32c-clang-cl")
+    file(REMOVE_RECURSE "${CRC32C_PATCHED_SOURCE_DIR}")
+    file(MAKE_DIRECTORY "${CRC32C_PATCHED_SOURCE_PARENT}")
+    file(COPY "${CRC32C_SOURCE_DIR}" DESTINATION "${CRC32C_PATCHED_SOURCE_PARENT}")
+    set(CRC32C_CMAKE_FILE "${CRC32C_PATCHED_SOURCE_DIR}/CMakeLists.txt")
+    include("${CMAKE_CURRENT_SOURCE_DIR}/CMake/PatchCRC32C.cmake")
+    set(CRC32C_SUBDIR_SOURCE "${CRC32C_PATCHED_SOURCE_DIR}")
+  endif()
   if (NOT MSVC)
     # fix aarch64 build @ crc32c/src/crc32c_arm64_linux_check.h
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=address")
   endif()
-  add_subdirectory(third-party/crc32c EXCLUDE_FROM_ALL)
+  if (CRC32C_SUBDIR_BINARY)
+    add_subdirectory("${CRC32C_SUBDIR_SOURCE}" "${CRC32C_SUBDIR_BINARY}" EXCLUDE_FROM_ALL)
+  else()
+    add_subdirectory("${CRC32C_SUBDIR_SOURCE}" EXCLUDE_FROM_ALL)
+  endif()
 endfunction()
 crc32_scope()
 set(CRC32C_FOUND 1)
-
-option(USE_COROUTINES "experimental support of coroutines" OFF)
-if (USE_COROUTINES)
-  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    set(TD_HAVE_COROUTINES 1)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines-ts")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-  endif()
-endif()
 
 option(USE_LIBRAPTORQ "use libraptorq for tests" OFF)
 if (USE_LIBRAPTORQ)
@@ -241,7 +253,7 @@ if (USE_QUIC)
   # Set OpenSSL paths to use our custom-built OpenSSL with QUIC support
   # Use CACHE variables to override find_package(OpenSSL) behavior
   if (USE_EMSCRIPTEN OR EMSCRIPTEN)
-    set(OPENSSL_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/3pp_emscripten/openssl_em CACHE PATH "OpenSSL root directory" FORCE)
+    set(OPENSSL_ROOT_DIR ${CMAKE_BINARY_DIR}/3pp_emscripten/openssl_em CACHE PATH "OpenSSL root directory" FORCE)
     set(OPENSSL_INCLUDE_DIR ${OPENSSL_ROOT_DIR}/include CACHE PATH "OpenSSL include directory" FORCE)
     set(OPENSSL_CRYPTO_LIBRARY ${OPENSSL_ROOT_DIR}/libcrypto.a CACHE FILEPATH "OpenSSL crypto library" FORCE)
     set(OPENSSL_SSL_LIBRARY ${OPENSSL_ROOT_DIR}/libssl.a CACHE FILEPATH "OpenSSL SSL library" FORCE)
@@ -298,18 +310,6 @@ include(BuildLibbacktrace)
 include(BuildMHD)
 include(BuildZlib)
 
-
-# Configure CCache if available
-find_program(CCACHE_FOUND ccache)
-if (CCACHE_FOUND)
-  if (NOT DEFINED CMAKE_C_COMPILER_LAUNCHER AND NOT DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
-    message(STATUS "Using ccache")
-    set(CMAKE_C_COMPILER_LAUNCHER ccache)
-    set(CMAKE_CXX_COMPILER_LAUNCHER ccache)
-  endif()
-else()
-  message(STATUS "Could NOT find ccache")
-endif()
 
 include(CheckCXXCompilerFlag)
 
@@ -386,6 +386,9 @@ if (MSVC)
   endif()
   add_definitions(-D_SCL_SECURE_NO_WARNINGS -D_CRT_SECURE_NO_WARNINGS)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /MP /W4 /wd4100 /wd4127 /wd4324 /wd4456 /wd4457 /wd4458 /wd4505 /wd4702")
+  if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /clang:-Wno-c++98-compat /clang:-Wno-c++98-compat-pedantic /clang:-Wno-shadow")
+  endif()
 elseif (CLANG OR GCC)
   if (GCC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstrong-eval-order=some")
@@ -505,9 +508,6 @@ endif()
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=leak")
 #set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -finstrument-functions")
 
-#Compilation database
-set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
-
 #BEGIN internal
 option(TON_BUILD_DOCS "Build LaTeX/PDF documentation targets" OFF)
 find_package(LATEX)
@@ -517,7 +517,6 @@ if (TON_BUILD_DOCS AND LATEX_FOUND)
   add_latex_document(doc/tvm.tex TARGET_NAME ton_vm_description)
   add_latex_document(doc/tblkch.tex TARGET_NAME ton_blockchain_description)
   add_latex_document(doc/fiftbase.tex TARGET_NAME fift_basic_description)
-  add_latex_document(doc/catchain.tex TARGET_NAME catchain_consensus_description)
 elseif (TON_BUILD_DOCS)
   message(STATUS "Could NOT find LATEX (this is NOT an error)")
 endif()
@@ -543,12 +542,15 @@ function(ton_test TEST_NAME)
   add_dependencies(all-tests ${TEST_NAME})
 endfunction()
 
+enable_testing()
+
 set(TDUTILS_MIME_TYPE OFF CACHE BOOL "Generate mime type conversion")
 add_subdirectory(tdutils)
 if (TARGET lz4 AND TARGET tdutils)
   add_dependencies(tdutils lz4)
 endif()
 add_subdirectory(memprof)
+add_subdirectory(metrics)
 add_subdirectory(tdactor)
 add_subdirectory(tdnet)
 if (TON_USE_ROCKSDB)
@@ -579,12 +581,9 @@ if (NOT TON_ONLY_TONLIB)
 add_subdirectory(tdfec)
 add_subdirectory(keyring)
 add_subdirectory(fec)
-add_subdirectory(rldp)
 add_subdirectory(rldp2)
 add_subdirectory(dht)
 add_subdirectory(overlay)
-add_subdirectory(catchain)
-add_subdirectory(validator-session)
 add_subdirectory(validator)
 if (NOT USE_EMSCRIPTEN AND NOT EMSCRIPTEN)
   add_subdirectory(blockchain-explorer)
@@ -682,25 +681,29 @@ add_executable(test-adnl test/test-adnl.cpp)
 target_link_libraries(test-adnl adnl adnltest dht tl_api)
 add_executable(test-dht test/test-dht.cpp)
 target_link_libraries(test-dht adnl adnltest dht tl_api)
-add_executable(test-rldp test/test-rldp.cpp)
-target_link_libraries(test-rldp adnl adnltest dht rldp tl_api)
 add_executable(test-rldp2 test/test-rldp2.cpp)
 target_link_libraries(test-rldp2 adnl adnltest dht rldp2 tl_api)
 add_executable(bench-rldp test/net/bench-rldp.cpp)
-target_link_libraries(bench-rldp adnl adnltest dht rldp rldp2 tl_api quic)
+target_link_libraries(bench-rldp adnl adnltest dht rldp2 tl_api quic metrics)
 add_executable(test-quic-sender test/net/test-quic-sender.cpp)
 target_link_libraries(test-quic-sender adnl dht tl_api quic)
-add_executable(test-validator-session-state test/test-validator-session-state.cpp)
-target_link_libraries(test-validator-session-state adnl dht rldp validatorsession tl_api)
 
 add_executable(test-overlay test/test-overlay.cpp)
 target_link_libraries(test-overlay overlay tdutils tdactor adnl adnltest tl_api dht )
-add_executable(test-catchain test/test-catchain.cpp)
-target_link_libraries(test-catchain overlay tdutils tdactor adnl adnltest rldp tl_api dht
-  catchain )
+add_executable(plumtree-graph-sim
+  test/plumtree/plumtree-graph-sim.cpp
+  test/plumtree/graph.cpp
+  test/plumtree/scheduler.cpp
+  test/plumtree/transport.cpp
+  test/plumtree/util.cpp
+)
+target_link_libraries(plumtree-graph-sim overlay tdutils tdactor adnl adnltest tl_api dht )
+add_test(NAME plumtree-graph-sim-smoke COMMAND plumtree-graph-sim --smoke)
+add_test(NAME plumtree-graph-sim-simple-smoke COMMAND plumtree-graph-sim --smoke --broadcast-mode simple)
+add_dependencies(all-tests plumtree-graph-sim)
 add_executable(test-ton-collator test/test-ton-collator.cpp)
 target_link_libraries(test-ton-collator overlay tdutils tdactor adnl tl_api dht
-  catchain validatorsession validator-disk ton_validator validator-disk )
+  validator-disk ton_validator validator-disk )
 
 add_executable(test-http test/test-http.cpp)
 target_link_libraries(test-http PRIVATE tonhttp)
@@ -727,7 +730,6 @@ target_link_libraries(all_tests INTERFACE tdutils tdactor tdnet tdfec ton_db ton
 endif()
 #END internal
 
-enable_testing()
 set(TEST_OPTIONS "--regression ${CMAKE_CURRENT_SOURCE_DIR}/test/regression-tests.ans --filter -Bench")
 separate_arguments(TEST_OPTIONS)
 ton_test(test-ed25519)
@@ -812,10 +814,7 @@ endif()
 if (NOT TON_ONLY_TONLIB)
 ton_test(test-adnl)
 ton_test(test-dht)
-ton_test(test-rldp)
 ton_test(test-rldp2)
-ton_test(test-validator-session-state)
-ton_test(test-catchain)
 ton_test(test-emulator)
 
 ton_test(test-fec)

@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.2
+tolk 1.4.2
 
 enum ExoticCellType: int8 {
     Ordinary = -1
@@ -9,8 +9,8 @@ enum ExoticCellType: int8 {
     MerkleUpdate = 4
 }
 
-/// Transforms an ordinary or exotic cell into a slice, as if it were an ordinary cell.
-/// A flag is returned indicating whether c is exotic.
+/// Transforms an ordinary or exotic cell into a slice, as if it were an ordinary cell. 
+/// A flag is returned indicating whether c is exotic. 
 /// If so, ExoticCellType can later be deserialized from the first eight bits of s.
 /// ```
 /// var (s, isExotic) = c.beginParseSpecial();
@@ -49,7 +49,7 @@ fun cell.loadSpecial(self): cell
 @pure
 fun cell.toLibraryReference(self): cell {
     return beginCell()
-        .storeInt(ExoticCellType.LibraryReference as int, 8)
+        .storeInt(ExoticCellType.LibraryReference, 8)
         .storeUint(self.hash(), 256)
         .endCellSpecial()
 }

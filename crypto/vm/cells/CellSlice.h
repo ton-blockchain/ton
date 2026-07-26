@@ -150,6 +150,7 @@ class CellSlice : public td::CntObject {
   bool prefetch_ulong_bool(unsigned bits, unsigned long long& res) const;
   bool fetch_bool_to(bool& res);
   bool fetch_bool_to(int& res);
+  bool fetch_bool_to(unsigned& res);
   bool fetch_bool_to(int& res, int mask);
   bool fetch_uint_to(unsigned bits, unsigned long long& res);
   bool fetch_uint_to(unsigned bits, long long& res);
@@ -223,11 +224,9 @@ class CellSlice : public td::CntObject {
     return prefetch_bits(size());
   }
   bool begins_with(unsigned bits, unsigned long long value) const;
-  bool begins_with(unsigned long long value) const;
   bool begins_with_skip(unsigned bits, unsigned long long value) {
     return begins_with(bits, value) && advance(bits);
   }
-  bool begins_with_skip(unsigned long long value);
   bool only_first(unsigned bits, unsigned refs = 0);
   bool only_ext(unsigned size);
   bool skip_first(unsigned bits, unsigned refs = 0);
@@ -327,9 +326,13 @@ Ref<CellSlice>& operator>>(Ref<CellSlice>& cs_ref, const T& val) {
 
 // If can_be_special is not null, then it is allowed to load special cell
 // Flag whether loaded cell is actually special will be stored into can_be_special
+// Quiet functions can't throw VmError (but can throw VmVirtError) unless it happens during TVM execution
 CellSlice load_cell_slice(const Ref<Cell>& cell);
+CellSlice load_cell_slice_quiet(const Ref<Cell>& cell);
 Ref<CellSlice> load_cell_slice_ref(const Ref<Cell>& cell);
+Ref<CellSlice> load_cell_slice_ref_quiet(const Ref<Cell>& cell);
 CellSlice load_cell_slice_special(const Ref<Cell>& cell, bool& is_special);
+CellSlice load_cell_slice_special(const Ref<Cell>& cell);
 Ref<CellSlice> load_cell_slice_ref_special(const Ref<Cell>& cell, bool& is_special);
 void print_load_cell(std::ostream& os, Ref<Cell> cell, int indent = 0);
 

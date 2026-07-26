@@ -8,5 +8,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr too few arguments in call to `T.pairWith<U>`, expected 1, have 0
+@stderr can not deduce U for generic function `T.pairWith<U>`
  */

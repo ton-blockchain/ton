@@ -97,8 +97,6 @@ Hasher::Hasher(int hash_id) : id_(hash_id) {
     return;
   }
 
-  EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-  CHECK(ctx != nullptr);
   const EVP_MD *evp;
   switch (hash_id) {
     case SHA256:
@@ -113,6 +111,8 @@ Hasher::Hasher(int hash_id) : id_(hash_id) {
     default:
       throw VmError{Excno::range_chk, "invalid hash id"};
   }
+  EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+  CHECK(ctx != nullptr);
   CHECK(evp != nullptr && EVP_DigestInit_ex(ctx, evp, nullptr));
   impl_ = std::make_unique<HasherImplEVP>(ctx);
 }

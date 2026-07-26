@@ -11,11 +11,11 @@ RUN apt-get update && \
 
 RUN wget https://apt.llvm.org/llvm.sh && \
     chmod +x llvm.sh && \
-    ./llvm.sh 21 all && \
+    ./llvm.sh 22 all && \
     rm -rf /var/lib/apt/lists/*
 
-ENV CC=/usr/bin/clang-21
-ENV CXX=/usr/bin/clang++-21
+ENV CC=/usr/bin/clang-22
+ENV CXX=/usr/bin/clang++-22
 ENV CCACHE_DISABLE=1
 
 WORKDIR /
@@ -29,7 +29,7 @@ RUN mkdir build && \
         cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DPORTABLE=1 -DTON_ARCH= -DTON_USE_JEMALLOC=ON .. && \
         ninja storage-daemon storage-daemon-cli tonlibjson fift func validator-engine validator-engine-console \
     generate-random-id dht-server lite-client tolk rldp-http-proxy dht-server proxy-liteserver create-state \
-    blockchain-explorer emulator tonlibjson http-proxy adnl-proxy dht-ping-servers dht-resolve
+    blockchain-explorer emulator tonlibjson http-proxy dht-ping-servers dht-resolve
 
 FROM ubuntu:22.04
 ARG DEBIAN_FRONTEND=noninteractive
@@ -54,7 +54,6 @@ COPY --from=builder /ton/build/dht/dht-ping-servers /usr/local/bin/
 COPY --from=builder /ton/build/dht/dht-resolve /usr/local/bin/
 COPY --from=builder /ton/build/rldp-http-proxy/rldp-http-proxy /usr/local/bin/
 COPY --from=builder /ton/build/http/http-proxy  /usr/local/bin/
-COPY --from=builder /ton/build/adnl/adnl-proxy  /usr/local/bin/
 COPY --from=builder /ton/build/tonlib/libtonlibjson.so /usr/local/bin/
 COPY --from=builder /ton/build/emulator/libemulator.so /usr/local/bin/
 COPY --from=builder /ton/build/tolk/tolk /usr/local/bin/
@@ -65,7 +64,7 @@ COPY --from=builder /ton/crypto/smartcont/auto/* /usr/share/ton/smartcont/auto/
 COPY --from=builder /ton/crypto/fift/lib/* /usr/lib/fift/
 
 WORKDIR /var/ton-work/db
-COPY ./docker/init.sh ./docker/control.template /var/ton-work/scripts/
+COPY ./docker/init.sh /var/ton-work/scripts/
 RUN chmod +x /var/ton-work/scripts/init.sh
 
 ENTRYPOINT ["/var/ton-work/scripts/init.sh"]

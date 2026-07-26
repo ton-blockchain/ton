@@ -78,7 +78,7 @@ class RldpConnection {
     td::uint64 max_size;
     bool is_inbound;
     bool operator<(const Limit &other) const {
-      return transfer_id < other.transfer_id;
+      return transfer_id == other.transfer_id ? is_inbound < other.is_inbound : transfer_id < other.transfer_id;
     }
   };
   td::KHeap<double> limits_heap_;
@@ -93,7 +93,7 @@ class RldpConnection {
 
   void add_limit(td::Timestamp timeout, Limit limit);
   td::Timestamp next_limit_expires_at();
-  void drop_limits(TransferId id);
+  void drop_limits(TransferId id, bool is_inbound);
   void on_inbound_completed(TransferId transfer_id, td::Timestamp now);
   td::Timestamp loop_limits(td::Timestamp now);
 

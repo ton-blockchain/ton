@@ -7,7 +7,7 @@ struct Demo {
 }
 
 fun main() {
-    Demo.fromSlice("");
+    Demo.fromSlice(createEmptySlice());
 }
 
 /**

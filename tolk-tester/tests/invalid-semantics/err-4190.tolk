@@ -1,5 +1,5 @@
 struct A {
-    ok: coins = ton("0.05"),
+    ok: coins = grams("0.05"),
     err: int = blockchain.now(),
 }
 

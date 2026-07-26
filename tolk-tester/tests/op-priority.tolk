@@ -55,7 +55,7 @@ fun test7(b: int): int {
 
 @method_id(108)
 fun test8(b: int): int {
-    var a = b == 3 ? 3 : b == 4 ? 4 : b = 5 ? 5 : 100;
+    var a = b == 3 ? 3 : b == 4 ? 4 : (b = (5 != 0 ? 5 : 100));
     return a;
 }
 
@@ -67,7 +67,7 @@ fun main() {
         (3 & 3) > 0, 3 & (3 > 0) as int, 3 & (`_<_`(3, 0)),
         3 & `_<p`(3, 0) as int, (1 & 2) ^ (3 | 4),
         true & ((1) == 1)
-    ];
+    ] as tuple;
 }
 
 /**

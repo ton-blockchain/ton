@@ -33,7 +33,9 @@ namespace http {
 enum HttpStatusCode : td::uint32 {
   status_ok = 200,
   status_bad_request = 400,
+  status_not_found = 404,
   status_method_not_allowed = 405,
+  status_payload_too_large = 413,
   status_internal_server_error = 500,
   status_bad_gateway = 502,
   status_gateway_timeout = 504
@@ -339,8 +341,10 @@ class HttpResponse {
   bool is_tunnel_ = false;
 };
 
-void answer_error(HttpStatusCode code, std::string reason,
-                  td::Promise<std::pair<std::unique_ptr<HttpResponse>, std::shared_ptr<HttpPayload>>> promise);
+using ResponsePair = std::pair<std::unique_ptr<HttpResponse>, std::shared_ptr<HttpPayload>>;
+using ResponsePromise = td::Promise<ResponsePair>;
+
+void answer_error(HttpStatusCode code, std::string reason, ResponsePromise promise);
 
 }  // namespace http
 

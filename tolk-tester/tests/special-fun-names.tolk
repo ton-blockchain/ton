@@ -13,15 +13,17 @@ fun `PUSHINT`() { return 456 }
 @noinline
 fun `@havebits`() { return 789 }
 @noinline
-fun `f with spaces`() { return `g with spaces` }
+fun `f with spaces`() { return `g with spaces` + `g-with-spaces` }
 
 global swap: int;
 global `g with spaces`: int;
+global `g-with-spaces`: int;
 
 @method_id(101)
 fun test101() {
     swap = 1;
     `g with spaces` = 10;
+    `g-with-spaces` = 20;
     return execute() + `PUSHINT`() + `@havebits`() + swap + `f with spaces`();
 }
 
@@ -31,7 +33,7 @@ fun test101() {
 @testcase | -2 | | -2
 @testcase | -3 | | -3
 @testcase | -4 | | -4
-@testcase | 101 | | 1379
+@testcase | 101 | | 1399
 
 @fif_codegen
 """
@@ -44,7 +46,7 @@ fun test101() {
 
 @fif_codegen DECLPROC execute()
 @fif_codegen execute() CALLDICT
-@fif_codegen DECLPROC f-with-spaces()
+@fif_codegen DECLPROC f`with`spaces()
 @fif_codegen DECLGLOBVAR $swap
-@fif_codegen DECLGLOBVAR $g-with-spaces
+@fif_codegen DECLGLOBVAR $g`with`spaces
  */

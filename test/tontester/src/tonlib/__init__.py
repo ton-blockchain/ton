@@ -1,4 +1,4 @@
-from .client import TonlibClient
+from .client import TonlibClient, TonlibStateReader
 from .engine_console import EngineConsoleClient
 from .errors import LocalError, RemoteError
 from .event_loop import TonlibEventLoop
@@ -14,4 +14,5 @@ __all__ = [
     "TonlibClient",
     "TonlibError",
     "TonlibEventLoop",
+    "TonlibStateReader",
 ]

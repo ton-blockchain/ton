@@ -29,6 +29,10 @@ class StringBuilder;
 namespace vm {
 struct CellHash {
  public:
+  CellHash() = default;
+  explicit CellHash(const td::Bits256& b) {
+    td::MutableSlice(hash_.data(), hash_.size()).copy_from(b.as_slice());
+  }
   td::Slice as_slice() const {
     return td::Slice(hash_.data(), hash_.size());
   }
@@ -59,6 +63,11 @@ struct CellHash {
   }
   const std::array<td::uint8, CellTraits::hash_bytes>& as_array() const {
     return hash_;
+  }
+  td::Bits256 as_bits256() const {
+    td::Bits256 x;
+    x.as_slice().copy_from(as_slice());
+    return x;
   }
 
   static CellHash from_slice(td::Slice slice) {

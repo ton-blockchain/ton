@@ -630,6 +630,53 @@ td::Status SetVerbosityQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
+td::Status SetLogCategoryVerbosityQuery::run() {
+  TRY_RESULT_ASSIGN(category_, tokenizer_.get_token<std::string>());
+  TRY_RESULT(level, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  if (level == "default" || level == "reset") {
+    verbosity_ = -1;
+    return td::Status::OK();
+  }
+  TRY_RESULT_ASSIGN(verbosity_, td::to_integer_safe<td::int32>(level));
+  if (verbosity_ < -1 || verbosity_ > 10) {
+    return td::Status::Error("verbosity must be -1, default or in range [0..10]");
+  }
+  return td::Status::OK();
+}
+
+td::Status SetLogCategoryVerbosityQuery::send() {
+  auto b =
+      ton::create_serialize_tl_object<ton::ton_api::engine_validator_setLogCategoryVerbosity>(category_, verbosity_);
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetLogCategoryVerbosityQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status GetLogCategoriesQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetLogCategoriesQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getLogCategories>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetLogCategoriesQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_textStats>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << f->data_;
+  return td::Status::OK();
+}
+
 td::Status GetStatsQuery::run() {
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
@@ -678,27 +725,66 @@ td::Status AddNetworkAddressQuery::receive(td::BufferSlice data) {
   return td::Status::OK();
 }
 
-td::Status AddNetworkProxyAddressQuery::run() {
-  TRY_RESULT_ASSIGN(in_addr_, tokenizer_.get_token<td::IPAddress>());
-  TRY_RESULT_ASSIGN(out_addr_, tokenizer_.get_token<td::IPAddress>());
-  TRY_RESULT_ASSIGN(id_, tokenizer_.get_token<td::Bits256>());
-  TRY_RESULT_ASSIGN(shared_secret_, tokenizer_.get_token<td::BufferSlice>());
+td::Status DelNetworkAddressQuery::run() {
+  TRY_RESULT_ASSIGN(addr_, tokenizer_.get_token<td::IPAddress>());
   TRY_RESULT_ASSIGN(cats_, tokenizer_.get_token_vector<td::int32>());
   TRY_RESULT_ASSIGN(prio_cats_, tokenizer_.get_token_vector<td::int32>());
   TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
-td::Status AddNetworkProxyAddressQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addProxy>(
-      static_cast<td::int32>(in_addr_.get_ipv4()), in_addr_.get_port(), static_cast<td::int32>(out_addr_.get_ipv4()),
-      out_addr_.get_port(), ton::create_tl_object<ton::ton_api::adnl_proxy_fast>(id_, std::move(shared_secret_)),
-      std::move(cats_), std::move(prio_cats_));
+td::Status DelNetworkAddressQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delListeningPort>(
+      static_cast<td::int32>(addr_.get_ipv4()), addr_.get_port(), std::move(cats_), std::move(prio_cats_));
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
 
-td::Status AddNetworkProxyAddressQuery::receive(td::BufferSlice data) {
+td::Status DelNetworkAddressQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status AddQuicAddressQuery::run() {
+  TRY_RESULT_ASSIGN(addr_, tokenizer_.get_token<td::IPAddress>());
+  TRY_RESULT_ASSIGN(cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_RESULT_ASSIGN(prio_cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status AddQuicAddressQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addQuicAddr>(
+      static_cast<td::int32>(addr_.get_ipv4()), addr_.get_port(), std::move(cats_), std::move(prio_cats_));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status AddQuicAddressQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status DelQuicAddressQuery::run() {
+  TRY_RESULT_ASSIGN(addr_, tokenizer_.get_token<td::IPAddress>());
+  TRY_RESULT_ASSIGN(cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_RESULT_ASSIGN(prio_cats_, tokenizer_.get_token_vector<td::int32>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status DelQuicAddressQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delQuicAddr>(
+      static_cast<td::int32>(addr_.get_ipv4()), addr_.get_port(), std::move(cats_), std::move(prio_cats_));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status DelQuicAddressQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "success\n";
@@ -850,6 +936,7 @@ void SignCertificateQuery::receive_signature(td::BufferSlice R) {
     return;
   }
   signature_ = std::move(f.move_as_ok()->signature_);
+  has_signature_ = true;
   if (has_pubkey_) {
     save_certificate();
   }
@@ -864,6 +951,7 @@ void SignCertificateQuery::save_certificate() {
     return;
   }
   td::TerminalIO::out() << "saved certificate\n";
+  td::actor::send_closure(console_, &ValidatorEngineConsole::got_result, true);
   stop();
 }
 
@@ -931,14 +1019,26 @@ td::Status GetOverlaysStatsQuery::receive(td::BufferSlice data) {
     for (auto &t : s->stats_) {
       sb << "    " << t->key_ << "\t" << t->value_ << "\n";
     }
+    sb << "  broadcasts:\n";
+    for (auto &t : s->broadcasts_) {
+      if (t->source_.is_zero()) {
+        sb << "    Unauthorized";
+      } else {
+        sb << "    " << t->source_;
+      }
+      sb << " : " << (int)t->ts_start_ << "-" << (int)t->ts_end_ << " : count=" << t->count_
+         << " total_size=" << t->total_size_ << " total_out_traffic=" << t->total_out_traffic_ << "\n";
+    }
     td::TerminalIO::output(sb.as_cslice());
   }
   return td::Status::OK();
 }
 
 td::Status GetOverlaysStatsJsonQuery::run() {
-  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
-  TRY_STATUS(tokenizer_.check_endl());
+  if (!tokenizer_.endl()) {
+    TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+    TRY_STATUS(tokenizer_.check_endl());
+  }
   return td::Status::OK();
 }
 
@@ -951,7 +1051,7 @@ td::Status GetOverlaysStatsJsonQuery::send() {
 td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_overlaysStats>(data.as_slice(), true),
                     "received incorrect answer: ");
-  std::ofstream sb(file_name_);
+  td::StringBuilder sb;
 
   sb << "[\n";
   bool rtail = false;
@@ -1017,22 +1117,33 @@ td::Status GetOverlaysStatsJsonQuery::receive(td::BufferSlice data) {
       sb << "   \"" << t->key_ << "\": \"" << t->value_ << "\"";
     }
     sb << "\n  }";
-    if (!s->extra_.empty()) {
-      sb << ",\n  \"extra\": ";
-      for (char c : s->extra_) {
+    auto append_json = [&](const std::string &str) {
+      for (char c : str) {
         if (c == '\n') {
           sb << "\n  ";
         } else {
           sb << c;
         }
       }
+    };
+    if (!s->broadcasts_.empty()) {
+      sb << ",\n  \"broadcasts\": ";
+      append_json(td::json_encode<std::string>(td::ToJson(s->broadcasts_), true));
+    }
+    if (!s->extra_.empty()) {
+      sb << ",\n  \"extra\": ";
+      append_json(s->extra_);
     }
     sb << "\n}\n";
   }
   sb << "]\n";
-  sb << std::flush;
 
-  td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
+  if (file_name_.empty()) {
+    td::TerminalIO::out() << sb.as_cslice();
+  } else {
+    TRY_STATUS(td::write_file(file_name_, sb.as_cslice()));
+    td::TerminalIO::output(std::string("wrote stats to " + file_name_ + "\n"));
+  }
   return td::Status::OK();
 }
 
@@ -1489,8 +1600,6 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
     };
     print_local_id_packets("Decrypted packets (recent)", local_id->packets_recent_->decrypted_packets_);
     print_local_id_packets("Dropped packets   (recent)", local_id->packets_recent_->dropped_packets_);
-    print_local_id_packets("Decrypted packets (total)", local_id->packets_total_->decrypted_packets_);
-    print_local_id_packets("Dropped packets   (total)", local_id->packets_total_->dropped_packets_);
     sb << "  PEERS (" << local_id->peers_.size() << "):\n";
     std::sort(local_id->peers_.begin(), local_id->peers_.end(),
               [](const ton::tl_object_ptr<ton::ton_api::adnl_stats_peerPair> &a,
@@ -1537,13 +1646,13 @@ td::Status GetAdnlStatsQuery::receive(td::BufferSlice data) {
       print_packets("total", peer->packets_total_);
 
       sb << "      Last in packet: ";
-      if (peer->last_in_packet_ts_) {
+      if (peer->last_in_packet_ts_ != 0) {
         sb << now - peer->last_in_packet_ts_ << " s ago";
       } else {
         sb << "never";
       }
       sb << "    Last out packet: ";
-      if (peer->last_out_packet_ts_) {
+      if (peer->last_out_packet_ts_ != 0) {
         sb << now - peer->last_out_packet_ts_ << " s ago";
       } else {
         sb << "never";
@@ -2021,5 +2130,48 @@ td::Status ShowShardBlockVerifierConfigQuery::receive(td::BufferSlice data) {
       td::TerminalIO::out() << "    " << node << "\n";
     }
   }
+  return td::Status::OK();
+}
+
+td::Status SetConsensusNoncriticalParamsOverridesQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status SetConsensusNoncriticalParamsOverridesQuery::send() {
+  TRY_RESULT(data, td::read_file(file_name_));
+  TRY_RESULT(json, td::json_decode(data.as_slice()));
+  auto list = ton::create_tl_object<ton::ton_api::consensus_noncriticalParamsOverrideList>();
+  TRY_STATUS(ton::ton_api::from_json(*list, json.get_object()));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setConsensusNoncriticalParamsOverrides>(
+      std::move(list));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetConsensusNoncriticalParamsOverridesQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
+
+td::Status GetConsensusNoncriticalParamsOverridesQuery::run() {
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status GetConsensusNoncriticalParamsOverridesQuery::send() {
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getConsensusNoncriticalParamsOverrides>();
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status GetConsensusNoncriticalParamsOverridesQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(result,
+                    ton::fetch_tl_object<ton::ton_api::consensus_noncriticalParamsOverrideList>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << td::json_encode<std::string>(td::ToJson(*result), true) << "\n";
   return td::Status::OK();
 }

@@ -468,7 +468,8 @@ class Chk {
 
  public:
   template <typename... Args>
-  explicit constexpr Chk(Args... args) : cond(args...){};
+  explicit constexpr Chk(Args... args) : cond(args...) {
+  }
   bool deserialize_ext(CellSlice& cs, bool state) const {
     if (!state || !cond.deserialize(cs)) {
       cs.error();

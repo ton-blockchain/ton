@@ -25,7 +25,7 @@ fun AllowedMessageToVault.setJettonAmount(mutate self, newValue: coins) {
 }
 
 fun main() {
-    var m = lazy AllowedMessageToVault.fromSlice("");
+    var m = lazy AllowedMessageToVault.fromSlice(createEmptySlice());
     match (m) {
         AskToTransfer => {
             return m.setJettonAmount(123);

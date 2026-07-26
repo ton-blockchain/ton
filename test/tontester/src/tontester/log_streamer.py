@@ -16,7 +16,8 @@ class _LogEntry:
     timestamp: str
     filename: str
     line_number: int
-    label: str | None
+    actor: str | None
+    vlog: str | None
     message: bytearray
 
     def format(self):
@@ -27,7 +28,8 @@ class _LogEntry:
             3: "\x1b[1;36m",
         }
         message = self.message.decode(errors="replace")
-        label = f"[{self.label}]" if self.label is not None else ""
+        actor = f"[{self.actor}]" if self.actor is not None else ""
+        vlog = f"[{self.vlog}]" if self.vlog is not None else ""
 
         if message.endswith("\x1b[0m\n"):
             slice_len = 5
@@ -36,7 +38,7 @@ class _LogEntry:
         else:
             slice_len = 0
 
-        line = f"[{self.level}][t {self.thread_id}][{self.filename}:{self.line_number}]{label} {message[:-slice_len]}"
+        line = f"[{self.level}][t {self.thread_id}][{self.filename}:{self.line_number}]{actor}{vlog} {message[:-slice_len]}"
 
         if _IS_TERMINAL_INTERACTIVE and self.level in COLORS:
             line = f"{COLORS[self.level]}{line}\x1b[0m"
@@ -45,13 +47,20 @@ class _LogEntry:
 
 @final
 class LogStreamer:
-    def __init__(self, file: io.BufferedWriter, name: str, stream: asyncio.StreamReader):
+    def __init__(
+        self,
+        file: io.BufferedWriter,
+        name: str,
+        stream: asyncio.StreamReader,
+        verbosity: int,
+    ):
         self._file = file
         self._name = name
         self._stream = stream
         self._task = asyncio.create_task(self._stream_log())
         self._logger = logging.getLogger(self._name)
         self._current_entry: _LogEntry | None = None
+        self._verbosity = verbosity
 
     async def aclose(self):
         await self._task
@@ -106,6 +115,11 @@ class LogStreamer:
                     ([^\]]+)
                 \]
             )?
+            (?:
+                \[
+                    ([^\]]+)
+                \]
+            )?
             \t
             (.*)
         """,
@@ -120,11 +134,13 @@ class LogStreamer:
                 return
 
             can_be_multiline = line.startswith(b"\x1b")
-            level_str, thread_id_str, timestamp, filename, line_number_str, label, message = (
+            level_str, thread_id_str, timestamp, filename, line_number_str, actor, vlog, message = (
                 match.groups()
             )
-            if label is not None:
-                label = label.decode()
+            if actor is not None:
+                actor = actor.decode()
+            if vlog is not None:
+                vlog = vlog.decode()
 
             try:
                 level = int(level_str)
@@ -137,7 +153,8 @@ class LogStreamer:
                     timestamp=timestamp.decode(),
                     filename=filename.decode(),
                     line_number=line_number,
-                    label=label,
+                    actor=actor,
+                    vlog=vlog,
                     message=bytearray(message),
                 )
             except Exception:
@@ -152,7 +169,8 @@ class LogStreamer:
 
     def _flush_entry(self):
         if self._current_entry is not None:
-            self._logger.info(self._current_entry.format())
+            if self._current_entry.level <= self._verbosity:
+                self._logger.info(self._current_entry.format())
             self._current_entry = None
 
     def _log_malformed(self, data: bytes):

@@ -96,6 +96,9 @@ td::Status AdnlInboundConnection::process_custom_packet(td::BufferSlice &data, b
         return td::Status::Error(ErrorCode::protoviolation, "duplicate authenticate");
       }
       auto f = F.move_as_ok();
+      if (f->nonce_.size() == 0 || f->nonce_.size() > 512) {
+        return td::Status::Error(ErrorCode::protoviolation, "bad nonce size");
+      }
       nonce_ = td::SecureString{f->nonce_.size() + 256};
       nonce_.as_mutable_slice().truncate(f->nonce_.size()).copy_from(f->nonce_.as_slice());
       td::Random::secure_bytes(nonce_.as_mutable_slice().remove_prefix(f->nonce_.size()));
@@ -117,6 +120,9 @@ td::Status AdnlInboundConnection::process_custom_packet(td::BufferSlice &data, b
       }
 
       auto pub_key = PublicKey{f->key_};
+      if (!pub_key.is_ed25519()) {
+        return td::Status::Error("expected ed25519 key");
+      }
       TRY_RESULT(enc, pub_key.create_encryptor());
       TRY_STATUS(enc->check_signature(nonce_.as_slice(), f->signature_.as_slice()));
 
@@ -130,18 +136,26 @@ td::Status AdnlInboundConnection::process_custom_packet(td::BufferSlice &data, b
   return td::Status::OK();
 }
 
-void AdnlExtServerImpl::add_tcp_port(td::uint16 port) {
+void AdnlExtServerImpl::add_tcp_port(td::uint16 port, td::Promise<td::Unit> promise) {
   auto it = listeners_.find(port);
   if (it != listeners_.end()) {
+    promise.set_value(td::Unit());
     return;
   }
 
   class Callback : public td::TcpListener::Callback {
    private:
     td::actor::ActorId<AdnlExtServerImpl> id_;
+    td::Promise<td::Unit> promise_;
 
    public:
-    Callback(td::actor::ActorId<AdnlExtServerImpl> id) : id_(id) {
+    Callback(td::actor::ActorId<AdnlExtServerImpl> id, td::Promise<td::Unit> promise)
+        : id_(id), promise_(std::move(promise)) {
+    }
+    void on_bind() override {
+      if (promise_) {
+        promise_.set_value(td::Unit());
+      }
     }
     void accept(td::SocketFd fd) override {
       td::actor::send_closure(id_, &AdnlExtServerImpl::accepted, std::move(fd));
@@ -149,7 +163,8 @@ void AdnlExtServerImpl::add_tcp_port(td::uint16 port) {
   };
 
   auto act = td::actor::create_actor<td::TcpInfiniteListener>(
-      td::actor::ActorOptions().with_name("listener").with_poll(), port, std::make_unique<Callback>(actor_id(this)));
+      td::actor::ActorOptions().with_name("listener").with_poll(), port,
+      std::make_unique<Callback>(actor_id(this), std::move(promise)));
   listeners_.emplace(port, std::move(act));
 }
 
@@ -173,10 +188,11 @@ void AdnlExtServerImpl::decrypt_init_packet(AdnlNodeIdShort dst, td::BufferSlice
   }
 }
 
-td::actor::ActorOwn<AdnlExtServer> AdnlExtServerCreator::create(td::actor::ActorId<AdnlPeerTable> adnl,
-                                                                std::vector<AdnlNodeIdShort> ids,
-                                                                std::vector<td::uint16> ports) {
-  return td::actor::create_actor<AdnlExtServerImpl>("extserver", adnl, std::move(ids), std::move(ports));
+void AdnlExtServerCreator::create(td::actor::ActorId<AdnlPeerTable> adnl, std::vector<AdnlNodeIdShort> ids,
+                                  std::vector<td::uint16> ports,
+                                  td::Promise<td::actor::ActorOwn<AdnlExtServer>> promise) {
+  td::actor::create_actor<AdnlExtServerImpl>("extserver", adnl, std::move(ids), std::move(ports), std::move(promise))
+      .release();
 }
 
 }  // namespace adnl

@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <exception>
 #include <map>
 
 #include "lite-client/ext-client.h"
@@ -83,9 +84,16 @@ class TonlibClient : public td::actor::Actor {
   void make_request(T&& request, P&& promise) {
     td::Promise<typename std::decay_t<T>::ReturnType> new_promise = std::move(promise);
 
-    auto status = do_request(std::forward<T>(request), std::move(new_promise));
+    td::Status status;
+    try {
+      status = do_request(std::forward<T>(request), std::move(new_promise));
+    } catch (std::exception& e) {
+      status = td::Status::Error(500, td::Slice(e.what()));
+    } catch (...) {
+      status = td::Status::Error(500, "Unhandled exception in request");
+    }
     if (status.is_error()) {
-      new_promise.operator()(std::move(status));
+      new_promise.set_error(status.move_as_error());
     }
   }
 
@@ -110,6 +118,9 @@ class TonlibClient : public td::actor::Actor {
   };
   QueryContext query_context_;
   vm::Dictionary libraries{256};
+  static constexpr td::uint16 max_library_depth = 512;  // This is limited in blockchain by max_vm_data_depth
+  static constexpr td::uint32 max_smc_preloaded_libraries = 32;
+  static constexpr td::uint32 max_smc_missing_library_fetches = 8;
 
   // network
   td::actor::ActorOwn<liteclient::ExtClient> raw_client_;
@@ -352,7 +363,8 @@ class TonlibClient : public td::actor::Actor {
   void process_new_libraries(
       td::Result<ton::lite_api::object_ptr<ton::lite_api::liteServer_libraryResult>> r_libraries);
   void perform_smc_execution(td::Ref<ton::SmartContract> smc, ton::SmartContract::Args args,
-                             td::Promise<object_ptr<tonlib_api::smc_runResult>>&& promise);
+                             td::Promise<object_ptr<tonlib_api::smc_runResult>>&& promise,
+                             td::uint32 missing_library_fetches = 0);
 
   void do_dns_request(std::string name, td::Bits256 category, td::int32 ttl, td::optional<ton::BlockIdExt> block_id,
                       block::StdAddress address, td::Promise<object_ptr<tonlib_api::dns_resolved>>&& promise);
@@ -379,6 +391,8 @@ class TonlibClient : public td::actor::Actor {
 
   td::Status do_request(const tonlib_api::blocks_getMasterchainInfo& masterchain_info,
                         td::Promise<object_ptr<tonlib_api::blocks_masterchainInfo>>&& promise);
+  td::Status do_request(const tonlib_api::blocks_getMasterchainInfoExt& masterchain_info,
+                        td::Promise<object_ptr<tonlib_api::blocks_masterchainInfoExt>>&& promise);
   td::Status do_request(const tonlib_api::blocks_getShards& request,
                         td::Promise<object_ptr<tonlib_api::blocks_shards>>&& promise);
   td::Status do_request(const tonlib_api::blocks_lookupBlock& block_header,

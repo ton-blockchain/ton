@@ -764,6 +764,48 @@ class SetVerbosityQuery : public Query {
   td::uint32 verbosity_;
 };
 
+class SetLogCategoryVerbosityQuery : public Query {
+ public:
+  SetLogCategoryVerbosityQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-vcategory";
+  }
+  static std::string get_help() {
+    return "set-vcategory <name> <value|default>\tchanges category verbosity level";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string category_;
+  td::int32 verbosity_;
+};
+
+class GetLogCategoriesQuery : public Query {
+ public:
+  GetLogCategoriesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-vcategories";
+  }
+  static std::string get_help() {
+    return "get-vcategories\tprints log categories and levels";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
 class GetStatsQuery : public Query {
  public:
   GetStatsQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
@@ -832,29 +874,74 @@ class AddNetworkAddressQuery : public Query {
   std::vector<td::int32> prio_cats_;
 };
 
-class AddNetworkProxyAddressQuery : public Query {
+class DelNetworkAddressQuery : public Query {
  public:
-  AddNetworkProxyAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+  DelNetworkAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
       : Query(console, std::move(tokenizer)) {
   }
   td::Status run() override;
   td::Status send() override;
   td::Status receive(td::BufferSlice data) override;
   static std::string get_name() {
-    return "add-proxy-addr";
+    return "del-addr";
   }
   static std::string get_help() {
-    return "add-proxy-addr <inip> <outip> <id> <secret> {cats...} {priocats...}\tadds ip address to address list";
+    return "del-addr <ip> {cats...} {priocats...}\tremoves ip address from address list";
   }
   std::string name() const override {
     return get_name();
   }
 
  private:
-  td::IPAddress in_addr_;
-  td::IPAddress out_addr_;
-  td::Bits256 id_;
-  td::BufferSlice shared_secret_;
+  td::IPAddress addr_;
+  std::vector<td::int32> cats_;
+  std::vector<td::int32> prio_cats_;
+};
+
+class AddQuicAddressQuery : public Query {
+ public:
+  AddQuicAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "add-quic-addr";
+  }
+  static std::string get_help() {
+    return "add-quic-addr <ip> {cats...} {priocats...}\tadds quic ip address to address list";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::IPAddress addr_;
+  std::vector<td::int32> cats_;
+  std::vector<td::int32> prio_cats_;
+};
+
+class DelQuicAddressQuery : public Query {
+ public:
+  DelQuicAddressQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "del-quic-addr";
+  }
+  static std::string get_help() {
+    return "del-quic-addr <ip> {cats...} {priocats...}\tremoves quic ip address from address list";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  td::IPAddress addr_;
   std::vector<td::int32> cats_;
   std::vector<td::int32> prio_cats_;
 };
@@ -1801,6 +1888,47 @@ class ShowShardBlockVerifierConfigQuery : public Query {
   }
   static std::string get_help() {
     return "show-shard-block-verifier-config\tshow config of shard block verifier";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+};
+
+class SetConsensusNoncriticalParamsOverridesQuery : public Query {
+ public:
+  SetConsensusNoncriticalParamsOverridesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-consensus-noncritical-params-overrides";
+  }
+  static std::string get_help() {
+    return "set-consensus-noncritical-params-overrides <filename>\tset noncritical params overrides from file";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};
+
+class GetConsensusNoncriticalParamsOverridesQuery : public Query {
+ public:
+  GetConsensusNoncriticalParamsOverridesQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "get-consensus-noncritical-params-overrides";
+  }
+  static std::string get_help() {
+    return "get-consensus-noncritical-params-overrides\tshow current noncritical params overrides";
   }
   std::string name() const override {
     return get_name();

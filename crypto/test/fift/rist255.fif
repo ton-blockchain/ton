@@ -90,3 +90,66 @@ cr ."Hash to point:" cr
 0xae81e7dedf20a497e10c304a765c1767a42d6e06029758d2d7e8ef7cc4c41179 "This produces a concentrated shot of coffee per volume." test-hash
 0xe2705652ff9f5e44d3e841bf1c251cf7dddb77d140870d1ab2ed64f1a9ce8628 "Just pulling a normal shot short will produce a weaker shot" test-hash
 0x80bd07262511cdde4863f8a7434cef696750681cb9510eea557088f76d9e5065 "and is not a Ristretto as some believe." test-hash
+
+cr ."Identity-result multiplication (TVM 14):" cr
+{
+  // ( x n -- ) expects RIST255_MUL(x, n) = 0 and RIST255_QMUL(x, n) = 0 -1
+  =: n =: x
+  @' x (x.) type ." * " @' n . cr
+  // non-quiet: must succeed and return 0; result must validate as a point
+  @' x @' n
+  [[ <{ RIST255_MUL DUP RIST255_VALIDATE }>s ]] 0 runvmx abort"Exitcode != 0"
+  abort"RIST255_MUL: expected result 0"
+  // quiet: must push (result=0, success=-1)
+  @' x @' n
+  [[ <{ RIST255_QMUL }>s ]] 0 runvmx abort"Exitcode != 0"
+  -1 <> abort"Expected status -1"
+  abort"Expected result 0"
+} : test-mul-identity-result
+
+0 1                                                                  test-mul-identity-result
+0 12345                                                              test-mul-identity-result
+0 0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef test-mul-identity-result
+
+cr ."Identity MULBASE (TVM 14):" cr
+{
+  // ( n -- )  expects (Q)MULBASE(n) to yield identity (0)
+  =: n
+  @' n . cr
+  @' n
+  [[ <{ RIST255_MULBASE DUP RIST255_VALIDATE }>s ]] 0 runvmx abort"Exitcode != 0"
+  abort"Expected result 0"
+  @' n
+  [[ <{ RIST255_QMULBASE }>s ]] 0 runvmx abort"Exitcode != 0"
+  -1 <> abort"Expected status -1"
+  abort"Expected result 0"
+} : test-mulbase-identity
+0 test-mulbase-identity
+[[ <{ RIST255_PUSHL }>s ]] 0 runvmx abort"PUSHL exitcode != 0" test-mulbase-identity
+
+cr ."Validate x on n%l==0 fast path (TVM 14):" cr
+{
+  // ( bad_x n -- ) expects to reject
+  =: n =: bad_x
+  @' bad_x (x.) type ." * " @' n . cr
+  @' bad_x @' n [[ <{ RIST255_MUL }>s ]] 0 runvmx
+  5 <> abort"Expected exit code 5"
+  drop  // drop the exception parameter
+  @' bad_x @' n [[ <{ RIST255_QMUL }>s ]] 0 runvmx abort"Exitcode != 0"
+  abort"v14 RIST255_QMUL: expected status 0"
+  // TVM 13 and earlier accepted it
+  @' bad_x @' n [[ <{ RIST255_MUL }>s ]] 13 1024 runvmx abort"v13 Exitcode != 0"
+  abort"v13 RIST255_MUL: expected legacy 0"
+  @' bad_x @' n [[ <{ RIST255_QMUL }>s ]] 13 1024 runvmx abort"v13 Exitcode != 0"
+  -1 <> abort"v13 Expected status -1"
+  abort"v13 Expected result 0"
+} : test-mul-malformed-with-zero-scalar
+
+0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff 0 test-mul-malformed-with-zero-scalar
+0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff [[ <{ RIST255_PUSHL }>s ]] 0 runvmx abort"PUSHL exitcode != 0" test-mul-malformed-with-zero-scalar
+
+cr ."Quiet failure on truly invalid input still pushes only `false`:" cr
+0xc34c4e1826e5d403b78e246e88aa051c36ccf0aafebffe137d148a2bf9104562 1
+[[ <{ RIST255_QMUL }>s ]] 0 runvmx abort"Exitcode != 0"
+0 <> abort"Expected 0"
+depth 0 <> abort"Expected exactly one value (false) on stack"

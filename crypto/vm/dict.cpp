@@ -1811,9 +1811,10 @@ static Ref<Cell> dict_build(td::Span<std::pair<td::ConstBitPtr, Ref<CellBuilder>
     }
     return cb.finalize();
   }
-  size_t common_prefix_len;
+  size_t common_prefix_len_s;
   td::bitstring::bits_memcmp(values.front().first + prefix_len, values.back().first + prefix_len,
-                             total_key_len - prefix_len, &common_prefix_len);
+                             total_key_len - prefix_len, &common_prefix_len_s);
+  int common_prefix_len = static_cast<int>(common_prefix_len_s);
   CHECK(prefix_len + common_prefix_len < total_key_len);
   size_t idx = 0;
   while (values[idx].first[prefix_len + common_prefix_len] == 0) {
@@ -1843,9 +1844,10 @@ Ref<Cell> Dictionary::dict_multiset(Ref<Cell> dict1, td::Span<std::pair<td::Cons
     assert(!skip1);
     return dict1;
   }
-  size_t common_prefix_len;
+  size_t common_prefix_len_s;
   td::bitstring::bits_memcmp(values2.front().first + prefix_len, values2.back().first + prefix_len,
-                             total_key_len - prefix_len, &common_prefix_len);
+                             total_key_len - prefix_len, &common_prefix_len_s);
+  int common_prefix_len = static_cast<int>(common_prefix_len_s);
   assert(prefix_len + common_prefix_len < total_key_len || values2.size() == 1);
   // both dictionaries non-empty
   // skip1: remove that much first bits from all keys in dictionary dict1 (its keys are actually n + skip1 bits long)
@@ -3118,14 +3120,14 @@ bool AugmentedDictionary::set_ref(td::ConstBitPtr key, int key_len, Ref<Cell> va
   if (value_ref.not_null()) {
     CellBuilder cb;
     cb.store_ref(std::move(value_ref));
-    return set(key, key_len, load_cell_slice(cb.finalize()));
+    return set(key, key_len, load_cell_slice(cb.finalize()), mode);
   } else {
     return false;
   }
 }
 
 bool AugmentedDictionary::set_builder(td::ConstBitPtr key, int key_len, const CellBuilder& value, SetMode mode) {
-  return set(key, key_len, load_cell_slice(value.finalize_copy()));
+  return set(key, key_len, load_cell_slice(value.finalize_copy()), mode);
 }
 
 bool AugmentedDictionary::check_for_each_extra(const foreach_extra_func_t& foreach_extra_func, bool invert_first) {

@@ -129,10 +129,14 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<DelValidatorAdnlAddrQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetConfigQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<SetVerbosityQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SetLogCategoryVerbosityQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetLogCategoriesQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<GetStatsQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<QuitQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<AddNetworkAddressQuery>>());
-  add_query_runner(std::make_unique<QueryRunnerImpl<AddNetworkProxyAddressQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<DelNetworkAddressQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<AddQuicAddressQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<DelQuicAddressQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<CreateElectionBidQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<CreateProposalVoteQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<CreateComplaintVoteQuery>>());
@@ -175,6 +179,8 @@ void ValidatorEngineConsole::run() {
   add_query_runner(std::make_unique<QueryRunnerImpl<SetShardBlockVerifierConfigQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ClearShardBlockVerifierConfigQuery>>());
   add_query_runner(std::make_unique<QueryRunnerImpl<ShowShardBlockVerifierConfigQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<SetConsensusNoncriticalParamsOverridesQuery>>());
+  add_query_runner(std::make_unique<QueryRunnerImpl<GetConsensusNoncriticalParamsOverridesQuery>>());
 }
 
 bool ValidatorEngineConsole::envelope_send_query(td::BufferSlice query, td::Promise<td::BufferSlice> promise) {

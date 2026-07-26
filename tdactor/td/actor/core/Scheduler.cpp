@@ -140,7 +140,8 @@ void Scheduler::do_stop() {
 }
 
 Scheduler::ContextImpl::ContextImpl(ActorInfoCreator *creator, SchedulerId scheduler_id, CpuWorkerId cpu_worker_id,
-                                    SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<double> *heap, Debug *debug)
+                                    SchedulerGroupInfo *scheduler_group, Poll *poll, KHeap<Timestamp> *heap,
+                                    Debug *debug)
     : creator_(creator)
     , scheduler_id_(scheduler_id)
     , cpu_worker_id_(cpu_worker_id)
@@ -208,7 +209,7 @@ Poll &Scheduler::ContextImpl::get_poll() {
 bool Scheduler::ContextImpl::has_heap() {
   return heap_ != nullptr;
 }
-KHeap<double> &Scheduler::ContextImpl::get_heap() {
+KHeap<Timestamp> &Scheduler::ContextImpl::get_heap() {
   CHECK(has_heap());
   return *heap_;
 }
@@ -232,10 +233,10 @@ void Scheduler::ContextImpl::set_alarm_timestamp(const ActorInfoPtr &actor_info_
   auto timestamp = actor_info_ptr->get_alarm_timestamp();
   if (timestamp) {
     if (heap_node->in_heap()) {
-      heap.fix(timestamp.at(), heap_node);
+      heap.fix(timestamp, heap_node);
     } else {
       actor_info_ptr->pin(actor_info_ptr);
-      heap.insert(timestamp.at(), heap_node);
+      heap.insert(timestamp, heap_node);
     }
   } else {
     if (heap_node->in_heap()) {

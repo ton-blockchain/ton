@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <set>
 #include <tl/tlblib.hpp>
 
 namespace tlb {
@@ -125,6 +126,10 @@ bool TupleT::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
 }
 
 bool TLB::validate_ref_internal(int* ops, Ref<vm::Cell> cell_ref, bool weak) const {
+  auto cache = ValidateCache::get();
+  if (cache && !(*cache)(this, cell_ref)) {
+    return true;
+  }
   if (ops) {
     if (*ops <= 0) {
       return false;
@@ -395,6 +400,16 @@ const TLB* TypenameLookup::lookup(td::Slice str) const {
   auto it = std::lower_bound(types.begin(), types.end(), str,
                              [](const auto& x, const auto& y) { return td::Slice(x.first) < y; });
   return it != types.end() && td::Slice(it->first) == str ? it->second : nullptr;
+}
+
+TLB::ValidateCache TLB::ValidateCache::create_for_type(const TLB* type) {
+  return ValidateCache{
+      [s = td::HashSet<vm::CellHash>(), type](const TLB* t, const td::Ref<vm::Cell>& cell) mutable -> bool {
+        if (type != t) {
+          return true;
+        }
+        return s.insert(cell->get_hash()).second;
+      }};
 }
 
 }  // namespace tlb

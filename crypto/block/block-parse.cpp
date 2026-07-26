@@ -130,6 +130,9 @@ ton::AccountIdPrefixFull MsgAddressInt::get_prefix(vm::CellSlice&& cs) {
     }
     case 5: {   // addr_std$10, anycast=just$1 (Anycast)
       t &= 31;  // depth:(## 5)
+      if (t <= 0 || t > 30) {
+        break;
+      }
       unsigned long long rewrite;
       if (cs.advance(8) && cs.fetch_uint_to(t, rewrite)  // rewrite_pfx:(bits depth)
           && cs.fetch_int_to(8, workchain)               // workchain_id:int8
@@ -151,6 +154,9 @@ ton::AccountIdPrefixFull MsgAddressInt::get_prefix(vm::CellSlice&& cs) {
     }
     case 7: {   // addr_var$11, anycast=just$1 (Anycast)
       t &= 31;  // depth:(## 5)
+      if (t <= 0 || t > 30) {
+        break;
+      }
       int len;
       unsigned long long rewrite;
       if (cs.advance(8) && cs.fetch_uint_to(t, rewrite)  // rewrite_pfx:(bits depth)
@@ -203,6 +209,9 @@ bool MsgAddressInt::extract_std_address(vm::CellSlice& cs, ton::WorkchainId& wor
     }
     case 5: {   // addr_std$10, anycast=just$1 (Anycast)
       t &= 31;  // depth:(## 5)
+      if (t <= 0 || t > 30) {
+        break;
+      }
       unsigned long long rewrite;
       if (cs.advance(8) && cs.fetch_uint_to(t, rewrite)  // rewrite_pfx:(bits depth)
           && cs.fetch_int_to(8, workchain)               // workchain_id:int8
@@ -223,6 +232,9 @@ bool MsgAddressInt::extract_std_address(vm::CellSlice& cs, ton::WorkchainId& wor
     }
     case 7: {   // addr_var$11, anycast=just$1 (Anycast)
       t &= 31;  // depth:(## 5)
+      if (t <= 0 || t > 30) {
+        break;
+      }
       int len;
       unsigned long long rewrite;
       if (cs.advance(8) && cs.fetch_uint_to(t, rewrite)  // rewrite_pfx:(bits depth)
@@ -867,13 +879,17 @@ bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record& data) const {
              && t_Grams.fetch_to(cs, data.fwd_fee_remaining)        // fwd_fee_remaining:Grams
              && cs.fetch_ref_to(data.msg);                          // msg:^Message
     case 5:
+      bool with_metadata, with_emitted_lt;
       return cs.fetch_ulong(4) == 5                                 // msg_envelope_v2#5
              && t_IntermediateAddress.fetch_to(cs, data.cur_addr)   // cur_addr:IntermediateAddress
              && t_IntermediateAddress.fetch_to(cs, data.next_addr)  // next_addr:IntermediateAddress
              && t_Grams.fetch_to(cs, data.fwd_fee_remaining)        // fwd_fee_remaining:Grams
              && cs.fetch_ref_to(data.msg)                           // msg:^Message
-             && Maybe<UInt>(64).skip(cs)                            // emitted_lt:(Maybe uint64)
-             && Maybe<gen::MsgMetadata>().skip(cs);                 // metadata:(Maybe MsgMetadata)
+             && cs.fetch_bool_to(with_emitted_lt) &&
+             (!with_emitted_lt || cs.skip_first(64))  // emitted_lt:(Maybe uint64)
+             && cs.fetch_bool_to(with_metadata) &&
+             (!with_metadata || gen::t_MsgMetadata.skip(cs))  // metadata:(Maybe MsgMetadata)
+             && (with_emitted_lt || with_metadata);           // otherwise it should be msg_envelope#4
     default:
       return false;
   }
@@ -899,7 +915,8 @@ bool MsgEnvelope::unpack(vm::CellSlice& cs, MsgEnvelope::Record_std& data) const
              && cs.fetch_bool_to(with_emitted_lt) &&
              (!with_emitted_lt || cs.fetch_uint_to(64, data.emitted_lt.value_force()))  // emitted_lt:(Maybe uint64)
              && cs.fetch_bool_to(with_metadata) &&
-             (!with_metadata || data.metadata.value_force().unpack(cs));  // metadata:(Maybe MsgMetadata)
+             (!with_metadata || data.metadata.value_force().unpack(cs))  // metadata:(Maybe MsgMetadata)
+             && (with_emitted_lt || with_metadata);                      // otherwise it should be msg_envelope#4
     }
     default:
       return false;
@@ -1322,7 +1339,6 @@ bool TrComputeInternal1::validate_skip(int* ops, vm::CellSlice& cs, bool weak) c
                                                                 // vm_final_state_hash:uint256
 }
 
-const TrComputeInternal1 t_TrComputeInternal1;
 const RefTo<TrComputeInternal1> t_Ref_TrComputeInternal1;
 const ComputeSkipReason t_ComputeSkipReason;
 

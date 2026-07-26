@@ -47,7 +47,7 @@ class BroadcastSimple : public td::ListNode {
  public:
   BroadcastSimple(Overlay::BroadcastHash broadcast_hash, PublicKey source, std::shared_ptr<Certificate> cert,
                   td::uint32 flags, td::BufferSlice data, td::uint32 date, td::BufferSlice signature, bool is_valid,
-                  adnl::AdnlNodeIdShort src_peer_id)
+                  adnl::AdnlNodeIdShort src_peer_id, bool is_ours)
       : broadcast_hash_(broadcast_hash)
       , source_(std::move(source))
       , cert_(std::move(cert))
@@ -56,7 +56,8 @@ class BroadcastSimple : public td::ListNode {
       , date_(date)
       , signature_(std::move(signature))
       , is_valid_(is_valid)
-      , src_peer_id_(src_peer_id) {
+      , src_peer_id_(src_peer_id)
+      , is_ours_(is_ours) {
   }
 
   td::Status run(OverlayImpl *overlay);
@@ -80,16 +81,26 @@ class BroadcastSimple : public td::ListNode {
   td::BufferSlice signature_;
   bool is_valid_;
   adnl::AdnlNodeIdShort src_peer_id_;
+  bool is_ours_;
 };
 
 td::Status BroadcastSimple::run(OverlayImpl *overlay) {
-  auto r = overlay->check_source_eligible(source_, cert_.get(), static_cast<td::uint32>(data_.size()), false);
+  auto r =
+      overlay->check_source_eligible(source_, cert_.get(), static_cast<td::uint32>(data_.size()), /* is_fec = */ false,
+                                     /* is_any_sender = */ flags_ & Overlays::BroadcastFlagAnySender(), src_peer_id_);
   if (r == BroadcastCheckResult::Forbidden) {
     return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
   }
   is_valid_ = r == BroadcastCheckResult::Allowed;
-  TRY_RESULT(encryptor, overlay->get_encryptor(source_));
-  TRY_STATUS(encryptor->check_signature(to_sign().as_slice(), signature_.as_slice()));
+  BroadcastsLimiter &limiter = overlay->get_broadcasts_limiter(source_.compute_short_id(), cert_.get());
+  if (!is_ours_) {
+    TRY_STATUS(limiter.precheck_new_broadcast(data_.size()));
+  }
+  {
+    TD_PERF_COUNTER(check_signature_overlay_broadcast_simple);
+    TRY_STATUS(overlay->check_signature_from_peer(source_, to_sign().as_slice(), signature_.as_slice(), src_peer_id_));
+  }
+  limiter.register_broadcast(data_.size());
   if (!is_valid_) {
     auto P = td::PromiseCreator::lambda(
         [overlay = actor_id(overlay), hash = broadcast_hash_](td::Result<td::Unit> R) mutable {
@@ -119,7 +130,9 @@ void BroadcastSimple::run_continue(OverlayImpl *overlay) {
     td::actor::send_closure(manager, &OverlayManager::send_message, n, overlay->local_id(), overlay->overlay_id(),
                             B.clone());
   }
-  overlay->deliver_broadcast(source_.compute_short_id(), data_.clone());
+  overlay->get_broadcasts_limiter(source_.compute_short_id(), cert_.get())
+      .register_out_traffic(B.size() * nodes.size());
+  overlay->deliver_broadcast(source_.compute_short_id(), data_.clone(), {});
 }
 
 td::BufferSlice BroadcastSimple::serialize() {
@@ -144,7 +157,7 @@ void BroadcastsSimple::send(OverlayImpl *overlay, PublicKeyHash send_as, td::Buf
   }
   auto date = static_cast<td::uint32>(td::Clocks::system());
   auto bcast = std::make_unique<BroadcastSimple>(broadcast_hash, PublicKey{}, nullptr, flags, std::move(data), date,
-                                                 td::BufferSlice{}, false, adnl::AdnlNodeIdShort::zero());
+                                                 td::BufferSlice{}, false, adnl::AdnlNodeIdShort::zero(), true);
   auto to_sign = bcast->to_sign();
   auto P = td::PromiseCreator::lambda([overlay = actor_id(overlay), bcast = std::move(bcast)](
                                           td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
@@ -188,7 +201,7 @@ td::Status BroadcastsSimple::process_broadcast(OverlayImpl *overlay, adnl::AdnlN
   TRY_RESULT(cert, Certificate::create(std::move(broadcast->certificate_)));
   auto B = std::make_unique<BroadcastSimple>(broadcast_hash, src, std::move(cert), broadcast->flags_,
                                              std::move(broadcast->data_), broadcast->date_,
-                                             std::move(broadcast->signature_), false, src_peer_id);
+                                             std::move(broadcast->signature_), false, src_peer_id, false);
   TRY_STATUS(B->run(overlay));
   register_(overlay, std::move(B));
   return td::Status::OK();
@@ -198,13 +211,13 @@ void BroadcastsSimple::process_query(adnl::AdnlNodeIdShort src, ton_api::overlay
                                      td::Promise<td::BufferSlice> promise) {
   auto it = broadcasts_.find(query.hash_);
   if (it == broadcasts_.end()) {
-    VLOG(OVERLAY_NOTICE) << this << ": received getBroadcastQuery(" << query.hash_ << ") from " << src
-                         << " but broadcast is unknown";
+    VLOG(overlay, INFO) << this << ": received getBroadcastQuery(" << query.hash_ << ") from " << src
+                        << " but broadcast is unknown";
     promise.set_value(create_serialize_tl_object<ton_api::overlay_broadcastNotFound>());
     return;
   }
-  VLOG(OVERLAY_DEBUG) << this << ": received getBroadcastQuery(" << query.hash_ << ") from " << src
-                      << " sending broadcast";
+  VLOG(overlay, DEBUG) << this << ": received getBroadcastQuery(" << query.hash_ << ") from " << src
+                       << " sending broadcast";
   promise.set_value(it->second->serialize());
 }
 

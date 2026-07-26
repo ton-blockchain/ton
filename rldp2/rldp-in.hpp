@@ -92,30 +92,37 @@ class RldpIn : public RldpImpl {
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                        td::Promise<td::string> promise) override;
 
-  void set_default_mtu(td::uint64 mtu) override;
-  void add_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) override;
-  void remove_peer_mtu_limit(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu) override;
-
-  RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
+  explicit RldpIn(td::actor::ActorId<adnl::AdnlPeerTable> adnl) : adnl_(adnl) {
   }
+
+ protected:
+  void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
+                      td::optional<adnl::AdnlNodeIdShort> peer_id) override;
+
+  void alarm() override;
 
  private:
   std::unique_ptr<adnl::Adnl::Callback> make_adnl_callback();
 
   td::actor::ActorId<adnl::AdnlPeerTable> adnl_;
 
-  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::actor::ActorOwn<RldpConnectionActor>>
-      connections_;
+  struct Connection;
+  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, Connection> connections_;
+  std::set<std::tuple<td::Timestamp, adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>> timeout_set_;
 
-  std::map<TransferId, td::Promise<td::BufferSlice>> queries_;
+  struct OutQuery {
+    td::Promise<td::BufferSlice> promise;
+    td::uint64 max_answer_size;
+  };
+  std::map<TransferId, OutQuery> queries_;
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
 
-  td::optional<td::uint64> custom_default_mtu_;
-  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, std::multiset<td::uint64>> custom_peer_mtu_;
+  td::actor::ActorId<RldpConnectionActor> get_or_create_connection(adnl::AdnlNodeIdShort local_id,
+                                                                   adnl::AdnlNodeIdShort peer_id, bool incoming,
+                                                                   td::Timestamp timeout = {});
 
-  td::actor::ActorId<RldpConnectionActor> create_connection(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst);
-  td::uint64 get_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id);
+  static constexpr double CONNECTION_TIMEOUT = 120.0;
 };
 
 }  // namespace rldp2

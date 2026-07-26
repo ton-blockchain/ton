@@ -80,11 +80,11 @@ fun`main`(){}
 @testcase | 115 |    | [ 0 0 ]
 @testcase | 116 |    | [ 1 2 3 4 ]
 
-@fif_codegen DECLGLOBVAR $some()-var
+@fif_codegen DECLGLOBVAR $some()`var
 
 @fif_codegen
 """
-  get-+-+1() PROC:<{
+  get`+-+1() PROC:<{
     -1 PUSHINT
   }>
 """
@@ -95,7 +95,7 @@ fun`main`(){}
     -4 PUSHINT
     6 PUSHINT
     -4 PUSHINT
-    TRIPLE
+    3 TUPLE
   }>
 """
 
@@ -109,7 +109,7 @@ fun`main`(){}
     add3() CALLDICT	//  fst1=-1 snd1=-1 trd1=2 '13
     3 -ROLL	//  '13 fst1=-1 snd1=-1 trd1=2
     add3() CALLDICT	//  '13 '14
-    PAIR	//  '12
+    2 TUPLE	//  '12
   }>
 """
 

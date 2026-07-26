@@ -1,3 +1,5 @@
+import "@stdlib/reflection"
+
 type MInt = int
 type MSlice = slice
 
@@ -10,7 +12,8 @@ const int111: MInt = 111;
 const int1r = int1;
 
 const str1 = "const1";
-const str2: MSlice = stringHexToSlice("aabbcc");
+const str2: MSlice = "aabbcc".hexToSlice();
+const str3: MSlice = ("aabbccdd" as string).literalSlice();
 
 const str2r: slice = str2;
 
@@ -31,13 +34,16 @@ const true1 = true const true2 = !!true const true3 = true1 && true2
 const false1 = !true;
 const false2 = false1 || false;
 
-const tens1 = (1, 2);
+const tens1 = (1, - -(2 as int32)*1);
 const tens2: (int, int, (int8, int16)) = (tens1.1, tens1.0 << 2, tens1);
 
 const intOrN: int? = null;
 const int32Or64: int32 | int64 = 7 as int64;
+const int32OrCoins: int32 | coins = grams("0.05");
+const intOrSlice = 5 as int|slice;
+const int32Or128 = (7 as int32) as int32 | int128;
 
-const nameOfAddress = address.typeName()
+const nameOfAddress = reflect.typeNameOf<address>()
 
 fun iget1(): int { return int1; }
 fun iget2(): int { return int2; }
@@ -45,7 +51,7 @@ fun iget3(): int { return int1+int2; }
 
 fun iget1r(): int { return int1r; }
 
-fun sget1(): slice { return str1; }
+fun sget1(): string { return str1; }
 fun sget2(): slice { return str2; }
 fun sget2r(): slice { return str2r; }
 
@@ -60,14 +66,29 @@ enum Color {
 const boolOpsWithInts = (10 < 3, 10 <= 3, 10 > 3, 10 >= 3, 10 == 3, 10 != 3, 10 <= 10, 10 >= (9 + 1), )
 const boolOpsWithBools = (true == true, true != true, false == false, !!false != !!false)
 const boolBitwise = (true & true, true & false, false & true, false & false, true | false, true ^ true, true ^ false)
-const intBitwise = (2 & 3, 2 ^ 3, 2 | 3, 1 | 5, 0xFF & 0x80, !0, !100)
+const intBitwise = (2 & 3, 2 ^ 3, 2 | 3, 1 | 5, 0xFF & 0x80, 0 == 0, 100 == 0)
 const alsoBlue = Color.blue
 const also2 = Color.blue as int
 
 const nullable5: int? = 5
-const nullableTensor: (int, int)? = null
+const nullableTensor: (int, int)? = (((null)))
 const nullableTricky: (UnpackOptions?, int?, (int, slice)?) = (null, null, null)
 const unionTricky: (address | int, address | int, int | int8 | null, int8 | int16 | null) = (address("EQDKbjIcfM6ezt8KjKJJLshZJJSqX7XOA4ff-W72r5gqPrHF"), 100, 50, null);
+
+const anyAddr = address("99:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e") as any_address;
+const anyAddrOrInt: any_address | int = address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e") as any_address;
+const anyAddrOrAddr1: any_address | address = address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e");
+const anyAddrOrAddr2 = (address("0:ca6e321c7cce9ecedf0a8ca2492ec8592494aa5fb5ce0387dff96ef6af982a3e") as any_address) as any_address | address;
+
+const colorsTensor: (int, Color, int32|Color, int32|Color) = (
+    Color.green as int32,
+    Color.green,
+    Color.green,
+    Color.green as int,
+)
+
+const someTensWithNull: ((int, int)?, int) = (null, 5);
+const nullFromThatTens = someTensWithNull.0;
 
 struct SubParams {
     sub1: bool = true
@@ -78,15 +99,14 @@ struct SubParams {
 struct MyOptions {
     allowPenalty: bool = false
     closeTo: (int8, int8)? = null
-    sn: void
-    sub: SubParams = { sub3: ton("0.05") }
+    sub: SubParams = { sub3: grams("0.05") }
     coeff: int16 = 2
 }
 
 const opts1 = MyOptions { allowPenalty: true }
 const opts2 = MyOptions { coeff: 3, sub: { sub1: false, sub3: 0 } }
 const opts3: MyOptions = { coeff: 0, closeTo: null, allowPenalty: true }
-const opts4: MyOptions = { sub: { sub3: ton("1") }, closeTo: (3, 4), coeff: 55 }
+const opts4: MyOptions = { sub: { sub3: grams("1") }, closeTo: (3, 4), coeff: 55 }
 
 @noinline
 fun MyOptions.equals(self, rhs: MyOptions = {}) {
@@ -97,10 +117,45 @@ struct Wrapper<T> {
     item: T
 }
 
-const wOneTon = Wrapper<coins> { item: ton("1") }
-const wNoTon: Wrapper<int> = { item: 0 }
+const wOneGram = Wrapper<coins> { item: grams("0.5") * 2 }
+const wNoGram: Wrapper<int> = { item: 0 }
 const wNoSubParams: Wrapper<SubParams>? = null
 
+struct Point {
+    x: int = 10
+    y: int = 20
+}
+
+const shape1: [int, bool, int32] = [5, false, 7];
+const shape2: [int, (int, bool), Point?, Point?, ()] = [5, (6, true), {}, null, ()]
+const shape1_tens = (shape1.0, shape1.1);
+
+const nul_arr_i: array<int>? = [1]
+const nul_list_i: lisp_list<int>? = [1]
+const nul_list_i_n: lisp_list<int>? = null
+const coins_or_int8: coins | int8 = Wrapper { item: grams("0.05") }.item
+const arr_or_int: array<int> | int = []
+
+struct WithNullableArray {
+    x: array<int>?
+}
+
+struct WithNullableArrayDef {
+    x: array<int>? = [2]
+}
+
+const objWithNullableArray: WithNullableArray = { x: [1] }
+const objWithNullableArrayDef: WithNullableArrayDef = {}
+
+const emptyMapNullable: map<int8, int32>? = []
+const emptyMapAsNullableConst = [] as map<int8, int32>?
+
+const bigRshiftMid: int = (1000000000000000 + 3000000000000000) >> 1;
+
+@noinline
+fun isPositiveViaBigRshiftMid(a: int): bool {
+    return bigRshiftMid > (bigRshiftMid - a);
+}
 
 fun iget240(): MInt { return int240; }
 
@@ -140,7 +195,7 @@ fun test4() {
 
 @method_id(105)
 fun test5() {
-    return (intOrN == null, int32Or64 is int32, int32Or64);
+    return (intOrN == null, int32Or64 is int32, int32Or64, int32OrCoins, intOrSlice, int32Or128, int32Or128 is int32);
 }
 
 @method_id(106)
@@ -195,26 +250,92 @@ fun test14() {
 @method_id(115)
 fun test15() {
     return (
-        opts1.equals(), opts1.equals(opts1), opts1.equals(opts2), opts1.equals(opts3), opts1.equals(opts4),
+        opts1.equals(), opts1.equals(opts1), opts1.equals(opts2), opts1.equals(opts3), opts1.equals(opts4),  
         opts4.equals(), opts4.equals(opts1), opts4.equals(opts2), opts4.equals(opts3), opts4.equals(opts4),
         777,
         opts1.equals({ closeTo: null, allowPenalty: true }),
         opts2.equals({ coeff: 3, sub: { sub1: false, sub3: 0 } }),
         opts3.equals({ closeTo: null, coeff: 0, allowPenalty: true }),
-        opts4.equals({ sub: { sub3: ton("1") }, coeff: 55, closeTo: (3, 4) })
+        opts4.equals({ sub: { sub3: grams("1") }, coeff: 55, closeTo: (3, 4) })
     )
 }
 
 @method_id(116)
 fun test16() {
-    __expect_type(wOneTon, "Wrapper<coins>");
-    return (wOneTon, wNoTon, wNoSubParams)
+    __expect_type(wOneGram, "Wrapper<coins>");
+    return (wOneGram, wNoGram, wNoSubParams)
 }
 
 @method_id(117)
 fun test17() {
-    __expect_type(nameOfAddress, "slice");
-    return (nameOfAddress.bitsEqual("address"), nameOfAddress.typeNameOfObject().bitsEqual("slice"))
+    __expect_type(nameOfAddress, "string");
+    return (
+        nameOfAddress.beginParse().bitsEqual("address".beginParse()),
+        reflect.typeNameOfObject(nameOfAddress.beginParse()).beginParse().bitsEqual("slice".literalSlice())
+    )
+}
+
+@method_id(118)
+fun test18() {
+    __expect_type(anyAddr, "any_address");
+    return (
+        anyAddr.getWorkchain(),
+        anyAddrOrInt is any_address,
+        anyAddrOrAddr1 is any_address,
+        anyAddrOrAddr2 is any_address,
+    )
+}
+
+@method_id(119)
+fun test19() {
+    return colorsTensor;
+}
+
+@method_id(120)
+fun test20() {
+    return (shape1, shape2, shape1_tens)
+}
+
+@method_id(121)
+fun test21() {
+    return nullFromThatTens;
+}
+
+@method_id(122)
+fun test22() {
+    __expect_type(str1, "string");
+    return (str1.beginParse().remainingBitsCount(), str3.remainingBitsCount());
+}
+
+@method_id(123)
+fun test123() {
+    return (nul_arr_i!, nul_list_i!, 777, nul_list_i_n)
+}
+
+@method_id(124)
+fun test124() {
+    return (
+        match (val ii = arr_or_int) { array<int> => ii.size(), int => ii },
+        match (val ii = coins_or_int8) { int8 => 0, coins => ii as int },
+    )
+}
+
+@method_id(125)
+fun test125() {
+    val manual = objWithNullableArray.x!;
+    val def = objWithNullableArrayDef.x!;
+    return (manual.size(), manual.get(0), def.size(), def.get(0));
+}
+
+@method_id(126)
+fun test126() {
+    __expect_type(emptyMapAsNullableConst, "map<int8, int32>?");
+    return (emptyMapAsNullableConst == null, emptyMapAsNullableConst!.isEmpty());
+}
+
+@method_id(127)
+fun test127() {
+    return (bigRshiftMid, isPositiveViaBigRshiftMid(-1), isPositiveViaBigRshiftMid(1));
 }
 
 fun main() {
@@ -226,13 +347,13 @@ fun main() {
     assert(i2 == 2) throw 102;
     assert(i3 == 3) throw 103;
 
-    var s1: slice = sget1();
+    var s1: slice = sget1().beginParse();
     var s2: slice = sget2();
-    var s3: slice = newc().stslicer(str1).stslicer(str2r).endcs();
+    var s3: slice = newc().stslicer(str1.beginParse()).stslicer(str2r).endcs();
 
-    assert(sdeq(s1, newc().storeUint(str1int, 12 * nibbles).endcs())) throw int111;
-    assert(sdeq(s2, newc().storeUint(str2int, 6 * nibbles).endcs())) throw 112;
-    assert(sdeq(s3, newc().storeUint(0x636f6e737431AABBCC, 18 * nibbles).endcs())) throw 113;
+    assert(sdeq(s1, newc().storeUint(str1int, 12 * nibbles).endcs()) != 0) throw int111;
+    assert(sdeq(s2, newc().storeUint(str2int, 6 * nibbles).endcs()) != 0) throw 112;
+    assert(sdeq(s3, newc().storeUint(0x636f6e737431AABBCC, 18 * nibbles).endcs()) != 0) throw 113;
 
     var i4: int = iget240();
     assert(i4 == 240) throw ((104));
@@ -245,7 +366,7 @@ fun main() {
 @testcase | 102 |   | -1 -1 -1
 @testcase | 103 |   | 0 0
 @testcase | 104 |   | 1 1 2
-@testcase | 105 |   | -1 0 7 48
+@testcase | 105 |   | -1 0 7 48 50000000 17 5 1 7 46 -1
 @testcase | 106 |   | -1 0 0 -1 -1
 @testcase | 107 |   | 0 0 -1 -1 0 -1 -1 -1
 @testcase | 108 |   | -1 0 -1 0
@@ -258,6 +379,16 @@ fun main() {
 @testcase | 115 |   | 0 -1 0 0 0 0 0 0 0 -1 777 -1 -1 -1 -1
 @testcase | 116 |   | 1000000000 0 (null) (null) (null) 0
 @testcase | 117 |   | -1 -1
+@testcase | 118 |   | 99 -1 0 -1
+@testcase | 119 |   | 1 1 1 typeid-2 1 46
+@testcase | 120 |   | [ 5 0 7 ] [ 5 [ 6 -1 ] [ 10 20 typeid-3 ] [ (null) (null) 0 ] [] ] 5 0
+@testcase | 121 |   | (null) (null) 0 
+@testcase | 122 |   | 48 64
+@testcase | 123 |   | [ 1 ] [ 1 (null) ] 777 (null) 0
+@testcase | 124 |   | 0 50000000
+@testcase | 125 |   | 1 1 1 2
+@testcase | 126 |   | 0 -1
+@testcase | 127 |   | 2000000000000000 0 -1
 
-@code_hash 75101380693091438363237198341416144164642759114287088786910200935773618931276
+@code_hash 81510367501635395392010839907601337703375917009254151502636239169360844553617
 */

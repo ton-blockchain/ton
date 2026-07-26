@@ -1,3 +1,65 @@
+## 2026.06 Update
+
+1. Supported adding fullnodes to fast-sync overlay, improving sync for them.
+2. Implemented new Plumtree broadcasts in public and fast-sync overlays.
+3. Improved sync for validators via changes in consensus protocol.
+4. Separate DHT server from nodes.
+5. Global version 15: restricted publishing libraries, fixed action fine collection.
+6. Various changes and updates, including removal of legacy code and unused features, better logging in node, hardening Tonlib against crashes, stability fixes.
+
+Besides the work of the core team, this update also includes contributions from multiple bug-bounty hunters.
+
+## 2026.05 Update
+
+1. Networking improvements: sending block candidates over a dedicated block-sync overlay
+2. Multiple collation, validation, and block-application optimizations: improved performance for both validators and liteservers
+3. TVM v14
+4. Various changes and updates, including `get_shard_client_state` in liteserver, removal of legacy code (catchain, adnl-proxy, rldp1), adding comments and refactoring to make the code easier for agents to understand and audit
+
+Besides the work of the core team, this update also includes contributions from multiple bug-bounty hunters.
+
+## 2026.04-1 Update
+
+1. Networking improvements: better traffic handling in overlays, ADNL, RLDP, and QUIC, including broadcast limiting and updated twostep broadcast parameters.
+2. Improved security and robustness across core node components.
+3. Improved handling of peers in public overlays and better QUIC support for custom overlays.
+4. Metrics and operational visibility improvements, including Prometheus exporter and QUIC-related telemetry updates.
+
+Besides the work of the core team, this update also includes contributions from multiple bug-bounty hunters. The full list will be added to changelog later.
+
+
+## 2026.04 Update
+
+1. Networking improvements: anti-spam measures that could affect block rate have been introduced in overlays, ADNL, and QUIC
+2. Improved tooling for handling QUIC ports
+3. Mempool changes that protect the collation process from external message overload
+
+
+Besides the work of the core team, this update also includes contributions from multiple bug-bounty hunters and [https://t.me/contest/447](contest) participants. The full list will be added to changelog and release note after contest result finalization.
+
+
+## 2026.03 Update
+
+1. Stability improvements in Simplex consensus: better handling of votes and certificates, additional rate limits, and tunable noncritical parameters for timing and DoS protection.
+2. Networking improvements: fixes in QUIC, twostep broadcasts, overlays and candidate deduplication/filtering, plus better handling of large traffic bursts.
+3. Better operational visibility: OpenMetrics exporter with QUIC statistics and related node telemetry improvements.
+4. Expanded testing and tooling: stronger consensus tests, QUIC interoperability tests, and improvements in Tontester and tonlib.
+5. Various fixes in node, compression, build and CI infrastructure.
+
+Besides the work of the core team, this update also includes contributions from multiple bug-bounty hunters and [https://t.me/contest/447](contest) participants. The full list will be added to changelog and release note after contest result finalization.
+
+# 2026.02-1 Update
+
+Multiple stability fixes
+
+Besides the work of the core team, this update also includes contributions from
+- Vahagn @vah13
+- InfiniteSec team [https://x.com/infsec_io](https://x.com/infsec_io)
+- Christos from [Cantina and Spearbit](https://cantina.xyz)
+- [@killme8848](https://t.me/killme8848)
+- [Tonred team](https://github.com/tonred)
+- [ret2happy](https://x.com/ret2happy)
+
 ## 2026.02 Update
 
 1. Preparation for upcoming network speed up: disabled by default but ready to deploy new broadcast and consensus

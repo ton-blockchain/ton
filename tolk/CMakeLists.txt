@@ -4,9 +4,12 @@ set(TOLK_SOURCE
         symtable.cpp
         compilation-errors.cpp
         compiler-state.cpp
+        abi.cpp
+        type-export-json.cpp
         ast.cpp
         ast-from-tokens.cpp
         constant-evaluator.cpp
+        contract-directive.cpp
 		gen-entrypoints.cpp
         pack-unpack-api.cpp
         pack-unpack-serializers.cpp
@@ -32,12 +35,16 @@ set(TOLK_SOURCE
         pipe-transform-on-message.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
+        pipe-collect-symbol-types.cpp
         pipe-generate-fif-output.cpp
+        pipe-collect-abi.cpp
         type-system.cpp
+        type-transition.cpp
         smart-casts-cfg.cpp
         generics-helpers.cpp
         lazy-helpers.cpp
         overload-resolution.cpp
+        source-maps.cpp
         abscode.cpp
         analyzer.cpp
         asmops.cpp
@@ -65,22 +72,34 @@ if (USE_EMSCRIPTEN)
   target_include_directories(tolkfiftlib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
   target_link_libraries(tolkfiftlib PUBLIC fift-lib git)
   target_link_options(tolkfiftlib PRIVATE
-          -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,UTF8ToString,stringToUTF8,lengthBytesUTF8,addFunction,removeFunction,setValue
-          -sEXPORTED_FUNCTIONS=_tolk_compile,_version,_malloc,_free,_setThrew
+          -sEXPORTED_RUNTIME_METHODS=UTF8ToString,stringToUTF8,lengthBytesUTF8,addFunction,removeFunction,setValue
+          -sEXPORTED_FUNCTIONS=_tolk_compile,_tolk_version,_malloc,_free,_setThrew
           -sEXPORT_NAME=CompilerModule
-          -sERROR_ON_UNDEFINED_SYMBOLS=0
-          -sFILESYSTEM=1 -lnodefs.js
+          -sFILESYSTEM=0
           -Oz
           -sIGNORE_MISSING_MAIN=1
           -sAUTO_NATIVE_LIBRARIES=0
+          -sDYNAMIC_EXECUTION=0
           -sMODULARIZE=1
+          -sTOTAL_STACK=131072
           -sTOTAL_MEMORY=33554432
           -sALLOW_MEMORY_GROWTH=1
           -sALLOW_TABLE_GROWTH=1
-          --embed-file ${CMAKE_CURRENT_SOURCE_DIR}/../crypto/fift/lib@/fiftlib
+          -sENVIRONMENT=node,web
           -fexceptions
+          -flto
   )
-  target_compile_options(tolkfiftlib PRIVATE -fexceptions -fno-stack-protector)
-endif ()
+  target_compile_options(tolkfiftlib PRIVATE -fexceptions -fno-stack-protector -flto)
+elseif (EMULATOR_STATIC)
+  add_library(tolkfiftlib STATIC tolk-wasm.cpp ${TOLK_SOURCE})
+  target_include_directories(tolkfiftlib PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>)
+  target_link_libraries(tolkfiftlib PUBLIC fift-lib git)
+  if (APPLE)
+    target_link_options(tolkfiftlib PRIVATE
+            "LINKER:-exported_symbol,_tolk_compile"
+            "LINKER:-exported_symbol,_tolk_version"
+    )
+  endif()
+endif()
 
 install(TARGETS tolk RUNTIME DESTINATION bin)

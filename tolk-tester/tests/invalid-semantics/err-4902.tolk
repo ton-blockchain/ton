@@ -13,6 +13,6 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr call to method `amb` for type `MyMap<int, slice>` is ambiguous
-@stderr candidate function: `MyMap<K,slice>.amb` with K=`int`
-@stderr candidate function: `MyMap<int,V>.amb` with V=`slice`
+@stderr candidate function: `MyMap<K, slice>.amb` with K=`int`
+@stderr candidate function: `MyMap<int, V>.amb` with V=`slice`
  */

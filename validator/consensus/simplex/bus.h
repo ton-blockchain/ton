@@ -13,6 +13,8 @@
 namespace ton::validator::consensus::simplex {
 
 struct BroadcastVote {
+  using ReturnType = td::Unit;
+
   Vote vote;
 
   std::string contents_to_string() const;
@@ -33,6 +35,8 @@ struct FinalizationObserved {
 };
 
 struct LeaderWindowObserved {
+  using ReturnType = td::Unit;
+
   td::uint32 start_slot;
   ParentId base;
 
@@ -62,13 +66,30 @@ struct ResolveCandidate {
 
 struct StoreCandidate {
   using ReturnType = td::Unit;
+
   CandidateRef candidate;
   std::string contents_to_string() const;
 };
 
-struct WaitNotarCertStored {
+struct ResolveState {
+  struct Result {
+    ChainStateRef state;
+    std::optional<double> gen_utime_exact = std::nullopt;
+  };
+
+  using ReturnType = Result;
+
+  ParentId id;
+
+  std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
+};
+
+struct SaveCertificate {
   using ReturnType = td::Unit;
-  CandidateId id;
+
+  CertificateRef<Vote> cert;
+
   std::string contents_to_string() const;
 };
 
@@ -76,45 +97,40 @@ class Bus : public consensus::Bus {
  public:
   using Parent = consensus::Bus;
   using Events = td::TypeList<BroadcastVote, NotarizationObserved, FinalizationObserved, LeaderWindowObserved,
-                              WaitForParent, ResolveCandidate, StoreCandidate, WaitNotarCertStored>;
+                              WaitForParent, ResolveCandidate, StoreCandidate, ResolveState, SaveCertificate>;
 
   Bus() = default;
 
-  void populate_collator_schedule() override;
-  void load_bootstrap_state();
+  std::vector<CertificateRef<Vote>> bootstrap_certificates;
+  std::vector<Vote> bootstrap_votes;
 
-  NewConsensusConfig::Simplex simplex_config;
-
-  std::vector<Signed<Vote>> bootstrap_votes;
   td::uint32 first_nonannounced_window = 0;
-
-  // FIXME: These should come from validator options
-  double max_backoff_delay_s = 100;
-  double timeout_increase_factor = 1.05;
-  double standstill_timeout_s = 10;
-
-  // Candidate resolution timeout settings
-  double candidate_resolve_initial_timeout_s = 0.5;
-  double candidate_resolve_timeout_multiplier = 1.5;
-  double candidate_resolve_max_timeout_s = 30.0;
 };
 
-using BusHandle = runtime::BusHandle<Bus>;
+using BusHandle = td::actor::BusHandle<Bus>;
 
 struct Pool {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct Consensus {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
 struct CandidateResolver {
-  static void register_in(runtime::Runtime&);
+  static void register_in(td::actor::Runtime&);
 };
 
-struct MetricCollector {
-  static void register_in(runtime::Runtime&);
+struct StateResolver {
+  static void register_in(td::actor::Runtime&);
+};
+
+struct Db {
+  static void register_in(td::actor::Runtime&);
+};
+
+struct DefaultCollatorSchedule {
+  static void provide_for(td::actor::Runtime&);
 };
 
 }  // namespace ton::validator::consensus::simplex

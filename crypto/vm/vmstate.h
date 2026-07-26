@@ -37,9 +37,12 @@ class VmStateInterface : public td::Context<VmStateInterface> {
   virtual void register_new_cell(Ref<DataCell>& cell) {};
   virtual bool register_op(int op_units = 1) {
     return true;
-  };
+  }
   virtual int get_global_version() const {
     return ton::SUPPORTED_VERSION;
+  }
+  virtual bool is_actual_tvm() const {
+    return false;
   }
 };
 

@@ -5,5 +5,5 @@ fun main(flags: int): int {
 /**
 @compilation_should_fail
 @stderr & has lower precedence than !=
-@stderr Use parenthesis
+@stderr Use parentheses
 */

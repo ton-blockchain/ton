@@ -9,8 +9,16 @@ struct Container1<T=int?> {
     item: T;
 }
 
+struct StaticDefaultBox<T = int32> {
+    item: T;
+}
+
 fun getItemOf<T=never>(v: Container1<T>) {
     return v.item;
+}
+
+fun StaticDefaultBox<T>.createDefault(): StaticDefaultBox<T> {
+    return { item: 0 };
 }
 
 struct WithDef1<T = null> {
@@ -26,7 +34,11 @@ struct WithVoid<T = void> {
     f2: T;
 }
 
-fun eqVoid<T = void>(o: WithVoid<T>) { return o; }
+fun eqVoid<T = void,>(o: WithVoid<T>) { return o; }
+
+fun alwaysVoid(w: WithVoid) {
+    __expect_type(w.f2, "void");
+}
 
 struct MyInit<TInit> {
     value: coins;
@@ -44,7 +56,7 @@ struct Parameters<TBody = void, TInit = void> {
 }
 
 fun createParameters<TBody = null, TInit = null>(bounce: bool, body: TBody, data: TInit): Parameters<TBody, TInit> {
-    return { bounce, body, init: { value: ton("0"), data } };
+    return { bounce, body, init: { value: grams("0"), data } };
 }
 
 fun void.assertIsVoid(self) {
@@ -72,14 +84,20 @@ fun MultipleWithDefaults<T1, T2>.getT(self) {
 }
 
 fun MultipleWithDefaults<T1, T2, T3, T4>.method1<U1 = int>(self) {
-    return [self.t!.2, null as U1?]
+    return [self.t!.2, null] as [T3, U1?]
 }
 
-fun MultipleWithDefaults<T1, T2, T3, T4>.method2<U1, U2 = int>(self) {
-    return [self.t!.3, null as U1?, null as U2?]
+fun MultipleWithDefaults<T1, T2, T3, T4>.method2<U1, U2 = int>(self): [T4, U1?, U2?] {
+    return [self.t!.3, null, null]
 }
 
 type ParametrizedInt<T1, T2 = slice> = int
+
+type AllDefaultsAlias<T = builder,> = T
+
+fun AllDefaultsAlias.inferNoT(self) {
+    __expect_type(self, "AllDefaultsAlias<builder>");
+}
 
 @noinline
 fun mySend<TBody = void, TInit = void>(p: Parameters<TBody, TInit>): int {
@@ -104,7 +122,7 @@ fun test1() {
     eqUnusedU(beginCell());
 
     __expect_type(dup(null, null), "(null, null)");
-    __expect_type(dup(createEmptyTuple(), 6), "(tuple, int)");
+    __expect_type(dup(createEmptyTuple(), 6), "(array<unknown>, int)");
 }
 
 fun test2() {
@@ -117,6 +135,9 @@ fun test2() {
 
     __expect_type(getItemOf({item: null as slice?}), "slice?");
     __expect_type(getItemOf({item: null}), "null");
+
+    var static_default = StaticDefaultBox.createDefault();
+    __expect_type(static_default, "StaticDefaultBox<int32>");
 }
 
 @method_id(103)
@@ -128,7 +149,8 @@ fun test3() {
     __expect_type(eqVoid({f1:10,f2:20}), "WithVoid<int>");
     __expect_type(eqVoid({f1:10,f2:null}), "WithVoid<null>");
 
-    var a: WithVoid<void> = {f1:10};
+    var a: WithVoid = {f1:10};
+    alwaysVoid(a);
     return (a, WithVoid{f1:20}, eqVoid({f1:30}), 777, eqVoid({f1:40,f2:40}));
 }
 
@@ -143,6 +165,9 @@ fun test4() {
     __expect_type(WithDef1{body: null}.body, "null");
     __expect_type(WithDef1{body: 123}.body, "int?");
 
+    var wdn: WithDef1 = {};
+    __expect_type(wdn, "WithDef1<null>");
+
     return (getBodyOf({body: null}), getBodyOf({}), WithDef1{});
 }
 
@@ -154,7 +179,7 @@ fun test5() {
     __expect_type(Parameters { bounce: false, body: beginCell(), init: { value: 123, data: 123 } }, "Parameters<builder, int>");
 
     __expect_type(createParameters(true, null, null), "Parameters<null, null>");
-    __expect_type(createParameters(true, beginCell(), "123"), "Parameters<builder, slice>");
+    __expect_type(createParameters(true, beginCell(), "123"), "Parameters<builder, string>");
 
     __expect_type(createParameters(true, null, null).body, "null");
     __expect_type(createParameters(true, 123, null).body, "int");
@@ -169,7 +194,7 @@ fun test6() {
     var p: Parameters<int, cell> = {
         bounce: true,
         body: 123,
-        init: { value: ton("0"), data: beginCell().endCell() }
+        init: { value: grams("0"), data: beginCell().endCell() }
     };
     return (p.body is int, p.init is cell, p.init is MyInit, p.init is MyInit && p.init.data.depth() == 0);
 }
@@ -177,15 +202,19 @@ fun test6() {
 @method_id(107)
 fun test7() {
     __expect_type(Parameters{ bounce: false }, "Parameters<void, void>");
-    __expect_type(Parameters{ bounce: false, body: 123, init: { value: ton("0"), data: beginCell() }}, "Parameters<int, builder>");
+    __expect_type(Parameters{ bounce: false, body: 123, init: { value: grams("0"), data: beginCell() }}, "Parameters<int, builder>");
     __expect_type(Parameters{ bounce: false, body: 123 }.genericIntVoid<builder>(), "(slice?, builder?)");
     __expect_type(Parameters{ bounce: false, body: 123 }.genericIntVoid<builder, cell>(), "(cell?, builder?)");
     __expect_type(Parameters{ bounce: false }.body, "void");
     Parameters{ bounce: false }.body.assertIsVoid();
 
+    __expect_type(Container1<Parameters> { item: { bounce: false } }, "Container1<Parameters<void, void>>");
+    __expect_type(Container1<Parameters<void, int>> { item: { bounce: false } }, "Container1<Parameters<void, int>>");
+    __expect_type(Container1<Parameters<void, AllDefaultsAlias>> { item: { bounce: false } }, "Container1<Parameters<void, AllDefaultsAlias<builder>>>");
+
     var v1 = mySend({ bounce: true });
     var v2 = mySend({ bounce: false, body: 123, init: beginCell() });
-    var v3 = mySend({ bounce: false, body: 123, init: { value: ton("0"), data: beginCell() }});
+    var v3 = mySend({ bounce: false, body: 123, init: { value: grams("0"), data: beginCell() }});
     var v4 = mySend({ bounce: true, init: { value: 16, data: null as [int]? }});
     return (v1, v2, v3, v4);
 }
@@ -217,16 +246,16 @@ fun main() {
     __expect_type(cb2, "() -> [int, cell, int, builder]?");
     __expect_type(cb3, "() -> [int, cell, slice, builder]?");
     __expect_type(cb4, "() -> [int, cell, slice, tuple]?");
-
-    var o2 = MultipleWithDefaults<int, cell>{};
-    var o3 = MultipleWithDefaults<int, cell, slice>{};
+    
+    var o2 = MultipleWithDefaults<int, cell>{}; 
+    var o3 = MultipleWithDefaults<int, cell, slice>{}; 
     var o4 = MultipleWithDefaults<int, cell, slice?, tuple>{};
     __expect_type(o2.t, "[int, cell, int?, builder]?");
     __expect_type(o3.t, "[int, cell, slice, builder]?");
     __expect_type(o4.t, "[int, cell, slice?, tuple]?");
-
+    
     __expect_type(o2.getT(), "[int, cell, int?, builder]?");
-
+    
     __expect_type(o4.method1(), "[slice?, int?]");
     __expect_type(o4.method1<Container1<never>>(), "[slice?, Container1<never>?]");
     __expect_type(o4.method2<cell>(), "[tuple, cell?, int?]");
@@ -236,6 +265,9 @@ fun main() {
 
     __expect_type(12 as ParametrizedInt<builder>, "ParametrizedInt<builder, slice>");
     __expect_type(12 as ParametrizedInt<builder, cell>, "ParametrizedInt<builder, cell>");
+
+    var de: (AllDefaultsAlias, AllDefaultsAlias<cell>) = (beginCell(), createEmptyCell());
+    __expect_type(de.0, "AllDefaultsAlias<builder>");
 }
 
 /**
@@ -247,24 +279,24 @@ fun main() {
 @testcase | 108 |      | 10 (null) 20
 
 @fif_codegen DECLPROC eqUnusedT<null>()
-@fif_codegen DECLPROC eqUnusedU<builder,never>()
-@fif_codegen DECLPROC mySend<void,void>()
-@fif_codegen DECLPROC mySend<int,void>()
-@fif_codegen DECLPROC mySend<int,builder>()
-@fif_codegen DECLPROC mySend<void,[int]?>()
+@fif_codegen DECLPROC eqUnusedU<builder,`never>()
+@fif_codegen DECLPROC mySend<void,`void>()
+@fif_codegen DECLPROC mySend<int,`void>()
+@fif_codegen DECLPROC mySend<int,`builder>()
+@fif_codegen DECLPROC mySend<void,`[int]?>()
 
 @fif_codegen
 """
   test6() PROC:<{               //
     <b b> PUSHREF               //  p.init.USlot2
     -1 PUSHINT                  //  p.init.USlot2 '11=-1
-    FALSE                       //  p.init.USlot2 '11=-1 '12
-    TRUE                        //  p.init.USlot2 '11=-1 '12 '14
-    s0 s3 XCHG                  //  '14 '11=-1 '12 p.init.USlot2
-    CDEPTH                      //  '14 '11=-1 '12 '19
-    0 EQINT                     //  '14 '11=-1 '12 '21
-    0 NEQINT                    //  '14 '11=-1 '12 '18
-    s1 s3 s0 XCHG3              //  '11=-1 '12 '14 '18
+    0 PUSHINT                   //  p.init.USlot2 '11=-1 '12=0
+    TRUE                        //  p.init.USlot2 '11=-1 '12=0 '13
+    s0 s3 XCHG                  //  '13 '11=-1 '12=0 p.init.USlot2
+    CDEPTH                      //  '13 '11=-1 '12=0 '18
+    0 EQINT                     //  '13 '11=-1 '12=0 '20
+    0 NEQINT                    //  '13 '11=-1 '12=0 '17
+    s1 s3 s0 XCHG3              //  '11=-1 '12=0 '13 '17
   }>
 """
  */

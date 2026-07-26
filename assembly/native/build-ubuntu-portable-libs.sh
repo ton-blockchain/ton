@@ -48,7 +48,7 @@ if [ -n "${TON_ARCH}" ]; then
 fi
 
 cmake -GNinja .. \
--DCMAKE_C_COMPILER=clang-21 -DCMAKE_CXX_COMPILER=clang++-21 \
+-DCMAKE_C_COMPILER=clang-22 -DCMAKE_CXX_COMPILER=clang++-22 \
 -DPORTABLE=1 \
 -DCMAKE_BUILD_TYPE=Release \
 "${CMAKE_EXTRA_ARGS[@]}"

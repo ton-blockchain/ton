@@ -6,5 +6,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr modifying immutable constant
+@stderr invalid left side of assignment
  */

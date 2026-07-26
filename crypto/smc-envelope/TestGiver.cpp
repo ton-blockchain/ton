@@ -36,14 +36,20 @@ vm::CellHash TestGiver::get_init_code_hash() noexcept {
 }
 
 td::Ref<vm::Cell> TestGiver::make_a_gift_message_static(td::uint32 seqno, td::Span<Gift> gifts) noexcept {
-  CHECK(gifts.size() <= max_gifts_size);
+  if (gifts.size() > max_gifts_size) {
+    return {};
+  }
 
   vm::CellBuilder cb;
   cb.store_long(seqno, 32);
 
   for (auto& gift : gifts) {
     td::int32 send_mode = 1;
-    cb.store_long(send_mode, 8).store_ref(create_int_message(gift));
+    auto message = create_int_message(gift);
+    if (message.is_null()) {
+      return {};
+    }
+    cb.store_long(send_mode, 8).store_ref(std::move(message));
   }
 
   return cb.finalize();

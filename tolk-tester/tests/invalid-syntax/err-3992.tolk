@@ -5,5 +5,5 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr mixing | with & without parenthesis
+@stderr mixing | with & without parentheses
 */

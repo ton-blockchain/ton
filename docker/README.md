@@ -31,6 +31,7 @@ Below is the list of supported arguments and their default values:
 | GLOBAL_CONFIG_URL | TON global configuration file. Mainnet - https://ton.org/global-config.json, Testnet - https://ton.org/testnet-global.config.json                                                         |     no     | https://api.tontech.io/ton/wallet-mainnet.autoconf.json |
 | DUMP_URL          | URL to TON dump. Specify dump from https://dump.ton.org. If you are using testnet dump, make sure to download global config for testnet.                                                  |     no     |                                                         |
 | VALIDATOR_PORT    | UDP port that must be available from the outside. Used for communication with other nodes.                                                                                                |     no     |                          30001                          |
+| QUIC_PORT         | QUIC UDP port used by validator-engine for QUIC traffic.                                                                                                                                  |     no     |                          31001                          |
 | CONSOLE_PORT      | This TCP port is used to access validator's console. Not necessarily to be opened for external access.                                                                                    |     no     |                          30002                          |
 | LITE_PORT         | Lite-server's TCP port. Used by lite-client.                                                                                                                                              |     no     |                          30003                          |
 | LITESERVER        | true or false. Set to true if you want up and running lite-server.                                                                                                                        |     no     |                          false                          |
@@ -74,16 +75,18 @@ docker run -d --name ton-node -v /data/db:/var/ton-work/db \
 -e "PUBLIC_IP=<PUBLIC_IP>" \
 -e "DUMP_URL=https://dump.ton.org/dumps/latest.tar.lz" \
 -e "VALIDATOR_PORT=443" \
+-e "QUIC_PORT=31001" \
 -e "CONSOLE_PORT=88" \
 -e "LITE_PORT=443" \
 -e "LITESERVER=true" \
 -p 443:443/udp \
+-p 31001:31001/udp \
 -p 88:88/tcp \
 -p 443:443/tcp \
 -it ghcr.io/ton-blockchain/ton
 ```
 Adjust ports per your need.
-Check your firewall configuration and make sure that customized ports (443/udp, 88/tcp and 443/tcp in this example) are publicly available.
+Check your firewall configuration and make sure that customized ports (443/udp, 31001/udp, 88/tcp and 443/tcp in this example) are publicly available.
 
 ### Verify if TON node is operating correctly
 After executing above command check the log files:
@@ -213,7 +216,7 @@ See if service endpoints were correctly created:
 kubectl get endpoints
 
 NAME                   ENDPOINTS
-validator-engine-srv   <PUBLIC_IP>:30002,<PUBLIC_IP>:30001,<PUBLIC_IP>:30003
+validator-engine-srv   <PUBLIC_IP>:30002,<PUBLIC_IP>:30001,<PUBLIC_IP>:31001,<PUBLIC_IP>:30003
 ```
 Check the logs for the deployment status:
 ```yaml
@@ -279,7 +282,7 @@ kubectl get service
 
 NAME                   TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)                                           AGE
 kubernetes             ClusterIP      <NOT_IMPORTANT>  <none>        443/TCP                                           28h
-validator-engine-srv   LoadBalancer   <NOT_IMPORTANT>  10.244.1.1    30001:30001/UDP,30002:30002/TCP,30003:30003/TCP   60m
+validator-engine-srv   LoadBalancer   <NOT_IMPORTANT>  10.244.1.1    30001:30001/UDP,31001:31001/UDP,30002:30002/TCP,30003:30003/TCP   60m
 ```
 you can see that endpoints are pointing to metal-LB subnet:
 ```
@@ -287,7 +290,7 @@ kubectl get endpoints
 
 NAME                   ENDPOINTS
 kubernetes             <IP>:6443
-validator-engine-srv   10.244.1.10:30002,10.244.1.10:30001,10.244.1.10:30003
+validator-engine-srv   10.244.1.10:30002,10.244.1.10:30001,10.244.1.10:31001,10.244.1.10:30003
 ```
 and metal-LB itself operates with the right endpoint:
 ```
@@ -330,7 +333,7 @@ Use instructions from the previous sections.
 #### Prepare
 * Kubernetes cluster of type Standard (not Autopilot).
 * Premium static IP address.
-* Adjust firewall rules and security groups to allow ports 30001/udp, 30002/tcp and 30003/tcp (default ones).
+* Adjust firewall rules and security groups to allow ports 30001/udp, 31001/udp, 30002/tcp and 30003/tcp (default ones).
 * Replace **<PUBLIC_IP>** (and ports if needed) in file [ton-gcp.yaml](ton-gcp.yaml).
 * Adjust StorageClass name. Make sure you are providing fast storage.
 
@@ -459,7 +462,7 @@ It is required to add the security group for the EC2 instances to the load balan
 It's a misleading that the default security group has "everything open."
 
 Add security group (default name is usually something like 'launch-wizard-1').
-And make sure you allow the ports you specified or default ports 30001/udp, 30002/tcp and 30003/tcp.
+And make sure you allow the ports you specified or default ports 30001/udp, 31001/udp, 30002/tcp and 30003/tcp.
 
 You can also set inbound and outbound rules of new security group to allow ALL ports and for ALL protocols and for source CIDR 0.0.0.0/0 for testing purposes.
 
@@ -521,5 +524,4 @@ Solution:
 
 The node is sychnronizing, but very slow though.
 Try to use Network Load Balancer (NLB) instead of default CLB.
-
 

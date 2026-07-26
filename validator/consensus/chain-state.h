@@ -15,23 +15,6 @@ namespace ton::validator::consensus {
 
 class ChainState : public td::CntObject {
  public:
-  static td::actor::Task<td::Ref<ChainState>> from_manager(td::actor::ActorId<ManagerFacade> manager, ShardIdFull shard,
-                                                           std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id);
-  static td::Ref<ChainState> from_zerostate(BlockIdExt zerostate, td::Ref<vm::Cell> state, BlockIdExt min_mc_block_id);
-
-  std::vector<BlockIdExt> block_ids() const;
-  std::vector<td::Ref<BlockData>> block_data() const;
-  std::vector<td::Ref<vm::Cell>> state() const;
-  BlockIdExt min_mc_block_id() const;
-
-  BlockSeqno next_seqno() const;
-  bool is_before_split() const;
-  std::optional<BlockIdExt> as_normal() const;
-  BlockIdExt assert_normal() const;
-
-  td::Ref<ChainState> apply(const BlockCandidate& candidate) const;
-
- private:
   struct NormalTip {
     td::Ref<BlockData> block;
     td::Ref<vm::Cell> state;
@@ -131,8 +114,24 @@ class ChainState : public td::CntObject {
 
   using Tip = std::variant<NormalTip, BeforeMergeTip, BeforeSplitTip, ZerostateTip>;
 
+  static td::actor::Task<td::Ref<ChainState>> from_manager(td::actor::ActorId<ManagerFacade> manager, ShardIdFull shard,
+                                                           std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id);
+
   ChainState(Tip tip, BlockIdExt min_mc_block_id);
 
+  std::vector<BlockIdExt> block_ids() const;
+  std::vector<td::Ref<BlockData>> block_data() const;
+  std::vector<td::Ref<vm::Cell>> state() const;
+  BlockIdExt min_mc_block_id() const;
+
+  BlockSeqno next_seqno() const;
+  bool is_before_split() const;
+  std::optional<BlockIdExt> as_normal() const;
+  BlockIdExt assert_normal() const;
+
+  td::Ref<ChainState> apply(const BlockCandidate& candidate) const;
+
+ private:
   Tip tip_;
   BlockIdExt min_mc_block_id_;
   td::Ref<vm::Cell> root_;

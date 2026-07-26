@@ -26,6 +26,7 @@
 #include "keys/encryptor.h"
 #include "overlay/overlays.h"
 #include "td/utils/SharedSlice.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/buffer.h"
 #include "td/utils/overloaded.h"
 #include "td/utils/port/StdStreams.h"
@@ -77,6 +78,7 @@ class OverlayNode {
             return;
           }
           auto enc = E.move_as_ok();
+          TD_PERF_COUNTER(check_signature_overlay_node);
           res = enc->check_signature(to_sign().as_slice(), signature_.as_slice());
         }));
     return res;
@@ -146,7 +148,7 @@ class OverlayNode {
     return obj;
   }
   OverlayNode clone() const {
-    auto res = OverlayNode{source_, overlay_, version_, signature_.clone()};
+    auto res = OverlayNode{source_, overlay_, flags_, version_, signature_.clone()};
     if (cert_) {
       res.cert_ = td::make_unique<OverlayMemberCertificate>(*cert_);
     }

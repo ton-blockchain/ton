@@ -568,14 +568,6 @@ if (WINGETOPT_FOUND)
   target_link_libraries_system(adjust-block wingetopt)
 endif()
 
-add_executable(test-weight-distr block/test-weight-distr.cpp)
-target_include_directories(test-weight-distr PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>)
-target_link_libraries(test-weight-distr PUBLIC ton_crypto fift-lib git)
-if (WINGETOPT_FOUND)
-  target_link_libraries_system(test-weight-distr wingetopt)
-endif()
-
 install(TARGETS fift func create-state tlbc RUNTIME DESTINATION bin)
 install(DIRECTORY fift/lib/ DESTINATION lib/fift)
 install(DIRECTORY smartcont DESTINATION share/ton)

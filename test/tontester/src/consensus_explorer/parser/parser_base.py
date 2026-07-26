@@ -1,9 +1,13 @@
 from abc import ABC, abstractmethod
 
-from ..models import ConsensusData
+from ..models import ConsensusData, GroupData
 
 
-class Parser(ABC):
+class GroupParser(ABC):
     @abstractmethod
-    def parse(self) -> ConsensusData:
+    def list_groups(self) -> list[GroupData]:
+        pass
+
+    @abstractmethod
+    def parse_group(self, valgroup_name: str) -> ConsensusData:
         pass

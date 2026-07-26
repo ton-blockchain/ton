@@ -57,10 +57,17 @@ class Resolver : public td::actor::Actor {
   td::uint16 port_;
   ton::dht::DhtKey key_;
   double timeout_;
+  std::string save_json_to_;
 
  public:
-  Resolver(std::string global_config, int server_idx, td::uint16 port, ton::dht::DhtKey key, double timeout)
-      : global_config_(global_config), server_idx_(server_idx), port_(port), key_(std::move(key)), timeout_(timeout) {
+  Resolver(std::string global_config, int server_idx, td::uint16 port, ton::dht::DhtKey key, double timeout,
+           std::string save_json_to)
+      : global_config_(global_config)
+      , server_idx_(server_idx)
+      , port_(port)
+      , key_(std::move(key))
+      , timeout_(timeout)
+      , save_json_to_(std::move(save_json_to)) {
   }
 
   void run() {
@@ -117,6 +124,12 @@ class Resolver : public td::actor::Actor {
     td::TerminalIO::out() << "KEY: " << td::base64_encode(ton::serialize_tl_object(r.key().public_key().tl(), true))
                           << "\n";
     td::TerminalIO::out() << "VALUE: " << td::base64_encode(r.value().as_slice()) << "\n";
+    if (!save_json_to_.empty()) {
+      auto obj = ton::fetch_tl_object<ton::ton_api::Object>(r.value().as_slice(), true).ensure().move_as_ok();
+      std::string s = td::json_encode<std::string>(td::ToJson(*obj), true);
+      td::write_file(save_json_to_, s).ensure();
+      LOG(INFO) << "Saved value to " << save_json_to_;
+    }
     std::exit(0);
   }
 
@@ -149,6 +162,12 @@ class Resolver : public td::actor::Actor {
 };
 
 td::Result<td::Bits256> parse_bits256(td::Slice s) {
+  if (s.size() == 64) {
+    td::Bits256 x;
+    if (x.from_hex(s) == 256) {
+      return x;
+    }
+  }
   td::BufferSlice str = td::base64_decode_to_buffer_slice(s, true);
   if (str.size() != 32) {
     return td::Status::Error("Invalid bits256");
@@ -166,6 +185,7 @@ int main(int argc, char *argv[]) {
   td::optional<std::string> key_name;
   td::uint32 key_idx = 0;
   double timeout = 5.0;
+  std::string save_json_to;
 
   td::OptionParser p;
   p.set_description("find value in dht by the given key (key-id, key-name, ket-idx)");
@@ -199,6 +219,7 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
   p.add_option('t', "timeout", "set timeout (default: 5s)", [&](td::Slice arg) { timeout = td::to_double(arg); });
+  p.add_option('j', "save-json-to", "write value as json to file", [&](td::Slice arg) { save_json_to = arg.str(); });
 
   td::actor::Scheduler scheduler({2});
 
@@ -209,7 +230,7 @@ int main(int argc, char *argv[]) {
     LOG_IF(FATAL, !key_name) << "key-name is not set";
     x = td::actor::create_actor<Resolver>(
         "Resolver", global_config.value(), server_idx, port,
-        ton::dht::DhtKey{ton::PublicKeyHash(key_id.value()), key_name.value(), key_idx}, timeout);
+        ton::dht::DhtKey{ton::PublicKeyHash(key_id.value()), key_name.value(), key_idx}, timeout, save_json_to);
   });
   scheduler.run_in_context([&] { td::actor::send_closure(x, &Resolver::run); });
 

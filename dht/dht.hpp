@@ -27,19 +27,16 @@
 #include "td/actor/actor.h"
 #include "td/utils/List.h"
 #include "td/utils/int_types.h"
+#include "td/utils/logging.h"
 
 #include "dht-node.hpp"
 #include "dht.h"
 
+DECLARE_LOG_CATEGORY(dht)
+
 namespace ton {
 
 namespace dht {
-
-constexpr int VERBOSITY_NAME(DHT_WARNING) = verbosity_INFO;
-constexpr int VERBOSITY_NAME(DHT_NOTICE) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(DHT_INFO) = verbosity_DEBUG;
-constexpr int VERBOSITY_NAME(DHT_DEBUG) = verbosity_DEBUG + 1;
-constexpr int VERBOSITY_NAME(DHT_EXTRA_DEBUG) = verbosity_DEBUG + 10;
 
 class DhtGlobalConfig {
  public:

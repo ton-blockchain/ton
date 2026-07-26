@@ -21,9 +21,9 @@
 namespace tolk {
 
 /*
- *
+ * 
  *   ASM-OP LIST FUNCTIONS
- *
+ * 
  */
 
 int is_pos_pow2(td::RefInt256 x) {
@@ -155,30 +155,14 @@ AsmOp AsmOp::BlkReverse(AnyV origin, int a, int b) {
 }
 
 AsmOp AsmOp::Tuple(AnyV origin, int a) {
-  switch (a) {
-    case 1:
-      return AsmOp::Custom(origin, "SINGLE", 1, 1);
-    case 2:
-      return AsmOp::Custom(origin, "PAIR", 2, 1);
-    case 3:
-      return AsmOp::Custom(origin, "TRIPLE", 3, 1);
-  }
   std::ostringstream os;
-  os << a << " TUPLE";
+  os << a << (a > 15 ? " PUSHINT TUPLEVAR" : " TUPLE");
   return AsmOp::Custom(origin, os.str(), a, 1);
 }
 
 AsmOp AsmOp::UnTuple(AnyV origin, int a) {
-  switch (a) {
-    case 1:
-      return AsmOp::Custom(origin, "UNSINGLE", 1, 1);
-    case 2:
-      return AsmOp::Custom(origin, "UNPAIR", 1, 2);
-    case 3:
-      return AsmOp::Custom(origin, "UNTRIPLE", 1, 3);
-  }
   std::ostringstream os;
-  os << a << " UNTUPLE";
+  os << a << (a > 15 ? " PUSHINT UNTUPLEVAR" : " UNTUPLE");
   return AsmOp::Custom(origin, os.str(), 1, a);
 }
 
@@ -211,7 +195,7 @@ AsmOp AsmOp::BoolConst(AnyV origin, bool f) {
   return AsmOp::Const(origin, f ? "TRUE" : "FALSE");
 }
 
-AsmOp AsmOp::Parse(AnyV origin, const std::string& custom_op) {
+AsmOp AsmOp::Parse(AnyV origin, std::string custom_op, int args, int retv) {
   if (custom_op == "NOP") {
     return AsmOp::Nop(origin);
   } else if (custom_op == "SWAP") {
@@ -225,17 +209,8 @@ AsmOp AsmOp::Parse(AnyV origin, const std::string& custom_op) {
   } else if (custom_op == "OVER") {
     return AsmOp::Push(origin, 1);
   } else {
-    return AsmOp::Custom(origin, custom_op);
+    return AsmOp::Custom(origin, std::move(custom_op), args, retv);
   }
-}
-
-AsmOp AsmOp::Parse(AnyV origin, std::string custom_op, int args, int retv) {
-  auto res = Parse(origin, custom_op);
-  if (res.is_custom()) {
-    res.a = args;
-    res.b = retv;
-  }
-  return res;
 }
 
 int AsmOp::out(std::ostream& os) const {
@@ -245,7 +220,6 @@ int AsmOp::out(std::ostream& os) const {
   }
   switch (t) {
     case a_nop:
-    case a_comment:
       return 0;
     case a_xchg:
       if (!a && !(b & -2)) {
@@ -268,79 +242,58 @@ int AsmOp::out(std::ostream& os) const {
       }
       os << SReg(a) << " POP";
       return SReg(a).calc_out_strlen() + 4;
+    case a_debug_mark: {
+      os << a << ' ';   // `a` is mark_id
+      int len = (a < 10 ? 1 : a < 100 ? 2 : a < 1000 ? 3 : 4) + 1;
+      if (std::holds_alternative<DebugMarkLocation>(debug_mark)) {
+        os << "MARK_LOC";
+        len += 8;
+      } else if (std::holds_alternative<DebugMarkCurrentStack>(debug_mark)) {
+        os << "MARK_STACK";
+        len += 10;
+      } else if (std::holds_alternative<DebugMarkEnterFunction>(debug_mark)) {
+        os << "MARK_ENTER_FUN";
+        len += 14;
+      } else if (std::holds_alternative<DebugMarkLeaveFunction>(debug_mark)) {
+        os << "MARK_LEAVE_FUN";
+        len += 14;
+      } else if (std::holds_alternative<DebugMarkLocalVar>(debug_mark)) {
+        os << "MARK_VAR";
+        len += 8;
+      } else if (std::holds_alternative<DebugMarkScopeStart>(debug_mark)) {
+        os << "MARK_SCOPE_START";
+        len += 16;
+      } else if (std::holds_alternative<DebugMarkScopeEnd>(debug_mark)) {
+        os << "MARK_SCOPE_END";
+        len += 14;
+      } else if (std::holds_alternative<DebugMarkSmartCast>(debug_mark)) {
+        os << "MARK_SMART_CAST";
+        len += 15;
+      } else if (std::holds_alternative<DebugMarkSetGlob>(debug_mark)) {
+        os << "MARK_SET_GLOB";
+        len += 13;
+      } else {
+        tolk_assert(false);
+      }
+      return len;
+    }
     default:
       throw Fatal("unknown assembler operation");
   }
 }
 
-int AsmOp::out_indented(std::ostream& os, bool print_src_line_above) const {
-  if (origin && origin->range.is_valid() && print_src_line_above) {
-    origin->range.output_first_line_to_fif(os, indent);
-  }
+void AsmOp::output_to_fif(std::ostream& os, int indent, bool print_comment_slashes) const {
   for (int i = 0; i < indent * 2; i++) {
     os << ' ';
   }
-  return out(os) + indent * 2;
-}
-
-const_idx_t AsmOpList::register_const(td::RefInt256 new_const) {
-  if (new_const.is_null()) {
-    return not_const;
-  }
-  unsigned idx;
-  for (idx = 0; idx < constants_.size(); idx++) {
-    if (!td::cmp(new_const, constants_[idx])) {
-      return idx;
+  int len = out(os) + indent * 2;
+  if (print_comment_slashes) {
+    while (len < 28) {    // align stack comments at the right
+      os << ' ';
+      len++;
     }
-  }
-  constants_.push_back(std::move(new_const));
-  return (const_idx_t)idx;
-}
-
-td::RefInt256 AsmOpList::get_const(const_idx_t idx) {
-  if ((unsigned)idx < constants_.size()) {
-    return constants_[idx];
-  } else {
-    return {};
-  }
-}
-
-void AsmOpList::show_var_ext(std::ostream& os, std::pair<var_idx_t, const_idx_t> idx_pair) const {
-  var_idx_t i = idx_pair.first;
-  const_idx_t j = idx_pair.second;
-  if (!var_names_ || (unsigned)i >= var_names_->size()) {
-    os << '\'' << i;
-  } else {
-    var_names_->at(i).show_as_stack_comment(os);
-  }
-  if ((unsigned)j < constants_.size() && constants_[j].not_null()) {
-    os << '=' << constants_[j];
-  }
-}
-
-void AsmOpList::out(std::ostream& os, int mode) const {
-  std::size_t n = list_.size();
-  for (std::size_t i = 0; i < n; i++) {
-    const AsmOp& op = list_[i];
-    if (!op.is_comment() && i + 1 < n && list_[i + 1].is_comment()) {
-      int len = op.out_indented(os, mode & Stack::_LineComments);
-      while (len < 28) {    // align stack comments at the right
-        os << ' ';
-        len++;
-      }
-      os << '\t';
-      do {
-        i++;
-      } while (i + 1 < n && list_[i + 1].is_comment());
-      list_[i].out(os);
-      os << std::endl;
-    } else if (op.is_comment()) {
-      op.out(os);
-      os << std::endl;
-    } else {
-      op.out_indented(os, mode & Stack::_LineComments);
-      os << std::endl;
-    }
+    os << "\t// ";
+    // the comment body is appended by the caller side
   }
 }
 

@@ -120,13 +120,13 @@ class DecTree {
     }
   }
 
-  static ValueType *get_node_by_idx(unique_ptr<Node> &Tree, size_t idx) {
+  static Node *get_node_by_idx(unique_ptr<Node> &Tree, size_t idx) {
     CHECK(Tree != nullptr);
     auto s = (Tree->left_ != nullptr) ? Tree->left_->size_ : 0;
     if (idx < s) {
       return get_node_by_idx(Tree->left_, idx);
     } else if (idx == s) {
-      return &Tree->value_;
+      return Tree.get();
     } else {
       return get_node_by_idx(Tree->right_, idx - s - 1);
     }
@@ -145,13 +145,13 @@ class DecTree {
     }
   }
 
-  static const ValueType *get_node_by_idx(const unique_ptr<Node> &Tree, size_t idx) {
+  static const Node *get_node_by_idx(const unique_ptr<Node> &Tree, size_t idx) {
     CHECK(Tree != nullptr);
     auto s = (Tree->left_ != nullptr) ? Tree->left_->size_ : 0;
     if (idx < s) {
       return get_node_by_idx(Tree->left_, idx);
     } else if (idx == s) {
-      return &Tree->value_;
+      return Tree.get();
     } else {
       return get_node_by_idx(Tree->right_, idx - s - 1);
     }
@@ -218,7 +218,9 @@ class DecTree {
     if (size() == 0) {
       return nullptr;
     } else {
-      return get_node_by_idx(root_, Random::fast_uint32() % size());
+      auto node = get_node_by_idx(root_, Random::fast_uint32() % size());
+      CHECK(node);
+      return &node->value_;
     }
   }
   const ValueType *get(const KeyType &key) const {
@@ -228,7 +230,18 @@ class DecTree {
     if (size() == 0) {
       return nullptr;
     } else {
-      return get_node_by_idx(root_, Random::fast_uint32() % size());
+      auto node = get_node_by_idx(root_, Random::fast_uint32() % size());
+      CHECK(node);
+      return &node->value_;
+    }
+  }
+  const KeyType *get_random_key() const {
+    if (size() == 0) {
+      return nullptr;
+    } else {
+      auto node = get_node_by_idx(root_, Random::fast_uint32() % size());
+      CHECK(node);
+      return &node->key_;
     }
   }
   bool exists(const KeyType &key) const {

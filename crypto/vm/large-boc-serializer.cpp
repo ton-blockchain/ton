@@ -184,7 +184,7 @@ td::Result<int> LargeBocSerializer::import_cell(Hash root_hash, int root_depth) 
             refs[j] = next_depth_it->second.first;
             continue;
           }
-          auto res = next_depth_hashes.emplace(child_hash, std::make_pair(next_child_idx, false));
+          next_depth_hashes.emplace(child_hash, std::make_pair(next_child_idx, false));
           refs[j] = next_child_idx++;
         }
 

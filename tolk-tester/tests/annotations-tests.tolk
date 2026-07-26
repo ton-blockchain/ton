@@ -1,5 +1,6 @@
 @deprecated("anything")
 @custom("anything")
+@custom.a.b({})
 global a: int;
 
 @deprecated
@@ -15,6 +16,7 @@ fun f() {}
     value: 19
 })
 @custom("another", 12, "annotation")
+@custom.dot
 struct TTT {}
 
 @deprecated
@@ -22,6 +24,8 @@ type MyMsg = int;
 
 @custom(1,2,3,4)
 @custom({function: "main", contract: self})
+@test.first
+@test.anything("asdf")
 fun main() {
     return 0;
 }

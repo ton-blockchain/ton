@@ -30,22 +30,20 @@ IF %errorlevel% NEQ 0 (
 )
 SET PATH=%PATH%;C:\Program Files\NASM
 
-if not exist "third_libs" (
-    mkdir "third_libs"
+where clang-cl
+IF %errorlevel% NEQ 0 (
+  echo clang-cl not found. Install LLVM toolset for Visual Studio 2022.
+  exit /b %errorlevel%
 )
-cd third_libs
 
-set third_libs=%cd%
-echo %third_libs%
-set "third_party=%ROOT_DIR%\third-party"
-
-cd ..
 echo Current dir %cd%
 
 mkdir build
 cd build
-cmake -GNinja  -DCMAKE_BUILD_TYPE=Release ^
--DCCACHE_FOUND= ^
+cmake -GNinja -DCMAKE_BUILD_TYPE=Release ^
+-DCMAKE_C_COMPILER=clang-cl ^
+-DCMAKE_CXX_COMPILER=clang-cl ^
+-DCMAKE_LINKER=lld-link ^
 -DCMAKE_CXX_COMPILER_LAUNCHER= ^
 -DPORTABLE=1 ^
 -DCMAKE_CXX_FLAGS="/DTD_WINDOWS=1 /EHsc /bigobj" ..
@@ -58,7 +56,7 @@ IF %errorlevel% NEQ 0 (
 IF "%1"=="-t" (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
-json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator ^
+json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator ^
 proxy-liteserver all-tests
 IF %errorlevel% NEQ 0 (
   echo Can't compile TON
@@ -67,7 +65,7 @@ IF %errorlevel% NEQ 0 (
 ) else (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
-json2tlo dht-server http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork emulator proxy-liteserver
+json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator proxy-liteserver
 IF %errorlevel% NEQ 0 (
   echo Can't compile TON
   exit /b %errorlevel%
@@ -107,7 +105,6 @@ for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
   build\utils\generate-random-id.exe ^
   build\utils\json2tlo.exe ^
   build\utils\proxy-liteserver.exe ^
-  build\adnl\adnl-proxy.exe ^
   build\emulator\emulator.dll) do (
     echo strip -s %%I & copy %%I artifacts\
     strip -s %%I & copy %%I artifacts\

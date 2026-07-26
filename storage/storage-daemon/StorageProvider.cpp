@@ -258,7 +258,11 @@ void StorageProvider::process_transaction(tl_object_ptr<tonlib_api::raw_transact
       continue;
     }
     td::Ref<vm::Cell> body = r_body.move_as_ok();
-    vm::CellSlice cs = vm::load_cell_slice(body);
+    vm::CellSlice cs = vm::load_cell_slice_quiet(body);
+    if (!cs.is_valid()) {
+      LOG(ERROR) << "Invalid message body in tonlib response";
+      continue;
+    }
     if (cs.size() >= 32) {
       long long op_code = cs.prefetch_ulong(32);
       // const op::offer_storage_contract = 0x107c49ef; -- old versions
@@ -468,7 +472,7 @@ void StorageProvider::after_contract_downloaded(ContractAddress address, td::Tim
   }
   auto& contract = it->second;
   td::actor::send_closure(storage_manager_, &StorageManager::set_active_upload, contract.torrent_hash, true,
-                          [SelfId = actor_id(this), address](td::Result<td::Unit> R) {
+                          [SelfId = actor_id(this)](td::Result<td::Unit> R) {
                             if (R.is_error()) {
                               LOG(ERROR) << "Set active upload: " << R.move_as_error();
                               return;

@@ -22,12 +22,17 @@
 #include <numeric>
 #include <openssl/sha.h>
 #include <optional>
-#include <rocksdb/compaction_filter.h>
-#include <rocksdb/db.h>
-#include <rocksdb/merge_operator.h>
 #include <set>
 #include <thread>
 #include <variant>
+
+// FIXME: Remove once RocksDB stops triggering this warning.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
+#include "rocksdb/compaction_filter.h"
+#include "rocksdb/db.h"
+#include "rocksdb/merge_operator.h"
+#pragma GCC diagnostic pop
 
 #include "common/AtomicRef.h"
 #include "openssl/digest.hpp"
@@ -38,6 +43,7 @@
 #include "td/db/utils/BlobView.h"
 #include "td/db/utils/CyclicBuffer.h"
 #include "td/utils/Random.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Span.h"
 #include "td/utils/Status.h"
@@ -71,7 +77,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
     thread_ = td::thread([this]() { scheduler_.run(); });
   }
   ~ActorExecutor() {
-    scheduler_.run_in_context_external([&] { send_closure(worker_, &Worker::close); });
+    scheduler_.run_in_context([&] { send_closure(worker_, &Worker::close); });
     thread_.join();
   }
   std::string describe() const override {
@@ -105,8 +111,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
     if (context) {
       td::actor::create_actor<Runner>("executeasync", std::move(f)).release();
     } else {
-      scheduler_.run_in_context_external(
-          [&] { td::actor::create_actor<Runner>("executeasync", std::move(f)).release(); });
+      scheduler_.run_in_context([&] { td::actor::create_actor<Runner>("executeasync", std::move(f)).release(); });
     }
   }
 
@@ -115,8 +120,7 @@ class ActorExecutor : public vm::DynamicBagOfCellsDb::AsyncExecutor {
     if (context) {
       td::actor::send_closure(worker_, &Worker::execute_sync, std::move(f));
     } else {
-      scheduler_.run_in_context_external(
-          [&] { td::actor::send_closure(worker_, &Worker::execute_sync, std::move(f)); });
+      scheduler_.run_in_context([&] { td::actor::send_closure(worker_, &Worker::execute_sync, std::move(f)); });
     }
   }
 
@@ -653,16 +657,16 @@ TEST(Cell, MerkleProof) {
     auto is_prunned = [&](const Ref<Cell> &cell_to_check) {
       return exploration.visited.count(cell_to_check->get_hash()) == 0;
     };
-    auto proof = MerkleProof::generate(cell, is_prunned);
+    auto proof = MerkleProof::generate(cell, is_prunned).move_as_ok();
     // CellBuilder::virtualize(proof, 1);
     //ASSERT_EQ(1u, proof->get_level());
-    auto virtualized_proof = MerkleProof::virtualize(proof);
+    auto virtualized_proof = MerkleProof::virtualize(proof).move_as_ok();
     auto exploration3 = CellExplorer::explore(virtualized_proof, exploration.ops);
     ASSERT_EQ(exploration.log, exploration3.log);
 
-    auto proof2 = MerkleProof::generate(cell, usage_tree.get());
+    auto proof2 = MerkleProof::generate(cell, usage_tree.get()).move_as_ok();
     CHECK(proof2->get_depth() == proof->get_depth());
-    auto virtualized_proof2 = MerkleProof::virtualize(proof2);
+    auto virtualized_proof2 = MerkleProof::virtualize(proof2).move_as_ok();
     auto exploration4 = CellExplorer::explore(virtualized_proof2, exploration.ops);
     ASSERT_EQ(exploration.log, exploration4.log);
   }
@@ -681,9 +685,9 @@ TEST(Cell, MerkleProofCombine) {
       auto usage_tree = std::make_shared<CellUsageTree>();
       auto usage_cell = UsageCell::create(cell, usage_tree->root_ptr());
       CellExplorer::explore(usage_cell, exploration1.ops);
-      proof1 = MerkleProof::generate(cell, usage_tree.get());
+      proof1 = MerkleProof::generate(cell, usage_tree.get()).move_as_ok();
 
-      auto virtualized_proof = MerkleProof::virtualize(proof1);
+      auto virtualized_proof = MerkleProof::virtualize(proof1).move_as_ok();
       auto exploration = CellExplorer::explore(virtualized_proof, exploration1.ops);
       ASSERT_EQ(exploration.log, exploration1.log);
     }
@@ -693,9 +697,9 @@ TEST(Cell, MerkleProofCombine) {
       auto usage_tree = std::make_shared<CellUsageTree>();
       auto usage_cell = UsageCell::create(cell, usage_tree->root_ptr());
       CellExplorer::explore(usage_cell, exploration2.ops);
-      proof2 = MerkleProof::generate(cell, usage_tree.get());
+      proof2 = MerkleProof::generate(cell, usage_tree.get()).move_as_ok();
 
-      auto virtualized_proof = MerkleProof::virtualize(proof2);
+      auto virtualized_proof = MerkleProof::virtualize(proof2).move_as_ok();
       auto exploration = CellExplorer::explore(virtualized_proof, exploration2.ops);
       ASSERT_EQ(exploration.log, exploration2.log);
     }
@@ -706,9 +710,9 @@ TEST(Cell, MerkleProofCombine) {
       auto usage_cell = UsageCell::create(cell, usage_tree->root_ptr());
       CellExplorer::explore(usage_cell, exploration1.ops);
       CellExplorer::explore(usage_cell, exploration2.ops);
-      proof12 = MerkleProof::generate(cell, usage_tree.get());
+      proof12 = MerkleProof::generate(cell, usage_tree.get()).move_as_ok();
 
-      auto virtualized_proof = MerkleProof::virtualize(proof12);
+      auto virtualized_proof = MerkleProof::virtualize(proof12).move_as_ok();
       auto exploration_a = CellExplorer::explore(virtualized_proof, exploration1.ops);
       auto exploration_b = CellExplorer::explore(virtualized_proof, exploration2.ops);
       ASSERT_EQ(exploration_a.log, exploration1.log);
@@ -717,28 +721,28 @@ TEST(Cell, MerkleProofCombine) {
 
     {
       auto check = [&](auto proof_union) {
-        auto virtualized_proof = MerkleProof::virtualize(proof_union);
+        auto virtualized_proof = MerkleProof::virtualize(proof_union).move_as_ok();
         auto exploration_a = CellExplorer::explore(virtualized_proof, exploration1.ops);
         auto exploration_b = CellExplorer::explore(virtualized_proof, exploration2.ops);
         ASSERT_EQ(exploration_a.log, exploration1.log);
         ASSERT_EQ(exploration_b.log, exploration2.log);
       };
-      auto proof_union = MerkleProof::combine(proof1, proof2);
+      auto proof_union = MerkleProof::combine(proof1, proof2).move_as_ok();
       ASSERT_EQ(proof_union->get_hash(), proof12->get_hash());
       check(proof_union);
 
-      auto proof_union_fast = MerkleProof::combine_fast(proof1, proof2);
+      auto proof_union_fast = MerkleProof::combine_fast(proof1, proof2).move_as_ok();
       check(proof_union_fast);
     }
     {
-      cell = MerkleProof::virtualize(proof12);
+      cell = MerkleProof::virtualize(proof12).move_as_ok();
 
       auto usage_tree = std::make_shared<CellUsageTree>();
       auto usage_cell = UsageCell::create(cell, usage_tree->root_ptr());
       CellExplorer::explore(usage_cell, exploration1.ops);
-      auto proof = MerkleProof::generate(cell, usage_tree.get());
+      auto proof = MerkleProof::generate(cell, usage_tree.get()).move_as_ok();
 
-      auto virtualized_proof = MerkleProof::virtualize(proof);
+      auto virtualized_proof = MerkleProof::virtualize(proof).move_as_ok();
       auto exploration = CellExplorer::explore(virtualized_proof, exploration1.ops);
       ASSERT_EQ(exploration.log, exploration1.log);
       if (proof->get_hash() != proof1->get_hash()) {
@@ -763,7 +767,7 @@ auto gen_merkle_update(Ref<Cell> cell, td::Random::Xorshift128plus &rnd, bool wi
   auto usage_tree = std::make_shared<CellUsageTree>();
   auto usage_cell = UsageCell::create(cell, usage_tree->root_ptr());
   auto new_cell = gen_random_cell(rnd.fast(1, X), usage_cell, rnd, with_prunned_branches);
-  auto update = MerkleUpdate::generate(cell, new_cell, usage_tree.get());
+  auto update = MerkleUpdate::generate(cell, new_cell, usage_tree.get()).move_as_ok();
   return std::make_tuple(new_cell, update, usage_tree);
 };
 
@@ -772,7 +776,7 @@ void check_merkle_update(Ref<Cell> A, Ref<Cell> B, Ref<Cell> AB) {
   CHECK(A.not_null());
   MerkleUpdate::may_apply(A, AB).ensure();
   MerkleUpdate::validate(AB).ensure();
-  auto got_B = MerkleUpdate::apply(A, AB);
+  auto got_B = MerkleUpdate::apply(A, AB).move_as_ok();
   ASSERT_EQ(B->get_hash(), got_B->get_hash());
 };
 
@@ -805,7 +809,7 @@ TEST(Cell, MerkleUpdateCombine) {
     std::tie(C, BC, std::ignore) = gen_merkle_update(B, rnd, with_prunned_branches);
     check_merkle_update(B, C, BC);
 
-    check_merkle_update(A, C, MerkleUpdate::combine(AB, BC));
+    check_merkle_update(A, C, MerkleUpdate::combine(AB, BC).move_as_ok());
   }
 };
 
@@ -892,6 +896,26 @@ TEST(TonDb, BocFuzz) {
           .move_as_ok())
       .ensure_error();
 }
+
+TEST(TonDb, BocDeserializeTruncated) {
+  td::Random::Xorshift128plus rnd{123};
+  auto serialized = serialize_boc(gen_random_cell(8, rnd), 31);
+  CHECK(serialized.size() > 1);
+
+  auto truncated = td::Slice{serialized}.substr(0, serialized.size() - 1);
+
+  // Truncated data deserialization causes error
+  vm::BagOfCells boc;
+  boc.deserialize(truncated).ensure_error();
+  vm::std_boc_deserialize(truncated).ensure_error();
+  vm::std_boc_deserialize_multi(truncated).ensure_error();
+
+  // Empty data deserializes into empty vector of roots
+  td::BufferSlice empty;
+  auto empty_roots = vm::std_boc_deserialize_multi(empty.as_slice()).move_as_ok();
+  CHECK(empty_roots.empty());
+}
+
 void test_parse_prefix(td::Slice boc) {
   for (size_t i = 0; i <= boc.size(); i++) {
     auto prefix = boc.substr(0, i);
@@ -1054,6 +1078,9 @@ struct DB {
     dboc->set_loader(std::make_unique<CellLoader>(kv->snapshot()));
   }
 };
+
+thread_local const std::string *current_boc_rocksdb_path = nullptr;
+
 struct BocOptions {
   using AsyncExecutor = DynamicBagOfCellsDb::AsyncExecutor;
 
@@ -1091,13 +1118,15 @@ struct BocOptions {
       auto merge_operator = std::make_shared<MergeOperatorAddCellRefcnt>();
       static const CompactionFilterEraseEmptyValues compaction_filter;
       CHECK(!old_key_value || old_key_value.use_count() == 1);
-      std::string db_path = "test_celldb";
+      auto db_path = current_boc_rocksdb_path == nullptr || current_boc_rocksdb_path->empty()
+                         ? std::string{"test_celldb"}
+                         : *current_boc_rocksdb_path;
       if (old_key_value) {
         //LOG(ERROR) << "Reload rocksdb";
         old_key_value.reset();
       } else {
         //LOG(ERROR) << "New rocksdb";
-        td::RocksDb::destroy(db_path).ensure();
+        td::rmrf(db_path).ignore();
       }
       auto db_options = td::RocksDbOptions{
           .block_cache = {},
@@ -1268,6 +1297,19 @@ void with_all_boc_options(F &&f, size_t tests_n, bool only_v2 = false) {
     DynamicBagOfCellsDb::Stats stats;
     auto o_in_memory = std::get_if<DynamicBagOfCellsDb::CreateInMemoryOptions>(&options.options);
     for (td::uint32 i = 0; i < tests_n; i++) {
+      std::string db_path;
+      if (options.kv_options.kv_type == BocOptions::KvOptions::RocksDb) {
+        db_path = td::mkdtemp(td::get_temporary_dir(), "test_celldb").move_as_ok();
+      }
+      auto previous_boc_rocksdb_path = current_boc_rocksdb_path;
+      current_boc_rocksdb_path = db_path.empty() ? nullptr : &db_path;
+      SCOPE_EXIT {
+        current_boc_rocksdb_path = previous_boc_rocksdb_path;
+        if (!db_path.empty()) {
+          td::rmrf(db_path).ignore();
+        }
+      };
+
       auto before = counter();
 
       options.seed = i == 0 ? 123 : i;
@@ -1623,10 +1665,8 @@ DynamicBagOfCellsDb::Stats test_dynamic_boc_hint(BocOptions options) {
       }
       auto root = gen_random_cell(rnd.fast(1, max_cells), usage_from_root, rnd);
       if (from_root.not_null()) {
-        auto update = MerkleUpdate::generate(usage_from_root, root, usage_tree.get());
-        CHECK(update.not_null());
-        root = MerkleUpdate::apply(from_root, update, &hint);
-        CHECK(root.not_null());
+        auto update = MerkleUpdate::generate(usage_from_root, root, usage_tree.get()).move_as_ok();
+        root = MerkleUpdate::apply(from_root, update, &hint).move_as_ok();
       }
       roots.push_back(root);
       VLOG(boc) << "Add root " << root->get_hash().to_hex();
@@ -1837,7 +1877,7 @@ class CompactArray {
     }
 
     auto is_prunned = [&](const Ref<Cell> &cell) { return hashes.count(cell->get_hash()) == 0; };
-    return MerkleProof::generate_raw(root_, is_prunned);
+    return MerkleProof::generate_raw(root_, is_prunned).move_as_ok();
   }
 
  private:
@@ -2100,12 +2140,10 @@ TEST(TonDb, DynamicBocIncSimple) {
       return;
     }
     //LOG(ERROR) << "POP ROOT";
-    auto begin_stats = kv->get_usage_stats();
     auto cell = db->load_cell(queue.pop().as_slice()).move_as_ok();
     db->dec(cell);
     vm::CellStorer cell_storer(*kv);
     db->commit(cell_storer);
-    auto end_stats = kv->get_usage_stats();
     db->set_loader(std::make_unique<vm::CellLoader>(kv));
     //LOG(ERROR) << end_stats - begin_stats;
     //LOG(ERROR) << "CELLS IN DB: " << kv->count("").move_as_ok();
@@ -2316,14 +2354,14 @@ TEST(Cell, MerkleProofCombineArray) {
   td::Timer timer;
   for (size_t i = 0; i < n; i++) {
     auto new_root = vm::CellBuilder::create_merkle_proof(arr.merkle_proof({i}));
-    root = vm::MerkleProof::combine_fast(root, new_root);
+    root = vm::MerkleProof::combine_fast(root, new_root).move_as_ok();
     if ((i - 1) % 100 == 0) {
       LOG(ERROR) << timer;
       timer = {};
     }
   }
 
-  CompactArray arr2(n, vm::MerkleProof::virtualize(root));
+  CompactArray arr2(n, vm::MerkleProof::virtualize(root).move_as_ok());
   for (size_t i = 0; i < n; i++) {
     CHECK(arr.get(i) == arr2.get(i));
   }
@@ -2349,7 +2387,7 @@ TEST(Cell, MerkleProofCombineArray2) {
     auto usage_cell = UsageCell::create(x, usage_tree->root_ptr());
     root = usage_cell;
     op();
-    return MerkleProof::generate(root, usage_tree.get());
+    return MerkleProof::generate(root, usage_tree.get()).move_as_ok();
   };
 
   auto first = apply_op([&] {
@@ -2375,12 +2413,12 @@ TEST(Cell, MerkleProofCombineArray2) {
 
   {
     td::Timer t;
-    auto x = vm::MerkleProof::combine(first, second);
+    auto x = vm::MerkleProof::combine(first, second).move_as_ok();
     LOG(ERROR) << "slow " << t;
   }
   {
     td::Timer t;
-    auto x = vm::MerkleProof::combine_fast(first, second);
+    auto x = vm::MerkleProof::combine_fast(first, second).move_as_ok();
     LOG(ERROR) << "fast " << t;
   }
 }
@@ -2395,23 +2433,23 @@ TEST(Cell, MerkleUpdateHands) {
   auto child = CellSlice(vm::NoVm(), usage_cell).prefetch_ref(0);
   auto new_node = CellBuilder{}.store_bytes("new data").store_ref(child).finalize();
   auto new_child = CellSlice(vm::NoVm(), new_node).prefetch_ref(0);
-  auto update = MerkleUpdate::generate(usage_cell, new_node, usage_tree.get());
+  auto update = MerkleUpdate::generate(usage_cell, new_node, usage_tree.get()).move_as_ok();
 
   MerkleUpdate::may_apply(node, update).ensure();
   MerkleUpdate::validate(update).ensure();
-  auto x = MerkleUpdate::apply(node, update);
+  auto x = MerkleUpdate::apply(node, update).move_as_ok();
   ASSERT_TRUE(serialize_boc(new_node) == serialize_boc(x));
 
   MerkleUpdate::may_apply(other_node, update).ensure_error();
-  ASSERT_TRUE(MerkleUpdate::apply(other_node, update).is_null());
+  ASSERT_TRUE(MerkleUpdate::apply(other_node, update).is_error());
   auto other_update = CellBuilder::create_merkle_update(CellBuilder::create_pruned_branch(other_node, 1),
                                                         CellBuilder::create_pruned_branch(new_node, 1));
   MerkleUpdate::may_apply(node, other_update).ensure_error();
   MerkleUpdate::validate(other_update).ensure_error();
-  ASSERT_TRUE(MerkleUpdate::apply(other_node, other_update).is_null());
+  ASSERT_TRUE(MerkleUpdate::apply(other_node, other_update).is_error());
   auto bad_update = CellBuilder::create_merkle_update(CellBuilder::create_pruned_branch(new_node, 1),
                                                       CellBuilder::create_pruned_branch(other_node, 1));
-  CHECK(MerkleUpdate::combine(update, bad_update).is_null());
+  CHECK(MerkleUpdate::combine(update, bad_update).is_error());
 }
 
 TEST(Cell, MerkleUpdateArray) {
@@ -2431,7 +2469,7 @@ TEST(Cell, MerkleUpdateArray) {
   arr.set(n / 2 + 2, 2414221111);
   arr.set(n / 2 + 3, 2);
 
-  auto update = MerkleUpdate::generate(usage_cell, arr.root(), usage_tree.get());
+  auto update = MerkleUpdate::generate(usage_cell, arr.root(), usage_tree.get()).move_as_ok();
   CellStorageStat stat;
   stat.compute_used_storage(update, false);
   ASSERT_EQ(stat.cells, 81u);
@@ -2459,13 +2497,13 @@ TEST(Cell, MerkleUpdateCombineArray) {
     usage_cell = UsageCell::create(arr.root(), usage_tree->root_ptr());
     arr = CompactArray(n, usage_cell);
     op();
-    updates.push_back(MerkleUpdate::generate(A, arr.root(), usage_tree.get()));
+    updates.push_back(MerkleUpdate::generate(A, arr.root(), usage_tree.get()).move_as_ok());
   };
 
   auto combine_all = [&]() {
     while (updates.size() > 1) {
       size_t i = updates.size() - 2;
-      updates[i] = MerkleUpdate::combine(updates[i], updates[i + 1]);
+      updates[i] = MerkleUpdate::combine(updates[i], updates[i + 1]).move_as_ok();
       updates.pop_back();
       CellStorageStat stat;
       stat.compute_used_storage(updates[i], false);
@@ -2509,6 +2547,36 @@ TEST(Cell, MerkleUpdateCombineArray) {
   }
 
   validate(41);
+}
+
+TEST(Cell, MerkleDiamond) {
+  for (int depth = 0; depth <= 100; ++depth) {
+    auto cell = CellBuilder{}.store_long(0x12341234, 32).finalize_novm();
+    for (int i = 0; i < depth; ++i) {
+      cell = CellBuilder{}.store_ref(cell).store_ref(cell).finalize_novm();
+    }
+    auto cell2 = CellBuilder{}.store_long(0x11223344, 32).finalize_novm();
+    auto mu = CellBuilder::create_merkle_update(cell, cell2);
+    auto cell3 = MerkleUpdate::apply(cell, mu).ensure().move_as_ok();
+    CHECK(cell2->get_hash() == cell3->get_hash());
+  }
+  for (int depth = 0; depth <= 100; ++depth) {
+    auto child1 = CellBuilder{}.store_long(1, 32).finalize_novm();
+    auto child2 = CellBuilder{}.store_long(2, 32).finalize_novm();
+    auto cell1 =
+        CellBuilder{}.store_ref(CellBuilder::do_create_pruned_branch(child1, 1)).store_ref(child2).finalize_novm();
+    auto cell2 =
+        CellBuilder{}.store_ref(child1).store_ref(CellBuilder::do_create_pruned_branch(child2, 1)).finalize_novm();
+
+    for (int i = 0; i < depth; ++i) {
+      cell1 = CellBuilder{}.store_ref(cell1).store_ref(cell1).finalize_novm();
+      cell2 = CellBuilder{}.store_ref(cell2).store_ref(cell2).finalize_novm();
+    }
+    cell1 = CellBuilder::create_merkle_proof(cell1);
+    cell2 = CellBuilder::create_merkle_proof(cell2);
+    MerkleProof::combine(cell1, cell2).ensure();
+    MerkleProof::combine_fast(cell1, cell2).ensure();
+  }
 }
 
 }  // namespace vm
@@ -3020,8 +3088,8 @@ TEST(TonDb, BocRespectsUsageCell) {
   auto usage_tree = std::make_shared<vm::CellUsageTree>();
   auto usage_cell = vm::UsageCell::create(cell, usage_tree->root_ptr());
   auto serialization = serialize_boc(usage_cell);
-  auto proof = vm::MerkleProof::generate(cell, usage_tree.get());
-  auto virtualized_proof = vm::MerkleProof::virtualize(proof);
+  auto proof = vm::MerkleProof::generate(cell, usage_tree.get()).move_as_ok();
+  auto virtualized_proof = vm::MerkleProof::virtualize(proof).move_as_ok();
   auto serialization_of_virtualized_cell = serialize_boc(virtualized_proof);
   ASSERT_STREQ(serialization, serialization_of_virtualized_cell);
 }
@@ -3046,8 +3114,8 @@ TEST(UsageTree, ThreadSafe) {
     for (auto &thread : threads) {
       thread.join();
     }
-    auto proof = vm::MerkleProof::generate(cell, usage_tree.get());
-    auto virtualized_proof = vm::MerkleProof::virtualize(proof);
+    auto proof = vm::MerkleProof::generate(cell, usage_tree.get()).move_as_ok();
+    auto virtualized_proof = vm::MerkleProof::virtualize(proof).move_as_ok();
     for (auto &exploration : explorations) {
       auto new_exploration = vm::CellExplorer::explore(virtualized_proof, exploration.ops);
       ASSERT_EQ(exploration.log, new_exploration.log);
@@ -3072,8 +3140,8 @@ vm::DynamicBagOfCellsDb::Stats test_dynamic_boc_respects_usage_cell(vm::BocOptio
     dboc->commit(cell_storer);
   }
 
-  auto proof = vm::MerkleProof::generate(cell, usage_tree.get());
-  auto virtualized_proof = vm::MerkleProof::virtualize(proof, 1);
+  auto proof = vm::MerkleProof::generate(cell, usage_tree.get()).move_as_ok();
+  auto virtualized_proof = vm::MerkleProof::virtualize(proof, 1).move_as_ok();
   auto serialization_of_virtualized_cell = serialize_boc(virtualized_proof);
   auto serialization = serialize_boc(cell);
   ASSERT_STREQ(serialization, serialization_of_virtualized_cell);
@@ -3127,8 +3195,8 @@ TEST(TonDb, LargeBocSerializer) {
 TEST(TonDb, DoNotMakeListsPrunned) {
   auto cell = vm::CellBuilder().store_bytes("abc").finalize();
   auto is_prunned = [&](const td::Ref<vm::Cell> &cell) { return true; };
-  auto proof = vm::MerkleProof::generate(cell, is_prunned);
-  auto virtualized_proof = vm::MerkleProof::virtualize(proof);
+  auto proof = vm::MerkleProof::generate(cell, is_prunned).move_as_ok();
+  auto virtualized_proof = vm::MerkleProof::virtualize(proof).move_as_ok();
   ASSERT_TRUE(!virtualized_proof->is_virtualized());
 }
 

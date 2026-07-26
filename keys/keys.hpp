@@ -350,7 +350,7 @@ class AES {
     data_.as_slice().copy_from(data);
   }
   td::SecureString export_as_slice() const {
-    td::SecureString s{40};
+    td::SecureString s{36};
     auto id = ton_api::pk_aes::ID;
     s.as_mutable_slice().copy_from(td::Slice{reinterpret_cast<const td::uint8 *>(&id), 4});
     s.as_mutable_slice().remove_prefix(4).copy_from(data_.as_slice());

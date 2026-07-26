@@ -85,6 +85,22 @@ fun rshiftr4mod(x: int): (int, int)
 fun rshift3mod(x: int): (int, int)
     asm "3 RSHIFT#MOD";
 
+@pure
+fun qrshiftr(x: int, y: int): int
+    asm "QRSHIFTR";
+
+@pure
+fun qmodpow2(x: int, y: int): int
+    asm "QMODPOW2";
+
+@pure
+fun qrshiftmod(x: int, y: int): (int, int)
+    asm "QRSHIFTMOD";
+
+@pure
+fun qaddrshiftmod(x: int, w: int, y: int): (int, int)
+    asm "QADDRSHIFTMOD";
+
 /// computes y - x (Tolk compiler does not try to use this by itself)
 @pure
 fun sub_rev(x: int, y: int): int
@@ -106,19 +122,20 @@ fun is_nan(x: int): int
 @pure
 @inline_ref
 fun geom_mean(a: int, b: int): int {
-    if (!min(a, b)) {
+    if (min(a, b) == 0) {
     return 0;
     }
     var s: int = log2_floor_p1(a);   // throws out of range error if a < 0 or b < 0
     var t: int = log2_floor_p1(b);
     // NB: (a-b)/2+b == (a+b)/2, but without overflow for large a and b
     var x: int = (s == t ? (a - b) / 2 + b : 1 << ((s + t) / 2));
+    var q: int;
     do {
     // if always used with b=2^const, may be optimized to "const LSHIFTDIVC#"
     // it is important to use `mulDivCeil` here, not `mulDivFloor` or `mulDivRound`
-    var q: int = (mulDivCeil(a, b, x) - x) / 2;
+    q = (mulDivCeil(a, b, x) - x) / 2;
     x += q;
-    } while (q);
+    } while (q != 0);
     return x;
 }
 
@@ -273,11 +290,11 @@ fun expm1_f257(x: int): int {
 /// fixed248 exp(fixed248 x)
 @pure
 @inline_ref
-fun fixed248_exp(x: int): int {
+fun fixed248_exp(x_: int): int {
     var (l2c, l2d) = log2_xconst_f256();
     // divide x by log(2) and convert to fixed257
     // (int q, x) = muldivmodr(x, 256, l2c);  // unfortunately, no such built-in
-    var (q: int, x redef) = lshiftdivmodr(x, l2c, 8);
+    var (q: int, x) = lshiftdivmodr(x_, l2c, 8);
     x = 2 * x - mulDivRound(q, l2d, 1 << 127);
     var y: int = expm1_f257(x);
     // result is (1 + y) * (2^q) --> ((1 << 257) + y) >> (9 - q)
@@ -289,9 +306,9 @@ fun fixed248_exp(x: int): int {
 /// fixed248 exp2(fixed248 x)
 @pure
 @inline_ref
-fun fixed248_exp2(x: int): int {
+fun fixed248_exp2(x_: int): int {
     // (int q, x) = divmodr(x, 1 << 248);   // no such built-in
-    var (q: int, x redef) = rshiftr248mod(x);
+    var (q: int, x) = rshiftr248mod(x_);
     x = mulDivRound(x, log2_const_f256(), 1 << 247);
     var y: int = expm1_f257(x);
     return (y ~>> (9 - q)) - (-1 << (248 + q));
@@ -383,10 +400,10 @@ fun sincosn_f256(x: int, xe: int): (int, int) {
     // now a/c = cos(q*theta), b/c = sin(q*theta) exactly(!)
     // compute (a+b*I)*(1-co+si*I)/c
     // (b, a) = (lshift256divr(b, c), lshift256divr(a, c));
-    var (b redef, br: int) = lshift256divmodr(b, c);  br = mulDivRound(br, 128, c);
-    var (a redef, ar: int) = lshift256divmodr(a, c);  ar = mulDivRound(ar, 128, c);
-    return (sign(x) * (((mulrshiftr256(b, co) - br) ~/ 16 - mulrshiftr256(a, si)) ~/ 8 - b),
-    a - ((mulrshiftr256(a, co) - ar) ~/ 16 + mulrshiftr256(b, si)) ~/ 8);
+    var (newB, br: int) = lshift256divmodr(b, c);  br = mulDivRound(br, 128, c);
+    var (newA, ar: int) = lshift256divmodr(a, c);  ar = mulDivRound(ar, 128, c);
+    return (sign(x) * (((mulrshiftr256(newB, co) - br) ~/ 16 - mulrshiftr256(newA, si)) ~/ 8 - newB),
+    newA - ((mulrshiftr256(newA, co) - ar) ~/ 16 + mulrshiftr256(newB, si)) ~/ 8);
 }
 
 /// compute (sin(x),1-cos(x)) in fixed256 for |x| < 16*atan(1/16) = 0.9987
@@ -422,10 +439,10 @@ fun tan_aux_f256(x: int): (int, int) {
 /// (fixed248, fixed248) sincos(fixed248 x);
 @pure
 @inline_ref
-fun fixed248_sincos(x: int): (int, int) {
+fun fixed248_sincos(x_: int): (int, int) {
     var (Pic, Pid) = Pi_xconst_f254();
     // (int q, x) = muldivmodr(x, 128, Pic);  // no muldivmodr() builtin
-    var (q: int, x redef) = lshift7divmodr(x, Pic);  // reduce mod Pi/2
+    var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (si: int, co: int) = sincosm1_f256(x);   // doesn't make sense to use more accurate sincosn_f256()
     co = (1 << 248) - (co ~>> 9);
@@ -459,13 +476,13 @@ fun fixed248_cos(x: int): int {
 /// however, the relative accuracy is approximately 2^-247 in all cases, which is good enough for arguments given up to 2^-249
 @pure
 @inline_ref
-fun fixed248_tan(x: int): int {
+fun fixed248_tan(x_: int): int {
     var (Pic, Pid) = Pi_xconst_f254();
     // (int q, x) = muldivmodr(x, 128, Pic);  // no muldivmodr() builtin
-    var (q: int, x redef) = lshift7divmodr(x, Pic);  // reduce mod Pi/2
+    var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (a, b) = tan_aux_f256(x);  // now a/b = tan(x')
-    if (q & 1) {
+    if ((q & 1) != 0) {
     (a, b) = (b, -a);
     }
     return mulDivRound(a, 1 << 248, b);   // either -b/a or a/b as fixed248
@@ -474,12 +491,12 @@ fun fixed248_tan(x: int): int {
 /// fixed248 cot(fixed248 x);
 @pure
 @inline_ref
-fun fixed248_cot(x: int): int {
+fun fixed248_cot(x_: int): int {
     var (Pic, Pid) = Pi_xconst_f254();
-    var (q: int, x redef) = lshift7divmodr(x, Pic);  // reduce mod Pi/2
+    var (q: int, x) = lshift7divmodr(x_, Pic);  // reduce mod Pi/2
     x = 2 * x - mulDivRound(q, Pid, 1 << 127);
     var (b, a) = tan_aux_f256(x);  // now b/a = tan(x')
-    if (q & 1) {
+    if ((q & 1) != 0) {
     (a, b) = (b, -a);
     }
     return mulDivRound(a, 1 << 248, b);   // either -b/a or a/b as fixed248
@@ -657,7 +674,7 @@ fun fixed248_log2(x: int): int {
 @pure
 @inline_ref
 fun fixed248_pow(x: int, y: int): int {
-    if (!y) {
+    if (y == 0) {
     return 1 << 248;   // x^0 = 1
     }
     if (x <= 0) {
@@ -808,7 +825,7 @@ fun atan_auxx_f256(x: int): (int, int) {
 fun atan_f255(x: int): int {
     var s: int = (x ~>> 256);
     x.stackMoveToTop();
-    if (s) {
+    if (s != 0) {
         x = lshift256divr(-1 << 255, x);   // x:=-1/x as fixed256
     } else {
         x *= 2;   // convert to fixed256
@@ -836,7 +853,7 @@ fun atan_f256_small(x: int): int {
 @inline_ref
 fun asin_f255(x: int): int {
     var a: int = fixed255_One - fixed255_sqr(x);  // a:=1-x^2
-    if (!a) {
+    if (a == 0) {
     return sign(x) * Pi_const_f254();   // Pi/2 or -Pi/2
     }
     var y: int = fixed255_sqrt(a);   // sqrt(1-x^2)
@@ -881,7 +898,7 @@ fun fixed248_acos(x: int): int {
 fun fixed248_atan(x: int): int {
     var s: int = (x ~>> 249);
     x.stackMoveToTop();
-    if (s) {
+    if (s != 0) {
         s = sign(s);
         x = lshift256divr(-1 << 248, x);   // x:=-1/x as fixed256
     } else {
@@ -898,7 +915,7 @@ fun fixed248_atan(x: int): int {
 fun fixed248_acot(x: int): int {
     var s: int = (x ~>> 249);
     x.stackMoveToTop();
-    if (s) {
+    if (s != 0) {
         x = lshift256divr(-1 << 248, x);   // x:=-1/x as fixed256
         s = 0;
     } else {
@@ -941,7 +958,7 @@ fun nrand_f252(): int {
                 }
             }
         }
-    } while (!(~ is_nan(x)));
+    } while ((~ is_nan(x)) == 0);
     return x;
 }
 
@@ -1019,7 +1036,7 @@ fun test_nrand(n: int): tuple {
   repeat (n) {
     var x: int = fixed248_nrand();
     var bucket: int = (abs(x) >> 243);   // 255 buckets starting from x=0, each 1/32 wide
-    var at_bucket: int = t.get(bucket);
+    var at_bucket: int = t.get(bucket) as int;
     t.tset(bucket, at_bucket + 1);
   }
   return t;
@@ -1142,6 +1159,16 @@ fun fixed248_atan_test(x:int): int {
 @method_id(10028)
 fun fixed248_acot_test(x:int): int {
     return  fixed248_acot(x);
+}
+
+@method_id(10029)
+fun quiet_shrmod_nan_shift_test(): (int, int, int, int, int, int) {
+    var shift: int = nan();
+    var rshifted = qrshiftr(12345, shift);
+    var modded = qmodpow2(12345, shift);
+    var (q1, r1) = qrshiftmod(12345, shift);
+    var (q2, r2) = qaddrshiftmod(1000, 2345, shift);
+    return (is_nan(rshifted), is_nan(modded), is_nan(q1), is_nan(r1), is_nan(q2), is_nan(r2));
 }
 
 fun main() {
@@ -1285,4 +1312,5 @@ fun main() {
 
 @testcase | 10027 |   (1<<248)//5 | 89284547973388213553327350968415123522888028497458323165947767504203347189
 @testcase | 10028 |   (1<<248)//239 | 708598849781543798951441405045469962900811296151941404481049216461523216127
+@testcase | 10029 |   | -1 -1 -1 -1 -1 -1
 */

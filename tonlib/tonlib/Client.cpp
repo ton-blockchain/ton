@@ -69,7 +69,7 @@ class Client::Impl final {
       return;
     }
 
-    scheduler_.run_in_context_external(
+    scheduler_.run_in_context(
         [&] { send_closure(tonlib_, &TonlibClient::request, request.id, std::move(request.function)); });
   }
 
@@ -86,7 +86,7 @@ class Client::Impl final {
   }
 
   void cancel_requests() {
-    scheduler_.run_in_context_external([&] { tonlib_.reset(); });
+    scheduler_.run_in_context([&] { tonlib_.reset(); });
   }
 
   Impl(const Impl&) = delete;
@@ -94,17 +94,17 @@ class Client::Impl final {
   Impl(Impl&&) = delete;
   Impl& operator=(Impl&&) = delete;
   ~Impl() {
-    LOG(ERROR) << "~Impl";
-    scheduler_.run_in_context_external([&] { tonlib_.reset(); });
-    LOG(ERROR) << "Wait till closed";
+    VLOG(tonlib_requests) << "~Impl";
+    scheduler_.run_in_context([&] { tonlib_.reset(); });
+    VLOG(tonlib_requests) << "Wait till closed";
     while (!is_closed_) {
       receive(10);
     }
-    LOG(ERROR) << "Stop";
-    scheduler_.run_in_context_external([] { td::actor::SchedulerContext::get().stop(); });
-    LOG(ERROR) << "join";
+    VLOG(tonlib_requests) << "Stop";
+    scheduler_.run_in_context([] { td::actor::SchedulerContext::get().stop(); });
+    VLOG(tonlib_requests) << "join";
     scheduler_thread_.join();
-    LOG(ERROR) << "join - done";
+    VLOG(tonlib_requests) << "join - done";
   }
 
  private:

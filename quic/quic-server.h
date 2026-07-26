@@ -1,12 +1,18 @@
 #pragma once
 
+#include <array>
 #include <deque>
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
+#include <tuple>
 #include <variant>
 
+#include "adnl/adnl-node-id.hpp"
+#include "adnl/utils.hpp"
+#include "crypto/common/refcnt.hpp"
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
 #include "td/utils/Heap.h"
@@ -16,8 +22,14 @@
 
 #include "Ed25519.h"
 #include "quic-common.h"
+#include "quic-connection-rate-limiters.h"
 
 namespace ton::quic {
+struct QuicConnectionOptions;
+struct ServerIdentities;
+struct ServerInitialInfo;
+struct VersionCid;
+
 struct QuicConnectionPImpl;
 
 struct StreamOptions {
@@ -43,11 +55,18 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     bool enable_gro = true;
     bool enable_mmsg = true;
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
-    std::optional<td::uint64> inbound_stream_max_size = std::nullopt;
+    std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
+    std::optional<size_t> max_streams_bidi = std::nullopt;
+    td::uint32 new_connection_rate_limit_capacity = 10;
+    double new_connection_rate_limit_period = 0.2;
+    td::uint32 global_new_connection_rate_limit_capacity = 100000;
+    double global_new_connection_rate_limit_period = 0.00001;
+    bool stateless_retry = true;
   };
   class Callback {
    public:
-    virtual void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) = 0;
+    virtual td::Status on_connected(QuicConnectionId cid, td::SecureString local_public_key,
+                                    td::SecureString peer_public_key, bool is_outbound) = 0;
     virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
     virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
@@ -58,6 +77,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     virtual td::Timestamp next_alarm() const {
       return td::Timestamp::never();
     }
+    virtual void set_peer_mtu_callback(std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> f) = 0;
     virtual ~Callback() = default;
   };
 
@@ -68,21 +88,55 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
 
-  td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn);
+  td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn,
+                                       td::Slice sni);
 
   void shutdown_stream(QuicConnectionId cid, QuicStreamID sid);
-  void close(QuicConnectionId cid);
+  void on_connection_closed(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
-  QuicServer(td::UdpSocketFd fd, td::Ed25519::PrivateKey server_key, td::BufferSlice alpn,
+  // MTU state is keyed by local_id and (local_id, peer_id). Peer-specific MTU overrides the
+  // per-local default. Setting an MTU to 0 erases the corresponding entry.
+  void set_default_mtu(adnl::AdnlNodeIdShort local_id, td::uint64 mtu);
+  void set_peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::uint64 mtu);
+
+  // Register an additional ADNL identity on this server. Subsequent identities are reachable via
+  // SNI (ServerIdentity::sni(local_id)). Re-registering an id that's already present is a no-op.
+  void add_identity(adnl::AdnlNodeIdShort local_id, td::Ed25519::PrivateKey key);
+
+  constexpr static size_t DEFAULT_FLOOD_CONTROL = 1000;
+
+  QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, ServerIdentity identity, td::BufferSlice alpn,
              std::unique_ptr<Callback> callback, Options options);
 
-  static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
-                                                            std::unique_ptr<Callback> callback, td::Slice alpn = "ton",
-                                                            td::Slice bind_host = "0.0.0.0");
-  static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, td::Ed25519::PrivateKey server_key,
-                                                            std::unique_ptr<Callback> callback, td::Slice alpn,
-                                                            td::Slice bind_host, Options options);
+  static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, std::unique_ptr<Callback> callback,
+                                                            td::uint64 default_mtu, ServerIdentity identity,
+                                                            td::Slice alpn = "ton", td::Slice bind_host = "0.0.0.0");
+  static td::Result<td::actor::ActorOwn<QuicServer>> create(int port, std::unique_ptr<Callback> callback,
+                                                            td::uint64 default_mtu, ServerIdentity identity,
+                                                            td::Slice alpn, td::Slice bind_host, Options options);
+
+  struct Stats {
+    struct Entry {
+      size_t total_conns = 1;
+      QuicConnectionStats impl_stats = {};
+
+      Entry operator+(const Entry &other) const {
+        Entry res = {.total_conns = total_conns + other.total_conns, .impl_stats = impl_stats + other.impl_stats};
+        auto tc = total_conns + other.total_conns;
+        if (tc > 0)
+          res.impl_stats.mean_rtt = (static_cast<double>(total_conns) * impl_stats.mean_rtt +
+                                     static_cast<double>(other.total_conns) * other.impl_stats.mean_rtt) /
+                                    static_cast<double>(tc);
+        return res;
+      }
+    };
+
+    Entry summary = {.total_conns = 0};
+    std::unordered_map<QuicConnectionId, Entry> per_conn = {};
+  };
+
+  void collect_stats(td::Promise<Stats> P);
 
  protected:
   void start_up() override;
@@ -114,43 +168,72 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     std::unique_ptr<QuicConnectionPImpl> impl_;
     td::IPAddress remote_address;
     QuicConnectionId cid;
-    std::optional<QuicConnectionId> temp_cid;
+    std::optional<QuicConnectionId> bootstrap_routed_cid;
+    std::set<QuicConnectionId> routed_cids;
     bool is_outbound;
     bool in_active_queue = false;
     friend td::StringBuilder &operator<<(td::StringBuilder &sb, const ConnectionState &state) {
       sb << "Connection{" << (state.is_outbound ? "to" : "from") << " " << state.remote_address;
       sb << " cid=" << state.cid;
-      if (state.temp_cid) {
-        sb << " (temp=" << state.temp_cid.value() << ")";
-      }
       sb << "}";
       return sb;
     }
   };
+  struct BootstrapRouteKey {
+    td::IPAddress remote_address;
+    QuicConnectionId routed_cid;
+    friend bool operator<(const BootstrapRouteKey &a, const BootstrapRouteKey &b) {
+      return std::tie(a.remote_address, a.routed_cid) < std::tie(b.remote_address, b.routed_cid);
+    }
+  };
   void on_connection_updated(ConnectionState &state);
+  void bind_cid(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
+  void unbind_cid(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
+  void unbind_all_cids(ConnectionState &state);
+  td::Result<std::shared_ptr<ConnectionState>> install_connection(std::unique_ptr<QuicConnectionPImpl> p_impl,
+                                                                  const td::IPAddress &remote_address, bool is_outbound,
+                                                                  std::optional<QuicConnectionId> bootstrap_routed_cid);
+  void on_local_cid_issued(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
+  void on_local_cid_retired(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
+  td::Result<std::optional<ServerInitialInfo>> prepare_server_initial_info(const VersionCid &initial_packet,
+                                                                           const td::IPAddress &remote_address);
+  td::Result<QuicConnectionId> verify_retry_token(const VersionCid &packet, const td::IPAddress &remote_address) const;
+  td::Status send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address, td::Slice data);
+  td::Status send_retry(const VersionCid &packet, const td::IPAddress &remote_address);
+  td::Status send_invalid_token_connection_close(const VersionCid &packet, const td::IPAddress &remote_address);
 
   void update_alarm();
   void drain_ingress();
   void flush_egress();
   bool flush_pending();
   bool produce_next_egress(size_t batch_index);
+  void send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg);
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
+  td::Status ensure_flood_allowed(const std::string &flood_addr);
+  void flood_on_inbound_connection_created(const std::string &flood_addr);
+  void flood_on_inbound_connection_closed(const std::string &flood_addr);
+  QuicConnectionOptions build_connection_options() const;
   bool handle_expiry(ConnectionState &state);
   void log_conn_stats(ConnectionState &state, const char *reason);
 
   td::UdpSocketFd fd_;
   td::BufferSlice alpn_;
-  td::Ed25519::PrivateKey server_key_;
+  td::Ref<ServerIdentities> identities_;
+  std::array<td::uint8, 32> retry_secret_{};
+  Options options_;
+  QuicConnectionRateLimiters conn_rate_limiters_;
+  adnl::RateLimiter global_conn_rate_limiter_;
   bool gso_enabled_{true};
   bool gro_enabled_{false};
-  CongestionControlAlgo cc_algo_{CongestionControlAlgo::Cubic};
+  std::unordered_map<std::string, size_t> flood_map_;
 
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;
 
-  std::map<QuicConnectionId, QuicConnectionId> to_primary_cid_;
+  std::map<QuicConnectionId, QuicConnectionId> cid_to_primary_cid_;
+  std::map<BootstrapRouteKey, QuicConnectionId> bootstrap_routes_;
   std::map<QuicConnectionId, std::shared_ptr<ConnectionState>> connections_;
   std::deque<QuicConnectionId> active_connections_;
   std::vector<QuicConnectionId> to_erase_connections_;
@@ -180,6 +263,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   };
   UdpStats ingress_stats_;
   UdpStats egress_stats_;
+
+  std::map<adnl::AdnlNodeIdShort, td::uint64> default_mtu_by_local_id_;
+  std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::uint64> peers_mtu_;
 };
 
 }  // namespace ton::quic

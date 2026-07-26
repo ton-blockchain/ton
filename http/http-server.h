@@ -18,7 +18,9 @@
 */
 #pragma once
 
+#include "metrics/collectors.h"
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/net/TcpListener.h"
 
 #include "http.h"
@@ -34,12 +36,18 @@ class HttpServer : public td::actor::Actor {
   class Callback {
    public:
     virtual ~Callback() = default;
-    virtual void receive_request(
-        std::unique_ptr<HttpRequest> request, std::shared_ptr<HttpPayload> payload,
-        td::Promise<std::pair<std::unique_ptr<HttpResponse>, std::shared_ptr<HttpPayload>>> promise) = 0;
+
+    virtual void receive_request(std::unique_ptr<HttpRequest> request, std::shared_ptr<HttpPayload> payload,
+                                 ResponsePromise promise) = 0;
+
+    virtual void on_connection_close() {
+    }
   };
 
-  HttpServer(td::uint16 port, std::shared_ptr<Callback> callback) : port_(port), callback_(std::move(callback)) {
+  HttpServer(td::IPAddress address, std::shared_ptr<Callback> callback);
+
+  HttpServer(td::uint16 port, std::shared_ptr<Callback> callback)
+      : HttpServer(make_any_address(port), std::move(callback)) {
   }
 
   void start_up() override;
@@ -49,11 +57,40 @@ class HttpServer : public td::actor::Actor {
     return td::actor::create_actor<HttpServer>("httpserver", port, std::move(callback));
   }
 
+  td::actor::Task<> collect(metrics::Context ctx) {
+    ctx.collect(stats_, "http_server");
+    co_return {};
+  }
+
+  struct Stats {
+    metrics::Gauge<td::uint64> connections_active;
+    metrics::Counter connections;
+    metrics::Counter requests;
+    metrics::DynLabel<"code", td::int32, metrics::Counter> responses;
+
+    void collect(metrics::Context ctx) const {
+      ctx.collect(connections_active, "connections_active");
+      ctx.collect(connections, "connections");
+      ctx.collect(requests, "requests");
+      ctx.collect(responses, "responses");
+    }
+  };
+
  private:
-  td::uint16 port_;
+  class StatsCountingCallback;
+
+  void update_stats_on_new_request();
+  void update_stats_on_response(std::optional<td::int32> code);
+  void update_stats_on_connection_close();
+
+  td::IPAddress address_;
   std::shared_ptr<Callback> callback_;
 
   td::actor::ActorOwn<td::TcpInfiniteListener> listener_;
+
+  Stats stats_;
+
+  static td::IPAddress make_any_address(td::uint16 port);
 };
 
 }  // namespace http

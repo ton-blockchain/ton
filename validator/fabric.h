@@ -37,15 +37,16 @@ struct CollateParams {
   td::Ref<block::ValidatorSet> validator_set = {};
   td::Ref<CollatorOptions> collator_opts = {};
   adnl::AdnlNodeIdShort collator_node_id = adnl::AdnlNodeIdShort::zero();
-  bool skip_store_candidate = false;
   int attempt_idx = 0;
+  td::optional<double> utime = {};
+  td::Timestamp hard_timeout = td::Timestamp::in(10.0);
+  td::Timestamp soft_timeout = {};
+  td::Timestamp wait_externals_until = {};
 
   // Optional - if empty, blocks and states are taken from manager
   // If not empty, should be the same size as prev
   std::vector<Ref<BlockData>> prev_block_data = {};
   std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
-
-  bool is_new_consensus = false;
 };
 
 struct ValidateParams {
@@ -56,10 +57,8 @@ struct ValidateParams {
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
 
   bool is_fake = false;
-  bool skip_store_candidate = false;
 
   bool parallel_validation = false;
-  bool is_new_consensus = false;
 
   // Optional - if empty, states are taken from manager
   // If not empty, should be the same size as prev
@@ -82,13 +81,12 @@ td::Result<BlockHandle> create_block_handle(td::Slice data);
 td::Result<ConstBlockHandle> create_temp_block_handle(td::BufferSlice data);
 BlockHandle create_empty_block_handle(BlockIdExt id);
 td::Result<td::Ref<ExtMessage>> create_ext_message(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits);
-td::Result<td::Ref<IhrMessage>> create_ihr_message(td::BufferSlice data);
 td::Result<std::vector<td::Ref<ShardTopBlockDescription>>> create_new_shard_block_descriptions(td::BufferSlice data);
 
 void run_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                             td::Ref<block::ValidatorSet> validator_set, td::Ref<block::BlockSignatureSet> signatures,
-                            int send_broadcast_mode, bool apply, td::actor::ActorId<ValidatorManager> manager,
-                            td::Promise<td::Unit> promise);
+                            int block_broadcast_mode, int finality_broadcast_mode, bool send_shard_block_desc,
+                            bool apply, td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
 void run_fake_accept_block_query(BlockIdExt id, td::Ref<BlockData> data, std::vector<BlockIdExt> prev,
                                  td::Ref<block::ValidatorSet> validator_set,
                                  td::actor::ActorId<ValidatorManager> manager, td::Promise<td::Unit> promise);
@@ -115,7 +113,7 @@ void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::act
                                 td::Timestamp timeout, td::Promise<BlockHandle> promise);
 void run_validate_query(BlockCandidate candidate, ValidateParams params, td::actor::ActorId<ValidatorManager> manager,
                         td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise);
-void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
+void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
                        td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise);
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
                           td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
@@ -128,6 +126,11 @@ void run_validate_shard_block_description(td::BufferSlice data, BlockHandle mast
                                           td::Ref<MasterchainState> masterchain_state,
                                           td::actor::ActorId<ValidatorManager> manager, td::Timestamp timeout,
                                           td::Promise<td::Ref<ShardTopBlockDescription>> promise, bool is_fake = false);
+
+td::actor::Task<td::BufferSlice> generate_shard_block_description(BlockIdExt block_id,
+                                                                  Ref<block::BlockSignatureSet> signatures,
+                                                                  td::Timestamp timeout,
+                                                                  td::actor::ActorId<ValidatorManager> manager);
 
 }  // namespace validator
 

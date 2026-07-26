@@ -1198,6 +1198,7 @@ class TonlibCli : public td::actor::Actor {
                                auto r_cell = vm::std_boc_deserialize(cell.cell_->bytes_);
                                if (r_cell.is_error()) {
                                  sb << "<INVALID_CELL>";
+                                 return;
                                }
                                bool spec = true;
                                auto cs = vm::load_cell_slice_special(r_cell.move_as_ok(), spec);
@@ -1209,6 +1210,7 @@ class TonlibCli : public td::actor::Actor {
                                auto r_cell = vm::std_boc_deserialize(cell.slice_->bytes_);
                                if (r_cell.is_error()) {
                                  sb << "<INVALID_CELL>";
+                                 return;
                                }
                                auto cs = vm::load_cell_slice(r_cell.move_as_ok());
                                std::stringstream ss;
@@ -1456,7 +1458,8 @@ class TonlibCli : public td::actor::Actor {
   void generate_key(td::SecureString entropy = {}) {
     if (entropy.size() < 20) {
       td::TerminalIO::out() << "Enter some entropy";
-      cont_ = [this, entropy = std::move(entropy)](td::Slice new_entropy) {
+      cont_ = [this, entropy = std::move(entropy)](td::Result<td::Slice> maybe_new_entropy) {
+        auto new_entropy = maybe_new_entropy.move_as_ok();
         td::SecureString res(entropy.size() + new_entropy.size());
         res.as_mutable_slice().copy_from(entropy.as_slice());
         res.as_mutable_slice().substr(entropy.size()).copy_from(new_entropy);
@@ -1465,8 +1468,8 @@ class TonlibCli : public td::actor::Actor {
       return;
     }
     td::TerminalIO::out() << "Enter password (could be empty)";
-    cont_ = [this, entropy = std::move(entropy)](td::Slice password) mutable {
-      generate_key(std::move(entropy), td::SecureString(password));
+    cont_ = [this, entropy = std::move(entropy)](td::Result<td::Slice> password) mutable {
+      generate_key(std::move(entropy), td::SecureString(password.move_as_ok()));
     };
   }
 
@@ -1548,8 +1551,8 @@ class TonlibCli : public td::actor::Actor {
   void delete_all_keys() {
     static td::Slice password = td::Slice("I have written down mnemonic words");
     td::TerminalIO::out() << "You are going to delete ALL PRIVATE KEYS. To confirm enter `" << password << "`\n";
-    cont_ = [this](td::Slice entered) {
-      if (password == entered) {
+    cont_ = [this](td::Result<td::Slice> entered) {
+      if (password == entered.ok()) {
         this->do_delete_all_keys();
       } else {
         td::TerminalIO::out() << "Your keys left intact\n";
@@ -1713,7 +1716,7 @@ class TonlibCli : public td::actor::Actor {
     if (key.empty()) {
       dump_keys();
       td::TerminalIO::out() << "Choose public key (hex prefix or #N)";
-      cont_ = [this, cmd](td::Slice key) { this->export_key(cmd, key); };
+      cont_ = [this, cmd](td::Result<td::Slice> key) { this->export_key(cmd, key.move_as_ok()); };
       return;
     }
     auto r_key_i = to_key_i(key);
@@ -1727,7 +1730,9 @@ class TonlibCli : public td::actor::Actor {
                           << "public key: " << td::buffer_to_hex(keys_[key_i].public_key) << "\n";
 
     td::TerminalIO::out() << "Enter password (could be empty)";
-    cont_ = [this, cmd, key = key.str(), key_i](td::Slice password) { this->export_key(cmd, key, key_i, password); };
+    cont_ = [this, cmd, key = key.str(), key_i](td::Result<td::Slice> password) {
+      this->export_key(cmd, key, key_i, password.move_as_ok());
+    };
   }
 
   void import_key_pem(td::Slice filename, td::Promise<td::Unit> promise) {
@@ -1806,12 +1811,14 @@ class TonlibCli : public td::actor::Actor {
     }
     if (words.size() < 24) {
       td::TerminalIO::out() << "Enter mnemonic words (got " << words.size() << " out of 24)";
-      cont_ = [this, words = std::move(words)](td::Slice slice) mutable { this->import_key(slice, std::move(words)); };
+      cont_ = [this, words = std::move(words)](td::Result<td::Slice> slice) mutable {
+        this->import_key(slice.move_as_ok(), std::move(words));
+      };
       return;
     }
     td::TerminalIO::out() << "Enter password (could be empty)";
-    cont_ = [this, words = std::move(words)](td::Slice password) mutable {
-      this->import_key(std::move(words), password);
+    cont_ = [this, words = std::move(words)](td::Result<td::Slice> password) mutable {
+      this->import_key(std::move(words), password.move_as_ok());
     };
   }
 
@@ -1888,7 +1895,8 @@ class TonlibCli : public td::actor::Actor {
                  }
                  std::ostringstream os;
                  if (param >= 0) {
-                   block::gen::ConfigParam{param}.print_ref(4096, os, cell);
+                   unsigned cfg_param = static_cast<unsigned>(param);
+                   block::gen::ConfigParam{cfg_param}.print_ref(4096, os, cell);
                    os << "\n";
                  }
                  vm::load_cell_slice(cell).print_rec(4096, os);
@@ -2198,13 +2206,14 @@ class TonlibCli : public td::actor::Actor {
 
   void transfer2(bool estimate_fees, td::Result<tonlib_api::object_ptr<tonlib_api::query_info>> r_info,
                  td::Promise<td::Unit> cmd_promise) {
+    TRY_RESULT_PROMISE(cmd_promise, info, std::move(r_info));
     if (estimate_fees) {
-      send_query(make_object<tonlib_api::query_estimateFees>(r_info.ok()->id_, true), cmd_promise.wrap([](auto&& info) {
+      send_query(make_object<tonlib_api::query_estimateFees>(info->id_, true), cmd_promise.wrap([](auto&& info) {
         td::TerminalIO::out() << "Extimated fees: " << to_string(info);
         return td::Unit();
       }));
     } else {
-      send_query(make_object<tonlib_api::query_send>(r_info.ok()->id_), cmd_promise.wrap([](auto&& info) {
+      send_query(make_object<tonlib_api::query_send>(info->id_), cmd_promise.wrap([](auto&& info) {
         td::TerminalIO::out() << "Transfer sent: " << to_string(info);
         return td::Unit();
       }));

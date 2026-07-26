@@ -19,16 +19,19 @@
 #pragma once
 
 #include <map>
+#include <vector>
 
 #include "adnl/adnl-node-id.hpp"
-#include "adnl/adnl.h"
+#include "adnl/adnl-sender-ex.h"
 #include "auto/tl/ton_api.h"
 #include "dht/dht.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
+#include "td/utils/RateLimiterWindow.h"
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
 #include "td/utils/common.h"
+#include "ton/ton-types.h"
 
 namespace ton {
 
@@ -114,9 +117,13 @@ class OverlayPrivacyRules {
       : max_unath_size_(max_size), flags_(flags), authorized_keys_(std::move(authorized_keys)) {
   }
 
-  BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec) {
+  BroadcastCheckResult check_rules(PublicKeyHash hash, td::uint32 size, bool is_fec, bool is_any_sender) {
     auto it = authorized_keys_.find(hash);
     if (it == authorized_keys_.end()) {
+      if (is_any_sender) {
+        // Unauthorized broadcasts with AnySender flag are not allowed
+        return BroadcastCheckResult::Forbidden;
+      }
       if (size > max_unath_size_) {
         return BroadcastCheckResult::Forbidden;
       }
@@ -127,6 +134,27 @@ class OverlayPrivacyRules {
     } else {
       return it->second >= size ? BroadcastCheckResult::Allowed : BroadcastCheckResult::Forbidden;
     }
+  }
+
+  bool is_authorized_key(PublicKeyHash hash) const {
+    return authorized_keys_.contains(hash);
+  }
+
+  td::uint32 max_broadcast_size() const {
+    td::uint32 size = max_unath_size_;
+    for (const auto &[_, x] : authorized_keys_) {
+      size = std::max(size, x);
+    }
+    return size;
+  }
+
+  std::vector<PublicKeyHash> get_authorized_keys() const {
+    std::vector<PublicKeyHash> keys;
+    keys.reserve(authorized_keys_.size());
+    for (const auto &[key, _] : authorized_keys_) {
+      keys.push_back(key);
+    }
+    return keys;
   }
 
  private:
@@ -152,6 +180,7 @@ class Certificate {
   tl_object_ptr<ton_api::overlay_Certificate> tl() const;
   const PublicKey &issuer() const;
   const PublicKeyHash issuer_hash() const;
+  const td::SharedSlice &signature() const;
 
   static td::Result<std::shared_ptr<Certificate>> create(const tl_object_ptr<ton_api::overlay_Certificate> &cert);
   static tl_object_ptr<ton_api::overlay_Certificate> empty_tl();
@@ -249,6 +278,14 @@ class OverlayMemberCertificate {
     signature_ = std::move(signature);
   }
 
+  bool operator==(const OverlayMemberCertificate &other) const {
+    if (empty() && other.empty()) {
+      return true;
+    }
+    return signed_by_ == other.signed_by_ && flags_ == other.flags_ && slot_ == other.slot_ &&
+           expire_at_ == other.expire_at_ && signature_ == other.signature_;
+  }
+
  private:
   PublicKey signed_by_;
   td::uint32 flags_;
@@ -258,21 +295,49 @@ class OverlayMemberCertificate {
 };
 
 struct OverlayOptions {
+  std::string name_ = "";
   bool announce_self_ = true;
   bool frequent_dht_lookup_ = false;
   td::uint32 local_overlay_member_flags_ = 0;
   td::int32 max_slaves_in_semiprivate_overlay_ = 5;
-  td::uint32 max_peers_ = 20;
-  td::uint32 max_neighbours_ = 5;
+  td::uint32 max_peers_ = 300;
+  td::uint32 max_neighbours_ = 10;
   td::uint32 nodes_to_send_ = 4;
   td::uint32 propagate_broadcast_to_ = 5;
   td::uint32 default_permanent_members_flags_ = 0;
   double broadcast_speed_multiplier_ = 1.0;
   bool private_ping_peers_ = false;
+  td::uint32 max_pending_peers_ = 100;
 
-  td::actor::ActorId<adnl::AdnlSenderInterface> twostep_broadcast_sender_ = {};
+  td::actor::ActorId<adnl::AdnlSenderEx> twostep_broadcast_sender_ = {};
   bool send_twostep_broadcast_ = false;
+  bool allow_old_broadcasts_ = true;  // non-twostep broadcasts
+
+  struct PlumtreeFecOptions {
+    td::uint32 k_ = 30;
+    td::uint32 parts_ = 45;
+    td::uint32 tree_slots_ = parts_ + 1;
+    td::uint32 validator_eager_limit_ = 1;
+    td::uint32 eager_limit_ = 4;  // 1 incoming, so fanout is practically 3
+    td::uint32 active_neighbours_ = 20;
+    td::uint32 repair_timeout_ms_ = 200;
+    td::uint32 max_repair_targets_ = 5;
+
+    double stats_epoch_duration_ = 3600.0;
+  };
+
+  bool enable_plumtree_broadcast_ = false;
+  bool is_original_sender_ = false;
+  td::actor::ActorId<adnl::AdnlSenderEx> plumtree_broadcast_sender_ = {};
+  PlumtreeFecOptions plumtree_fec_options_;
+
+  td::RateLimiterWindow::Params auth_broadcast_rate_limit_ = {};
+  td::RateLimiterWindow::Params auth_broadcast_size_rate_limit_ = {};
+  td::RateLimiterWindow::Params unauth_broadcast_rate_limit_ = {};
+  td::RateLimiterWindow::Params unauth_broadcast_size_rate_limit_ = {};
 };
+
+using PlumtreeFecOptions = OverlayOptions::PlumtreeFecOptions;
 
 struct OverlayManagerBufferLimits {
   td::uint32 max_packets = 0;
@@ -290,8 +355,16 @@ class Overlays : public td::actor::Actor {
     }
     virtual void receive_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data) {
     }
+    virtual void receive_broadcast_with_extra(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data,
+                                              td::BufferSlice extra) {
+      receive_broadcast(src, overlay_id, std::move(data));
+    }
     virtual void check_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::BufferSlice data,
                                  td::Promise<td::Unit> promise) {
+      promise.set_value(td::Unit());
+    }
+    virtual void precheck_broadcast(PublicKeyHash src, OverlayIdShort overlay_id, td::Bits256 broadcast_id,
+                                    td::BufferSlice extra, bool signature_checked, td::Promise<> promise) {
       promise.set_value(td::Unit());
     }
     virtual void get_stats_extra(td::Promise<std::string> promise) {
@@ -312,6 +385,9 @@ class Overlays : public td::actor::Actor {
 
   static constexpr td::uint32 BroadcastFlagAnySender() {
     return 1;
+  }
+  static constexpr td::uint32 BroadcastFlagNoTwostep() {
+    return 256;
   }
 
   static constexpr td::uint32 overlay_peer_ttl() {
@@ -368,6 +444,16 @@ class Overlays : public td::actor::Actor {
   virtual void send_broadcast_fec(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, td::BufferSlice object) = 0;
   virtual void send_broadcast_fec_ex(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
                                      td::uint32 flags, td::BufferSlice object) = 0;
+  virtual void send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id,
+                                             PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
+                                             td::BufferSlice extra) = 0;
+  virtual void send_broadcast_plumtree_fec(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
+                                           td::uint32 flags, td::BufferSlice object) = 0;
+  virtual void send_broadcast_plumtree(adnl::AdnlNodeIdShort src, OverlayIdShort overlay_id, PublicKeyHash send_as,
+                                       td::uint32 flags, td::Bits256 broadcast_id, td::BufferSlice object) = 0;
+  virtual void get_plumtree_stats_records(
+      adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
+      td::Promise<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> promise) = 0;
 
   virtual void set_privacy_rules(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                  OverlayPrivacyRules rules) = 0;

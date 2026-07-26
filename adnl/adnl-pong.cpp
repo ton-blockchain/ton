@@ -170,7 +170,7 @@ int main(int argc, char *argv[]) {
 
   scheduler.run_in_context([&]() {
     keyring = ton::keyring::Keyring::create("");
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Result<>) {});
 
     adnl = ton::adnl::Adnl::create("", keyring.get());
 

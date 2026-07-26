@@ -27,6 +27,7 @@
 #include "td/utils/crypto.h"
 #include "td/utils/misc.h"
 #include "td/utils/tl_storers.h"
+#include "ton/ton-io.hpp"
 #include "ton/ton-shard.h"
 #include "vm/fmt.hpp"
 
@@ -178,12 +179,12 @@ bool StdAddress::operator==(const StdAddress& other) const {
          testnet == other.testnet;
 }
 
-int parse_hex_digit(int c) {
+static int parse_hex_digit(int c) {
   if (c >= '0' && c <= '9') {
     return c - '0';
   }
   c |= 0x20;
-  if (c >= 'a' && c <= 'z') {
+  if (c >= 'a' && c <= 'f') {
     return c - 'a' + 10;
   }
   return -1;
@@ -196,23 +197,19 @@ bool StdAddress::parse_addr(td::Slice acc_string) {
   testnet = false;
   bounceable = true;
   auto pos = acc_string.find(':');
-  if (pos != std::string::npos) {
-    if (pos > 10) {
-      return invalidate();
-    }
-    auto tmp = acc_string.substr(0, pos);
-    auto r_wc = td::to_integer_safe<ton::WorkchainId>(tmp);
-    if (r_wc.is_error()) {
-      return invalidate();
-    }
-    workchain = r_wc.move_as_ok();
-    if (workchain == ton::workchainInvalid) {
-      return invalidate();
-    }
-    ++pos;
-  } else {
-    pos = 0;
+  if (pos == std::string::npos || pos > 10) {
+    return invalidate();
   }
+  auto tmp = acc_string.substr(0, pos);
+  auto r_wc = td::to_integer_safe<ton::WorkchainId>(tmp);
+  if (r_wc.is_error()) {
+    return invalidate();
+  }
+  workchain = r_wc.move_as_ok();
+  if (workchain == ton::workchainInvalid) {
+    return invalidate();
+  }
+  ++pos;
   // LOG(DEBUG) << "parsing " << acc_string << " address";
   if (acc_string.size() != pos + 64) {
     return invalidate();
@@ -793,8 +790,8 @@ td::Status ShardState::unpack_state(ton::BlockIdExt blkid, Ref<vm::Cell> prev_st
     return td::Status::Error(-666, "cannot unpack header of shardchain state "s + blkid.to_str());
   }
   if ((unsigned)state.seq_no != blkid.seqno()) {
-    return td::Status::Error(
-        -666, PSTRING() << "shardchain state for " << blkid.to_str() << " has incorrect seqno " << state.seq_no);
+    return td::Status::Error(-666, PSTRING()
+                                       << "shardchain state for " << blkid << " has incorrect seqno " << state.seq_no);
   }
   auto shard1 = ton::ShardIdFull(block::ShardId{state.shard_id});
   if (shard1 != blkid.shard_full()) {
@@ -936,7 +933,7 @@ bool ShardState::update_prev_utime_lt(ton::UnixTime& prev_utime, ton::LogicalTim
 td::Status ShardState::check_before_split(bool req_before_split) const {
   CHECK(id_.is_valid());
   if (before_split_ != req_before_split) {
-    return td::Status::Error(PSTRING() << "previous state for " << id_.to_str() << " has before_split=" << before_split_
+    return td::Status::Error(PSTRING() << "previous state for " << id_ << " has before_split=" << before_split_
                                        << ", but we have after_split=" << req_before_split);
   }
   return td::Status::OK();
@@ -944,7 +941,7 @@ td::Status ShardState::check_before_split(bool req_before_split) const {
 
 td::Status ShardState::check_global_id(int req_global_id) const {
   if (global_id_ != req_global_id) {
-    return td::Status::Error(-666, PSTRING() << "global blockchain id mismatch in shard state of " << id_.to_str()
+    return td::Status::Error(-666, PSTRING() << "global blockchain id mismatch in shard state of " << id_
                                              << ": expected " << req_global_id << ", found " << global_id_);
   }
   return td::Status::OK();
@@ -1193,7 +1190,7 @@ int filter_out_msg_queue(vm::AugmentedDictionary& out_queue, ton::ShardIdFull ol
     }
     if (!ton::shard_contains(old_shard, cur_prefix)) {
       LOG(ERROR) << "OutMsgQueue message with key " << key.to_hex(key_len)
-                 << " does not contain current address belonging to shard " << old_shard.to_str();
+                 << " does not contain current address belonging to shard " << old_shard;
       return -1;
     }
     bool res = ton::shard_contains(subshard, cur_prefix);
@@ -1772,7 +1769,7 @@ void MtCarloComputeShare::gen_vset() {
       }
     }
     CHECK(a >= 0 && a < N);
-    CHECK(total_wt >= W[a]);
+    total_wt = std::max(total_wt, W[a]);
     total_wt -= W[a];
     double x = CW[a];
     c = hc++;
@@ -1873,7 +1870,8 @@ bool check_one_config_param(Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key, td::
   } else if (idx < 0) {
     return true;
   }
-  bool ok = block::gen::ConfigParam{idx}.validate_ref(1024, std::move(cell));
+  unsigned cfg_idx = static_cast<unsigned>(idx);
+  bool ok = block::gen::ConfigParam{cfg_idx}.validate_ref(1024, std::move(cell));
   if (!ok) {
     LOG(ERROR) << "configuration parameter #" << idx << " is invalid";
   }
@@ -2028,11 +2026,17 @@ td::Status unpack_block_prev_blk_try(Ref<vm::Cell> block_root, const ton::BlockI
                                      ton::BlockIdExt* fetch_blkid) {
   try {
     return unpack_block_prev_blk_ext(std::move(block_root), id, prev, mc_blkid, after_split, fetch_blkid);
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     return td::Status::Error(std::string{"error while processing Merkle proof: "} + err.get_msg());
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     return td::Status::Error(std::string{"error while processing Merkle proof: "} + err.get_msg());
   }
+}
+
+td::Result<BlockHeaderInfo> get_block_header_info(Ref<vm::Cell> block_root, const ton::BlockIdExt& id) {
+  BlockHeaderInfo info;
+  TRY_STATUS(unpack_block_prev_blk_try(std::move(block_root), id, info.prev, info.mc_blkid, info.after_split));
+  return info;
 }
 
 td::Status unpack_block_prev_blk_ext(Ref<vm::Cell> block_root, const ton::BlockIdExt& id,
@@ -2232,9 +2236,9 @@ td::Result<Ref<vm::Cell>> get_block_transaction_try(Ref<vm::Cell> block_root, to
                                                     const ton::StdSmcAddress& addr, ton::LogicalTime lt) {
   try {
     return get_block_transaction(std::move(block_root), workchain, addr, lt);
-  } catch (vm::VmError err) {
+  } catch (vm::VmError& err) {
     return td::Status::Error(std::string{"error while extracting transaction from block : "} + err.get_msg());
-  } catch (vm::VmVirtError err) {
+  } catch (vm::VmVirtError& err) {
     return td::Status::Error(std::string{"virtualization error while traversing transaction proof : "} + err.get_msg());
   }
 }
@@ -2383,9 +2387,10 @@ bool parse_hex_hash(const char* str, const char* end, td::Bits256& hash) {
     int c = *str++, x = c - '0';
     if (x < 0) {
       return false;
-    } else if (x > 10) {
+    }
+    if (x >= 10) {
       x = (c | 0x20) - ('a' - 10);
-      if (x < 10 || x > 16) {
+      if (x < 10 || x >= 16) {
         return false;
       }
     }

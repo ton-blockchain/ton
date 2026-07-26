@@ -24,6 +24,10 @@
 #include "adnl-address-list.hpp"
 #include "adnl-peer-table.h"
 
+// Defined in this light translation unit so that pulling the category definition into a static link
+// does not drag in the peer-table object and, through it, adnl's optional dht dependency.
+DEFINE_LOG_CATEGORY(adnl, VERBOSITY_NAME(WARNING))
+
 namespace ton {
 
 namespace adnl {
@@ -59,12 +63,12 @@ class AdnlNetworkConnectionTunnel : public AdnlNetworkConnection {
  public:
   void send(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::uint32 priority, td::BufferSlice message) override {
     if (!encryptor_) {
-      VLOG(ADNL_INFO) << "tunnel: message [" << src << "->" << dst << "to bad tunnel. dropping";
+      VLOG(adnl, INFO) << "tunnel: message [" << src << "->" << dst << "to bad tunnel. dropping";
       return;
     }
     auto dataR = encryptor_->encrypt(message.as_slice());
     if (dataR.is_error()) {
-      VLOG(ADNL_INFO) << "tunnel: message [" << src << "->" << dst << ": failed to encrypt: " << dataR.move_as_error();
+      VLOG(adnl, INFO) << "tunnel: message [" << src << "->" << dst << ": failed to encrypt: " << dataR.move_as_error();
       return;
     }
     auto data = dataR.move_as_ok();
@@ -85,7 +89,7 @@ class AdnlNetworkConnectionTunnel : public AdnlNetworkConnection {
   void start_up() override {
     auto R = pub_key_.create_encryptor();
     if (R.is_error()) {
-      VLOG(ADNL_INFO) << "tunnel: bad public key: " << R.move_as_error();
+      VLOG(adnl, INFO) << "tunnel: bad public key: " << R.move_as_error();
       return;
     }
     encryptor_ = R.move_as_ok();
@@ -180,17 +184,6 @@ AdnlAddressTunnel::AdnlAddressTunnel(const ton_api::adnl_address_tunnel &obj) {
   pub_key_ = ton::PublicKey{obj.pubkey_};
 }
 
-td::Ref<AdnlAddressImpl> AdnlAddressImpl::create(const tl_object_ptr<ton_api::adnl_Address> &addr) {
-  td::Ref<AdnlAddressImpl> res = td::Ref<AdnlAddressImpl>{};
-  ton_api::downcast_call(
-      *const_cast<ton_api::adnl_Address *>(addr.get()),
-      td::overloaded([&](const ton_api::adnl_address_udp &obj) { res = td::make_ref<AdnlAddressUdp>(obj); },
-                     [&](const ton_api::adnl_address_udp6 &obj) { res = td::make_ref<AdnlAddressUdp6>(obj); },
-                     [&](const ton_api::adnl_address_tunnel &obj) { res = td::make_ref<AdnlAddressTunnel>(obj); },
-                     [&](const ton_api::adnl_address_reverse &obj) { res = td::make_ref<AdnlAddressReverse>(); }));
-  return res;
-}
-
 bool AdnlAddressList::public_only() const {
   for (auto &addr : addrs_) {
     if (!addr->is_public()) {
@@ -202,16 +195,20 @@ bool AdnlAddressList::public_only() const {
 
 AdnlAddressList::AdnlAddressList(const tl_object_ptr<ton_api::adnl_addressList> &addrs) {
   version_ = static_cast<td::uint32>(addrs->version_);
-  std::vector<td::Ref<AdnlAddressImpl>> vec;
-  for (auto &addr : addrs->addrs_) {
-    auto obj = AdnlAddressImpl::create(addr);
-    if (obj->is_reverse()) {
-      has_reverse_ = true;
-    } else {
-      vec.push_back(std::move(obj));
-    }
+  for (const auto &addr : addrs->addrs_) {
+    ton_api::downcast_call(
+        *addr,
+        td::overloaded(
+            [&](const ton_api::adnl_address_udp &obj) { addrs_.push_back(td::make_ref<AdnlAddressUdp>(obj)); },
+            [&](const ton_api::adnl_address_udp6 &obj) { addrs_.push_back(td::make_ref<AdnlAddressUdp6>(obj)); },
+            [&](const ton_api::adnl_address_tunnel &obj) { addrs_.push_back(td::make_ref<AdnlAddressTunnel>(obj)); },
+            [&](const ton_api::adnl_address_reverse &) { has_reverse_ = true; },
+            [&](const ton_api::adnl_address_quic &obj) {
+              td::IPAddress ip;
+              ip.init_host_port(td::IPAddress::ipv4_to_str(obj.ip_), (td::uint16)obj.port_).ensure();
+              quic_addrs_.push_back(ip);
+            }));
   }
-  addrs_ = std::move(vec);
   reinit_date_ = addrs->reinit_date_;
   priority_ = addrs->priority_;
   expire_at_ = addrs->expire_at_;
@@ -225,6 +222,9 @@ tl_object_ptr<ton_api::adnl_addressList> AdnlAddressList::tl() const {
   if (has_reverse_) {
     addrs.push_back(create_tl_object<ton_api::adnl_address_reverse>());
   }
+  for (auto &v : quic_addrs_) {
+    addrs.emplace_back(create_tl_object<ton_api::adnl_address_quic>(v.get_ipv4(), v.get_port()));
+  }
   return create_tl_object<ton_api::adnl_addressList>(std::move(addrs), version_, reinit_date_, priority_, expire_at_);
 }
 
@@ -233,6 +233,10 @@ td::uint32 AdnlAddressList::serialized_size() const {
   for (auto &addr : addrs_) {
     res += addr->serialized_size();
   }
+  if (has_reverse_) {
+    res += 4;
+  }
+  res += quic_addrs_.size() * 12;
   return res;
 }
 
@@ -244,14 +248,21 @@ td::Result<AdnlAddressList> AdnlAddressList::create(const tl_object_ptr<ton_api:
   return A;
 }
 
-td::Status AdnlAddressList::add_udp_address(td::IPAddress addr) {
+td::Status AdnlAddressList::add_udp_adnl_address(td::IPAddress addr) {
   if (addr.is_ipv4()) {
     auto r = td::make_ref<AdnlAddressUdp>(addr.get_ipv4(), static_cast<td::uint16>(addr.get_port()));
     addrs_.push_back(std::move(r));
     return td::Status::OK();
-  } else {
-    return td::Status::Error(ErrorCode::protoviolation, "only works with ipv4");
   }
+  return td::Status::Error(ErrorCode::protoviolation, "only works with ipv4");
+}
+
+td::Status AdnlAddressList::add_quic_addr(td::IPAddress addr) {
+  if (!addr.is_ipv4()) {
+    return td::Status::Error("only works with ipv4");
+  }
+  quic_addrs_.push_back(addr);
+  return td::Status::OK();
 }
 
 }  // namespace adnl

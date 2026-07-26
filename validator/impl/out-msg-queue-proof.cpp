@@ -19,6 +19,7 @@
 #include "common/delay.h"
 #include "interfaces/proof.h"
 #include "interfaces/validator-manager.h"
+#include "ton/ton-io.hpp"
 #include "vm/cells/MerkleProof.h"
 
 #include "out-msg-queue-proof.hpp"
@@ -76,8 +77,8 @@ static td::Result<std::vector<td::int32>> process_queue(
 
   block::OutputQueueMerger queue_merger{dst_shard, std::move(neighbors)};
   std::vector<td::int32> msg_count(blocks.size());
-  td::int32 msg_count_total = 0;
-  bool limit_reached = false;
+  td::uint32 msg_count_total = 0;
+  bool limit_reached = limits.max_bytes == 0 || limits.max_msgs == 0;
 
   while (!queue_merger.is_eof()) {
     auto kv = queue_merger.extract_cur();
@@ -95,7 +96,7 @@ static td::Result<std::vector<td::int32>> process_queue(
 
     dfs_cs(*kv->msg);
     TRY_STATUS_PREFIX(check_no_prunned(*kv->msg), "invalid message proof: ")
-    if (estimated_proof_size >= limits.max_bytes || msg_count_total >= (long long)limits.max_msgs) {
+    if (estimated_proof_size >= limits.max_bytes || msg_count_total >= limits.max_msgs) {
       limit_reached = true;
     }
   }
@@ -193,10 +194,7 @@ td::Result<std::vector<td::Ref<OutMsgQueueProof>>> OutMsgQueueProof::fetch(Shard
         block_state_proof = block_state_proofs[j++];
         TRY_RESULT_ASSIGN(state_root_hash, unpack_block_state_proof(blocks[i], block_state_proof));
       }
-      auto state_root = vm::MerkleProof::virtualize(queue_proofs[i]);
-      if (state_root.is_null()) {
-        return td::Status::Error("invalid state proof");
-      }
+      TRY_RESULT(state_root, vm::MerkleProof::virtualize(queue_proofs[i]));
       if (state_root->get_hash().as_slice() != state_root_hash.as_slice()) {
         return td::Status::Error("state root hash mismatch");
       }
@@ -218,6 +216,8 @@ td::Result<std::vector<td::Ref<OutMsgQueueProof>>> OutMsgQueueProof::fetch(Shard
       return td::Status::Error("incorrect msg_count");
     }
     return res;
+  } catch (vm::VmError& err) {
+    return td::Status::Error(PSTRING() << "invalid proof: " << err.get_msg());
   } catch (vm::VmVirtError& err) {
     return td::Status::Error(PSTRING() << "invalid proof: " << err.get_msg());
   }
@@ -307,7 +307,7 @@ void OutMsgQueueImporter::get_neighbor_msg_queue_proofs(
         prefix = shard_prefix(prefix, min_split);
       }
 
-      LOG(DEBUG) << "search for out msg queue proof " << prefix.to_str() << " " << block.to_str();
+      LOG(DEBUG) << "search for out msg queue proof " << prefix << " " << block;
       auto& small_entry = small_cache_[std::make_pair(dst_shard, block)];
       if (!small_entry.result.is_null()) {
         entry->result[block] = small_entry.result;
@@ -342,7 +342,7 @@ void OutMsgQueueImporter::get_proof_local(std::shared_ptr<CacheEntry> entry, Blo
       [=, SelfId = actor_id(this), manager = manager_, timeout = entry->timeout,
        retry_after = td::Timestamp::in(0.1)](td::Result<Ref<ShardState>> R) mutable {
         if (R.is_error()) {
-          LOG(DEBUG) << "Failed to get block state for " << block.to_str() << ": " << R.move_as_error();
+          LOG(DEBUG) << "Failed to get block state for " << block << ": " << R.move_as_error();
           delay_action([=]() { td::actor::send_closure(SelfId, &OutMsgQueueImporter::get_proof_local, entry, block); },
                        retry_after);
           return;
@@ -358,7 +358,7 @@ void OutMsgQueueImporter::get_proof_local(std::shared_ptr<CacheEntry> entry, Blo
             manager, &ValidatorManager::wait_block_data_short, block, 0, timeout,
             [=](td::Result<Ref<BlockData>> R) mutable {
               if (R.is_error()) {
-                LOG(DEBUG) << "Failed to get block data for " << block.to_str() << ": " << R.move_as_error();
+                LOG(DEBUG) << "Failed to get block data for " << block << ": " << R.move_as_error();
                 delay_action(
                     [=]() { td::actor::send_closure(SelfId, &OutMsgQueueImporter::get_proof_local, entry, block); },
                     retry_after);
@@ -545,7 +545,7 @@ void OutMsgQueueImporter::alarm() {
 }
 
 void OutMsgQueueImporter::add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) {
-  LOG(INFO) << "add out msg queue proof " << dst_shard.to_str() << " " << proof->block_id_.to_str();
+  LOG(INFO) << "add out msg queue proof " << dst_shard << " " << proof->block_id_;
   auto& small_entry = small_cache_[std::make_pair(dst_shard, proof->block_id_)];
   if (!small_entry.result.is_null()) {
     return;
@@ -569,7 +569,7 @@ void BuildOutMsgQueueProof::abort_query(td::Status reason) {
       sb << ": " << reason;
     };
     promise_.set_error(
-        reason.move_as_error_prefix(PSTRING() << "failed to build msg queue proof to " << dst_shard_.to_str() << ": "));
+        reason.move_as_error_prefix(PSTRING() << "failed to build msg queue proof to " << dst_shard_ << ": "));
   }
   stop();
 }

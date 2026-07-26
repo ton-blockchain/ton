@@ -27,7 +27,9 @@
 namespace ton {
 td::Result<td::Ref<vm::Cell>> WalletV4::make_a_gift_message(const td::Ed25519::PrivateKey& private_key,
                                                             td::uint32 valid_until, td::Span<Gift> gifts) const {
-  CHECK(gifts.size() <= get_max_gifts_size());
+  if (gifts.size() > get_max_gifts_size()) {
+    return td::Status::Error("Too many messages");
+  }
   TRY_RESULT(seqno, get_seqno());
   TRY_RESULT(wallet_id, get_wallet_id());
   vm::CellBuilder cb;
@@ -42,11 +44,12 @@ td::Result<td::Ref<vm::Cell>> WalletV4::make_a_gift_message(const td::Ed25519::P
     if (gift.send_mode > -1) {
       send_mode = gift.send_mode;
     }
-    cb.store_long(send_mode, 8).store_ref(create_int_message(gift));
+    TRY_RESULT(message, try_create_int_message(gift));
+    cb.store_long(send_mode, 8).store_ref(std::move(message));
   }
 
   auto message_outer = cb.finalize();
-  auto signature = private_key.sign(message_outer->get_hash().as_slice()).move_as_ok();
+  TRY_RESULT(signature, private_key.sign(message_outer->get_hash().as_slice()));
   return vm::CellBuilder().store_bytes(signature).append_cellslice(vm::load_cell_slice(message_outer)).finalize();
 }
 

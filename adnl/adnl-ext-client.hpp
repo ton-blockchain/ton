@@ -53,7 +53,7 @@ class AdnlOutboundConnection : public AdnlExtConnection {
                          PrivateKey local_id, td::actor::ActorId<AdnlExtClientImpl> ext_client)
       : AdnlExtConnection(std::move(fd), std::move(callback), true)
       , dst_(std::move(dst))
-      , local_id_(local_id)
+      , local_id_(local_id.empty() ? privkeys::Ed25519::random() : local_id)
       , ext_client_(ext_client) {
   }
   td::Status process_packet(td::BufferSlice data) override;

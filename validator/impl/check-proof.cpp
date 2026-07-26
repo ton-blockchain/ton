@@ -42,7 +42,7 @@ void CheckProof::alarm() {
 
 void CheckProof::abort_query(td::Status reason) {
   if (promise_) {
-    VLOG(VALIDATOR_WARNING) << "aborting check proof for " << id_.to_str() << " query: " << reason;
+    VLOG(validator, WARNING) << "aborting check proof for " << id_ << " query: " << reason;
     promise_.set_error(std::move(reason));
   }
   stop();
@@ -67,7 +67,7 @@ void CheckProof::finish_query() {
     ValidatorInvariants::check_post_check_proof_link(handle_);
   }
   if (promise_) {
-    VLOG(VALIDATOR_DEBUG) << "checked proof for " << handle_->id().to_str();
+    VLOG(validator, DEBUG) << "checked proof for " << handle_->id();
     promise_.set_result(handle_);
   }
   stop();
@@ -112,9 +112,9 @@ bool CheckProof::init_parse(bool is_aux) {
       return fatal_error("auxiliary key block "s + key_id_.to_str() + " does not belong to the masterchain");
     }
     if (key_id_.seqno() != prev_key_seqno_) {
-      return fatal_error(
-          PSTRING() << "cannot verify newer block " << id_.to_str() << " using key block " << key_id_.to_str()
-                    << " because the newer block declares different previous key block seqno " << prev_key_seqno_);
+      return fatal_error(PSTRING() << "cannot verify newer block " << id_ << " using key block " << key_id_
+                                   << " because the newer block declares different previous key block seqno "
+                                   << prev_key_seqno_);
     }
     if (key_id_.seqno() >= id_.seqno()) {
       return fatal_error("cannot verify block "s + id_.to_str() + " using key block " + key_id_.to_str() +
@@ -122,7 +122,6 @@ bool CheckProof::init_parse(bool is_aux) {
     }
   }
   auto keep_cc_seqno = catchain_seqno_;
-  auto keep_utime = created_at_;
   Ref<vm::Cell> sig_root = proof.signatures->prefetch_ref();
   if (sig_root.not_null()) {
     auto r_sig_set = block::BlockSignatureSet::fetch(sig_root, sig_weight_);
@@ -142,11 +141,12 @@ bool CheckProof::init_parse(bool is_aux) {
     sig_weight_ = 0;
     sig_set_ = {};
   }
-  auto virt_root = vm::MerkleProof::virtualize(proof.root);
-  if (virt_root.is_null()) {
+  auto r_virt_root = vm::MerkleProof::virtualize(proof.root);
+  if (r_virt_root.is_error()) {
     return fatal_error("block proof for block "s + proof_blk_id.to_str() +
                        " does not contain a valid Merkle proof for the block header");
   }
+  auto virt_root = r_virt_root.move_as_ok();
   RootHash virt_hash{virt_root->get_hash().bits()};
   if (virt_hash != proof_blk_id.root_hash) {
     return fatal_error("block proof for block "s + proof_blk_id.to_str() +
@@ -221,7 +221,7 @@ bool CheckProof::init_parse(bool is_aux) {
   if (is_key_block_ && !is_aux) {
     // visit validator-set related fields in key blocks
     block::gen::McBlockExtra::Record mc_extra;
-    if (!(tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
+    if (!(extra.custom->have_refs() && tlb::unpack_cell(extra.custom->prefetch_ref(), mc_extra) && mc_extra.key_block &&
           mc_extra.config.not_null())) {
       return fatal_error("cannot unpack extra header of key masterchain block "s + blk_id.to_str());
     }
@@ -254,7 +254,7 @@ bool CheckProof::init_parse(bool is_aux) {
     if (res.is_error()) {
       return fatal_error(std::move(res));
     }
-    vset_ = vs_comp.get_validator_set(id_.shard_full(), keep_utime, keep_cc_seqno);
+    vset_ = vs_comp.get_validator_set(id_.shard_full(), keep_cc_seqno);
     if (vset_.is_null()) {
       return fatal_error("cannot extract current validator set for block "s + id_.to_str() +
                          " from previous key block " + key_id_.to_str());
@@ -264,7 +264,7 @@ bool CheckProof::init_parse(bool is_aux) {
 }
 
 void CheckProof::start_up() {
-  VLOG(VALIDATOR_DEBUG) << "started check proof for " << id_.to_str() << ", mode=" << mode_;
+  VLOG(validator, DEBUG) << "started check proof for " << id_ << ", mode=" << mode_;
   alarm_timestamp() = timeout_;
 
   auto res = vm::std_boc_deserialize(proof_->data());
@@ -318,7 +318,7 @@ void CheckProof::start_up() {
 }
 
 void CheckProof::got_block_handle(BlockHandle handle) {
-  VLOG(VALIDATOR_DEBUG) << "got_block_handle";
+  VLOG(validator, DEBUG) << "got_block_handle";
   handle_ = std::move(handle);
   CHECK(handle_);
   if (!is_proof() || skip_check_signatures_) {
@@ -348,7 +348,7 @@ void CheckProof::got_block_handle(BlockHandle handle) {
 }
 
 void CheckProof::got_masterchain_state(td::Ref<MasterchainState> state) {
-  VLOG(VALIDATOR_DEBUG) << "got_masterchain_state #" << state->get_seqno();
+  VLOG(validator, DEBUG) << "got_masterchain_state #" << state->get_seqno();
   CHECK(is_proof());
   state_ = std::move(state);
 
@@ -362,7 +362,7 @@ void CheckProof::got_masterchain_state(td::Ref<MasterchainState> state) {
 }
 
 void CheckProof::process_masterchain_state() {
-  VLOG(VALIDATOR_DEBUG) << "process_masterchain_state";
+  VLOG(validator, DEBUG) << "process_masterchain_state";
   CHECK(is_proof());
   CHECK(state_.not_null());
 
@@ -376,8 +376,8 @@ void CheckProof::process_masterchain_state() {
     return;
   }
   if (id.seqno() < prev_key_seqno_) {
-    fatal_error(PSTRING() << "cannot check masterchain block proof for " << id_.to_str()
-                          << " starting from masterchain state for " << id.to_str()
+    fatal_error(PSTRING() << "cannot check masterchain block proof for " << id_
+                          << " starting from masterchain state for " << id
                           << " older than the previous key block with seqno " << prev_key_seqno_);
     return;
   }
@@ -388,12 +388,12 @@ void CheckProof::process_masterchain_state() {
   }
   auto state_q = Ref<MasterchainStateQ>(state_);
   CHECK(state_q.not_null());
-  vset_ = state_q->get_validator_set(id_.shard_full(), created_at_, catchain_seqno_);
+  vset_ = state_q->get_validator_set(id_.shard_full(), catchain_seqno_);
   check_signatures();
 }
 
 void CheckProof::check_signatures() {
-  VLOG(VALIDATOR_DEBUG) << "check_signatures";
+  VLOG(validator, DEBUG) << "check_signatures";
   if (sig_set_.is_null()) {
     fatal_error("no block signatures present in proof to check");
     return;
@@ -434,7 +434,7 @@ void CheckProof::check_signatures() {
 }
 
 void CheckProof::got_block_handle_2(BlockHandle handle) {
-  VLOG(VALIDATOR_DEBUG) << "got_block_handle_2 " << handle->id().id.to_str();
+  VLOG(validator, DEBUG) << "got_block_handle_2 " << handle->id().id;
   handle_ = std::move(handle);
 
   handle_->set_split(before_split_);
@@ -454,19 +454,19 @@ void CheckProof::got_block_handle_2(BlockHandle handle) {
     // do not save proof if we skipped signatures
     auto proof = Ref<Proof>(proof_);
     CHECK(proof.not_null());
-    VLOG(VALIDATOR_DEBUG) << "set_block_proof";
+    VLOG(validator, DEBUG) << "set_block_proof";
     td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof, handle_, std::move(proof),
                                   std::move(P));
   } else if (is_proof()) {
     auto proof = Ref<Proof>(proof_);
     CHECK(proof.not_null());
     CHECK(sig_ok_);
-    VLOG(VALIDATOR_DEBUG) << "set_block_proof";
+    VLOG(validator, DEBUG) << "set_block_proof";
     td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof, handle_, std::move(proof),
                                   std::move(P));
   } else {
     CHECK(proof_.not_null());
-    VLOG(VALIDATOR_DEBUG) << "set_block_proof_link";
+    VLOG(validator, DEBUG) << "set_block_proof_link";
     td::actor::send_closure_later(manager_, &ValidatorManager::set_block_proof_link, handle_, proof_, std::move(P));
   }
 }

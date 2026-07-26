@@ -117,6 +117,9 @@ const OpcodeInstr* OpcodeTable::lookup_instr(unsigned opcode, unsigned bits) con
 const OpcodeInstr* OpcodeTable::lookup_instr(const CellSlice& cs, unsigned& opcode, unsigned& bits) const {
   bits = max_opcode_bits;
   unsigned long long prefetch = cs.prefetch_ulong_top(bits);
+  // Note about incomplete opcodes: when only 1..7 bits remain in the current code slice,
+  // TVM still zero-pads them and does the usual opcode lookup. The matched instruction
+  // may charge different gas before inv_opcode; this legacy behavior is consensus-critical.
   opcode = (unsigned)(prefetch >> (64 - max_opcode_bits));
   opcode &= (static_cast<int32_t>(static_cast<td::uint32>(-1) << max_opcode_bits) >> bits);
   return lookup_instr(opcode, bits);

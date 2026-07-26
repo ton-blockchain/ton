@@ -36,6 +36,8 @@ struct ValidatorManagerInitResult {
   td::Ref<MasterchainState> gc_state;
 
   BlockHandle last_key_block_handle_;
+
+  BlockSeqno start_groups_from_seqno;
 };
 
 void validator_manager_init(td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager,

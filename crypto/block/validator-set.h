@@ -55,7 +55,7 @@ class ValidatorSet : public td::CntObject {
 
 class ValidatorSetCompute {
  public:
-  td::Ref<ValidatorSet> get_validator_set(ton::ShardIdFull shard, ton::UnixTime utime, ton::CatchainSeqno cc) const;
+  td::Ref<ValidatorSet> get_validator_set(ton::ShardIdFull shard, ton::CatchainSeqno cc) const;
   td::Ref<ValidatorSet> get_next_validator_set(ton::ShardIdFull shard, ton::UnixTime utime,
                                                ton::CatchainSeqno cc) const;
   td::Status init(const Config* config);
@@ -64,7 +64,7 @@ class ValidatorSetCompute {
  private:
   const Config* config_{nullptr};
   std::shared_ptr<TotalValidatorSet> cur_validators_, next_validators_;
-  td::Ref<ValidatorSet> compute_validator_set(ton::ShardIdFull shard, const TotalValidatorSet& vset, ton::UnixTime time,
+  td::Ref<ValidatorSet> compute_validator_set(ton::ShardIdFull shard, const TotalValidatorSet& vset,
                                               ton::CatchainSeqno cc_seqno) const;
 };
 

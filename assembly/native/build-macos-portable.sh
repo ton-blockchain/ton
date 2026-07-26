@@ -72,13 +72,13 @@ if [ "$with_tests" = true ]; then
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
-  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver all-tests
+  http-proxy rldp-http-proxy create-state create-hardfork tlbc emulator proxy-liteserver all-tests
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 else
   ninja storage-daemon storage-daemon-cli blockchain-explorer   \
   tonlib tonlibjson tonlib-cli validator-engine func tolk fift \
   lite-client validator-engine-console generate-random-id json2tlo dht-server dht-ping-servers dht-resolve \
-  http-proxy rldp-http-proxy adnl-proxy create-state create-hardfork tlbc emulator proxy-liteserver
+  http-proxy rldp-http-proxy create-state create-hardfork tlbc emulator proxy-liteserver
   test $? -eq 0 || { echo "Can't compile ton"; exit 1; }
 fi
 
@@ -109,7 +109,6 @@ if [ "$with_artifacts" = true ]; then
   cp build/utils/generate-random-id artifacts/
   cp build/utils/json2tlo artifacts/
   cp build/utils/proxy-liteserver artifacts/
-  cp build/adnl/adnl-proxy artifacts/
   cp build/emulator/libemulator.dylib artifacts/
   rsync -r crypto/smartcont artifacts/
   rsync -r crypto/fift/lib artifacts/

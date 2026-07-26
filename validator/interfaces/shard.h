@@ -79,8 +79,7 @@ class MasterchainState : virtual public ShardState {
   virtual td::uint32 min_split_depth(WorkchainId workchain_id) const = 0;
   virtual BlockSeqno min_ref_masterchain_seqno() const = 0;
   virtual bool ancestor_is_valid(BlockIdExt id) const = 0;
-  virtual ValidatorSessionConfig get_consensus_config() const = 0;
-  virtual td::optional<NewConsensusConfig> get_new_consensus_config(WorkchainId wc) const = 0;
+  virtual NewConsensusConfig get_new_consensus_config(WorkchainId wc) const = 0;
   virtual BlockIdExt last_key_block_id() const = 0;
   virtual BlockIdExt next_key_block_id(BlockSeqno seqno) const = 0;
   virtual BlockIdExt prev_key_block_id(BlockSeqno seqno) const = 0;
@@ -90,9 +89,6 @@ class MasterchainState : virtual public ShardState {
   virtual bool check_old_mc_block_id(const ton::BlockIdExt& blkid, bool strict = false) const = 0;
   virtual td::Result<td::Ref<ConfigHolder>> get_config_holder() const = 0;
   virtual block::WorkchainSet get_workchain_list() const = 0;
-  virtual td::Status prepare() {
-    return td::Status::OK();
-  }
   virtual block::SizeLimitsConfig::ExtMsgLimits get_ext_msg_limits() const = 0;
   virtual block::ImportedMsgQueueLimits get_imported_msg_queue_limits(bool is_masterchain) const = 0;
 };

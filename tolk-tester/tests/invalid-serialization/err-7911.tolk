@@ -8,15 +8,15 @@ struct Storage {
 }
 
 fun main() {
-    Storage.fromSlice("");
+    // it's okay, the field 'more' is not checked here
+    var st = Storage.fromSlice(createEmptySlice());
+    // fails on a load attempt:
+    st.more.load();
 }
 
 /**
 @compilation_should_fail
-@stderr error: auto-serialization via fromSlice() is not available for type `Storage`
-@stderr because field `Storage.more` of type `Cell<ExtraData>` can't be serialized
-@stderr because type `ExtraData` can't be serialized
+@stderr st.more.load();
+@stderr error: auto-serialization via load() is not available for type `ExtraData`
 @stderr because field `ExtraData.lastTime` of type `int` can't be serialized
-@stderr because type `int` is not serializable, it doesn't define binary width
-@stderr hint: replace `int` with `int32` / `uint64` / `coins` / etc.
  */

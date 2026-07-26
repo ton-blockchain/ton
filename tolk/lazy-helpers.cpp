@@ -47,12 +47,19 @@ LazyVariableLoadedState::LazyVariableLoadedState(TypePtr declared_type, std::vec
   }
 }
 
+// `Wrapper<int>` and `Wrapper<MyInt>` are equal, although their point to different StructPtr
+static bool struct_refs_equal(StructPtr lhs, StructPtr rhs) {
+  return lhs == rhs || TypeDataStruct::create(lhs)->equal_to(TypeDataStruct::create(rhs));
+}
+
 const LazyStructLoadedState* LazyVariableLoadedState::get_struct_state(StructPtr original_struct) const {
-  if (loaded_state.original_struct == original_struct) {
-    return &loaded_state;
+  if (loaded_state.original_struct) {   // it's a struct, not a union
+    if (struct_refs_equal(loaded_state.original_struct, original_struct)) {
+      return &loaded_state;
+    }
   }
   for (const LazyStructLoadedState& struct_state : variants_state) {
-    if (struct_state.original_struct == original_struct) {
+    if (struct_refs_equal(struct_state.original_struct, original_struct)) {
       return &struct_state;
     }
   }

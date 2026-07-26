@@ -1,8 +1,8 @@
 fun main() {
-    return ton(123);
+    return grams(123);
 }
 
 /**
 @compilation_should_fail
-@stderr function `ton` requires a constant string, like `ton("0.05")`
+@stderr function `grams` requires a constant string, like `grams("0.05")`
  */

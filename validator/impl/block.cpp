@@ -62,6 +62,9 @@ td::Status BlockQ::init() {
   if (root_.is_null()) {
     return td::Status::Error(-668, "cannot extract root cell out of a shardchain block BoC");
   }
+  if (RootHash{root_->get_hash().bits()} != id_.root_hash) {
+    return td::Status::Error(-668, "root hash mismatch");
+  }
   return td::Status::OK();
 }
 

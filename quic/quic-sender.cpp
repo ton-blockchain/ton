@@ -5,6 +5,7 @@
 #include "td/utils/Heap.h"
 #include "td/utils/as.h"
 
+#include "quic-pimpl.h"
 #include "quic-sender.h"
 
 namespace ton::quic {
@@ -13,26 +14,39 @@ static td::uint32 get_magic(const td::BufferSlice &data) {
   return data.size() >= 4 ? td::as<td::uint32>(data.data()) : 0;
 }
 
+static td::Result<adnl::AdnlNodeIdShort> parse_peer_id(td::Slice peer_public_key) {
+  if (peer_public_key.size() != 32) {
+    return td::Status::Error("peer public key must be 32 bytes");
+  }
+  td::Bits256 key_bits;
+  key_bits.as_slice().copy_from(peer_public_key);
+  return adnl::AdnlNodeIdFull(PublicKey(pubkeys::Ed25519(key_bits))).compute_short_id();
+}
+
 class QuicSender::ServerCallback final : public QuicServer::Callback {
  public:
-  ServerCallback(adnl::AdnlNodeIdShort local_id, td::actor::ActorId<QuicSender> sender,
-                 std::optional<td::uint64> inbound_stream_max_size)
-      : local_id_(local_id), sender_(sender), inbound_stream_max_size_(inbound_stream_max_size) {
+  explicit ServerCallback(td::actor::ActorId<QuicSender> sender) : sender_(sender) {
   }
 
-  void on_connected(QuicConnectionId cid, td::SecureString peer_public_key, bool is_outbound) override {
+  td::Status on_connected(QuicConnectionId cid, td::SecureString local_public_key, td::SecureString peer_public_key,
+                          bool is_outbound) override {
     auto server = td::actor::actor_dynamic_cast<QuicServer>(td::actor::actor_id());
     CHECK(!server.empty());
-    td::actor::send_closure(sender_, &QuicSender::on_connected, server, cid, local_id_, std::move(peer_public_key),
-                            is_outbound);
+    TRY_RESULT(peer_id, parse_peer_id(peer_public_key));
+    TRY_RESULT(local_id, parse_peer_id(local_public_key));
+    auto &conn = connections_[cid];
+    conn.local_id = local_id;
+    conn.peer_id = peer_id;
+    td::actor::send_closure(sender_, &QuicSender::on_connected, server, cid, local_id, peer_id, is_outbound);
+    return td::Status::OK();
   }
 
   td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
-    // TODO: some limit for input connections
-    auto [state_ptr, inserted] = get_or_create_stream(cid, sid);
-    auto &state = *state_ptr;
-    if (inserted && inbound_stream_max_size_.has_value()) {
-      apply_stream_options(state, StreamOptions{.max_size = inbound_stream_max_size_});
+    TRY_RESULT(stream, get_or_create_stream(cid, sid));
+    auto &state = *stream.state;
+    if (stream.inserted) {
+      td::uint64 mtu = get_peer_mtu_(stream.local_id, stream.peer_id);
+      apply_stream_options(state, StreamOptions{mtu});
     }
     if (state.is_failed()) {
       LOG(INFO) << "got data for closed stream, ignore cid=" << cid << " sid=" << sid;
@@ -58,12 +72,15 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
   void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) override {
     erase_stream(cid, sid);
+    td::actor::send_closure(sender_, &QuicSender::on_stream_closed, cid, sid);
   }
 
   void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
-    auto [state_ptr, inserted] = get_or_create_stream(cid, sid);
-    (void)inserted;
-    apply_stream_options(*state_ptr, options);
+    auto R = get_or_create_stream(cid, sid);
+    if (R.is_error()) {
+      return;
+    }
+    apply_stream_options(*R.ok().state, options);
   }
 
   void loop(td::Timestamp now, StreamShutdownList &shutdown) override {
@@ -83,6 +100,10 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     return td::Timestamp::at(timeout_heap_.top_key());
   }
 
+  void set_peer_mtu_callback(std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> f) override {
+    get_peer_mtu_ = std::move(f);
+  }
+
  private:
   struct StreamState : public td::HeapNode {
     QuicConnectionId cid;
@@ -94,6 +115,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     void append(td::BufferSlice data) {
       CHECK(!failed_);
       if (!data.empty()) {
+        total_size_ += data.size();
         builder_.append(std::move(data));
       }
     }
@@ -104,15 +126,16 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
 
     void mark_failed() {
       failed_ = true;
+      builder_ = {};
     }
 
     td::Status check_limits() const {
       if (failed_) {
         return td::Status::Error("stream already failed");
       }
-      if (options_.max_size.has_value() && builder_.size() > *options_.max_size) {
+      if (options_.max_size.has_value() && total_size_ > options_.max_size) {
         return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size
-                                          << " received=" << builder_.size() << " query_size=" << options_.query_size
+                                          << " received=" << total_size_ << " query_size=" << options_.query_size
                                           << " query_magic=" << td::format::as_hex(options_.query_magic));
       }
       return td::Status::OK();
@@ -121,10 +144,11 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     td::Status timeout_error() const {
       return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
                                         << "s query_size=" << options_.query_size << " query_magic="
-                                        << td::format::as_hex(options_.query_magic) << " received=" << builder_.size());
+                                        << td::format::as_hex(options_.query_magic) << " received=" << total_size_);
     }
 
     td::BufferSlice extract() {
+      CHECK(!failed_);
       return builder_.extract();
     }
 
@@ -134,28 +158,49 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
 
    private:
     td::BufferBuilder builder_;
+    td::uint64 total_size_{0};
     StreamOptions options_;
     bool failed_{false};
   };
 
-  adnl::AdnlNodeIdShort local_id_;
   td::actor::ActorId<QuicSender> sender_;
-  std::optional<td::uint64> inbound_stream_max_size_;
-  std::map<QuicConnectionId, std::map<QuicStreamID, StreamState>> streams_;
-  td::KHeap<double> timeout_heap_;
 
-  std::pair<StreamState *, bool> get_or_create_stream(QuicConnectionId cid, QuicStreamID sid) {
-    auto &by_cid = streams_[cid];
-    auto [it, inserted] = by_cid.try_emplace(sid, StreamState{cid, sid});
-    return {&it->second, inserted};
+  struct Connection {
+    adnl::AdnlNodeIdShort local_id;
+    adnl::AdnlNodeIdShort peer_id;
+    std::map<QuicStreamID, StreamState> streams;
+  };
+  std::map<QuicConnectionId, Connection> connections_;
+  td::KHeap<double> timeout_heap_;
+  std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> get_peer_mtu_;
+
+  struct StreamLookup {
+    StreamState *state;
+    bool inserted;
+    adnl::AdnlNodeIdShort local_id;
+    adnl::AdnlNodeIdShort peer_id;
+  };
+
+  td::Result<StreamLookup> get_or_create_stream(QuicConnectionId cid, QuicStreamID sid) {
+    auto it = connections_.find(cid);
+    if (it == connections_.end()) {
+      return td::Status::Error("unknown connection");
+    }
+    auto it2 = it->second.streams.try_emplace(sid, StreamState{cid, sid});
+    return StreamLookup{
+        .state = &it2.first->second,
+        .inserted = it2.second,
+        .local_id = it->second.local_id,
+        .peer_id = it->second.peer_id,
+    };
   }
 
   void erase_stream(QuicConnectionId cid, QuicStreamID sid) {
-    auto cid_it = streams_.find(cid);
-    if (cid_it == streams_.end()) {
+    auto cid_it = connections_.find(cid);
+    if (cid_it == connections_.end()) {
       return;
     }
-    auto &by_sid = cid_it->second;
+    auto &by_sid = cid_it->second.streams;
     auto sid_it = by_sid.find(sid);
     if (sid_it == by_sid.end()) {
       return;
@@ -164,22 +209,19 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       timeout_heap_.erase(&sid_it->second);
     }
     by_sid.erase(sid_it);
-    if (by_sid.empty()) {
-      streams_.erase(cid_it);
-    }
   }
 
   void erase_connection(QuicConnectionId cid) {
-    auto it = streams_.find(cid);
-    if (it == streams_.end()) {
+    auto it = connections_.find(cid);
+    if (it == connections_.end()) {
       return;
     }
-    for (auto &[sid, state] : it->second) {
+    for (auto &[sid, state] : it->second.streams) {
       if (state.in_heap()) {
         timeout_heap_.erase(&state);
       }
     }
-    streams_.erase(it);
+    connections_.erase(it);
   }
 
   void apply_stream_options(StreamState &state, const StreamOptions &options) {
@@ -204,46 +246,33 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 };
 
-static td::Result<adnl::AdnlNodeIdShort> parse_peer_id(td::Slice peer_public_key) {
-  if (peer_public_key.size() != 32) {
-    return td::Status::Error("peer public key must be 32 bytes");
+td::Result<td::IPAddress> QuicSender::get_ip_address(const adnl::AdnlNode &node) {
+  const adnl::AdnlAddressList &addr_list = node.addr_list();
+  if (!addr_list.quic_addrs().empty()) {
+    td::IPAddress ip = addr_list.quic_addrs()[0];
+    LOG(DEBUG) << "Quic addr of " << node.compute_short_id() << " is " << ip.get_ip_str() << ":" << ip.get_port();
+    return ip;
   }
-  td::Bits256 key_bits;
-  key_bits.as_slice().copy_from(peer_public_key);
-  return adnl::AdnlNodeIdFull(PublicKey(pubkeys::Ed25519(key_bits))).compute_short_id();
-}
-
-static td::Result<td::IPAddress> get_ip_address(const adnl::AdnlAddressList &addr_list) {
-  td::IPAddress result;
-  for (const auto &addr : addr_list.addrs()) {
+  for (const auto &addr : addr_list.adnl_addrs()) {
     auto r_ip = addr->to_ip_address();
     if (r_ip.is_ok() && r_ip.ok().get_port() != 0) {
-      result = r_ip.move_as_ok();
+      td::IPAddress ip = r_ip.move_as_ok();
+      ip.set_port((ip.get_port() + NODE_PORT_OFFSET) % 65536);
+      LOG(DEBUG) << "Quic addr of " << node.compute_short_id() << " is " << ip.get_ip_str() << ":" << ip.get_port()
+                 << " (computed from adnl addr)";
+      return ip;
     }
   }
-  if (!result.is_valid()) {
-    return td::Status::Error("no valid ip address");
-  }
-  return result;
-}
-
-static td::Result<std::set<int>> get_unique_ports(const adnl::AdnlAddressList &addr_list) {
-  std::set<int> ports;
-  for (const auto &addr : addr_list.addrs()) {
-    auto r_ip = addr->to_ip_address();
-    if (r_ip.is_ok() && r_ip.ok().get_port() != 0) {
-      ports.insert(r_ip.ok().get_port());
-    }
-  }
-  if (ports.empty()) {
-    return td::Status::Error("no valid ports");
-  }
-  return ports;
+  LOG(DEBUG) << "No quic addr for " << node.compute_short_id();
+  return td::Status::Error("no valid ip address");
 }
 
 QuicSender::QuicSender(td::actor::ActorId<adnl::AdnlPeerTable> adnl, td::actor::ActorId<keyring::Keyring> keyring,
                        QuicServer::Options options)
-    : adnl_(std::move(adnl)), keyring_(std::move(keyring)), server_options_(options) {
+    : AdnlSenderEx(/* default_mtu = */ adnl::Adnl::get_mtu())
+    , adnl_(std::move(adnl))
+    , keyring_(std::move(keyring))
+    , server_options_(options) {
 }
 
 void QuicSender::send_message(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::BufferSlice data) {
@@ -266,24 +295,70 @@ void QuicSender::get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdSho
   connect(std::move(promise), get_conn_ip_str_coro(l_id, p_id));
 }
 
-void QuicSender::set_udp_offload_options(QuicServer::Options options) {
+void QuicSender::set_quic_options(QuicServer::Options options) {
   server_options_ = options;
 }
 
-void QuicSender::add_local_id(adnl::AdnlNodeIdShort local_id) {
+void QuicSender::add_id(adnl::AdnlNodeIdShort local_id) {
   add_local_id_coro(local_id).start().detach("add local id");
 }
 
 void QuicSender::log_stats(std::string reason) {
-  for (auto &it : servers_) {
+  for (auto &it : servers_by_port_) {
     td::actor::send_closure(it.second.get(), &QuicServer::log_stats, reason);
   }
+}
+
+td::actor::Task<QuicSender::Stats> QuicSender::collect_stats() {
+  Stats stats;
+  for (auto &[_, server] : servers_by_port_) {
+    auto serv_stats = co_await td::actor::ask(server, &QuicServer::collect_stats);
+    stats.summary = stats.summary + Stats::Entry{.server_stats = serv_stats.summary};
+    for (auto &[id, conn_stats] : serv_stats.per_conn) {
+      if (!by_cid_.contains(id))
+        continue;
+      stats.per_path[by_cid_[id]->path] = Stats::Entry{.server_stats = conn_stats};
+    }
+  }
+  co_return stats;
+}
+
+td::actor::Task<> QuicSender::collect(metrics::Context ctx) {
+  // TODO
+  co_return {};
+}
+
+void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
+                                td::optional<adnl::AdnlNodeIdShort> peer_id) {
+  if (!local_id) {
+    // No specific local id: refresh per-local-id default on every server that hosts it.
+    for (auto &[id, server] : servers_by_id_) {
+      td::actor::send_closure(server, &QuicServer::set_default_mtu, id, get_local_id_mtu(id));
+    }
+    return;
+  }
+  auto it = servers_by_id_.find(local_id.value());
+  if (it == servers_by_id_.end()) {
+    return;
+  }
+  if (!peer_id) {
+    td::actor::send_closure(it->second, &QuicServer::set_default_mtu, local_id.value(),
+                            get_local_id_mtu(local_id.value()));
+    return;
+  }
+  td::actor::send_closure(it->second, &QuicServer::set_peer_mtu, local_id.value(), peer_id.value(),
+                          get_peer_mtu_inner(local_id.value(), peer_id.value()));
 }
 
 QuicSender::Connection::~Connection() {
   for (auto &[_, P] : responses) {
     P.set_error(td::Status::Error("connection closed"));
   }
+}
+
+void QuicSender::start_up() {
+  AdnlSenderInterface::start_up();
+  alarm_timestamp() = td::Timestamp::now();
 }
 
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
@@ -300,8 +375,8 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdSh
                                                               td::BufferSlice data) {
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
-  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{}, std::move(wire_data),
-                          true);
+  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{get_peer_mtu(src, dst)},
+                          std::move(wire_data), true);
   co_return td::Unit{};
 }
 
@@ -336,27 +411,39 @@ td::actor::Task<std::string> QuicSender::get_conn_ip_str_coro(adnl::AdnlNodeIdSh
 
 td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) {
   adnl::AdnlNode node = co_await td::actor::ask(adnl_, &adnl::Adnl::get_self_node, local_id);
-
-  auto ports = co_await get_unique_ports(node.addr_list());
-  if (ports.size() > 1) {
-    LOG(WARNING) << "ignoring " << ports.size() - 1 << " redundant ports of local id " << local_id;
-  }
-  auto port = *ports.begin() + NODE_PORT_OFFSET;
-
+  auto port = (co_await get_ip_address(node)).get_port();
   auto priv_key = co_await td::actor::ask(keyring_, &keyring::Keyring::export_private_key, local_id.pubkey_hash());
   auto ed25519_key = co_await priv_key.export_as_ed25519();
   local_keys_.emplace(local_id, td::Ed25519::PrivateKey(ed25519_key.as_octet_string()));
 
-  if (servers_.find(local_id) != servers_.end()) {
-    LOG(INFO) << "Local id has already been added: " << local_id;
-    co_return td::Unit{};  // already added
+  if (servers_by_id_.contains(local_id)) {
+    LOG(DEBUG) << "Local id has already been added: " << local_id;
+    co_return td::Unit{};
   }
 
-  auto server = co_await QuicServer::create(
-      port, td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()),
-      std::make_unique<ServerCallback>(local_id, actor_id(this), server_options_.inbound_stream_max_size), "ton",
-      "0.0.0.0", server_options_);
-  servers_[local_id] = std::move(server);
+  td::actor::ActorId<QuicServer> server;
+  auto default_mtu = get_local_id_mtu(local_id);
+  auto peers_mtu = get_local_id_peers_mtu(local_id);
+  if (auto it = servers_by_port_.find(port); it != servers_by_port_.end()) {
+    server = it->second.get();
+    td::actor::send_closure(server, &QuicServer::set_default_mtu, local_id, default_mtu);
+    for (const auto &[peer_id, mtu] : peers_mtu) {
+      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, mtu);
+    }
+    td::actor::send_closure(server, &QuicServer::add_identity, local_id,
+                            td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()));
+  } else {
+    auto identity = ServerIdentity{.local_id = local_id,
+                                   .key = td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string())};
+    auto owned = co_await QuicServer::create(port, std::make_unique<ServerCallback>(actor_id(this)), default_mtu,
+                                             std::move(identity), "ton", "0.0.0.0", server_options_);
+    server = owned.get();
+    servers_by_port_[port] = std::move(owned);
+    for (const auto &[peer_id, mtu] : peers_mtu) {
+      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, mtu);
+    }
+  }
+  servers_by_id_[local_id] = server;
 
   co_return td::Unit{};
 }
@@ -366,6 +453,7 @@ td::actor::Task<std::shared_ptr<QuicSender::Connection>> QuicSender::find_or_cre
   auto iter = outbound_.find(path);
   if (iter == outbound_.end()) {
     connection = std::make_shared<Connection>();
+    connection->is_outbound = true;
     CHECK(outbound_.emplace(path, connection).second);
   } else {
     connection = iter->second;
@@ -388,27 +476,23 @@ td::actor::Task<std::shared_ptr<QuicSender::Connection>> QuicSender::find_or_cre
 }
 
 td::actor::Task<td::Unit> QuicSender::init_connection(AdnlPath path, std::shared_ptr<Connection> connection) {
-  auto R = co_await init_connection_inner(path, connection).wrap();
-  if (R.is_ok()) {
-    co_return td::Unit{};  // wait for on_ready
+  auto result = co_await init_connection_inner(path, connection).wrap();
+  if (result.is_error()) {
+    // failed before any quic connection has been created
+    LOG(WARNING) << "Failed to init connection: " << path << " " << result.error();
+    CHECK(outbound_.erase(path) == 1);
+    finish_connection_init(connection, result.move_as_error());
   }
-
-  LOG(WARNING) << "Failed to init connection: " << path << " " << R.error();
-  // got error before connection created
-  auto promises = std::move(connection->waiting_ready);
-  for (auto &promise : promises) {
-    promise.set_result(R.error().clone());
-  }
-  CHECK(outbound_.erase(path) == 1);
+  // wait for on_connected
   co_return td::Unit{};
 }
 
 td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn) {
   auto node = co_await ask(adnl_, &adnl::Adnl::get_peer_node, path.first, path.second).trace("get_peer_node");
 
-  auto peer_addr = co_await get_ip_address(node.addr_list());
+  auto peer_addr = co_await get_ip_address(node);
   auto peer_host = peer_addr.get_ip_host();
-  auto peer_port = peer_addr.get_port() + NODE_PORT_OFFSET;
+  auto peer_port = peer_addr.get_port();
 
   auto local_key_iter = local_keys_.find(path.first);
   if (local_key_iter == local_keys_.end()) {
@@ -417,15 +501,16 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
 
   auto client_key = td::Ed25519::PrivateKey(local_key_iter->second.as_octet_string());
 
-  auto server_iter = servers_.find(path.first);
-  if (server_iter == servers_.end()) {
+  auto server_iter = servers_by_id_.find(path.first);
+  if (server_iter == servers_by_id_.end()) {
     co_return td::Status::Error("no QuicServer for local id");
   }
 
-  auto server = server_iter->second.get();
-  auto connection_id =
-      co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key), td::Slice("ton"))
-          .trace("connect");
+  auto server = server_iter->second;
+  auto sni = ServerIdentity::sni(path.second);
+  auto connection_id = co_await ask(server, &QuicServer::connect, peer_host, peer_port, std::move(client_key),
+                                    td::Slice("ton"), td::Slice(sni))
+                           .trace("connect");
   conn->cid = connection_id;
   conn->path = path;
   conn->server = server;
@@ -433,52 +518,74 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
   co_return td::Unit{};
 }
 
-void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
-                              adnl::AdnlNodeIdShort local_id, td::SecureString peer_public_key, bool is_outbound) {
-  auto r_peer_id = parse_peer_id(peer_public_key.as_slice());
-  if (r_peer_id.is_error()) {
-    LOG(ERROR) << "Failed to parse public key " << r_peer_id.error();
-    return;
-  }
-  auto peer_id = r_peer_id.move_as_ok();
-
-  auto path = AdnlPath{local_id, peer_id};
-  std::shared_ptr<Connection> connection;
-  td::Result<td::Unit> result;
-  if (auto it = by_cid_.find(cid); it != by_cid_.end()) {
-    connection = it->second;
-    if (connection->path != path) {
-      result = td::Status::Error(PSLICE() << "Key mismatch got:" << path << " expected " << connection->path);
-    } else {
-      result = td::Unit{};
-    }
-  } else {
-    if (is_outbound) {
-      LOG(ERROR) << "Unknown outbound connection";
-    }
-    // Close existing inbound connection for same path if any
-    LOG(ERROR) << "Create inbound " << path;
-    if (auto old_it = inbound_.find(path); old_it != inbound_.end()) {
-      auto old_conn = old_it->second;
-      by_cid_.erase(old_conn->cid);
-      td::actor::send_closure(old_conn->server, &QuicServer::close, old_conn->cid);
-      inbound_.erase(old_it);
-    }
-    connection = std::make_shared<Connection>();
-    connection->server = server;
-    connection->path = path;
-    connection->cid = cid;
-    connection->is_ready = true;
-    CHECK(by_cid_.emplace(cid, connection).second);
-    inbound_[path] = connection;
-    result = td::Unit{};
-  }
-
-  connection->is_ready = true;
+void QuicSender::finish_connection_init(const std::shared_ptr<Connection> &connection, td::Result<td::Unit> result) {
   auto promises = std::move(connection->waiting_ready);
   for (auto &promise : promises) {
     promise.set_result(result.clone());
   }
+}
+
+td::Result<td::Unit> QuicSender::on_connected_inner(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
+                                                    adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
+                                                    bool is_outbound, std::shared_ptr<Connection> &connection) {
+  if (auto it = by_cid_.find(cid); it != by_cid_.end()) {
+    connection = it->second;
+  }
+
+  if (get_peer_mtu(local_id, peer_id) == 0) {
+    return td::Status::Error(PSLICE() << "MTU 0 path [" << local_id << ';' << peer_id << ']');
+  }
+
+  auto path = AdnlPath{local_id, peer_id};
+  if (connection) {
+    if (connection->path != path) {
+      return td::Status::Error(PSLICE() << "Key mismatch got:" << path << " expected " << connection->path);
+    }
+    CHECK(connection->is_outbound);
+    CHECK(is_outbound);
+    return td::Unit{};
+  }
+
+  if (is_outbound) {
+    return td::Status::Error("Unknown outbound connection");
+  }
+
+  // Close existing inbound connection for same path if any
+  LOG(ERROR) << "Create inbound " << path;
+  if (auto old_it = inbound_.find(path); old_it != inbound_.end()) {
+    auto old_conn = old_it->second;
+    td::actor::send_closure(old_conn->server, &QuicServer::on_connection_closed, old_conn->cid);
+    inbound_.erase(old_it);
+  }
+  connection = std::make_shared<Connection>();
+  connection->server = server;
+  connection->path = path;
+  connection->cid = cid;
+  connection->is_ready = true;
+  connection->is_outbound = false;
+  CHECK(by_cid_.emplace(cid, connection).second);
+  inbound_[path] = connection;
+  return td::Unit{};
+}
+
+void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
+                              adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, bool is_outbound) {
+  std::shared_ptr<Connection> connection;
+  auto result = on_connected_inner(server, cid, local_id, peer_id, is_outbound, connection);
+
+  if (result.is_error()) {
+    // the connection will be empty if an error happened during inbound connection initialization
+    if (connection) {
+      LOG(WARNING) << "Failed to init connection: " << connection->path << " " << result.error();
+      connection->init_error = result.move_as_error();
+    }
+    td::actor::send_closure(server, &QuicServer::on_connection_closed, cid);
+    return;
+  }
+
+  CHECK(connection);
+  connection->is_ready = true;
+  finish_connection_init(connection, td::Unit{});
 }
 
 void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id, td::Result<td::BufferSlice> r_data) {
@@ -488,6 +595,14 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
     return;
   }
   auto connection = it->second;
+
+  // Deliver only on a connection whose peer identity is confirmed: is_ready is set in on_connected
+  // once the peer key matched the expected peer; a not-yet-ready or init_error connection is being
+  // torn down, and delivering its streams would attribute traffic to an unauthenticated peer.
+  if (!connection->is_ready || connection->init_error) {
+    LOG(ERROR) << "drop stream from unauthenticated connection CID:" << cid << " SID:" << stream_id;
+    return;
+  }
 
   if (r_data.is_error()) {
     auto resp_it = connection->responses.find(stream_id);
@@ -503,24 +618,41 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
     return;  // currently message will trigger empty response
   }
 
-  // TODO: accept request only from inbound streams. and answers only from outbound
-
-  auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
-  if (req_R.is_ok()) {
-    auto request = req_R.move_as_ok();
-    ton_api::downcast_call(*request, [&](auto &query) { on_request(connection, stream_id, query); });
-    return;
-  }
-
-  auto answer_R = fetch_tl_object<ton_api::quic_answer>(data.clone(), true);
-  if (answer_R.is_ok()) {
-    on_answer(*connection, stream_id, *answer_R.move_as_ok());
-    return;
+  // Requests are accepted only on inbound connections, answers only on outbound ones: an outbound
+  // connection carries our own queries, so a request arriving on it (or an answer on an inbound one)
+  // is misdirected.
+  if (!connection->is_outbound) {
+    auto req_R = fetch_tl_object<ton_api::quic_Request>(data.clone(), true);
+    if (req_R.is_ok()) {
+      auto request = req_R.move_as_ok();
+      ton_api::downcast_call(*request, [&](auto &query) { on_request(connection, stream_id, query); });
+      return;
+    }
+  } else {
+    auto answer_R = fetch_tl_object<ton_api::quic_answer>(data.clone(), true);
+    if (answer_R.is_ok()) {
+      on_answer(*connection, stream_id, *answer_R.move_as_ok());
+      return;
+    }
   }
 
   LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()
              << " tl_id:" << td::format::as_hex(get_magic(data))
              << " head:" << td::format::as_hex_dump<4>(data.as_slice().truncate(32));
+}
+
+void QuicSender::on_stream_closed(QuicConnectionId cid, QuicStreamID stream_id) {
+  auto it = by_cid_.find(cid);
+  if (it == by_cid_.end()) {
+    return;
+  }
+  auto connection = it->second;
+  auto resp_it = connection->responses.find(stream_id);
+  if (resp_it == connection->responses.end()) {
+    return;
+  }
+  resp_it->second.set_error(td::Status::Error("stream closed"));
+  connection->responses.erase(resp_it);
 }
 
 void QuicSender::on_closed(QuicConnectionId cid) {
@@ -539,6 +671,9 @@ void QuicSender::on_closed(QuicConnectionId cid) {
   if (auto in_it = inbound_.find(path); in_it != inbound_.end() && in_it->second->cid == cid) {
     inbound_.erase(in_it);
   }
+
+  auto status = std::move(connection->init_error).value_or(td::Status::Error("connection closed"));
+  finish_connection_init(connection, std::move(status));
 }
 
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,

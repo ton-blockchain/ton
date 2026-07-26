@@ -36,7 +36,7 @@ async def test_basic_lifecycle(mock_tonlib: Mock):
     _, future1 = loop.create_awaitable_future()
     _, future2 = loop.create_awaitable_future()
 
-    await loop.aclose()
+    loop.close()
 
     mock_tonlib.event_loop_cancel.assert_called_once_with(MOCK_LOOP_PTR)
     mock_tonlib.event_loop_destroy.assert_called_once_with(MOCK_LOOP_PTR)
@@ -46,13 +46,13 @@ async def test_basic_lifecycle(mock_tonlib: Mock):
     with pytest.raises(asyncio.CancelledError):
         await future2
 
-    await loop.aclose()
+    loop.close()
     mock_tonlib.event_loop_destroy.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_context_manager(mock_tonlib: Mock):
-    async with TonlibEventLoop(mock_tonlib) as loop:
+    with TonlibEventLoop(mock_tonlib) as loop:
         assert loop.loop == MOCK_LOOP_PTR
 
     mock_tonlib.event_loop_destroy.assert_called_once()
@@ -60,7 +60,7 @@ async def test_context_manager(mock_tonlib: Mock):
 
 @pytest.mark.asyncio
 async def test_create_awaitable_future_unique_ids(mock_tonlib: Mock):
-    async with TonlibEventLoop(mock_tonlib) as loop:
+    with TonlibEventLoop(mock_tonlib) as loop:
         cont_id1, _ = loop.create_awaitable_future()
         cont_id2, _ = loop.create_awaitable_future()
         cont_id3, _ = loop.create_awaitable_future()
@@ -92,7 +92,7 @@ async def test_poll_loop_resolves_futures(mock_tonlib: Mock):
     mock_tonlib.event_loop_wait = Mock(side_effect=mock_wait)
     mock_tonlib.event_loop_cancel = Mock(side_effect=mock_cancel)
 
-    async with TonlibEventLoop(mock_tonlib) as loop:
+    with TonlibEventLoop(mock_tonlib) as loop:
         continuation_id, future = loop.create_awaitable_future()
         future_created.set()
         await future
@@ -121,7 +121,7 @@ async def test_poll_loop_handles_missing_continuation(mock_tonlib: Mock):
     mock_tonlib.event_loop_wait = Mock(side_effect=mock_wait)
     mock_tonlib.event_loop_cancel = Mock(side_effect=mock_cancel)
 
-    async with TonlibEventLoop(mock_tonlib):
+    with TonlibEventLoop(mock_tonlib):
         _ = wait_called.wait()
 
 
@@ -137,7 +137,7 @@ async def test_poll_loop_exception_fails_all_futures(mock_tonlib: Mock):
     mock_tonlib.event_loop_wait = Mock(side_effect=mock_wait_error)
     mock_tonlib.event_loop_cancel = Mock()
 
-    async with TonlibEventLoop(mock_tonlib) as loop:
+    with TonlibEventLoop(mock_tonlib) as loop:
         cont1, future1 = loop.create_awaitable_future()
         cont2, future2 = loop.create_awaitable_future()
         cont3, future3 = loop.create_awaitable_future()

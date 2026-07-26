@@ -1,4 +1,5 @@
-import "imports/some-math"
+/// a file with imports
+import "@custom-folder/some-math"
 import "./imports/use-dicts.ext"
 
 fun main() {
@@ -8,6 +9,8 @@ fun main() {
 
 /**
 @testcase | 0 | | 3
+
+@path_mapping @custom-folder={DIR}/imports//\
 
 @fif_codegen
 """

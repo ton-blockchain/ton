@@ -3,6 +3,7 @@
  *
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
+#pragma once
 
 #include "common/stats.h"
 #include "consensus/stats.h"
@@ -88,8 +89,6 @@ class MetricCollector final : public consensus::stats::MetricCollector {
   void collect_cert_observed(const CertObserved& event);
 
  private:
-  void log_fake_catchain_stats(const Flow& flow);
-
   ValidatorSessionId session_id_;
   PublicKeyHash self_id_;
 

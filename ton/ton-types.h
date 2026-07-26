@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <chrono>
 #include <cinttypes>
 
 #include "crypto/common/bitstring.h"
@@ -147,7 +148,7 @@ struct ShardIdFull {
 struct AccountIdPrefixFull {
   WorkchainId workchain;
   AccountIdPrefix account_id_prefix;
-  AccountIdPrefixFull() : workchain(workchainInvalid) {
+  AccountIdPrefixFull() : workchain(workchainInvalid), account_id_prefix(0) {
   }
   AccountIdPrefixFull(WorkchainId workchain, AccountIdPrefix prefix) : workchain(workchain), account_id_prefix(prefix) {
   }
@@ -450,16 +451,6 @@ struct OutMsgQueueProofBroadcast : public td::CntObject {
 };
 
 struct BlockCandidate {
-  BlockCandidate(Ed25519_PublicKey pubkey, BlockIdExt id, FileHash collated_file_hash, td::BufferSlice data,
-                 td::BufferSlice collated_data,
-                 std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_broadcasts = {})
-      : pubkey(pubkey)
-      , id(id)
-      , collated_file_hash(collated_file_hash)
-      , data(std::move(data))
-      , collated_data(std::move(collated_data))
-      , out_msg_queue_proof_broadcasts(std::move(out_msg_queue_broadcasts)) {
-  }
   Ed25519_PublicKey pubkey;
   BlockIdExt id;
   FileHash collated_file_hash;
@@ -467,7 +458,7 @@ struct BlockCandidate {
   td::BufferSlice collated_data;
 
   // used only locally
-  std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_proof_broadcasts;
+  std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_proof_broadcasts = {};
 
   BlockCandidate clone() const {
     return BlockCandidate{
@@ -510,52 +501,63 @@ struct ValidatorDescr {
   }
 };
 
-struct CatChainOptions {
-  double idle_timeout = 16.0;
-  td::uint32 max_deps = 4;
-  td::uint32 max_serialized_block_size = 16 * 1024;
-  bool block_hash_covers_data = false;
-  // Max block height = max_block_height_coeff * (1 + N / max_deps) / 1000
-  // N - number of participants
-  // 0 - unlimited
-  td::uint64 max_block_height_coeff = 0;
-
-  bool debug_disable_db = false;
-  double broadcast_speed_multiplier = 1.0;
-};
-
-struct ValidatorSessionConfig {
-  td::uint32 proto_version = 0;
-
-  CatChainOptions catchain_opts;
-
-  td::uint32 round_candidates = 3;
-  /* double */ double next_candidate_delay = 2.0;
-  td::uint32 round_attempt_duration = 16;
-  td::uint32 max_round_attempts = 4;
-
-  td::uint32 max_block_size = (4 << 20);
-  td::uint32 max_collated_data_size = (4 << 20);
-
-  bool new_catchain_ids = false;
-  bool use_quic = false;
-
-  static const td::uint32 BLOCK_HASH_COVERS_DATA_FROM_VERSION = 2;
-};
-
 struct NewConsensusConfig {
-  td::uint32 target_rate_ms = 1000;
   td::uint32 max_block_size = (4 << 20);
   td::uint32 max_collated_data_size = (4 << 20);
-  bool use_quic = false;
 
-  struct NullConsensus {};
-  struct Simplex {
-    td::uint32 slots_per_leader_window = 4;
-    td::uint32 first_block_timeout_ms = 1000;
-    td::uint32 max_leader_window_desync = 2;
+  td::uint32 protocol_version = 0;
+  td::uint32 slots_per_leader_window = 4;
+
+  bool enable_block_sync() const {
+    return protocol_version == 1;
+  }
+
+  bool use_new_db_names() const {
+    return protocol_version >= 2;
+  }
+
+  bool observers_in_private_overlay() const {
+    return protocol_version >= 2;
+  }
+
+  bool enable_plumtree_broadcast() const {
+    return protocol_version >= 2;
+  }
+
+  // When adding a new noncritical parameters, also add it to consensus.simplex.noncriticalParams TL scheme
+  // clang-format off
+#define ENUMERATE_NONCRITICAL_PARAMS(uint32_fn, double_fn, duration_fn) \
+  duration_fn(0, target_rate, 2'400)                                    \
+  duration_fn(1, first_block_timeout, 1'000)                            \
+  double_fn(2, first_block_timeout_multiplier, 1.2)                     \
+  duration_fn(3, first_block_timeout_cap, 100'000)                      \
+  duration_fn(4, candidate_resolve_timeout, 1'000)                      \
+  double_fn(5, candidate_resolve_timeout_multiplier, 1.2)               \
+  duration_fn(6, candidate_resolve_timeout_cap, 10'000)                 \
+  duration_fn(7, candidate_resolve_cooldown, 10)                        \
+  duration_fn(8, standstill_timeout, 10'000)                            \
+  uint32_fn(9, standstill_max_egress_bytes_per_s, 50 << 17)             \
+  uint32_fn(10, max_leader_window_desync, 250)                          \
+  duration_fn(11, bad_signature_ban_duration, 5'000)                    \
+  uint32_fn(12, candidate_resolve_rate_limit, 10)                       \
+  duration_fn(13, min_block_interval, 0)                                \
+  duration_fn(14, no_empty_blocks_on_error_timeout, 15'000)             \
+  uint32_fn(15, certificate_gossip_neighbors, 20)
+  // clang-format on
+
+  struct NoncriticalParams {
+#define DEFINE_UINT32_FIELD(_, name, value) td::uint32 name = value;
+#define DEFINE_DOUBLE_FIELD(_, name, value) double name = value;
+#define DEFINE_DURATION_FIELD(_, name, value) std::chrono::milliseconds name{value};
+    ENUMERATE_NONCRITICAL_PARAMS(DEFINE_UINT32_FIELD, DEFINE_DOUBLE_FIELD, DEFINE_DURATION_FIELD)
+#undef DEFINE_UINT32_FIELD
+#undef DEFINE_DOUBLE_FIELD
+#undef DEFINE_DURATION_FIELD
+
+    bool operator==(const NoncriticalParams&) const = default;
   };
-  td::Variant<NullConsensus, Simplex> consensus = NullConsensus{};
+
+  NoncriticalParams noncritical_params = {};
 };
 
 struct PersistentStateDescription : public td::CntObject {

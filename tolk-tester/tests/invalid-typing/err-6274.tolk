@@ -1,5 +1,5 @@
 type MInt = int;
-type MInt2 = MInt | int;
+type MInt2 = MInt | MInt;
 type MSlice = slice;
 type MCell = cell;
 type MBuilder = builder;

@@ -76,9 +76,9 @@ class ActorId {
     return ptr_ == other.ptr_;
   }
 
-  detail::ActorRef as_actor_ref() const {
+  detail::ActorTarget as_actor_ref() const {
     CHECK(!empty());
-    return detail::ActorRef(*actor_info_ptr());
+    return detail::ActorTarget(*actor_info_ptr());
   }
 
   const core::ActorInfoPtr &actor_info_ptr() const {

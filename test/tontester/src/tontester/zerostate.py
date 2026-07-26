@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+import nacl.signing
+from contract import Provider, WalletV1
+from pytoniq_core import Address
 from tonapi import ton_api
 
 from .install import Install, run_fift
@@ -14,16 +17,13 @@ def _shard_json_repr(shard: int):
 
 
 @dataclass
-class NullConsensusConfig:
-    target_block_rate_ms: int = 1000
-
-
-@dataclass
 class SimplexConsensusConfig:
     target_block_rate_ms: int = 1000
     slots_per_leader_window: int = 4
     first_block_timeout_ms: int = 1000
     max_leader_window_desync: int = 2
+    use_quic: bool = False
+    use_block_sync: bool = False
 
 
 @dataclass
@@ -34,9 +34,9 @@ class NetworkConfig:
     shard_validators: int = 1
     block_limit_mul: int = 1
     mc_valgroup_lifetime: int = 250
-    mc_consensus: SimplexConsensusConfig | NullConsensusConfig | None = None
+    mc_consensus: SimplexConsensusConfig | None = None
     shard_valgroup_lifetime: int = 250
-    shard_consensus: SimplexConsensusConfig | NullConsensusConfig | None = None
+    shard_consensus: SimplexConsensusConfig | None = None
 
 
 @dataclass
@@ -50,6 +50,8 @@ class WorkchainState:
 class Zerostate:
     masterchain: WorkchainState
     shardchain: WorkchainState
+    main_wallet_key: nacl.signing.SigningKey
+    main_wallet_address: Address
 
     def as_block(self):
         return ton_api.TonNode_blockIdExt(
@@ -62,6 +64,9 @@ class Zerostate:
 
     def as_validator_config(self):
         return ton_api.Validator_config_global(zero_state=self.as_block())
+
+    def main_wallet(self, provider: Provider) -> WalletV1:
+        return WalletV1(provider, self.main_wallet_address, self.main_wallet_key)
 
 
 _TEMPLATE = """
@@ -320,21 +325,16 @@ def create_zerostate(
     new_consensus_config = ""
     for consensus_config in (config.mc_consensus, config.shard_consensus):
         if isinstance(consensus_config, SimplexConsensusConfig):
-            params = " ".join(
-                map(
-                    str,
-                    [
-                        consensus_config.target_block_rate_ms,
-                        consensus_config.slots_per_leader_window,
-                        consensus_config.first_block_timeout_ms,
-                        consensus_config.max_leader_window_desync,
-                    ],
-                )
-            )
-            new_consensus_config += f"{params} make-simplex-params\n"
-        elif isinstance(consensus_config, NullConsensusConfig):
             new_consensus_config += (
-                f"{consensus_config.target_block_rate_ms} make-null-consensus-params\n"
+                "dictnew\n"
+                f"<b {consensus_config.target_block_rate_ms} 32 u, b> <s 0 rot 8 udict! drop\n"
+                f"<b {consensus_config.first_block_timeout_ms} 32 u, b> <s 1 rot 8 udict! drop\n"
+                f"<b {consensus_config.max_leader_window_desync} 32 u, b> <s 10 rot 8 udict! drop\n"
+                "<b x{22} s, 0 6 u, "
+                f"{int(consensus_config.use_block_sync)} 1 u, "
+                f"{int(consensus_config.use_quic)} 1 u, "
+                f"{consensus_config.slots_per_leader_window} 32 u, "
+                "swap dict, b>\n"
             )
         else:
             new_consensus_config += "null\n"
@@ -356,6 +356,11 @@ def create_zerostate(
         state_dir,
     )
 
+    pk = (state_dir / "main-wallet.pk").read_bytes()
+    addr_file = (state_dir / "main-wallet.addr").read_bytes()
+    addr_hash = addr_file[:32]
+    addr_wc = int.from_bytes(addr_file[32:36], "big", signed=True)
+
     return Zerostate(
         masterchain=WorkchainState(
             file=state_dir / "zerostate.boc",
@@ -367,4 +372,6 @@ def create_zerostate(
             file_hash=(state_dir / "basestate0.fhash").read_bytes(),
             root_hash=(state_dir / "basestate0.rhash").read_bytes(),
         ),
+        main_wallet_key=nacl.signing.SigningKey(pk),
+        main_wallet_address=Address((addr_wc, addr_hash)),
     )

@@ -100,7 +100,6 @@ fun foo_big(x: int): int {
     return x;
 }
 
-@noinline
 fun foo_big_not_annotated_called_once(x: int): int {
     __expect_inline(true);     // called only once, inline
     x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1; x = x * 10 + 1;
@@ -188,7 +187,7 @@ fun builder.store32(mutate self, v: int32): self {
 }
 
 fun sum(a: int, b: int) {
-    __expect_inline(true);
+    __expect_inline(false);     // because it's never called
     return a + b;
 }
 
@@ -258,8 +257,8 @@ fun tuple.pushPoint(mutate self, p: Point) {
 
 fun tuple.popPoint(mutate self): Point {
     __expect_inline(true);
-    var y = self.pop<int>();
-    return {x: self.pop(), y};
+    var y = self.pop() as int;
+    return {x: self.pop() as int, y};
 }
 
 @method_id(110)
@@ -451,9 +450,9 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen
 """
   test5() PROC:<{               //
-    c4 PUSH                     //  '7
+    c4 PUSH                     //  '4
     CTOS                        //  s
-    LDSTDADDR                   //  '11 s
+    LDSTDADDR                   //  '8 s
 """
 
 @fif_codegen
@@ -467,7 +466,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
 @fif_codegen
 """
   test8() PROC:<{               //
-    NEWC
+    NEWC                        //  '5
     x{00000005} STSLICECONST    //  '3
     25 PUSHINT                  //  '3 '9
     SWAP                        //  x self
@@ -481,7 +480,7 @@ fun usedIn10ButDeclaredBelow(x: int) {
   test9() PROC:<{               //  x
     0 PUSHINT                   //  p1.x p1.y=0
     s0 s1 PUSH2                 //  p1.x p1.y=0 p2.x=0 p2.y
-    NIL                         //  x p1.y=0 p2.x=0 p2.y self
+    0 TUPLE                     //  x p1.y=0 p2.x=0 p2.y self
     s0 s4 XCHG2                 //  p2.y p1.y=0 p2.x=0 self x
     TPUSH                       //  p2.y p1.y=0 p2.x=0 self
     ROT                         //  p2.y p2.x=0 self p1.y=0
@@ -492,22 +491,22 @@ fun usedIn10ButDeclaredBelow(x: int) {
     TPUSH                       //  self
     TPOP                        //  self y
     SWAP                        //  y self
-    TPOP                        //  '36 self '35
-    SWAP                        //  '36 '35 self
-    TPOP                        //  '36 '35 self y
-    SWAP                        //  '36 '35 y self
-    TPOP                        //  '36 '35 '50 t '49
-    s3 s4 XCHG                  //  '35 '36 '50 t '49
-    -ROT                        //  '35 '36 '49 '50 t
+    TPOP                        //  '26 self '25
+    SWAP                        //  '26 '25 self
+    TPOP                        //  '26 '25 self y
+    SWAP                        //  '26 '25 y self
+    TPOP                        //  '26 '25 '36 t '35
+    s3 s4 XCHG                  //  '25 '26 '36 t '35
+    -ROT                        //  '25 '26 '35 '36 t
   }>
 """
 
 @fif_codegen
 """
   test10() PROC:<{
-    5 PUSHINT                   //  '3=5
-    DUP                         //  '3=5 y=5
-    NEWC
+    5 PUSHINT                   //  '0=5
+    DUP                         //  '0=5 y=5
+    NEWC                        //  '0=5 y=5 '10
     x{00000005} STSLICECONST    //  a=5 b=5 c
     BBITS                       //  a=5 b=5 '18
   }>

@@ -30,18 +30,18 @@ void AdnlInboundTunnelEndpoint::receive_packet(AdnlNodeIdShort src, td::IPAddres
 void AdnlInboundTunnelEndpoint::receive_packet_cont(AdnlNodeIdShort src, td::IPAddress src_addr,
                                                     td::BufferSlice datagram, size_t idx) {
   if (datagram.size() <= 32) {
-    VLOG(ADNL_INFO) << "dropping too short datagram";
+    VLOG(adnl, INFO) << "dropping too short datagram";
     return;
   }
   if (datagram.as_slice().truncate(32) != decrypt_via_[idx].as_slice()) {
-    VLOG(ADNL_INFO) << "invalid tunnel midpoint";
+    VLOG(adnl, INFO) << "invalid tunnel midpoint";
     return;
   }
   datagram.confirm_read(32);
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), src, src_addr, idx](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
-      VLOG(ADNL_INFO) << "dropping tunnel packet: failed to decrypt: " << R.move_as_error();
+      VLOG(adnl, INFO) << "dropping tunnel packet: failed to decrypt: " << R.move_as_error();
       return;
     } else {
       td::actor::send_closure(SelfId, &AdnlInboundTunnelEndpoint::decrypted_packet, src, src_addr, R.move_as_ok(), idx);
@@ -59,7 +59,7 @@ void AdnlInboundTunnelEndpoint::decrypted_packet(AdnlNodeIdShort src, td::IPAddr
   }
   auto F = fetch_tl_object<ton_api::adnl_tunnelPacketContents>(std::move(data), true);
   if (F.is_error()) {
-    VLOG(ADNL_INFO) << "dropping tunnel packet: failed to fetch: " << F.move_as_error();
+    VLOG(adnl, INFO) << "dropping tunnel packet: failed to fetch: " << F.move_as_error();
     return;
   }
   auto packet = F.move_as_ok();

@@ -60,6 +60,8 @@ struct(0x12345678) MyBody {
     queryId: uint64;
 }
 
+type MyBodyCell = Cell<MyBody>
+
 @noinline
 fun test1_manual() {
     return beginCell()
@@ -130,7 +132,7 @@ fun test3_manual() {
 @method_id(103)
 fun test3() {
     var b = createMessage({
-        body: MyBody{ queryId: 127493264572 }.toCell(),
+        body: MyBody{ queryId: 127493264572 }.toCell() as MyBodyCell,
         bounce: false,
         dest: address("1:527964d55cfa6eb731f4bfc07e9d025098097ef8505519e853986279bd8400d8"),
         value: 90,
@@ -392,7 +394,7 @@ fun test12_manual(data32: uint32) {
     return beginCell()
         .storeUint(0x18, 6)         // bounce
         .storeUint(0b100, 3).storeInt(MASTERCHAIN, 8).storeUint(StateInit.calcHashCodeData(init.code, init.data), 256)
-        .storeCoins(ton("0.05"))
+        .storeCoins(grams("0.05"))
         // 1 state init exists, 0 either left (state init embedded), 00110 (code and data), 0 either left (body inline)
         .storeUint(0b10001100, 1 + 4 + 4 + 64 + 32 + (1 + 1 + 5 + 1))
         .storeRef(init.code)
@@ -412,7 +414,7 @@ fun test12(data32: uint32) {
         bounce: true,
         body: data32,
         dest: { workchain: MASTERCHAIN, stateInit: init },
-        value: ton("0.05"),
+        value: grams("0.05"),
     });
     assert(b.hash() == test12_manual(data32).hash(), 112);
     return b.hash();
@@ -481,7 +483,7 @@ fun test15_manual(stateInitCell: cell, bd: Body15) {
     return beginCell()
         .storeUint(0x10, 6)         // no bounce
         .storeAddress(nftAddress)
-        .storeCoins(ton("100.0004"))
+        .storeCoins(grams("100.0004"))
         // 1 state init exists, 1 either right (state init ref), 1 either right (body ref)
         .storeUint(0b111, 1 + 4 + 4 + 64 + 32 + (1 + 1 + 1))
         .storeRef(stateInitCell)
@@ -510,7 +512,7 @@ fun test15(tens0: int, tens1: int) {
         bounce: false,
         dest: { workchain: MASTERCHAIN, stateInit: stateInitCell },
         body: bd,
-        value: ton("100.0004"),
+        value: grams("100.0004"),
     });
     assert(b.hash() == test15_manual(stateInitCell, bd).hash(), 115);
     return b.hash();
@@ -548,7 +550,7 @@ fun test19_manual(bd: uint64) {
     return beginCell()
         .storeUint(0x10, 6)         // no bounce
         .storeBuilder(destB)
-        .storeCoins(ton("0.059"))
+        .storeCoins(grams("0.059"))
         .storeUint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)  // ... + 0 init + 0 body (not ref)
         .storeUint(bd, 64)
         .endCell();
@@ -561,7 +563,7 @@ fun test19(bd: uint64) {
         bounce: 10 < 3,
         body: bd,
         dest: destB,
-        value: ton("0.059"),
+        value: grams("0.059"),
     });
     assert(b.hash() == test19_manual(bd).hash(), 119);
     return b.hash();
@@ -602,7 +604,7 @@ fun test21_manual(bd: Body21) {
     return beginCell()
         .storeUint(0x10, 6)            // no bounce
         .storeAddress(address("EQAUzE-Nef80O9dLZy91HfPiOb6EEQ8YqyWKyIU-KeaYLNUi"))
-        .storeCoins(ton("0.1"))     // value.grams
+        .storeCoins(grams("0.1"))     // value.grams
         .storeDict(createEmptyDict())
         .storeUint(1, 4 + 4 + 64 + 32 + 1 + 1)  // ... + 0 init + 1 body (ref)
         .storeRef(bd.toCell())      // stored as ref due to remainder of unpredictable size
@@ -616,7 +618,7 @@ fun test21(queryId: uint64) {
     var b = createMessage({
         bounce: false,
         dest: address("EQAUzE-Nef80O9dLZy91HfPiOb6EEQ8YqyWKyIU-KeaYLNUi"),
-        value: (ton("0.1"), createEmptyMap<int32, varuint32>()),
+        value: (grams("0.1"), createEmptyMap<int32, varuint32>()),
         body,
     });
     assert(b.hash() == test21_manual(body).hash(), 121);
@@ -628,7 +630,7 @@ fun test22_manual(unsafeB: builder) {
     return beginCell()
         .storeUint(0x18, 6)            // bounce
         .storeAddress(address("0:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFfffffffffffffffffffffffffffff"))
-        .storeCoins(ton("0.08"))
+        .storeCoins(grams("0.08"))
         .storeUint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)  // ... + 0 init + 0 body (no ref)
         .storeBuilder(unsafeB)
         .endCell();
@@ -640,7 +642,7 @@ fun test22(op: uint32, queryId: uint64) {
     var b = createMessage({
         bounce: true,
         dest: address("0:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFfffffffffffffffffffffffffffff"),
-        value: ton("0.08"),
+        value: grams("0.08"),
         body: UnsafeBodyNoRef {
             forceInline: bodyB
         },
@@ -664,7 +666,7 @@ fun test23_manual(state32: uint32, body: Body23Unlimited) {
     return beginCell()
         .storeUint(0x18, 6)         // bounce
         .storeUint(0b100, 3).storeInt(9, 8).storeUint(StateInit.calcHashCodeData(init.code, init.data), 256)
-        .storeCoins(ton("0.10009"))
+        .storeCoins(grams("0.10009"))
         // 1 state init exists, 0 either left (state init embedded), 00110 (code and data), 0 either left (body inline)
         .storeUint(0b10001100, 1 + 4 + 4 + 64 + 32 + (1 + 1 + 5 + 1))
         .storeRef(init.code)
@@ -692,7 +694,7 @@ fun test23(state32: uint32) {
             forceInline: bd,
         },
         dest: { workchain: 9, stateInit: init },
-        value: ton("0.10009"),
+        value: grams("0.10009"),
     });
     assert(b.hash() == test23_manual(state32, bd).hash(), 123);
     return b.hash();
@@ -703,7 +705,7 @@ fun test24_manual(addrHash: uint256) {
     return beginCell()
         .storeUint(0x18, 6)            // bounce
         .storeUint(0b100, 3).storeInt(MASTERCHAIN, 8).storeUint(addrHash, 256)
-        .storeCoins(ton("0.6"))
+        .storeCoins(grams("0.6"))
         .storeUint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)  // ... + 0 init + 0 body (not ref)
         .storeUint(0x12345678, 32)
         .storeUint(800, 64)
@@ -717,7 +719,7 @@ fun test24() {
         body: MyBody { queryId: 800 },
         bounce: true,
         dest: (MASTERCHAIN, addrHash),
-        value: ton("0.6"),
+        value: grams("0.6"),
     });
     assert(b.hash() == test24_manual(addrHash).hash(), 124);
     return b.hash();
@@ -751,6 +753,40 @@ fun test25() {
     return b.hash();
 }
 
+type CustomAmount = int
+
+fun CustomAmount.packToBuilder(self, mutate b: builder) {
+    b.storeUint(self, 8);
+}
+
+fun CustomAmount.unpackFromSlice(mutate s: slice): CustomAmount {
+    return s.loadUint(8);
+}
+
+@noinline
+fun test26_manual(x: CustomAmount) {
+    val bodyRef = beginCell().storeUint(x, 8).endCell();
+    return beginCell()
+        .storeUint(0x10, 6)
+        .storeAddress(address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"))
+        .storeCoins(0)
+        .storeUint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .storeRef(bodyRef)
+        .endCell();
+}
+
+@method_id(126)
+fun test26(x: CustomAmount) {
+    val b = createMessage({
+        bounce: BounceMode.NoBounce,
+        dest: address("EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c"),
+        value: 0,
+        body: x,
+    });
+    assert (b.hash() == test26_manual(x).hash()) throw 101;
+    return b.hash();
+}
+
 
 fun main() {
 }
@@ -781,4 +817,5 @@ fun main() {
 @testcase | 123 | 999      | 93691386126134034953606952841435771108648354412078750046821446829279390964584
 @testcase | 124 |          | 21886688052816798288463190773103865772534937765373272039597499398551023701577
 @testcase | 125 |          | 12745496241890009334837209777890803918215266832624965751220009451486906344811
+@testcase | 126 | 18       | 84921636467547097455392057787121070688594237898746455161406565301555532818373
  */

@@ -62,6 +62,7 @@ class UdpSocketFd {
 
   static Result<UdpSocketFd> open(const IPAddress &address) TD_WARN_UNUSED_RESULT;
   static bool is_gso_supported();
+  static bool has_pmtudisc_probe();
 
   PollableFdInfo &get_poll_info();
   const PollableFdInfo &get_poll_info() const;

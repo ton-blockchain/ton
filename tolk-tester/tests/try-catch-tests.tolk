@@ -281,6 +281,104 @@ fun test14() {
   return some_bar();
 }
 
+@noinline
+fun demoWithNonConstExcno(x: int) {
+  // when x == 0, `100 / 0` is not evaluated
+  assert (x == 0) throw 100 / x;
+  return x;
+}
+
+@method_id(115)
+fun testNonConstExcno() {
+  var d0 = demoWithNonConstExcno(0);        // should not throw
+  try { return (d0, demoWithNonConstExcno(5)) }
+  catch (ex) { return (d0, ex) }
+}
+
+@method_id(116)
+fun testNonConstExcno2(x: int) {
+  try {
+    // when x == 0, we get "integer overflow" (excno 4)
+    // when x == 1, assert is ok
+    // when x > 0, then preloadUint fails with "cell underflow" (excno 9)
+    assert(1 / x > 0, "00".hexToSlice().preloadUint(16));
+    return 777;
+  } catch (excno) {
+    return excno;
+  }
+}
+
+@method_id(117)
+fun testNonConstExcno3(x: int) {
+  try { assert ((x += 10) > 50) throw x; }
+  catch (ex) { return -ex }
+  return x;
+}
+
+@method_id(118)
+fun testThrowWithArgWhenArgEmitsException(x: int) {
+  try {
+    // when x == 0, we get "integer overflow" (excno 4)
+    // otherwise, preloadUint fails with "cell underflow" (excno 9)
+    throw (1 / x, stringHexToSlice("00").preloadUint(16));
+    return 777;
+  } catch (excno) {
+    return excno;
+  }
+}
+
+@inline
+fun catchInInlineF(flag: bool): int {
+  __expect_inline(true);
+  var out = 0;
+  try {
+    if (flag) {
+      throw 77;
+    }
+    out = 10;
+  } catch (excno) {
+    out = excno;
+  }
+  return out;
+}
+
+@method_id(119)
+fun testMultipleCallsInline(f1: bool, f2: bool) {
+  return (
+    catchInInlineF(f1),
+    catchInInlineF(f2),
+  );
+}
+
+@method_id(120)
+fun testAssertWithTooBigThrow(x: int) {
+  assert (x != 0) throw 100500;
+  return true;
+}
+
+@inline
+fun chooseInlineReturnInsideTry(flag: int): int {
+  __expect_inline(false);   // inlining deferred to Fift due to returns in the middle
+  try {
+    if (flag == 1) {
+      return 10;
+    }
+    if (flag == 2) {
+      throw 7;
+    }
+  } catch {
+    return 20;
+  }
+  return 30;
+}
+
+@method_id(121)
+fun testInlineReturnInsideTry(flag: int): int {
+  return chooseInlineReturnInsideTry(flag);
+}
+
+
+
 fun main() {
   // mark used to codegen them
   testCodegen3;
@@ -314,8 +412,21 @@ fun main() {
 @testcase | 112 | 5     | 138
 @testcase | 113 |       | 2048
 @testcase | 114 |       | 10
+@testcase | 115 |       | 0 20
+@testcase | 116 | 0     | 4
+@testcase | 116 | 1     | 777
+@testcase | 116 | 2     | 9
+@testcase | 117 | 45    | 55
+@testcase | 117 | 5     | -15
+@testcase | 118 | 0     | 4
+@testcase | 118 | 5     | 9
+@testcase | 119 | 0 -1  | 10 77
+@testcase | 120 | 3     | -1
+@testcase | 121 | 1     | 10
+@testcase | 121 | 2     | 20
+@testcase | 121 | 3     | 30
 
-@code_hash 105700914149701825712120559735822502361524607376304099295017516715667768165035
+@code_hash 17473387520586690375058520669959417766875699647034456359443028989383748791753
 
 @fif_codegen
 """
@@ -370,9 +481,40 @@ fun main() {
 
 @fif_codegen
 """
-<{
+CONT:<{
   11 PUSHPOW2
   THROWANY
-}>CONT
+}>
+"""
+
+@fif_codegen
+"""
+  chooseInlineReturnInsideTry() PROCINLINE:<{
+    ...
+          10 PUSHINT
+          RETALT
+    ...
+      30 PUSHINT
+    ...
+  }>
+"""
+
+@fif_codegen
+"""
+foo_inline() PROCINLINE:<{
+  CONT:<{
+    c2 SAVE
+    SAMEALTSAVE
+"""
+
+@fif_codegen
+"""
+  testAssertWithTooBigThrow() PROC:<{   //  x
+    IFNOTJMP:<{                 //
+      100500 PUSHINT            //  '3=100500
+      THROWANY
+    }>                          //
+    TRUE                        //  '4
+  }>
 """
 */

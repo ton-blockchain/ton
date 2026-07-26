@@ -21,6 +21,7 @@
 #include "type-system.h"
 #include "compiler-state.h"
 #include "pipeline.h"
+#include "recursion-guard.h"
 
 namespace tolk {
 
@@ -56,6 +57,18 @@ static TypePtr replace_genericT_with_deduced(TypePtr orig, const GenericsSubstit
     }
     return child;
   });
+}
+
+// make an error for tricky cases when instantiation becomes infinite:
+// `struct A<T> { v: A<A<T>> }` and similar
+template<class T>
+static Error err_instantiate_recursive(T t_ref) {
+  return err("instantiation of `{}` exceeded depth limit; it's most likely caused by an infinitely growing type", t_ref);
+}
+
+// make error if smb defines const `F<int>` (in backticks), which conflicts with a generic instantiation
+static Error err_instantiated_name_conflict(std::string_view new_name) {
+  return err("generic instantiation `{}` conflicts with existing symbol", new_name);
 }
 
 GenericsSubstitutions::GenericsSubstitutions(const GenericsDeclaration* genericTs, const std::vector<TypePtr>& type_arguments)
@@ -142,7 +155,7 @@ GenericSubstitutionsDeducing::GenericSubstitutionsDeducing(const GenericsDeclara
 void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, TypePtr arg_type) {
   // all Ts deduced up to this point are apriori
   param_type = replace_genericT_with_deduced(param_type, &deducedTs);
-  if (!param_type->has_genericT_inside()) {
+  if (!param_type->has_genericT_inside() || arg_type == TypeDataNotInferred::create()) {
     return;
   }
 
@@ -173,11 +186,16 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
         consider_next_condition(p_tensor->items[i], a_tensor->items[i]);
       }
     }
-  } else if (const auto* p_tuple = param_type->try_as<TypeDataBrackets>()) {
+  } else if (const auto* p_array = param_type->try_as<TypeDataArray>()) {
+    // `arg: array<T>` called as `f(arrOfUnknown)` => T is unknown
+    if (const auto* a_array = arg_type->unwrap_alias()->try_as<TypeDataArray>()) {
+      consider_next_condition(p_array->innerT, a_array->innerT);
+    }
+  } else if (const auto* p_shaped = param_type->try_as<TypeDataShapedTuple>()) {
     // `arg: [int, T]` called as `f([5, cs])` => T is slice
-    if (const auto* a_tuple = arg_type->unwrap_alias()->try_as<TypeDataBrackets>(); a_tuple && a_tuple->size() == p_tuple->size()) {
-      for (int i = 0; i < a_tuple->size(); ++i) {
-        consider_next_condition(p_tuple->items[i], a_tuple->items[i]);
+    if (const auto* a_shaped = arg_type->unwrap_alias()->try_as<TypeDataShapedTuple>()) {
+      for (int i = 0; i < p_shaped->size() && i < a_shaped->size(); ++i) {
+        consider_next_condition(p_shaped->items[i], a_shaped->items[i]);
       }
     }
   } else if (const auto* p_callable = param_type->try_as<TypeDataFunCallable>()) {
@@ -212,8 +230,24 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
       if (is_sub_correct && p_generic.size() == 1 && a_sub_p.size() > 1) {
         consider_next_condition(p_generic[0], TypeDataUnion::create(std::move(a_sub_p)));
       } else if (is_sub_correct && p_generic.size() == a_sub_p.size()) {
-        for (int i = 0; i < static_cast<int>(p_generic.size()); ++i) {
-          consider_next_condition(p_generic[i], a_sub_p[i]);
+        // pair each generic variant with the arg variant it deduces into; a bare `T` matches
+        // ANY arg variant, so it must be matched last — only after concrete shapes have claimed theirs;
+        // example: param `T | Box<T>`, arg `Box<int> | int` (mind reorder), deduce T=int
+        for (int pass = 0; pass < 2; ++pass) {    // pass 0: concrete variants like `Box<T>`; pass 1: a bare `T`
+          for (TypePtr p_variant : p_generic) {
+            if ((p_variant->try_as<TypeDataGenericT>() != nullptr) != (pass == 1)) {
+              continue;
+            }
+            for (auto it = a_sub_p.begin(); it != a_sub_p.end(); ++it) {
+              GenericSubstitutionsDeducing trial = *this;
+              // a pairing fits when deducing makes the variant exactly equal to its arg
+              if (trial.auto_deduce_from_argument(p_variant, *it)->equal_to(*it)) {
+                consider_next_condition(p_variant, *it);
+                a_sub_p.erase(it);
+                break;
+              }
+            }
+          }
         }
       }
     }
@@ -254,11 +288,28 @@ void GenericSubstitutionsDeducing::consider_next_condition(TypePtr param_type, T
     }
   } else if (const auto* p_instAl = param_type->try_as<TypeDataGenericTypeWithTs>(); p_instAl && p_instAl->alias_ref) {
     // `arg: WrapperAlias<T>` called as `f(wrappedInt)` => T is int
-    if (const auto* a_alias = arg_type->try_as<TypeDataAlias>(); a_alias && a_alias->alias_ref->is_instantiation_of_generic_alias() && a_alias->alias_ref->base_alias_ref == p_instAl->alias_ref) {
+    const TypeDataAlias* a_alias = arg_type->try_as<TypeDataAlias>();
+    // walk plain aliases like `type WrappedInt = WrapperAlias<int>` without erasing the generic alias to its underlying type
+    while (a_alias && (!a_alias->alias_ref->is_instantiation_of_generic_alias() || a_alias->alias_ref->base_alias_ref != p_instAl->alias_ref)) {
+      a_alias = a_alias->underlying_type->try_as<TypeDataAlias>();
+    }
+    if (a_alias) {
       tolk_assert(p_instAl->size() == a_alias->alias_ref->substitutedTs->size());
       for (int i = 0; i < p_instAl->size(); ++i) {
         consider_next_condition(p_instAl->type_arguments[i], a_alias->alias_ref->substitutedTs->typeT_at(i));
       }
+    } else if (const auto* a_instAl = arg_type->try_as<TypeDataGenericTypeWithTs>(); a_instAl && a_instAl->alias_ref == p_instAl->alias_ref) {
+      // `arg: WrapperAlias<T>` matched against another still-generic `WrapperAlias<X>` while comparing receivers
+      tolk_assert(p_instAl->size() == a_instAl->size());
+      for (int i = 0; i < p_instAl->size(); ++i) {
+        consider_next_condition(p_instAl->type_arguments[i], a_instAl->type_arguments[i]);
+      }
+    } else {
+      // `arg: WrapperAlias<T>` called as `f(someWrapperInt)` => T is int
+      // `arg: ArrayAlias<ArrayAlias<T>>` called as `f([[1],[2]])` => T is int
+      GenericsSubstitutions cur_sub(p_instAl->alias_ref->genericTs, p_instAl->type_arguments);
+      TypePtr underlying_replaced = replace_genericT_with_deduced(p_instAl->alias_ref->underlying_type, &cur_sub);
+      consider_next_condition(underlying_replaced, arg_type);
     }
   } else if (const auto* p_map = param_type->try_as<TypeDataMapKV>()) {
     // `arg: map<K, V>` called as `f(someMapInt32Slice)` => K = int32, V = slice
@@ -396,7 +447,7 @@ bool GenericsSubstitutions::equal_to(const GenericsSubstitutions* rhs) const {
 
 // when cloning `f<T>`, original name is "f", we need a new name for symtable and output
 // name of an instantiated function will be "f<int>" and similar (yes, with "<" symbol, it's okay to Fift)
-static std::string generate_instantiated_name(const std::string& orig_name, const GenericsSubstitutions& substitutedTs, bool allow_spaces, int size_from_receiver = 0) {
+static std::string generate_instantiated_name(const std::string& orig_name, const GenericsSubstitutions& substitutedTs, int size_from_receiver = 0) {
   // an instantiated function name will be "{orig_name}<{T1,T2,...}>"
   std::string name = orig_name;
   if (size_from_receiver < substitutedTs.size()) {
@@ -408,9 +459,6 @@ static std::string generate_instantiated_name(const std::string& orig_name, cons
       name += substitutedTs.typeT_at(i)->as_human_readable();
     }
     name += '>';
-  }
-  if (!allow_spaces) {
-    name.erase(std::remove(name.begin(), name.end(), ' '), name.end());
   }
   return name;
 }
@@ -434,11 +482,12 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
   if (fun_ref->is_method() && fun_ref->receiver_type->has_genericT_inside()) {
     fun_name = replace_genericT_with_deduced(fun_ref->receiver_type, &substitutedTs)->as_human_readable() + "." + fun_ref->method_name;
   }
-  std::string new_name = generate_instantiated_name(fun_name, substitutedTs, false, fun_ref->genericTs->n_from_receiver);
+  std::string new_name = generate_instantiated_name(fun_name, substitutedTs, fun_ref->genericTs->n_from_receiver);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
-    FunctionPtr existing_ref = existing_sym->try_as<FunctionPtr>();
-    tolk_assert(existing_ref);
-    return existing_ref;
+    if (FunctionPtr f = existing_sym->try_as<FunctionPtr>(); f && f->base_fun_ref == fun_ref) {
+      return f;
+    }
+    err_instantiated_name_conflict(new_name).fire(existing_sym->ident_anchor);
   }
 
   // to store permanently, allocate an object in heap
@@ -456,7 +505,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     }
     TypePtr new_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, allocatedTs);
     TypePtr new_receiver_type = replace_genericT_with_deduced(fun_ref->receiver_type, allocatedTs);
-    FunctionData* new_fun_ref = new FunctionData(new_name, nullptr, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, fun_ref->body, fun_ref->ast_root);
+    FunctionData* new_fun_ref = new FunctionData(new_name, nullptr, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, {}, fun_ref->body, fun_ref->ast_root);
     new_fun_ref->arg_order = fun_ref->arg_order;
     new_fun_ref->ret_order = fun_ref->ret_order;
     new_fun_ref->base_fun_ref = fun_ref;
@@ -470,8 +519,18 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
   V<ast_function_declaration> orig_root = fun_ref->ast_root->as<ast_function_declaration>();
   V<ast_function_declaration> new_root = ASTReplicator::clone_function_ast(orig_root);
 
+  static thread_local int instantiation_depth = 0;
+  instantiation_depth++;
+  RecursionGuard guard([&] {
+    instantiation_depth--;
+  });
+  if (instantiation_depth > 64) {
+    err_instantiate_recursive(fun_ref).fire(fun_ref->ident_anchor);
+  }
+
   FunctionPtr new_fun_ref = pipeline_register_instantiated_generic_function(fun_ref, new_root, std::move(new_name), allocatedTs);
   run_pipeline_for_cloned_function(new_fun_ref);
+
   return new_fun_ref;
 }
 
@@ -479,11 +538,12 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
   tolk_assert(struct_ref->is_generic_struct());
 
   // if `Wrapper<int>` was earlier instantiated, return it
-  std::string new_name = generate_instantiated_name(struct_ref->name, substitutedTs, true);
+  std::string new_name = generate_instantiated_name(struct_ref->name, substitutedTs);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
-    StructPtr existing_ref = existing_sym->try_as<StructPtr>();
-    tolk_assert(existing_ref);
-    return existing_ref;
+    if (StructPtr s = existing_sym->try_as<StructPtr>(); s && s->base_struct_ref == struct_ref) {
+      return s;
+    }
+    err_instantiated_name_conflict(new_name).fire(struct_ref->ident_anchor);
   }
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
@@ -491,10 +551,22 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
   V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->range, new_name);
   V<ast_struct_declaration> new_root = ASTReplicator::clone_struct_ast(orig_root, new_name_ident);
 
+  static thread_local int instantiation_depth = 0;
+  instantiation_depth++;
+  RecursionGuard guard([&] {
+    instantiation_depth--;
+  });
+  if (instantiation_depth > 64) {
+    err_instantiate_recursive(struct_ref).fire(struct_ref->ident_anchor);
+  }
+
   StructPtr new_struct_ref = pipeline_register_instantiated_generic_struct(struct_ref, new_root, std::move(new_name), allocatedTs);
   tolk_assert(new_struct_ref);
   pipeline_resolve_identifiers_and_assign_symbols(new_struct_ref);
   pipeline_resolve_types_and_aliases(new_struct_ref);
+  // don't call type inferring here (unlike for generic functions), it's invalid before type resolving finishes;
+  // type inferring for generic struct instantiations will automatically be run instead
+
   return new_struct_ref;
 }
 
@@ -502,11 +574,15 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   tolk_assert(alias_ref->is_generic_alias());
 
   // if `Response<int>` was earlier instantiated, return it
-  std::string new_name = generate_instantiated_name(alias_ref->name, substitutedTs, true);
+  std::string new_name = generate_instantiated_name(alias_ref->name, substitutedTs);
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
-    AliasDefPtr existing_ref = existing_sym->try_as<AliasDefPtr>();
-    tolk_assert(existing_ref);
-    return existing_ref;
+    if (AliasDefPtr a = existing_sym->try_as<AliasDefPtr>(); a && a->base_alias_ref == alias_ref) {
+      if (a->underlying_type == nullptr) {
+        err("type `{}` circularly references itself", a).fire(a->ident_anchor);
+      }
+      return a;
+    }
+    err_instantiated_name_conflict(new_name).fire(alias_ref->ident_anchor);
   }
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
@@ -514,9 +590,19 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   V<ast_identifier> new_name_ident = createV<ast_identifier>(orig_root->get_identifier()->range, new_name);
   V<ast_type_alias_declaration> new_root = ASTReplicator::clone_type_alias_ast(orig_root, new_name_ident);
 
+  static thread_local int instantiation_depth = 0;
+  instantiation_depth++;
+  RecursionGuard guard([&] {
+    instantiation_depth--;
+  });
+  if (instantiation_depth > 64) {
+    err_instantiate_recursive(alias_ref).fire(alias_ref->ident_anchor);
+  }
+
   AliasDefPtr new_alias_ref = pipeline_register_instantiated_generic_alias(alias_ref, new_root, std::move(new_name), allocatedTs);
   tolk_assert(new_alias_ref);
   pipeline_resolve_types_and_aliases(new_alias_ref);
+
   return new_alias_ref;
 }
 
@@ -536,7 +622,7 @@ FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_re
 
   // parent_fun_ref always exists actually (and will be `lambda_ref->base_fun_ref`);
   // the only way it may be nullptr is when a lambda occurs as a constant value for example, which will fire an error later
-  std::string lambda_name = "lambda_in_" + (parent_fun_ref ? parent_fun_ref->name : "") + "@" + std::to_string(n_lambdas);
+  std::string lambda_name = "lambda_in_" + (parent_fun_ref ? parent_fun_ref->name : "") + "`" + std::to_string(n_lambdas);
   tolk_assert(!lookup_global_symbol(lambda_name));
 
   V<ast_function_declaration> lambda_root = ASTReplicator::clone_lambda_as_standalone(v);
@@ -554,29 +640,37 @@ FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_re
   lambda_ref->mutate()->assign_resolved_type(return_type);
 
   run_pipeline_for_cloned_function(lambda_ref);
-  return lambda_ref;
+  return lambda_ref;  
 }
 
-// a function `tuple.push<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
+// a function `myFunPTuplePush<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
 // almost all asm/built-in generic functions expect one stack slot, but there are exceptions
-bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, int idxT) {
+bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, const GenericsSubstitutions& substitutedTs, int idxT) {
   // if a built-in function is marked with a special flag
   if (fun_ref->is_variadic_width_T_allowed()) {
     return true;
   }
 
-  // allow "Cell<T>.hash", "map<K, V>.isEmpty" and other methods that don't depend on internal structure
-  if (fun_ref->is_method() && idxT < fun_ref->genericTs->n_from_receiver) {
-    TypePtr receiver = fun_ref->receiver_type->unwrap_alias();
-    if (const auto* r_withTs = receiver->try_as<TypeDataGenericTypeWithTs>()) {
-      return r_withTs->struct_ref && r_withTs->struct_ref->name == "Cell";
-    }
-    if (receiver->try_as<TypeDataMapKV>()) {
-      return true;
-    }
+  // allow `fun Cell<T>.hash(self)` or `fun map<K,V>.isEmpty(self)` for any generics, because asm does not depend on T/K/V;
+  // more specifically: can we use T=Point? yes, if substituting T=Point and T=int gives equal stack width everywhere
+  GenericsSubstitutions probeTs(fun_ref->genericTs);
+  for (int i = 0; i < substitutedTs.size(); ++i) {
+    probeTs.set_typeT(substitutedTs.nameT_at(i), i == idxT ? TypeDataInt::create() : substitutedTs.typeT_at(i));
   }
 
-  return false;
+  auto width_differs = [&](TypePtr type) {
+    TypePtr actual = replace_genericT_with_deduced(type, &substitutedTs);
+    TypePtr probe = replace_genericT_with_deduced(type, &probeTs);
+    return actual->get_width_on_stack() != probe->get_width_on_stack();
+  };
+
+  bool any_p_differ = false;
+  for (const LocalVarData& param : fun_ref->parameters) {
+    any_p_differ |= width_differs(param.declared_type);
+  }
+  TypePtr return_type = fun_ref->does_return_self() ? fun_ref->get_param(0).declared_type : fun_ref->declared_return_type;
+
+  return !any_p_differ && !width_differs(return_type);
 }
 
 } // namespace tolk

@@ -145,7 +145,8 @@ struct CandidateHashData {
 
 struct Candidate : td::CntObject {
   static td::Result<td::Ref<Candidate>> deserialize(td::Slice data, const Bus& bus,
-                                                    std::optional<PeerValidatorId> src = std::nullopt);
+                                                    std::optional<PeerValidatorId> src = std::nullopt,
+                                                    std::optional<td::uint32> expected_slot = std::nullopt);
 
   Candidate(CandidateId id, ParentId parent_id, PeerValidatorId leader, std::variant<BlockIdExt, BlockCandidate> block,
             td::BufferSlice signature)

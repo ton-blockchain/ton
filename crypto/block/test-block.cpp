@@ -59,7 +59,7 @@ td::Ref<vm::Cell> load_boc(std::string filename) {
   if (res.is_error()) {
     throw IntError{PSTRING() << "cannot deserialize bag-of-cells " << res.move_as_error()};
   }
-  if (res.move_as_ok() <= 0 || boc.get_root_cell().is_null()) {
+  if (boc.get_root_cell().is_null()) {
     throw IntError{"cannot deserialize bag-of-cells "};
   }
   return boc.get_root_cell();

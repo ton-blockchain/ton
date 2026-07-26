@@ -15,55 +15,45 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include <iostream>
-#include <sstream>
 
 namespace tolk {
 
-CompilerState G; // the only mutable global variable in tolk internals
-
-void ExperimentalOption::mark_deprecated(const char* deprecated_from_v, const char* deprecated_reason) {
-  this->deprecated_from_v = deprecated_from_v;
-  this->deprecated_reason = deprecated_reason;
-}
-
-std::string_view PersistentHeapAllocator::copy_string_to_persistent_memory(std::string_view str_in_tmp_memory) {
-  size_t len = str_in_tmp_memory.size();
-  char* allocated = new char[len];
-  memcpy(allocated, str_in_tmp_memory.data(), str_in_tmp_memory.size());
-  auto new_chunk = std::make_unique<ChunkInHeap>(allocated, std::move(head));
-  head = std::move(new_chunk);
-  return {head->allocated, len};
-}
-
-void PersistentHeapAllocator::clear() {
-  head = nullptr;
-}
-
-void CompilerSettings::enable_experimental_option(std::string_view name) {
-  ExperimentalOption* to_enable = nullptr;
-
-  // if (name == some_option.name) {
-    // to_enable = &some_option;
-  // }
-
-  if (to_enable == nullptr) {
-    std::cerr << "unknown experimental option: " << name << std::endl;
-  } else if (to_enable->deprecated_from_v) {
-    std::cerr << "experimental option " << name << " "
-              << "is deprecated since Tolk v" << to_enable->deprecated_from_v
-              << ": " << to_enable->deprecated_reason << std::endl;
-  } else {
-    to_enable->enabled = true;
+bool CompilerSettings::parse_path_mapping_cmd_arg(const std::string& cmd_arg) {
+  std::string::size_type pos = cmd_arg.find('=');
+  if (!cmd_arg.starts_with('@') || pos <= 1 || pos >= cmd_arg.size() - 1) {
+    std::cerr << "invalid path mapping: expected format: @custom-path=/absolute/folder" << std::endl;
+    return false;
   }
+
+  std::string at_prefix(cmd_arg.c_str(), pos);
+  std::string abs_folder(cmd_arg.c_str() + pos + 1);
+  if (at_prefix.find_first_of("/\\") != std::string::npos) {
+    std::cerr << "invalid path mapping: alias must not contain path separators, got " << at_prefix << std::endl;
+    return false;
+  }
+  if (!get_path_mapping(at_prefix).empty() || at_prefix == "@stdlib") {
+    std::cerr << "invalid path mapping: duplicated " << at_prefix << std::endl;
+    return false;
+  }
+
+  // normalize "@alias=path/" to "@alias=path"
+  while (abs_folder.size() > 1 && (abs_folder.back() == '/' || abs_folder.back() == '\\')) {
+    abs_folder.pop_back();
+  }
+
+  path_mappings.emplace_back(CompilerPathMapping{std::move(at_prefix), std::move(abs_folder)});
+  return true;
 }
 
-void CompilerSettings::parse_experimental_options_cmd_arg(const std::string& cmd_arg) {
-  std::istringstream stream(cmd_arg);
-  std::string token;
-  while (std::getline(stream, token, ',')) {
-    enable_experimental_option(token);
+std::string_view CompilerSettings::get_path_mapping(std::string_view at_prefix) const {
+  for (const CompilerPathMapping& m : path_mappings) {
+    if (m.at_prefix == at_prefix) {
+      return m.abs_folder;
+    }
   }
+  return "";
 }
 
 const std::vector<FunctionPtr>& get_all_builtin_functions() {

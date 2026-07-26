@@ -111,55 +111,57 @@ td::Status ArchiveImporter::process_package(std::string path, bool with_masterch
   auto package = std::make_shared<Package>(std::move(p));
 
   td::Status S = td::Status::OK();
-  package
-      ->iterate([&](std::string filename, td::BufferSlice, td::uint64 offset) -> bool {
-        auto F = FileReference::create(filename);
-        if (F.is_error()) {
-          S = F.move_as_error();
-          return false;
-        }
-        auto f = F.move_as_ok();
+  td::Status package_status = package->iterate([&](std::string filename, td::BufferSlice, td::uint64 offset) -> bool {
+    auto F = FileReference::create(filename);
+    if (F.is_error()) {
+      S = F.move_as_error();
+      return false;
+    }
+    auto f = F.move_as_ok();
 
-        BlockIdExt b;
-        bool is_proof = false;
-        bool ignore = true;
+    BlockIdExt b;
+    bool is_proof = false;
+    bool ignore = true;
 
-        f.ref().visit(td::overloaded(
-            [&](const fileref::Proof &p) {
-              b = p.block_id;
-              ignore = !b.is_masterchain();
-              is_proof = true;
-            },
-            [&](const fileref::ProofLink &p) {
-              b = p.block_id;
-              ignore = b.is_masterchain();
-              is_proof = true;
-            },
-            [&](const fileref::Block &p) {
-              b = p.block_id;
-              ignore = false;
-              is_proof = false;
-            },
-            [&](const auto &) { ignore = true; }));
+    f.ref().visit(td::overloaded(
+        [&](const fileref::Proof &p) {
+          b = p.block_id;
+          ignore = !b.is_masterchain();
+          is_proof = true;
+        },
+        [&](const fileref::ProofLink &p) {
+          b = p.block_id;
+          ignore = b.is_masterchain();
+          is_proof = true;
+        },
+        [&](const fileref::Block &p) {
+          b = p.block_id;
+          ignore = false;
+          is_proof = false;
+        },
+        [&](const auto &) { ignore = true; }));
 
-        if (!ignore && (with_masterchain || !b.is_masterchain())) {
-          if (is_proof) {
-            blocks_[b].proof_pkg = package;
-            blocks_[b].proof_offset = offset;
-          } else {
-            blocks_[b].data_pkg = package;
-            blocks_[b].data_offset = offset;
-          }
-          if (b.is_masterchain()) {
-            masterchain_blocks_[b.seqno()] = b;
-            last_masterchain_seqno_ = std::max(last_masterchain_seqno_, b.seqno());
-          } else {
-            have_shard_blocks_ = true;
-          }
-        }
-        return true;
-      })
-      .ignore();
+    if (!ignore && (with_masterchain || !b.is_masterchain())) {
+      if (is_proof) {
+        blocks_[b].proof_pkg = package;
+        blocks_[b].proof_offset = offset;
+      } else {
+        blocks_[b].data_pkg = package;
+        blocks_[b].data_offset = offset;
+      }
+      if (b.is_masterchain()) {
+        masterchain_blocks_[b.seqno()] = b;
+        last_masterchain_seqno_ = std::max(last_masterchain_seqno_, b.seqno());
+      } else {
+        have_shard_blocks_ = true;
+      }
+    }
+    return true;
+  });
+  if (package_status.is_error()) {
+    // Not a fatal error - even partial import is OK
+    LOG(WARNING) << "Error reading " << path << " : " << package_status;
+  }
   return S;
 }
 
@@ -328,10 +330,10 @@ void ArchiveImporter::download_shard_archives(td::Ref<MasterchainState> start_st
       if (opts_->need_monitor(shard_prefix, start_state)) {
         if (have_new_shards(last_masterchain_state_, start_state_, shard_prefix)) {
           ++pending_shard_archives_;
-          LOG(INFO) << "Downloading shard archive #" << start_import_seqno_ << " " << shard_prefix.to_str();
+          LOG(INFO) << "Downloading shard archive #" << start_import_seqno_ << " " << shard_prefix;
           download_shard_archive(shard_prefix);
         } else {
-          LOG(INFO) << "Not downloading shard archive #" << start_import_seqno_ << " " << shard_prefix.to_str()
+          LOG(INFO) << "Not downloading shard archive #" << start_import_seqno_ << " " << shard_prefix
                     << " : no new shard blocks";
         }
       }
@@ -350,12 +352,12 @@ void ArchiveImporter::download_shard_archive(ShardIdFull shard_prefix) {
       td::Timestamp::in(3600.0),
       [SelfId = actor_id(this), seqno = start_import_seqno_, shard_prefix](td::Result<std::string> R) {
         if (R.is_error()) {
-          LOG(WARNING) << "Failed to download archive slice #" << seqno << " for shard " << shard_prefix.to_str();
+          LOG(WARNING) << "Failed to download archive slice #" << seqno << " for shard " << shard_prefix;
           delay_action(
               [=]() { td::actor::send_closure(SelfId, &ArchiveImporter::download_shard_archive, shard_prefix); },
               td::Timestamp::in(2.0));
         } else {
-          LOG(DEBUG) << "Downloaded shard archive #" << seqno << " " << shard_prefix.to_str();
+          LOG(DEBUG) << "Downloaded shard archive #" << seqno << " " << shard_prefix;
           td::actor::send_closure(SelfId, &ArchiveImporter::downloaded_shard_archive, R.move_as_ok());
         }
       });
@@ -422,7 +424,7 @@ void ArchiveImporter::checked_shard_client_seqno(BlockSeqno seqno) {
 
 void ArchiveImporter::apply_shard_block(BlockIdExt block_id, BlockIdExt masterchain_block_id,
                                         td::Promise<td::Unit> promise) {
-  LOG(DEBUG) << "Applying shard block " << block_id.id.to_str();
+  LOG(DEBUG) << "Applying shard block " << block_id.id;
   auto P = td::PromiseCreator::lambda(
       [SelfId = actor_id(this), masterchain_block_id, promise = std::move(promise)](td::Result<BlockHandle> R) mutable {
         R.ensure();
@@ -525,7 +527,7 @@ void ArchiveImporter::check_shard_block_applied(BlockIdExt block_id, td::Promise
           if (!handle->is_applied()) {
             promise.set_error(td::Status::Error(ErrorCode::notready, "not applied"));
           } else {
-            LOG(DEBUG) << "Applied shard block " << handle->id().id.to_str();
+            LOG(DEBUG) << "Applied shard block " << handle->id().id;
             promise.set_value(td::Unit());
           }
         }

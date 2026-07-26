@@ -62,17 +62,19 @@ AnnotationKind Vertex<ast_annotation>::parse_kind(std::string_view name) {
   if (name == "@method_id") {
     return AnnotationKind::method_id;
   }
-  if (name == "@deprecated") {
-    return AnnotationKind::deprecated;
-  }
-  if (name == "@custom") {
-    return AnnotationKind::custom;
-  }
   if (name == "@overflow1023_policy") {
     return AnnotationKind::overflow1023_policy;
   }
   if (name == "@on_bounced_policy") {
     return AnnotationKind::on_bounced_policy;
+  }
+  if (name == "@abi.clientType") {
+    return AnnotationKind::abi_clientType;
+  }
+
+  // no special treating, allow with or without arguments, don't analyze
+  if (name == "@custom" || name.starts_with("@custom.") || name == "@test" || name.starts_with("@test.") || name == "@deprecated") {
+    return AnnotationKind::custom;
   }
   return AnnotationKind::unknown;
 }
@@ -141,6 +143,10 @@ void Vertex<ast_reference>::assign_sym(const Symbol* sym) {
 void Vertex<ast_function_call>::assign_fun_ref(FunctionPtr fun_ref, bool dot_obj_is_self) {
   this->fun_maybe = fun_ref;
   this->dot_obj_is_self = dot_obj_is_self;
+}
+
+void Vertex<ast_function_call>::assign_self_type_before_mutate(TypePtr type) {
+  this->self_type_before_mutate = type;
 }
 
 void Vertex<ast_is_type_operator>::assign_is_negated(bool is_negated) {
@@ -217,6 +223,10 @@ void Vertex<ast_lambda_fun>::assign_lambda_ref(FunctionPtr lambda_ref) {
   this->lambda_ref = lambda_ref;
 }
 
+void Vertex<ast_lambda_fun>::assign_captured_vars(std::vector<LocalVarPtr>&& captured_vars) {
+  this->captured_vars = std::move(captured_vars);
+}
+
 void Vertex<ast_function_declaration>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
 }
@@ -225,7 +235,7 @@ void Vertex<ast_local_var_lhs>::assign_var_ref(LocalVarPtr var_ref) {
   this->var_ref = var_ref;
 }
 
-void Vertex<ast_import_directive>::assign_src_file(const SrcFile* file) {
+void Vertex<ast_import_directive>::assign_src_file(SrcFilePtr file) {
   this->file = file;
 }
 

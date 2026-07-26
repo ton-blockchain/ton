@@ -72,6 +72,9 @@ StringBuilder &operator<<(StringBuilder &sb, const JsonString &val) {
   SCOPE_EXIT {
     sb << '"';
   };
+  auto append_error = [&]() {
+    sb << JsonChar(0xFFFD);  // U+FFFD - Replacement character
+  };
   auto *s = val.str_.begin();
   auto len = val.str_.size();
 
@@ -106,36 +109,69 @@ StringBuilder &operator<<(StringBuilder &sb, const JsonString &val) {
         }
         if (128 <= ch) {
           uint32 a = ch;
-          CHECK((a & 0x40) != 0);
+          if ((a & 0x40) == 0) {
+            append_error();
+            break;
+          }
 
-          CHECK(pos + 1 < len);
+          if (pos + 1 >= len) {
+            append_error();
+            break;
+          }
           uint32 b = static_cast<unsigned char>(s[++pos]);
-          CHECK((b & 0xc0) == 0x80);
+          if ((b & 0xc0) != 0x80) {
+            --pos;
+            append_error();
+            break;
+          }
           if ((a & 0x20) == 0) {
-            CHECK((a & 0x1e) > 0);
+            if ((a & 0x1e) == 0) {
+              append_error();
+              break;
+            }
             sb << JsonChar(((a & 0x1f) << 6) | (b & 0x3f));
             break;
           }
 
-          CHECK(pos + 1 < len);
+          if (pos + 1 >= len) {
+            append_error();
+            break;
+          }
           uint32 c = static_cast<unsigned char>(s[++pos]);
-          CHECK((c & 0xc0) == 0x80);
+          if ((c & 0xc0) != 0x80) {
+            --pos;
+            append_error();
+            break;
+          }
           if ((a & 0x10) == 0) {
-            CHECK(((a & 0x0f) | (b & 0x20)) > 0);
+            if (((a & 0x0f) | (b & 0x20)) == 0) {
+              append_error();
+              break;
+            }
             sb << JsonChar(((a & 0x0f) << 12) | ((b & 0x3f) << 6) | (c & 0x3f));
             break;
           }
 
-          CHECK(pos + 1 < len);
+          if (pos + 1 >= len) {
+            append_error();
+            break;
+          }
           uint32 d = static_cast<unsigned char>(s[++pos]);
-          CHECK((d & 0xc0) == 0x80);
+          if ((d & 0xc0) != 0x80) {
+            --pos;
+            append_error();
+            break;
+          }
           if ((a & 0x08) == 0) {
-            CHECK(((a & 0x07) | (b & 0x30)) > 0);
+            if (((a & 0x07) | (b & 0x30)) == 0) {
+              append_error();
+              break;
+            }
             sb << JsonChar(((a & 0x07) << 18) | ((b & 0x3f) << 12) | ((c & 0x3f) << 6) | (d & 0x3f));
             break;
           }
 
-          UNREACHABLE();
+          append_error();
           break;
         }
         sb << s[pos];

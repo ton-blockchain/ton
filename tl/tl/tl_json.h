@@ -219,6 +219,9 @@ Status from_json(std::vector<T> &to, JsonValue from) {
   to = std::vector<T>(from.get_array().size());
   size_t i = 0;
   for (auto &value : from.get_array()) {
+    if (value.type() == JsonValue::Type::Null) {
+      return Status::Error(PSTRING() << "Unexpected null in array");
+    }
     TRY_STATUS(from_json(to[i], std::move(value)));
     i++;
   }

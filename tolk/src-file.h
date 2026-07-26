@@ -23,6 +23,8 @@
 
 namespace tolk {
 
+struct ContractDirective;
+
 struct SrcFile {
   struct SrcPosition {
     int line_no;
@@ -32,7 +34,7 @@ struct SrcFile {
   };
 
   struct ImportDirective {
-    const SrcFile* imported_file;
+    SrcFilePtr imported_file;
   };
 
   int file_id;                          // an incremental counter through all parsed files
@@ -41,12 +43,14 @@ struct SrcFile {
   std::string text;                     // file contents loaded into memory, every Token::str_val points inside it
   AnyV ast = nullptr;                   // when a file has been parsed, its ast_tolk_file is kept here
   std::vector<ImportDirective> imports; // to check strictness (can't use a symbol without importing its file)
+  ContractDirective* contract_directive;
 
   SrcFile(int file_id, bool is_stdlib_file, std::string realpath, std::string&& text)
     : file_id(file_id)
     , is_stdlib_file(is_stdlib_file)
     , realpath(std::move(realpath))
-    , text(std::move(text)) { }
+    , text(std::move(text))
+    , contract_directive(nullptr) { }
 
   SrcFile(const SrcFile& other) = delete;
   SrcFile &operator=(const SrcFile&) = delete;
@@ -54,23 +58,31 @@ struct SrcFile {
   bool is_offset_valid(int offset) const;
   SrcPosition convert_offset(int offset) const;
 
+  SrcFile* mutate() const { return const_cast<SrcFile*>(this); }
+
+  void assign_contract_directive(ContractDirective* contract_directive);
+  bool has_contract_directive() const { return contract_directive != nullptr; }
+
   std::string extract_short_name() const;
   std::string extract_dirname() const;
 };
 
 class AllRegisteredSrcFiles {
-  std::vector<const SrcFile*> all_src_files;
+  std::vector<SrcFilePtr> all_src_files;
   int last_parsed_file_id = -1;
 
 public:
-  const SrcFile* get_file(int file_id) const { return all_src_files.at(file_id); }
-  const SrcFile* find_file(const std::string& realpath) const;
+  SrcFilePtr get_file(int file_id) const { return all_src_files.at(file_id); }
+  SrcFilePtr find_file(const std::string& realpath) const;
+  SrcFilePtr get_stdlib_common_file() const { return all_src_files.at(0); }
+  SrcFilePtr get_entrypoint_file() const { return all_src_files.at(1); }
 
-  const SrcFile* locate_and_register_source_file(const std::string& filename, AnyV v_import_filename);
+  SrcFilePtr locate_and_register_source_file(const std::string& filename, AnyV v_import_filename);
   SrcFile* get_next_unparsed_file();
 
   auto begin() const { return all_src_files.begin(); }
   auto end() const { return all_src_files.end(); }
+  auto size() const { return all_src_files.size(); }
 };
 
 // SrcRange is a "substring" in some loaded .tolk source SrcFile.
@@ -95,11 +107,11 @@ public:
   static SrcRange overlap(SrcRange start, SrcRange end) {
     return SrcRange(start.file_id, start.start_offset, end.end_offset);
   }
-
+  
   static SrcRange empty_at_start(SrcRange range) {
     return SrcRange(range.file_id, range.start_offset, range.start_offset);
   }
-
+  
   static SrcRange empty_at_end(SrcRange range) {
     return SrcRange(range.file_id, range.end_offset, range.end_offset);
   }
@@ -110,6 +122,10 @@ public:
 
   static SrcRange span(int file_id, int start_offset, int len) {
     return SrcRange(file_id, start_offset, start_offset + len);
+  }
+
+  static SrcRange span_at_end(SrcRange end, int len) {
+    return SrcRange(end.file_id, end.end_offset - len, end.end_offset);
   }
 
   static SrcRange unclosed_range(int file_id, int start_offset) {
@@ -130,11 +146,27 @@ public:
     return file_id == 0 || file_id == other.file_id;
   }
 
-  const SrcFile* get_src_file() const;
+  bool operator<(SrcRange other) const {
+    return file_id != other.file_id ? file_id < other.file_id : start_offset < other.start_offset;
+  }
+
+  SrcFilePtr get_src_file() const;
   std::string stringify_start_location(bool output_char_no) const;
 
-  void output_first_line_to_fif(std::ostream& os, int indent) const;
   void output_underlined(std::ostream& os) const;
+
+
+  struct DecodedRange {
+    int file_id;
+    int start_line_no;
+    int start_char_no;
+    int end_line_no;
+    int end_char_no;
+    std::string_view start_line_str;
+    std::string_view end_line_str;
+    std::string_view text_inside;
+  };
+  DecodedRange decode_offsets() const;
 };
 
 }  // namespace tolk

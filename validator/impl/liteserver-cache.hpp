@@ -19,6 +19,7 @@
 #include <map>
 
 #include "interfaces/liteserver.h"
+#include "td/utils/LRUCache.h"
 
 namespace ton::validator {
 
@@ -78,12 +79,13 @@ class LiteServerCacheImpl : public LiteServerCache {
   }
 
   void process_send_message(td::Bits256 key, td::Promise<td::Unit> promise) override {
-    if (send_message_cache_.insert(key).second) {
-      promise.set_result(td::Unit());
-    } else {
+    if (send_message_cache_.contains(key)) {
       ++send_message_error_cnt_;
       promise.set_error(td::Status::Error("duplicate message"));
+      return;
     }
+    send_message_cache_.put(key, td::Unit{});
+    promise.set_result(td::Unit());
   }
 
   void drop_send_message_from_cache(td::Bits256 key) override {
@@ -91,6 +93,9 @@ class LiteServerCacheImpl : public LiteServerCache {
   }
 
  private:
+  static constexpr size_t MAX_CACHE_SIZE = 64 << 20;
+  static constexpr size_t MAX_MSG_CACHE_SIZE = 1 << 17;
+
   struct CacheEntry : public td::ListNode {
     explicit CacheEntry(td::Bits256 key, td::BufferSlice value) : key_(key), value_(std::move(value)) {
     }
@@ -108,10 +113,8 @@ class LiteServerCacheImpl : public LiteServerCache {
 
   size_t queries_cnt_ = 0, queries_hit_cnt_ = 0;
 
-  std::set<td::Bits256> send_message_cache_;
+  td::LRUCache<td::Bits256, td::Unit> send_message_cache_{MAX_MSG_CACHE_SIZE};
   size_t send_message_error_cnt_ = 0;
-
-  static constexpr size_t MAX_CACHE_SIZE = 64 << 20;
 };
 
 }  // namespace ton::validator

@@ -238,8 +238,7 @@ td::Status DhtUpdateRuleSignature::update_value(DhtValue &value, DhtValue &&new_
   TRY_STATUS(new_value.check());
   CHECK(value.key_id() == new_value.key_id());
   if (new_value.ttl() > value.ttl()) {
-    value.set(new_value.value().clone(), new_value.ttl(), new_value.signature().clone());
-    value.check().ensure();
+    value = std::move(new_value);
   }
   return td::Status::OK();
 }
@@ -384,7 +383,7 @@ bool DhtUpdateRuleOverlayNodes::check_is_acceptable(const ton::dht::DhtValue &va
   auto L = F.move_as_ok();
   auto now = td::Clocks::system();
   for (auto &node : L->nodes_) {
-    if (node->version_ + 600 > now) {
+    if (node->version_ > now - 600) {
       return true;
     }
   }

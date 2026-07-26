@@ -27,6 +27,8 @@
 
 namespace td {
 
+static constexpr size_t MAX_THREADS = 256;
+
 // clang-format off
 #if TD_GCC || TD_CLANG
   #define TD_THREAD_LOCAL __thread

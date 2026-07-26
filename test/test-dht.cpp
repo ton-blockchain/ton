@@ -85,7 +85,7 @@ int main() {
         dht_configR.ensure();
         dht_config = dht_configR.move_as_ok();
       }
-      td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+      td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
       td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr,
                               static_cast<td::uint8>(0));
       td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, src, true, true);
@@ -319,9 +319,11 @@ int main() {
 
     obj->nodes_.clear();
     {
-      td::BufferSlice x{64};
+      td::BufferSlice x{32};
       td::Random::secure_bytes(x.as_slice());
-      auto pk2 = ton::PrivateKey{ton::privkeys::Unenc{x.clone()}};
+      auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519{x.clone()}};
+      auto to_sign = ton::create_serialize_tl_object<ton::ton_api::overlay_node_toSign>(
+          ton::adnl::AdnlNodeIdShort{pk2.compute_short_id()}.tl(), overlay_short_id.tl(), date);
       n = ton::create_tl_object<ton::ton_api::overlay_node>(
           pk2.compute_public_key().tl(), overlay_short_id.tl(), date,
           pk2.create_decryptor().move_as_ok()->sign(to_sign.as_slice()).move_as_ok());
@@ -362,7 +364,7 @@ int main() {
     dht_value.update_signature(key_dec->sign(dht_value.to_sign()).move_as_ok());
 
     remaining++;
-    auto P = td::PromiseCreator::lambda([&](td::Result<td::Unit> R) {
+    auto P = td::PromiseCreator::lambda([&](td::Result<> R) {
       R.ensure();
       remaining--;
     });

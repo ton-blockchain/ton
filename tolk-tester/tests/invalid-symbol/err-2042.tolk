@@ -1,10 +1,10 @@
 fun main(outerParam: int) {
     fun(x: int) {
-        x + outerParam
+        x + outerParam + undefSymbol
     }
 }
 
 /**
 @compilation_should_fail
-@stderr undefined symbol `outerParam`
+@stderr undefined symbol `undefSymbol`
  */

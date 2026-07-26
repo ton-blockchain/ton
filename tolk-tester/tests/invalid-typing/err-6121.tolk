@@ -1,17 +1,11 @@
-enum Color { Red, Green, Blue }
-type ColorAlias = Color
-
-fun main(c: Color) {
-    match (c) {
-        Color.Red => {}
-        Color.Green => {}
-        ColorAlias.Red => {}
-        else => {}
+fun int.bad(self): self {
+    {
+        var `self` = beginCell();
+        return self;
     }
 }
 
 /**
 @compilation_should_fail
-@stderr wrong pattern matching: duplicated enum member in `match`
-@stderr ColorAlias.Red
+@stderr invalid return from `self` function
  */

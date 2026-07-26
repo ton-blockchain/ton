@@ -143,18 +143,21 @@ class DnsInterface {
     td::optional<td::Ref<vm::Cell>> data;
 
     bool does_create_category() const {
-      CHECK(!name.empty());
-      CHECK(!category.is_zero());
+      if (name.empty() || category.is_zero()) {
+        return false;
+      }
       return static_cast<bool>(data);
     }
     bool does_change_empty() const {
-      CHECK(!name.empty());
-      CHECK(!category.is_zero());
+      if (name.empty() || category.is_zero()) {
+        return false;
+      }
       return static_cast<bool>(data) && data.value().not_null();
     }
     void make_non_empty() {
-      CHECK(!name.empty());
-      CHECK(!category.is_zero());
+      if (name.empty() || category.is_zero()) {
+        return;
+      }
       if (!data) {
         data = td::Ref<vm::Cell>();
       }
@@ -189,8 +192,8 @@ class DnsInterface {
   static size_t get_default_max_name_size() {
     return 128;
   }
-  static SmartContract::Args resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
-                                              block::StdAddress address = {});
+  static td::Result<SmartContract::Args> resolve_args_raw(td::Slice encoded_name, td::Bits256 category,
+                                                          block::StdAddress address = {});
   static td::Result<SmartContract::Args> resolve_args(td::Slice name, td::Bits256 category,
                                                       block::StdAddress address = {});
 };

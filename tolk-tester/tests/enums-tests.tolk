@@ -12,7 +12,7 @@ enum InvertedColor {
     Red = Color.Blue,
     Green = Color.Green,
     Blue = Color.Red,
-    OneTon = ton("1"),
+    OneGram = grams("1"),
 }
 
 type ColorAlias = Color
@@ -40,8 +40,12 @@ enum Err {
     DisabledId,
 }
 
-struct Box<T> {
-    value: T
+struct SearchParamsW {
+    exitCode: int32 | (int32 -> bool) | null = null
+}
+
+struct Box<T> { 
+    value: T 
 }
 
 fun checkIsBlue(c: Color) {
@@ -83,7 +87,7 @@ fun Color.mapToNumber(self) {
 @method_id(101)
 fun test1() {
     var c = Color.Red;
-
+    
     return (
         checkIsBlue(Color.Blue), checkIsBlue(c), checkIsBlue(Color.createBlue()),
         Color.Blue.isBlue(), Color.Red.isBlue(), Color.createBlue()!!.isBlue(), C_BLUE.isBlue(),
@@ -119,7 +123,7 @@ fun test3() {
 fun test4(chooseGreen: bool) {
     var c: ColorAlias = chooseGreen ? Color.Green : ColorAlias.Blue;
     return (c is Color, (c!) is ColorAlias, ColorAlias.Blue, ColorAlias.createBlue().isBlue(), c);
-}
+} 
 
 @method_id(105)
 fun test5() {
@@ -131,7 +135,7 @@ fun test6(c: Color) {
     val p = c as EPartialAssigned;
     val e = c as EEmpty;
     match (e) { EEmpty => {} }
-    return (p, e, c as int, c as int?, 100 as Color, -100 as EEmpty);
+    return (p, e, c as int, c as int as int?, 100 as Color, -100 as EEmpty);
 }
 
 @method_id(107)
@@ -141,16 +145,16 @@ fun test7() {
         WithColor{c1: -100 as Color, c2: Color.createBlue()}
     )
 }
-
+    
 @method_id(108)
 fun test8() {
     var (c0: Color | int, c1: Color | int) = (Color.Red, 123);
     var (u1, u2) = (Color.Red as Color | int, 0 as Color | int);
     var (b1, b2, b3) = (Color.Red as Color | EPartialAssigned | builder, EPartialAssigned.Max as ColorAlias | builder | EPartialAssigned, beginCell() as builder | Color | EPartialAssigned);
     return (
-        checkIsColor(u1), checkIsColor(u2),
+        checkIsColor(u1), checkIsColor(u2), 
         checkIsColor(b1), checkIsColor(b2), checkIsColor(b3),
-        b2 is EPartialAssigned,
+        b2 is EPartialAssigned, 
         u1,
         match (u1) { int => -100, Color => -200 }
     )
@@ -161,7 +165,7 @@ fun test9() {
     var invalidEx = 0;
     try { invalidEx = (99 as Color).mapToNumber() }
     catch (ex) { invalidEx = ex }
-
+    
     return (
         Color.Red.mapToNumber(), Color.Green.mapToNumber(), Color.Blue.mapToNumber(),
         invalidEx
@@ -257,7 +261,31 @@ fun test13(x: int) {
 @method_id(114)
 fun test14(x: InvertedColor) {
     __expect_type(InvertedColor.Red, "InvertedColor");
-    return (InvertedColor.Red, InvertedColor.Green, InvertedColor.Blue, InvertedColor.OneTon, x == InvertedColor.Red);
+    return (InvertedColor.Red, InvertedColor.Green, InvertedColor.Blue, InvertedColor.OneGram, x == InvertedColor.Red);
+}
+
+@method_id(115)
+fun test15(): (int, int) {
+    var x: int = Color.Red;     // enums are assignable to int, which feels strange for Color,
+    __expect_type(x, "int");    // but reasonable for ExitCode
+    return (x, Color.Blue);
+}
+
+@method_id(116)
+fun test16() {
+    var p1 = SearchParamsW {
+        exitCode: Err.TooHighId,
+    };
+    var p2 = SearchParamsW {
+        exitCode: fun(x: int) { return (x as Err) == Err.TooLowId },
+    };
+    var x: int32 = Err.DisabledId;
+    return (p1.exitCode is int32, p2.exitCode is int32, p2.exitCode is (int32 -> bool), x);
+}
+
+@method_id(117)
+fun test27() {
+    return [[Color.Red]].toCell().beginParse().remainingBitsAndRefsCount()
 }
 
 
@@ -283,21 +311,24 @@ fun main(c: Color) {
 @testcase | 107 |     | 0 1 -100 2
 @testcase | 108 |     | -1 0 -1 0 0 -1 0 typeid-1 -200
 @testcase | 109 |     | 100 200 300 5
-@testcase | 110 | 0   | [ 1 1 -100 88 -100 1 ]
-@testcase | 110 | 1   | [ -100 2 -100 88 2 2 ]
-@testcase | 110 | 2   | [ -100 3 -100 88 3 3 ]
-@testcase | 111 | 2   | 0 -1 -1 0
+@testcase | 110 | 0   | [ 1 1 -100 88 -100 1 ] 
+@testcase | 110 | 1   | [ -100 2 -100 88 2 2 ]  
+@testcase | 110 | 2   | [ -100 3 -100 88 3 3 ]  
+@testcase | 111 | 2   | 0 -1 -1 0  
 @testcase | 112 | 0 1 | [ 210 120 ]
 @testcase | 112 | 2 2 | [ 330 310 ]
-@testcase | 113 | -8  | 256 -1
-@testcase | 113 | 111 | 257 0
-@testcase | 113 | 10  | 258 0
-@testcase | 113 | 50  | 0 0
-@testcase | 114 | 2   | 2 1 0 1000000000 -1
+@testcase | 113 | -8  | 256 -1 
+@testcase | 113 | 111 | 257 0 
+@testcase | 113 | 10  | 258 0 
+@testcase | 113 | 50  | 0 0 
+@testcase | 114 | 2   | 2 1 0 1000000000 -1 
+@testcase | 115 |     | 0 2
+@testcase | 116 |     | -1 0 -1 258
+@testcase | 117 |     | 9 1
 
 @fif_codegen
 """
-  test1() PROC:<{
+  test1() PROC:<{ 
     TRUE
     FALSE
     TRUE
@@ -312,7 +343,7 @@ fun main(c: Color) {
 @fif_codegen
 """
   test2() PROC:<{               //  c
-    DROP                        //
+    DROP                        // 
     -1 PUSHINT                  //  '1=-1
     0 PUSHINT                   //  '1=-1 '2
     0 PUSHINT                   //  '1=-1 '2 '3=0
@@ -320,6 +351,6 @@ fun main(c: Color) {
   }>
 """
 
-@fif_codegen DECLPROC checkIsColor<EPartialAssigned|builder>()
+@fif_codegen DECLPROC checkIsColor<EPartialAssigned`|`builder>()
 
 */

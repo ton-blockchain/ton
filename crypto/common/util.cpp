@@ -49,7 +49,7 @@ std::size_t buff_base64_encode(td::MutableSlice buffer, td::Slice raw, bool base
   char *wptr = buffer.data();
   unsigned x;
   std::size_t i;
-  for (i = 0; i < orig_size - 2; i += 3) {
+  for (i = 0; i + 2 < orig_size; i += 3) {
     x = (((unsigned)(unsigned char)raw[i]) << 16) | (((unsigned)(unsigned char)raw[i + 1]) << 8) |
         ((unsigned)(unsigned char)raw[i + 2]);
     *wptr++ = table[(x >> 18) & 0x3f];

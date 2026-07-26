@@ -36,13 +36,14 @@ enum class CompressionAlgorithm : int {
 };
 
 td::Result<td::BufferSlice> boc_compress_baseline_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots);
-td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed, int max_decompressed_size);
+td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice compressed,
+                                                                       unsigned max_decompressed_size);
 
 td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vector<td::Ref<vm::Cell>>& boc_roots,
                                                                 bool compress_merkle_update = false,
                                                                 td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4(
-    td::Slice compressed, int max_decompressed_size, bool decompress_merkle_update = false,
+    td::Slice compressed, unsigned max_decompressed_size, bool decompress_merkle_update = false,
     td::Ref<vm::Cell> state = td::Ref<vm::Cell>());
 
 td::Result<td::BufferSlice> boc_compress(const std::vector<td::Ref<vm::Cell>>& boc_roots,

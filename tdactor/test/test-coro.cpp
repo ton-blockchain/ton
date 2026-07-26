@@ -273,7 +273,7 @@ class CoroSpec final : public td::actor::Actor {
 
     check(co_await ask_new(uni, &Uni::get_task));
 
-    static_assert(td::is_promise_interface<StartedTask<int>::ExternalPromise>());
+    static_assert(td::detail::IsPromiseInterface<StartedTask<int>::ExternalPromise, int>);
 
     auto check_send_closure = [&](auto&& f) -> Task<td::Unit> {
       auto [task, task_promise] = StartedTask<Value>::make_bridge();
@@ -1008,6 +1008,68 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  // Test ActorRef UAF: coroutine outlives actor, SCOPE_EXIT accesses freed memory
+  // This test demonstrates the need for ActorRef to prevent UAF
+  Task<td::Unit> actor_ref_uaf() {
+    LOG(INFO) << "=== actor_ref_uaf ===";
+
+    class UafActor : public td::actor::Actor {
+     public:
+      int member_value = 42;
+
+      ~UafActor() {
+        LOG(INFO) << "~UafActor: zeroing member_value (was " << member_value << ")";
+        member_value = 0;
+      }
+
+      void start_up() override {
+        // Schedule alarm to stop actor in 0.05 seconds
+        alarm_timestamp() = td::Timestamp::in(0.05);
+      }
+      void alarm() override {
+        LOG(INFO) << "UafActor stopping";
+        stop();
+      }
+
+      Task<int> query_with_scope_exit() {
+        // SCOPE_EXIT will access 'this' when coroutine ends
+        // But actor might be destroyed by then!
+        SCOPE_EXIT {
+          LOG(INFO) << "SCOPE_EXIT: accessing member_value = " << this->member_value;
+          // UAF check: if actor destroyed, member_value will be 0
+          LOG_CHECK(this->member_value == 42) << "UAF detected in SCOPE_EXIT!";
+        };
+
+        LOG(INFO) << "Before sleep, member_value = " << member_value;
+        CHECK(member_value == 42);
+
+        // Sleep longer than alarm timeout - actor will be destroyed while sleeping
+        auto task = []() -> Task<td::Unit> {
+          td::usleep_for(200000);  // 200ms sleep
+          co_return td::Unit{};
+        }();
+        task.set_executor(Executor::on_scheduler());
+        co_await std::move(task);
+
+        // We reach here after actor is destroyed
+        LOG(INFO) << "After sleep, member_value = " << member_value;  // UAF!
+        LOG_CHECK(member_value == 42) << "UAF detected after sleep!";
+        co_return member_value;  // UAF!
+      }
+    };
+
+    auto a = create_actor<UafActor>("UafActor");
+    auto r = co_await ask(a, &UafActor::query_with_scope_exit).wrap();
+    // With current implementation: UAF happens or we get an error
+    // With ActorRef: Should get clean error without UAF
+    if (r.is_error()) {
+      LOG(INFO) << "Got expected error: " << r.error();
+    } else {
+      LOG(INFO) << "Unexpected success, value = " << r.ok();
+    }
+    co_return td::Unit{};
+  }
+
   Task<td::Unit> actor_task_unwrap_bug() {
     LOG(INFO) << "=== actor_task_unwrap_bug ===";
 
@@ -1091,6 +1153,43 @@ class CoroSpec final : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  Task<td::Unit> ask_dead_actor() {
+    LOG(INFO) << "=== ask_dead_actor ===";
+
+    class DeadAskTarget : public td::actor::Actor {
+     public:
+      explicit DeadAskTarget(std::shared_ptr<std::atomic<bool>> destroyed) : destroyed_(std::move(destroyed)) {
+      }
+      ~DeadAskTarget() override {
+        destroyed_->store(true, std::memory_order_release);
+      }
+      void kill() {
+        stop();
+      }
+      Task<int> compute(int x) {
+        co_return x* x;
+      }
+
+     private:
+      std::shared_ptr<std::atomic<bool>> destroyed_;
+    };
+
+    auto destroyed = std::make_shared<std::atomic<bool>>(false);
+    auto target = create_actor<DeadAskTarget>("dead_ask_target", destroyed);
+    auto target_id = target.get();
+    send_closure(target_id, &DeadAskTarget::kill);
+    target.release();
+
+    while (!destroyed->load(std::memory_order_acquire)) {
+      co_await yield_on_current();
+    }
+
+    auto result = co_await ask(target_id, &DeadAskTarget::compute, 4).wrap();
+    expect_true(result.is_error(), "ask() on dead actor must return an error");
+
+    co_return td::Unit{};
+  }
+
   // Master runner
   Task<td::Unit> run_all() {
     LOG(ERROR) << "Run tests";
@@ -1108,12 +1207,14 @@ class CoroSpec final : public td::actor::Actor {
     co_await lifecycle();
     co_await helpers();
     co_await combinators();
+    co_await ask_dead_actor();
     co_await try_awaitable();
     co_await test_trace();
     co_await stop_actor();
     co_await promise_destroy_in_mailbox();
     co_await promise_destroy_in_actor_member();
     co_await co_return_empty_braces();
+    co_await actor_ref_uaf();  // UAF test - demonstrates need for ActorRef
     co_await actor_task_unwrap_bug();
 
     (void)co_await ask(logger_, &TestLogger::log, std::string("All tests passed"));

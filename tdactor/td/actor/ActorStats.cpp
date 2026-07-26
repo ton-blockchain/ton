@@ -64,7 +64,7 @@ std::string ActorStats::prepare_stats() {
       auto &since = timed_stat.get_stat(now.at());
       auto duration = since.get_duration(estimated_inv_ticks_per_second);
       if (since.first_) {
-        res -= since.first_.value();
+        res -= static_cast<double>(since.first_.value());
       }
       if (td::ends_with(name, ".duration")) {
         res *= estimated_inv_ticks_per_second;
@@ -108,7 +108,6 @@ std::string ActorStats::prepare_stats() {
   }
   sb << "\n";
   sb << "================================= ACTORS STATS =================================\n";
-  double max_delay = 0;
   ActorTypeStat sum_stat_forever;
   ActorTypeStat sum_stat_10m;
   ActorTypeStat sum_stat_10s;
@@ -214,7 +213,6 @@ std::string ActorStats::prepare_stats() {
   sb << "All actors:\n";
   for (auto &it : stats) {
     sb << "\t" << ActorTypeStatManager::get_class_name(it.first.name()) << "\n";
-    auto key = main_key(it.first);
     describe(sb, it.first);
   }
   sb << "\n";

@@ -903,25 +903,32 @@ bool StackEntry::deserialize(CellSlice& cs, int mode) {
       if (!(cs.advance(8) && cs.fetch_uint_to(16, n))) {
         return false;
       }
+      if (vsi && !vsi->register_op(n)) {
+        return false;
+      }
       Ref<Tuple> tuple{true, n};
       auto& t = tuple.write();
       if (n > 1) {
         Ref<Cell> head, tail;
         n--;
+        vsi && vsi->register_op(-1);  // t[].deserialize will perform register_op()
         if (!(cs.fetch_ref_to(head) && cs.fetch_ref_to(tail) && t[n].deserialize(std::move(tail), mode))) {
           return false;
         }
         vm::CellSlice cs2;
         while (--n > 0) {
+          vsi && vsi->register_op(-1);
           if (!(cs2.load(std::move(head)) && cs2.fetch_ref_to(head) && cs2.fetch_ref_to(tail) && cs2.empty_ext() &&
                 t[n].deserialize(std::move(tail), mode))) {
             return false;
           }
         }
+        vsi && vsi->register_op(-1);
         if (!t[0].deserialize(std::move(head), mode)) {
           return false;
         }
       } else if (n == 1) {
+        vsi && vsi->register_op(-1);
         return cs.have_refs() && t[0].deserialize(cs.fetch_ref(), mode) && set(t_tuple, std::move(tuple));
       }
       return set(t_tuple, std::move(tuple));

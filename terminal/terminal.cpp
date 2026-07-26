@@ -118,7 +118,8 @@ void TerminalIOImpl::start_up() {
 #endif
 
   if (!no_input_) {
-    td::actor::SchedulerContext::get().get_poll().subscribe(stdin_.get_poll_info().extract_pollable_fd(this),
+    stdin_.emplace();
+    td::actor::SchedulerContext::get().get_poll().subscribe(stdin_->get_poll_info().extract_pollable_fd(this),
                                                             td::PollFlags::Read());
     loop();
   }
@@ -126,7 +127,9 @@ void TerminalIOImpl::start_up() {
 
 void TerminalIOImpl::tear_down() {
   log_interface = default_log_interface;
-  td::actor::SchedulerContext::get().get_poll().unsubscribe(stdin_.get_poll_info().get_pollable_fd_ref());
+  if (stdin_) {
+    td::actor::SchedulerContext::get().get_poll().unsubscribe(stdin_->get_poll_info().get_pollable_fd_ref());
+  }
   out_mutex_.lock();
 #ifdef USE_READLINE
   if (use_readline_) {
@@ -173,10 +176,13 @@ void TerminalIOImpl::tear_down() {
 }*/
 
 void TerminalIOImpl::loop() {
-  stdin_.flush_read().ignore();
+  if (!stdin_) {
+    return;
+  }
+  stdin_->flush_read().ignore();
 #ifdef USE_READLINE
   if (use_readline_) {
-    while (!stdin_.input_buffer().empty()) {
+    while (!stdin_->input_buffer().empty()) {
       rl_callback_read_char();
     }
   } else {
@@ -184,7 +190,7 @@ void TerminalIOImpl::loop() {
   if (1) {
 #endif
     while (true) {
-      auto cmd = process_stdin(&stdin_.input_buffer());
+      auto cmd = process_stdin(&stdin_->input_buffer());
       if (cmd.is_error()) {
         break;
       }
@@ -243,12 +249,12 @@ void TerminalIOImpl::set_log_interface() {
 }
 
 int TerminalIOImpl::stdin_getc() {
-  auto slice = stdin_.input_buffer().prepare_read();
+  auto slice = stdin_->input_buffer().prepare_read();
   if (slice.empty()) {
     return EOF;
   }
   int res = slice[0];
-  stdin_.input_buffer().confirm_read(1);
+  stdin_->input_buffer().confirm_read(1);
   return res;
 }
 
@@ -337,6 +343,9 @@ TerminalIOOutputter::~TerminalIOOutputter() {
 
 td::actor::ActorOwn<TerminalIO> TerminalIO::create(std::string prompt, bool use_readline, bool no_input,
                                                    std::unique_ptr<Callback> callback) {
+  if (no_input) {
+    use_readline = false;
+  }
   return actor::create_actor<TerminalIOImpl>(actor::ActorOptions().with_name("terminal io").with_poll(), prompt,
                                              use_readline, no_input, std::move(callback));
 }

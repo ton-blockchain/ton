@@ -6,6 +6,7 @@
 
 #include "auto/tl/ton_api_json.h"
 #include "tl/tl_json.h"
+#include "ton/ton-io.hpp"
 
 #include "bus.h"
 
@@ -14,7 +15,7 @@ namespace ton::validator::consensus {
 namespace {
 
 std::string block_candidate_to_string(const BlockCandidate& candidate) {
-  return PSTRING() << "BlockCandidate{id=" << candidate.id.to_str() << ", block_size=" << candidate.data.size()
+  return PSTRING() << "BlockCandidate{id=" << candidate.id << ", block_size=" << candidate.data.size()
                    << ", collated_size=" << candidate.collated_data.size()
                    << ", collated_file_hash=" << candidate.collated_file_hash
                    << ", pubkey=" << candidate.pubkey.as_bits256() << "}";
@@ -22,7 +23,7 @@ std::string block_candidate_to_string(const BlockCandidate& candidate) {
 
 std::string candidate_to_string(const CandidateRef& candidate) {
   auto block_fn = [](const BlockCandidate& block) { return block_candidate_to_string(block); };
-  auto empty_fn = [](const BlockIdExt& id) { return PSTRING() << id.to_str() << " (referenced)"; };
+  auto empty_fn = [](const BlockIdExt& id) { return PSTRING() << id << " (referenced)"; };
 
   return PSTRING() << "Candidate{id=" << candidate->id << ", parent=" << candidate->parent_id
                    << ", leader=" << candidate->leader
@@ -57,6 +58,19 @@ std::string block_signature_set_to_string(const td::Ref<block::BlockSignatureSet
 
 }  // namespace
 
+static td::StringBuilder& operator<<(td::StringBuilder& sb, const OutgoingProtocolMessage::Recipient& recipient) {
+  auto broadcast_to_all_fn = [&](const OutgoingProtocolMessage::BroadcastToAll&) { sb << "BroadcastToAll{}"; };
+  auto broadcast_to_validators_fn = [&](const OutgoingProtocolMessage::BroadcastToValidators&) {
+    sb << "BroadcastToValidators{}";
+  };
+  auto broadcast_to_random_fn = [&](const OutgoingProtocolMessage::BroadcastToRandom& r) {
+    sb << "BroadcastToRandom{count=" << r.count << "}";
+  };
+
+  std::visit(td::overloaded(broadcast_to_all_fn, broadcast_to_validators_fn, broadcast_to_random_fn), recipient);
+  return sb;
+}
+
 std::string Start::contents_to_string() const {
   return PSTRING() << "{state=" << state << "}";
 }
@@ -69,10 +83,6 @@ std::string FinalizeBlock::contents_to_string() const {
 std::string OurLeaderWindowStarted::contents_to_string() const {
   return PSTRING() << "{base=" << base << ", state=" << state << ", start_slot=" << start_slot
                    << ", end_slot=" << end_slot << ", start_time=" << start_time.at_unix() << "}";
-}
-
-std::string OurLeaderWindowAborted::contents_to_string() const {
-  return PSTRING() << "{start_slot=" << start_slot << "}";
 }
 
 std::string CandidateGenerated::contents_to_string() const {
@@ -99,12 +109,12 @@ std::string ValidationRequest::response_to_string(const ReturnType& result) {
 }
 
 std::string IncomingProtocolMessage::contents_to_string() const {
-  return PSTRING() << "{source=" << source << ", message=" << message_to_string(message) << "}";
+  return PSTRING() << "{source_validator=" << source << ", source=" << source
+                   << ", message=" << message_to_string(message) << "}";
 }
 
 std::string OutgoingProtocolMessage::contents_to_string() const {
-  return PSTRING() << "{recipient=" << (recipient.has_value() ? (PSTRING() << *recipient) : "broadcast")
-                   << ", message=" << message_to_string(message) << "}";
+  return PSTRING() << "{recipient=" << recipient << ", message=" << message_to_string(message) << "}";
 }
 
 std::string IncomingOverlayRequest::contents_to_string() const {
@@ -125,7 +135,7 @@ std::string OutgoingOverlayRequest::response_to_string(const ReturnType& respons
 }
 
 std::string BlockFinalizedInMasterchain::contents_to_string() const {
-  return PSTRING() << "{block=" << block.to_str() << "}";
+  return PSTRING() << "{block=" << block << "}";
 }
 
 std::string MisbehaviorReport::contents_to_string() const {
@@ -134,6 +144,21 @@ std::string MisbehaviorReport::contents_to_string() const {
 
 std::string TraceEvent::contents_to_string() const {
   return PSTRING() << "{event=" << event->to_string() << "}";
+}
+
+std::string NoncriticalParamsUpdated::contents_to_string() const {
+  td::StringBuilder sb;
+#define APPEND_PARAM(_, name, value) sb << #name << "=" << params.name << ", ";
+#define APPEND_DURATION(_, name, value) sb << #name << "=" << params.name.count() << "ms, ";
+  ENUMERATE_NONCRITICAL_PARAMS(APPEND_PARAM, APPEND_PARAM, APPEND_DURATION)
+#undef APPEND_PARAM
+#undef APPEND_DURATION
+  return PSTRING() << "{params={" << td::Slice{sb.as_cslice()}.remove_suffix(2) << "}}";
+}
+
+std::string PrecheckCandidateBroadcast::contents_to_string() const {
+  return PSTRING() << "{slot=" << slot << ", broadcast_id=" << broadcast_id
+                   << ", signature_checked=" << signature_checked << "}";
 }
 
 }  // namespace ton::validator::consensus

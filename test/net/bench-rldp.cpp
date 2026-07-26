@@ -22,8 +22,8 @@
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "keys/keys.hpp"
+#include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
-#include "rldp/rldp.h"
 #include "rldp2/rldp.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
@@ -59,7 +59,7 @@ ton::PublicKey client_public_key(td::uint32 client_id = 0) {
 }  // namespace
 
 enum class Mode { loopback, server, client, both };
-enum class Protocol { rldp1, rldp2, quic };
+enum class Protocol { rldp2, quic };
 
 struct Config {
   Mode mode = Mode::loopback;
@@ -76,6 +76,7 @@ struct Config {
   bool enable_gro = true;
   bool enable_mmsg = true;
   ton::quic::CongestionControlAlgo cc_algo = ton::quic::CongestionControlAlgo::Bbr;
+  bool prometheus = false;
 
   // Network mode options
   td::IPAddress local_addr;
@@ -85,8 +86,6 @@ struct Config {
 
 const char* protocol_name(Protocol p) {
   switch (p) {
-    case Protocol::rldp1:
-      return "rldp1";
     case Protocol::rldp2:
       return "rldp2";
     case Protocol::quic:
@@ -315,7 +314,6 @@ void run_loopback(Config config) {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::TestLoopbackNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp::Rldp> rldp1;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
@@ -332,29 +330,24 @@ void run_loopback(Config config) {
 
     auto max_size = std::max(config.query_size, config.response_size) + 1024;
 
-    rldp1 = ton::rldp::Rldp::create(adnl.get());
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::set_default_mtu, (td::uint64)max_size);
-
     rldp2 = ton::rldp2::Rldp::create(adnl.get());
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::set_default_mtu, (td::uint64)max_size);
 
     auto pk1 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto pub1 = pk1.compute_public_key();
     src = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
 
     auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto pub2 = pk2.compute_public_key();
     dst = ton::adnl::AdnlNodeIdShort{pub2.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
     auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr, td::uint8(0));
     td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub2}, addr, td::uint8(0));
 
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::add_id, src);
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::add_id, dst);
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, src);
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, dst);
 
@@ -366,14 +359,14 @@ void run_loopback(Config config) {
     // Create QUIC sender for loopback testing
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_udp_offload_options,
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options,
                             ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
                                                            .enable_gro = config.enable_gro,
                                                            .enable_mmsg = config.enable_mmsg,
                                                            .cc_algo = config.cc_algo});
     // Add both local IDs to QUIC sender
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, dst);
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, dst);
 
     stats_reporter = td::actor::create_actor<StatsReporter>(
         "quic-stats-loopback", quic_sender.get(), "loopback-periodic", config.protocol == Protocol::quic, 10.0);
@@ -383,9 +376,6 @@ void run_loopback(Config config) {
 
     td::actor::ActorId<ton::adnl::AdnlSenderInterface> sender_id;
     switch (config.protocol) {
-      case Protocol::rldp1:
-        sender_id = rldp1.get();
-        break;
       case Protocol::rldp2:
         sender_id = rldp2.get();
         break;
@@ -410,12 +400,18 @@ void run_server(Config config) {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp::Rldp> rldp1;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<StatsReporter> stats_reporter;
+  td::actor::ActorOwn<ton::PrometheusExporter> exporter;
 
   scheduler.run_in_context([&] {
+    if (config.prometheus) {
+      td::IPAddress addr;
+      addr.init_host_port("127.0.0.1:19777").ensure();
+      exporter = ton::PrometheusExporter::create();
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
+    }
     keyring = ton::keyring::Keyring::create(db_root);
     network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
     adnl = ton::adnl::Adnl::create(db_root, keyring.get());
@@ -428,10 +424,10 @@ void run_server(Config config) {
                             std::move(cat_mask), 0);
 
     auto local_id = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, server_private_key(), true, [](td::Unit) {});
+    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, server_private_key(), true, [](td::Result<>) {});
 
     ton::adnl::AdnlAddressList addr_list;
-    addr_list.add_udp_address(self_addr).ensure();
+    addr_list.add_udp_adnl_address(self_addr).ensure();
     addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
 
@@ -440,11 +436,7 @@ void run_server(Config config) {
 
     auto max_size = std::max(config.query_size, config.response_size) + 1024;
 
-    // Start RLDP v1 and v2
-    rldp1 = ton::rldp::Rldp::create(adnl.get());
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::set_default_mtu, (td::uint64)max_size);
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::add_id, local_id);
-
+    // Start RLDP v2
     rldp2 = ton::rldp2::Rldp::create(adnl.get());
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::set_default_mtu, (td::uint64)max_size);
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, local_id);
@@ -452,13 +444,16 @@ void run_server(Config config) {
     // Start QUIC sender (uses ADNL keys for TLS via RPK)
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_udp_offload_options,
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options,
                             ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
                                                            .enable_gro = config.enable_gro,
                                                            .enable_mmsg = config.enable_mmsg,
                                                            .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, local_id);
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, local_id);
+    if (config.prometheus)
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
+                              &ton::quic::QuicSender::collect);
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
@@ -482,16 +477,23 @@ void run_client(Config config) {
   td::actor::ActorOwn<ton::keyring::Keyring> keyring;
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp::Rldp> rldp1;
   td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
   td::actor::ActorOwn<BenchmarkRunner> runner;
+  td::actor::ActorOwn<ton::PrometheusExporter> exporter;
   td::actor::ActorOwn<StatsReporter> stats_reporter;
 
   ton::adnl::AdnlNodeIdShort src;
   ton::adnl::AdnlNodeIdShort dst;
 
   scheduler.run_in_context([&] {
+    if (config.prometheus) {
+      td::IPAddress addr;
+      addr.init_host_port("127.0.0.1:29777").ensure();
+      exporter = ton::PrometheusExporter::create();
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
+    }
+
     keyring = ton::keyring::Keyring::create(db_root);
     network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
     adnl = ton::adnl::Adnl::create(db_root, keyring.get());
@@ -506,10 +508,10 @@ void run_client(Config config) {
     auto client_priv_key = client_private_key(config.client_id);
     src = ton::adnl::AdnlNodeIdShort{client_priv_key.compute_public_key().compute_short_id()};
     td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(client_priv_key), true,
-                            [](td::Unit) {});
+                            [](td::Result<>) {});
 
     ton::adnl::AdnlAddressList local_addr_list;
-    local_addr_list.add_udp_address(self_addr).ensure();
+    local_addr_list.add_udp_adnl_address(self_addr).ensure();
     local_addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     local_addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
 
@@ -519,23 +521,22 @@ void run_client(Config config) {
 
     auto max_size = std::max(config.query_size, config.response_size) + 1024;
 
-    rldp1 = ton::rldp::Rldp::create(adnl.get());
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::set_default_mtu, (td::uint64)max_size);
-    td::actor::send_closure(rldp1, &ton::rldp::Rldp::add_id, src);
-
     rldp2 = ton::rldp2::Rldp::create(adnl.get());
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::set_default_mtu, (td::uint64)max_size);
     td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, src);
 
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_udp_offload_options,
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options,
                             ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
                                                            .enable_gro = config.enable_gro,
                                                            .enable_mmsg = config.enable_mmsg,
                                                            .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_local_id, src);
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
+    if (config.prometheus)
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
+                              &ton::quic::QuicSender::collect);
 
     stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-client", quic_sender.get(), "client-periodic",
                                                             config.protocol == Protocol::quic, 10.0);
@@ -543,7 +544,7 @@ void run_client(Config config) {
     // Add server as static node
     dst = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
     ton::adnl::AdnlAddressList server_addr_list;
-    server_addr_list.add_udp_address(config.server_addr).ensure();
+    server_addr_list.add_udp_adnl_address(config.server_addr).ensure();
     server_addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
     server_addr_list.set_reinit_date(0);
 
@@ -553,9 +554,6 @@ void run_client(Config config) {
 
     td::actor::ActorId<ton::adnl::AdnlSenderInterface> sender_id;
     switch (config.protocol) {
-      case Protocol::rldp1:
-        sender_id = rldp1.get();
-        break;
       case Protocol::rldp2:
         sender_id = rldp2.get();
         break;
@@ -610,10 +608,6 @@ int main(int argc, char* argv[]) {
   p.add_option('v', "verbosity", "set verbosity level", [&](td::Slice arg) {
     int v = VERBOSITY_NAME(FATAL) + td::to_integer<int>(arg);
     SET_VERBOSITY_LEVEL(v);
-  });
-  p.add_checked_option('\0', "rldp1", "use RLDP v1", [&]() {
-    config.protocol = Protocol::rldp1;
-    return td::Status::OK();
   });
   p.add_checked_option('\0', "rldp2", "use RLDP v2 (default)", [&]() {
     config.protocol = Protocol::rldp2;
@@ -703,6 +697,10 @@ int main(int argc, char* argv[]) {
   });
   p.add_checked_option('s', "server-addr", "server address (ip:port) for client mode", [&](td::Slice arg) {
     TRY_STATUS(config.server_addr.init_host_port(arg.str()));
+    return td::Status::OK();
+  });
+  p.add_checked_option('p', "prometheus", "enable prometheus exporter", [&]() {
+    config.prometheus = true;
     return td::Status::OK();
   });
 
