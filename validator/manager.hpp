@@ -793,7 +793,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::map<std::pair<ShardIdFull, CatchainSeqno>, NonfinalGroupInfo> nonfinal_info_;
 
   bool is_valid_nonfinal_group(ShardIdFull shard, CatchainSeqno cc_seqno);
-  void process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno);
+  td::actor::Task<> process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno);
   void cleanup_nonfinal_groups();
 
   td::LRUCache<BlockIdExt, BlockReceiveStats> block_receive_stats_{1000};
