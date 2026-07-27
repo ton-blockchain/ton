@@ -512,7 +512,11 @@ td::actor::Task<> ValidatorManagerImpl::got_block_finality(BlockIdExt block_id, 
   bool need_shard_block_description =
       !block_id.is_masterchain() && sig_set->is_final() && is_validator() &&
       check_need_generate_shard_block_description(block_id, sig_set->get_catchain_seqno()).is_ok();
-  co_await check_pending_block_needed(block_id, /* check_block_received = */ !need_shard_block_description);
+  bool process_nonfinal = sig_set->is_final() && !block_id.is_masterchain() && opts_->nonfinal_ls_queries_enabled() &&
+                          shard_client_handle_ &&
+                          shard_client_handle_->unix_time() > (UnixTime)td::Clocks::system() - 60;
+  co_await check_pending_block_needed(block_id,
+                                      /* check_block_received = */ !need_shard_block_description && !process_nonfinal);
   auto serialized_final = co_await check_finality_signatures(block_id, sig_set, last_masterchain_state_);
   if (need_shard_block_description) {
     td::actor::send_closure(actor_id(this), &ValidatorManagerImpl::generate_shard_block_description, block_id, sig_set,
@@ -523,6 +527,9 @@ td::actor::Task<> ValidatorManagerImpl::got_block_finality(BlockIdExt block_id, 
                               }
                             });
   }
+  if (process_nonfinal) {
+    process_accepted_nonfinal_block(block_id, sig_set->get_catchain_seqno()).start().detach_silent();
+  }
   co_await check_pending_block_needed(block_id, /* check_block_received = */ true);
 
   if (auto cached = pending_block_finality_.get_if_exists(block_id, false);
@@ -532,12 +539,6 @@ td::actor::Task<> ValidatorManagerImpl::got_block_finality(BlockIdExt block_id, 
   pending_block_finality_.put(block_id, PendingBlockFinality{sig_set, serialized_final, source});
   try_process_pending_block_finality(block_id).start().detach();
 
-  if (sig_set->is_final() && !block_id.is_masterchain() && opts_->nonfinal_ls_queries_enabled() &&
-      shard_client_handle_ && shard_client_handle_->unix_time() > (UnixTime)td::Clocks::system() - 60) {
-    co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::wait_block_state_short, block_id, 0,
-                            td::Timestamp::in(60.0), true);
-    process_accepted_nonfinal_block(block_id, sig_set->get_catchain_seqno());
-  }
   co_return td::Unit{};
 }
 
@@ -3236,17 +3237,17 @@ bool ValidatorManagerImpl::is_valid_nonfinal_group(ShardIdFull shard, CatchainSe
   return shard_client_state_->get_shard_cc_seqno(shard) <= cc_seqno;
 }
 
-void ValidatorManagerImpl::process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno) {
+td::actor::Task<> ValidatorManagerImpl::process_accepted_nonfinal_block(BlockIdExt block_id, CatchainSeqno cc_seqno) {
+  co_await td::actor::ask(actor_id(this), &ValidatorManagerImpl::wait_block_state_short, block_id, 0,
+                          td::Timestamp::in(60.0), true);
   if (!is_valid_nonfinal_group(block_id.shard_full(), cc_seqno)) {
-    return;
+    co_return {};
   }
-  if (opts_->nonfinal_ls_queries_enabled()) {
-    NonfinalGroupInfo &info = nonfinal_info_[{block_id.shard_full(), cc_seqno}];
-    if (!info.last_accepted.is_valid() || info.last_accepted.seqno() < block_id.seqno()) {
-      info.last_accepted = block_id;
-      if (info.last_candidate.is_valid() && info.last_candidate.seqno() <= block_id.seqno()) {
-        info.last_candidate = {};
-      }
+  NonfinalGroupInfo &info = nonfinal_info_[{block_id.shard_full(), cc_seqno}];
+  if (!info.last_accepted.is_valid() || info.last_accepted.seqno() < block_id.seqno()) {
+    info.last_accepted = block_id;
+    if (info.last_candidate.is_valid() && info.last_candidate.seqno() <= block_id.seqno()) {
+      info.last_candidate = {};
     }
   }
   if (!db_event_publisher_.empty()) {
@@ -3255,6 +3256,7 @@ void ValidatorManagerImpl::process_accepted_nonfinal_block(BlockIdExt block_id, 
                    create_tl_object<ton_api::db_event_blockSigned>(create_tl_block_id(block_id)))
         .detach();
   }
+  co_return {};
 }
 
 void ValidatorManagerImpl::cleanup_nonfinal_groups() {
