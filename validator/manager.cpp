@@ -581,12 +581,12 @@ td::actor::Task<> ValidatorManagerImpl::add_cached_block_data(BlockIdExt block_i
   if (last_masterchain_state_.is_null() || !last_masterchain_block_handle_) {
     co_return td::Status::Error(ErrorCode::notready, "not started");
   }
+  update_block_receive_stats(block_id, BlockReceiveStats::from(source, /*is_candidate=*/true));
   co_await check_pending_block_needed(block_id);
   if (cached_block_data_.contains(block_id)) {
     co_return {};
   }
   VLOG(validator, DEBUG) << "Add cached block data " << block_id;
-  update_block_receive_stats(block_id, BlockReceiveStats::from(source, /*is_candidate=*/true));
   cached_block_data_.put(block_id, data.clone());
   if (!block_id.is_masterchain()) {
     {
