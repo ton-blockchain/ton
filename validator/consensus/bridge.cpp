@@ -163,26 +163,6 @@ class DbImpl : public Db {
   std::unique_ptr<td::KeyValueReader> reader_;
 };
 
-class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
- public:
-  TON_RUNTIME_DEFINE_EVENT_HANDLER();
-
-  template <>
-  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
-    stop();
-  }
-
-  template <>
-  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
-    if (event->candidate->is_empty()) {
-      return;
-    }
-    const auto& block = std::get<BlockCandidate>(event->candidate->block);
-    td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, block.id, block.data.clone(),
-                            fullnode::FullNode::broadcast_mode_all);
-  }
-};
-
 class BridgeImpl final : public IValidatorGroup {
  public:
   BridgeImpl(std::string name, GroupParams&& params) : name_(name), params_(std::move(params)) {
@@ -281,7 +261,7 @@ class BridgeImpl final : public IValidatorGroup {
 
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);
-    runtime.register_actor<CandidateBroadcastRelay>("CandidateBroadcastRelay");
+    simplex::CandidateBroadcastRelay::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);
     TraceCollector::register_in(runtime);
