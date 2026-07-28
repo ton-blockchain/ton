@@ -10,6 +10,7 @@
 #include "td/utils/CancellationToken.h"
 
 #include "bus.h"
+#include "state.h"
 
 namespace ton::validator::consensus::simplex {
 
@@ -25,7 +26,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   static bool should_be_spawned(const Bus& bus) {
-    return bus.is_collator && !bus.shard.is_masterchain();
+    return bus.is_collator && !bus.is_validator() && !bus.shard.is_masterchain();
   }
 
   void start_up() override {
@@ -33,6 +34,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     target_rate_ = bus.config.noncritical_params.target_rate;
     no_empty_blocks_on_error_timeout_ = bus.config.noncritical_params.no_empty_blocks_on_error_timeout;
     slots_per_leader_window_ = bus.config.slots_per_leader_window;
+    max_leader_window_desync_ = bus.config.noncritical_params.max_leader_window_desync;
     own_key_ = td::actor::ask(bus.keyring, &keyring::Keyring::get_public_key, bus.local_adnl_id.pubkey_hash());
 
     auto signatures = bus.db->get_by_prefix(tl::db_key_delegationSignature::ID);
@@ -47,6 +49,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
     target_rate_ = event->params.target_rate;
     no_empty_blocks_on_error_timeout_ = event->params.no_empty_blocks_on_error_timeout;
+    max_leader_window_desync_ = event->params.max_leader_window_desync;
   }
 
   template <>
@@ -76,6 +79,45 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   template <>
   void handle(BusHandle bus, std::shared_ptr<const CandidateGenerated> event) {
     bus.publish<StoreCandidate>(event->candidate).start().detach();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
+    td::uint32 slot_idx = event->candidate->id.slot;
+    td::uint32 current_window = last_window_ ? last_window_->start_slot / slots_per_leader_window_ : 0;
+    td::uint32 first_too_new_slot = (current_window + max_leader_window_desync_ + 1) * slots_per_leader_window_;
+    if (slot_idx >= first_too_new_slot) {
+      LOG(WARNING) << "Dropping too new candidate from " << event->candidate->leader << " : slot=" << slot_idx
+                   << ", current_window=" << current_window * slots_per_leader_window_;
+      return;
+    }
+    auto slot = state_.slot_at(slot_idx);
+    if (!slot.has_value()) {
+      return;
+    }
+    const auto& candidate = event->candidate;
+    if (candidate->parent_id.has_value() && candidate->parent_id->slot >= candidate->id.slot) {
+      // FIXME: report misbehavior
+      return;
+    }
+    if (slot->state->received_block.has_value()) {
+      if (slot->state->received_block.value()->id != candidate->id) {
+        // FIXME: Report misbehavior
+      }
+      return;
+    }
+    slot->state->received_block = candidate;
+    owning_bus().publish<StoreCandidate>(candidate).start().detach();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const NotarizationObserved> event) {
+    owning_bus().publish<ResolveState>(event->id).start().detach();
+  }
+
+  template <>
+  void handle(BusHandle, std::shared_ptr<const FinalizationObserved> event) {
+    state_.notify_finalized(event->id.slot);
   }
 
   template <>
@@ -223,6 +265,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   td::uint32 slots_per_leader_window_;
   std::chrono::milliseconds target_rate_;
   std::chrono::milliseconds no_empty_blocks_on_error_timeout_;
+  td::uint32 max_leader_window_desync_;
 
   td::actor::SharedFuture<PublicKey> own_key_;
   std::map<td::uint32, td::BufferSlice> delegation_signatures_;
@@ -231,6 +274,13 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   td::CancellationTokenSource cancellation_source_;
 
   EmptyBlockPolicy empty_block_policy_;
+
+  struct SlotState {
+    SlotState(td::Unit) {
+    }
+    std::optional<CandidateRef> received_block;
+  };
+  ConsensusState<SlotState, td::Unit> state_{td::Unit{}};
 
   static constexpr td::uint32 MAX_FUTURE_WINDOW = 20;
 };
