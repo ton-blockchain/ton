@@ -289,6 +289,7 @@ class ParserSessionStats(GroupParser):
             ] = ev
 
             slot_data = self._get_create_slot(slot, v_group)
+            slot_data.slot_start_est_ms = min(t_ms, slot_data.slot_start_est_ms)
             slot_data.is_empty = True
         else:
             assert vote.id is not None
