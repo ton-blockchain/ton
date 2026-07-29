@@ -177,7 +177,7 @@ class DashApp:
 
         self._load_group(group)
         assert self._data is not None
-        max_slot = max((s.slot for s in self._data.slots), default=0)
+        max_slot = max((s.slot for s in self._data.slots if s.valgroup_id == group), default=0)
         slot_from = max(0, min(int(slot_from), max_slot))
         slot_to = max(0, min(int(slot_to), max_slot))
         if slot_to < slot_from:

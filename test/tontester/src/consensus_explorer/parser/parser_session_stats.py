@@ -6,6 +6,7 @@ import io
 import logging
 import os
 import re
+from collections.abc import Sequence
 from itertools import islice
 from pathlib import Path
 from typing import Callable, final, override
@@ -37,7 +38,7 @@ from tonapi.ton_api import (
 )
 
 from ..models import ConsensusData, EventData, GroupData, GroupInfo, SlotData, UnnamedGroupInfo
-from .parser_base import GroupParser
+from .parser_base import GroupParser, split_by_group
 
 type slot_id_type = tuple[str, int]
 
@@ -109,6 +110,25 @@ def _parse_kv_stats(stats: str, prefix: str) -> list[tuple[str, float]]:
     return result
 
 
+CONSENSUS_EVENTS_PREFIX = '{"@type":"consensus.stats.events"'
+COLLATED_BLOCK_PREFIX = '{"@type":"validatorStats.collatedBlock"'
+VALIDATED_BLOCK_PREFIX = '{"@type":"validatorStats.validatedBlock"'
+
+_ID_FIELD_PREFIX = ',"id":"'
+_ID_START = len(CONSENSUS_EVENTS_PREFIX) + len(_ID_FIELD_PREFIX)
+_ID_END = _ID_START + 44  # base64 of a 32 byte group hash
+
+
+def peek_group_id(line: str) -> str | None:
+    """Slice the base64 group id off the head of a raw consensus.stats.events
+    line. None when the layout is unexpected; the caller must then fully parse."""
+    if line[len(CONSENSUS_EVENTS_PREFIX) : _ID_START] != _ID_FIELD_PREFIX:
+        return None
+    if line[_ID_END : _ID_END + 1] != '"':
+        return None
+    return line[_ID_START:_ID_END]
+
+
 @final
 class ParserSessionStats(GroupParser):
     def __init__(
@@ -118,9 +138,16 @@ class ParserSessionStats(GroupParser):
         with_cache: bool = True,
         target_group_hashes: set[bytes] | None = None,
         sudo_helper: str | None = None,
+        parse_block_stats: bool = True,
     ):
         self._logs_path = logs_path
         self._target_group_hashes = target_group_hashes
+        self._target_group_ids_b64: set[str] | None = (
+            {base64.b64encode(h).decode() for h in target_group_hashes}
+            if target_group_hashes is not None
+            else None
+        )
+        self._parse_block_stats = parse_block_stats
         self._sudo_helper = sudo_helper
         self._hostname_regex = re.compile(hostname_regex)
         self._slots: dict[slot_id_type, SlotData] = {}
@@ -777,7 +804,14 @@ class ParserSessionStats(GroupParser):
                     current_line = start_line
                     for line in islice(f, start_line, None):
                         current_line += 1
-                        if line.startswith('{"@type":"consensus.stats.events"'):
+                        if line.startswith(CONSENSUS_EVENTS_PREFIX):
+                            # Drop other groups before from_json, which costs
+                            # orders of magnitude more than the id slice.
+                            if self._target_group_ids_b64 is not None:
+                                peeked = peek_group_id(line)
+                                if peeked is not None and peeked not in self._target_group_ids_b64:
+                                    continue
+
                             events = Consensus_stats_events.from_json(line)
 
                             if (
@@ -787,7 +821,9 @@ class ParserSessionStats(GroupParser):
                                 continue
 
                             events_by_groups.setdefault(events.id, []).extend(events.events)
-                        elif line.startswith('{"@type":"validatorStats.collatedBlock"'):
+                        elif not self._parse_block_stats:
+                            continue
+                        elif line.startswith(COLLATED_BLOCK_PREFIX):
                             try:
                                 collated = ValidatorStats_collatedBlock.from_json(line)
                                 if collated.block_id is not None:
@@ -830,7 +866,7 @@ class ParserSessionStats(GroupParser):
                                         )
                             except Exception:
                                 pass
-                        elif line.startswith('{"@type":"validatorStats.validatedBlock"'):
+                        elif line.startswith(VALIDATED_BLOCK_PREFIX):
                             try:
                                 validated = ValidatorStats_validatedBlock.from_json(line)
                                 if validated.block_id is not None:
@@ -959,3 +995,7 @@ class ParserSessionStats(GroupParser):
             slots=[s for s in data.slots if s.valgroup_id == valgroup_name],
             events=[e for e in data.events if e.valgroup_id == valgroup_name],
         )
+
+    @override
+    def parse_groups(self, valgroup_names: Sequence[str]) -> dict[str, ConsensusData]:
+        return split_by_group(self.parse(), valgroup_names)
