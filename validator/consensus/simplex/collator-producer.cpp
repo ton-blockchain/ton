@@ -59,7 +59,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
 
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
-    producing_window_ = std::nullopt;
+    producing_window_start_slot_ = std::nullopt;
     cancellation_source_.cancel();
     stop();
   }
@@ -193,6 +193,10 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     last_window_ = Window{event->start_slot, event->base};
     delegation_signatures_.erase(delegation_signatures_.begin(), delegation_signatures_.lower_bound(event->start_slot));
 
+    if (producing_window_start_slot_ && last_window_->start_slot > *producing_window_start_slot_) {
+      cancellation_source_.cancel();
+      producing_window_start_slot_ = std::nullopt;
+    }
     if (event->start_slot % slots_per_leader_window_ == 0 && delegation_signatures_.contains(event->start_slot)) {
       start_production(event->start_slot, event->base);
     }
@@ -205,10 +209,10 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   };
 
   void start_production(td::uint32 window_start, ParentId base) {
-    if (producing_window_ == window_start) {
+    if (producing_window_start_slot_ == window_start) {
       return;
     }
-    producing_window_ = window_start;
+    producing_window_start_slot_ = window_start;
     cancellation_source_ = td::CancellationTokenSource();
     produce(window_start, base).start().detach();
   }
@@ -230,7 +234,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
       start_time = std::min(start_time, td::Timestamp::in(target_rate_));
     }
 
-    if (producing_window_ != window_start) {
+    if (producing_window_start_slot_ != window_start) {
       co_return {};
     }
 
@@ -246,7 +250,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
         .collator_node_id = bus.local_adnl_id,
         .target_rate = target_rate_,
         .cancellation_token = cancellation_source_.get_cancellation_token(),
-        .is_superseded = [&, window_start] { return producing_window_ != window_start; },
+        .is_superseded = [&, window_start] { return producing_window_start_slot_ != window_start; },
         .should_generate_empty_block =
             [&](const ChainStateRef& state) {
               return empty_block_policy_.should_generate_empty_block(owning_bus()->shard.is_masterchain(), state);
@@ -256,8 +260,8 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     };
     co_await produce_window(owning_bus(), std::move(ctx));
 
-    if (producing_window_ == window_start) {
-      producing_window_ = std::nullopt;
+    if (producing_window_start_slot_ == window_start) {
+      producing_window_start_slot_ = std::nullopt;
     }
     co_return {};
   }
@@ -270,7 +274,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   td::actor::SharedFuture<PublicKey> own_key_;
   std::map<td::uint32, td::BufferSlice> delegation_signatures_;
   std::optional<Window> last_window_;
-  std::optional<td::uint32> producing_window_;
+  std::optional<td::uint32> producing_window_start_slot_;
   td::CancellationTokenSource cancellation_source_;
 
   EmptyBlockPolicy empty_block_policy_;
