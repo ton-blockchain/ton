@@ -71,7 +71,9 @@ def open_stats_file(path: Path, sudo_helper: str | None = None) -> io.TextIOWrap
     proc = subprocess.Popen(
         ["sudo", "--non-interactive", sudo_helper, str(path)],
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+        # Not PIPE: nothing ever reads it, so a helper writing more than the
+        # pipe buffer would block forever, holding its fds and the child.
+        stderr=subprocess.DEVNULL,
     )
     assert proc.stdout is not None
     if path.suffix == ".gz":

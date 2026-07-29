@@ -2,6 +2,8 @@ import json
 import logging
 import sqlite3
 import threading
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, TypedDict, cast, final
@@ -53,7 +55,7 @@ class FileIndex:
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._create_tables(conn)
 
     def _connect(self) -> sqlite3.Connection:
@@ -61,6 +63,23 @@ class FileIndex:
         conn.row_factory = sqlite3.Row
         _ = conn.execute("PRAGMA journal_mode=WAL")
         return conn
+
+    @contextmanager
+    def _connection(self) -> Generator[sqlite3.Connection]:
+        """Commit like `with conn:` does, but also close.
+
+        `with sqlite3.connect(...)` only manages the transaction, so the fds (db,
+        -wal, -shm) live until the connection is collected. That is normally at
+        once, but a propagating exception keeps the frame -- and the connection
+        in it -- alive for as long as its traceback is held, which turns fd
+        pressure into a feedback loop.
+        """
+        conn = self._connect()
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
 
     @staticmethod
     def _create_tables(conn: sqlite3.Connection) -> None:
@@ -481,7 +500,7 @@ class FileIndex:
         class Row(TypedDict):
             file_name: str
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             cursor = conn.cursor()
             _ = cursor.execute(
                 """
@@ -519,7 +538,7 @@ class FileIndex:
             top_seqno: int
             file_name: str
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             cursor = conn.cursor()
 
             _ = cursor.execute(
@@ -608,7 +627,7 @@ class FileIndex:
         class Row(TypedDict):
             valgroup_hash: bytes
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             cursor = conn.cursor()
             placeholders = ",".join("?" * len(paths))
             _ = cursor.execute(
@@ -631,7 +650,7 @@ class FileIndex:
             shard: int | None
             group_start_est: float
 
-        with self._connect() as conn:
+        with self._connection() as conn:
             cursor = conn.cursor()
             _ = cursor.execute(
                 "SELECT valgroup_hash, catchain_seqno, workchain, shard, group_start_est FROM groups"
