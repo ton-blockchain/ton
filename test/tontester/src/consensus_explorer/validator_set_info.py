@@ -263,7 +263,7 @@ class ValidatorSetInfoProvider:
         """Get key block BOC data, using cache if available."""
         if self._cache_dir is not None:
             cached_boc = self._cache_dir / f"key_block_{key_block_seqno}.boc"
-            if cached_boc.exists():
+            if cached_boc.is_file() and cached_boc.stat().st_size > 0:
                 return cached_boc.read_bytes()
 
         download_query = urlencode(

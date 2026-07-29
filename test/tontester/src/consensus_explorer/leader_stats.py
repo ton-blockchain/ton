@@ -1,5 +1,6 @@
 import argparse
 import enum
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -9,6 +10,8 @@ from typing import cast, final
 from .models import ConsensusData, GroupData, GroupInfo, SlotData
 from .parser import GroupParser
 from .validator_set_info import ValidatorSetInfoProvider
+
+logger = logging.getLogger(__name__)
 
 
 class SlotStatus(enum.Enum):
@@ -168,13 +171,17 @@ class LeaderStatsAnalyzer:
             try:
                 vset_text = self._vset_provider.get_validator_set_text(valgroup_name, data.slots)
                 adnl_map = _parse_vset_text(vset_text)
+                if not adnl_map:
+                    logger.warning(
+                        "No ADNLs resolved for %s: %s", valgroup_name, vset_text.strip()[:200]
+                    )
                 for idx, (adnl, pub_key_hash, name) in adnl_map.items():
                     if idx in stats_by_validator:
                         stats_by_validator[idx].adnl = adnl
                         stats_by_validator[idx].pub_key_hash = pub_key_hash
                         stats_by_validator[idx].name = name
             except Exception:
-                pass
+                logger.exception("Validator set lookup failed for %s", valgroup_name)
 
         return GroupLeaderStats(
             valgroup_id=valgroup_name,
@@ -670,6 +677,12 @@ def _build_web_app(analyzer: LeaderStatsAnalyzer, host: str, port: int, web_root
 
 
 def _main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+        force=True,
+    )
+
     ap = argparse.ArgumentParser(description="Consensus leader finalization stats")
     source = ap.add_mutually_exclusive_group(required=True)
     _ = source.add_argument("--logs", nargs="+", help="Paths to log files or directory")
