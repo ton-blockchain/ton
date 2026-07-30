@@ -17,7 +17,9 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include "keys/encryptor.h"
+#include "metrics/tl-traffic-bucket.h"
 #include "td/utils/Random.h"
+#include "td/utils/Timer.h"
 
 #include "adnl-local-id.h"
 #include "utils.hpp"
@@ -25,6 +27,9 @@
 namespace ton {
 
 namespace adnl {
+
+// A query taking longer than this to answer is worth a line in the log.
+static constexpr double SLOW_QUERY_SECONDS = 1.0;
 
 static td::IPAddress remove_port(td::IPAddress addr) {
   addr.set_port(0);
@@ -110,6 +115,21 @@ void AdnlLocalId::deliver(AdnlNodeIdShort src, td::BufferSlice data) {
 
 void AdnlLocalId::deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::Promise<td::BufferSlice> promise) {
   auto s = std::move(data);
+  // Every transport (peer pairs, RLDP2, QUIC, the ext server) funnels its queries through here, so
+  // this is the one place that times dispatch-to-answer. A dropped promise still runs the lambda
+  // ("Lost promise"), so an abandoned query is recorded as failed instead of vanishing.
+  promise = [timer = td::Timer(), magic = metrics::resolve_tl_magic(s.as_slice()), src, size = s.size(),
+             peer_table = peer_table_, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    double elapsed = timer.elapsed();
+    bool ok = R.is_ok();
+    if (elapsed > SLOW_QUERY_SECONDS) {
+      LOG(WARNING) << "slow query tl=" << metrics::tl_name(magic) << " src=" << src << " size=" << size
+                   << " time=" << elapsed << (ok ? "" : " (failed)");
+    }
+    // The answer may complete on any thread, so the metric is bumped on the peer table's own thread.
+    td::actor::send_closure(peer_table, &AdnlPeerTable::record_query_duration, magic, elapsed, ok);
+    promise.set_result(std::move(R));
+  };
   for (auto &cb : cb_) {
     auto f = cb.first;
     if (f.length() <= s.length() && s.as_slice().substr(0, f.length()) == f) {
