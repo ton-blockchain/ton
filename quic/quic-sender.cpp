@@ -10,10 +10,6 @@
 
 namespace ton::quic {
 
-static td::uint32 get_magic(const td::BufferSlice &data) {
-  return data.size() >= 4 ? td::as<td::uint32>(data.data()) : 0;
-}
-
 static td::Result<adnl::AdnlNodeIdShort> parse_peer_id(td::Slice peer_public_key) {
   if (peer_public_key.size() != 32) {
     return td::Status::Error("peer public key must be 32 bytes");
@@ -136,15 +132,15 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       if (options_.max_size.has_value() && total_size_ > options_.max_size) {
         return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size
                                           << " received=" << total_size_ << " query_size=" << options_.query_size
-                                          << " query_magic=" << td::format::as_hex(options_.query_magic));
+                                          << " query_tl=" << metrics::tl_name(options_.query_magic));
       }
       return td::Status::OK();
     }
 
     td::Status timeout_error() const {
-      return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
-                                        << "s query_size=" << options_.query_size << " query_magic="
-                                        << td::format::as_hex(options_.query_magic) << " received=" << total_size_);
+      return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds << "s query_size="
+                                        << options_.query_size << " query_tl=" << metrics::tl_name(options_.query_magic)
+                                        << " received=" << total_size_);
     }
 
     td::BufferSlice extract() {
@@ -365,15 +361,15 @@ void QuicSender::start_up() {
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                         td::BufferSlice data) {
   auto size = data.size();
-  auto magic = get_magic(data);
+  auto tl_name = metrics::tl_name(data.as_slice());
   auto R = co_await send_message_coro_inner(src, dst, std::move(data)).wrap();
   if (R.is_error()) {
     // Fire-and-forget path: nobody upstream sees this error, so account the drop here.
     app_.record_dropped(metrics::Direction::out, R.error().code() == NGTCP2_ERR_STREAM_ID_BLOCKED
                                                      ? metrics::Reason::limited
                                                      : metrics::Reason::internal);
-    LOG(INFO) << "Failed to send message: " << src << " -> " << dst << " size=" << size
-              << " magic=" << td::format::as_hex(magic) << " " << R.error();
+    LOG(INFO) << "Failed to send message: " << src << " -> " << dst << " size=" << size << " tl=" << tl_name << " "
+              << R.error();
   }
   co_return td::Unit{};
 }
@@ -394,7 +390,7 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   app_.record(metrics::Kind::query, metrics::Direction::out, data.as_slice());
   auto conn = co_await find_or_create_connection({src, dst});
   auto query_size = data.size();
-  auto query_magic = get_magic(data);
+  auto query_magic = static_cast<td::uint32>(metrics::resolve_tl_magic(data.as_slice()));
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(data));
   auto cid = conn->cid;
   auto server = conn->server;
@@ -646,7 +642,7 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
   }
 
   LOG(ERROR) << "malformed message from CID:" << cid << " SID:" << stream_id << " size:" << data.size()
-             << " tl_id:" << td::format::as_hex(get_magic(data))
+             << " tl:" << metrics::tl_name(data.as_slice())
              << " head:" << td::format::as_hex_dump<4>(data.as_slice().truncate(32));
 }
 

@@ -151,7 +151,7 @@ port) and folds their stats together.
 |---|---|---|---|
 | `ton_quic_app_bytes_total` | counter | `kind`, `direction`, `tl` | Inner ADNL payload bytes carried over QUIC streams, measured outside the `quic_message`/`quic_query`/`quic_answer` wrapper. |
 | `ton_quic_app_messages_total` | counter | same | Message count. |
-| `ton_quic_app_dropped_total` | counter | `direction`, `reason` | **Always 0** — no QUIC code path calls it. See Known gaps. |
+| `ton_quic_app_dropped_total` | counter | `direction`, `reason` | Fire-and-forget message sends that failed: `out,limited` when the peer's stream-count credit blocked opening a stream (`NGTCP2_ERR_STREAM_ID_BLOCKED`), `out,internal` for any other send failure. Query failures are not counted here — they propagate to the caller. Inbound cells are never incremented. |
 
 ---
 
@@ -257,7 +257,7 @@ different points in a packet's life, and several drop paths are unmetered.
 Worth knowing before building dashboards or alerts on these.
 
 **Permanently-zero series.** These are emitted on every scrape but nothing increments them:
-`ton_quic_app_dropped_total` (all six);
+`ton_quic_app_dropped_total{direction="in"}` and `{direction="out",reason="invalid"}`;
 `ton_adnl_transport_dropped_total{direction="in",reason="limited"}`;
 `ton_quic_transport_dropped_total{direction="out",reason="invalid"|"limited"}`;
 `ton_rldp2_transport_dropped_total{direction="out"}` and `{reason="internal"}`;

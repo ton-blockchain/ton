@@ -15,6 +15,16 @@
 
 namespace ton::metrics {
 
+// The magic a payload's traffic should be attributed to: the outermost constructor is usually a
+// routing envelope (overlay.query, overlay.message, ...), so it is unwrapped down to the content.
+// Returns 0 for payloads shorter than a magic.
+td::int32 resolve_tl_magic(td::Slice payload);
+
+// For logs: the TL constructor name a payload resolves to ("consensus.simplex.vote"), unwrapping
+// routing envelopes the same way traffic accounting does; hex when the schema doesn't know it.
+std::string tl_name(td::Slice payload);
+std::string tl_name(td::int32 magic);
+
 // Accounts traffic by inner TL constructor. The payload's leading magic is usually a routing
 // envelope (overlay.query, overlay.message, ...), so it is unwrapped down to the content it carries;
 // a malformed envelope falls back to the envelope itself, never to whatever bytes follow. Schema-known
