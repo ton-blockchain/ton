@@ -132,6 +132,10 @@ class AdnlPeerTable : public Adnl {
   // How long a query delivered to a local id took to be answered. Called from the query's completion,
   // which may run on any thread — hence an actor message rather than a direct bump.
   virtual void record_query_duration(td::int32 magic, double seconds, bool ok) = 0;
+
+  // Round trip of an outbound query: from the peer pair accepting it to the caller's promise being
+  // fulfilled. Completes on the query's own actor, so it takes the same hop.
+  virtual void record_query_roundtrip(AdnlNodeIdShort dst, td::int32 magic, double seconds, bool ok) = 0;
 };
 
 }  // namespace adnl

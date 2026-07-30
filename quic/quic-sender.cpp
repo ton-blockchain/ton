@@ -322,6 +322,8 @@ td::actor::Task<> QuicSender::collect(metrics::Context ctx) {
   auto quic = ctx.with_name("quic");
   quic.collect(result);
   quic.collect(app_, "app");
+  quic.collect(query_roundtrip_, "query_roundtrip");
+  quic.collect(message_delivery_, "message_delivery");
   co_return {};
 }
 
@@ -377,20 +379,37 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort sr
 td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                               td::BufferSlice data) {
   app_.record(metrics::Kind::message, metrics::Direction::out, data.as_slice());
+  auto magic = metrics::resolve_tl_magic(data.as_slice());
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
-  co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid, StreamOptions{get_peer_mtu(src, dst)},
-                          std::move(wire_data), true);
+  td::Timer timer;
+  auto stream_id = co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid,
+                                           StreamOptions{get_peer_mtu(src, dst)}, std::move(wire_data), true);
+  // The peer answers every message with an empty response (see on_request), which lands in
+  // on_stream_complete and closes this entry — that is the only delivery confirmation we get.
+  conn->messages.emplace(stream_id, Connection::PendingMessage{.magic = magic, .timer = timer});
   co_return td::Unit{};
 }
 
 td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                              std::string name, td::Timestamp timeout,
                                                              td::BufferSlice data, std::optional<td::uint64> limit) {
+  td::Timer timer;
+  auto magic = metrics::resolve_tl_magic(data.as_slice());
+  auto result =
+      co_await send_query_coro_inner(src, dst, std::move(name), timeout, std::move(data), limit, magic).wrap();
+  metrics::record_latency(query_roundtrip_, "quic query roundtrip", magic, dst, timer.elapsed(), result.is_ok());
+  co_return std::move(result);
+}
+
+td::actor::Task<td::BufferSlice> QuicSender::send_query_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
+                                                                   std::string name, td::Timestamp timeout,
+                                                                   td::BufferSlice data,
+                                                                   std::optional<td::uint64> limit, td::int32 magic) {
   app_.record(metrics::Kind::query, metrics::Direction::out, data.as_slice());
   auto conn = co_await find_or_create_connection({src, dst});
   auto query_size = data.size();
-  auto query_magic = static_cast<td::uint32>(metrics::resolve_tl_magic(data.as_slice()));
+  auto query_magic = static_cast<td::uint32>(magic);
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(data));
   auto cid = conn->cid;
   auto server = conn->server;
@@ -610,6 +629,7 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
   }
 
   if (r_data.is_error()) {
+    record_message_delivery(*connection, stream_id, false);
     auto resp_it = connection->responses.find(stream_id);
     if (resp_it != connection->responses.end()) {
       resp_it->second.set_error(r_data.move_as_error());
@@ -620,7 +640,8 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
 
   auto data = r_data.move_as_ok();
   if (data.empty()) {
-    return;  // currently message will trigger empty response
+    record_message_delivery(*connection, stream_id, true);
+    return;  // a message triggers an empty response, which is its delivery receipt
   }
 
   // Requests are accepted only on inbound connections, answers only on outbound ones: an outbound
@@ -652,12 +673,23 @@ void QuicSender::on_stream_closed(QuicConnectionId cid, QuicStreamID stream_id) 
     return;
   }
   auto connection = it->second;
+  record_message_delivery(*connection, stream_id, false);
   auto resp_it = connection->responses.find(stream_id);
   if (resp_it == connection->responses.end()) {
     return;
   }
   resp_it->second.set_error(td::Status::Error("stream closed"));
   connection->responses.erase(resp_it);
+}
+
+void QuicSender::record_message_delivery(Connection &connection, QuicStreamID stream_id, bool ok) {
+  auto it = connection.messages.find(stream_id);
+  if (it == connection.messages.end()) {
+    return;
+  }
+  metrics::record_latency(message_delivery_, "quic message delivery", it->second.magic, connection.path.second,
+                          it->second.timer.elapsed(), ok);
+  connection.messages.erase(it);
 }
 
 void QuicSender::on_closed(QuicConnectionId cid) {
@@ -675,6 +707,11 @@ void QuicSender::on_closed(QuicConnectionId cid) {
   }
   if (auto in_it = inbound_.find(path); in_it != inbound_.end() && in_it->second->cid == cid) {
     inbound_.erase(in_it);
+  }
+
+  // Nothing will confirm the messages still in flight on this connection.
+  while (!connection->messages.empty()) {
+    record_message_delivery(*connection, connection->messages.begin()->first, false);
   }
 
   auto status = std::move(connection->init_error).value_or(td::Status::Error("connection closed"));

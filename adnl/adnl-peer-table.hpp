@@ -63,10 +63,12 @@ struct AdnlPeerTableMetrics {
   Transport transport;
   metrics::App app;
   metrics::TlLatencyBucket query;
+  metrics::TlLatencyBucket query_roundtrip{"seconds"};
   void collect(metrics::Context ctx) const {
     ctx.collect(transport, "transport");
     ctx.collect(app, "app");
     ctx.collect(query, "query");
+    ctx.collect(query_roundtrip, "query_roundtrip");
   }
 };
 
@@ -134,6 +136,9 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) override;
   void record_query_duration(td::int32 magic, double seconds, bool ok) override {
     metrics_.query.observe(magic, seconds, ok);
+  }
+  void record_query_roundtrip(AdnlNodeIdShort dst, td::int32 magic, double seconds, bool ok) override {
+    metrics::record_latency(metrics_.query_roundtrip, "adnl query roundtrip", magic, dst, seconds, ok);
   }
 
   void deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override;

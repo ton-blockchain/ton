@@ -335,6 +335,24 @@ TEST(Metrics, TlLatencySplitsByConstructor) {
   ASSERT_EQ(1u, count_of(out, "# TYPE q_failed counter\n"));
 }
 
+TEST(Metrics, TlLatencyDurationNameIsConfigurable) {
+  // Outbound buckets carry their kind in the collect name, so their histogram leaf is just `seconds`.
+  TlLatencyBucket roundtrip{"seconds"};
+  roundtrip.observe(ton_api::tonNode_getCapabilities::ID, 0.02, false);
+  auto out = render(roundtrip, "query_roundtrip");
+  ASSERT_TRUE(has_line(out, "query_roundtrip_seconds_bucket{tl=\"tonNode.getCapabilities\",le=\"0.025\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "query_roundtrip_seconds_count{tl=\"tonNode.getCapabilities\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "query_roundtrip_failed_total{tl=\"tonNode.getCapabilities\"} 1.000000"));
+  ASSERT_TRUE(out.find("duration") == std::string::npos);
+
+  // The default keeps the inbound family names, which dashboards pin.
+  TlLatencyBucket inbound;
+  inbound.observe(ton_api::tonNode_getCapabilities::ID, 0.02, true);
+  auto inbound_out = render(inbound, "query");
+  ASSERT_TRUE(has_line(inbound_out, "query_duration_seconds_count{tl=\"tonNode.getCapabilities\"} 1.000000"));
+  ASSERT_TRUE(has_line(inbound_out, "query_failed_total{tl=\"tonNode.getCapabilities\"} 0.000000"));
+}
+
 TEST(Metrics, TlLatencySkipsEmptyUnknown) {
   TlLatencyBucket bucket;
   bucket.observe(ton_api::tonNode_getCapabilities::ID, 0.02, true);
