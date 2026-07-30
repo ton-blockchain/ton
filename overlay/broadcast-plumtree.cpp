@@ -60,6 +60,7 @@ constexpr double PLUMTREE_EAGER_PEER_INACTIVITY_TTL = 30.0;
 constexpr td::uint32 PLUMTREE_EAGER_PEER_MAX_SENT_WITHOUT_ACTIVITY = 50;
 constexpr std::size_t MAX_PENDING_REPAIR_PARTS = 1024;
 constexpr std::size_t MAX_ACTIVE_REPAIR_QUERIES = 512;
+constexpr std::size_t ED25519_SIGNATURE_SIZE = 64;
 constexpr td::uint32 PLUMTREE_SIMPLE_TREE_INDEX = 0;
 constexpr td::uint32 PLUMTREE_FEC_TREE_OFFSET = 1;
 
@@ -121,6 +122,15 @@ struct PlumtreeSimpleBroadcastState : td::ListNode {
   PlumtreePartState part;
 };
 
+struct PlumtreeRepairTarget {
+  adnl::AdnlNodeIdShort peer;
+  PublicKey source_key;
+  td::BufferSlice to_sign;
+  td::BufferSlice signature;
+  td::uint32 data_size = 0;
+  bool signature_verified = false;
+};
+
 struct PlumtreeMissingPart : td::ListNode {
   explicit PlumtreeMissingPart(MissingPartKey key) : key(std::move(key)) {
   }
@@ -130,9 +140,7 @@ struct PlumtreeMissingPart : td::ListNode {
   }
 
   MissingPartKey key;
-  // Maximum verified IHAVE byte size, used as repair query MTU cap.
-  td::uint32 data_size = 0;
-  std::vector<adnl::AdnlNodeIdShort> repair_targets;
+  std::vector<PlumtreeRepairTarget> repair_targets;
   std::size_t sent_repair_targets = 0;
   td::Timestamp repair_at = td::Timestamp::never();
 };
@@ -340,7 +348,8 @@ class BroadcastsPlumtree::Impl {
                                         td::Bits256 data_hash, td::BufferSlice signature, td::BufferSlice data);
   td::Result<PlumtreeDecodedBroadcast> decode_fec_part(OverlayImpl *overlay, PlumtreeFecBroadcastState &broadcast,
                                                        td::uint32 part_index);
-  PlumtreeMissingPart *get_or_create_missing_part(const MissingPartKey &key, td::uint32 data_size);
+  bool has_missing_part(const td::Bits256 &broadcast_id) const;
+  PlumtreeMissingPart *get_or_create_missing_part(const MissingPartKey &key);
   PlumtreeMissingPart *oldest_missing_part();
   void erase_missing_part(const MissingPartKey &key);
 
@@ -743,16 +752,18 @@ td::Result<PlumtreeDecodedBroadcast> BroadcastsPlumtree::Impl::decode_fec_part(O
   return add_decoder_part_and_decode(overlay, broadcast, part_index, part_data_it->second);
 }
 
-PlumtreeMissingPart *BroadcastsPlumtree::Impl::get_or_create_missing_part(const MissingPartKey &key,
-                                                                          td::uint32 data_size) {
+bool BroadcastsPlumtree::Impl::has_missing_part(const td::Bits256 &broadcast_id) const {
+  auto it = missing_parts_.lower_bound(MissingPartKey{broadcast_id, 0, 0});
+  return it != missing_parts_.end() && std::get<0>(it->first) == broadcast_id;
+}
+
+PlumtreeMissingPart *BroadcastsPlumtree::Impl::get_or_create_missing_part(const MissingPartKey &key) {
   auto it = missing_parts_.find(key);
   if (it != missing_parts_.end()) {
-    it->second->data_size = std::max(it->second->data_size, data_size);
     return it->second.get();
   }
 
   auto missing = std::make_unique<PlumtreeMissingPart>(key);
-  missing->data_size = data_size;
   auto *result = missing.get();
   missing_parts_queue_.put(result);
   missing_parts_.emplace(key, std::move(missing));
@@ -789,17 +800,30 @@ bool BroadcastsPlumtree::Impl::send_control(OverlayImpl *overlay, const adnl::Ad
 void BroadcastsPlumtree::Impl::send_repair_requests(OverlayImpl *overlay, const MissingPartKey &key,
                                                     PlumtreeMissingPart &missing) {
   const auto &[broadcast_id, part_index, tree_index] = key;
-  if (missing.data_size == 0) {
-    return;
-  }
   while (missing.sent_repair_targets < missing.repair_targets.size()) {
-    const auto &dst = missing.repair_targets[missing.sent_repair_targets++];
+    auto &target = missing.repair_targets[missing.sent_repair_targets++];
+    const auto &dst = target.peer;
     if (active_repair_queries_ >= MAX_ACTIVE_REPAIR_QUERIES) {
       VLOG(PLUMTREE_WARNING) << overlay << ": dropping Plumtree repair query due to active query cap: active="
                              << active_repair_queries_ << " limit=" << MAX_ACTIVE_REPAIR_QUERIES << " dst=" << dst
                              << " broadcast_id=" << broadcast_id.to_hex() << " part_index=" << part_index
                              << " tree_index=" << tree_index;
       continue;
+    }
+    if (!target.signature_verified) {
+      auto status =
+          overlay->check_signature_from_peer(target.source_key, target.to_sign, target.signature, target.peer);
+      target.source_key = PublicKey{};
+      target.to_sign = {};
+      target.signature = {};
+      if (status.is_error()) {
+        VLOG(PLUMTREE_WARNING) << overlay
+                               << ": dropping Plumtree repair target with invalid IHAVE signature: dst=" << dst
+                               << " broadcast_id=" << broadcast_id.to_hex() << " part_index=" << part_index
+                               << " tree_index=" << tree_index << " error=" << status;
+        continue;
+      }
+      target.signature_verified = true;
     }
     ++active_repair_queries_;
     auto query = create_serialize_tl_object<ton_api::overlay_repairPlumtreePart>(broadcast_id, td::Clocks::system(),
@@ -813,7 +837,7 @@ void BroadcastsPlumtree::Impl::send_repair_requests(OverlayImpl *overlay, const 
     td::actor::send_closure(overlay->overlay_manager(), &Overlays::send_query_via, dst, overlay->local_id(),
                             overlay->overlay_id(), "plumtree repair", std::move(promise),
                             td::Timestamp::in(PLUMTREE_PENDING_FEEDBACK_TTL), std::move(query),
-                            static_cast<td::uint64>(missing.data_size) + PLUMTREE_PAYLOAD_MTU_OVERHEAD, sender_);
+                            static_cast<td::uint64>(target.data_size) + PLUMTREE_PAYLOAD_MTU_OVERHEAD, sender_);
   }
 }
 
@@ -1603,8 +1627,11 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   auto existing_missing = missing_parts_.find(key);
   if (existing_missing != missing_parts_.end()) {
     auto &missing = *existing_missing->second;
-    if (std::find(missing.repair_targets.begin(), missing.repair_targets.end(), from) != missing.repair_targets.end() ||
-        missing.repair_targets.size() >= options_.max_repair_targets_) {
+    if (missing.repair_targets.size() >= options_.max_repair_targets_) {
+      co_return td::Unit{};
+    }
+    if (std::any_of(missing.repair_targets.begin(), missing.repair_targets.end(),
+                    [&](const PlumtreeRepairTarget &target) { return target.peer == from; })) {
       co_return td::Unit{};
     }
   }
@@ -1625,18 +1652,32 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
     to_sign = make_fec_payload_to_sign(control.broadcast_id, msg->payload_timestamp_, part_index, tree_index, data_size,
                                        msg->data_hash_);
   }
-  CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
+  // A checked payload or the first checked IHAVE authenticates the broadcast ID. Defer further checks only for
+  // canonical Ed25519 signatures, so retained unchecked authentication data has a fixed size.
+  bool defer_signature_check = (has_state(control.broadcast_id) || has_missing_part(control.broadcast_id)) &&
+                               source_key.is_ed25519() && msg->signature_.size() == ED25519_SIGNATURE_SIZE;
+  bool signature_verified = false;
+  if (!defer_signature_check) {
+    CO_TRY(overlay->check_signature_from_peer(source_key, to_sign, msg->signature_, from));
+    signature_verified = true;
+  }
 
-  auto *missing = get_or_create_missing_part(key, data_size);
+  auto *missing = get_or_create_missing_part(key);
   if (!missing->repair_at) {
     missing->repair_at = td::Timestamp::in(options_.repair_timeout_ms_ / 1000.0);
     overlay->relax_plumtree_alarm(missing->repair_at);
   }
-  if (std::find(missing->repair_targets.begin(), missing->repair_targets.end(), from) ==
-          missing->repair_targets.end() &&
-      missing->repair_targets.size() < options_.max_repair_targets_) {
-    missing->repair_targets.push_back(from);
+  PlumtreeRepairTarget target{
+      .peer = from,
+      .data_size = data_size,
+      .signature_verified = signature_verified,
+  };
+  if (!signature_verified) {
+    target.source_key = std::move(source_key);
+    target.to_sign = std::move(to_sign);
+    target.signature = msg->signature_.copy();
   }
+  missing->repair_targets.push_back(std::move(target));
   if (local_eager_limit_ == 0 || s->eager.empty()) {
     send_repair_requests(overlay, key, *missing);
   }
