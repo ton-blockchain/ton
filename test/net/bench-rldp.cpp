@@ -451,9 +451,16 @@ void run_server(Config config) {
                                                            .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, local_id);
-    if (config.prometheus)
+    if (config.prometheus) {
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::adnl::AdnlNetworkManager>,
+                              network_manager.get(), &ton::adnl::AdnlNetworkManager::collect);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::adnl::Adnl>, adnl.get(),
+                              &ton::adnl::Adnl::collect);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::rldp2::Rldp>, rldp2.get(),
+                              &ton::rldp2::Rldp::collect);
       td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
                               &ton::quic::QuicSender::collect);
+    }
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
                             std::make_unique<Server>(config.response_size));
@@ -534,9 +541,16 @@ void run_client(Config config) {
                                                            .cc_algo = config.cc_algo});
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
-    if (config.prometheus)
+    if (config.prometheus) {
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::adnl::AdnlNetworkManager>,
+                              network_manager.get(), &ton::adnl::AdnlNetworkManager::collect);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::adnl::Adnl>, adnl.get(),
+                              &ton::adnl::Adnl::collect);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::rldp2::Rldp>, rldp2.get(),
+                              &ton::rldp2::Rldp::collect);
       td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
                               &ton::quic::QuicSender::collect);
+    }
 
     stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-client", quic_sender.get(), "client-periodic",
                                                             config.protocol == Protocol::quic, 10.0);
