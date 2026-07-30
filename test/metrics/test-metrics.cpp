@@ -312,6 +312,24 @@ TEST(Metrics, TlBroadcastTwostepSimpleUnwrapsToItsContent) {
   ASSERT_EQ("tonNode.capabilities", tl_label(payload));
 }
 
+TEST(Metrics, TlLongFormBytesHeaderResolves) {
+  // The 0xFF + 7-byte length form: no honest TON sender emits it for small payloads, but TlParser
+  // accepts it, so the resolver must too — otherwise a hostile encoder could steer any payload's
+  // label back to the envelope.
+  auto inner = a_function();
+  std::string payload;
+  td::int32 magic = ton_api::overlay_unicast::ID;
+  payload.append(reinterpret_cast<const char *>(&magic), sizeof(magic));
+  payload += '\xff';
+  payload += static_cast<char>(inner.size());
+  payload.append(6, '\0');
+  payload.append(inner.as_slice().data(), inner.size());
+  while (payload.size() % 4 != 0) {
+    payload += '\0';
+  }
+  ASSERT_EQ("tonNode.getCapabilities", tl_label(payload));
+}
+
 TEST(Metrics, TlTruncationSweepNeverEscapesTheSchema) {
   // Whatever prefix of an envelope chain arrives, the label is a schema name or "unknown" — the
   // resolver must never walk off the payload nor mint a label from trailing bytes.
