@@ -10,6 +10,7 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <cstdio>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -173,8 +174,13 @@ class Sink {
   }
 
   void push_sample(LabelSet labels, double value) {
+    push_sample(sample_suffix_, std::move(labels), value);
+  }
+
+  // For families whose samples do not all share one suffix (a histogram's _bucket/_sum/_count).
+  void push_sample(std::string_view suffix, LabelSet labels, double value) {
     families_[current_].metrics.push_back(Metric{
-        .suffix = std::string(sample_suffix_),
+        .suffix = std::string(suffix),
         .label_set = std::move(labels),
         .samples = {Sample{.label_set = {}, .value = value}},
     });
@@ -252,6 +258,10 @@ class Context {
 
   void push(double value) const {
     sink_.push_sample(materialize_labels(), value);
+  }
+
+  void push_suffixed(std::string_view suffix, double value) const {
+    sink_.push_sample(suffix, materialize_labels(), value);
   }
 
  private:
@@ -475,6 +485,67 @@ class Gauge {
 
  private:
   T value_ = {};
+};
+
+// Default upper bounds for latency histograms, in seconds.
+inline constexpr std::array<double, 14> kDurationBuckets = {0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1,
+                                                            0.25,  0.5,    1.0,   2.5,  5.0,   10.0, 30.0};
+
+// `Bounds` is a constexpr std::array of ascending upper bounds; an observation lands in the first
+// bucket whose bound is >= it, or in the implicit overflow bucket rendered as `le="+Inf"`.
+template <auto Bounds>
+class Histogram {
+  static constexpr size_t bound_count = Bounds.size();
+
+ public:
+  void observe(double value) {
+    ++buckets_[std::lower_bound(Bounds.begin(), Bounds.end(), value) - Bounds.begin()];
+    sum_ += value;
+    ++count_;
+  }
+
+  td::uint64 count() const {
+    return count_;
+  }
+
+  double sum() const {
+    return sum_;
+  }
+
+  Histogram &operator+=(const Histogram &other) {
+    for (size_t i = 0; i <= bound_count; ++i) {
+      buckets_[i] += other.buckets_[i];
+    }
+    sum_ += other.sum_;
+    count_ += other.count_;
+    return *this;
+  }
+
+  void collect(Context ctx) const {
+    // All three sample kinds belong to one family, so the family is opened exactly once and the
+    // _sum/_count suffixes override the family's default per sample.
+    ctx.open_family("histogram", "bucket");
+    td::uint64 cumulative = 0;
+    for (size_t i = 0; i < bound_count; ++i) {
+      cumulative += buckets_[i];
+      auto le = format_bound(Bounds[i]);
+      ctx.with_label("le", le).push(static_cast<double>(cumulative));
+    }
+    ctx.with_label("le", "+Inf").push(static_cast<double>(count_));
+    ctx.push_suffixed("sum", sum_);
+    ctx.push_suffixed("count", static_cast<double>(count_));
+  }
+
+ private:
+  static std::string format_bound(double bound) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%g", bound);
+    return buf;
+  }
+
+  std::array<td::uint64, bound_count + 1> buckets_{};
+  double sum_ = 0;
+  td::uint64 count_ = 0;
 };
 
 }  // namespace ton::metrics
