@@ -367,8 +367,14 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort sr
   auto size = data.size();
   auto magic = get_magic(data);
   auto R = co_await send_message_coro_inner(src, dst, std::move(data)).wrap();
-  LOG_IF(INFO, R.is_error()) << "Failed to send message: " << src << " -> " << dst << " size=" << size
-                             << " magic=" << td::format::as_hex(magic) << " " << R.error();
+  if (R.is_error()) {
+    // Fire-and-forget path: nobody upstream sees this error, so account the drop here.
+    app_.record_dropped(metrics::Direction::out, R.error().code() == NGTCP2_ERR_STREAM_ID_BLOCKED
+                                                     ? metrics::Reason::limited
+                                                     : metrics::Reason::internal);
+    LOG(INFO) << "Failed to send message: " << src << " -> " << dst << " size=" << size
+              << " magic=" << td::format::as_hex(magic) << " " << R.error();
+  }
   co_return td::Unit{};
 }
 
