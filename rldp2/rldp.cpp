@@ -190,10 +190,14 @@ td::actor::ActorId<RldpConnectionActor> RldpIn::get_or_create_connection(adnl::A
   return res;
 }
 
+static State transfer_outcome(const td::Status &error) {
+  return error.code() == ErrorCode::timeout ? State::timeout : State::failed;
+}
+
 void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort local_id, TransferId transfer_id,
                              td::Result<td::BufferSlice> r_data) {
   if (r_data.is_error()) {
-    metrics_.transport.transfers.at(metrics::Direction::in, State::failed).inc();
+    metrics_.transport.transfers.at(metrics::Direction::in, transfer_outcome(r_data.error())).inc();
     if (auto it = queries_.find(transfer_id); it != queries_.end()) {
       it->second.promise.set_error(r_data.move_as_error());
       queries_.erase(it);
@@ -267,6 +271,7 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
       metrics_.app.record(metrics::Kind::answer, metrics::Direction::in, message.data_.as_slice());
       it->second.promise.set_value(std::move(message.data_));
     } else {
+      metrics_.app.record_dropped(metrics::Direction::in, metrics::Reason::limited);
       it->second.promise.set_error(td::Status::Error("received too big answer"));
     }
     queries_.erase(it);
@@ -276,7 +281,9 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
 }
 
 void RldpIn::on_sent(TransferId transfer_id, td::Result<td::Unit> state) {
-  metrics_.transport.transfers.at(metrics::Direction::out, state.is_ok() ? State::completed : State::failed).inc();
+  metrics_.transport.transfers
+      .at(metrics::Direction::out, state.is_ok() ? State::completed : transfer_outcome(state.error()))
+      .inc();
 }
 
 void RldpIn::absorb(RldpConnMetrics delta, td::Promise<td::Unit> done) {
@@ -302,10 +309,10 @@ td::actor::Task<> RldpIn::collect(metrics::Context ctx) {
 
   metrics_.transport.connections.set(connections_.size());
   metrics_.transport.queries_pending.set(queries_.size());
-  metrics_.transport.dropped = aggregate_.transport_dropped;
 
   auto rldp = ctx.with_name("rldp2");
   rldp.collect(aggregate_.wire, "wire");
+  rldp.collect(aggregate_.transport_dropped, "transport_dropped");
   rldp.collect(metrics_);
   co_return {};
 }
