@@ -101,9 +101,10 @@ struct UdpWireStats {
   Labeled<UdpDirStats, Direction> dir;
   Gauge<td::uint64> listening_sockets;
 
-  void combine(const UdpWireStats &other) {
+  UdpWireStats &operator+=(const UdpWireStats &other) {
     dir += other.dir;
-    listening_sockets.set(listening_sockets.value() + other.listening_sockets.value());
+    listening_sockets.add(other.listening_sockets.value());
+    return *this;
   }
 
   void collect(Context ctx) const {

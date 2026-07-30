@@ -52,7 +52,7 @@ td::actor::ActorOwn<Adnl> Adnl::create(std::string db, td::actor::ActorId<keyrin
 void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_mask, td::BufferSlice data) {
   metrics_.transport.inbound_packets.inc();
   if (data.size() < 32) {
-    metrics_.transport.dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
+    record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
     VLOG(adnl, WARNING) << this << ": dropping IN message [?->?]: message too short: len=" << data.size();
     return;
   }
@@ -63,7 +63,7 @@ void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_
   auto it = local_ids_.find(dst);
   if (it != local_ids_.end()) {
     if (!cat_mask.test(it->second.cat)) {
-      metrics_.transport.dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
+      record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
       VLOG(adnl, WARNING) << this << ": dropping IN message [?->" << dst << "]: category mismatch";
       return;
     }
@@ -75,7 +75,7 @@ void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_
   auto it2 = channels_.find(dst_chan_id);
   if (it2 != channels_.end()) {
     if (!cat_mask.test(it2->second.second)) {
-      metrics_.transport.dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
+      record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
       VLOG(adnl, WARNING) << this << ": dropping IN message to channel [?->" << dst << "]: category mismatch";
       return;
     }
@@ -83,7 +83,7 @@ void AdnlPeerTableImpl::receive_packet(td::IPAddress addr, AdnlCategoryMask cat_
     return;
   }
 
-  metrics_.transport.dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
+  record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
   VLOG(adnl, DEBUG) << this << ": dropping IN message [?->" << dst << "]: unknown dst " << dst
                     << " (len=" << (data.size() + 32) << ")";
 }
@@ -131,7 +131,7 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
   packet.run_basic_checks().ensure();
 
   if (!packet.inited_from_short()) {
-    metrics_.transport.dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
+    record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
     VLOG(adnl, INFO) << this << ": dropping IN message [?->" << dst << "]: destination not set";
     return;
   }
@@ -140,13 +140,13 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
   auto it = peers_.find(src);
   if (it == peers_.end()) {
     if (!packet.inited_from()) {
-      metrics_.transport.dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
+      record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
       VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
                        << "]: unknown peer and no full src in packet";
       return;
     }
     if (network_manager_.empty()) {
-      metrics_.transport.dropped.at(metrics::Direction::in, metrics::Reason::internal).inc();
+      record_transport_dropped(metrics::Direction::in, metrics::Reason::internal);
       VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
                        << "]: unknown peer and network manager uninitialized";
       return;
@@ -157,7 +157,7 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
 
   auto it2 = local_ids_.find(dst);
   if (it2 == local_ids_.end()) {
-    metrics_.transport.dropped.at(metrics::Direction::in, metrics::Reason::internal).inc();
+    record_transport_dropped(metrics::Direction::in, metrics::Reason::internal);
     VLOG(adnl, ERROR) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
                       << "]: unknown dst (but how did we decrypt message?)";
     return;
@@ -198,7 +198,7 @@ void AdnlPeerTableImpl::send_message_in(AdnlNodeIdShort src, AdnlNodeIdShort dst
                                         td::uint32 flags) {
   auto it2 = local_ids_.find(src);
   if (it2 == local_ids_.end()) {
-    metrics_.transport.dropped.at(metrics::Direction::out, metrics::Reason::invalid).inc();
+    record_transport_dropped(metrics::Direction::out, metrics::Reason::invalid);
     LOG(ERROR) << this << ": dropping OUT message [" << src << "->" << dst << "]: unknown src";
     return;
   }
@@ -233,7 +233,7 @@ void AdnlPeerTableImpl::send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std
 
   auto it2 = local_ids_.find(src);
   if (it2 == local_ids_.end()) {
-    metrics_.transport.dropped.at(metrics::Direction::out, metrics::Reason::invalid).inc();
+    record_transport_dropped(metrics::Direction::out, metrics::Reason::invalid);
     LOG(ERROR) << this << ": dropping OUT message [" << src << "->" << dst << "]: unknown src";
     return;
   }

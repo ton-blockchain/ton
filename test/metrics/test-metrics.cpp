@@ -380,7 +380,7 @@ TEST(Metrics, TlShortPayloadIsUnknown) {
 // ===== TlLatencyBucket =====
 
 TEST(Metrics, TlLatencySplitsByConstructor) {
-  TlLatencyBucket bucket;
+  TlLatencyBucket bucket{"test query"};
   bucket.observe(ton_api::tonNode_getCapabilities::ID, 0.02, true);
   bucket.observe(ton_api::overlay_message::ID, 3.0, false);
   bucket.observe(static_cast<td::int32>(0x11223344), 0.02, false);  // not in the schema
@@ -403,7 +403,7 @@ TEST(Metrics, TlLatencySplitsByConstructor) {
 
 TEST(Metrics, TlLatencyDurationNameIsConfigurable) {
   // Outbound buckets carry their kind in the collect name, so their histogram leaf is just `seconds`.
-  TlLatencyBucket roundtrip{"seconds"};
+  TlLatencyBucket roundtrip{"test query roundtrip", "seconds"};
   roundtrip.observe(ton_api::tonNode_getCapabilities::ID, 0.02, false);
   auto out = render(roundtrip, "query_roundtrip");
   ASSERT_TRUE(has_line(out, "query_roundtrip_seconds_bucket{tl=\"tonNode.getCapabilities\",le=\"0.025\"} 1.000000"));
@@ -412,7 +412,7 @@ TEST(Metrics, TlLatencyDurationNameIsConfigurable) {
   ASSERT_TRUE(out.find("duration") == std::string::npos);
 
   // The default keeps the inbound family names, which dashboards pin.
-  TlLatencyBucket inbound;
+  TlLatencyBucket inbound{"test query"};
   inbound.observe(ton_api::tonNode_getCapabilities::ID, 0.02, true);
   auto inbound_out = render(inbound, "query");
   ASSERT_TRUE(has_line(inbound_out, "query_duration_seconds_count{tl=\"tonNode.getCapabilities\"} 1.000000"));
@@ -423,14 +423,14 @@ TEST(Metrics, TlLatencyAlwaysEmitsBothFamilies) {
   // The Sink identifies families by position, so the family sequence must not depend on which cells
   // are populated: the unknown cell is emitted even when empty, and an empty bucket is still two
   // families rather than none.
-  TlLatencyBucket empty;
+  TlLatencyBucket empty{"test query"};
   auto empty_out = render(empty, "q");
   ASSERT_TRUE(has_line(empty_out, "q_duration_seconds_count{tl=\"unknown\"} 0.000000"));
   ASSERT_TRUE(has_line(empty_out, "q_failed_total{tl=\"unknown\"} 0.000000"));
   ASSERT_EQ(1u, count_of(empty_out, "# TYPE q_duration_seconds histogram\n"));
   ASSERT_EQ(1u, count_of(empty_out, "# TYPE q_failed counter\n"));
 
-  TlLatencyBucket bucket;
+  TlLatencyBucket bucket{"test query"};
   bucket.observe(ton_api::tonNode_getCapabilities::ID, 0.02, true);
   auto out = render(bucket, "q");
   ASSERT_TRUE(has_line(out, "q_duration_seconds_count{tl=\"unknown\"} 0.000000"));
@@ -571,7 +571,8 @@ TEST(MetricsGolden, Quic) {
             emitted_families([](Context ctx) {
               ::ton::quic::ServerStats server;
               App app;
-              TlLatencyBucket query_roundtrip{"seconds"}, message_delivery{"seconds"};
+              TlLatencyBucket query_roundtrip{"quic query roundtrip", "seconds"},
+                  message_delivery{"quic message delivery", "seconds"};
               auto quic = ctx.with_name("quic");
               quic.collect(server);
               quic.collect(app, "app");
