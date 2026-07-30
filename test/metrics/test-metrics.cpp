@@ -11,7 +11,9 @@
 #include "metrics/collectors.h"
 #include "metrics/tl-traffic-bucket.h"
 #include "metrics/well-known.h"
+#ifdef TON_TEST_METRICS_QUIC
 #include "quic/metrics.h"
+#endif
 #include "rldp2/RldpConnection.h"
 #include "rldp2/rldp-metrics.h"
 #include "td/utils/tests.h"
@@ -535,6 +537,7 @@ TEST(MetricsGolden, Rldp2) {
             }));
 }
 
+#ifdef TON_TEST_METRICS_QUIC
 TEST(MetricsGolden, Quic) {
   // QuicSender::collect
   ASSERT_EQ(families({
@@ -576,6 +579,7 @@ TEST(MetricsGolden, Quic) {
               quic.collect(message_delivery, "message_delivery");
             }));
 }
+#endif
 
 TEST(MetricsGolden, Overlay) {
   // OverlayManager::collect, over OverlayManager::broadcasts_ (overlay/overlay-manager.h).

@@ -418,7 +418,9 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   auto conn = co_await find_or_create_connection({src, dst});
   td::Timer timer;
   auto result = co_await send_query_coro_inner(std::move(conn), timeout, std::move(data), limit, magic).wrap();
-  metrics::record_latency(query_roundtrip_, "quic query roundtrip", magic, dst, timer.elapsed(), result.is_ok());
+  static metrics::SlowLogThrottle throttle;
+  metrics::record_latency(query_roundtrip_, throttle, "quic query roundtrip", magic, dst, timer.elapsed(),
+                          result.is_ok());
   co_return std::move(result);
 }
 
@@ -703,8 +705,9 @@ void QuicSender::record_message_delivery(Connection &connection, QuicStreamID st
   if (it == connection.messages.end()) {
     return;
   }
-  metrics::record_latency(message_delivery_, "quic message delivery", it->second.magic, connection.path.second,
-                          it->second.timer.elapsed(), ok);
+  static metrics::SlowLogThrottle throttle;
+  metrics::record_latency(message_delivery_, throttle, "quic message delivery", it->second.magic,
+                          connection.path.second, it->second.timer.elapsed(), ok);
   connection.messages.erase(it);
 }
 
