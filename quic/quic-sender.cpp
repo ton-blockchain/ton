@@ -564,12 +564,15 @@ void QuicSender::finish_connection_init(const std::shared_ptr<Connection> &conne
 
 td::Result<td::Unit> QuicSender::on_connected_inner(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
                                                     adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
-                                                    bool is_outbound, std::shared_ptr<Connection> &connection) {
+                                                    bool is_outbound, std::shared_ptr<Connection> &connection,
+                                                    metrics::Reason &reject_reason) {
+  reject_reason = metrics::Reason::invalid;
   if (auto it = by_cid_.find(cid); it != by_cid_.end()) {
     connection = it->second;
   }
 
   if (get_peer_mtu(local_id, peer_id) == 0) {
+    reject_reason = metrics::Reason::limited;  // the path is administratively closed, not malformed
     return td::Status::Error(PSLICE() << "MTU 0 path [" << local_id << ';' << peer_id << ']');
   }
 
@@ -584,6 +587,7 @@ td::Result<td::Unit> QuicSender::on_connected_inner(td::actor::ActorId<QuicServe
   }
 
   if (is_outbound) {
+    reject_reason = metrics::Reason::internal;  // we dialed it and then lost track of it
     return td::Status::Error("Unknown outbound connection");
   }
 
@@ -608,13 +612,14 @@ td::Result<td::Unit> QuicSender::on_connected_inner(td::actor::ActorId<QuicServe
 void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
                               adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, bool is_outbound) {
   std::shared_ptr<Connection> connection;
-  auto result = on_connected_inner(server, cid, local_id, peer_id, is_outbound, connection);
+  auto reject_reason = metrics::Reason::invalid;
+  auto result = on_connected_inner(server, cid, local_id, peer_id, is_outbound, connection, reject_reason);
 
   if (result.is_error()) {
     // ServerCallback::on_connected returned OK before hopping here, so this rejection is invisible to
     // QuicServer's own accounting; report it back. Disjoint from the callback's synchronous failures,
     // which never reach this actor.
-    td::actor::send_closure(server, &QuicServer::record_handshake_reject);
+    td::actor::send_closure(server, &QuicServer::record_handshake_reject, reject_reason);
     // the connection will be empty if an error happened during inbound connection initialization
     if (connection) {
       LOG(WARNING) << "Failed to init connection: " << connection->path << " " << result.error();
