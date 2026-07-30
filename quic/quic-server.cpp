@@ -731,15 +731,9 @@ void QuicServer::drain_ingress() {
       }
       break;
     }
-    // Without recvmmsg the batch is one recvmsg per datagram, plus — on POSIX only — the one that
-    // drained the queue with EAGAIN. Windows pops an already-completed IOCP queue, so a short batch
-    // costs no extra call.
-#if TD_PORT_POSIX
-    const size_t drain_call = cnt < kIngressBatch;
-#else
-    const size_t drain_call = 0;
-#endif
-    ingress.syscalls.inc(fd_.is_mmsg_enabled() ? 1 : cnt + drain_call);
+    // One batched receive call; exact while recvmmsg is active, an undercount on the fallback path
+    // that enters the kernel once per datagram (see UdpDirCounters::syscalls).
+    ingress.syscalls.inc();
 
     // Debug: log recvmmsg batch details periodically
     static std::atomic<size_t> ingress_log_counter = 0;
@@ -855,10 +849,9 @@ bool QuicServer::flush_pending() {
       td::Span<td::UdpSocketFd::OutboundMessage>(egress_messages_.data() + pending_batch_sent_, batch_size), result);
 
   auto &egress = udp_wire_.dir.at(metrics::Direction::out);
-  // Without sendmmsg the batch is one sendmsg per descriptor. A short batch stopped on a sendmsg that
-  // failed: a refusal is already in consumed(), a would-block or fatal error is the one extra call.
-  egress.syscalls.inc(
-      fd_.is_mmsg_enabled() ? 1 : result.consumed() + (result.dropped == 0 && result.consumed() < batch_size));
+  // One batched send call; exact while sendmmsg is active, an undercount on the fallback path that
+  // enters the kernel once per descriptor (see UdpDirCounters::syscalls).
+  egress.syscalls.inc();
   // GSO hands the kernel one descriptor carrying several datagrams; the wire tier counts datagrams.
   auto datagrams = [](const td::UdpSocketFd::OutboundMessage &message) -> td::uint64 {
     return message.gso_size > 0 ? (message.data.size() + message.gso_size - 1) / message.gso_size : 1;
