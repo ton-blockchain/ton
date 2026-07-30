@@ -106,8 +106,9 @@ TEST(Metrics, DurationGaugeRendersSecondsSuffix) {
   Gauge<std::chrono::milliseconds> g{std::chrono::milliseconds(1500)};
   ctx.collect(g, "latency");
   auto out = std::move(sink).build().render();
-  // _seconds suffix on the sample line; 1500ms rendered as 1.5 seconds.
-  EXPECT_EQ("# TYPE latency gauge\nlatency_seconds 1.500000\n", out);
+  // The unit suffix is part of the family name (OpenMetrics: gauge sample == family name);
+  // 1500ms rendered as 1.5 seconds.
+  EXPECT_EQ("# TYPE latency_seconds gauge\nlatency_seconds 1.500000\n", out);
 }
 
 TEST(Metrics, PlainGaugeHasNoSecondsSuffix) {
