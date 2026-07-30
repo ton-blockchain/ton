@@ -128,6 +128,10 @@ class AdnlPeerTable : public Adnl {
   virtual void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) {
     done.set_value(td::Unit());
   }
+
+  // How long a query delivered to a local id took to be answered. Called from the query's completion,
+  // which may run on any thread — hence an actor message rather than a direct bump.
+  virtual void record_query_duration(td::int32 magic, double seconds, bool ok) = 0;
 };
 
 }  // namespace adnl
