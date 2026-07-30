@@ -394,7 +394,7 @@ void FullNodeFastSyncOverlay::init() {
   bool is_original_sender = local_validator_it != current_validators_adnl_.end();
   overlay::OverlayOptions options;
   options.name_ = "fast-sync" + shard_.to_str();
-  options.default_permanent_members_flags_ = 0;
+  options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.local_overlay_member_flags_ = receive_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
@@ -785,7 +785,7 @@ void FullNodeFastSyncOverlays::update_overlays(
 
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
-      bool receive_broadcasts = monitoring_shards.contains(shard);
+      bool receive_broadcasts = !overlays_info.is_validator_ && monitoring_shards.contains(shard);
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
