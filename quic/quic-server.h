@@ -97,6 +97,12 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void on_connection_closed(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
+  // Counts a handshake the application rejected after Callback::on_connected already returned OK,
+  // i.e. from another actor. Callers that reject synchronously are counted at the callback site.
+  void record_handshake_reject() {
+    record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
+  }
+
   // MTU state is keyed by local_id and (local_id, peer_id). Peer-specific MTU overrides the
   // per-local default. Setting an MTU to 0 erases the corresponding entry.
   void set_default_mtu(adnl::AdnlNodeIdShort local_id, td::uint64 mtu);

@@ -57,8 +57,10 @@ class UdpWriter {
 
     UdpSocketFd::SendResult result;
     auto status = fd.send_messages(::td::Span<UdpSocketFd::OutboundMessage>(messages).truncate(to_send_n), result);
-    // Without sendmmsg the batch is one sendmsg per datagram, plus the one that failed and stopped it.
-    counters.syscalls += fd.is_mmsg_enabled() ? 1 : result.consumed() + (result.consumed() < to_send_n);
+    // Without sendmmsg the batch is one sendmsg per datagram. A short batch stopped on a sendmsg that
+    // failed: a refusal is already in consumed(), a would-block or fatal error is the one extra call.
+    counters.syscalls +=
+        fd.is_mmsg_enabled() ? 1 : result.consumed() + (result.dropped == 0 && result.consumed() < to_send_n);
     for (size_t i = 0; i < result.sent; i++) {
       counters.bytes += to_send[i].data.size();
     }
@@ -111,7 +113,8 @@ class UdpReader {
     }
     size_t cnt = 0;
     auto status = fd.receive_messages(messages_, cnt);
-    // Without recvmmsg the batch is one recvmsg per datagram, plus the one that drained the queue.
+    // Without recvmmsg the batch is one recvmsg per datagram, plus the one that drained the queue
+    // with EAGAIN — this helper is POSIX-only, so that extra call always happens.
     counters.syscalls += fd.is_mmsg_enabled() ? 1 : cnt + (cnt < messages_.size());
     for (size_t i = 0; i < cnt; i++) {
       counters.bytes += messages_[i].data.size();

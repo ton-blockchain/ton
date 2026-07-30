@@ -611,6 +611,10 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
   auto result = on_connected_inner(server, cid, local_id, peer_id, is_outbound, connection);
 
   if (result.is_error()) {
+    // ServerCallback::on_connected returned OK before hopping here, so this rejection is invisible to
+    // QuicServer's own accounting; report it back. Disjoint from the callback's synchronous failures,
+    // which never reach this actor.
+    td::actor::send_closure(server, &QuicServer::record_handshake_reject);
     // the connection will be empty if an error happened during inbound connection initialization
     if (connection) {
       LOG(WARNING) << "Failed to init connection: " << connection->path << " " << result.error();
