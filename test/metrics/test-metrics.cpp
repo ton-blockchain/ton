@@ -16,6 +16,7 @@
 #endif
 #include "rldp2/RldpConnection.h"
 #include "rldp2/rldp-metrics.h"
+#include "td/utils/as.h"
 #include "td/utils/tests.h"
 #include "tl-utils/tl-utils.hpp"
 
@@ -293,6 +294,25 @@ TEST(Metrics, TlBroadcastWithEmptyDataStaysItself) {
       a_key(), create_tl_object<ton_api::overlay_emptyCertificate>(), 0, td::BufferSlice(), 12345, td::BufferSlice(64));
   auto payload = create_serialize_tl_object_suffix<ton_api::overlay_message>(broadcast, td::Bits256::zero());
   ASSERT_EQ("overlay.broadcast", tl_label(payload));
+}
+
+TEST(Metrics, TlBroadcastDataStopsAtItsDeclaredLength) {
+  // `data` holding exactly one magic and nothing else — an envelope's, so the resolver wants to
+  // unwrap it once more. It must not, because everything past `data` (`date`, `signature`) is the
+  // peer's to choose: reading there would let it name any constructor it likes.
+  const td::int32 steer = ton_api::tonNode_capabilities::ID;
+  td::BufferSlice data(sizeof(td::int32));
+  td::as<td::int32>(data.as_slice().data()) = ton_api::overlay_message::ID;
+  td::BufferSlice signature(64);
+  for (size_t i = 0; i < signature.size(); i += sizeof(steer)) {
+    td::as<td::int32>(signature.as_slice().substr(i).data()) = steer;
+  }
+  auto broadcast = create_serialize_tl_object<ton_api::overlay_broadcast>(
+      a_key(), create_tl_object<ton_api::overlay_emptyCertificate>(), 0, std::move(data), steer, std::move(signature));
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_message>(broadcast, td::Bits256::zero());
+  // The inner envelope's own header does not fit in the 4 bytes it was given, so the label stays
+  // there — never "tonNode.capabilities", which is only reachable by reading past `data`.
+  ASSERT_EQ("overlay.message", tl_label(payload));
 }
 
 TEST(Metrics, TlBroadcastPlumtreeSimpleUnwrapsToItsContent) {

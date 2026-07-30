@@ -48,7 +48,8 @@ class Cursor {
 
   // Steps into a `bytes` field instead, leaving the cursor on the content for the caller to read as
   // a nested object — so the declared content must really be there and be at least a magic wide, or
-  // the caller would read padding or the field that follows.
+  // the caller would read padding or the field that follows. The cursor is narrowed to exactly the
+  // declared content, so nothing the caller reads afterwards can come from outside it.
   bool enter_bytes() {
     return walk_bytes(false);
   }
@@ -83,7 +84,13 @@ class Cursor {
     if (with_content) {
       return skip((header + static_cast<size_t>(len) + 3) / 4 * 4);
     }
-    return len >= sizeof(td::int32) && header + static_cast<size_t>(len) <= data_.size() && skip(header);
+    if (len < sizeof(td::int32) || header + static_cast<size_t>(len) > data_.size() || !skip(header)) {
+      return false;
+    }
+    // Confine the cursor to the content: the fields that follow it are the peer's to choose too, and
+    // reading into them would let a short `data` steer the label.
+    data_.truncate(static_cast<size_t>(len));
+    return true;
   }
 
   td::Slice data_;

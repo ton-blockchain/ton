@@ -104,9 +104,12 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::Task<td::Unit> init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn);
   void finish_connection_init(const std::shared_ptr<Connection>& connection, td::Result<td::Unit> result);
 
+  // `reject_reason` classifies the failure for QuicServer's transport_dropped counter; it is
+  // meaningless when the call succeeds.
   td::Result<td::Unit> on_connected_inner(td::actor::ActorId<QuicServer> server, QuicConnectionId cid,
                                           adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
-                                          bool is_outbound, std::shared_ptr<Connection>& connection);
+                                          bool is_outbound, std::shared_ptr<Connection>& connection,
+                                          metrics::Reason& reject_reason);
 
   void on_connected(td::actor::ActorId<QuicServer> server, QuicConnectionId cid, adnl::AdnlNodeIdShort local_id,
                     adnl::AdnlNodeIdShort peer_id, bool is_outbound);
