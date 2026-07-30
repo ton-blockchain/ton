@@ -6,9 +6,14 @@
 
 #include <chrono>
 
+#include "adnl/adnl-peer-table.hpp"
 #include "auto/tl/ton_api.h"
 #include "metrics/collectors.h"
 #include "metrics/tl-traffic-bucket.h"
+#include "metrics/well-known.h"
+#include "quic/metrics.h"
+#include "rldp2/RldpConnection.h"
+#include "rldp2/rldp-metrics.h"
 #include "td/utils/tests.h"
 #include "tl-utils/tl-utils.hpp"
 
@@ -280,6 +285,47 @@ TEST(Metrics, TlBroadcastUnwrapsToItsContent) {
   ASSERT_EQ("tonNode.capabilities", tl_label(payload));
 }
 
+TEST(Metrics, TlBroadcastWithEmptyDataStaysItself) {
+  // `data` too short to hold a magic: the bytes after it (here `date`) must never be read as one.
+  auto broadcast = create_serialize_tl_object<ton_api::overlay_broadcast>(
+      a_key(), create_tl_object<ton_api::overlay_emptyCertificate>(), 0, td::BufferSlice(), 12345, td::BufferSlice(64));
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_message>(broadcast, td::Bits256::zero());
+  ASSERT_EQ("overlay.broadcast", tl_label(payload));
+}
+
+TEST(Metrics, TlBroadcastPlumtreeSimpleUnwrapsToItsContent) {
+  auto content = create_serialize_tl_object<ton_api::tonNode_capabilities>(2, 0, 0);
+  auto broadcast = create_serialize_tl_object<ton_api::overlay_broadcastPlumtreeSimple>(
+      0, 1.5, a_key(), create_tl_object<ton_api::overlay_emptyCertificate>(), td::Bits256::zero(), 3,
+      std::move(content), td::BufferSlice(64));
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_message>(broadcast, td::Bits256::zero());
+  ASSERT_EQ("tonNode.capabilities", tl_label(payload));
+}
+
+TEST(Metrics, TlBroadcastTwostepSimpleUnwrapsToItsContent) {
+  auto content = create_serialize_tl_object<ton_api::tonNode_capabilities>(2, 0, 0);
+  auto broadcast = create_serialize_tl_object<ton_api::overlay_broadcastTwostepSimple>(
+      0, 12345, a_key(), td::Bits256::zero(),
+      create_tl_object<ton_api::overlay_certificate>(a_key(), 0, 1024, td::BufferSlice(64)), std::move(content),
+      td::BufferSlice(), td::BufferSlice(64));
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_message>(broadcast, td::Bits256::zero());
+  ASSERT_EQ("tonNode.capabilities", tl_label(payload));
+}
+
+TEST(Metrics, TlTruncationSweepNeverEscapesTheSchema) {
+  // Whatever prefix of an envelope chain arrives, the label is a schema name or "unknown" — the
+  // resolver must never walk off the payload nor mint a label from trailing bytes.
+  auto content = create_serialize_tl_object<ton_api::tonNode_capabilities>(2, 0, 0);
+  auto broadcast = create_serialize_tl_object<ton_api::overlay_broadcast>(
+      a_key(), create_tl_object<ton_api::overlay_emptyCertificate>(), 0, std::move(content), 12345,
+      td::BufferSlice(64));
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_message>(broadcast, td::Bits256::zero());
+  for (size_t len = 0; len <= payload.size(); len++) {
+    auto label = tl_label(payload.as_slice().substr(0, len));
+    ASSERT_TRUE(label == "unknown" || label.find('.') != std::string::npos);
+  }
+}
+
 TEST(Metrics, TlBroadcastFecShortStaysItself) {
   // FEC parts carry no content magic — the outer constructor is the honest label.
   auto broadcast = create_serialize_tl_object<ton_api::overlay_broadcastFecShort>(
@@ -353,11 +399,176 @@ TEST(Metrics, TlLatencyDurationNameIsConfigurable) {
   ASSERT_TRUE(has_line(inbound_out, "query_failed_total{tl=\"tonNode.getCapabilities\"} 0.000000"));
 }
 
-TEST(Metrics, TlLatencySkipsEmptyUnknown) {
+TEST(Metrics, TlLatencyAlwaysEmitsBothFamilies) {
+  // The Sink identifies families by position, so the family sequence must not depend on which cells
+  // are populated: the unknown cell is emitted even when empty, and an empty bucket is still two
+  // families rather than none.
+  TlLatencyBucket empty;
+  auto empty_out = render(empty, "q");
+  ASSERT_TRUE(has_line(empty_out, "q_duration_seconds_count{tl=\"unknown\"} 0.000000"));
+  ASSERT_TRUE(has_line(empty_out, "q_failed_total{tl=\"unknown\"} 0.000000"));
+  ASSERT_EQ(1u, count_of(empty_out, "# TYPE q_duration_seconds histogram\n"));
+  ASSERT_EQ(1u, count_of(empty_out, "# TYPE q_failed counter\n"));
+
   TlLatencyBucket bucket;
   bucket.observe(ton_api::tonNode_getCapabilities::ID, 0.02, true);
   auto out = render(bucket, "q");
-  ASSERT_TRUE(out.find("unknown") == std::string::npos);
+  ASSERT_TRUE(has_line(out, "q_duration_seconds_count{tl=\"unknown\"} 0.000000"));
+}
+
+// ===== Golden family names =====
+//
+// The full family set each subsystem puts on the wire, one `<name> <type>` per line in emission
+// order. Dashboards and alerts pin these names, so a rename must fail here rather than silently
+// blank a panel; the expected lists are hand-written from the metric structs, never regenerated.
+
+// Renders `emit` under the root prefix production seeds (PrometheusExporter's `ton`), and returns
+// the rendering's `# TYPE` lines with the marker stripped.
+std::string emitted_families(auto &&emit) {
+  Sink sink;
+  emit(Context(sink).with_name("ton"));
+  auto out = std::move(sink).build().render();
+
+  const std::string marker = "# TYPE ";
+  std::string result;
+  for (size_t pos = 0; (pos = out.find(marker, pos)) != std::string::npos;) {
+    auto end = out.find('\n', pos);
+    result.append(out, pos + marker.size(), end - pos - marker.size());
+    result += '\n';
+    pos = end;
+  }
+  return result;
+}
+
+std::string families(std::initializer_list<std::string_view> expected) {
+  std::string result;
+  for (auto family : expected) {
+    result += family;
+    result += '\n';
+  }
+  return result;
+}
+
+TEST(MetricsGolden, AdnlWire) {
+  // AdnlNetworkManagerImpl::collect
+  ASSERT_EQ(families({
+                "ton_adnl_wire_bytes counter",
+                "ton_adnl_wire_packets counter",
+                "ton_adnl_wire_syscalls counter",
+                "ton_adnl_wire_dropped counter",
+                "ton_adnl_wire_listening_sockets gauge",
+            }),
+            emitted_families([](Context ctx) {
+              UdpWireStats wire;
+              ctx.with_name("adnl").with_name("wire").collect(wire);
+            }));
+}
+
+TEST(MetricsGolden, Adnl) {
+  // AdnlPeerTableImpl::collect
+  ASSERT_EQ(families({
+                "ton_adnl_transport_inbound_packets counter",
+                "ton_adnl_transport_decrypt_packets counter",
+                "ton_adnl_transport_decrypt_bytes counter",
+                "ton_adnl_transport_dropped counter",
+                "ton_adnl_transport_local_ids gauge",
+                "ton_adnl_transport_peers gauge",
+                "ton_adnl_transport_peer_pairs gauge",
+                "ton_adnl_transport_channels gauge",
+                "ton_adnl_transport_static_nodes gauge",
+                "ton_adnl_app_bytes counter",
+                "ton_adnl_app_messages counter",
+                "ton_adnl_app_dropped counter",
+                "ton_adnl_query_duration_seconds histogram",
+                "ton_adnl_query_failed counter",
+                "ton_adnl_query_roundtrip_seconds histogram",
+                "ton_adnl_query_roundtrip_failed counter",
+            }),
+            emitted_families([](Context ctx) {
+              ::ton::adnl::AdnlPeerTableMetrics peer_table;
+              ctx.with_name("adnl").collect(peer_table);
+            }));
+}
+
+TEST(MetricsGolden, Rldp2) {
+  // RldpIn::collect
+  ASSERT_EQ(families({
+                "ton_rldp2_wire_bytes counter",
+                "ton_rldp2_wire_packets counter",
+                "ton_rldp2_transport_dropped counter",
+                "ton_rldp2_transport_transfers counter",
+                "ton_rldp2_transport_connections gauge",
+                "ton_rldp2_transport_queries_pending gauge",
+                "ton_rldp2_app_bytes counter",
+                "ton_rldp2_app_messages counter",
+                "ton_rldp2_app_dropped counter",
+                "ton_rldp2_query_roundtrip_seconds histogram",
+                "ton_rldp2_query_roundtrip_failed counter",
+                "ton_rldp2_message_delivery_seconds histogram",
+                "ton_rldp2_message_delivery_failed counter",
+            }),
+            emitted_families([](Context ctx) {
+              ::ton::rldp2::RldpConnMetrics aggregate;
+              ::ton::rldp2::RldpMetrics metrics;
+              auto rldp = ctx.with_name("rldp2");
+              rldp.collect(aggregate.wire, "wire");
+              rldp.collect(aggregate.transport_dropped, "transport_dropped");
+              rldp.collect(metrics);
+            }));
+}
+
+TEST(MetricsGolden, Quic) {
+  // QuicSender::collect
+  ASSERT_EQ(families({
+                "ton_quic_wire_bytes counter",
+                "ton_quic_wire_packets counter",
+                "ton_quic_wire_syscalls counter",
+                "ton_quic_wire_dropped counter",
+                "ton_quic_wire_listening_sockets gauge",
+                "ton_quic_transport_connections counter",
+                "ton_quic_transport_connections_current gauge",
+                "ton_quic_transport_bytes counter",
+                "ton_quic_transport_packets counter",
+                "ton_quic_transport_stream_bytes counter",
+                "ton_quic_transport_bytes_lost counter",
+                "ton_quic_transport_packets_lost counter",
+                "ton_quic_transport_bytes_in_flight gauge",
+                "ton_quic_transport_bytes_unacked gauge",
+                "ton_quic_transport_bytes_unsent gauge",
+                "ton_quic_transport_sids counter",
+                "ton_quic_transport_sids_current gauge",
+                "ton_quic_transport_mean_rtt_seconds gauge",
+                "ton_quic_transport_dropped counter",
+                "ton_quic_app_bytes counter",
+                "ton_quic_app_messages counter",
+                "ton_quic_app_dropped counter",
+                "ton_quic_query_roundtrip_seconds histogram",
+                "ton_quic_query_roundtrip_failed counter",
+                "ton_quic_message_delivery_seconds histogram",
+                "ton_quic_message_delivery_failed counter",
+            }),
+            emitted_families([](Context ctx) {
+              ::ton::quic::ServerStats server;
+              App app;
+              TlLatencyBucket query_roundtrip{"seconds"}, message_delivery{"seconds"};
+              auto quic = ctx.with_name("quic");
+              quic.collect(server);
+              quic.collect(app, "app");
+              quic.collect(query_roundtrip, "query_roundtrip");
+              quic.collect(message_delivery, "message_delivery");
+            }));
+}
+
+TEST(MetricsGolden, Overlay) {
+  // OverlayManager::collect, over OverlayManager::broadcasts_ (overlay/overlay-manager.h).
+  ASSERT_EQ(families({
+                "ton_overlay_broadcast_bytes counter",
+                "ton_overlay_broadcast_messages counter",
+            }),
+            emitted_families([](Context ctx) {
+              Labeled<TlTrafficBucket, ::ton::metrics::Direction> broadcasts;
+              ctx.with_name("overlay").collect(broadcasts, "broadcast");
+            }));
 }
 
 }  // namespace
