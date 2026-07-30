@@ -183,10 +183,11 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
                                                                const td::IPAddress &remote_address);
   td::Result<QuicConnectionId> verify_retry_token(const VersionCid &packet, const td::IPAddress &remote_address) const;
   // Counts and logs its own send failures: a stateless answer we fail to put on the wire is an egress
-  // drop, never an invalid inbound datagram. Only failing to *build* one is reported back.
+  // drop, never an invalid inbound datagram.
   void send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address, td::Slice data);
-  td::Status send_retry(const VersionCid &packet, const td::IPAddress &remote_address);
-  td::Status send_invalid_token_connection_close(const VersionCid &packet, const td::IPAddress &remote_address);
+  // Both answer best effort and account for whatever they could not build, so neither can fail out.
+  void send_retry(const VersionCid &packet, const td::IPAddress &remote_address);
+  void send_invalid_token_connection_close(const VersionCid &packet, const td::IPAddress &remote_address);
 
   void update_alarm();
   void drain_ingress();

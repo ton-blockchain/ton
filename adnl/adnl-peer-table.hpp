@@ -62,8 +62,8 @@ struct AdnlPeerTableMetrics {
   };
   Transport transport;
   metrics::App app;
-  metrics::TlLatencyBucket query;
-  metrics::TlLatencyBucket query_roundtrip{"seconds"};
+  metrics::TlLatencyBucket query{"adnl query"};
+  metrics::TlLatencyBucket query_roundtrip{"adnl query roundtrip", "seconds"};
   void collect(metrics::Context ctx) const {
     ctx.collect(transport, "transport");
     ctx.collect(app, "app");
@@ -134,12 +134,11 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   }
   td::actor::Task<> collect(metrics::Context ctx) override;
   void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) override;
-  void record_query_duration(td::int32 magic, double seconds, bool ok) override {
-    metrics_.query.observe(magic, seconds, ok);
+  void record_query_duration(AdnlNodeIdShort src, td::int32 magic, double seconds, bool ok) override {
+    metrics_.query.record(magic, src, seconds, ok);
   }
   void record_query_roundtrip(AdnlNodeIdShort dst, td::int32 magic, double seconds, bool ok) override {
-    static metrics::SlowLogThrottle throttle;
-    metrics::record_latency(metrics_.query_roundtrip, throttle, "adnl query roundtrip", magic, dst, seconds, ok);
+    metrics_.query_roundtrip.record(magic, dst, seconds, ok);
   }
 
   void deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override;
@@ -189,6 +188,10 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   };
 
   AdnlPeerTableMetrics metrics_;
+
+  void record_transport_dropped(metrics::Direction dir, metrics::Reason reason) {
+    metrics_.transport.dropped.at(dir, reason).inc();
+  }
 
   td::actor::ActorId<keyring::Keyring> keyring_;
 
