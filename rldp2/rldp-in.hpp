@@ -51,13 +51,11 @@ struct RldpMetrics {
     metrics::Labeled<metrics::Counter, metrics::Direction, State> transfers;
     metrics::Gauge<td::uint64> connections;
     metrics::Gauge<td::uint64> queries_pending;
-    metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> dropped;
 
     void collect(metrics::Context ctx) const {
       ctx.collect(transfers, "transfers");
       ctx.collect(connections, "connections");
       ctx.collect(queries_pending, "queries_pending");
-      ctx.collect(dropped, "dropped");
     }
   };
 
