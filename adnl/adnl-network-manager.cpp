@@ -16,6 +16,8 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "td/actor/coro_utils.h"
+
 #include "adnl-network-manager.hpp"
 #include "adnl-peer-table.h"
 
@@ -99,9 +101,6 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t 
     VLOG(adnl, WARNING) << this << ": dropping ERROR message: " << message.error;
     return;
   }
-  // TODO: count udp_syscalls for ADNL. The recv/send syscalls happen inside td::UdpServer /
-  // UdpSocketFd, which expose no stats; surfacing them needs a tdnet change. ADNL is legacy, so this
-  // is left at 0 for now (the metric exists for parity with QUIC's wire tier).
   metrics_.dir.at(metrics::Direction::in).data.record(message.data.size());
   if (message.data.size() < 32) {
     metrics_.dir.at(metrics::Direction::in).dropped.inc();
@@ -161,6 +160,26 @@ void AdnlNetworkManagerImpl::send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdS
 }
 
 td::actor::Task<> AdnlNetworkManagerImpl::collect(metrics::Context ctx) {
+  // Fold the socket-level counters (syscalls, kernel receive-queue drops) into the wire tier as
+  // deltas against the last scrape. Sockets are only ever appended, so indexing by position is
+  // stable across the suspension.
+  std::vector<td::actor::StartedTask<td::UdpWireStats>> asks;
+  for (auto &socket : udp_sockets_) {
+    asks.push_back(td::actor::ask(socket.server.get(), &td::UdpServer::collect));
+  }
+  auto stats = co_await td::actor::all_wrap(std::move(asks));
+  for (size_t i = 0; i < stats.size() && i < udp_sockets_.size(); i++) {
+    if (stats[i].is_error()) {
+      continue;
+    }
+    const auto &cur = stats[i].ok();
+    auto &prev = udp_sockets_[i].reflected;
+    metrics_.dir.at(metrics::Direction::in).syscalls.inc(cur.in.counters.syscalls - prev.in.counters.syscalls);
+    metrics_.dir.at(metrics::Direction::out).syscalls.inc(cur.out.counters.syscalls - prev.out.counters.syscalls);
+    metrics_.dir.at(metrics::Direction::in).dropped.inc(cur.in.dropped - prev.in.dropped);
+    prev = cur;
+  }
+
   metrics_.listening_sockets.set(udp_sockets_.size());
   ctx.with_name("adnl").with_name("wire").collect(metrics_);
   co_return {};
