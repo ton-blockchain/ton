@@ -154,6 +154,14 @@ TEST(Metrics, TlNakedFunctionResolves) {
   ASSERT_EQ("tonNode.getCapabilities", tl_label(a_function()));
 }
 
+TEST(Metrics, TlNameForLogs) {
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_query>(a_function(), td::Bits256::zero());
+  ASSERT_EQ("tonNode.getCapabilities", tl_name(payload.as_slice()));
+  ASSERT_EQ("overlay.message", tl_name(ton_api::overlay_message::ID));
+  ASSERT_EQ("0xdeadbeef", tl_name(static_cast<td::int32>(0xdeadbeef)));
+  ASSERT_EQ("unknown", tl_name(td::Slice("ab")));
+}
+
 TEST(Metrics, TlOverlayQueryUnwrapsToInnerFunction) {
   auto payload = create_serialize_tl_object_suffix<ton_api::overlay_query>(a_function(), td::Bits256::zero());
   ASSERT_EQ("tonNode.getCapabilities", tl_label(payload));
