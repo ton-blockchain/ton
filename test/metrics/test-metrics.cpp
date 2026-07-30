@@ -121,6 +121,104 @@ TEST(Metrics, PlainGaugeHasNoSecondsSuffix) {
   EXPECT_EQ("# TYPE ratio gauge\nratio 0.250000\n", out);
 }
 
+// ===== Histogram =====
+
+std::string render(const Collectable auto &node, std::string_view name) {
+  Sink sink;
+  Context(sink).collect(node, name);
+  return std::move(sink).build().render();
+}
+
+bool has_line(const std::string &out, const std::string &line) {
+  return out.find(line + '\n') != std::string::npos;
+}
+
+size_t count_of(const std::string &out, const std::string &needle) {
+  size_t n = 0;
+  for (auto pos = out.find(needle); pos != std::string::npos; pos = out.find(needle, pos + needle.size())) {
+    ++n;
+  }
+  return n;
+}
+
+TEST(Metrics, HistogramEmptyRendersEveryBucket) {
+  auto out = render(Histogram<kDurationBuckets>{}, "x");
+  EXPECT_EQ(
+      "# TYPE x histogram\n"
+      "x_bucket{le=\"0.001\"} 0.000000\n"
+      "x_bucket{le=\"0.0025\"} 0.000000\n"
+      "x_bucket{le=\"0.005\"} 0.000000\n"
+      "x_bucket{le=\"0.01\"} 0.000000\n"
+      "x_bucket{le=\"0.025\"} 0.000000\n"
+      "x_bucket{le=\"0.05\"} 0.000000\n"
+      "x_bucket{le=\"0.1\"} 0.000000\n"
+      "x_bucket{le=\"0.25\"} 0.000000\n"
+      "x_bucket{le=\"0.5\"} 0.000000\n"
+      "x_bucket{le=\"1\"} 0.000000\n"
+      "x_bucket{le=\"2.5\"} 0.000000\n"
+      "x_bucket{le=\"5\"} 0.000000\n"
+      "x_bucket{le=\"10\"} 0.000000\n"
+      "x_bucket{le=\"30\"} 0.000000\n"
+      "x_bucket{le=\"+Inf\"} 0.000000\n"
+      "x_sum 0.000000\n"
+      "x_count 0.000000\n",
+      out);
+}
+
+TEST(Metrics, HistogramBucketsAreCumulative) {
+  Histogram<kDurationBuckets> h;
+  h.observe(0.0005);  // le=0.001
+  h.observe(0.003);   // le=0.005
+  h.observe(0.003);
+  h.observe(100.0);  // overflow
+  auto out = render(h, "x");
+  ASSERT_TRUE(has_line(out, "x_bucket{le=\"0.001\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "x_bucket{le=\"0.0025\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "x_bucket{le=\"0.005\"} 3.000000"));
+  ASSERT_TRUE(has_line(out, "x_bucket{le=\"30\"} 3.000000"));
+  ASSERT_TRUE(has_line(out, "x_bucket{le=\"+Inf\"} 4.000000"));
+  ASSERT_TRUE(has_line(out, "x_sum 100.006500"));
+  ASSERT_TRUE(has_line(out, "x_count 4.000000"));
+  ASSERT_EQ(td::uint64{4}, h.count());
+}
+
+TEST(Metrics, HistogramBoundsAreCompactlyFormatted) {
+  // %g, not the %f the sample values use: no `le="30.000000"`.
+  auto out = render(Histogram<kDurationBuckets>{}, "x");
+  ASSERT_TRUE(out.find("le=\"0.001\"") != std::string::npos);
+  ASSERT_TRUE(out.find("le=\"2.5\"") != std::string::npos);
+  ASSERT_TRUE(out.find("le=\"30\"") != std::string::npos);
+  ASSERT_TRUE(out.find("le=\"+Inf\"") != std::string::npos);
+  ASSERT_TRUE(out.find("le=\"30.000000\"") == std::string::npos);
+}
+
+TEST(Metrics, HistogramComposesWithOuterLabel) {
+  Histogram<kDurationBuckets> h;
+  h.observe(0.02);
+  Sink sink;
+  Context(sink).with_label("tl", "x").collect(h, "q");
+  auto out = std::move(sink).build().render();
+  // Outer labels come first, `le` last.
+  ASSERT_TRUE(has_line(out, "q_bucket{tl=\"x\",le=\"0.025\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "q_bucket{tl=\"x\",le=\"0.01\"} 0.000000"));
+  ASSERT_TRUE(has_line(out, "q_sum{tl=\"x\"} 0.020000"));
+  ASSERT_TRUE(has_line(out, "q_count{tl=\"x\"} 1.000000"));
+}
+
+TEST(Metrics, HistogramMerges) {
+  Histogram<kDurationBuckets> a, b;
+  a.observe(0.003);
+  b.observe(0.003);
+  b.observe(5.0);
+  a += b;
+  ASSERT_EQ(td::uint64{3}, a.count());
+  ASSERT_TRUE(a.sum() > 5.005 && a.sum() < 5.007);
+  auto out = render(a, "x");
+  ASSERT_TRUE(has_line(out, "x_bucket{le=\"0.005\"} 2.000000"));
+  ASSERT_TRUE(has_line(out, "x_bucket{le=\"5\"} 3.000000"));
+  ASSERT_TRUE(has_line(out, "x_bucket{le=\"+Inf\"} 3.000000"));
+}
+
 // ===== TlTrafficBucket =====
 
 // The `tl` label a single payload lands under, read back off the rendered exposition.
