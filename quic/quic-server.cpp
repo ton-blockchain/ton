@@ -259,8 +259,8 @@ void QuicServer::on_local_cid_retired(const QuicConnectionId &primary_cid, const
   unbind_cid(primary_cid, cid);
 }
 
-td::Result<std::optional<ServerInitialInfo>> QuicServer::prepare_server_initial_info(
-    const VersionCid &initial_packet, const td::IPAddress &remote_address) {
+std::optional<ServerInitialInfo> QuicServer::prepare_server_initial_info(const VersionCid &initial_packet,
+                                                                         const td::IPAddress &remote_address) {
   ServerInitialInfo initial_info{
       .packet = initial_packet,
       .original_dcid = initial_packet.dcid,
@@ -268,12 +268,16 @@ td::Result<std::optional<ServerInitialInfo>> QuicServer::prepare_server_initial_
   };
 
   if (!options_.stateless_retry) {
-    return std::optional<ServerInitialInfo>(std::move(initial_info));
+    return initial_info;
   }
 
   if (initial_packet.token.empty()) {
-    TRY_STATUS(send_retry(initial_packet, remote_address));
-    return std::optional<ServerInitialInfo>{};
+    // The datagram itself was fine, so failing to build its Retry drops it on our own account.
+    if (auto status = send_retry(initial_packet, remote_address); status.is_error()) {
+      record_transport_dropped(metrics::Direction::in, metrics::Reason::internal);
+      LOG(WARNING) << "failed to build Retry for " << remote_address << ": " << status;
+    }
+    return {};
   }
 
   auto original_dcid = verify_retry_token(initial_packet, remote_address);
@@ -281,13 +285,16 @@ td::Result<std::optional<ServerInitialInfo>> QuicServer::prepare_server_initial_
     // Rejected here rather than by returning an error, so it is the only place that can count it.
     record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
     LOG(DEBUG) << "invalid Retry token from " << remote_address << ": " << original_dcid.error();
-    TRY_STATUS(send_invalid_token_connection_close(initial_packet, remote_address));
-    return std::optional<ServerInitialInfo>{};
+    // The reject above already accounts for this datagram; answering it is best effort.
+    if (auto status = send_invalid_token_connection_close(initial_packet, remote_address); status.is_error()) {
+      LOG(WARNING) << "failed to build invalid-token close for " << remote_address << ": " << status;
+    }
+    return {};
   }
 
   initial_info.original_dcid = original_dcid.move_as_ok();
   initial_info.retry_scid = initial_packet.dcid;
-  return std::optional<ServerInitialInfo>(std::move(initial_info));
+  return initial_info;
 }
 
 td::Result<QuicConnectionId> QuicServer::verify_retry_token(const VersionCid &packet,
@@ -313,13 +320,12 @@ td::Result<QuicConnectionId> QuicServer::verify_retry_token(const VersionCid &pa
   }
 }
 
-td::Status QuicServer::send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address,
-                                               td::Slice data) {
+void QuicServer::send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address, td::Slice data) {
   td::UdpSocketFd::OutboundMessage message{.to = &remote_address, .data = data, .gso_size = 0};
   bool is_sent = false;
   auto status = fd_.send_message(message, is_sent);
   auto &egress = udp_wire_.dir.at(metrics::Direction::out);
-  egress.syscalls.inc();
+  egress.syscalls.inc();  // one datagram, hence one syscall on every path
   if (is_sent) {
     egress.data.record(data.size());
   } else {
@@ -328,7 +334,6 @@ td::Status QuicServer::send_stateless_datagram(td::Slice packet_kind, const td::
     LOG(DEBUG) << "dropping stateless " << packet_kind << " to " << remote_address << ": "
                << (status.is_error() ? td::Slice(status.message()) : td::Slice("send queue blocked"));
   }
-  return status;
 }
 
 td::Status QuicServer::send_retry(const VersionCid &packet, const td::IPAddress &remote_address) {
@@ -353,9 +358,10 @@ td::Status QuicServer::send_retry(const VersionCid &packet, const td::IPAddress 
   }
 
   LOG(DEBUG) << "sending Retry to " << remote_address << " for original dcid=" << packet.dcid;
-  return send_stateless_datagram(
+  send_stateless_datagram(
       "Retry", remote_address,
       td::Slice(reinterpret_cast<const char *>(datagram.data()), static_cast<size_t>(datagram_size)));
+  return td::Status::OK();
 }
 
 td::Status QuicServer::send_invalid_token_connection_close(const VersionCid &packet,
@@ -371,9 +377,10 @@ td::Status QuicServer::send_invalid_token_connection_close(const VersionCid &pac
   }
 
   LOG(DEBUG) << "sending invalid-token connection close to " << remote_address;
-  return send_stateless_datagram(
+  send_stateless_datagram(
       "invalid-token connection close", remote_address,
       td::Slice(reinterpret_cast<const char *>(datagram.data()), static_cast<size_t>(datagram_size)));
+  return td::Status::OK();
 }
 
 void QuicServer::send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg) {
@@ -382,10 +389,7 @@ void QuicServer::send_connection_close(ConnectionState &state, const UdpMessageB
   }
 
   LOG(DEBUG) << "sending connection close to " << state.remote_address;
-  auto send_status = send_stateless_datagram("connection close", msg.address, msg.storage);
-  if (send_status.is_error()) {
-    LOG(WARNING) << "failed to send connection close for " << state << ": " << send_status;
-  }
+  send_stateless_datagram("connection close", msg.address, msg.storage);
 }
 
 std::shared_ptr<QuicServer::ConnectionState> QuicServer::find_connection(const QuicConnectionId &cid) {
@@ -600,6 +604,9 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
     auto status =
         callback_.on_connected(cid_, std::move(event.local_public_key), std::move(event.peer_public_key), is_outbound_);
     if (status.is_error()) {
+      // ngtcp2 never sees this failure (the callback returns 0 either way), so this is the only place
+      // a handshake rejected by the application — mismatched identity, unparseable key — is counted.
+      server_.record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
       LOG(WARNING) << "on_connected failed for " << cid_ << ": " << status;
       server_.to_erase_connections_.push_back(cid_);
     }
@@ -660,11 +667,8 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
     return drop(metrics::Reason::limited, std::move(status));
   }
 
-  auto r_initial_info = prepare_server_initial_info(initial_packet, msg_in.address);
-  if (r_initial_info.is_error()) {
-    return drop(metrics::Reason::invalid, r_initial_info.move_as_error());
-  }
-  auto initial_info = r_initial_info.move_as_ok();
+  // Answered statelessly (Retry / invalid-token close): already accounted for inside.
+  auto initial_info = prepare_server_initial_info(initial_packet, msg_in.address);
   if (!initial_info.has_value()) {
     return std::shared_ptr<ConnectionState>{};
   }
@@ -740,7 +744,8 @@ void QuicServer::drain_ingress() {
       }
       break;
     }
-    udp_wire_.dir.at(metrics::Direction::in).syscalls.inc();
+    // Without recvmmsg the batch is one recvmsg per datagram, plus the one that drained the queue.
+    udp_wire_.dir.at(metrics::Direction::in).syscalls.inc(fd_.is_mmsg_enabled() ? 1 : cnt + (cnt < kIngressBatch));
 
     // Debug: log recvmmsg batch details periodically
     static std::atomic<size_t> ingress_log_counter = 0;
@@ -850,25 +855,26 @@ bool QuicServer::flush_pending() {
     return true;
   }
 
+  const size_t batch_size = pending_batch_count_ - pending_batch_sent_;
   td::UdpSocketFd::SendResult result;
-  auto status =
-      fd_.send_messages(td::Span<td::UdpSocketFd::OutboundMessage>(egress_messages_.data() + pending_batch_sent_,
-                                                                   pending_batch_count_ - pending_batch_sent_),
-                        result);
+  auto status = fd_.send_messages(
+      td::Span<td::UdpSocketFd::OutboundMessage>(egress_messages_.data() + pending_batch_sent_, batch_size), result);
 
   auto &egress = udp_wire_.dir.at(metrics::Direction::out);
-  egress.syscalls.inc();
+  // Without sendmmsg the batch is one sendmsg per descriptor, plus the one that failed and stopped it.
+  egress.syscalls.inc(fd_.is_mmsg_enabled() ? 1 : result.consumed() + (result.consumed() < batch_size));
+  // GSO hands the kernel one descriptor carrying several datagrams; the wire tier counts datagrams.
+  auto datagrams = [](const td::UdpSocketFd::OutboundMessage &message) -> td::uint64 {
+    return message.gso_size > 0 ? (message.data.size() + message.gso_size - 1) / message.gso_size : 1;
+  };
   for (size_t i = pending_batch_sent_; i < pending_batch_sent_ + result.sent; i++) {
     egress.data.bytes.inc(egress_messages_[i].data.size());
-    size_t gso_size = egress_messages_[i].gso_size;
-    if (gso_size > 0 && egress_messages_[i].data.size() > gso_size) {
-      egress.data.packets.inc((egress_messages_[i].data.size() + gso_size - 1) / gso_size);
-    } else {
-      egress.data.packets.inc();
-    }
+    egress.data.packets.inc(datagrams(egress_messages_[i]));
   }
   // Consumed by the kernel, never put on the wire.
-  egress.dropped.at(metrics::Reason::internal).inc(result.dropped);
+  for (size_t i = pending_batch_sent_ + result.sent; i < pending_batch_sent_ + result.consumed(); i++) {
+    egress.dropped.at(metrics::Reason::internal).inc(datagrams(egress_messages_[i]));
+  }
 
   pending_batch_sent_ += result.consumed();
 

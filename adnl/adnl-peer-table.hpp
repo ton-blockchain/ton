@@ -138,7 +138,8 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
     metrics_.query.observe(magic, seconds, ok);
   }
   void record_query_roundtrip(AdnlNodeIdShort dst, td::int32 magic, double seconds, bool ok) override {
-    metrics::record_latency(metrics_.query_roundtrip, "adnl query roundtrip", magic, dst, seconds, ok);
+    static metrics::SlowLogThrottle throttle;
+    metrics::record_latency(metrics_.query_roundtrip, throttle, "adnl query roundtrip", magic, dst, seconds, ok);
   }
 
   void deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override;

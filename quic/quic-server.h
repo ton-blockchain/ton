@@ -177,10 +177,14 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
                                                                   std::optional<QuicConnectionId> bootstrap_routed_cid);
   void on_local_cid_issued(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
   void on_local_cid_retired(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
-  td::Result<std::optional<ServerInitialInfo>> prepare_server_initial_info(const VersionCid &initial_packet,
-                                                                           const td::IPAddress &remote_address);
+  // Empty when the datagram was answered statelessly (Retry, invalid-token close) instead of becoming
+  // a connection; those answers account for themselves, so this cannot fail.
+  std::optional<ServerInitialInfo> prepare_server_initial_info(const VersionCid &initial_packet,
+                                                               const td::IPAddress &remote_address);
   td::Result<QuicConnectionId> verify_retry_token(const VersionCid &packet, const td::IPAddress &remote_address) const;
-  td::Status send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address, td::Slice data);
+  // Counts and logs its own send failures: a stateless answer we fail to put on the wire is an egress
+  // drop, never an invalid inbound datagram. Only failing to *build* one is reported back.
+  void send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address, td::Slice data);
   td::Status send_retry(const VersionCid &packet, const td::IPAddress &remote_address);
   td::Status send_invalid_token_connection_close(const VersionCid &packet, const td::IPAddress &remote_address);
 

@@ -168,12 +168,11 @@ td::actor::Task<> AdnlNetworkManagerImpl::collect(metrics::Context ctx) {
     asks.push_back(td::actor::ask(socket.server.get(), &td::UdpServer::collect));
   }
   auto stats = co_await td::actor::all_wrap(std::move(asks));
-  // Socket counters only grow, so an inversion means this ask completed out of order against a
-  // newer one; skipping it keeps the delta from underflowing into a huge increment.
-  auto fold = [](metrics::Counter &counter, td::uint64 cur, td::uint64 prev) {
-    if (cur >= prev) {
-      counter.inc(cur - prev);
-    }
+  // Socket counters only grow, so an inversion means this ask completed out of order against a newer
+  // one. Such a snapshot is stale as a whole: folding nothing but keeping it as `reflected` would
+  // re-fold the difference against the newer one on the next scrape.
+  auto regressed = [](const td::UdpDirCounters &cur, const td::UdpDirCounters &prev) {
+    return cur.syscalls < prev.syscalls || cur.dropped < prev.dropped;
   };
   for (size_t i = 0; i < stats.size() && i < udp_sockets_.size(); i++) {
     if (stats[i].is_error()) {
@@ -181,14 +180,17 @@ td::actor::Task<> AdnlNetworkManagerImpl::collect(metrics::Context ctx) {
     }
     const auto &cur = stats[i].ok();
     auto &prev = udp_sockets_[i].reflected;
+    if (regressed(cur.in, prev.in) || regressed(cur.out, prev.out)) {
+      continue;
+    }
     auto &in = metrics_.dir.at(metrics::Direction::in);
     auto &out = metrics_.dir.at(metrics::Direction::out);
-    fold(in.syscalls, cur.in.syscalls, prev.in.syscalls);
-    fold(out.syscalls, cur.out.syscalls, prev.out.syscalls);
+    in.syscalls.inc(cur.in.syscalls - prev.in.syscalls);
+    out.syscalls.inc(cur.out.syscalls - prev.out.syscalls);
     // Inbound loss is the kernel's receive queue overflowing; outbound loss is the kernel refusing
     // a datagram we handed it (EMSGSIZE/EACCES/EPERM).
-    fold(in.dropped.at(metrics::Reason::limited), cur.in.dropped, prev.in.dropped);
-    fold(out.dropped.at(metrics::Reason::internal), cur.out.dropped, prev.out.dropped);
+    in.dropped.at(metrics::Reason::limited).inc(cur.in.dropped - prev.in.dropped);
+    out.dropped.at(metrics::Reason::internal).inc(cur.out.dropped - prev.out.dropped);
     prev = cur;
   }
 
