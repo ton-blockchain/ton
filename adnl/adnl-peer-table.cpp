@@ -239,6 +239,14 @@ void AdnlPeerTableImpl::send_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, std
   }
   auto &peer_info = peers_[dst];
 
+  // Round trip starts here, where the peer pair takes the query: the early returns above never
+  // handed it to the transport, so they are not round trips at all. The answer completes on the
+  // query's own actor, hence the hop back to this thread.
+  promise = [timer = td::Timer(), magic = metrics::resolve_tl_magic(data.as_slice()), dst, self = actor_id(this),
+             promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    td::actor::send_closure(self, &AdnlPeerTableImpl::record_query_roundtrip, dst, magic, timer.elapsed(), R.is_ok());
+    promise.set_result(std::move(R));
+  };
   td::actor::send_closure(get_peer_pair(dst, peer_info, src, it2->second), &AdnlPeerPair::send_query, name,
                           std::move(promise), timeout, std::move(data), 0);
 }

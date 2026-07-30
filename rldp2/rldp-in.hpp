@@ -26,6 +26,7 @@
 #include "metrics/collectors.h"
 #include "metrics/well-known.h"
 #include "td/utils/List.h"
+#include "td/utils/Timer.h"
 #include "tl-utils/tl-utils.hpp"
 
 #include "RldpConnection.h"
@@ -61,10 +62,14 @@ struct RldpMetrics {
 
   Transport transport;
   metrics::App app;
+  metrics::TlLatencyBucket query_roundtrip{"seconds"};
+  metrics::TlLatencyBucket message_delivery{"seconds"};
 
   void collect(metrics::Context ctx) const {
     ctx.collect(transport, "transport");
     ctx.collect(app, "app");
+    ctx.collect(query_roundtrip, "query_roundtrip");
+    ctx.collect(message_delivery, "message_delivery");
   }
 };
 
@@ -156,8 +161,25 @@ class RldpIn : public RldpImpl {
   struct OutQuery {
     td::Promise<td::BufferSlice> promise;
     td::uint64 max_answer_size;
+    adnl::AdnlNodeIdShort dst;
+    td::int32 magic;
+    td::Timer timer;
   };
   std::map<TransferId, OutQuery> queries_;
+
+  struct OutMessage {
+    adnl::AdnlNodeIdShort dst;
+    td::int32 magic;
+    td::Timer timer;
+  };
+  // Outbound messages awaiting their transfer's on_sent. Every transfer sent with a timeout gets one
+  // (RldpConnection::loop_limits fails it at the deadline at the latest), and the connection outlives
+  // that deadline by CONNECTION_TIMEOUT, so entries do not accumulate.
+  std::map<TransferId, OutMessage> messages_;
+
+  // Fulfils an outbound query's promise and records its round trip. Every completion path goes
+  // through here, and they all run on this actor.
+  void finish_query(std::map<TransferId, OutQuery>::iterator it, td::Result<td::BufferSlice> result);
 
   std::set<adnl::AdnlNodeIdShort> local_ids_;
 

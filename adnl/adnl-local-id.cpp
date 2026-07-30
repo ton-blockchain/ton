@@ -28,9 +28,6 @@ namespace ton {
 
 namespace adnl {
 
-// A query taking longer than this to answer is worth a line in the log.
-static constexpr double SLOW_QUERY_SECONDS = 1.0;
-
 static td::IPAddress remove_port(td::IPAddress addr) {
   addr.set_port(0);
   return addr;
@@ -122,7 +119,7 @@ void AdnlLocalId::deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::P
              peer_table = peer_table_, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
     double elapsed = timer.elapsed();
     bool ok = R.is_ok();
-    if (elapsed > SLOW_QUERY_SECONDS) {
+    if (elapsed > metrics::kSlowSeconds) {
       LOG(WARNING) << "slow query tl=" << metrics::tl_name(magic) << " src=" << src << " size=" << size
                    << " time=" << elapsed << (ok ? "" : " (failed)");
     }

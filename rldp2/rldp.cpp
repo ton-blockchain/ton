@@ -110,11 +110,13 @@ void RldpIn::send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort ds
   td::Random::secure_bytes(id.as_slice());
 
   metrics_.app.record(metrics::Kind::message, metrics::Direction::out, data.as_slice());
+  auto magic = metrics::resolve_tl_magic(data.as_slice());
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_message>(id, std::move(data)), true);
 
   auto transfer_id = get_random_transfer_id();
   send_closure(get_or_create_connection(src, dst, false, timeout), &RldpConnectionActor::send, transfer_id,
                std::move(B), timeout);
+  messages_.emplace(transfer_id, OutMessage{.dst = dst, .magic = magic, .timer = {}});
 }
 
 void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -124,6 +126,7 @@ void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
 
   auto date = static_cast<td::uint32>(timeout.at_unix()) + 1;
   metrics_.app.record(metrics::Kind::query, metrics::Direction::out, data.as_slice());
+  auto magic = metrics::resolve_tl_magic(data.as_slice());
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_query>(query_id, max_answer_size, date, std::move(data)),
                                true);
 
@@ -133,7 +136,10 @@ void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
   send_closure(connection, &RldpConnectionActor::set_receive_limits, response_transfer_id, timeout, max_answer_size);
   send_closure(connection, &RldpConnectionActor::send, transfer_id, std::move(B), timeout);
 
-  queries_.emplace(response_transfer_id, OutQuery{.promise = std::move(promise), .max_answer_size = max_answer_size});
+  queries_.emplace(
+      response_transfer_id,
+      OutQuery{
+          .promise = std::move(promise), .max_answer_size = max_answer_size, .dst = dst, .magic = magic, .timer = {}});
 }
 
 void RldpIn::answer_query(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
@@ -199,8 +205,7 @@ void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   if (r_data.is_error()) {
     metrics_.transport.transfers.at(metrics::Direction::in, transfer_outcome(r_data.error())).inc();
     if (auto it = queries_.find(transfer_id); it != queries_.end()) {
-      it->second.promise.set_error(r_data.move_as_error());
-      queries_.erase(it);
+      finish_query(it, r_data.move_as_error());
     } else {
       VLOG(rldp2, INFO) << "received error to unknown transfer_id " << transfer_id << " " << r_data.error();
     }
@@ -214,8 +219,7 @@ void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
     aggregate_.record_dropped(metrics::Direction::in, metrics::Reason::invalid);
     VLOG(rldp2, INFO) << "failed to parse rldp packet [" << source << "->" << local_id << "]: " << F.error();
     if (auto it = queries_.find(transfer_id); it != queries_.end()) {
-      it->second.promise.set_error(F.move_as_error_prefix("received invalid rldp query answer: "));
-      queries_.erase(it);
+      finish_query(it, F.move_as_error_prefix("received invalid rldp query answer: "));
     }
     return;
   }
@@ -224,8 +228,7 @@ void RldpIn::receive_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
                          [&](auto &obj) { this->process_message(source, local_id, transfer_id, obj); });
 
   if (auto it = queries_.find(transfer_id); it != queries_.end()) {
-    it->second.promise.set_error(td::Status::Error("received invalid rldp query answer"));
-    queries_.erase(it);
+    finish_query(it, td::Status::Error("received invalid rldp query answer"));
   }
 }
 
@@ -269,21 +272,35 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
   if (it != queries_.end()) {
     if (message.data_.size() <= it->second.max_answer_size) {
       metrics_.app.record(metrics::Kind::answer, metrics::Direction::in, message.data_.as_slice());
-      it->second.promise.set_value(std::move(message.data_));
+      finish_query(it, std::move(message.data_));
     } else {
       metrics_.app.record_dropped(metrics::Direction::in, metrics::Reason::limited);
-      it->second.promise.set_error(td::Status::Error("received too big answer"));
+      finish_query(it, td::Status::Error("received too big answer"));
     }
-    queries_.erase(it);
   } else {
     VLOG(rldp2, INFO) << "received answer to unknown query " << message.query_id_;
   }
+}
+
+void RldpIn::finish_query(std::map<TransferId, OutQuery>::iterator it, td::Result<td::BufferSlice> result) {
+  auto query = std::move(it->second);
+  queries_.erase(it);
+  metrics::record_latency(metrics_.query_roundtrip, "rldp2 query roundtrip", query.magic, query.dst,
+                          query.timer.elapsed(), result.is_ok());
+  query.promise.set_result(std::move(result));
 }
 
 void RldpIn::on_sent(TransferId transfer_id, td::Result<td::Unit> state) {
   metrics_.transport.transfers
       .at(metrics::Direction::out, state.is_ok() ? State::completed : transfer_outcome(state.error()))
       .inc();
+  // The peer confirming the transfer is what makes a message delivered; a timed-out transfer counts
+  // as an undelivered one, however it ends up classified above.
+  if (auto it = messages_.find(transfer_id); it != messages_.end()) {
+    metrics::record_latency(metrics_.message_delivery, "rldp2 message delivery", it->second.magic, it->second.dst,
+                            it->second.timer.elapsed(), state.is_ok());
+    messages_.erase(it);
+  }
 }
 
 void RldpIn::absorb(RldpConnMetrics delta, td::Promise<td::Unit> done) {
