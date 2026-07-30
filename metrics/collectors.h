@@ -457,12 +457,16 @@ class Gauge {
   }
 
   void collect(Context ctx) const {
+    // The unit suffix must be part of the family name: OpenMetrics forbids gauge samples whose
+    // name differs from their family's (suffixed samples are a counter-only affordance).
     if constexpr (td::IsSpecializationOf<T, std::chrono::duration>) {
-      ctx.open_family("gauge", "seconds");
-      ctx.push(std::chrono::duration<double>(value_).count());
+      auto seconds = ctx.with_name("seconds");
+      seconds.open_family("gauge");
+      seconds.push(std::chrono::duration<double>(value_).count());
     } else if constexpr (td::IsSpecializationOf<T, std::chrono::time_point>) {
-      ctx.open_family("gauge", "seconds");
-      ctx.push(std::chrono::duration<double>(value_.time_since_epoch()).count());
+      auto seconds = ctx.with_name("seconds");
+      seconds.open_family("gauge");
+      seconds.push(std::chrono::duration<double>(value_.time_since_epoch()).count());
     } else {
       ctx.open_family("gauge");
       ctx.push(static_cast<double>(value_));
