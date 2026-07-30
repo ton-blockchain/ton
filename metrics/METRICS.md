@@ -374,6 +374,12 @@ Both sides must be inbound-only: the denominator is, so a numerator without `dir
 in what we forwarded and inflates the tax. The `tl` alternation lists every FEC-part constructor the
 schema has — miss one and its bytes silently vanish from the numerator.
 
+This is not an exact ratio: the denominator is *all* delivered broadcast content, including
+simple-broadcast and self-originated bodies that cost no FEC parts, so the quotient reads as FEC wire
+bytes over all broadcast content and understates the real per-byte FEC overhead — it only approaches
+it on FEC-dominated traffic such as block propagation. Isolating FEC-delivered content exactly would
+need a delivery-mode label on the overlay tier, deliberately not added for cardinality.
+
 **How long do we take to answer** — inbound processing p95 per query type, and its error ratio:
 
 ```promql
@@ -430,13 +436,18 @@ sum by (source) (rate(ton_first_received_total[15m]))
 internal scrape deadline; see Known gaps):
 
 ```promql
-  (time() - ton_exporter_last_collection_timestamp_seconds > 120)
-or absent(ton_exporter_last_collection_timestamp_seconds)
+time() - ton_exporter_last_collection_timestamp_seconds > 120   # answering scrapes, loop wedged
+up{job="ton"} == 0                                              # not answering scrapes at all
+                                                                # (job = your scrape_config name)
 ```
 
-The `absent()` arm is what keeps the alert firing: a wedged exporter stops answering scrapes, and
-once Prometheus's ~5 min lookback expires the series is gone and the first arm has nothing to
-evaluate — the alert would resolve itself exactly when the problem is worst.
+Alert on both. The first arm covers a node whose collection stalled while its HTTP endpoint still
+serves; it goes silent once the stale series ages out of Prometheus's ~5 min lookback, which is
+exactly when the second arm takes over. Don't fold the second arm into
+`absent(ton_exporter_last_collection_timestamp_seconds)`: `absent()` is evaluated over the whole
+vector and yields nothing while *any* instance still reports, so with more than one target it never
+fires — and Prometheus has no per-instance form of it. `up` is the per-target series Prometheus
+writes itself, so it keeps the `instance` label and stays present, at 0, for a target that is down.
 
 ---
 
