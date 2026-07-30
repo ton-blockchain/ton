@@ -20,6 +20,7 @@
 
 #include <map>
 
+#include "metrics/well-known.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
 #include "td/net/TcpListener.h"
@@ -28,7 +29,6 @@
 
 #include "adnl-network-manager.h"
 #include "adnl-received-mask.h"
-#include "metrics/well-known.h"
 
 namespace td {
 class UdpServer;
@@ -65,6 +65,7 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     td::uint16 port;
     td::actor::ActorOwn<td::UdpServer> server;
     size_t in_desc{std::numeric_limits<size_t>::max()};
+    td::UdpWireStats reflected;  // cumulative socket counters already folded into metrics_
   };
 
   OutDesc *choose_out_iface(td::uint8 cat, td::uint32 priority);
