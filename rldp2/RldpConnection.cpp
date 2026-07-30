@@ -379,6 +379,11 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
   }();
 
   if (!ignore) {
+    if (res.is_error()) {
+      // A bad fec type or an undecodable symbol kills the whole transfer: the peer's fault, and the
+      // last chance to count the parts it already made us buffer.
+      stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
+    }
     drop_limits(transfer_id, true);
     on_inbound_completed(transfer_id, td::Timestamp::now());
     to_receive_.emplace_back(transfer_id, std::move(res));

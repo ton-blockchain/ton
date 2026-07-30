@@ -109,14 +109,18 @@ void RldpIn::send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort ds
   td::Bits256 id;
   td::Random::secure_bytes(id.as_slice());
 
-  metrics_.app.record(metrics::Kind::message, metrics::Direction::out, data.as_slice());
   auto magic = metrics::resolve_tl_magic(data.as_slice());
+  metrics_.app.record(metrics::Kind::message, metrics::Direction::out, magic, data.size());
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_message>(id, std::move(data)), true);
 
   auto transfer_id = get_random_transfer_id();
   send_closure(get_or_create_connection(src, dst, false, timeout), &RldpConnectionActor::send, transfer_id,
                std::move(B), timeout);
-  messages_.emplace(transfer_id, OutMessage{.dst = dst, .magic = magic, .timer = {}});
+  if (timeout) {
+    // Without a timeout the connection sets no limit for the transfer, so on_sent may never fire and
+    // the delivery entry would live forever (see RldpConnection::send).
+    messages_.emplace(transfer_id, OutMessage{.dst = dst, .magic = magic, .timer = {}});
+  }
 }
 
 void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, std::string name,
@@ -125,8 +129,8 @@ void RldpIn::send_query_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
   auto query_id = adnl::AdnlQuery::random_query_id();
 
   auto date = static_cast<td::uint32>(timeout.at_unix()) + 1;
-  metrics_.app.record(metrics::Kind::query, metrics::Direction::out, data.as_slice());
   auto magic = metrics::resolve_tl_magic(data.as_slice());
+  metrics_.app.record(metrics::Kind::query, metrics::Direction::out, magic, data.size());
   auto B = serialize_tl_object(create_tl_object<ton_api::rldp_query>(query_id, max_answer_size, date, std::move(data)),
                                true);
 

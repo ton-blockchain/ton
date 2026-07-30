@@ -42,15 +42,11 @@ namespace adnl {
 //   - app: the shared app traffic tier (send + deliver of message/query/answer, plus MTU/size drops).
 //   - transport_dropped: transport-tier packet drops detected while (de)processing a peer's packets;
 //     merged into the peer table's adnl_transport_dropped_total{direction,reason}.
+// The peer table has no field of this type — absorb_metrics splits the two members into their
+// places in AdnlPeerTableMetrics — so there is deliberately no operator+= here.
 struct AdnlPeerPairMetrics {
   metrics::App app;
   metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> transport_dropped;
-
-  AdnlPeerPairMetrics &operator+=(const AdnlPeerPairMetrics &other) {
-    app += other.app;
-    transport_dropped += other.transport_dropped;
-    return *this;
-  }
 };
 
 class AdnlChannelIdShortImpl {

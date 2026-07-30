@@ -131,16 +131,14 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
       }
       if (options_.max_size.has_value() && total_size_ > options_.max_size) {
         return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size
-                                          << " received=" << total_size_ << " query_size=" << options_.query_size
-                                          << " query_tl=" << metrics::tl_name(options_.query_magic));
+                                          << " received=" << total_size_ << describe_query());
       }
       return td::Status::OK();
     }
 
     td::Status timeout_error() const {
-      return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds << "s query_size="
-                                        << options_.query_size << " query_tl=" << metrics::tl_name(options_.query_magic)
-                                        << " received=" << total_size_);
+      return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
+                                        << "s received=" << total_size_ << describe_query());
     }
 
     td::BufferSlice extract() {
@@ -157,6 +155,15 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     td::uint64 total_size_{0};
     StreamOptions options_;
     bool failed_{false};
+
+    // An inbound stream answers no query of ours, so there is nothing to name.
+    std::string describe_query() const {
+      if (options_.query_magic == 0) {
+        return {};
+      }
+      return PSTRING() << " query_size=" << options_.query_size
+                       << " query_tl=" << metrics::tl_name(options_.query_magic);
+    }
   };
 
   td::actor::ActorId<QuicSender> sender_;
@@ -306,17 +313,23 @@ void QuicSender::log_stats(std::string reason) {
 }
 
 td::actor::Task<> QuicSender::collect(metrics::Context ctx) {
+  std::vector<int> ports;
   std::vector<td::actor::StartedTask<ServerStats>> drains;
-  for (const auto &[_, server] : servers_by_port_) {
+  for (const auto &[port, server] : servers_by_port_) {
+    ports.push_back(port);
     drains.push_back(td::actor::ask(server, &QuicServer::collect));
   }
   auto stats = co_await td::actor::all_wrap(std::move(drains));
 
   ServerStats result;
-  for (const auto &stat_or_error : stats) {
-    if (stat_or_error.is_ok()) {
-      result.combine(stat_or_error.ok());
+  for (size_t i = 0; i < stats.size(); i++) {
+    // A server that failed to answer folds its last answer instead of dropping out of the totals:
+    // its counters go stale rather than backwards, and a rate over them stays readable.
+    auto &last = last_server_stats_[ports[i]];
+    if (stats[i].is_ok()) {
+      last = stats[i].move_as_ok();
     }
+    result.combine(last);
   }
 
   auto quic = ctx.with_name("quic");
@@ -363,23 +376,27 @@ void QuicSender::start_up() {
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                         td::BufferSlice data) {
   auto size = data.size();
-  auto tl_name = metrics::tl_name(data.as_slice());
-  auto R = co_await send_message_coro_inner(src, dst, std::move(data)).wrap();
+  auto magic = metrics::resolve_tl_magic(data.as_slice());
+  auto R = co_await send_message_coro_inner(src, dst, std::move(data), magic).wrap();
   if (R.is_error()) {
-    // Fire-and-forget path: nobody upstream sees this error, so account the drop here.
+    // Fire-and-forget path: nobody upstream sees this error, so account the drop here. The counter
+    // carries the rate (a stream-credit storm drops every message for seconds); the log is throttled
+    // to a breadcrumb.
     app_.record_dropped(metrics::Direction::out, R.error().code() == NGTCP2_ERR_STREAM_ID_BLOCKED
                                                      ? metrics::Reason::limited
                                                      : metrics::Reason::internal);
-    LOG(INFO) << "Failed to send message: " << src << " -> " << dst << " size=" << size << " tl=" << tl_name << " "
-              << R.error();
+    static metrics::SlowLogThrottle throttle;
+    if (throttle.take()) {
+      LOG(INFO) << "Failed to send message: " << src << " -> " << dst << " size=" << size
+                << " tl=" << metrics::tl_name(magic) << " " << R.error();
+    }
   }
   co_return td::Unit{};
 }
 
 td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
-                                                              td::BufferSlice data) {
-  app_.record(metrics::Kind::message, metrics::Direction::out, data.as_slice());
-  auto magic = metrics::resolve_tl_magic(data.as_slice());
+                                                              td::BufferSlice data, td::int32 magic) {
+  app_.record(metrics::Kind::message, metrics::Direction::out, magic, data.size());
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
   td::Timer timer;
@@ -394,22 +411,21 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdSh
 td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                              std::string name, td::Timestamp timeout,
                                                              td::BufferSlice data, std::optional<td::uint64> limit) {
-  td::Timer timer;
   auto magic = metrics::resolve_tl_magic(data.as_slice());
-  auto result =
-      co_await send_query_coro_inner(src, dst, std::move(name), timeout, std::move(data), limit, magic).wrap();
+  app_.record(metrics::Kind::query, metrics::Direction::out, magic, data.size());
+  // Getting a connection is not part of the round trip: a cold handshake, or a peer that does not
+  // speak QUIC at all, would otherwise be timed as query latency. Such a failure is not a round trip.
+  auto conn = co_await find_or_create_connection({src, dst});
+  td::Timer timer;
+  auto result = co_await send_query_coro_inner(std::move(conn), timeout, std::move(data), limit, magic).wrap();
   metrics::record_latency(query_roundtrip_, "quic query roundtrip", magic, dst, timer.elapsed(), result.is_ok());
   co_return std::move(result);
 }
 
-td::actor::Task<td::BufferSlice> QuicSender::send_query_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
-                                                                   std::string name, td::Timestamp timeout,
-                                                                   td::BufferSlice data,
+td::actor::Task<td::BufferSlice> QuicSender::send_query_coro_inner(std::shared_ptr<Connection> conn,
+                                                                   td::Timestamp timeout, td::BufferSlice data,
                                                                    std::optional<td::uint64> limit, td::int32 magic) {
-  app_.record(metrics::Kind::query, metrics::Direction::out, data.as_slice());
-  auto conn = co_await find_or_create_connection({src, dst});
   auto query_size = data.size();
-  auto query_magic = static_cast<td::uint32>(magic);
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(data));
   auto cid = conn->cid;
   auto server = conn->server;
@@ -420,7 +436,7 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro_inner(adnl::AdnlNod
                                                          .timeout = timeout,
                                                          .timeout_seconds = timeout_seconds,
                                                          .query_size = query_size,
-                                                         .query_magic = query_magic});
+                                                         .query_magic = magic});
   auto [future, answer_promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
   conn = nullptr;  // don't keep connection, it may disconnect during our wait

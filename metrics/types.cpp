@@ -25,7 +25,24 @@ std::string concat_names(std::string name1, std::string name2) {
 
 std::string Label::render() && {
   auto k = std::move(key), v = std::move(val);
-  return PSTRING() << k << '=' << '"' << v << '"';
+  std::string escaped;
+  escaped.reserve(v.size());
+  for (char c : v) {  // OpenMetrics escapes exactly these three inside a quoted label value
+    switch (c) {
+      case '\\':
+        escaped += "\\\\";
+        break;
+      case '"':
+        escaped += "\\\"";
+        break;
+      case '\n':
+        escaped += "\\n";
+        break;
+      default:
+        escaped += c;
+    }
+  }
+  return PSTRING() << k << '=' << '"' << escaped << '"';
 }
 
 LabelSet LabelSet::join(LabelSet other) && {

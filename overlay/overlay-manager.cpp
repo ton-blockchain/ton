@@ -440,11 +440,11 @@ void OverlayManager::send_broadcast(adnl::AdnlNodeIdShort local_id, OverlayIdSho
 void OverlayManager::send_broadcast_ex(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id, PublicKeyHash send_as,
                                        td::uint32 flags, td::BufferSlice object) {
   CHECK(object.size() <= Overlays::max_simple_broadcast_size());
-  broadcasts_.at(metrics::Direction::out).account(object.as_slice());
   auto it = overlays_.find(local_id);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
+      broadcasts_.at(metrics::Direction::out).account(object.as_slice());
       td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast, send_as, flags, std::move(object));
     }
   }
@@ -464,11 +464,11 @@ void OverlayManager::send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort local_i
                                                    PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object,
                                                    td::BufferSlice extra) {
   CHECK(object.size() <= Overlays::max_fec_broadcast_size());
-  broadcasts_.at(metrics::Direction::out).account(object.as_slice());
   auto it = overlays_.find(local_id);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
+      broadcasts_.at(metrics::Direction::out).account(object.as_slice());
       td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_fec, send_as, flags, std::move(object),
                               std::move(extra));
     }
@@ -478,11 +478,11 @@ void OverlayManager::send_broadcast_fec_with_extra(adnl::AdnlNodeIdShort local_i
 void OverlayManager::send_broadcast_plumtree_fec(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay_id,
                                                  PublicKeyHash send_as, td::uint32 flags, td::BufferSlice object) {
   CHECK(object.size() <= Overlays::max_fec_broadcast_size());
-  broadcasts_.at(metrics::Direction::out).account(object.as_slice());
   auto it = overlays_.find(local_id);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
+      broadcasts_.at(metrics::Direction::out).account(object.as_slice());
       td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree_fec, send_as, flags,
                               std::move(object));
     }
@@ -493,11 +493,11 @@ void OverlayManager::send_broadcast_plumtree(adnl::AdnlNodeIdShort local_id, Ove
                                              PublicKeyHash send_as, td::uint32 flags, td::Bits256 broadcast_id,
                                              td::BufferSlice object) {
   CHECK(object.size() <= Overlays::max_fec_broadcast_size());
-  broadcasts_.at(metrics::Direction::out).account(object.as_slice());
   auto it = overlays_.find(local_id);
   if (it != overlays_.end()) {
     auto it2 = it->second.find(overlay_id);
     if (it2 != it->second.end()) {
+      broadcasts_.at(metrics::Direction::out).account(object.as_slice());
       td::actor::send_closure(it2->second.overlay, &Overlay::send_broadcast_plumtree, send_as, flags, broadcast_id,
                               std::move(object));
     }
@@ -701,12 +701,12 @@ void OverlayManager::forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort 
 }
 
 td::actor::Task<> OverlayManager::collect(metrics::Context ctx) {
-  // Ask every overlay for its inbound delta first (synchronous loop — overlays_ is never mutated across
-  // a suspension), then wait for the round-trips. An overlay that dies mid-drain has already flushed in
-  // its tear_down, so a failed ask is harmless.
+  // Ask every overlay for its inbound delta first (synchronous loop — no iterator into overlays_
+  // outlives it), then wait for the round-trips. An overlay that dies mid-drain has already flushed
+  // in its tear_down, so a failed ask is harmless.
   std::vector<td::actor::StartedTask<td::Unit>> drains;
-  for (const auto &[_, by_overlay] : overlays_) {
-    for (const auto &[__, desc] : by_overlay) {
+  for (const auto &[local_id, by_overlay] : overlays_) {
+    for (const auto &[overlay_id, desc] : by_overlay) {
       drains.push_back(td::actor::ask(desc.overlay.get(), &Overlay::collect_metrics));
     }
   }

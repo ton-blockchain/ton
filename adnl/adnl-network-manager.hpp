@@ -65,7 +65,7 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
     td::uint16 port;
     td::actor::ActorOwn<td::UdpServer> server;
     size_t in_desc{std::numeric_limits<size_t>::max()};
-    td::UdpWireStats reflected;  // cumulative socket counters already folded into metrics_
+    td::UdpServerStats reflected;  // cumulative socket counters already folded into metrics_
   };
 
   OutDesc *choose_out_iface(td::uint8 cat, td::uint32 priority);
@@ -108,6 +108,11 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
 
  private:
   metrics::UdpWireStats metrics_;
+
+  void record_dropped(metrics::Direction dir, metrics::Reason reason) {
+    metrics_.dir.at(dir).dropped.at(reason).inc();
+  }
+
   std::unique_ptr<Callback> callback_;
 
   std::map<td::uint32, std::vector<OutDesc>> out_desc_;
