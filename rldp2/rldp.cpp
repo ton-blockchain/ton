@@ -289,7 +289,8 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
 void RldpIn::finish_query(std::map<TransferId, OutQuery>::iterator it, td::Result<td::BufferSlice> result) {
   auto query = std::move(it->second);
   queries_.erase(it);
-  metrics::record_latency(metrics_.query_roundtrip, "rldp2 query roundtrip", query.magic, query.dst,
+  static metrics::SlowLogThrottle throttle;
+  metrics::record_latency(metrics_.query_roundtrip, throttle, "rldp2 query roundtrip", query.magic, query.dst,
                           query.timer.elapsed(), result.is_ok());
   query.promise.set_result(std::move(result));
 }
@@ -301,8 +302,9 @@ void RldpIn::on_sent(TransferId transfer_id, td::Result<td::Unit> state) {
   // The peer confirming the transfer is what makes a message delivered; a timed-out transfer counts
   // as an undelivered one, however it ends up classified above.
   if (auto it = messages_.find(transfer_id); it != messages_.end()) {
-    metrics::record_latency(metrics_.message_delivery, "rldp2 message delivery", it->second.magic, it->second.dst,
-                            it->second.timer.elapsed(), state.is_ok());
+    static metrics::SlowLogThrottle throttle;
+    metrics::record_latency(metrics_.message_delivery, throttle, "rldp2 message delivery", it->second.magic,
+                            it->second.dst, it->second.timer.elapsed(), state.is_ok());
     messages_.erase(it);
   }
 }

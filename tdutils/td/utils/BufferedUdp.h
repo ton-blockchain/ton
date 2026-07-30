@@ -36,7 +36,7 @@ namespace td {
 struct UdpDirCounters {
   uint64 bytes{0};
   uint64 packets{0};
-  uint64 syscalls{0};  // batched send/receive calls, one syscall each where sendmmsg/recvmmsg exist
+  uint64 syscalls{0};  // send/receive calls: one per batch with sendmmsg/recvmmsg, one per datagram without
   uint64 dropped{0};   // out: refused by the kernel; in: lost to receive-queue overflow
 };
 
@@ -56,8 +56,9 @@ class UdpWriter {
     }
 
     UdpSocketFd::SendResult result;
-    counters.syscalls++;
     auto status = fd.send_messages(::td::Span<UdpSocketFd::OutboundMessage>(messages).truncate(to_send_n), result);
+    // Without sendmmsg the batch is one sendmsg per datagram, plus the one that failed and stopped it.
+    counters.syscalls += fd.is_mmsg_enabled() ? 1 : result.consumed() + (result.consumed() < to_send_n);
     for (size_t i = 0; i < result.sent; i++) {
       counters.bytes += to_send[i].data.size();
     }
@@ -109,8 +110,9 @@ class UdpReader {
       CHECK(messages_[i].data.size() == 2048);
     }
     size_t cnt = 0;
-    counters.syscalls++;
     auto status = fd.receive_messages(messages_, cnt);
+    // Without recvmmsg the batch is one recvmsg per datagram, plus the one that drained the queue.
+    counters.syscalls += fd.is_mmsg_enabled() ? 1 : cnt + (cnt < messages_.size());
     for (size_t i = 0; i < cnt; i++) {
       counters.bytes += messages_[i].data.size();
       queue.push(helpers_[i].extract_udp_message(messages_[i]));

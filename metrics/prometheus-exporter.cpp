@@ -50,13 +50,27 @@ td::actor::Task<metrics::MetricSet> PrometheusExporter::gather() {
 td::actor::Task<> PrometheusExporter::collect_and_respond() {
   auto started_at = td::UTCClock::now();
   stats_.last_collection_timestamp.set(started_at);
-  metrics::MetricSet set = co_await gather();
-  auto body = metrics::Exposition{.main_set = std::move(set)}.render();
-  stats_.last_collection_duration.set(td::UTCClock::now() - started_at);
+  // Wrapped, not propagated: a collector that fails must not leave the single flight held and the
+  // waiting scrapers unanswered, which would wedge this endpoint for good.
+  auto r_set = co_await gather().wrap();
 
   auto waiting = std::move(waiting_);
   waiting_.clear();
   is_gathering_ = false;
+
+  if (r_set.is_error()) {
+    LOG(ERROR) << "failed to collect metrics: " << r_set.error();
+    for (auto &payload : waiting) {
+      // Aborts the chunked response mid-flight, so a scraper sees a failed transfer instead of
+      // hanging on a body that will never come.
+      payload->set_error();
+      payload->complete_parse();
+    }
+    co_return {};
+  }
+
+  auto body = metrics::Exposition{.main_set = r_set.move_as_ok()}.render();
+  stats_.last_collection_duration.set(td::UTCClock::now() - started_at);
   for (auto &payload : waiting) {
     payload->add_chunk(td::BufferSlice{body});
     payload->complete_parse();

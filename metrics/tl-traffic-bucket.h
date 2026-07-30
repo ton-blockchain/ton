@@ -98,11 +98,12 @@ class TlLatencyBucket {
 };
 
 // Records how an outbound query round trip / message delivery ended, and logs the slow ones.
-// `what` names the operation for the log ("quic query roundtrip").
+// `what` names the operation for the log ("quic query roundtrip"); `throttle` is the caller's own
+// static, so one noisy transport cannot mute the others' slow logs.
 template <class Dst>
-void record_latency(TlLatencyBucket &bucket, td::Slice what, td::int32 magic, const Dst &dst, double seconds, bool ok) {
+void record_latency(TlLatencyBucket &bucket, SlowLogThrottle &throttle, td::Slice what, td::int32 magic, const Dst &dst,
+                    double seconds, bool ok) {
   bucket.observe(magic, seconds, ok);
-  static SlowLogThrottle throttle;
   if (seconds > kSlowSeconds && throttle.take()) {
     LOG(INFO) << "slow " << what << " tl=" << tl_name(magic) << " dst=" << dst << " time=" << seconds
               << (ok ? "" : " (failed)");

@@ -182,7 +182,7 @@ port) and folds their stats together.
 | `ton_quic_transport_sids_total` | counter | — | **Peer-initiated** bidi streams accepted. Locally opened streams are not counted. |
 | `ton_quic_transport_sids_current` | gauge | — | Open streams, counting both directions of initiation. |
 | `ton_quic_transport_mean_rtt_seconds` | gauge | — | Connection-weighted mean smoothed RTT over open connections. |
-| `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, rejected handshake, protocol violation, plus ngtcp2's own discarded-packet delta. Each reject is counted once: `NGTCP2_ERR_DROP_CONN` is left to ngtcp2's `pkt_discarded`, everything else is counted explicitly. `in,limited`: per-IP flood limiter. `in,internal`: connection creation failure. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. |
+| `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, rejected handshake, protocol violation, plus ngtcp2's own discarded-packet delta. Each reject is counted once: `NGTCP2_ERR_DROP_CONN` is left to ngtcp2's `pkt_discarded`, a handshake the application rejects is counted where the callback fails, and failing to *send* a Retry or a stateless close is an egress drop rather than an inbound reject. `in,limited`: per-IP flood limiter. `in,internal`: connection creation failure, or failing to build a stateless Retry. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. |
 
 ### App
 
@@ -262,8 +262,9 @@ pairs), with a `tear_down` flush so a dying overlay's counts survive.
 | `ton_overlay_broadcast_messages_total` | counter | same | Broadcast count for the same events. |
 
 Two semantics worth knowing. Sizes here are content bytes while the transport tiers count wire
-bytes, so the transport app tier's FEC-part traffic (`*_app_*{tl="overlay.broadcastFec"}` plus
-`{tl="overlay.broadcastFecShort"}`) minus this tier's inbound bytes prices the FEC redundancy and
+bytes, so the transport app tier's FEC-part traffic (`*_app_*` under the four FEC constructors:
+`overlay.broadcastFec`, `overlay.broadcastFecShort`, `overlay.broadcastPlumtreeFec`,
+`overlay.broadcastTwostepFec`) minus this tier's inbound bytes prices the FEC redundancy and
 duplicate reception. Only the FEC constructors stay coarse: simple `overlay.broadcast`,
 `overlay.broadcastPlumtreeSimple` and `overlay.broadcastTwostepSimple` are unwrapped through to
 their content, so they land under the content's own `tl` in the app tier. And `direction="in"`
@@ -340,8 +341,9 @@ topk(10, sum by (tl) (
   rate({__name__=~"ton_(adnl|quic|rldp2)_app_messages_total",kind="query",direction="in"}[5m])))
 ```
 
-Swap `messages`→`bytes` for traffic share; add `kind="answer"` to count response volume (answers
-usually dominate bytes).
+Swap `messages`→`bytes` for traffic share; to fold in response volume (answers usually dominate
+bytes) widen the matcher to `kind=~"query|answer"` — `kind` is an equality matcher, so a second
+`kind="answer"` would match nothing rather than add a case.
 
 **What content am I gossiping?** Broadcast content, post-FEC-reassembly:
 
@@ -363,9 +365,14 @@ datagrams (`tl="rldp2.messagePart"`), so don't sum adnl and rldp2 app tiers toge
 **FEC tax**: transport-tier FEC part bytes versus reassembled content bytes:
 
 ```promql
-  sum(rate({__name__=~"ton_(adnl|quic)_app_bytes_total",tl=~"overlay.broadcast(Plumtree)?Fec(Short)?"}[5m]))
+  sum(rate({__name__=~"ton_(adnl|quic)_app_bytes_total",direction="in",
+            tl=~"overlay.broadcast(Fec|FecShort|PlumtreeFec|TwostepFec)"}[5m]))
 / sum(rate(ton_overlay_broadcast_bytes_total{direction="in"}[5m]))
 ```
+
+Both sides must be inbound-only: the denominator is, so a numerator without `direction="in"` mixes
+in what we forwarded and inflates the tax. The `tl` alternation lists every FEC-part constructor the
+schema has — miss one and its bytes silently vanish from the numerator.
 
 **How long do we take to answer** — inbound processing p95 per query type, and its error ratio:
 
@@ -423,8 +430,13 @@ sum by (source) (rate(ton_first_received_total[15m]))
 internal scrape deadline; see Known gaps):
 
 ```promql
-time() - ton_exporter_last_collection_timestamp_seconds > 120
+  (time() - ton_exporter_last_collection_timestamp_seconds > 120)
+or absent(ton_exporter_last_collection_timestamp_seconds)
 ```
+
+The `absent()` arm is what keeps the alert firing: a wedged exporter stops answering scrapes, and
+once Prometheus's ~5 min lookback expires the series is gone and the first arm has nothing to
+evaluate — the alert would resolve itself exactly when the problem is worst.
 
 ---
 
@@ -467,9 +479,11 @@ per-IP unique-peer cap all reject packets without touching any Prometheus counte
 in the legacy TL stats. These are exactly the `limited`/`invalid` events an operator wants, and they
 leave an unexplained hole between `inbound_packets` and `decrypt_packets`.
 
-**QUIC has no connection-close or handshake-failure metric.** A closed connection is visible only as
-a decrement of `connections_current`, with no way to distinguish idle timeout from protocol error.
-The `ConnectionCloseReason` and `HandshakeFailureReason` label domains exist but nothing uses them.
+**QUIC close and handshake failures have no reason breakdown.** A closed connection is visible only
+as a decrement of `connections_current`, with no way to distinguish idle timeout from protocol
+error; a handshake the application rejects lands in the undifferentiated
+`ton_quic_transport_dropped_total{direction="in",reason="invalid"}`. The `ConnectionCloseReason` and
+`HandshakeFailureReason` label domains exist but nothing uses them.
 
 **Inbound QUIC app-level rejects are unmetered.** A stream closed because it exceeded the per-stream
 `max_size` or ran past its timeout is reported to the caller as an error, but nothing bumps
