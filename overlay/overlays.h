@@ -25,8 +25,10 @@
 #include "adnl/adnl-sender-ex.h"
 #include "auto/tl/ton_api.h"
 #include "dht/dht.h"
+#include "metrics/well-known.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/utils/RateLimiterWindow.h"
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
@@ -472,6 +474,16 @@ class Overlays : public td::actor::Actor {
   virtual void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) = 0;
 
   virtual void forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, adnl::AdnlNodeIdShort peer_id) = 0;
+
+  virtual td::actor::Task<> collect(metrics::Context ctx) {
+    co_return {};
+  }
+
+  // Merge one overlay's drained inbound broadcast content into the manager's aggregate (the bucket is
+  // non-atomic, so it must be accumulated on the manager thread). `done` is fulfilled after the merge.
+  virtual void absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promise<td::Unit> done) {
+    done.set_value(td::Unit());
+  }
 };
 
 }  // namespace overlay
