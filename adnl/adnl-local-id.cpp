@@ -115,17 +115,10 @@ void AdnlLocalId::deliver_query(AdnlNodeIdShort src, td::BufferSlice data, td::P
   // Every transport (peer pairs, RLDP2, QUIC, the ext server) funnels its queries through here, so
   // this is the one place that times dispatch-to-answer. A dropped promise still runs the lambda
   // ("Lost promise"), so an abandoned query is recorded as failed instead of vanishing.
-  promise = [timer = td::Timer(), magic = metrics::resolve_tl_magic(s.as_slice()), src, size = s.size(),
-             peer_table = peer_table_, promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
-    double elapsed = timer.elapsed();
-    bool ok = R.is_ok();
-    static metrics::SlowLogThrottle slow_log;
-    if (elapsed > metrics::kSlowSeconds && slow_log.take()) {
-      LOG(INFO) << "slow query tl=" << metrics::tl_name(magic) << " src=" << src << " size=" << size
-                << " time=" << elapsed << (ok ? "" : " (failed)");
-    }
-    // The answer may complete on any thread, so the metric is bumped on the peer table's own thread.
-    td::actor::send_closure(peer_table, &AdnlPeerTable::record_query_duration, magic, elapsed, ok);
+  // The answer may complete on any thread, so the recording happens on the peer table's own thread.
+  promise = [timer = td::Timer(), magic = metrics::resolve_tl_magic(s.as_slice()), src, peer_table = peer_table_,
+             promise = std::move(promise)](td::Result<td::BufferSlice> R) mutable {
+    td::actor::send_closure(peer_table, &AdnlPeerTable::record_query_duration, src, magic, timer.elapsed(), R.is_ok());
     promise.set_result(std::move(R));
   };
   for (auto &cb : cb_) {

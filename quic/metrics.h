@@ -127,7 +127,7 @@ struct ServerStats {
   Transport transport;
 
   void combine(const ServerStats& other) {
-    wire.combine(other.wire);
+    wire += other.wire;
     transport.combine(other.transport);
   }
 

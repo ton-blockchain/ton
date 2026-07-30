@@ -121,13 +121,11 @@ class AdnlPeerTable : public Adnl {
   // Merge a peer-pair's drained metrics delta into the peer table's aggregate (Counter is non-atomic,
   // so it must be accumulated on the peer-table thread). `done` is fulfilled after the merge. Called
   // both from the collect() drain round-trip and from a peer-pair's tear_down.
-  virtual void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) {
-    done.set_value(td::Unit());
-  }
+  virtual void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) = 0;
 
   // How long a query delivered to a local id took to be answered. Called from the query's completion,
   // which may run on any thread — hence an actor message rather than a direct bump.
-  virtual void record_query_duration(td::int32 magic, double seconds, bool ok) = 0;
+  virtual void record_query_duration(AdnlNodeIdShort src, td::int32 magic, double seconds, bool ok) = 0;
 
   // Round trip of an outbound query: from the peer pair accepting it to the caller's promise being
   // fulfilled. Completes on the query's own actor, so it takes the same hop.

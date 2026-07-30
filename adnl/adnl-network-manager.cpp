@@ -174,7 +174,8 @@ td::actor::Task<> AdnlNetworkManagerImpl::collect(metrics::Context ctx) {
   auto regressed = [](const td::UdpDirCounters &cur, const td::UdpDirCounters &prev) {
     return cur.syscalls < prev.syscalls || cur.dropped < prev.dropped;
   };
-  for (size_t i = 0; i < stats.size() && i < udp_sockets_.size(); i++) {
+  CHECK(stats.size() <= udp_sockets_.size());
+  for (size_t i = 0; i < stats.size(); i++) {
     if (stats[i].is_error()) {
       continue;
     }

@@ -71,7 +71,7 @@ class RldpConnectionActor : public td::actor::Actor, private ConnectionCallback 
 
   void tear_down() override {
     // Drain whatever hasn't been scraped yet so the final counts aren't lost (fire-and-forget).
-    send_closure(rldp_, &RldpIn::absorb, connection_.drain(), td::PromiseCreator::lambda([](td::Result<td::Unit>) {}));
+    send_closure(rldp_, &RldpIn::absorb, connection_.drain(), td::Promise<td::Unit>());
   }
 
   void loop() override {
@@ -289,9 +289,7 @@ void RldpIn::process_message(adnl::AdnlNodeIdShort source, adnl::AdnlNodeIdShort
 void RldpIn::finish_query(std::map<TransferId, OutQuery>::iterator it, td::Result<td::BufferSlice> result) {
   auto query = std::move(it->second);
   queries_.erase(it);
-  static metrics::SlowLogThrottle throttle;
-  metrics::record_latency(metrics_.query_roundtrip, throttle, "rldp2 query roundtrip", query.magic, query.dst,
-                          query.timer.elapsed(), result.is_ok());
+  metrics_.query_roundtrip.record(query.magic, query.dst, query.timer.elapsed(), result.is_ok());
   query.promise.set_result(std::move(result));
 }
 
@@ -302,9 +300,7 @@ void RldpIn::on_sent(TransferId transfer_id, td::Result<td::Unit> state) {
   // The peer confirming the transfer is what makes a message delivered; a timed-out transfer counts
   // as an undelivered one, however it ends up classified above.
   if (auto it = messages_.find(transfer_id); it != messages_.end()) {
-    static metrics::SlowLogThrottle throttle;
-    metrics::record_latency(metrics_.message_delivery, throttle, "rldp2 message delivery", it->second.magic,
-                            it->second.dst, it->second.timer.elapsed(), state.is_ok());
+    metrics_.message_delivery.record(it->second.magic, it->second.dst, it->second.timer.elapsed(), state.is_ok());
     messages_.erase(it);
   }
 }
@@ -322,9 +318,7 @@ td::actor::Task<> RldpIn::collect(metrics::Context ctx) {
   // Schedule a drain on every active connection first (synchronous loop — the map is never mutated
   // across a suspension), then wait for all the round-trips to land in aggregate_. A connection that
   // dies mid-drain has already drained via its tear_down, so a failed ask is harmless.
-  using DrainTask =
-      decltype(td::actor::ask(td::actor::ActorId<RldpConnectionActor>{}, &RldpConnectionActor::collect_metrics));
-  std::vector<DrainTask> drains;
+  std::vector<td::actor::StartedTask<td::Unit>> drains;
   for (auto &[key, conn] : connections_) {
     drains.push_back(td::actor::ask(conn.actor.get(), &RldpConnectionActor::collect_metrics));
   }

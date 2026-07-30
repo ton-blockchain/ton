@@ -95,9 +95,9 @@ class UdpSocketFd {
     std::optional<uint32> queue_overflow;  // SO_RXQ_OVFL, absent when the kernel sent no such cmsg
   };
 
-  // What one send batch did to the front of `messages`: [0, sent) went to the kernel, the `dropped`
-  // that follow were refused outright (EMSGSIZE/EACCES/EPERM) and must not be retried. Both are gone
-  // from the caller's queue; only `sent` was put on the wire.
+  // What one send batch did to the front of `messages`: [0, sent) went to the kernel and
+  // [sent, consumed()) was refused outright (EMSGSIZE/EACCES/EPERM) and must not be retried. Both
+  // spans are gone from the caller's queue; only `sent` was put on the wire.
   struct SendResult {
     size_t sent{0};
     size_t dropped{0};

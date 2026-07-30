@@ -272,11 +272,7 @@ std::optional<ServerInitialInfo> QuicServer::prepare_server_initial_info(const V
   }
 
   if (initial_packet.token.empty()) {
-    // The datagram itself was fine, so failing to build its Retry drops it on our own account.
-    if (auto status = send_retry(initial_packet, remote_address); status.is_error()) {
-      record_transport_dropped(metrics::Direction::in, metrics::Reason::internal);
-      LOG(WARNING) << "failed to build Retry for " << remote_address << ": " << status;
-    }
+    send_retry(initial_packet, remote_address);
     return {};
   }
 
@@ -285,10 +281,7 @@ std::optional<ServerInitialInfo> QuicServer::prepare_server_initial_info(const V
     // Rejected here rather than by returning an error, so it is the only place that can count it.
     record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
     LOG(DEBUG) << "invalid Retry token from " << remote_address << ": " << original_dcid.error();
-    // The reject above already accounts for this datagram; answering it is best effort.
-    if (auto status = send_invalid_token_connection_close(initial_packet, remote_address); status.is_error()) {
-      LOG(WARNING) << "failed to build invalid-token close for " << remote_address << ": " << status;
-    }
+    send_invalid_token_connection_close(initial_packet, remote_address);
     return {};
   }
 
@@ -336,7 +329,13 @@ void QuicServer::send_stateless_datagram(td::Slice packet_kind, const td::IPAddr
   }
 }
 
-td::Status QuicServer::send_retry(const VersionCid &packet, const td::IPAddress &remote_address) {
+void QuicServer::send_retry(const VersionCid &packet, const td::IPAddress &remote_address) {
+  // The datagram itself was fine, so failing to build its Retry drops it on our own account.
+  auto unbuilt = [&](td::Slice reason) {
+    record_transport_dropped(metrics::Direction::in, metrics::Reason::internal);
+    LOG(WARNING) << "failed to build Retry for " << remote_address << ": " << reason;
+  };
+
   auto client_scid = QuicConnectionIdAccess::to_ngtcp2(packet.scid);
   auto original_dcid = QuicConnectionIdAccess::to_ngtcp2(packet.dcid);
   auto retry_scid = QuicConnectionIdAccess::to_ngtcp2(QuicConnectionId::random());
@@ -347,25 +346,23 @@ td::Status QuicServer::send_retry(const VersionCid &packet, const td::IPAddress 
       reinterpret_cast<const ngtcp2_sockaddr *>(remote_address.get_sockaddr()),
       static_cast<ngtcp2_socklen>(remote_address.get_sockaddr_len()), &retry_scid, &original_dcid, retry_token_now());
   if (tokenlen < 0) {
-    return td::Status::Error("failed to generate retry token");
+    return unbuilt("failed to generate retry token");
   }
 
   std::array<uint8_t, NGTCP2_MAX_UDP_PAYLOAD_SIZE> datagram;
   auto datagram_size = ngtcp2_crypto_write_retry(datagram.data(), datagram.size(), packet.version, &client_scid,
                                                  &retry_scid, &original_dcid, token.data(), tokenlen);
   if (datagram_size < 0) {
-    return td::Status::Error("failed to write retry packet");
+    return unbuilt("failed to write retry packet");
   }
 
   LOG(DEBUG) << "sending Retry to " << remote_address << " for original dcid=" << packet.dcid;
   send_stateless_datagram(
       "Retry", remote_address,
       td::Slice(reinterpret_cast<const char *>(datagram.data()), static_cast<size_t>(datagram_size)));
-  return td::Status::OK();
 }
 
-td::Status QuicServer::send_invalid_token_connection_close(const VersionCid &packet,
-                                                           const td::IPAddress &remote_address) {
+void QuicServer::send_invalid_token_connection_close(const VersionCid &packet, const td::IPAddress &remote_address) {
   auto client_scid = QuicConnectionIdAccess::to_ngtcp2(packet.scid);
   auto original_dcid = QuicConnectionIdAccess::to_ngtcp2(packet.dcid);
 
@@ -373,14 +370,15 @@ td::Status QuicServer::send_invalid_token_connection_close(const VersionCid &pac
   auto datagram_size = ngtcp2_crypto_write_connection_close(
       datagram.data(), datagram.size(), packet.version, &client_scid, &original_dcid, NGTCP2_INVALID_TOKEN, nullptr, 0);
   if (datagram_size < 0) {
-    return td::Status::Error("failed to write stateless connection close");
+    // The reject that got us here already accounted for the datagram, so this only needs a log.
+    LOG(WARNING) << "failed to build invalid-token close for " << remote_address;
+    return;
   }
 
   LOG(DEBUG) << "sending invalid-token connection close to " << remote_address;
   send_stateless_datagram(
       "invalid-token connection close", remote_address,
       td::Slice(reinterpret_cast<const char *>(datagram.data()), static_cast<size_t>(datagram_size)));
-  return td::Status::OK();
 }
 
 void QuicServer::send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg) {
@@ -626,21 +624,20 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   bool is_outbound_;
 };
 
+// Each failure in get_or_create_connection is a dropped inbound datagram; classify it for
+// quic_transport_dropped_total. invalid = unroutable / unparseable / rejected handshake (peer fault);
+// limited = a local flood/rate cap; internal = our own machinery failed.
+#define TRY_OR_DROP(name, reason, expr)                       \
+  auto r_##name = (expr);                                     \
+  if (r_##name.is_error()) {                                  \
+    record_transport_dropped(metrics::Direction::in, reason); \
+    return r_##name.move_as_error();                          \
+  }                                                           \
+  auto name = r_##name.move_as_ok()
+
 td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_create_connection(
     const UdpMessageBuffer &msg_in) {
-  // Each failure below is a dropped inbound datagram; classify it for quic_transport_dropped_total.
-  // invalid = unroutable / unparseable / rejected handshake (peer fault); limited = a local flood/rate
-  // cap; internal = our own machinery failed.
-  auto drop = [this](metrics::Reason reason, td::Status status) {
-    record_transport_dropped(metrics::Direction::in, reason);
-    return status;
-  };
-
-  auto r_vc = VersionCid::from_datagram(td::Slice(msg_in.storage));
-  if (r_vc.is_error()) {
-    return drop(metrics::Reason::invalid, r_vc.move_as_error());
-  }
-  auto vc = r_vc.move_as_ok();
+  TRY_OR_DROP(vc, metrics::Reason::invalid, VersionCid::from_datagram(td::Slice(msg_in.storage)));
 
   if (auto it = cid_to_primary_cid_.find(vc.dcid); it != cid_to_primary_cid_.end()) {
     auto connection = find_connection(it->second);
@@ -656,15 +653,12 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
     return connection;
   }
 
-  auto r_initial_packet = VersionCid::from_initial_datagram(td::Slice(msg_in.storage));
-  if (r_initial_packet.is_error()) {
-    return drop(metrics::Reason::invalid, r_initial_packet.move_as_error());
-  }
-  auto initial_packet = r_initial_packet.move_as_ok();
+  TRY_OR_DROP(initial_packet, metrics::Reason::invalid, VersionCid::from_initial_datagram(td::Slice(msg_in.storage)));
 
   auto flood_addr = msg_in.address.get_ip_host();
   if (auto status = ensure_flood_allowed(flood_addr); status.is_error()) {
-    return drop(metrics::Reason::limited, std::move(status));
+    record_transport_dropped(metrics::Direction::in, metrics::Reason::limited);
+    return status;
   }
 
   // Answered statelessly (Retry / invalid-token close): already accounted for inside.
@@ -674,32 +668,23 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
   }
 
   // Create new connection to handle unknown inbound message
-  auto r_local_address = fd_.get_local_address();
-  if (r_local_address.is_error()) {
-    return drop(metrics::Reason::internal, r_local_address.move_as_error());
-  }
-  auto local_address = r_local_address.move_as_ok();
+  TRY_OR_DROP(local_address, metrics::Reason::internal, fd_.get_local_address());
 
   auto conn_options = build_connection_options();
   auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
   auto identities = identities_;
-  auto r_p_impl =
-      QuicConnectionPImpl::create_server(local_address, msg_in.address, std::move(identities), alpn_.as_slice(),
-                                         *initial_info, std::move(pimpl_callback), conn_options);
-  if (r_p_impl.is_error()) {
-    return drop(metrics::Reason::internal, r_p_impl.move_as_error());
-  }
-  auto p_impl = r_p_impl.move_as_ok();
-  auto r_state = install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid);
-  if (r_state.is_error()) {
-    return drop(metrics::Reason::internal, r_state.move_as_error());
-  }
-  auto state = r_state.move_as_ok();
+  TRY_OR_DROP(p_impl, metrics::Reason::internal,
+              QuicConnectionPImpl::create_server(local_address, msg_in.address, std::move(identities), alpn_.as_slice(),
+                                                 *initial_info, std::move(pimpl_callback), conn_options));
+  TRY_OR_DROP(state, metrics::Reason::internal,
+              install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid));
 
   flood_on_inbound_connection_created(flood_addr);
 
   return state;
 }
+
+#undef TRY_OR_DROP
 
 td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key,
                                                  td::Slice alpn, td::Slice sni) {
@@ -721,6 +706,7 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
 
 void QuicServer::drain_ingress() {
   td::PerfWarningTimer w("drain_ingress", 0.1);
+  auto &ingress = udp_wire_.dir.at(metrics::Direction::in);
   const size_t buf_size = gro_enabled_ ? kMaxDatagram : DEFAULT_MTU * kMaxBurst;
 
   std::vector<td::BufferSlice> ingress_data_buffers;  // for Windows receive_messages
@@ -745,7 +731,7 @@ void QuicServer::drain_ingress() {
       break;
     }
     // Without recvmmsg the batch is one recvmsg per datagram, plus the one that drained the queue.
-    udp_wire_.dir.at(metrics::Direction::in).syscalls.inc(fd_.is_mmsg_enabled() ? 1 : cnt + (cnt < kIngressBatch));
+    ingress.syscalls.inc(fd_.is_mmsg_enabled() ? 1 : cnt + (cnt < kIngressBatch));
 
     // Debug: log recvmmsg batch details periodically
     static std::atomic<size_t> ingress_log_counter = 0;
@@ -781,16 +767,16 @@ void QuicServer::drain_ingress() {
       bytes_budget -= std::max<size_t>(ingress_messages_[i].data.size(), 256);
       if (ingress_errors_[i].is_error()) {
         // Malformed datagram off the socket (e.g. truncated): a wire-level reject.
-        udp_wire_.dir.at(metrics::Direction::in).dropped.at(metrics::Reason::invalid).inc();
+        ingress.dropped.at(metrics::Reason::invalid).inc();
         LOG(DEBUG) << "dropping inbound packet from " << ingress_msg_[i].address << ": " << ingress_errors_[i];
         continue;
       }
       ingress_msg_[i].storage = ingress_messages_[i].data;
-      udp_wire_.dir.at(metrics::Direction::in).data.bytes.inc(ingress_msg_[i].storage.size());
+      ingress.data.bytes.inc(ingress_msg_[i].storage.size());
       const size_t segment_size = ingress_messages_[i].gso_size;
 
       auto handle_packet = [&](UdpMessageBuffer &packet) {
-        udp_wire_.dir.at(metrics::Direction::in).data.packets.inc();
+        ingress.data.packets.inc();
         auto R = get_or_create_connection(packet);
         if (R.is_error()) {
           LOG(WARNING) << "dropping inbound packet from " << packet.address << ": " << R.error();
