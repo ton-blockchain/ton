@@ -113,6 +113,20 @@ and app tiers.
 A query slower than 1 s also gets a `WARNING` log line with its `tl` name, source, payload size and
 elapsed time.
 
+### Outbound: roundtrips and deliveries
+
+The outbound mirror is **per transport**, measured where the transport accepts the send:
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_adnl_query_roundtrip_seconds` / `ton_rldp2_…` / `ton_quic_…` | histogram | `tl`, `le` | Transport-accept to answer for queries we send: network + peer processing + transfer time. Errors and timeouts land in the matching `…_query_roundtrip_failed_total{tl}`. |
+| `ton_rldp2_message_delivery_seconds` / `ton_quic_…` | histogram | `tl`, `le` | Transport-accept to the protocol's receipt confirmation for fire-and-forget messages: rldp2 confirms via the transfer's completion (`on_sent`), QUIC via the empty response the receiver answers every message with. Failures (including a connection closing with messages still in flight) land in `…_message_delivery_failed_total{tl}`. |
+
+Note the asymmetry: inbound `ton_adnl_query_duration_seconds` covers queries from **all** transports
+at the single delivery layer, while roundtrip/delivery are per-transport at the sending layer. Plain
+ADNL messages have no delivery metric — a UDP datagram has no acknowledgement. Slow roundtrips and
+deliveries (>1 s) get the same `WARNING` log treatment as slow inbound queries.
+
 **Peer-pair accounting.** `Counter` is a plain non-atomic integer, so per-peer-pair counters cannot
 be bumped cross-thread. Each pair accumulates locally; on scrape the peer table asks every pair to
 `drain` (a destructive `std::exchange`) and merges the delta into the process-wide aggregate. A pair
