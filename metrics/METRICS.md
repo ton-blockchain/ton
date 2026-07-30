@@ -1,6 +1,6 @@
 # TON node metrics
 
-Every Prometheus metric a `validator-engine` exposes, as of branch `more-metrics-2`.
+Every Prometheus metric a `validator-engine` exposes.
 
 ## Enabling the endpoint
 
@@ -13,8 +13,8 @@ validator-engine --exporter-address <host:port>
 Scrape `GET /metrics`. Any other path returns 404, any other method 405. There is no
 authentication and no TLS, so bind it to a private interface.
 
-The response is `application/openmetrics-text; version=1.0.0`, chunked, terminated by `# EOF`.
-Each family carries a `# TYPE` line. `# HELP` is never emitted.
+The response is `application/openmetrics-text; version=1.0.0; charset=utf-8`, chunked, terminated
+by `# EOF`. Each family carries a `# TYPE` line. `# HELP` is never emitted.
 
 ## How names are built
 
@@ -25,11 +25,17 @@ each nesting level appends a segment joined with `_`:
   with no name adds none, letting the inner node supply the final segment.
 - `Counter` renders as `<segments>_total`.
 - `Gauge<T>` renders as `<segments>`, except `std::chrono` types which append `_seconds`.
-- `Labeled<Inner, L...>` adds one label per axis. **Every cell is emitted on every scrape**, including
-  zero-valued ones, so all label combinations below are always present in the exposition.
+- `Labeled<Inner, L...>` adds one label per axis over a **closed** value set — `direction`, `kind`,
+  `reason`, `state`, `outcome`, `workchain`, `source`. **Every cell of a closed axis is emitted on
+  every scrape**, including zero-valued ones, so all such label combinations below are always
+  present in the exposition (which is why the permanently-zero series in Known gaps still show up).
+  The two **open** label axes behave differently and emit only values actually observed: `code` on
+  the HTTP responses family, and `tl` on the traffic and latency buckets. The `tl` buckets always
+  emit their `tl="unknown"` cell, populated or not, and a latency bucket always emits both of its
+  families even when nothing was ever observed.
 
 Registered collectors, in order: the exporter itself, `AdnlNetworkManager`, `Adnl`, `QuicSender`,
-`Rldp` (rldp2), `ValidatorManagerInterface`.
+`Rldp` (rldp2), `Overlays`, `ValidatorManagerInterface`.
 
 ## Scrape semantics
 
@@ -38,8 +44,13 @@ collector one at a time, so a scrape costs one round-trip per collector and the 
 sampled at slightly different instants. The exposition is therefore not a consistent point-in-time
 snapshot across subsystems.
 
-Values are cumulative snapshots; a scrape never resets them. Two subsystems (ADNL peer pairs,
-RLDP2 connections) accumulate counters on their own actor threads and merge deltas into a
+Scrapes are **coalesced**: a `GET /metrics` that arrives while a gather is already running does not
+start a second one — it waits and is served the same rendered body. Concurrent or retrying scrapers
+therefore see identical output and cost one gather between them. Each request still counts in
+`ton_exporter_collections_total`.
+
+Values are cumulative snapshots; a scrape never resets them. Three subsystems (ADNL peer pairs,
+RLDP2 connections, overlays) accumulate counters on their own actor threads and merge deltas into a
 process-wide aggregate during the scrape — see the notes in those sections.
 
 ---
@@ -48,8 +59,8 @@ process-wide aggregate during the scrape — see the notes in those sections.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_exporter_collectors` | gauge | — | Registered collector callbacks (6 in a full validator-engine). |
-| `ton_exporter_collections_total` | counter | — | Scrapes accepted. |
+| `ton_exporter_collectors` | gauge | — | Registered collector callbacks: 7 in a full validator-engine, 6 when no DHT node is configured (which also drops the `ton_overlay_*` families, since the overlay manager is only created with one). |
+| `ton_exporter_collections_total` | counter | — | Scrapes accepted, including ones coalesced into a gather already in flight. |
 | `ton_exporter_last_collection_duration_seconds` | gauge | — | Duration of the **previous** scrape (it is set after the current one is already serialized). |
 | `ton_exporter_last_collection_timestamp_seconds` | gauge | — | Unix time at which the current scrape started. |
 
@@ -68,8 +79,8 @@ Only the exporter's own server is registered, hence the constant `server="export
 
 ## ADNL
 
-Two collectors: `AdnlNetworkManager` supplies the wire tier, `Adnl` (the peer table) the transport
-and app tiers.
+Two collectors: `AdnlNetworkManager` supplies the wire tier, `Adnl` (the peer table) the transport,
+app and query tiers.
 
 ### Wire
 
@@ -77,9 +88,12 @@ and app tiers.
 |---|---|---|---|
 | `ton_adnl_wire_bytes_total` | counter | `direction=in\|out` | UDP payload bytes at the socket. |
 | `ton_adnl_wire_packets_total` | counter | `direction` | Datagrams at the socket. |
-| `ton_adnl_wire_syscalls_total` | counter | `direction` | recvmsg/sendmmsg calls at the socket, read from `td::UdpServer`'s counters and folded in as deltas during the scrape. |
-| `ton_adnl_wire_dropped_total` | counter | `direction` | Inbound: kernel receive-queue overflow (`SO_RXQ_OVFL`, folded in as a delta during the scrape) plus datagrams the network manager refused: no callback installed, socket error, packet under 32 bytes, no `InDesc` for the port. Outbound: unknown source id or no matching out rule. No `reason` axis at this tier. |
+| `ton_adnl_wire_syscalls_total` | counter | `direction` | Batched send/receive calls at the socket — one `sendmmsg`/`recvmmsg` syscall each where the platform has them, one syscall per datagram in the fallback path. Read from `td::UdpServer`'s counters and folded in as deltas during the scrape. |
+| `ton_adnl_wire_dropped_total` | counter | `direction`, `reason` | `in,limited`: kernel receive-queue overflow (`SO_RXQ_OVFL`, folded in as a delta during the scrape) — these datagrams never reached `wire_packets`. `in,invalid`: packet under 32 bytes. `in,internal`: no callback installed, socket read error, or no `InDesc` for the port. `out,internal`: unknown source id, no matching out rule, or a datagram the kernel refused outright (`EMSGSIZE`/`EACCES`/`EPERM`, folded in as a delta during the scrape). `out,invalid` and `out,limited` are never incremented. |
 | `ton_adnl_wire_listening_sockets` | gauge | — | Bound UDP sockets. |
+
+Two of the `in,internal` sites (no callback installed, socket read error) fire *before* the datagram
+is counted in `wire_bytes`/`wire_packets`; the rest fire after.
 
 ### Transport
 
@@ -87,8 +101,8 @@ and app tiers.
 |---|---|---|---|
 | `ton_adnl_transport_inbound_packets_total` | counter | — | Packets entering the peer table, counted before any routing decision. |
 | `ton_adnl_transport_decrypt_packets_total` | counter | — | Packets decrypted **by a local id** and parsed. Channel-decrypted packets bypass this — see Known gaps. |
-| `ton_adnl_transport_decrypt_bytes_total` | counter | — | On-wire ciphertext size of those same packets. |
-| `ton_adnl_transport_dropped_total` | counter | `direction`, `reason=invalid\|limited\|internal` | Peer-table and peer-pair drops. `in,invalid` dominates: short packets, category mismatch, unknown destination, reinit-date and seqno checks, bad signature, huge-message reassembly failures. `out,limited` is queue expiry and the 10 MiB queue cap. `in,limited` is never incremented. |
+| `ton_adnl_transport_decrypt_bytes_total` | counter | — | On-wire size of those same packets **minus the 32-byte destination id** that prefixes them. |
+| `ton_adnl_transport_dropped_total` | counter | `direction`, `reason=invalid\|limited\|internal` | Peer-table and peer-pair drops. `in,invalid` dominates: short packets, category mismatch, unknown destination, reinit-date and seqno checks (including duplicate/replayed seqnos), bad signature, huge-message reassembly failures. `out,limited` is queue expiry, the 10 MiB queue cap, and `direct_only` messages discarded when no direct route exists. `in,limited` is never incremented. |
 | `ton_adnl_transport_local_ids` | gauge | — | Local ADNL ids. |
 | `ton_adnl_transport_peers` | gauge | — | Distinct remote nodes. |
 | `ton_adnl_transport_peer_pairs` | gauge | — | `(local_id, peer_id)` pairs. |
@@ -99,7 +113,7 @@ and app tiers.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_adnl_app_bytes_total` | counter | `kind=message\|query\|answer`, `direction`, `tl` | Application payload bytes, bucketed by the payload's leading TL constructor magic. Outbound is accounted at the single send choke point, before the huge-message split. |
+| `ton_adnl_app_bytes_total` | counter | `kind=message\|query\|answer`, `direction`, `tl` | Application payload bytes, bucketed by the resolved TL constructor: routing envelopes are unwrapped, up to 4 levels deep, and the innermost constructor wins. Outbound is accounted at the single send choke point, before the huge-message split. |
 | `ton_adnl_app_messages_total` | counter | same | Message count for the same events. |
 | `ton_adnl_app_dropped_total` | counter | `direction`, `reason` | Payloads refused at the app boundary for size (the 8 KiB message cap, the 1024 B answer MTU). Only `limited` is ever used. |
 
@@ -110,8 +124,9 @@ and app tiers.
 | `ton_adnl_query_duration_seconds` | histogram | `tl`, `le` | Dispatch-to-answer time of an inbound query, measured at the ADNL delivery layer (`AdnlLocalId::deliver_query`) — the single choke point every transport funnels through, so this covers queries arriving over ADNL peer pairs, RLDP2, QUIC and the ext server alike. The clock starts before the subscriber callback is invoked and stops when the answer promise is fulfilled; a promise dropped without an answer counts as a failure with its elapsed time. `tl` comes from the same envelope-resolving logic as the app tier, and magics the schema does not know collapse into `tl="unknown"` so the label space stays bounded by the schema. |
 | `ton_adnl_query_failed_total` | counter | `tl` | Of those queries, the ones that answered with an error (or were abandoned). |
 
-A query slower than 1 s also gets a `WARNING` log line with its `tl` name, source, payload size and
-elapsed time.
+A query slower than 1 s also gets an `INFO` log line with its `tl` name, source, payload size and
+elapsed time — throttled to one line per 10 s per site, since losing a peer makes every one of its
+queries slow at once.
 
 ### Outbound: roundtrips and deliveries
 
@@ -125,7 +140,7 @@ The outbound mirror is **per transport**, measured where the transport accepts t
 Note the asymmetry: inbound `ton_adnl_query_duration_seconds` covers queries from **all** transports
 at the single delivery layer, while roundtrip/delivery are per-transport at the sending layer. Plain
 ADNL messages have no delivery metric — a UDP datagram has no acknowledgement. Slow roundtrips and
-deliveries (>1 s) get the same `WARNING` log treatment as slow inbound queries.
+deliveries (>1 s) get the same throttled `INFO` log treatment as slow inbound queries.
 
 **Peer-pair accounting.** `Counter` is a plain non-atomic integer, so per-peer-pair counters cannot
 be bumped cross-thread. Each pair accumulates locally; on scrape the peer table asks every pair to
@@ -146,8 +161,8 @@ port) and folds their stats together.
 |---|---|---|---|
 | `ton_quic_wire_bytes_total` | counter | `direction` | UDP payload bytes. Inbound counts each recvmmsg message, i.e. the whole GRO super-buffer. |
 | `ton_quic_wire_packets_total` | counter | `direction` | Datagrams after GRO/GSO segmentation, so bytes-per-packet is only meaningful in aggregate. |
-| `ton_quic_wire_syscalls_total` | counter | `direction` | recvmmsg calls returning at least one message; every sendmmsg call. |
-| `ton_quic_wire_dropped_total` | counter | `direction` | Inbound: kernel receive-queue overflow (read as a delta from `SO_RXQ_OVFL` **during the scrape**) plus per-message socket errors. Outbound: stateless datagrams the socket refused, which are not retried. Normal connection egress is retried and never counted here. |
+| `ton_quic_wire_syscalls_total` | counter | `direction` | Batched send/receive calls: `recvmmsg` calls that returned at least one message, every `sendmmsg` call, and every single-datagram stateless send. One syscall each where `sendmmsg`/`recvmmsg` exist, one per datagram in the fallback path. |
+| `ton_quic_wire_dropped_total` | counter | `direction`, `reason` | `in,limited`: kernel receive-queue overflow (read as a delta from `SO_RXQ_OVFL` **during the scrape**) — never counted in `wire_packets`. `in,invalid`: per-message socket errors (truncated or otherwise malformed datagrams). `out,limited`: a stateless datagram the socket's send queue refused; stateless packets are not retried. `out,internal`: a datagram the kernel refused outright (`EMSGSIZE`/`EACCES`/`EPERM`), or a stateless send that failed with an error. Blocked connection egress *is* retried and is not counted here. `in,internal` and `out,invalid` are never incremented. |
 | `ton_quic_wire_listening_sockets` | gauge | — | Distinct bound UDP ports. |
 
 ### Transport
@@ -162,12 +177,12 @@ port) and folds their stats together.
 | `ton_quic_transport_bytes_lost_total` | counter | — | Bytes in packets declared lost by loss detection. |
 | `ton_quic_transport_packets_lost_total` | counter | — | Packets declared lost. |
 | `ton_quic_transport_bytes_in_flight` | gauge | — | ngtcp2 bytes in flight. |
-| `ton_quic_transport_bytes_unacked` | gauge | — | Stream bytes handed to ngtcp2, not yet acked. |
+| `ton_quic_transport_bytes_unacked` | gauge | — | Stream bytes appended but not yet acked, so it **includes** `bytes_unsent` — the two are not disjoint. |
 | `ton_quic_transport_bytes_unsent` | gauge | — | App-buffered stream bytes not yet handed to ngtcp2. |
 | `ton_quic_transport_sids_total` | counter | — | **Peer-initiated** bidi streams accepted. Locally opened streams are not counted. |
 | `ton_quic_transport_sids_current` | gauge | — | Open streams, counting both directions of initiation. |
 | `ton_quic_transport_mean_rtt_seconds` | gauge | — | Connection-weighted mean smoothed RTT over open connections. |
-| `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, rejected handshake, protocol violation, plus ngtcp2's own discarded-packet delta. `in,limited`: per-IP flood limiter. `in,internal`: connection creation failure. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. |
+| `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, rejected handshake, protocol violation, plus ngtcp2's own discarded-packet delta. Each reject is counted once: `NGTCP2_ERR_DROP_CONN` is left to ngtcp2's `pkt_discarded`, everything else is counted explicitly. `in,limited`: per-IP flood limiter. `in,internal`: connection creation failure. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. |
 
 ### App
 
@@ -176,6 +191,17 @@ port) and folds their stats together.
 | `ton_quic_app_bytes_total` | counter | `kind`, `direction`, `tl` | Inner ADNL payload bytes carried over QUIC streams, measured outside the `quic_message`/`quic_query`/`quic_answer` wrapper. |
 | `ton_quic_app_messages_total` | counter | same | Message count. |
 | `ton_quic_app_dropped_total` | counter | `direction`, `reason` | Fire-and-forget message sends that failed: `out,limited` when the peer's stream-count credit blocked opening a stream (`NGTCP2_ERR_STREAM_ID_BLOCKED`), `out,internal` for any other send failure. Query failures are not counted here — they propagate to the caller. Inbound cells are never incremented. |
+
+### Outbound latency
+
+Described in full under ADNL → *Outbound: roundtrips and deliveries*; the QUIC families are:
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_quic_query_roundtrip_seconds` | histogram | `tl`, `le` | Send-accept to answer for queries we send over QUIC. Connection setup is deliberately outside the measured window. |
+| `ton_quic_query_roundtrip_failed_total` | counter | `tl` | Of those, the ones that errored or timed out. |
+| `ton_quic_message_delivery_seconds` | histogram | `tl`, `le` | Send-accept to the empty response the receiver answers every fire-and-forget message with. |
+| `ton_quic_message_delivery_failed_total` | counter | `tl` | Of those, the ones that never got their confirmation (including a connection closing with messages in flight). |
 
 ---
 
@@ -189,8 +215,8 @@ counts survive connection churn.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_rldp2_wire_adnl_bytes_total` | counter | `direction` | Bytes of RLDP2 datagrams exchanged with ADNL. |
-| `ton_rldp2_wire_adnl_messages_total` | counter | `direction` | Count of those datagrams — "messages" here means datagrams, not app messages. |
+| `ton_rldp2_wire_bytes_total` | counter | `direction` | Bytes of RLDP2 datagrams exchanged with ADNL. |
+| `ton_rldp2_wire_packets_total` | counter | `direction` | Count of those datagrams. |
 
 ### Transport
 
@@ -199,7 +225,7 @@ counts survive connection churn.
 | `ton_rldp2_transport_transfers_total` | counter | `direction`, `state=completed\|failed\|timeout` | Terminal outcome of a whole transfer (a reassembled message, not a packet); errors carrying `ErrorCode::timeout` are classified as `timeout`, everything else as `failed`. |
 | `ton_rldp2_transport_connections` | gauge | — | Live connections. |
 | `ton_rldp2_transport_queries_pending` | gauge | — | Outbound queries awaiting an answer. |
-| `ton_rldp2_transport_dropped_total` | counter | `direction`, `reason` | Protocol-layer rejects: malformed TL, bad FEC type or symbol size, bad seqno, part index or size mismatch (`invalid`); transfer over the size cap (`limited`). All are inbound; `out` and `internal` are always 0. |
+| `ton_rldp2_transport_dropped_total` | counter | `direction`, `reason` | Protocol-layer rejects: malformed TL, bad FEC type or symbol size, bad seqno, part index or size mismatch, undecodable FEC symbol (`invalid`); transfer over the size cap (`limited`). All are inbound; `out` and `internal` are always 0. |
 
 ### App
 
@@ -208,6 +234,17 @@ counts survive connection churn.
 | `ton_rldp2_app_bytes_total` | counter | `kind`, `direction`, `tl` | Payload bytes crossing the RLDP↔app boundary. |
 | `ton_rldp2_app_messages_total` | counter | same | Message count. |
 | `ton_rldp2_app_dropped_total` | counter | `direction`, `reason` | `in,limited`: datagram from a peer with no permitted connection, or an inbound answer exceeding our query's `max_answer_size`. `out,limited`: our answer exceeded the requester's `max_answer_size`. |
+
+### Outbound latency
+
+Described in full under ADNL → *Outbound: roundtrips and deliveries*; the RLDP2 families are:
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_rldp2_query_roundtrip_seconds` | histogram | `tl`, `le` | Send-accept to answer for queries we send over RLDP2. |
+| `ton_rldp2_query_roundtrip_failed_total` | counter | `tl` | Of those, the ones that errored or timed out. |
+| `ton_rldp2_message_delivery_seconds` | histogram | `tl`, `le` | Send-accept to the transfer's completion (`on_sent`) for fire-and-forget messages. |
+| `ton_rldp2_message_delivery_failed_total` | counter | `tl` | Of those, the ones whose transfer never completed. |
 
 ---
 
@@ -221,14 +258,20 @@ pairs), with a `tear_down` flush so a dying overlay's counts survive.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_overlay_broadcast_bytes_total` | counter | `direction=in\|out`, `tl` | Broadcast content bytes. `out` at the four terminal `send_broadcast*` entry points, pre-FEC-encoding. `in` at `deliver_broadcast`, post-reassembly. |
+| `ton_overlay_broadcast_bytes_total` | counter | `direction=in\|out`, `tl` | Broadcast content bytes. `out` at the four terminal `send_broadcast*` entry points, pre-FEC-encoding, and only for content submitted to an overlay this node participates in (still counted if certificate checks later reject it). `in` at `deliver_broadcast`, post-reassembly. |
 | `ton_overlay_broadcast_messages_total` | counter | same | Broadcast count for the same events. |
 
 Two semantics worth knowing. Sizes here are content bytes while the transport tiers count wire
-bytes, so `*_app_*{tl="overlay.broadcastFec"}` minus this tier's inbound bytes prices the FEC
-redundancy and duplicate reception. And `direction="in"` includes self-originated broadcasts — a
-node delivers its own broadcast to its own callbacks, so a locally originated broadcast increments
-both directions; `in` means "content this overlay delivered", not "received from peers".
+bytes, so the transport app tier's FEC-part traffic (`*_app_*{tl="overlay.broadcastFec"}` plus
+`{tl="overlay.broadcastFecShort"}`) minus this tier's inbound bytes prices the FEC redundancy and
+duplicate reception. Only the FEC constructors stay coarse: simple `overlay.broadcast`,
+`overlay.broadcastPlumtreeSimple` and `overlay.broadcastTwostepSimple` are unwrapped through to
+their content, so they land under the content's own `tl` in the app tier. And `direction="in"`
+includes self-originated broadcasts — a node delivers its own broadcast to its own callbacks, so a
+locally originated broadcast increments both directions; `in` means "content this overlay
+delivered", not "received from peers".
+
+---
 
 ## Blocks
 
@@ -262,17 +305,126 @@ What you can actually relate, approximately:
 
 ```
 ton_adnl_wire_packets_total{direction="in"}
-  − ton_adnl_wire_dropped_total{direction="in"}            too short / no InDesc / no callback
+  − ton_adnl_wire_dropped_total{direction="in",reason="invalid"}    under 32 bytes
+  − ton_adnl_wire_dropped_total{direction="in",reason="internal"}   no InDesc / no callback
 ≈ ton_adnl_transport_inbound_packets_total
-  − ton_adnl_transport_dropped_total{direction="in"}       routing and packet-check rejects
+  − ton_adnl_transport_dropped_total{direction="in"}                routing and packet-check rejects
   − (unmetered: rate limiter, decrypt failures, per-IP peer cap)
-≈ ton_adnl_transport_decrypt_packets_total                 non-channel packets only
+≈ ton_adnl_transport_decrypt_packets_total                          non-channel packets only
   − ADNL framing overhead
 ≈ ton_adnl_app_bytes_total
 ```
 
+Subtract only `invalid` and `internal`: `reason="limited"` at the wire tier is kernel receive-queue
+overflow, and those datagrams never reached `wire_packets` to begin with. (Two of the `internal`
+sites — no callback installed, socket read error — also fire before the packet is counted, so this
+subtraction slightly over-corrects; both are degenerate states rather than steady-state traffic.)
+
 The `≈` are real. Tiers are sampled at different instants within one scrape, counts are taken at
 different points in a packet's life, and several drop paths are unmetered.
+
+---
+
+## Useful queries
+
+Recipes for the questions this surface was built to answer. Rules that keep histogram math honest:
+`le` must survive every `by (…)` clause, always `rate()` bucket counters before quantiles, and when
+aggregating across nodes sum the bucket rates *before* `histogram_quantile` — a p95 of per-node
+p95s is not a p95. Quantiles are interpolated within our fixed bucket bounds (1 ms … 30 s,
+log-scale), so read "p95 = 8.3ms" as "p95 is in the 5–10 ms bucket".
+
+**What am I receiving, by type?** Queries, across all three transports at once:
+
+```promql
+topk(10, sum by (tl) (
+  rate({__name__=~"ton_(adnl|quic|rldp2)_app_messages_total",kind="query",direction="in"}[5m])))
+```
+
+Swap `messages`→`bytes` for traffic share; add `kind="answer"` to count response volume (answers
+usually dominate bytes).
+
+**What content am I gossiping?** Broadcast content, post-FEC-reassembly:
+
+```promql
+topk(10, sum by (tl) (rate(ton_overlay_broadcast_bytes_total{direction="in"}[5m])))
+```
+
+**Traffic and overhead per transport** — wire versus app tells you what the transport costs:
+
+```promql
+sum by (direction) (rate(ton_quic_wire_bytes_total[5m]))
+  / sum by (direction) (rate(ton_quic_app_bytes_total[5m]))
+```
+
+Same shape for `adnl` and `rldp2` (measured on a small mixed workload: ADNL ≈ 1.3×, QUIC ≈ 1.8× —
+small-message-heavy flows pay more per-packet overhead). Remember ADNL's app tier includes rldp2's
+datagrams (`tl="rldp2.messagePart"`), so don't sum adnl and rldp2 app tiers together.
+
+**FEC tax**: transport-tier FEC part bytes versus reassembled content bytes:
+
+```promql
+  sum(rate({__name__=~"ton_(adnl|quic)_app_bytes_total",tl=~"overlay.broadcast(Plumtree)?Fec(Short)?"}[5m]))
+/ sum(rate(ton_overlay_broadcast_bytes_total{direction="in"}[5m]))
+```
+
+**How long do we take to answer** — inbound processing p95 per query type, and its error ratio:
+
+```promql
+histogram_quantile(0.95, sum by (tl, le) (rate(ton_adnl_query_duration_seconds_bucket[5m])))
+
+sum by (tl) (rate(ton_adnl_query_failed_total[5m]))
+  / sum by (tl) (rate(ton_adnl_query_duration_seconds_count[5m]))
+```
+
+**Is it us or the network?** Compare inbound processing against outbound roundtrip for the same
+type — processing is our cost, roundtrip adds network + the peer:
+
+```promql
+histogram_quantile(0.95, sum by (le) (rate(ton_rldp2_query_roundtrip_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
+histogram_quantile(0.95, sum by (le) (rate(ton_adnl_query_duration_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
+```
+
+**Are my messages actually arriving?** Delivery confirmation failure ratio (rldp2 confirms via
+transfer completion, QUIC via the empty response) — on a healthy link this is ~0 and deliveries
+confirm in milliseconds; a peer that silently lost its connection state shows up here within
+seconds:
+
+```promql
+sum by (tl) (rate(ton_quic_message_delivery_failed_total[5m]))
+  / sum by (tl) (rate(ton_quic_message_delivery_seconds_count[5m]))
+```
+
+**QUIC stream-credit exhaustion** (the `ngtcp2_conn_open_bidi_stream failed: -206` signature —
+fire-and-forget sends being dropped because a peer stopped granting stream credit):
+
+```promql
+rate(ton_quic_app_dropped_total{direction="out",reason="limited"}[1m]) > 0
+ton_quic_transport_sids_current   # plateauing near 4096 × connections confirms window exhaustion
+```
+
+**Why am I dropping traffic?** The reason axis separates runbooks — `limited` on the wire tier is
+kernel receive-queue overflow (raise `SO_RCVBUF` / add CPU), `invalid` is garbage from peers,
+`internal` is our own failure:
+
+```promql
+sum by (reason) (rate(ton_adnl_wire_dropped_total{direction="in"}[5m]))
+sum by (reason, direction) (rate(ton_adnl_transport_dropped_total[5m]))
+```
+
+**Where do my blocks come from?** Share of first delivery per source (a validator should see
+`candidate_broadcast_consensus` dominate; a fullnode, the broadcast/fast-sync paths):
+
+```promql
+sum by (source) (rate(ton_first_received_total[15m]))
+  / ignoring(source) group_left sum(rate(ton_first_received_total[15m]))
+```
+
+**Is the exporter itself healthy?** Scrape staleness — alerts if collection wedges (there is no
+internal scrape deadline; see Known gaps):
+
+```promql
+time() - ton_exporter_last_collection_timestamp_seconds > 120
+```
 
 ---
 
@@ -284,18 +436,26 @@ Worth knowing before building dashboards or alerts on these.
 `ton_quic_app_dropped_total{direction="in"}` and `{direction="out",reason="invalid"}`;
 `ton_adnl_transport_dropped_total{direction="in",reason="limited"}`;
 `ton_quic_transport_dropped_total{direction="out",reason="invalid"|"limited"}`;
+`ton_adnl_wire_dropped_total{direction="out",reason="invalid"|"limited"}`;
+`ton_quic_wire_dropped_total{direction="in",reason="internal"}` and
+`{direction="out",reason="invalid"}`;
 `ton_rldp2_transport_dropped_total{direction="out"}` and `{reason="internal"}`;
-three of six cells of `ton_rldp2_app_dropped_total`; and eight of the 56 block-stats series, whose
-`source` values are unreachable in current code.
+four of the six cells of `ton_rldp2_app_dropped_total` (only `in,limited` and `out,limited` are
+live); and 18 of the 56 block-stats series — `block_broadcast_public`, `block_broadcast_fast_sync`,
+`block_broadcast_custom` and `candidate_stored` are unreachable in both families (16 series), and
+`ton_received_total{source="unknown"}` cannot fire either (2 series; `ton_first_received_total`'s
+`unknown` cell *can*).
 
 **The `tl` label sees through routing envelopes, with two deliberate limits.** The bucket unwraps
 `overlay.query`/`overlay.message` (and their `WithExtra` variants), `tonNode.query`,
-`overlay.unicast` and `overlay.broadcast` before resolving, and consults both `Object::nameof` and
-`Function::nameof`; a malformed envelope falls back to the envelope's own label, never to
-`unknown` (design and history in `tl-magic-research.md`). The limits: `dht.query` is kept as a
-coarse label (its `dht.node` header is not walked), and `overlay.broadcastFec` parts stay labeled
-as FEC parts — the content magic physically doesn't exist per packet. Reassembled FEC broadcast
-content is covered by `ton_overlay_broadcast_*` instead.
+`overlay.unicast`, `overlay.broadcast`, `overlay.broadcastPlumtreeSimple` and
+`overlay.broadcastTwostepSimple` before resolving — up to 4 nesting levels — and consults both
+`Object::nameof` and `Function::nameof`. A malformed or truncated envelope falls back to the
+envelope's own label — never to `unknown`, and never to whatever bytes happen to follow the field
+it failed to walk. The limits: `dht.query` is kept as a coarse label (its `dht.node` header is not
+walked), and `overlay.broadcastFec`/`overlay.broadcastFecShort` parts stay labeled as FEC parts —
+the content magic physically doesn't exist per packet. Reassembled FEC broadcast content is covered
+by `ton_overlay_broadcast_*` instead.
 
 **ADNL decrypt counters exclude channel traffic.** Channel-decrypted packets go straight to the peer
 pair without passing through `receive_decrypted_packet`, so `ton_adnl_transport_decrypt_packets_total`
@@ -311,9 +471,14 @@ leave an unexplained hole between `inbound_packets` and `decrypt_packets`.
 a decrement of `connections_current`, with no way to distinguish idle timeout from protocol error.
 The `ConnectionCloseReason` and `HandshakeFailureReason` label domains exist but nothing uses them.
 
-**QUIC totals can go backwards.** `QuicSender::collect` skips any server whose scrape request
-failed, so a single failed request makes every `ton_quic_*` total drop for that scrape, which
-Prometheus reads as a counter reset.
+**Inbound QUIC app-level rejects are unmetered.** A stream closed because it exceeded the per-stream
+`max_size` or ran past its timeout is reported to the caller as an error, but nothing bumps
+`ton_quic_app_dropped_total` — hence its permanently-zero inbound cells above.
+
+**A QUIC server that fails a scrape goes stale, not backwards.** `QuicSender::collect` folds that
+server's last successful answer instead of dropping it from the totals, so `ton_quic_*` counters
+stay monotonic across a failed request; the cost is that the affected server's numbers freeze for
+that scrape rather than being missing.
 
 **A third workchain would abort the node.** The `workchain` label is a closed `{0, -1}` domain whose
 index lookup ends in `UNREACHABLE()`. Not currently reachable from the network, but it is a hard
