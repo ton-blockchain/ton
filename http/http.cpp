@@ -482,6 +482,7 @@ void HttpPayload::run_callbacks() {
 }
 
 void HttpPayload::flush() {
+  const std::lock_guard<std::mutex> lock{mutex_};
   is_flushing_ = true;
   for (auto &x : callbacks_) {
     if (state_.load(std::memory_order_relaxed) != ParseState::completed) {
