@@ -80,8 +80,8 @@ struct BytesAndPackets {
 
 struct UdpDirStats {
   BytesAndPackets data;
-  Counter syscalls;
-  Counter dropped;
+  Counter syscalls;  // batched send/receive calls, one syscall each where sendmmsg/recvmmsg exist
+  Labeled<Counter, Reason> dropped;
 
   UdpDirStats &operator+=(const UdpDirStats &other) {
     data += other.data;
@@ -131,7 +131,7 @@ struct ConnectionStats {
 // The data ladder this struct lives in; each branch is bytes peeling off the main flow
 // (→ dropped, − framing/overhead stripped):
 //
-//   | → kernel queue overflow (wire_udp_dropped)
+//   | → kernel queue overflow (wire_dropped{reason="limited"}, never seen by wire_{bytes,packets})
 //  wire_{bytes,packets}
 //   | → stateless (transport_stalessly_dropped_{bytes,packets})
 //   | → stateful
@@ -175,6 +175,11 @@ struct App {
 
   void record(Kind kind, Direction dir, td::Slice payload) {
     tl.at(kind, dir).account(payload);
+  }
+
+  // For callers that already resolved the payload's magic for their own use.
+  void record(Kind kind, Direction dir, td::int32 magic, td::uint64 size) {
+    tl.at(kind, dir).account(magic, size);
   }
 
   void record_dropped(Direction dir, Reason reason) {

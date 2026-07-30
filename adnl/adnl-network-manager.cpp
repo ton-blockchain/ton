@@ -92,18 +92,18 @@ void AdnlNetworkManagerImpl::add_self_addr(td::IPAddress addr, AdnlCategoryMask 
 
 void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t idx) {
   if (!callback_) {
-    metrics_.dir.at(metrics::Direction::in).dropped.inc();
+    record_dropped(metrics::Direction::in, metrics::Reason::internal);
     LOG(ERROR) << this << ": dropping IN message [?->?]: peer table unitialized";
     return;
   }
   if (message.error.is_error()) {
-    metrics_.dir.at(metrics::Direction::in).dropped.inc();
+    record_dropped(metrics::Direction::in, metrics::Reason::internal);
     VLOG(adnl, WARNING) << this << ": dropping ERROR message: " << message.error;
     return;
   }
   metrics_.dir.at(metrics::Direction::in).data.record(message.data.size());
   if (message.data.size() < 32) {
-    metrics_.dir.at(metrics::Direction::in).dropped.inc();
+    record_dropped(metrics::Direction::in, metrics::Reason::invalid);
     VLOG(adnl, WARNING) << this << ": received too small packet of size " << message.data.size();
     return;
   }
@@ -113,7 +113,7 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t 
   CHECK(idx < udp_sockets_.size());
   auto &socket = udp_sockets_[idx];
   if (socket.in_desc == std::numeric_limits<size_t>::max()) {
-    metrics_.dir.at(metrics::Direction::in).dropped.inc();
+    record_dropped(metrics::Direction::in, metrics::Reason::internal);
     VLOG(adnl, WARNING) << this << ": received packet to port without InDesc";
     return;
   }
@@ -134,14 +134,14 @@ void AdnlNetworkManagerImpl::send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdS
                                              td::uint32 priority, td::BufferSlice data) {
   auto it = adnl_id_2_cat_.find(src_id);
   if (it == adnl_id_2_cat_.end()) {
-    metrics_.dir.at(metrics::Direction::out).dropped.inc();
+    record_dropped(metrics::Direction::out, metrics::Reason::internal);
     VLOG(adnl, WARNING) << this << ": dropping OUT message [" << src_id << "->" << dst_id << "]: unknown src";
     return;
   }
 
   auto out = choose_out_iface(it->second, priority);
   if (!out) {
-    metrics_.dir.at(metrics::Direction::out).dropped.inc();
+    record_dropped(metrics::Direction::out, metrics::Reason::internal);
     VLOG(adnl, WARNING) << this << ": dropping OUT message [" << src_id << "->" << dst_id << "]: no out rules";
     return;
   }
@@ -160,23 +160,35 @@ void AdnlNetworkManagerImpl::send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdS
 }
 
 td::actor::Task<> AdnlNetworkManagerImpl::collect(metrics::Context ctx) {
-  // Fold the socket-level counters (syscalls, kernel receive-queue drops) into the wire tier as
-  // deltas against the last scrape. Sockets are only ever appended, so indexing by position is
-  // stable across the suspension.
-  std::vector<td::actor::StartedTask<td::UdpWireStats>> asks;
+  // Fold the socket-level counters (send/receive calls, kernel drops) into the wire tier as deltas
+  // against the last scrape. Sockets are only ever appended, so indexing by position is stable
+  // across the suspension.
+  std::vector<td::actor::StartedTask<td::UdpServerStats>> asks;
   for (auto &socket : udp_sockets_) {
     asks.push_back(td::actor::ask(socket.server.get(), &td::UdpServer::collect));
   }
   auto stats = co_await td::actor::all_wrap(std::move(asks));
+  // Socket counters only grow, so an inversion means this ask completed out of order against a
+  // newer one; skipping it keeps the delta from underflowing into a huge increment.
+  auto fold = [](metrics::Counter &counter, td::uint64 cur, td::uint64 prev) {
+    if (cur >= prev) {
+      counter.inc(cur - prev);
+    }
+  };
   for (size_t i = 0; i < stats.size() && i < udp_sockets_.size(); i++) {
     if (stats[i].is_error()) {
       continue;
     }
     const auto &cur = stats[i].ok();
     auto &prev = udp_sockets_[i].reflected;
-    metrics_.dir.at(metrics::Direction::in).syscalls.inc(cur.in.counters.syscalls - prev.in.counters.syscalls);
-    metrics_.dir.at(metrics::Direction::out).syscalls.inc(cur.out.counters.syscalls - prev.out.counters.syscalls);
-    metrics_.dir.at(metrics::Direction::in).dropped.inc(cur.in.dropped - prev.in.dropped);
+    auto &in = metrics_.dir.at(metrics::Direction::in);
+    auto &out = metrics_.dir.at(metrics::Direction::out);
+    fold(in.syscalls, cur.in.syscalls, prev.in.syscalls);
+    fold(out.syscalls, cur.out.syscalls, prev.out.syscalls);
+    // Inbound loss is the kernel's receive queue overflowing; outbound loss is the kernel refusing
+    // a datagram we handed it (EMSGSIZE/EACCES/EPERM).
+    fold(in.dropped.at(metrics::Reason::limited), cur.in.dropped, prev.in.dropped);
+    fold(out.dropped.at(metrics::Reason::internal), cur.out.dropped, prev.out.dropped);
     prev = cur;
   }
 

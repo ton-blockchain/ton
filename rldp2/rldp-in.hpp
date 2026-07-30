@@ -30,48 +30,12 @@
 #include "tl-utils/tl-utils.hpp"
 
 #include "RldpConnection.h"
+#include "rldp-metrics.h"
 #include "rldp.hpp"
 
 namespace ton {
 
 namespace rldp2 {
-
-// Terminal state of a transfer.
-#define TON_METRIC_STATE_LIST(F) \
-  F(completed)                   \
-  F(failed)                      \
-  F(timeout)
-TON_METRIC_DEFINE_LABEL(State, "state", TON_METRIC_STATE_LIST)
-#undef TON_METRIC_STATE_LIST
-
-// RldpIn-owned metric tree (single-threaded on the RldpIn actor). The per-connection wire/dropped
-// counters live in RldpConnMetrics and are scraped + accumulated separately; what stays here is the
-// transfer outcomes, the gauges, and the app tier.
-struct RldpMetrics {
-  struct Transport {
-    metrics::Labeled<metrics::Counter, metrics::Direction, State> transfers;
-    metrics::Gauge<td::uint64> connections;
-    metrics::Gauge<td::uint64> queries_pending;
-
-    void collect(metrics::Context ctx) const {
-      ctx.collect(transfers, "transfers");
-      ctx.collect(connections, "connections");
-      ctx.collect(queries_pending, "queries_pending");
-    }
-  };
-
-  Transport transport;
-  metrics::App app;
-  metrics::TlLatencyBucket query_roundtrip{"seconds"};
-  metrics::TlLatencyBucket message_delivery{"seconds"};
-
-  void collect(metrics::Context ctx) const {
-    ctx.collect(transport, "transport");
-    ctx.collect(app, "app");
-    ctx.collect(query_roundtrip, "query_roundtrip");
-    ctx.collect(message_delivery, "message_delivery");
-  }
-};
 
 class RldpLru : public td::ListNode {
  public:

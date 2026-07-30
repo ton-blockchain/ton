@@ -39,23 +39,23 @@ namespace rldp2 {
 using TransferId = td::Bits256;
 
 // Per-connection metrics scraped by RldpIn (and accumulated into its historical aggregate when the
-// connection actor dies). Holds only what a connection itself produces — wire bytes/messages and the
+// connection actor dies). Holds only what a connection itself produces — wire bytes/packets and the
 // inner protocol drops; transfers/app/gauges stay on RldpIn. Built from real metric nodes and merged
 // via operator+=, so RldpIn just sums (historical + active) and collects.
 struct RldpConnMetrics {
   struct Wire {
     metrics::Labeled<metrics::Counter, metrics::Direction> bytes;
-    metrics::Labeled<metrics::Counter, metrics::Direction> messages;
+    metrics::Labeled<metrics::Counter, metrics::Direction> packets;
 
     Wire &operator+=(const Wire &o) {
       bytes += o.bytes;
-      messages += o.messages;
+      packets += o.packets;
       return *this;
     }
 
     void collect(metrics::Context ctx) const {
-      ctx.collect(bytes, "adnl_bytes");
-      ctx.collect(messages, "adnl_messages");
+      ctx.collect(bytes, "bytes");
+      ctx.collect(packets, "packets");
     }
   };
 
@@ -70,7 +70,7 @@ struct RldpConnMetrics {
 
   void record_wire(metrics::Direction dir, td::uint64 bytes) {
     wire.bytes.at(dir).inc(bytes);
-    wire.messages.at(dir).inc();
+    wire.packets.at(dir).inc();
   }
   void record_dropped(metrics::Direction dir, metrics::Reason reason) {
     transport_dropped.at(dir, reason).inc();

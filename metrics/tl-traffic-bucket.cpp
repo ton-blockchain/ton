@@ -48,7 +48,10 @@ class Cursor {
   }
 
   // `bytes` = 1-byte length (< 254), or 0xFE plus a 3-byte little-endian length, then the content
-  // zero-padded so that header + content is a multiple of 4.
+  // zero-padded so that header + content is a multiple of 4. With `with_content` the whole padded
+  // field is skipped; without it the cursor stops on the content, which the caller reads as a nested
+  // object — so the declared content must really be there and be at least a magic wide, or the
+  // caller would read padding or the field that follows.
   bool skip_bytes(bool with_content = true) {
     if (data_.empty()) {
       return false;
@@ -64,7 +67,10 @@ class Cursor {
     } else if (len > 254) {
       return false;
     }
-    return skip(header) && (!with_content || skip((header + len + 3) / 4 * 4 - header));
+    if (with_content) {
+      return skip((header + len + 3) / 4 * 4);
+    }
+    return len >= sizeof(td::int32) && header + len <= data_.size() && skip(header);
   }
 
  private:
@@ -144,6 +150,12 @@ bool skip_envelope(Cursor &cur, td::int32 magic) {
     case ton_api::overlay_broadcast::ID:  // src, certificate, flags:int, then data:bytes
       return cur.skip(sizeof(td::int32)) && skip_public_key(cur) && skip_certificate(cur) &&
              cur.skip(sizeof(td::int32)) && cur.skip_bytes(false);
+    case ton_api::overlay_broadcastPlumtreeSimple::ID:  // flags:int timestamp:double, src, certificate,
+      return cur.skip(sizeof(td::int32) + 4 + 8) && skip_public_key(cur) && skip_certificate(cur) && cur.skip(36) &&
+             cur.skip_bytes(false);                    // broadcast_id:int256 tree_index:int, then data:bytes
+    case ton_api::overlay_broadcastTwostepSimple::ID:  // flags:int date:int, src, src_adnl_id:int256,
+      return cur.skip(sizeof(td::int32) + 4 + 4) && skip_public_key(cur) && cur.skip(32) && skip_certificate(cur) &&
+             cur.skip_bytes(false);  // certificate, then data:bytes
     default:
       return false;
   }
@@ -199,14 +211,18 @@ void TlTrafficBucket::account(td::Slice payload) {
 }
 
 void TlTrafficBucket::account(td::int32 magic, td::uint64 size) {
-  if (!nameof(magic).has_value()) {
-    unknown_.bytes += size;
-    unknown_.messages++;
-    return;
+  // nameof() builds an owning string, so it is only worth asking for a magic we have not seen yet.
+  auto it = known_.find(magic);
+  if (it == known_.end()) {
+    if (!nameof(magic).has_value()) {
+      unknown_.bytes += size;
+      unknown_.messages++;
+      return;
+    }
+    it = known_.emplace(magic, Cell{}).first;
   }
-  auto &cell = known_[magic];
-  cell.bytes += size;
-  cell.messages++;
+  it->second.bytes += size;
+  it->second.messages++;
 }
 
 TlTrafficBucket &TlTrafficBucket::operator+=(const TlTrafficBucket &other) {
@@ -240,7 +256,11 @@ void TlTrafficBucket::collect(Context ctx) const {
 }
 
 void TlLatencyBucket::observe(td::int32 magic, double seconds, bool ok) {
-  Cell &cell = nameof(magic).has_value() ? known_[magic] : unknown_;
+  auto it = known_.find(magic);
+  if (it == known_.end() && nameof(magic).has_value()) {  // nameof() allocates: ask only on a miss
+    it = known_.emplace(magic, Cell{}).first;
+  }
+  Cell &cell = it == known_.end() ? unknown_ : it->second;
   cell.duration.observe(seconds);
   if (!ok) {
     cell.failed.inc();
@@ -258,10 +278,10 @@ void TlLatencyBucket::collect(Context ctx) const {
     ctx.rewind(start);
     emit(ctx.with_label("tl", *nameof(magic)), cell);
   }
-  if (unknown_.duration.count() != 0) {
-    ctx.rewind(start);
-    emit(ctx.with_label("tl", "unknown"), unknown_);
-  }
+  // The unknown cell is emitted even when empty: the Sink identifies families by position, so the
+  // family sequence must not depend on which cells happen to be populated.
+  ctx.rewind(start);
+  emit(ctx.with_label("tl", "unknown"), unknown_);
 }
 
 }  // namespace ton::metrics

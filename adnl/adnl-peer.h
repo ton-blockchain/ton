@@ -63,7 +63,9 @@ class AdnlPeerPair : public td::actor::Actor {
   virtual void get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats_peerPair>> promise) = 0;
   // Drain this peer-pair's locally-accumulated inbound app-traffic delta into the peer table's
   // aggregate, fulfilling `done` once the merge lands (see AdnlPeerTable::absorb).
-  virtual void collect_metrics(td::Promise<td::Unit> done) = 0;
+  virtual void collect_metrics(td::Promise<td::Unit> done) {
+    done.set_value(td::Unit());
+  }
 
   static td::actor::ActorOwn<AdnlPeerPair> create(td::actor::ActorId<AdnlNetworkManager> network_manager,
                                                   td::actor::ActorId<AdnlPeerTable> peer_table, td::uint32 local_mode,

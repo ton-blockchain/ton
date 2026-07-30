@@ -21,7 +21,9 @@
 #include "auto/tl/ton_api.h"
 #include "common/errorcode.h"
 #include "keyring/keyring.h"
+#include "metrics/collectors.h"
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/utils/port/IPAddress.h"
 
 #include "adnl-node-id.hpp"

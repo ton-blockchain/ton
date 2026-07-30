@@ -40,17 +40,27 @@ void PrometheusExporter::start_up() {
 td::actor::Task<metrics::MetricSet> PrometheusExporter::gather() {
   metrics::Sink sink;
   auto root = metrics::Context{sink}.with_name(prefix_);  // every metric gets the top prefix (e.g. ton_)
-  for (auto &collector : collectors_) {
+  auto collectors = collectors_;  // add() may run and reallocate collectors_ across a suspension
+  for (auto &collector : collectors) {
     co_await collector(root);
   }
   co_return std::move(sink).build();
 }
 
-td::actor::Task<> PrometheusExporter::collect_and_respond(PayloadPtr payload, td::UTCTime started_at) {
+td::actor::Task<> PrometheusExporter::collect_and_respond() {
+  auto started_at = td::UTCClock::now();
+  stats_.last_collection_timestamp.set(started_at);
   metrics::MetricSet set = co_await gather();
-  payload->add_chunk(td::BufferSlice{metrics::Exposition{.main_set = std::move(set)}.render()});
-  payload->complete_parse();
+  auto body = metrics::Exposition{.main_set = std::move(set)}.render();
   stats_.last_collection_duration.set(td::UTCClock::now() - started_at);
+
+  auto waiting = std::move(waiting_);
+  waiting_.clear();
+  is_gathering_ = false;
+  for (auto &payload : waiting) {
+    payload->add_chunk(td::BufferSlice{body});
+    payload->complete_parse();
+  }
   co_return {};
 }
 
@@ -75,9 +85,11 @@ void PrometheusExporter::on_request(RequestPtr request, PayloadPtr payload, http
   promise.set_value(std::pair{std::move(response), payload_out});
 
   stats_.collections.inc();
-  auto now = td::UTCClock::now();
-  stats_.last_collection_timestamp.set(now);
-  collect_and_respond(std::move(payload_out), now).start().detach("prometheus collect");
+  waiting_.push_back(std::move(payload_out));
+  if (!is_gathering_) {
+    is_gathering_ = true;
+    collect_and_respond().start().detach("prometheus collect");
+  }
 }
 
 }  // namespace ton
