@@ -1669,6 +1669,9 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_ihave(OverlayImpl *overlay, 
   }
   PlumtreeRepairTarget target{
       .peer = from,
+      .source_key = {},
+      .to_sign = {},
+      .signature = {},
       .data_size = data_size,
       .signature_verified = signature_verified,
   };
