@@ -166,6 +166,29 @@ td::int32 resolve_magic(td::Slice payload) {
 
 }  // namespace
 
+td::int32 resolve_tl_magic(td::Slice payload) {
+  if (payload.size() < sizeof(td::int32)) {
+    return 0;
+  }
+  return resolve_magic(payload);
+}
+
+std::string tl_name(td::int32 magic) {
+  if (auto name = nameof(magic)) {
+    return *name;
+  }
+  char buf[16];
+  snprintf(buf, sizeof(buf), "0x%08x", static_cast<td::uint32>(magic));
+  return buf;
+}
+
+std::string tl_name(td::Slice payload) {
+  if (payload.size() < sizeof(td::int32)) {
+    return "unknown";
+  }
+  return tl_name(resolve_tl_magic(payload));
+}
+
 void TlTrafficBucket::account(td::Slice payload) {
   if (payload.size() < sizeof(td::int32)) {
     unknown_.bytes += payload.size();
