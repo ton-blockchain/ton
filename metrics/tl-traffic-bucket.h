@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -24,16 +25,62 @@ namespace ton::metrics {
 // Returns 0 for payloads shorter than a magic.
 td::int32 resolve_tl_magic(td::Slice payload);
 
+// The constructor's name as the schema spells it, or nullopt when the schema does not know the
+// magic. Only a known magic pays for the owning string, so a miss stays allocation-free.
+std::optional<std::string> tl_schema_name(td::int32 magic);
+
 // For logs: the TL constructor name a payload resolves to ("consensus.simplex.vote"), unwrapping
 // routing envelopes the same way traffic accounting does; hex when the schema doesn't know it.
 std::string tl_name(td::Slice payload);
 std::string tl_name(td::int32 magic);
 
+// Cells keyed by TL constructor, with the label space bounded by the schema: magics the schema does
+// not know share one "unknown" cell, so a peer cannot mint labels by sending garbage magics.
+template <class Cell>
+class TlCells {
+ public:
+  Cell &at(td::int32 magic) {
+    // tl_schema_name() builds an owning string, so it is only asked about a magic we have not seen.
+    auto it = known_.find(magic);
+    if (it != known_.end()) {
+      return it->second;
+    }
+    if (!tl_schema_name(magic).has_value()) {
+      return unknown_;
+    }
+    return known_.emplace(magic, Cell{}).first->second;
+  }
+
+  // `emit` renders one cell into a Context already labelled with its constructor. Every cell re-emits
+  // the same family sequence into the same slots, so each one rewinds first.
+  void collect(Context ctx, auto &&emit) const {
+    size_t start = ctx.mark();
+    for (const auto &[magic, cell] : known_) {
+      ctx.rewind(start);
+      emit(ctx.with_label("tl", *tl_schema_name(magic)), cell);
+    }
+    // The unknown cell goes last and is emitted even when empty: the Sink identifies families by
+    // position, so the family sequence must not depend on which cells happen to be populated.
+    ctx.rewind(start);
+    emit(ctx.with_label("tl", "unknown"), unknown_);
+  }
+
+  TlCells &operator+=(const TlCells &other) {
+    for (const auto &[magic, cell] : other.known_) {
+      known_[magic] += cell;
+    }
+    unknown_ += other.unknown_;
+    return *this;
+  }
+
+ private:
+  std::map<td::int32, Cell> known_;
+  Cell unknown_;
+};
+
 // Accounts traffic by inner TL constructor. The payload's leading magic is usually a routing
 // envelope (overlay.query, overlay.message, ...), so it is unwrapped down to the content it carries;
-// a malformed envelope falls back to the envelope itself, never to whatever bytes follow. Schema-known
-// magics get their own `tl` cell, while unknown or short payloads funnel into a single "unknown" cell
-// so label cardinality stays bounded by the schema.
+// a malformed envelope falls back to the envelope itself, never to whatever bytes follow.
 class TlTrafficBucket {
  public:
   void account(td::Slice payload);
@@ -45,11 +92,16 @@ class TlTrafficBucket {
 
  private:
   struct Cell {
-    td::uint64 bytes = 0;
-    td::uint64 messages = 0;
+    Counter bytes;
+    Counter messages;
+
+    Cell &operator+=(const Cell &other) {
+      bytes += other.bytes;
+      messages += other.messages;
+      return *this;
+    }
   };
-  std::map<td::int32, Cell> known_;
-  Cell unknown_;
+  TlCells<Cell> tl_;
 };
 
 // A query round trip or a message delivery slower than this gets a log line.
@@ -60,7 +112,7 @@ inline constexpr double kSlowSeconds = 1.0;
 // timeout turns peer loss into a log flood.
 inline constexpr double kSlowLogPeriod = 10.0;
 
-// A site keeps its own `static SlowLogThrottle`; take() may be called from any thread.
+// take() may be called from any thread.
 class SlowLogThrottle {
  public:
   bool take() {
@@ -72,18 +124,28 @@ class SlowLogThrottle {
   std::atomic<double> last_{-kSlowLogPeriod};
 };
 
-// Query processing latency by TL constructor, with the same schema-bounded label space as
-// TlTrafficBucket: magics the schema does not know collapse into a single "unknown" cell, so a peer
-// cannot mint labels by sending garbage magics.
+// Latency of one kind of operation, split by TL constructor.
 class TlLatencyBucket {
  public:
-  // `duration_name` is the tail of the histogram family name: collected as "query" with the default
-  // it emits <prefix>_query_duration_seconds, collected as "query_roundtrip" with "seconds" it emits
+  // `what` names the operation in the slow log ("quic query roundtrip"). `duration_name` is the tail
+  // of the histogram family name: collected as "query" with the default it emits
+  // <prefix>_query_duration_seconds, collected as "query_roundtrip" with "seconds" it emits
   // <prefix>_query_roundtrip_seconds. The failed counter is always <collect name>_failed_total.
-  explicit TlLatencyBucket(std::string_view duration_name = "duration_seconds") : duration_name_(duration_name) {
+  explicit TlLatencyBucket(std::string_view what, std::string_view duration_name = "duration_seconds")
+      : what_(what), duration_name_(duration_name) {
   }
 
   void observe(td::int32 magic, double seconds, bool ok);
+
+  // Records how an operation ended and logs it when slow. The throttle is per bucket, so one noisy
+  // transport cannot mute the others' slow logs.
+  void record(td::int32 magic, const auto &dst, double seconds, bool ok) {
+    observe(magic, seconds, ok);
+    if (seconds > kSlowSeconds && throttle_.take()) {
+      LOG(INFO) << "slow " << what_ << " tl=" << tl_name(magic) << " dst=" << dst << " time=" << seconds
+                << (ok ? "" : " (failed)");
+    }
+  }
 
   void collect(Context ctx) const;
 
@@ -92,22 +154,10 @@ class TlLatencyBucket {
     Histogram<kDurationBuckets> duration;
     Counter failed;
   };
-  std::map<td::int32, Cell> known_;
-  Cell unknown_;
+  TlCells<Cell> tl_;
+  SlowLogThrottle throttle_;
+  std::string what_;
   std::string duration_name_;
 };
-
-// Records how an outbound query round trip / message delivery ended, and logs the slow ones.
-// `what` names the operation for the log ("quic query roundtrip"); `throttle` is the caller's own
-// static, so one noisy transport cannot mute the others' slow logs.
-template <class Dst>
-void record_latency(TlLatencyBucket &bucket, SlowLogThrottle &throttle, td::Slice what, td::int32 magic, const Dst &dst,
-                    double seconds, bool ok) {
-  bucket.observe(magic, seconds, ok);
-  if (seconds > kSlowSeconds && throttle.take()) {
-    LOG(INFO) << "slow " << what << " tl=" << tl_name(magic) << " dst=" << dst << " time=" << seconds
-              << (ok ? "" : " (failed)");
-  }
-}
 
 }  // namespace ton::metrics

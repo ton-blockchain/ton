@@ -54,9 +54,10 @@ td::actor::Task<> PrometheusExporter::collect_and_respond() {
   // waiting scrapers unanswered, which would wedge this endpoint for good.
   auto r_set = co_await gather().wrap();
 
-  auto waiting = std::move(waiting_);
-  waiting_.clear();
-  is_gathering_ = false;
+  // Taken only now, so a scrape that arrived mid-gather is served by this flight instead of starting
+  // its own; emptying the queue is what releases the flight, hence nothing may suspend below.
+  std::vector<PayloadPtr> waiting;
+  waiting.swap(waiting_);
 
   if (r_set.is_error()) {
     LOG(ERROR) << "failed to collect metrics: " << r_set.error();
@@ -79,18 +80,16 @@ td::actor::Task<> PrometheusExporter::collect_and_respond() {
 }
 
 void PrometheusExporter::on_request(RequestPtr request, PayloadPtr payload, http::ResponsePromise promise) {
-  std::unique_ptr<http::HttpResponse> response;
-
   if (request->url() != "/metrics") {
     http::answer_error(http::status_not_found, "", std::move(promise));
     return;
-  } else if (request->method() != "GET") {
+  }
+  if (request->method() != "GET") {
     http::answer_error(http::status_method_not_allowed, "", std::move(promise));
     return;
-  } else {
-    response = http::HttpResponse::create("HTTP/1.1", 200, "OK", false, false).move_as_ok();
   }
 
+  auto response = http::HttpResponse::create("HTTP/1.1", 200, "OK", false, false).move_as_ok();
   response->add_header({"Transfer-Encoding", "Chunked"});
   response->add_header({"Content-Type", "application/openmetrics-text; version=1.0.0; charset=utf-8"});
   response->complete_parse_header();
@@ -99,9 +98,9 @@ void PrometheusExporter::on_request(RequestPtr request, PayloadPtr payload, http
   promise.set_value(std::pair{std::move(response), payload_out});
 
   stats_.collections.inc();
+  bool idle = waiting_.empty();
   waiting_.push_back(std::move(payload_out));
-  if (!is_gathering_) {
-    is_gathering_ = true;
+  if (idle) {
     collect_and_respond().start().detach("prometheus collect");
   }
 }

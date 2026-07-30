@@ -72,8 +72,8 @@ class QuicSender : public adnl::AdnlSenderEx {
   QuicServer::Options server_options_;
 
   metrics::App app_;
-  metrics::TlLatencyBucket query_roundtrip_{"seconds"};
-  metrics::TlLatencyBucket message_delivery_{"seconds"};
+  metrics::TlLatencyBucket query_roundtrip_{"quic query roundtrip", "seconds"};
+  metrics::TlLatencyBucket message_delivery_{"quic message delivery", "seconds"};
 
   std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;
@@ -94,9 +94,8 @@ class QuicSender : public adnl::AdnlSenderEx {
                                                    std::string name, td::Timestamp timeout, td::BufferSlice data,
                                                    std::optional<td::uint64> limit);
   // Takes a ready connection: the round-trip timer is already running by the time it is entered.
-  td::actor::Task<td::BufferSlice> send_query_coro_inner(std::shared_ptr<Connection> conn, td::Timestamp timeout,
-                                                         td::BufferSlice data, std::optional<td::uint64> limit,
-                                                         td::int32 magic);
+  td::actor::Task<td::BufferSlice> send_query_coro_inner(std::shared_ptr<Connection> conn, StreamOptions options,
+                                                         td::BufferSlice data);
   td::actor::Task<std::string> get_conn_ip_str_coro(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id);
   td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
 

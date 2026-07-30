@@ -51,8 +51,8 @@ struct RldpMetrics {
 
   Transport transport;
   metrics::App app;
-  metrics::TlLatencyBucket query_roundtrip{"seconds"};
-  metrics::TlLatencyBucket message_delivery{"seconds"};
+  metrics::TlLatencyBucket query_roundtrip{"rldp2 query roundtrip", "seconds"};
+  metrics::TlLatencyBucket message_delivery{"rldp2 message delivery", "seconds"};
 
   void collect(metrics::Context ctx) const {
     ctx.collect(transport, "transport");

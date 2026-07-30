@@ -377,6 +377,7 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort sr
                                                         td::BufferSlice data) {
   auto size = data.size();
   auto magic = metrics::resolve_tl_magic(data.as_slice());
+  app_.record(metrics::Kind::message, metrics::Direction::out, magic, size);
   auto R = co_await send_message_coro_inner(src, dst, std::move(data), magic).wrap();
   if (R.is_error()) {
     // Fire-and-forget path: nobody upstream sees this error, so account the drop here. The counter
@@ -396,7 +397,6 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort sr
 
 td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                               td::BufferSlice data, td::int32 magic) {
-  app_.record(metrics::Kind::message, metrics::Direction::out, magic, data.size());
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
   td::Timer timer;
@@ -416,29 +416,24 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   // Getting a connection is not part of the round trip: a cold handshake, or a peer that does not
   // speak QUIC at all, would otherwise be timed as query latency. Such a failure is not a round trip.
   auto conn = co_await find_or_create_connection({src, dst});
+  StreamOptions options{.max_size = limit,
+                        .timeout = timeout,
+                        .timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0,
+                        .query_size = data.size(),
+                        .query_magic = magic};
   td::Timer timer;
-  auto result = co_await send_query_coro_inner(std::move(conn), timeout, std::move(data), limit, magic).wrap();
-  static metrics::SlowLogThrottle throttle;
-  metrics::record_latency(query_roundtrip_, throttle, "quic query roundtrip", magic, dst, timer.elapsed(),
-                          result.is_ok());
+  auto result = co_await send_query_coro_inner(std::move(conn), options, std::move(data)).wrap();
+  query_roundtrip_.record(magic, dst, timer.elapsed(), result.is_ok());
   co_return std::move(result);
 }
 
 td::actor::Task<td::BufferSlice> QuicSender::send_query_coro_inner(std::shared_ptr<Connection> conn,
-                                                                   td::Timestamp timeout, td::BufferSlice data,
-                                                                   std::optional<td::uint64> limit, td::int32 magic) {
-  auto query_size = data.size();
+                                                                   StreamOptions options, td::BufferSlice data) {
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_query>(std::move(data));
   auto cid = conn->cid;
   auto server = conn->server;
   // create stream explicitly to avoid race with response
-  auto timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0;
-  auto stream_id = co_await td::actor::ask(server, &QuicServer::open_stream, cid,
-                                           StreamOptions{.max_size = limit,
-                                                         .timeout = timeout,
-                                                         .timeout_seconds = timeout_seconds,
-                                                         .query_size = query_size,
-                                                         .query_magic = magic});
+  auto stream_id = co_await td::actor::ask(server, &QuicServer::open_stream, cid, std::move(options));
   auto [future, answer_promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   CHECK(conn->responses.emplace(stream_id, std::move(answer_promise)).second);
   conn = nullptr;  // don't keep connection, it may disconnect during our wait
@@ -705,9 +700,7 @@ void QuicSender::record_message_delivery(Connection &connection, QuicStreamID st
   if (it == connection.messages.end()) {
     return;
   }
-  static metrics::SlowLogThrottle throttle;
-  metrics::record_latency(message_delivery_, throttle, "quic message delivery", it->second.magic,
-                          connection.path.second, it->second.timer.elapsed(), ok);
+  message_delivery_.record(it->second.magic, connection.path.second, it->second.timer.elapsed(), ok);
   connection.messages.erase(it);
 }
 
