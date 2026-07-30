@@ -80,6 +80,7 @@ class QuicSender : public adnl::AdnlSenderEx {
   std::map<QuicConnectionId, std::shared_ptr<Connection>> by_cid_;
 
   std::map<int, td::actor::ActorOwn<QuicServer>> servers_by_port_;
+  std::map<int, ServerStats> last_server_stats_;
   std::map<adnl::AdnlNodeIdShort, td::actor::ActorId<QuicServer>> servers_by_id_;
   std::map<adnl::AdnlNodeIdShort, td::Ed25519::PrivateKey> local_keys_;
 
@@ -88,13 +89,14 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::Task<td::Unit> send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                               td::BufferSlice data);
   td::actor::Task<td::Unit> send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
-                                                    td::BufferSlice data);
+                                                    td::BufferSlice data, td::int32 magic);
   td::actor::Task<td::BufferSlice> send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                    std::string name, td::Timestamp timeout, td::BufferSlice data,
                                                    std::optional<td::uint64> limit);
-  td::actor::Task<td::BufferSlice> send_query_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
-                                                         std::string name, td::Timestamp timeout, td::BufferSlice data,
-                                                         std::optional<td::uint64> limit, td::int32 magic);
+  // Takes a ready connection: the round-trip timer is already running by the time it is entered.
+  td::actor::Task<td::BufferSlice> send_query_coro_inner(std::shared_ptr<Connection> conn, td::Timestamp timeout,
+                                                         td::BufferSlice data, std::optional<td::uint64> limit,
+                                                         td::int32 magic);
   td::actor::Task<std::string> get_conn_ip_str_coro(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id);
   td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
 

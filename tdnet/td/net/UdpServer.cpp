@@ -31,7 +31,7 @@ namespace detail {
 class UdpServerImpl : public UdpServer {
  public:
   void send(td::UdpMessage &&message) override;
-  td::actor::Task<UdpWireStats> collect() override;
+  td::actor::Task<UdpServerStats> collect() override;
   static td::actor::ActorOwn<UdpServerImpl> create(td::Slice name, td::UdpSocketFd fd,
                                                    std::unique_ptr<Callback> callback);
 
@@ -58,12 +58,12 @@ void UdpServerImpl::send(td::UdpMessage &&message) {
   loop();  // TODO: some yield logic
 }
 
-td::actor::Task<UdpWireStats> UdpServerImpl::collect() {
-  UdpWireStats stats;
+td::actor::Task<UdpServerStats> UdpServerImpl::collect() {
+  UdpServerStats stats;
 #if TD_PORT_POSIX
-  stats.in.counters = fd_.in_counters();
-  stats.in.dropped = fd_.get_rx_queue_drops();
-  stats.out.counters = fd_.out_counters();
+  stats.in = fd_.in_counters();
+  stats.in.dropped = fd_.get_rx_queue_drops();  // kernel-side, so the socket is the only source
+  stats.out = fd_.out_counters();
 #endif
   stats.listening_sockets = is_closing_ ? 0 : 1;
   co_return stats;
@@ -294,8 +294,8 @@ class UdpServerViaTcp : public UdpServer {
                                                              std::make_unique<TcpListenerCallback>(actor_shared(this)));
   }
 
-  td::actor::Task<UdpWireStats> collect() override {
-    co_return UdpWireStats{};
+  td::actor::Task<UdpServerStats> collect() override {
+    co_return UdpServerStats{};
   }
 
   void send(UdpMessage &&message) override {

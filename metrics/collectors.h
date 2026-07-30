@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -232,7 +233,7 @@ class Context {
   ContextWithLabelLink with_label(std::string_view key, std::string_view value) const;
   ContextWithNameLink with_name(std::string_view segment) const;
 
-  void collect(Collectable auto collectable, std::string_view name = "") const {
+  void collect(const Collectable auto &collectable, std::string_view name = "") const {
     if (name.empty()) {
       collectable.collect(*this);
     } else {
@@ -537,9 +538,16 @@ class Histogram {
   }
 
  private:
+  // %g's default 6 significant digits would render close bounds under the same `le` label; widen the
+  // precision only as far as it takes for the text to read back as the exact bound.
   static std::string format_bound(double bound) {
     char buf[32];
-    snprintf(buf, sizeof(buf), "%g", bound);
+    for (int precision = 6; precision <= 17; ++precision) {
+      snprintf(buf, sizeof(buf), "%.*g", precision, bound);
+      if (std::strtod(buf, nullptr) == bound) {
+        break;
+      }
+    }
     return buf;
   }
 

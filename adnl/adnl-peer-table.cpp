@@ -428,9 +428,9 @@ td::actor::Task<> AdnlPeerTableImpl::collect(metrics::Context ctx) {
   // peer-pair that dies mid-drain has already drained via its tear_down, so a failed ask is harmless.
   std::vector<td::actor::StartedTask<td::Unit>> drains;
   td::uint64 peer_pairs = 0;
-  for (const auto &[_, info] : peers_) {
+  for (const auto &[peer_id, info] : peers_) {
     peer_pairs += info.peers.size();
-    for (const auto &[__, pp] : info.peers) {
+    for (const auto &[local_id, pp] : info.peers) {
       drains.push_back(td::actor::ask(pp.actor.get(), &AdnlPeerPair::collect_metrics));
     }
   }

@@ -278,6 +278,8 @@ td::Result<std::optional<ServerInitialInfo>> QuicServer::prepare_server_initial_
 
   auto original_dcid = verify_retry_token(initial_packet, remote_address);
   if (original_dcid.is_error()) {
+    // Rejected here rather than by returning an error, so it is the only place that can count it.
+    record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
     LOG(DEBUG) << "invalid Retry token from " << remote_address << ": " << original_dcid.error();
     TRY_STATUS(send_invalid_token_connection_close(initial_packet, remote_address));
     return std::optional<ServerInitialInfo>{};
@@ -320,17 +322,13 @@ td::Status QuicServer::send_stateless_datagram(td::Slice packet_kind, const td::
   egress.syscalls.inc();
   if (is_sent) {
     egress.data.record(data.size());
+  } else {
+    // Stateless packets aren't retried, so a full send queue loses them just like a kernel refusal.
+    egress.dropped.at(status.is_error() ? metrics::Reason::internal : metrics::Reason::limited).inc();
+    LOG(DEBUG) << "dropping stateless " << packet_kind << " to " << remote_address << ": "
+               << (status.is_error() ? td::Slice(status.message()) : td::Slice("send queue blocked"));
   }
-  if (status.is_error()) {
-    return status;
-  }
-  if (!is_sent) {
-    // Socket send queue full and stateless packets aren't retried: count as a kernel-level TX drop.
-    egress.dropped.inc();
-    LOG(DEBUG) << "dropping stateless " << packet_kind << " to " << remote_address << ": send_message blocked";
-    return td::Status::OK();
-  }
-  return td::Status::OK();
+  return status;
 }
 
 td::Status QuicServer::send_retry(const VersionCid &packet, const td::IPAddress &remote_address) {
@@ -438,9 +436,12 @@ void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
 }
 
 td::actor::Task<ServerStats> QuicServer::collect() {
+  // Only the socket knows how many datagrams the receive queue lost; fold in what accrued since the
+  // last scrape.
   auto rx_drops = fd_.get_rx_queue_drops();
   if (rx_drops > rx_queue_drops_reflected_) {
-    udp_wire_.dir.at(metrics::Direction::in).dropped.inc(rx_drops - rx_queue_drops_reflected_);
+    auto &ingress = udp_wire_.dir.at(metrics::Direction::in);
+    ingress.dropped.at(metrics::Reason::limited).inc(rx_drops - rx_queue_drops_reflected_);
     rx_queue_drops_reflected_ = rx_drops;
   }
 
@@ -775,7 +776,7 @@ void QuicServer::drain_ingress() {
       bytes_budget -= std::max<size_t>(ingress_messages_[i].data.size(), 256);
       if (ingress_errors_[i].is_error()) {
         // Malformed datagram off the socket (e.g. truncated): a wire-level reject.
-        udp_wire_.dir.at(metrics::Direction::in).dropped.inc();
+        udp_wire_.dir.at(metrics::Direction::in).dropped.at(metrics::Reason::invalid).inc();
         LOG(DEBUG) << "dropping inbound packet from " << ingress_msg_[i].address << ": " << ingress_errors_[i];
         continue;
       }
@@ -808,7 +809,12 @@ void QuicServer::drain_ingress() {
           record_transport_dropped(metrics::Direction::in, metrics::Reason::internal);
           LOG(WARNING) << "failed to handle ingress from " << *state << ": " << handle_status;
         } else {
-          record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
+          // DROP_CONN is ngtcp2 discarding a server's first Initial: it already counted the packet in
+          // pkt_discarded, which get_stats folds into this very counter. It is the only read_pkt error
+          // that does, so every other one still needs an explicit count here.
+          if (handle_status.code() != NGTCP2_ERR_DROP_CONN) {
+            record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
+          }
           LOG(DEBUG) << "closing connection after ingress from " << *state << ": " << handle_status;
         }
         send_connection_close(*state, close_msg);  // no-op when empty
@@ -844,15 +850,15 @@ bool QuicServer::flush_pending() {
     return true;
   }
 
-  size_t sent_count = 0;
+  td::UdpSocketFd::SendResult result;
   auto status =
       fd_.send_messages(td::Span<td::UdpSocketFd::OutboundMessage>(egress_messages_.data() + pending_batch_sent_,
                                                                    pending_batch_count_ - pending_batch_sent_),
-                        sent_count);
+                        result);
 
   auto &egress = udp_wire_.dir.at(metrics::Direction::out);
   egress.syscalls.inc();
-  for (size_t i = pending_batch_sent_; i < pending_batch_sent_ + sent_count; i++) {
+  for (size_t i = pending_batch_sent_; i < pending_batch_sent_ + result.sent; i++) {
     egress.data.bytes.inc(egress_messages_[i].data.size());
     size_t gso_size = egress_messages_[i].gso_size;
     if (gso_size > 0 && egress_messages_[i].data.size() > gso_size) {
@@ -861,8 +867,10 @@ bool QuicServer::flush_pending() {
       egress.data.packets.inc();
     }
   }
+  // Consumed by the kernel, never put on the wire.
+  egress.dropped.at(metrics::Reason::internal).inc(result.dropped);
 
-  pending_batch_sent_ += sent_count;
+  pending_batch_sent_ += result.consumed();
 
   if (pending_batch_sent_ < pending_batch_count_) {
     if (status.is_error()) {
