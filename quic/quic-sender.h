@@ -8,6 +8,7 @@
 #include "metrics/collectors.h"
 #include "metrics/well-known.h"
 #include "td/actor/coro_task.h"
+#include "td/utils/Timer.h"
 
 #include "quic-server.h"
 
@@ -42,6 +43,12 @@ class QuicSender : public adnl::AdnlSenderEx {
 
  private:
   struct Connection {
+    // An outbound message awaiting the empty response the peer answers it with.
+    struct PendingMessage {
+      td::int32 magic;
+      td::Timer timer;
+    };
+
     bool init_started = false;
     bool is_ready = false;
     bool is_outbound = false;
@@ -51,6 +58,7 @@ class QuicSender : public adnl::AdnlSenderEx {
     std::vector<td::Promise<td::Unit>> waiting_ready{};
     std::optional<td::Status> init_error{};
     std::unordered_map<QuicStreamID, td::Promise<td::BufferSlice>> responses{};
+    std::unordered_map<QuicStreamID, PendingMessage> messages{};
 
     ~Connection();
   };
@@ -64,6 +72,8 @@ class QuicSender : public adnl::AdnlSenderEx {
   QuicServer::Options server_options_;
 
   metrics::App app_;
+  metrics::TlLatencyBucket query_roundtrip_{"seconds"};
+  metrics::TlLatencyBucket message_delivery_{"seconds"};
 
   std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;
@@ -82,6 +92,9 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::Task<td::BufferSlice> send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                    std::string name, td::Timestamp timeout, td::BufferSlice data,
                                                    std::optional<td::uint64> limit);
+  td::actor::Task<td::BufferSlice> send_query_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
+                                                         std::string name, td::Timestamp timeout, td::BufferSlice data,
+                                                         std::optional<td::uint64> limit, td::int32 magic);
   td::actor::Task<std::string> get_conn_ip_str_coro(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id);
   td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
 
@@ -105,6 +118,8 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::Task<> on_inbound_query(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                                      td::BufferSlice query);
   void on_answer(Connection& connection, QuicStreamID stream_id, ton_api::quic_answer& answer);
+  // Closes an outbound message's delivery entry, if the stream carried one.
+  void record_message_delivery(Connection& connection, QuicStreamID stream_id, bool ok);
 
   static td::Result<td::IPAddress> get_ip_address(const adnl::AdnlNode& node);
 };

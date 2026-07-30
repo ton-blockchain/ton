@@ -48,11 +48,20 @@ class TlTrafficBucket {
   Cell unknown_;
 };
 
+// A query round trip or a message delivery slower than this gets a WARNING log line.
+inline constexpr double kSlowSeconds = 1.0;
+
 // Query processing latency by TL constructor, with the same schema-bounded label space as
 // TlTrafficBucket: magics the schema does not know collapse into a single "unknown" cell, so a peer
 // cannot mint labels by sending garbage magics.
 class TlLatencyBucket {
  public:
+  // `duration_name` is the tail of the histogram family name: collected as "query" with the default
+  // it emits <prefix>_query_duration_seconds, collected as "query_roundtrip" with "seconds" it emits
+  // <prefix>_query_roundtrip_seconds. The failed counter is always <collect name>_failed_total.
+  explicit TlLatencyBucket(std::string_view duration_name = "duration_seconds") : duration_name_(duration_name) {
+  }
+
   void observe(td::int32 magic, double seconds, bool ok);
 
   void collect(Context ctx) const;
@@ -64,6 +73,18 @@ class TlLatencyBucket {
   };
   std::map<td::int32, Cell> known_;
   Cell unknown_;
+  std::string_view duration_name_;
 };
+
+// Records how an outbound query round trip / message delivery ended, and logs the slow ones.
+// `what` names the operation for the log ("quic query roundtrip").
+template <class Dst>
+void record_latency(TlLatencyBucket &bucket, td::Slice what, td::int32 magic, const Dst &dst, double seconds, bool ok) {
+  bucket.observe(magic, seconds, ok);
+  if (seconds > kSlowSeconds) {
+    LOG(WARNING) << "slow " << what << " tl=" << tl_name(magic) << " dst=" << dst << " time=" << seconds
+                 << (ok ? "" : " (failed)");
+  }
+}
 
 }  // namespace ton::metrics

@@ -249,8 +249,8 @@ void TlLatencyBucket::observe(td::int32 magic, double seconds, bool ok) {
 
 void TlLatencyBucket::collect(Context ctx) const {
   // Every cell re-emits the same two families into the same slots, so each one rewinds first.
-  auto emit = [](Context cell_ctx, const Cell &cell) {
-    cell_ctx.collect(cell.duration, "duration_seconds");
+  auto emit = [this](Context cell_ctx, const Cell &cell) {
+    cell_ctx.collect(cell.duration, duration_name_);
     cell_ctx.collect(cell.failed, "failed");
   };
   size_t start = ctx.mark();
