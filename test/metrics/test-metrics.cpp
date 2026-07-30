@@ -6,8 +6,11 @@
 
 #include <chrono>
 
+#include "auto/tl/ton_api.h"
 #include "metrics/collectors.h"
+#include "metrics/tl-traffic-bucket.h"
 #include "td/utils/tests.h"
+#include "tl-utils/tl-utils.hpp"
 
 namespace ton::metrics::test {
 namespace {
@@ -115,6 +118,90 @@ TEST(Metrics, PlainGaugeHasNoSecondsSuffix) {
   auto out = std::move(sink).build().render();
   // Plain double gauge: bare name, no _seconds suffix.
   EXPECT_EQ("# TYPE ratio gauge\nratio 0.250000\n", out);
+}
+
+// ===== TlTrafficBucket =====
+
+// The `tl` label a single payload lands under, read back off the rendered exposition.
+std::string tl_label(td::Slice payload) {
+  TlTrafficBucket bucket;
+  bucket.account(payload);
+  Sink sink;
+  Context(sink).collect(bucket, "tl");
+  auto out = std::move(sink).build().render();
+
+  const std::string prefix = "tl_messages_total{tl=\"", suffix = "\"} 1.000000";
+  for (auto pos = out.find(prefix); pos != std::string::npos; pos = out.find(prefix, pos + 1)) {
+    auto end = out.find(suffix, pos);
+    if (end != std::string::npos && end < out.find('\n', pos)) {
+      return out.substr(pos + prefix.size(), end - pos - prefix.size());
+    }
+  }
+  return out;  // nothing was accounted: return the whole rendering so the failure is readable
+}
+
+td::BufferSlice a_function() {
+  return create_serialize_tl_object<ton_api::tonNode_getCapabilities>();
+}
+
+tl_object_ptr<ton_api::PublicKey> a_key() {
+  return create_tl_object<ton_api::pub_ed25519>(td::Bits256::zero());
+}
+
+TEST(Metrics, TlNakedFunctionResolves) {
+  // Function constructors live in a separate nameof table from Object's.
+  ASSERT_EQ("tonNode.getCapabilities", tl_label(a_function()));
+}
+
+TEST(Metrics, TlOverlayQueryUnwrapsToInnerFunction) {
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_query>(a_function(), td::Bits256::zero());
+  ASSERT_EQ("tonNode.getCapabilities", tl_label(payload));
+}
+
+TEST(Metrics, TlQueryWithExtraUnwrapsWhenNoCertificate) {
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_queryWithExtra>(
+      a_function(), td::Bits256::zero(), create_tl_object<ton_api::overlay_messageExtra>(0, nullptr));
+  ASSERT_EQ("tonNode.getCapabilities", tl_label(payload));
+}
+
+TEST(Metrics, TlBroadcastUnwrapsToItsContent) {
+  auto content = create_serialize_tl_object<ton_api::tonNode_capabilities>(2, 0, 0);
+  auto broadcast = create_serialize_tl_object<ton_api::overlay_broadcast>(
+      a_key(), create_tl_object<ton_api::overlay_emptyCertificate>(), 0, std::move(content), 12345,
+      td::BufferSlice(64));
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_message>(broadcast, td::Bits256::zero());
+  ASSERT_EQ("tonNode.capabilities", tl_label(payload));
+}
+
+TEST(Metrics, TlBroadcastFecShortStaysItself) {
+  // FEC parts carry no content magic — the outer constructor is the honest label.
+  auto broadcast = create_serialize_tl_object<ton_api::overlay_broadcastFecShort>(
+      a_key(), create_tl_object<ton_api::overlay_emptyCertificate>(), td::Bits256::zero(), td::Bits256::zero(), 7,
+      td::BufferSlice(64));
+  auto payload = create_serialize_tl_object_suffix<ton_api::overlay_message>(broadcast, td::Bits256::zero());
+  ASSERT_EQ("overlay.broadcastFecShort", tl_label(payload));
+}
+
+TEST(Metrics, TlDhtQueryStaysCoarse) {
+  auto node = create_tl_object<ton_api::dht_node>(
+      a_key(),
+      create_tl_object<ton_api::adnl_addressList>(std::vector<tl_object_ptr<ton_api::adnl_Address>>(), 0, 0, 0, 0), 0,
+      td::BufferSlice(64));
+  auto payload = create_serialize_tl_object_suffix<ton_api::dht_query>(a_function(), std::move(node));
+  ASSERT_EQ("dht.query", tl_label(payload));
+}
+
+TEST(Metrics, TlTruncatedEnvelopeKeepsEnvelope) {
+  auto full = create_serialize_tl_object_suffix<ton_api::overlay_query>(a_function(), td::Bits256::zero());
+  ASSERT_EQ("overlay.query", tl_label(full.as_slice().substr(0, 20)));
+}
+
+TEST(Metrics, TlGarbageMagicIsUnknown) {
+  ASSERT_EQ("unknown", tl_label(td::Slice("\x11\x22\x33\x44", 4)));
+}
+
+TEST(Metrics, TlShortPayloadIsUnknown) {
+  ASSERT_EQ("unknown", tl_label(td::Slice("\x11\x22", 2)));
 }
 
 }  // namespace
