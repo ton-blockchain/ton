@@ -29,6 +29,11 @@ inline std::chrono::nanoseconds to_chrono(ngtcp2_duration d) {
   return std::chrono::nanoseconds(d);
 }
 
+// "-206 (ERR_STREAM_ID_BLOCKED)" — the numeric code alone is opaque in logs.
+inline std::string ngtcp2_err_str(ngtcp2_ssize rv) {
+  return std::to_string(rv) + " (" + ngtcp2_strerror(static_cast<int>(rv)) + ")";
+}
+
 struct ServerIdentities : td::CntObject {
   std::map<std::string, ServerIdentity> by_sni;
   std::string default_sni;  // empty until the first identity is added; never empty afterwards
