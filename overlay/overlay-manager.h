@@ -118,6 +118,9 @@ class OverlayManager : public Overlays {
 
   void forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, adnl::AdnlNodeIdShort peer_id) override;
 
+  td::actor::Task<> collect(metrics::Context ctx) override;
+  void absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promise<td::Unit> done) override;
+
   struct PrintId {};
 
   PrintId print_id() const {
@@ -130,6 +133,9 @@ class OverlayManager : public Overlays {
     OverlayMemberCertificate member_certificate;
   };
   std::map<adnl::AdnlNodeIdShort, std::map<OverlayIdShort, OverlayDescription>> overlays_;
+
+  // Broadcast content: outbound recorded here directly, inbound drained from the per-overlay actors.
+  metrics::Labeled<metrics::TlTrafficBucket, metrics::Direction> broadcasts_;
 
   struct BufferedRequest {
     adnl::AdnlNodeIdShort src;
