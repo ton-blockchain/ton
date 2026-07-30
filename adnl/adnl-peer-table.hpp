@@ -62,9 +62,11 @@ struct AdnlPeerTableMetrics {
   };
   Transport transport;
   metrics::App app;
+  metrics::TlLatencyBucket query;
   void collect(metrics::Context ctx) const {
     ctx.collect(transport, "transport");
     ctx.collect(app, "app");
+    ctx.collect(query, "query");
   }
 };
 
@@ -130,6 +132,9 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   }
   td::actor::Task<> collect(metrics::Context ctx) override;
   void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) override;
+  void record_query_duration(td::int32 magic, double seconds, bool ok) override {
+    metrics_.query.observe(magic, seconds, ok);
+  }
 
   void deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override;
   void deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,

@@ -103,6 +103,16 @@ and app tiers.
 | `ton_adnl_app_messages_total` | counter | same | Message count for the same events. |
 | `ton_adnl_app_dropped_total` | counter | `direction`, `reason` | Payloads refused at the app boundary for size (the 8 KiB message cap, the 1024 B answer MTU). Only `limited` is ever used. |
 
+### Queries
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_adnl_query_duration_seconds` | histogram | `tl`, `le` | Dispatch-to-answer time of an inbound query, measured at the ADNL delivery layer (`AdnlLocalId::deliver_query`) — the single choke point every transport funnels through, so this covers queries arriving over ADNL peer pairs, RLDP2, QUIC and the ext server alike. The clock starts before the subscriber callback is invoked and stops when the answer promise is fulfilled; a promise dropped without an answer counts as a failure with its elapsed time. `tl` comes from the same envelope-resolving logic as the app tier, and magics the schema does not know collapse into `tl="unknown"` so the label space stays bounded by the schema. |
+| `ton_adnl_query_failed_total` | counter | `tl` | Of those queries, the ones that answered with an error (or were abandoned). |
+
+A query slower than 1 s also gets a `WARNING` log line with its `tl` name, source, payload size and
+elapsed time.
+
 **Peer-pair accounting.** `Counter` is a plain non-atomic integer, so per-peer-pair counters cannot
 be bumped cross-thread. Each pair accumulates locally; on scrape the peer table asks every pair to
 `drain` (a destructive `std::exchange`) and merges the delta into the process-wide aggregate. A pair

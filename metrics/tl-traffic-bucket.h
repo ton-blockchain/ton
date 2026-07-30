@@ -48,4 +48,22 @@ class TlTrafficBucket {
   Cell unknown_;
 };
 
+// Query processing latency by TL constructor, with the same schema-bounded label space as
+// TlTrafficBucket: magics the schema does not know collapse into a single "unknown" cell, so a peer
+// cannot mint labels by sending garbage magics.
+class TlLatencyBucket {
+ public:
+  void observe(td::int32 magic, double seconds, bool ok);
+
+  void collect(Context ctx) const;
+
+ private:
+  struct Cell {
+    Histogram<kDurationBuckets> duration;
+    Counter failed;
+  };
+  std::map<td::int32, Cell> known_;
+  Cell unknown_;
+};
+
 }  // namespace ton::metrics

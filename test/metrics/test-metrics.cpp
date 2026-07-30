@@ -311,5 +311,36 @@ TEST(Metrics, TlShortPayloadIsUnknown) {
   ASSERT_EQ("unknown", tl_label(td::Slice("\x11\x22", 2)));
 }
 
+// ===== TlLatencyBucket =====
+
+TEST(Metrics, TlLatencySplitsByConstructor) {
+  TlLatencyBucket bucket;
+  bucket.observe(ton_api::tonNode_getCapabilities::ID, 0.02, true);
+  bucket.observe(ton_api::overlay_message::ID, 3.0, false);
+  bucket.observe(static_cast<td::int32>(0x11223344), 0.02, false);  // not in the schema
+  auto out = render(bucket, "q");
+
+  ASSERT_TRUE(has_line(out, "q_duration_seconds_bucket{tl=\"tonNode.getCapabilities\",le=\"0.025\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "q_duration_seconds_count{tl=\"tonNode.getCapabilities\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "q_failed_total{tl=\"tonNode.getCapabilities\"} 0.000000"));
+  ASSERT_TRUE(has_line(out, "q_duration_seconds_bucket{tl=\"overlay.message\",le=\"2.5\"} 0.000000"));
+  ASSERT_TRUE(has_line(out, "q_duration_seconds_bucket{tl=\"overlay.message\",le=\"5\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "q_failed_total{tl=\"overlay.message\"} 1.000000"));
+  // An unknown magic must never become a label of its own.
+  ASSERT_TRUE(out.find("0x11223344") == std::string::npos);
+  ASSERT_TRUE(has_line(out, "q_duration_seconds_bucket{tl=\"unknown\",le=\"+Inf\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "q_failed_total{tl=\"unknown\"} 1.000000"));
+  // Two families for the whole bucket, however many cells it holds.
+  ASSERT_EQ(1u, count_of(out, "# TYPE q_duration_seconds histogram\n"));
+  ASSERT_EQ(1u, count_of(out, "# TYPE q_failed counter\n"));
+}
+
+TEST(Metrics, TlLatencySkipsEmptyUnknown) {
+  TlLatencyBucket bucket;
+  bucket.observe(ton_api::tonNode_getCapabilities::ID, 0.02, true);
+  auto out = render(bucket, "q");
+  ASSERT_TRUE(out.find("unknown") == std::string::npos);
+}
+
 }  // namespace
 }  // namespace ton::metrics::test

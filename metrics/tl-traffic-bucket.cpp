@@ -239,4 +239,29 @@ void TlTrafficBucket::collect(Context ctx) const {
   }
 }
 
+void TlLatencyBucket::observe(td::int32 magic, double seconds, bool ok) {
+  Cell &cell = nameof(magic).has_value() ? known_[magic] : unknown_;
+  cell.duration.observe(seconds);
+  if (!ok) {
+    cell.failed.inc();
+  }
+}
+
+void TlLatencyBucket::collect(Context ctx) const {
+  // Every cell re-emits the same two families into the same slots, so each one rewinds first.
+  auto emit = [](Context cell_ctx, const Cell &cell) {
+    cell_ctx.collect(cell.duration, "duration_seconds");
+    cell_ctx.collect(cell.failed, "failed");
+  };
+  size_t start = ctx.mark();
+  for (const auto &[magic, cell] : known_) {
+    ctx.rewind(start);
+    emit(ctx.with_label("tl", *nameof(magic)), cell);
+  }
+  if (unknown_.duration.count() != 0) {
+    ctx.rewind(start);
+    emit(ctx.with_label("tl", "unknown"), unknown_);
+  }
+}
+
 }  // namespace ton::metrics
