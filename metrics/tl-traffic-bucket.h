@@ -112,7 +112,11 @@ inline constexpr double kSlowSeconds = 1.0;
 // timeout turns peer loss into a log flood.
 inline constexpr double kSlowLogPeriod = 10.0;
 
-// take() may be called from any thread.
+// TEMPORARY: the slow-operation logs are a diagnostic to be removed once the latency histograms are
+// trusted in production.
+// take() may be called from any thread: the standalone throttles fire from arbitrary threads, and
+// even where the caller is single-threaded (a bucket's record() runs only on its owning actor
+// thread) the atomic is the minimal guard that covers both.
 class SlowLogThrottle {
  public:
   bool take() {
@@ -139,10 +143,10 @@ class TlLatencyBucket {
 
   // Records how an operation ended and logs it when slow. The throttle is per bucket, so one noisy
   // transport cannot mute the others' slow logs.
-  void record(td::int32 magic, const auto &dst, double seconds, bool ok) {
+  void record(td::int32 magic, const auto &peer, double seconds, bool ok) {
     observe(magic, seconds, ok);
     if (seconds > kSlowSeconds && throttle_.take()) {
-      LOG(INFO) << "slow " << what_ << " tl=" << tl_name(magic) << " dst=" << dst << " time=" << seconds
+      LOG(INFO) << "slow " << what_ << " tl=" << tl_name(magic) << " peer=" << peer << " time=" << seconds
                 << (ok ? "" : " (failed)");
     }
   }

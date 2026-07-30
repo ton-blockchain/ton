@@ -98,9 +98,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void log_stats(std::string reason = "stats");
 
   // Counts a handshake the application rejected after Callback::on_connected already returned OK,
-  // i.e. from another actor. Callers that reject synchronously are counted at the callback site.
-  void record_handshake_reject() {
-    record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
+  // i.e. from another actor, under the reason that actor decided on. Callers that reject
+  // synchronously are counted at the callback site.
+  void record_handshake_reject(metrics::Reason reason) {
+    record_transport_dropped(metrics::Direction::in, reason);
   }
 
   // MTU state is keyed by local_id and (local_id, peer_id). Peer-specific MTU overrides the
