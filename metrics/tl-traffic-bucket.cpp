@@ -56,21 +56,32 @@ class Cursor {
     if (data_.empty()) {
       return false;
     }
-    size_t header = 1, len = static_cast<td::uint8>(data_[0]);
+    size_t header = 1;
+    td::uint64 len = static_cast<td::uint8>(data_[0]);
     if (len == 254) {
       if (data_.size() < 4) {
         return false;
       }
       header = 4;
-      len = static_cast<td::uint8>(data_[1]) | static_cast<size_t>(static_cast<td::uint8>(data_[2])) << 8 |
-            static_cast<size_t>(static_cast<td::uint8>(data_[3])) << 16;
-    } else if (len > 254) {
+      len = static_cast<td::uint8>(data_[1]) | static_cast<td::uint64>(static_cast<td::uint8>(data_[2])) << 8 |
+            static_cast<td::uint64>(static_cast<td::uint8>(data_[3])) << 16;
+    } else if (len == 255) {  // 8-byte header with a 7-byte length, as TlParser accepts
+      if (data_.size() < 8) {
+        return false;
+      }
+      header = 8;
+      len = 0;
+      for (int i = 1; i < 8; i++) {
+        len |= static_cast<td::uint64>(static_cast<td::uint8>(data_[i])) << (8 * (i - 1));
+      }
+    }
+    if (len > data_.size()) {
       return false;
     }
     if (with_content) {
-      return skip((header + len + 3) / 4 * 4);
+      return skip((header + static_cast<size_t>(len) + 3) / 4 * 4);
     }
-    return len >= sizeof(td::int32) && header + len <= data_.size() && skip(header);
+    return len >= sizeof(td::int32) && header + static_cast<size_t>(len) <= data_.size() && skip(header);
   }
 
  private:
