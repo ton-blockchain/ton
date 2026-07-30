@@ -702,7 +702,8 @@ td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
 
   int rv = ngtcp2_conn_open_bidi_stream(conn(), &sid, nullptr);
   if (rv != 0) {
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_open_bidi_stream failed: " << ngtcp2_err_str(rv));
+    // Carry rv as the status code so callers can classify (e.g. STREAM_ID_BLOCKED = flow control).
+    return td::Status::Error(rv, PSTRING() << "ngtcp2_conn_open_bidi_stream failed: " << ngtcp2_err_str(rv));
   }
 
   CHECK(streams_.emplace(sid, OutboundStreamState{}).second);
