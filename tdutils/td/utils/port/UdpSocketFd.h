@@ -19,6 +19,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "td/utils/Slice.h"
@@ -60,6 +61,7 @@ class UdpSocketFd {
   Result<uint32> maximize_snd_buffer(uint32 max_buffer_size = 0);
   Result<uint32> maximize_rcv_buffer(uint32 max_buffer_size = 0);
 
+  // Datagrams the kernel receive queue dropped, cumulative since open.
   uint64 get_rx_queue_drops() const;
 
   static Result<UdpSocketFd> open(const IPAddress &address) TD_WARN_UNUSED_RESULT;
@@ -90,14 +92,26 @@ class UdpSocketFd {
     MutableSlice data;
     Status *error;
     size_t gso_size{0};
-    size_t queue_overflow{0};
+    std::optional<uint32> queue_overflow;  // SO_RXQ_OVFL, absent when the kernel sent no such cmsg
+  };
+
+  // What one send batch did to the front of `messages`: [0, sent) went to the kernel, the `dropped`
+  // that follow were refused outright (EMSGSIZE/EACCES/EPERM) and must not be retried. Both are gone
+  // from the caller's queue; only `sent` was put on the wire.
+  struct SendResult {
+    size_t sent{0};
+    size_t dropped{0};
+
+    size_t consumed() const {
+      return sent + dropped;
+    }
   };
 
   Status send_message(const OutboundMessage &message, bool &is_sent) TD_WARN_UNUSED_RESULT;
   Status receive_message(InboundMessage &message, bool &is_received,
                          std::vector<BufferSlice> &buf) TD_WARN_UNUSED_RESULT;
 
-  Status send_messages(Span<OutboundMessage> messages, size_t &count) TD_WARN_UNUSED_RESULT;
+  Status send_messages(Span<OutboundMessage> messages, SendResult &result) TD_WARN_UNUSED_RESULT;
   Status receive_messages(MutableSpan<InboundMessage> messages, size_t &count,
                           std::vector<BufferSlice> &buf) TD_WARN_UNUSED_RESULT;
 

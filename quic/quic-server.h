@@ -39,7 +39,7 @@ struct StreamOptions {
   td::Timestamp timeout = td::Timestamp::never();
   double timeout_seconds = 0.0;
   td::uint64 query_size = 0;
-  td::uint32 query_magic = 0;
+  td::int32 query_magic = 0;  // 0 on inbound streams: no query of ours to describe
 };
 
 struct StreamShutdownList {

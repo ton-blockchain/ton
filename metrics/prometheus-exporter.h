@@ -65,8 +65,8 @@ class PrometheusExporter final : public td::actor::Actor {
 
   // Run every registered collector into a single Sink under the top prefix.
   td::actor::Task<metrics::MetricSet> gather();
-  // Gather + render OpenMetrics text into the response payload.
-  td::actor::Task<> collect_and_respond(PayloadPtr payload, td::UTCTime started_at);
+  // Gather once and answer everyone who asked while it was running.
+  td::actor::Task<> collect_and_respond();
 
   struct Stats {
     metrics::Gauge<td::uint64> collectors;
@@ -84,6 +84,11 @@ class PrometheusExporter final : public td::actor::Actor {
 
   Stats stats_;
   std::vector<std::function<td::actor::Task<>(metrics::Context)>> collectors_;
+
+  // A full gather fans out over every peer pair, connection and overlay, so concurrent or retrying
+  // scrapers must share one: they all wait here and are served from its output.
+  std::vector<PayloadPtr> waiting_;
+  bool is_gathering_ = false;
 
   std::string prefix_;
   td::actor::ActorOwn<http::HttpServer> http_ = {};

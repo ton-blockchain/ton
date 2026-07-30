@@ -193,6 +193,7 @@ void AdnlPeerPairImpl::receive_packet_checked(AdnlPacket packet) {
   }
   if (packet.seqno() > 0) {
     if (received_packet(packet.seqno())) {
+      record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
       VLOG(adnl, INFO) << this << ": dropping IN message: old seqno: " << packet.seqno() << " (current max "
                        << in_seqno_ << ")";
       return;
@@ -363,6 +364,7 @@ void AdnlPeerPairImpl::send_messages_from_queue() {
       if (!is_direct && (M.flags() & Adnl::SendFlags::direct_only)) {
         out_messages_queue_total_size_ -= M.size();
         out_messages_queue_.pop_front();
+        record_transport_dropped(metrics::Direction::out, metrics::Reason::limited);
         continue;
       }
       CHECK(M.size() <= get_mtu());

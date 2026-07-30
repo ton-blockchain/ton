@@ -6,9 +6,13 @@
 
 #pragma once
 
+#include <atomic>
 #include <map>
+#include <string>
+#include <string_view>
 
 #include "td/utils/Slice.h"
+#include "td/utils/Time.h"
 #include "td/utils/int_types.h"
 
 #include "collectors.h"
@@ -48,8 +52,25 @@ class TlTrafficBucket {
   Cell unknown_;
 };
 
-// A query round trip or a message delivery slower than this gets a WARNING log line.
+// A query round trip or a message delivery slower than this gets a log line.
 inline constexpr double kSlowSeconds = 1.0;
+
+// ...at most one per site per this many seconds. Slow-operation logging shares the fault it reports:
+// when a peer goes away every one of its operations times out at once, so an unthrottled line per
+// timeout turns peer loss into a log flood.
+inline constexpr double kSlowLogPeriod = 10.0;
+
+// A site keeps its own `static SlowLogThrottle`; take() may be called from any thread.
+class SlowLogThrottle {
+ public:
+  bool take() {
+    double now = td::Time::now(), last = last_.load(std::memory_order_relaxed);
+    return now - last >= kSlowLogPeriod && last_.compare_exchange_strong(last, now, std::memory_order_relaxed);
+  }
+
+ private:
+  std::atomic<double> last_{-kSlowLogPeriod};
+};
 
 // Query processing latency by TL constructor, with the same schema-bounded label space as
 // TlTrafficBucket: magics the schema does not know collapse into a single "unknown" cell, so a peer
@@ -73,7 +94,7 @@ class TlLatencyBucket {
   };
   std::map<td::int32, Cell> known_;
   Cell unknown_;
-  std::string_view duration_name_;
+  std::string duration_name_;
 };
 
 // Records how an outbound query round trip / message delivery ended, and logs the slow ones.
@@ -81,9 +102,10 @@ class TlLatencyBucket {
 template <class Dst>
 void record_latency(TlLatencyBucket &bucket, td::Slice what, td::int32 magic, const Dst &dst, double seconds, bool ok) {
   bucket.observe(magic, seconds, ok);
-  if (seconds > kSlowSeconds) {
-    LOG(WARNING) << "slow " << what << " tl=" << tl_name(magic) << " dst=" << dst << " time=" << seconds
-                 << (ok ? "" : " (failed)");
+  static SlowLogThrottle throttle;
+  if (seconds > kSlowSeconds && throttle.take()) {
+    LOG(INFO) << "slow " << what << " tl=" << tl_name(magic) << " dst=" << dst << " time=" << seconds
+              << (ok ? "" : " (failed)");
   }
 }
 
