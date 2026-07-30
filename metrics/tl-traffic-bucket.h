@@ -15,9 +15,11 @@
 
 namespace ton::metrics {
 
-// Accounts traffic by inner TL constructor. A payload's first 4 bytes are its constructor magic;
-// schema-known magics get their own `tl` cell (named via ton_api::Object::nameof), while unknown or
-// short payloads funnel into a single "unknown" cell so label cardinality stays bounded by the schema.
+// Accounts traffic by inner TL constructor. The payload's leading magic is usually a routing
+// envelope (overlay.query, overlay.message, ...), so it is unwrapped down to the content it carries;
+// a malformed envelope falls back to the envelope itself, never to whatever bytes follow. Schema-known
+// magics get their own `tl` cell, while unknown or short payloads funnel into a single "unknown" cell
+// so label cardinality stays bounded by the schema.
 class TlTrafficBucket {
  public:
   void account(td::Slice payload);
