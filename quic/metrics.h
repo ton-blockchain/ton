@@ -66,23 +66,31 @@ struct QuicConnectionMetrics {
 };
 
 struct QuicConnectionMetricsAggregate {
-  metrics::Counter connections;
-  metrics::Gauge<td::uint64> connections_current;
+  // Split by who dialled, so inbound and outbound load can be told apart; `stats` stays pooled,
+  // since the per-connection ngtcp2 counters carry no direction of their own.
+  metrics::Labeled<metrics::Counter, metrics::Direction> connections;
+  metrics::Labeled<metrics::Gauge<td::uint64>, metrics::Direction> connections_current;
   QuicConnectionMetrics stats;
 
-  static QuicConnectionMetricsAggregate from_one(const QuicConnectionMetrics& stats) {
-    return {
-        .connections = 1,
-        .connections_current = 1,
-        .stats = stats,
-    };
+  static QuicConnectionMetricsAggregate from_one(const QuicConnectionMetrics& stats, bool is_outbound) {
+    QuicConnectionMetricsAggregate res;
+    auto direction = is_outbound ? metrics::Direction::out : metrics::Direction::in;
+    res.connections.at(direction).inc();
+    res.connections_current.at(direction).set(1);
+    res.stats = stats;
+    return res;
+  }
+
+  td::uint64 current_total() const {
+    return connections_current.at(metrics::Direction::in).value() +
+           connections_current.at(metrics::Direction::out).value();
   }
 
   QuicConnectionMetricsAggregate& operator+=(const QuicConnectionMetricsAggregate& other) {
     // mean_rtt is an average over connections, not a sum: re-weight it by both sides' connection
     // counts, then write it back over the sum the merge below leaves in place.
-    auto our = connections_current.value();
-    auto their = other.connections_current.value();
+    auto our = current_total();
+    auto their = other.current_total();
     auto conns = our + their;
     std::chrono::duration<double> mean_rtt{};
     if (conns > 0) {
@@ -97,7 +105,7 @@ struct QuicConnectionMetricsAggregate {
   }
 
   QuicConnectionMetricsAggregate& retire() {
-    connections_current = 0;
+    connections_current = {};
     stats.bytes_in_flight = {};
     stats.bytes_unacked = {};
     stats.bytes_unsent = {};

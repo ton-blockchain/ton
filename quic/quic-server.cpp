@@ -450,7 +450,7 @@ td::actor::Task<ServerStats> QuicServer::collect() {
 
   auto summary = closed_conn_stats_;
   for (auto &[id, conn] : connections_) {
-    summary += QuicConnectionMetricsAggregate::from_one(conn->impl_->get_stats(transport_stats_));
+    summary += QuicConnectionMetricsAggregate::from_one(conn->impl_->get_stats(transport_stats_), conn->is_outbound);
   }
 
   // get_stats updates transport_stats_, so we snapshot after the loop above.
@@ -472,7 +472,8 @@ void QuicServer::on_connection_closed(QuicConnectionId cid) {
   }
   auto state = it->second;
   LOG(INFO) << "Close connection: " << *state;
-  closed_conn_stats_ += QuicConnectionMetricsAggregate::from_one(state->impl_->get_stats(transport_stats_)).retire();
+  closed_conn_stats_ +=
+      QuicConnectionMetricsAggregate::from_one(state->impl_->get_stats(transport_stats_), state->is_outbound).retire();
   unbind_all_cids(*state);
   if (state->in_heap()) {
     timeout_heap_.erase(state.get());
