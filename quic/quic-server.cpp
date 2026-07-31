@@ -622,20 +622,32 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   bool is_outbound_;
 };
 
-// Each failure in get_or_create_connection is a dropped inbound datagram; classify it for
-// quic_transport_dropped_total. invalid = unroutable / unparseable / rejected handshake (peer fault);
-// limited = a local flood/rate cap; internal = our own machinery failed.
-#define TRY_OR_DROP(name, reason, expr)                       \
-  auto r_##name = (expr);                                     \
-  if (r_##name.is_error()) {                                  \
-    record_transport_dropped(metrics::Direction::in, reason); \
-    return r_##name.move_as_error();                          \
-  }                                                           \
-  auto name = r_##name.move_as_ok()
+// Nothing here can fail on the peer's account: a failure means we dropped a valid datagram ourselves,
+// which is why the caller can classify the whole phase as `internal`.
+td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::create_inbound_connection(
+    const UdpMessageBuffer &msg_in, const VersionCid &initial_packet, const ServerInitialInfo &initial_info) {
+  TRY_RESULT(local_address, fd_.get_local_address());
+  auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
+  TRY_RESULT(p_impl,
+             QuicConnectionPImpl::create_server(local_address, msg_in.address, identities_, alpn_.as_slice(),
+                                                initial_info, std::move(pimpl_callback), build_connection_options()));
+  return install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid);
+}
+
+// A dropped inbound datagram, classified for quic_transport_dropped_total: invalid = unroutable or
+// unparseable (peer fault); limited = a local flood/rate cap; internal = our own machinery failed.
+td::Status QuicServer::reject(metrics::Reason reason, td::Status status) {
+  record_transport_dropped(metrics::Direction::in, reason);
+  return status;
+}
 
 td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_create_connection(
     const UdpMessageBuffer &msg_in) {
-  TRY_OR_DROP(vc, metrics::Reason::invalid, VersionCid::from_datagram(td::Slice(msg_in.storage)));
+  auto r_vc = VersionCid::from_datagram(td::Slice(msg_in.storage));
+  if (r_vc.is_error()) {
+    return reject(metrics::Reason::invalid, r_vc.move_as_error());
+  }
+  auto vc = r_vc.move_as_ok();
 
   if (auto it = cid_to_primary_cid_.find(vc.dcid); it != cid_to_primary_cid_.end()) {
     auto connection = find_connection(it->second);
@@ -651,12 +663,15 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
     return connection;
   }
 
-  TRY_OR_DROP(initial_packet, metrics::Reason::invalid, VersionCid::from_initial_datagram(td::Slice(msg_in.storage)));
+  auto r_initial_packet = VersionCid::from_initial_datagram(td::Slice(msg_in.storage));
+  if (r_initial_packet.is_error()) {
+    return reject(metrics::Reason::invalid, r_initial_packet.move_as_error());
+  }
+  auto initial_packet = r_initial_packet.move_as_ok();
 
   auto flood_addr = msg_in.address.get_ip_host();
   if (auto status = ensure_flood_allowed(flood_addr); status.is_error()) {
-    record_transport_dropped(metrics::Direction::in, metrics::Reason::limited);
-    return status;
+    return reject(metrics::Reason::limited, std::move(status));
   }
 
   // Answered statelessly (Retry / invalid-token close): already accounted for inside.
@@ -665,24 +680,15 @@ td::Result<std::shared_ptr<QuicServer::ConnectionState>> QuicServer::get_or_crea
     return std::shared_ptr<ConnectionState>{};
   }
 
-  // Create new connection to handle unknown inbound message
-  TRY_OR_DROP(local_address, metrics::Reason::internal, fd_.get_local_address());
-
-  auto conn_options = build_connection_options();
-  auto pimpl_callback = std::make_unique<PImplCallback>(*this, false);
-  auto identities = identities_;
-  TRY_OR_DROP(p_impl, metrics::Reason::internal,
-              QuicConnectionPImpl::create_server(local_address, msg_in.address, std::move(identities), alpn_.as_slice(),
-                                                 *initial_info, std::move(pimpl_callback), conn_options));
-  TRY_OR_DROP(state, metrics::Reason::internal,
-              install_connection(std::move(p_impl), msg_in.address, false, initial_packet.dcid));
+  auto r_state = create_inbound_connection(msg_in, initial_packet, *initial_info);
+  if (r_state.is_error()) {
+    return reject(metrics::Reason::internal, r_state.move_as_error());
+  }
 
   flood_on_inbound_connection_created(flood_addr);
 
-  return state;
+  return r_state.move_as_ok();
 }
-
-#undef TRY_OR_DROP
 
 td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key,
                                                  td::Slice alpn, td::Slice sni) {
