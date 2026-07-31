@@ -404,6 +404,9 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdSh
                                            StreamOptions{get_peer_mtu(src, dst)}, std::move(wire_data), true);
   // The peer answers every message with an empty response (see on_request), which lands in
   // on_stream_complete and closes this entry — that is the only delivery confirmation we get.
+  // The receipt cannot overtake this emplace: send_stream only buffers the data and yields, so the
+  // datagram leaves in a later QuicServer turn, while our resumption was already queued on this
+  // actor when send_stream returned. Both arrive here in FIFO order.
   conn->messages.emplace(stream_id, Connection::PendingMessage{.magic = magic, .timer = timer});
   co_return td::Unit{};
 }
