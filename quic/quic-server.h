@@ -205,6 +205,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
+  td::Result<std::shared_ptr<ConnectionState>> create_inbound_connection(const UdpMessageBuffer &msg_in,
+                                                                         const VersionCid &initial_packet,
+                                                                         const ServerInitialInfo &initial_info);
+  td::Status reject(metrics::Reason reason, td::Status status);
   td::Status ensure_flood_allowed(const std::string &flood_addr);
   void flood_on_inbound_connection_created(const std::string &flood_addr);
   void flood_on_inbound_connection_closed(const std::string &flood_addr);
