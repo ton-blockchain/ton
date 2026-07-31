@@ -52,8 +52,9 @@ therefore see identical output and cost one gather between them. Each request st
 `ton_exporter_collections_total`.
 
 A gather that **fails** — any collector returning an error — answers every waiting scraper with
-HTTP 500. The status is chosen after the gather completes, which is also why the body is built and
-finished before the response is handed to the HTTP layer at all. On that path
+HTTP 500 and an empty body. Either way the response and its payload are built, filled and completed
+before the connection actor is handed them, so the payload is never shared with the HTTP writer
+while it is still mutable and the two actors have nothing to race over. On that path
 `ton_exporter_last_collection_duration_seconds` is not updated, while
 `ton_exporter_last_collection_timestamp_seconds` was already advanced before the gather started: a
 node whose gather fails on every scrape keeps a perfectly fresh timestamp, so only the `up == 0`
@@ -85,7 +86,7 @@ Only the exporter's own server is registered, hence the constant `server="export
 | `ton_http_server_connections_active` | gauge | `server` | Currently open TCP connections. |
 | `ton_http_server_connections_total` | counter | `server` | Accepted TCP connections. |
 | `ton_http_server_requests_total` | counter | `server` | HTTP requests received, any path or method. |
-| `ton_http_server_responses_total` | counter | `server`, `code` | Responses by status code. For this server: `200`, `404`, `405`, and `-1` when the response promise failed. |
+| `ton_http_server_responses_total` | counter | `server`, `code` | Responses by status code. For this server: `200`, `404`, `405`, `500` when the gather behind a `/metrics` scrape failed, and `-1` when the response promise failed. |
 
 ---
 
@@ -197,7 +198,7 @@ port) and folds their stats together.
 | `ton_quic_transport_sids_total` | counter | — | **Peer-initiated** bidi streams accepted. Locally opened streams are not counted. |
 | `ton_quic_transport_sids_current` | gauge | — | Open streams, counting both directions of initiation. |
 | `ton_quic_transport_mean_rtt_seconds` | gauge | — | Connection-weighted mean smoothed RTT over open connections. |
-| `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, protocol violation, a handshake rejected over a key or identity mismatch, plus ngtcp2's own discarded-packet delta. `in,limited`: per-IP flood limiter, or a handshake rejected because the path's MTU is 0. `in,internal`: connection creation failure, failing to build a stateless Retry, a fatal ngtcp2 error while handling ingress (our own OOM or callback failure), or a handshake rejected because the outbound connection it belongs to is no longer known. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. Each reject is counted once: `NGTCP2_ERR_DROP_CONN` is left to ngtcp2's `pkt_discarded`, and failing to *send* a Retry or a stateless close is an egress drop rather than an inbound reject. Rejected handshakes are counted by whoever rejects them — synchronously at the callback (a key that will not parse, always `invalid`), or asynchronously by the actor that deferred its verdict, which supplies the reason — so they are **not** uniformly `invalid`. |
+| `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, protocol violation, a handshake rejected over a key or identity mismatch, plus ngtcp2's own discarded-packet delta. `in,limited`: per-IP flood limiter, or a handshake rejected because the path's MTU is 0. `in,internal`: connection creation failure, failing to build a stateless Retry, a fatal ngtcp2 error while handling ingress (our own OOM or callback failure), or a handshake rejected because the outbound connection it belongs to is no longer known. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. Each reject is counted once: a refused datagram is counted here only if `pkt_discarded` did not move across that very `ngtcp2_conn_read_pkt` call, so a packet ngtcp2 counted itself is left to the `pkt_discarded` fold and no other. Failing to *send* a Retry or a stateless close is an egress drop rather than an inbound reject. Rejected handshakes are counted by whoever rejects them — synchronously at the callback (a key that will not parse, always `invalid`), or asynchronously by the actor that deferred its verdict, which supplies the reason — so they are **not** uniformly `invalid`. |
 
 ### App
 
@@ -484,8 +485,8 @@ Alert on both. The first arm covers a node whose collection stalled while its HT
 serves; it goes silent once the stale series ages out of Prometheus's ~5 min lookback, which is
 exactly when the second arm takes over. It does **not** cover a gather that fails outright: the
 timestamp is written before the gather runs, so a node failing every collection looks perfectly
-fresh — there the aborted response makes the scrape itself fail, and the second arm is the only one
-that fires. Don't fold the second arm into
+fresh — there the HTTP 500 makes the scrape itself fail, and the second arm is the only one that
+fires. Don't fold the second arm into
 `absent(ton_exporter_last_collection_timestamp_seconds)`: `absent()` is evaluated over the whole
 vector and yields nothing while *any* instance still reports, so with more than one target it never
 fires — and Prometheus has no per-instance form of it. `up` is the per-target series Prometheus
@@ -546,7 +547,8 @@ generic three-value `reason` axis, and it is shared with every other inbound dro
 **No internal scrape deadline.** Nothing bounds a gather: a collector that never answers leaves the
 coroutine suspended, waiting scrapers hang on a body that never arrives, and every later scrape joins
 the same stuck flight. Only a scraper's own client timeout ends it. A collector that *fails* is
-handled — the response is aborted, so the scrape fails visibly — but a wedged one is not.
+handled — the waiting scrapers get an HTTP 500, so the scrape fails visibly — but a wedged one is
+not.
 
 **Most of the ADNL wire tier is blind on non-POSIX.** `td::UdpServer` fills its traffic counters only
 under `TD_PORT_POSIX`, so on Windows `ton_adnl_wire_{bytes,packets,dropped}_total` stay zero while the
