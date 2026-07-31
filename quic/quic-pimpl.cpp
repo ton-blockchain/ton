@@ -729,6 +729,19 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice 
   return td::Status::OK();
 }
 
+void QuicConnectionPImpl::account_ingress_reject(TransportStats& transport_stats) {
+  ngtcp2_conn_info info;
+  ngtcp2_conn_get_conn_info(conn(), &info);
+  auto& dropped = transport_stats.dropped.at(metrics::Direction::in, metrics::Reason::invalid);
+  if (info.pkt_discarded > last_pkt_discarded_) {
+    // ngtcp2 counted it (and any earlier discard we had not folded yet).
+    dropped.inc(info.pkt_discarded - last_pkt_discarded_);
+    last_pkt_discarded_ = info.pkt_discarded;
+  } else {
+    dropped.inc();
+  }
+}
+
 QuicConnectionMetrics QuicConnectionPImpl::get_stats(TransportStats& transport_stats) {
   ngtcp2_conn_info info;
   ngtcp2_conn_get_conn_info(conn(), &info);
