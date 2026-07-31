@@ -467,6 +467,11 @@ class Gauge {
     return value_;
   }
 
+  Gauge &operator+=(const Gauge &other) {
+    value_ += other.value_;
+    return *this;
+  }
+
   void collect(Context ctx) const {
     // The unit suffix must be part of the family name: OpenMetrics forbids gauge samples whose
     // name differs from their family's (suffixed samples are a counter-only affordance).

@@ -252,15 +252,16 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   // Stats
   td::uint64 rx_queue_drops_reflected_ = 0;
   TransportStats transport_stats_;
-  ConnectionStatsAggregate closed_conn_stats_;
-  metrics::UdpWireStats udp_wire_ = {
-      .dir = {},
-      .listening_sockets = 1,
-  };
+  QuicConnectionMetricsAggregate closed_conn_stats_;
+  metrics::UdpWireStats udp_wire_ = {.listening_sockets = 1};
 
   void record_transport_dropped(metrics::Direction dir, metrics::Reason reason) {
     transport_stats_.dropped.at(dir, reason).inc();
   }
+
+  // Wire tier, one call per batched syscall: everything the transport paths below owe the counters.
+  void record_egress(td::Span<td::UdpSocketFd::OutboundMessage> batch, const td::UdpSocketFd::SendResult &result);
+  void record_ingress(td::Span<td::UdpSocketFd::InboundMessage> batch);
 
   std::map<adnl::AdnlNodeIdShort, td::uint64> default_mtu_by_local_id_;
   std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::uint64> peers_mtu_;

@@ -12,7 +12,8 @@
 
 namespace ton::quic {
 
-struct ConnectionStats {
+// Per-connection ngtcp2 counters (metrics::ConnectionStats is a different, shared aggregate).
+struct QuicConnectionMetrics {
   metrics::Labeled<metrics::Counter, metrics::Direction> bytes;
   metrics::Labeled<metrics::Counter, metrics::Direction> packets;
   metrics::Labeled<metrics::Counter, metrics::Direction> stream_bytes;
@@ -24,6 +25,21 @@ struct ConnectionStats {
   metrics::Counter sids;
   metrics::Gauge<td::uint64> sids_current;
   metrics::Gauge<std::chrono::duration<double>> mean_rtt;
+
+  QuicConnectionMetrics& operator+=(const QuicConnectionMetrics& other) {
+    bytes += other.bytes;
+    packets += other.packets;
+    stream_bytes += other.stream_bytes;
+    bytes_lost += other.bytes_lost;
+    packets_lost += other.packets_lost;
+    bytes_in_flight += other.bytes_in_flight;
+    bytes_unacked += other.bytes_unacked;
+    bytes_unsent += other.bytes_unsent;
+    sids += other.sids;
+    sids_current += other.sids_current;
+    mean_rtt += other.mean_rtt;  // a sum is meaningless; the aggregate below overwrites it
+    return *this;
+  }
 
   void collect(metrics::Context ctx) const {
     ctx.collect(bytes, "bytes");
@@ -40,12 +56,12 @@ struct ConnectionStats {
   }
 };
 
-struct ConnectionStatsAggregate {
+struct QuicConnectionMetricsAggregate {
   metrics::Counter connections;
   metrics::Gauge<td::uint64> connections_current;
-  ConnectionStats stats;
+  QuicConnectionMetrics stats;
 
-  static ConnectionStatsAggregate from_one(const ConnectionStats& stats) {
+  static QuicConnectionMetricsAggregate from_one(const QuicConnectionMetrics& stats) {
     return {
         .connections = 1,
         .connections_current = 1,
@@ -53,31 +69,25 @@ struct ConnectionStatsAggregate {
     };
   }
 
-  void combine(const ConnectionStatsAggregate& other) {
+  QuicConnectionMetricsAggregate& operator+=(const QuicConnectionMetricsAggregate& other) {
+    // mean_rtt is an average over connections, not a sum: re-weight it by both sides' connection
+    // counts, then write it back over the sum the merge below leaves in place.
     auto our = connections_current.value();
     auto their = other.connections_current.value();
     auto conns = our + their;
-    std::chrono::duration<double> new_mean_rtt{};
+    std::chrono::duration<double> mean_rtt{};
     if (conns > 0) {
-      new_mean_rtt = (our * stats.mean_rtt.value() + their * other.stats.mean_rtt.value()) / conns;
+      mean_rtt = (our * stats.mean_rtt.value() + their * other.stats.mean_rtt.value()) / conns;
     }
 
     connections += other.connections;
-    connections_current.add(other.connections_current.value());
-    stats.bytes += other.stats.bytes;
-    stats.packets += other.stats.packets;
-    stats.stream_bytes += other.stats.stream_bytes;
-    stats.bytes_lost += other.stats.bytes_lost;
-    stats.packets_lost += other.stats.packets_lost;
-    stats.bytes_in_flight.add(other.stats.bytes_in_flight.value());
-    stats.bytes_unacked.add(other.stats.bytes_unacked.value());
-    stats.bytes_unsent.add(other.stats.bytes_unsent.value());
-    stats.sids += other.stats.sids;
-    stats.sids_current.add(other.stats.sids_current.value());
-    stats.mean_rtt.set(new_mean_rtt);
+    connections_current += other.connections_current;
+    stats += other.stats;
+    stats.mean_rtt.set(mean_rtt);
+    return *this;
   }
 
-  ConnectionStatsAggregate& retire() {
+  QuicConnectionMetricsAggregate& retire() {
     connections_current = 0;
     stats.bytes_in_flight = {};
     stats.bytes_unacked = {};
@@ -95,7 +105,7 @@ struct ConnectionStatsAggregate {
 };
 
 struct TransportStats {
-  metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> dropped = {};
+  metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> dropped;
 
   TransportStats& operator+=(const TransportStats& other) {
     dropped += other.dropped;
@@ -109,12 +119,13 @@ struct TransportStats {
 
 struct ServerStats {
   struct Transport {
-    ConnectionStatsAggregate summary;
+    QuicConnectionMetricsAggregate summary;
     TransportStats stats;
 
-    void combine(const Transport& other) {
-      summary.combine(other.summary);
+    Transport& operator+=(const Transport& other) {
+      summary += other.summary;
       stats += other.stats;
+      return *this;
     }
 
     void collect(metrics::Context ctx) const {
@@ -126,9 +137,10 @@ struct ServerStats {
   metrics::UdpWireStats wire;
   Transport transport;
 
-  void combine(const ServerStats& other) {
+  ServerStats& operator+=(const ServerStats& other) {
     wire += other.wire;
-    transport.combine(other.transport);
+    transport += other.transport;
+    return *this;
   }
 
   void collect(metrics::Context ctx) const {

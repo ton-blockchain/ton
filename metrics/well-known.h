@@ -103,7 +103,7 @@ struct UdpWireStats {
 
   UdpWireStats &operator+=(const UdpWireStats &other) {
     dir += other.dir;
-    listening_sockets.add(other.listening_sockets.value());
+    listening_sockets += other.listening_sockets;
     return *this;
   }
 
