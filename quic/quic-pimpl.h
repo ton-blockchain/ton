@@ -218,10 +218,9 @@ struct QuicConnectionPImpl {
   }
 
   QuicConnectionMetrics get_stats(TransportStats& transport_stats);
-  // Records the packet the last handle_ingress() refused. Some ngtcp2 reject paths count the packet
-  // in pkt_discarded and some do not, so the connection remembers which happened for that very call
-  // rather than the caller guessing from the error code: each rejected packet is counted exactly
-  // once, either here or by the pkt_discarded fold in get_stats().
+  // Records the reject from the last handle_ingress() call unless ngtcp2 reported a discard during
+  // that call. ngtcp2 exposes only aggregate per-call counters, so a rare buffered-packet
+  // interleaving can merge the reject with an unrelated discard; see metrics/METRICS.md.
   void account_ingress_reject(TransportStats& transport_stats);
 
  private:
