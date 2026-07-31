@@ -74,25 +74,30 @@ td::actor::Task<> PrometheusExporter::collect_and_respond() {
 
   // Taken only now, so a scrape that arrived mid-gather is served by this flight instead of starting
   // its own; emptying the queue is what releases the flight, hence nothing may suspend below.
-  std::vector<PayloadPtr> waiting;
+  std::vector<http::ResponsePromise> waiting;
   waiting.swap(waiting_);
 
   if (r_set.is_error()) {
     LOG(ERROR) << "failed to collect metrics: " << r_set.error();
-    for (auto &payload : waiting) {
-      // Aborts the chunked response mid-flight, so a scraper sees a failed transfer instead of
-      // hanging on a body that will never come.
-      payload->set_error();
-      payload->complete_parse();
+    for (auto &promise : waiting) {
+      http::answer_error(http::status_internal_server_error, "", std::move(promise));
     }
     co_return {};
   }
 
   auto body = metrics::Exposition{.main_set = r_set.move_as_ok()}.render();
   stats_.last_collection_duration.set(td::UTCClock::now() - started_at);
-  for (auto &payload : waiting) {
+  for (auto &promise : waiting) {
+    // Built, filled and completed before the connection actor is handed it: the payload is never
+    // shared while still mutable, so there is nothing for the two actors to race over.
+    auto response = http::HttpResponse::create("HTTP/1.1", 200, "OK", false, false).move_as_ok();
+    response->add_header({"Transfer-Encoding", "Chunked"});
+    response->add_header({"Content-Type", "application/openmetrics-text; version=1.0.0; charset=utf-8"});
+    response->complete_parse_header();
+    auto payload = response->create_empty_payload().move_as_ok();
     payload->add_chunk(td::BufferSlice{body});
     payload->complete_parse();
+    promise.set_value(std::pair{std::move(response), std::move(payload)});
   }
   co_return {};
 }
@@ -107,17 +112,9 @@ void PrometheusExporter::on_request(RequestPtr request, PayloadPtr payload, http
     return;
   }
 
-  auto response = http::HttpResponse::create("HTTP/1.1", 200, "OK", false, false).move_as_ok();
-  response->add_header({"Transfer-Encoding", "Chunked"});
-  response->add_header({"Content-Type", "application/openmetrics-text; version=1.0.0; charset=utf-8"});
-  response->complete_parse_header();
-
-  auto payload_out = response->create_empty_payload().move_as_ok();
-  promise.set_value(std::pair{std::move(response), payload_out});
-
   stats_.collections.inc();
   bool idle = waiting_.empty();
-  waiting_.push_back(std::move(payload_out));
+  waiting_.push_back(std::move(promise));
   if (idle) {
     collect_and_respond().start().detach("prometheus collect");
   }

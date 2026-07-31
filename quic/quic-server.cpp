@@ -765,13 +765,14 @@ void QuicServer::drain_ingress() {
     auto status =
         fd_.receive_messages(td::MutableSpan<td::UdpSocketFd::InboundMessage>(ingress_messages_.data(), kIngressBatch),
                              cnt, ingress_data_buffers);
+    // Counted before the early exit: a call that returns nothing still entered the kernel.
+    record_ingress({ingress_messages_.data(), cnt});
     if (cnt == 0) {
       if (status.is_error()) {
         LOG(ERROR) << "failed to drain incoming traffic: " << status;
       }
       break;
     }
-    record_ingress({ingress_messages_.data(), cnt});
 
     // Debug: log recvmmsg batch details periodically
     static std::atomic<size_t> ingress_log_counter = 0;
