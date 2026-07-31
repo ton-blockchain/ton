@@ -51,8 +51,9 @@ start a second one — it waits and is served the same rendered body. Concurrent
 therefore see identical output and cost one gather between them. Each request still counts in
 `ton_exporter_collections_total`.
 
-A gather that **fails** — any collector returning an error — aborts the chunked response of every
-waiting scraper mid-flight, so they see a failed transfer rather than a body. On that path
+A gather that **fails** — any collector returning an error — answers every waiting scraper with
+HTTP 500. The status is chosen after the gather completes, which is also why the body is built and
+finished before the response is handed to the HTTP layer at all. On that path
 `ton_exporter_last_collection_duration_seconds` is not updated, while
 `ton_exporter_last_collection_timestamp_seconds` was already advanced before the gather started: a
 node whose gather fails on every scrape keeps a perfectly fresh timestamp, so only the `up == 0`
@@ -551,11 +552,6 @@ handled — the response is aborted, so the scrape fails visibly — but a wedge
 under `TD_PORT_POSIX`, so on Windows `ton_adnl_wire_{bytes,packets,dropped}_total` stay zero while the
 node carries traffic. The syscall and listening-socket counters still report. The transport and app
 tiers are unaffected.
-
-**QUIC `in,invalid` can undercount rejected handshakes.** A non-fatal `NGTCP2_ERR_DROP_CONN` is left
-to ngtcp2's own `pkt_discarded` accounting, but a few ngtcp2 paths return that code without bumping
-the counter, so those datagrams go uncounted. Comparing `pkt_discarded` before and after the call
-would close it.
 
 **Egress `is_sent` means "queued" on non-POSIX.** The Windows path hands the datagram to an
 overlapped `WSASendMsg` and reports it as sent immediately, so `ton_quic_wire_{bytes,packets}_total`
