@@ -522,8 +522,13 @@ and 18 of the 56 block-stats series — `block_broadcast_public`, `block_broadca
 **The `tl` label sees through routing envelopes, with two deliberate limits.** The bucket unwraps
 `overlay.query`/`overlay.message` (and their `WithExtra` variants), `tonNode.query`,
 `overlay.unicast`, `overlay.broadcast`, `overlay.broadcastPlumtreeSimple` and
-`overlay.broadcastTwostepSimple` before resolving — up to 4 nesting levels — and consults both
-`Object::nameof` and `Function::nameof`. A malformed or truncated envelope falls back to the
+`overlay.broadcastTwostepSimple` before resolving — up to 4 nesting levels — and consults
+`Object::nameof` and `Function::nameof` in **both** the `ton_api` and `lite_api` schemas.
+Liteserver queries are peeled the same way `lite-client`'s `get_query_info()` does it —
+`liteServer.query`'s `data` field, a bare `liteServer.queryPrefix`, and the
+`liteServer.waitMasterchainSeqno` prefix — so a lite query is labelled by its method
+(`liteServer.getAccountState`) rather than by its envelope. Without the `lite_api` half every
+liteserver query lands in `unknown`, which on a public node is most of the query load. A malformed or truncated envelope falls back to the
 envelope's own label — never to `unknown`, and never to whatever bytes happen to follow the field
 it failed to walk. The limits: `dht.query` is kept as a coarse label (its `dht.node` header is not
 walked), and `overlay.broadcastFec`/`overlay.broadcastFecShort` parts stay labeled as FEC parts —
