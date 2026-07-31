@@ -317,8 +317,8 @@ void QuicServer::send_stateless_datagram(td::Slice packet_kind, const td::IPAddr
   td::UdpSocketFd::OutboundMessage message{.to = &remote_address, .data = data, .gso_size = 0};
   bool is_sent = false;
   auto status = fd_.send_message(message, is_sent);
+  reflect_socket_syscalls();
   auto &egress = udp_wire_.dir.at(metrics::Direction::out);
-  egress.syscalls.inc();  // one datagram, hence one syscall on every path
   if (is_sent) {
     egress.data.record(data.size());
   } else {
@@ -438,6 +438,7 @@ void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
 }
 
 td::actor::Task<ServerStats> QuicServer::collect() {
+  reflect_socket_syscalls();
   // Only the socket knows how many datagrams the receive queue lost; fold in what accrued since the
   // last scrape.
   auto rx_drops = fd_.get_rx_queue_drops();
@@ -515,6 +516,7 @@ void QuicServer::erase_pending_connections() {
 }
 
 void QuicServer::log_stats(std::string reason) {
+  reflect_socket_syscalls();
   const auto &ingress = udp_wire_.dir.at(metrics::Direction::in);
   const auto &egress = udp_wire_.dir.at(metrics::Direction::out);
   LOG(INFO) << "quic stats (" << reason << "): udp ingress{syscalls=" << ingress.syscalls.value()
@@ -714,12 +716,16 @@ static td::uint64 datagram_count(const auto &message) {
   return gso_size > 0 && size > gso_size ? (size + gso_size - 1) / gso_size : 1;
 }
 
+void QuicServer::reflect_socket_syscalls() {
+  auto stats = fd_.get_syscall_stats();
+  udp_wire_.dir.at(metrics::Direction::in).syscalls = metrics::Counter{stats.receive};
+  udp_wire_.dir.at(metrics::Direction::out).syscalls = metrics::Counter{stats.send};
+}
+
 void QuicServer::record_egress(td::Span<td::UdpSocketFd::OutboundMessage> batch,
                                const td::UdpSocketFd::SendResult &result) {
+  reflect_socket_syscalls();
   auto &egress = udp_wire_.dir.at(metrics::Direction::out);
-  // One batched send call; exact while sendmmsg is active, an undercount on the fallback path that
-  // enters the kernel once per descriptor (see UdpDirCounters::syscalls).
-  egress.syscalls.inc();
   for (const auto &message : batch.substr(0, result.sent)) {
     egress.data.bytes.inc(message.data.size());
     egress.data.packets.inc(datagram_count(message));
@@ -731,10 +737,8 @@ void QuicServer::record_egress(td::Span<td::UdpSocketFd::OutboundMessage> batch,
 }
 
 void QuicServer::record_ingress(td::Span<td::UdpSocketFd::InboundMessage> batch) {
+  reflect_socket_syscalls();
   auto &ingress = udp_wire_.dir.at(metrics::Direction::in);
-  // One batched receive call; exact while recvmmsg is active, an undercount on the fallback path
-  // that enters the kernel once per datagram (see UdpDirCounters::syscalls).
-  ingress.syscalls.inc();
   for (const auto &message : batch) {
     if (message.error->is_error()) {
       // Malformed datagram off the socket (e.g. truncated): a wire-level reject.

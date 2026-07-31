@@ -99,7 +99,7 @@ app and query tiers.
 |---|---|---|---|
 | `ton_adnl_wire_bytes_total` | counter | `direction=in\|out` | UDP payload bytes the socket actually carried, folded in as deltas during the scrape. Outbound counts only datagrams the kernel accepted — one it refuses is a drop, not wire traffic. |
 | `ton_adnl_wire_packets_total` | counter | `direction` | Datagrams the socket actually carried, same source and semantics. |
-| `ton_adnl_wire_syscalls_total` | counter | `direction` | Batched send/receive calls at the socket — equal to syscalls where `sendmmsg`/`recvmmsg` are active, an undercount on the non-mmsg fallback, which enters the kernel once per datagram. Read from `td::UdpServer`'s counters and folded in as deltas during the scrape. |
+| `ton_adnl_wire_syscalls_total` | counter | `direction` | Actual UDP send/receive OS calls. An mmsg batch is one call; the fallback counts every per-datagram call. Unsuccessful calls and each user-space retry after `EINTR` count too. Read from `td::UdpServer`'s socket counters and folded in as deltas during the scrape. |
 | `ton_adnl_wire_dropped_total` | counter | `direction`, `reason` | `in,limited`: kernel receive-queue overflow (`SO_RXQ_OVFL`, folded in as a delta during the scrape) — these datagrams never reached `wire_packets`. `in,invalid`: packet under 32 bytes. `in,internal`: no callback installed, socket read error, or no `InDesc` for the port. `out,internal`: unknown source id, no matching out rule, or a datagram the kernel refused outright (`EMSGSIZE`/`EACCES`/`EPERM`, folded in as a delta during the scrape). `out,invalid` and `out,limited` are never incremented. |
 | `ton_adnl_wire_listening_sockets` | gauge | — | Bound UDP sockets. |
 
@@ -175,7 +175,7 @@ port) and folds their stats together.
 |---|---|---|---|
 | `ton_quic_wire_bytes_total` | counter | `direction` | UDP payload bytes. Inbound counts each recvmmsg message, i.e. the whole GRO super-buffer. |
 | `ton_quic_wire_packets_total` | counter | `direction` | Datagrams after GRO/GSO segmentation, so bytes-per-packet is only meaningful in aggregate. |
-| `ton_quic_wire_syscalls_total` | counter | `direction` | Batched send/receive calls: receive calls that returned at least one message, every batched send call, and every single-datagram stateless send. Equal to syscalls where `sendmmsg`/`recvmmsg` are active, an undercount on the non-mmsg fallback, which enters the kernel once per datagram. |
+| `ton_quic_wire_syscalls_total` | counter | `direction` | Actual UDP send/receive OS calls. An mmsg batch is one call; the fallback counts every per-datagram call. Empty or failed calls and each user-space retry after `EINTR` count too. |
 | `ton_quic_wire_dropped_total` | counter | `direction`, `reason` | `in,limited`: kernel receive-queue overflow (read as a delta from `SO_RXQ_OVFL` **during the scrape**) — never counted in `wire_packets`. `in,invalid`: per-message socket errors (truncated or otherwise malformed datagrams). `out,limited`: a stateless datagram the socket's send queue refused; stateless packets are not retried. `out,internal`: a datagram the kernel refused outright (`EMSGSIZE`/`EACCES`/`EPERM`), or a stateless send that failed with an error. Blocked connection egress *is* retried and is not counted here. `in,internal` and `out,invalid` are never incremented. |
 | `ton_quic_wire_listening_sockets` | gauge | — | Distinct bound UDP ports. |
 
@@ -547,9 +547,9 @@ coroutine suspended, waiting scrapers hang on a body that never arrives, and eve
 the same stuck flight. Only a scraper's own client timeout ends it. A collector that *fails* is
 handled — the response is aborted, so the scrape fails visibly — but a wedged one is not.
 
-**The ADNL wire tier is blind on non-POSIX.** `td::UdpServer` fills its counters only under
-`TD_PORT_POSIX`, so on Windows `ton_adnl_wire_{bytes,packets,syscalls,dropped}_total` all stay zero
-while the node carries traffic; only `ton_adnl_wire_listening_sockets` reports. The transport and app
+**Most of the ADNL wire tier is blind on non-POSIX.** `td::UdpServer` fills its traffic counters only
+under `TD_PORT_POSIX`, so on Windows `ton_adnl_wire_{bytes,packets,dropped}_total` stay zero while the
+node carries traffic. The syscall and listening-socket counters still report. The transport and app
 tiers are unaffected.
 
 **QUIC `in,invalid` can undercount rejected handshakes.** A non-fatal `NGTCP2_ERR_DROP_CONN` is left
