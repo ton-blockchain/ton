@@ -294,7 +294,10 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   settings.cc_algo = CC_ALGO_MAP[cc_alg_id];
   apply_platform_pmtu_policy(settings);
 
+  settings.ack_thresh = options.ack_thresh;
+
   ngtcp2_transport_params_default(&params);
+  params.max_ack_delay = options.max_ack_delay;
   params.max_idle_timeout = options.idle_timeout;
   params.initial_max_streams_bidi = options.max_streams_bidi;
   params.initial_max_stream_data_bidi_remote = options.initial_max_stream_data_bidi_remote;
