@@ -357,16 +357,30 @@ aggregating across nodes sum the bucket rates *before* `histogram_quantile` — 
 p95s is not a p95. Quantiles are interpolated within our fixed bucket bounds (1 ms … 30 s,
 log-scale), so read "p95 = 8.3ms" as "p95 is in the 5–10 ms bucket".
 
-**What am I receiving, by type?** Queries, across all three transports at once:
+**What am I receiving, by type?** Query one transport at a time:
 
 ```promql
-topk(10, sum by (tl) (
-  rate({__name__=~"ton_(adnl|quic|rldp2)_app_messages_total",kind="query",direction="in"}[5m])))
+topk(10, sum by (tl) (rate(ton_quic_app_messages_total{kind="query",direction="in"}[5m])))
 ```
 
 Swap `messages`→`bytes` for traffic share; to fold in response volume (answers usually dominate
-bytes) widen the matcher to `kind=~"query|answer"` — `kind` is an equality matcher, so a second
-`kind="answer"` would match nothing rather than add a case.
+bytes) widen to `kind=~"query|answer"` — `kind` is an equality matcher, so a second `kind="answer"`
+would match nothing rather than add a case.
+
+**Do not reach for `{__name__=~"ton_(adnl|quic|rldp2)_app_bytes_total"}` to do all three at once.**
+`rate()` drops `__name__`, and the app tier carries the *same* label set on every transport, so the
+three series collapse into one another and Prometheus fails the whole query with `vector cannot
+contain metrics with the same labelset`. Nothing after `rate()` can repair it — `label_replace`
+runs too late. If you want a cross-transport total, synthesize the distinguishing label in a
+recording rule, where each `rate()` is evaluated separately:
+
+```yaml
+- record: ton:app_bytes:rate5m
+  expr: sum by (transport, kind, direction, tl) (
+          label_replace(rate(ton_quic_app_bytes_total[5m]),  "transport", "quic",  "", "")
+       or label_replace(rate(ton_adnl_app_bytes_total[5m]),  "transport", "adnl",  "", "")
+       or label_replace(rate(ton_rldp2_app_bytes_total[5m]), "transport", "rldp2", "", ""))
+```
 
 **What content am I gossiping?** Broadcast content, post-FEC-reassembly:
 
@@ -388,13 +402,14 @@ datagrams (`tl="rldp2.messagePart"`), so don't sum adnl and rldp2 app tiers toge
 **FEC tax**: transport-tier FEC part bytes versus reassembled content bytes:
 
 ```promql
-  sum(rate({__name__=~"ton_(adnl|quic)_app_bytes_total",direction="in",
+  sum(rate(ton_quic_app_bytes_total{direction="in",
             tl=~"overlay.broadcast(Fec|FecShort|PlumtreeFec|TwostepFec)"}[5m]))
 / sum(rate(ton_overlay_broadcast_bytes_total{direction="in"}[5m]))
 ```
 
-Both sides must be inbound-only: the denominator is, so a numerator without `direction="in"` mixes
-in what we forwarded and inflates the tax. The `tl` alternation lists every FEC-part constructor the
+One transport per query, for the labelset reason above; add ADNL's share via the recording rule if
+broadcasts also arrive over ADNL. Both sides must be inbound-only: the denominator is, so a
+numerator without `direction="in"` mixes in what we forwarded and inflates the tax. The `tl` alternation lists every FEC-part constructor the
 schema has — miss one and its bytes silently vanish from the numerator.
 
 This is not an exact ratio: the denominator is *all* delivered broadcast content, including
