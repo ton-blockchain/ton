@@ -31,8 +31,8 @@ each nesting level appends a segment joined with `_`:
   emitted on every scrape**, including zero-valued ones, so all such label combinations below are
   always present in the exposition (which is why the permanently-zero series in Known gaps still
   show up).
-  The two **open** label axes behave differently and emit only values actually observed: `code` on
-  the HTTP responses family, and `tl` on the traffic and latency buckets. The `tl` buckets always
+  The three **open** label axes behave differently and emit only values actually observed: `code` on
+  the HTTP responses family, `tl` on the traffic and latency buckets, and `op` on the perf families. The `tl` buckets always
   emit their `tl="unknown"` cell, populated or not, and a latency bucket always emits both of its
   families even when nothing was ever observed.
 
@@ -72,7 +72,7 @@ process-wide aggregate during the scrape — see the notes in those sections.
 | `ton_exporter_collections_total` | counter | — | Scrapes accepted, including ones coalesced into a gather already in flight. |
 | `ton_exporter_last_collection_duration_seconds` | gauge | — | Duration of the **previous** scrape (it is set after the current one is already serialized). |
 | `ton_exporter_last_collection_timestamp_seconds` | gauge | — | Unix time at which the current scrape started. |
-| `ton_perf_ops_total` | counter | `op` | Executions of a `TD_PERF_COUNTER` site, mirrored from the process-global registry as deltas. `op` is the site name (`Ed25519_sign`, `Ed25519_verify_signature`, `cell_load`, `cell_store`, `raptor_solve`, …) — a closed set fixed by the macros compiled into the binary. |
+| `ton_perf_ops_total` | counter | `op` | Executions of a `TD_PERF_COUNTER` site, read straight from the process-global registry on each scrape (its totals are already cumulative, so nothing is mirrored). `op` is the site name (`Ed25519_sign`, `Ed25519_verify_signature`, `cell_load`, `cell_store`, `raptor_solve`, …); a site registers on first execution, so one that has never run emits no series. |
 | `ton_perf_op_ticks_total` | counter | `op` | CPU ticks (`rdtsc`) spent in those executions. Absolute values are machine-specific, but `rate(ton_perf_op_ticks_total) / rate(ton_perf_ops_total)` is a usable average cost per operation, and its trend catches regressions. |
 
 ## HTTP server
@@ -103,8 +103,9 @@ app and query tiers.
 | `ton_adnl_wire_dropped_total` | counter | `direction`, `reason` | `in,limited`: kernel receive-queue overflow (`SO_RXQ_OVFL`, folded in as a delta during the scrape) — these datagrams never reached `wire_packets`. `in,invalid`: packet under 32 bytes. `in,internal`: no callback installed, socket read error, or no `InDesc` for the port. `out,internal`: unknown source id, no matching out rule, or a datagram the kernel refused outright (`EMSGSIZE`/`EACCES`/`EPERM`, folded in as a delta during the scrape). `out,invalid` and `out,limited` are never incremented. |
 | `ton_adnl_wire_listening_sockets` | gauge | — | Bound UDP sockets. |
 
-Two of the `in,internal` sites (no callback installed, socket read error) fire *before* the datagram
-is counted in `wire_bytes`/`wire_packets`; the rest fire after.
+Every ADNL-side inbound drop now fires *after* the socket has already counted the datagram, with one
+exception: the socket-read-error site is fed a synthetic message that was never counted in
+`wire_bytes`/`wire_packets` at all, so subtracting `in,internal` still over-corrects by that amount.
 
 ### Transport
 
@@ -113,7 +114,7 @@ is counted in `wire_bytes`/`wire_packets`; the rest fire after.
 | `ton_adnl_transport_inbound_packets_total` | counter | — | Packets entering the peer table, counted before any routing decision. |
 | `ton_adnl_transport_decrypt_packets_total` | counter | — | Packets decrypted **by a local id** and parsed. Channel-decrypted packets bypass this — see Known gaps. |
 | `ton_adnl_transport_decrypt_bytes_total` | counter | — | On-wire size of those same packets **minus the 32-byte destination id** that prefixes them. |
-| `ton_adnl_transport_dropped_total` | counter | `direction`, `reason=invalid\|limited\|internal` | Peer-table and peer-pair drops. `in,invalid` dominates: short packets, category mismatch, unknown destination, reinit-date and seqno checks (including duplicate/replayed seqnos), bad signature, huge-message reassembly failures. `in,internal`: an unknown peer while the network manager is uninitialized, an unknown destination for a packet we nevertheless decrypted, or an uninitialized peer-pair id. `out,limited` is queue expiry, the 10 MiB queue cap, and `direct_only` messages discarded when no direct route exists. `out,invalid`: unknown source id on send. `out,internal`: the channel was destroyed mid-send, an empty encryptor, or encryption failed. `in,limited` is never incremented. |
+| `ton_adnl_transport_dropped_total` | counter | `direction`, `reason=invalid\|limited\|internal` | Peer-table and peer-pair drops. `in,invalid` dominates: short packets, category mismatch, unknown destination, reinit-date and seqno checks (including duplicate/replayed seqnos), bad signature, huge-message reassembly failures. `in,internal`: an unknown peer while the network manager is uninitialized, an unknown destination for a packet we nevertheless decrypted, or an uninitialized peer-pair id. `out,limited` is queue expiry, the 10 MiB queue cap, and `direct_only` messages discarded when no direct route exists. `out,invalid`: unknown source id on send. `out,internal`: building the packet failed, the channel was destroyed mid-send, an empty encryptor, or encryption failed. `in,limited` is never incremented. |
 | `ton_adnl_transport_local_ids` | gauge | — | Local ADNL ids. |
 | `ton_adnl_transport_peers` | gauge | — | Distinct remote nodes. |
 | `ton_adnl_transport_peer_pairs` | gauge | — | `(local_id, peer_id)` pairs. |
@@ -336,9 +337,9 @@ ton_adnl_wire_packets_total{direction="in"}
 ```
 
 Subtract only `invalid` and `internal`: `reason="limited"` at the wire tier is kernel receive-queue
-overflow, and those datagrams never reached `wire_packets` to begin with. Both tiers now read
-`wire_bytes`/`wire_packets` from the socket itself, so a datagram the kernel refused on send is
-counted once, as a drop, and never as transmitted traffic.
+overflow, and those datagrams never reached `wire_packets` to begin with. The ADNL wire tier reads `wire_bytes`/`wire_packets` from the socket
+itself, so a datagram the kernel refused on send is counted once, as a drop, and never as
+transmitted traffic. (QUIC computes its wire counts from its own send/receive batches instead.)
 
 The `≈` are real. Tiers are sampled at different instants within one scrape, counts are taken at
 different points in a packet's life, and several drop paths are unmetered.
@@ -545,6 +546,16 @@ generic three-value `reason` axis, and it is shared with every other inbound dro
 coroutine suspended, waiting scrapers hang on a body that never arrives, and every later scrape joins
 the same stuck flight. Only a scraper's own client timeout ends it. A collector that *fails* is
 handled — the response is aborted, so the scrape fails visibly — but a wedged one is not.
+
+**The ADNL wire tier is blind on non-POSIX.** `td::UdpServer` fills its counters only under
+`TD_PORT_POSIX`, so on Windows `ton_adnl_wire_{bytes,packets,syscalls,dropped}_total` all stay zero
+while the node carries traffic; only `ton_adnl_wire_listening_sockets` reports. The transport and app
+tiers are unaffected.
+
+**QUIC `in,invalid` can undercount rejected handshakes.** A non-fatal `NGTCP2_ERR_DROP_CONN` is left
+to ngtcp2's own `pkt_discarded` accounting, but a few ngtcp2 paths return that code without bumping
+the counter, so those datagrams go uncounted. Comparing `pkt_discarded` before and after the call
+would close it.
 
 **Egress `is_sent` means "queued" on non-POSIX.** The Windows path hands the datagram to an
 overlapped `WSASendMsg` and reports it as sent immediately, so `ton_quic_wire_{bytes,packets}_total`

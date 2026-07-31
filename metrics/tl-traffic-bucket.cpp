@@ -84,7 +84,10 @@ class Cursor {
     if (with_content) {
       return skip((header + static_cast<size_t>(len) + 3) / 4 * 4);
     }
-    if (len < sizeof(td::int32) || header + static_cast<size_t>(len) > data_.size() || !skip(header)) {
+    // The declared content must be present in full, padded to the 4-byte boundary a well-formed
+    // field always carries, and wide enough to hold the magic the caller is about to read.
+    auto padded = (header + static_cast<size_t>(len) + 3) / 4 * 4;
+    if (len < sizeof(td::int32) || padded > data_.size() || !skip(header)) {
       return false;
     }
     // Confine the cursor to the content: the fields that follow it are the peer's to choose too, and
