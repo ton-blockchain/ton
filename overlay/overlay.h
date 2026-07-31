@@ -88,6 +88,9 @@ class Overlay : public td::actor::Actor {
   //virtual void receive_broadcast(td::BufferSlice data) = 0;
   //virtual void subscribe(std::unique_ptr<Overlays::Callback> callback) = 0;
   virtual void forget_peer(adnl::AdnlNodeIdShort peer_id) = 0;
+
+  // Drain locally accumulated broadcast-content counts into the manager, fulfilling `done` afterwards.
+  virtual void collect_metrics(td::Promise<td::Unit> done) = 0;
 };
 
 }  // namespace overlay

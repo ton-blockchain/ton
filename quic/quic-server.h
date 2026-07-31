@@ -13,6 +13,7 @@
 #include "adnl/adnl-node-id.hpp"
 #include "adnl/utils.hpp"
 #include "crypto/common/refcnt.hpp"
+#include "metrics/well-known.h"
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
 #include "td/utils/Heap.h"
@@ -21,6 +22,7 @@
 #include "td/utils/port/UdpSocketFd.h"
 
 #include "Ed25519.h"
+#include "metrics.h"
 #include "quic-common.h"
 #include "quic-connection-rate-limiters.h"
 
@@ -37,7 +39,7 @@ struct StreamOptions {
   td::Timestamp timeout = td::Timestamp::never();
   double timeout_seconds = 0.0;
   td::uint64 query_size = 0;
-  td::uint32 query_magic = 0;
+  td::int32 query_magic = 0;  // 0 on inbound streams: no query of ours to describe
 };
 
 struct StreamShutdownList {
@@ -57,6 +59,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
     std::optional<size_t> max_streams_bidi = std::nullopt;
+    std::optional<size_t> ack_thresh = std::nullopt;
+    std::optional<double> max_ack_delay_seconds = std::nullopt;
     td::uint32 new_connection_rate_limit_capacity = 10;
     double new_connection_rate_limit_period = 0.2;
     td::uint32 global_new_connection_rate_limit_capacity = 100000;
@@ -95,6 +99,26 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void on_connection_closed(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
+  // A handshake's direction is who dialled: `out` is us, `in` is the peer.
+  static metrics::Direction direction_of(bool is_outbound) {
+    return is_outbound ? metrics::Direction::out : metrics::Direction::in;
+  }
+
+  // Counts a handshake the application rejected after Callback::on_connected already returned OK,
+  // i.e. from another actor, under the reason that actor decided on. Callers that reject
+  // synchronously are counted at the callback site, which calls this too.
+  void record_handshake_reject(metrics::Reason reason, bool is_outbound) {
+    record_transport_dropped(metrics::Direction::in, reason);
+    transport_stats_.handshakes.at(direction_of(is_outbound), HandshakeResult::rejected).inc();
+  }
+
+  // Counts a handshake the application accepted: the connection is ready to carry traffic. Disjoint
+  // from record_handshake_reject() — an accepting application never reports a rejection, and a
+  // rejected connection is torn down instead of becoming ready.
+  void record_handshake_completed(bool is_outbound) {
+    transport_stats_.handshakes.at(direction_of(is_outbound), HandshakeResult::completed).inc();
+  }
+
   // MTU state is keyed by local_id and (local_id, peer_id). Peer-specific MTU overrides the
   // per-local default. Setting an MTU to 0 erases the corresponding entry.
   void set_default_mtu(adnl::AdnlNodeIdShort local_id, td::uint64 mtu);
@@ -116,27 +140,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
                                                             td::uint64 default_mtu, ServerIdentity identity,
                                                             td::Slice alpn, td::Slice bind_host, Options options);
 
-  struct Stats {
-    struct Entry {
-      size_t total_conns = 1;
-      QuicConnectionStats impl_stats = {};
-
-      Entry operator+(const Entry &other) const {
-        Entry res = {.total_conns = total_conns + other.total_conns, .impl_stats = impl_stats + other.impl_stats};
-        auto tc = total_conns + other.total_conns;
-        if (tc > 0)
-          res.impl_stats.mean_rtt = (static_cast<double>(total_conns) * impl_stats.mean_rtt +
-                                     static_cast<double>(other.total_conns) * other.impl_stats.mean_rtt) /
-                                    static_cast<double>(tc);
-        return res;
-      }
-    };
-
-    Entry summary = {.total_conns = 0};
-    std::unordered_map<QuicConnectionId, Entry> per_conn = {};
-  };
-
-  void collect_stats(td::Promise<Stats> P);
+  td::actor::Task<ServerStats> collect();
 
  protected:
   void start_up() override;
@@ -149,6 +153,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void loop() override;
 
   void notify() override;
+  // Requests one loop() pass after the current mailbox drain, without cutting the drain short.
+  void schedule_wakeup();
 
  private:
   friend QuicConnectionPImpl;
@@ -195,12 +201,17 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
                                                                   std::optional<QuicConnectionId> bootstrap_routed_cid);
   void on_local_cid_issued(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
   void on_local_cid_retired(const QuicConnectionId &primary_cid, const QuicConnectionId &cid);
-  td::Result<std::optional<ServerInitialInfo>> prepare_server_initial_info(const VersionCid &initial_packet,
-                                                                           const td::IPAddress &remote_address);
+  // Empty when the datagram was answered statelessly (Retry, invalid-token close) instead of becoming
+  // a connection; those answers account for themselves, so this cannot fail.
+  std::optional<ServerInitialInfo> prepare_server_initial_info(const VersionCid &initial_packet,
+                                                               const td::IPAddress &remote_address);
   td::Result<QuicConnectionId> verify_retry_token(const VersionCid &packet, const td::IPAddress &remote_address) const;
-  td::Status send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address, td::Slice data);
-  td::Status send_retry(const VersionCid &packet, const td::IPAddress &remote_address);
-  td::Status send_invalid_token_connection_close(const VersionCid &packet, const td::IPAddress &remote_address);
+  // Counts and logs its own send failures: a stateless answer we fail to put on the wire is an egress
+  // drop, never an invalid inbound datagram.
+  void send_stateless_datagram(td::Slice packet_kind, const td::IPAddress &remote_address, td::Slice data);
+  // Both answer best effort and account for whatever they could not build, so neither can fail out.
+  void send_retry(const VersionCid &packet, const td::IPAddress &remote_address);
+  void send_invalid_token_connection_close(const VersionCid &packet, const td::IPAddress &remote_address);
 
   void update_alarm();
   void drain_ingress();
@@ -211,6 +222,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
+  td::Result<std::shared_ptr<ConnectionState>> create_inbound_connection(const UdpMessageBuffer &msg_in,
+                                                                         const VersionCid &initial_packet,
+                                                                         const ServerInitialInfo &initial_info);
+  td::Status reject(metrics::Reason reason, td::Status status);
   td::Status ensure_flood_allowed(const std::string &flood_addr);
   void flood_on_inbound_connection_created(const std::string &flood_addr);
   void flood_on_inbound_connection_closed(const std::string &flood_addr);
@@ -255,14 +270,20 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   size_t pending_batch_count_ = 0;
   size_t pending_batch_sent_ = 0;
 
-  // UDP-level stats
-  struct UdpStats {
-    td::uint64 syscalls = 0;
-    td::uint64 packets = 0;
-    td::uint64 bytes = 0;
-  };
-  UdpStats ingress_stats_;
-  UdpStats egress_stats_;
+  // Stats
+  td::uint64 rx_queue_drops_reflected_ = 0;
+  TransportStats transport_stats_;
+  QuicConnectionMetricsAggregate closed_conn_stats_;
+  metrics::UdpWireStats udp_wire_ = {.dir = {}, .listening_sockets = 1};
+
+  void record_transport_dropped(metrics::Direction dir, metrics::Reason reason) {
+    transport_stats_.dropped.at(dir, reason).inc();
+  }
+
+  // Wire tier: packet/byte/drop accounting plus exact syscall totals read from the socket.
+  void reflect_socket_syscalls();
+  void record_egress(td::Span<td::UdpSocketFd::OutboundMessage> batch, const td::UdpSocketFd::SendResult &result);
+  void record_ingress(td::Span<td::UdpSocketFd::InboundMessage> batch);
 
   std::map<adnl::AdnlNodeIdShort, td::uint64> default_mtu_by_local_id_;
   std::map<std::pair<adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort>, td::uint64> peers_mtu_;

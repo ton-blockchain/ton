@@ -36,6 +36,42 @@ namespace ton {
 
 namespace adnl {
 
+// adnl transport tier: packet routing + decryption, plus the shared app traffic tier.
+struct AdnlPeerTableMetrics {
+  struct Transport {
+    metrics::Counter inbound_packets;
+    metrics::Counter decrypt_packets;
+    metrics::Counter decrypt_bytes;
+    metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> dropped;
+    metrics::Gauge<td::uint64> local_ids;
+    metrics::Gauge<td::uint64> peers;
+    metrics::Gauge<td::uint64> peer_pairs;
+    metrics::Gauge<td::uint64> channels;
+    metrics::Gauge<td::uint64> static_nodes;
+    void collect(metrics::Context ctx) const {
+      ctx.collect(inbound_packets, "inbound_packets");
+      ctx.collect(decrypt_packets, "decrypt_packets");
+      ctx.collect(decrypt_bytes, "decrypt_bytes");
+      ctx.collect(dropped, "dropped");
+      ctx.collect(local_ids, "local_ids");
+      ctx.collect(peers, "peers");
+      ctx.collect(peer_pairs, "peer_pairs");
+      ctx.collect(channels, "channels");
+      ctx.collect(static_nodes, "static_nodes");
+    }
+  };
+  Transport transport;
+  metrics::App app;
+  metrics::TlLatencyBucket query{"adnl query"};
+  metrics::TlLatencyBucket query_roundtrip{"adnl query roundtrip", "seconds"};
+  void collect(metrics::Context ctx) const {
+    ctx.collect(transport, "transport");
+    ctx.collect(app, "app");
+    ctx.collect(query, "query");
+    ctx.collect(query_roundtrip, "query_roundtrip");
+  }
+};
+
 class AdnlPeerTableImpl : public AdnlPeerTable {
  public:
   AdnlPeerTableImpl(std::string db_root, td::actor::ActorId<keyring::Keyring> keyring);
@@ -51,10 +87,12 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
   }
   void send_message_ex(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data, td::uint32 flags) override {
     if (data.size() > huge_packet_max_size()) {
+      metrics_.app.record_dropped(metrics::Direction::out, metrics::Reason::limited);
       VLOG(adnl, WARNING) << "dropping too big packet [" << src << "->" << dst << "]: size=" << data.size();
       VLOG(adnl, WARNING) << "DUMP: " << td::buffer_to_hex(data.as_slice().truncate(128));
       return;
     }
+    // App send traffic is accounted on the peer-pair (see AdnlPeerPairImpl::send_messages).
     send_message_in(src, dst, AdnlMessage{adnlmessage::AdnlMessageCustom{std::move(data)}}, flags);
   }
   void answer_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, AdnlQueryId query_id, td::BufferSlice data) override;
@@ -94,6 +132,15 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
     }
     return it->second;
   }
+  td::actor::Task<> collect(metrics::Context ctx) override;
+  void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) override;
+  void record_query_duration(AdnlNodeIdShort src, td::int32 magic, double seconds, bool ok) override {
+    metrics_.query.record(magic, src, seconds, ok);
+  }
+  void record_query_roundtrip(AdnlNodeIdShort dst, td::int32 magic, double seconds, bool ok) override {
+    metrics_.query_roundtrip.record(magic, dst, seconds, ok);
+  }
+
   void deliver(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data) override;
   void deliver_query(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::BufferSlice data,
                      td::Promise<td::BufferSlice> promise) override;
@@ -139,6 +186,12 @@ class AdnlPeerTableImpl : public AdnlPeerTable {
     std::set<std::pair<td::Timestamp, AdnlNodeIdShort>> peers_gc_order = {};
     std::map<AdnlNodeIdShort, size_t> protected_peers = {};
   };
+
+  AdnlPeerTableMetrics metrics_;
+
+  void record_transport_dropped(metrics::Direction dir, metrics::Reason reason) {
+    metrics_.transport.dropped.at(dir, reason).inc();
+  }
 
   td::actor::ActorId<keyring::Keyring> keyring_;
 

@@ -31,6 +31,7 @@ namespace detail {
 class UdpServerImpl : public UdpServer {
  public:
   void send(td::UdpMessage &&message) override;
+  td::actor::Task<UdpServerStats> collect() override;
   static td::actor::ActorOwn<UdpServerImpl> create(td::Slice name, td::UdpSocketFd fd,
                                                    std::unique_ptr<Callback> callback);
 
@@ -55,6 +56,20 @@ void UdpServerImpl::send(td::UdpMessage &&message) {
   //LOG(WARNING) << "TO: " << message.address;
   fd_.send(std::move(message));
   loop();  // TODO: some yield logic
+}
+
+td::actor::Task<UdpServerStats> UdpServerImpl::collect() {
+  UdpServerStats stats;
+#if TD_PORT_POSIX
+  stats.in = fd_.in_counters();
+  stats.in.dropped = fd_.get_rx_queue_drops();  // kernel-side, so the socket is the only source
+  stats.out = fd_.out_counters();
+#endif
+  auto syscall_stats = fd_.get_syscall_stats();
+  stats.in.syscalls = syscall_stats.receive;
+  stats.out.syscalls = syscall_stats.send;
+  stats.listening_sockets = is_closing_ ? 0 : 1;
+  co_return stats;
 }
 
 td::actor::ActorOwn<UdpServerImpl> UdpServerImpl::create(td::Slice name, td::UdpSocketFd fd,
@@ -280,6 +295,10 @@ class UdpServerViaTcp : public UdpServer {
     refcnt_++;
     tcp_listener_ = actor::create_actor<TcpInfiniteListener>(PSLICE() << "TcpInfiniteListener" << port_, port_,
                                                              std::make_unique<TcpListenerCallback>(actor_shared(this)));
+  }
+
+  td::actor::Task<UdpServerStats> collect() override {
+    co_return UdpServerStats{};
   }
 
   void send(UdpMessage &&message) override {

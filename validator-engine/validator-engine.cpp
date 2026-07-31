@@ -2200,6 +2200,10 @@ void ValidatorEngine::start_adnl() {
   adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create(config_.out_port);
   adnl_ = ton::adnl::Adnl::create(db_root_, keyring_.get());
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::adnl::AdnlNetworkManager>,
+                          adnl_network_manager_.get(), &ton::adnl::AdnlNetworkManager::collect);
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::adnl::Adnl>, adnl_.get(),
+                          &ton::adnl::Adnl::collect);
   reload_adnl_addrs();
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(adnl_static_nodes_));
   started_adnl();
@@ -2298,6 +2302,8 @@ void ValidatorEngine::start_rldp() {
   td::actor::send_closure(quic_.get(), &ton::quic::QuicSender::set_quic_options, quic_options_);
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_.get(),
                           &ton::quic::QuicSender::collect);
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::rldp2::Rldp>, rldp2_.get(),
+                          &ton::rldp2::Rldp::collect);
   td::actor::send_closure(rldp2_, &ton::rldp2::Rldp::set_default_mtu, 2048);
   started_rldp();
 }
@@ -2314,6 +2320,8 @@ void ValidatorEngine::start_overlays() {
     };
     overlay_manager_ = ton::overlay::Overlays::create(db_root_, keyring_.get(), adnl_.get(),
                                                       dht_nodes_[default_dht_node_].get(), buffer_limits);
+    td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::overlay::Overlays>,
+                            overlay_manager_.get(), &ton::overlay::Overlays::collect);
   }
   started_overlays();
 }

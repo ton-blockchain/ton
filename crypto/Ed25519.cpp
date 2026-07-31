@@ -253,6 +253,9 @@ Result<SecureString> Ed25519::PrivateKey::sign(const PreparedPrivateKey &prepare
 }
 
 Result<SecureString> Ed25519::PrivateKey::sign(Slice data) const {
+  // Counted here rather than in the PreparedPrivateKey overload so the cost includes importing the
+  // key, which is what every caller pays today and what verify_signature measures on its side.
+  TD_PERF_COUNTER(Ed25519_sign);
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L
   auto pkey = detail::X25519_key_to_PKEY(octet_string_, true);
   if (pkey == nullptr) {

@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <atomic>
 #include <list>
 #include <map>
 #include <mutex>
@@ -104,11 +105,14 @@ class HttpPayload {
     virtual ~Callback() = default;
   };
   void add_callback(std::unique_ptr<Callback> callback);
+  // Traverses callbacks_, so mutex_ must be held: a payload is shared between the actor producing it
+  // and the one writing it out, and add_callback runs on the writer's thread.
   void run_callbacks();
 
   td::Status parse(td::ChainBufferReader &input);
   bool parse_completed() const;
   void complete_parse() {
+    const std::lock_guard<std::mutex> lock{mutex_};
     state_ = ParseState::completed;
     run_callbacks();
   }
@@ -164,13 +168,14 @@ class HttpPayload {
   std::list<td::BufferSlice> chunks_;
   std::list<HttpHeader> trailer_;
   size_t trailer_size_ = 0;
-  size_t ready_bytes_ = 0;
+  // Written under mutex_, read without it by the consuming actor (watermarks, written()).
+  std::atomic<size_t> ready_bytes_ = 0;
   td::uint64 cur_chunk_size_ = 0;
   size_t last_chunk_free_ = 0;
   size_t chunk_size_ = 1 << 14;
   bool written_zero_chunk_ = false;
   bool written_trailer_ = false;
-  bool error_ = false;
+  std::atomic<bool> error_ = false;  // set by the producing actor, read by the consuming one
   bool is_flushing_ = false;
 
   std::list<std::unique_ptr<Callback>> callbacks_;

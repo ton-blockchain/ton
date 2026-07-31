@@ -72,6 +72,12 @@ class Actor {
   void yield() {  // send wakeup signal to itself
     ActorExecuteContext::get().set_yield();
   }
+  // Like yield(), but does not end the turn: the mailbox keeps draining and loop() runs once
+  // afterwards. Use it when a handler wants loop() to act on a whole batch of messages rather than
+  // on each one alone -- yield() there costs a scheduler round-trip per message.
+  void request_loop() {
+    ActorExecuteContext::get().set_request_loop();
+  }
   void stop() {  // send Kill signal to itself
     ActorExecuteContext::get().set_stop();
   }
