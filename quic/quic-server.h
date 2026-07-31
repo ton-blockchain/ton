@@ -97,19 +97,24 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void on_connection_closed(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
+  // A handshake's direction is who dialled: `out` is us, `in` is the peer.
+  static metrics::Direction direction_of(bool is_outbound) {
+    return is_outbound ? metrics::Direction::out : metrics::Direction::in;
+  }
+
   // Counts a handshake the application rejected after Callback::on_connected already returned OK,
   // i.e. from another actor, under the reason that actor decided on. Callers that reject
   // synchronously are counted at the callback site, which calls this too.
-  void record_handshake_reject(metrics::Reason reason) {
+  void record_handshake_reject(metrics::Reason reason, bool is_outbound) {
     record_transport_dropped(metrics::Direction::in, reason);
-    transport_stats_.handshakes.at(HandshakeResult::rejected).inc();
+    transport_stats_.handshakes.at(direction_of(is_outbound), HandshakeResult::rejected).inc();
   }
 
   // Counts a handshake the application accepted: the connection is ready to carry traffic. Disjoint
   // from record_handshake_reject() — an accepting application never reports a rejection, and a
   // rejected connection is torn down instead of becoming ready.
-  void record_handshake_completed() {
-    transport_stats_.handshakes.at(HandshakeResult::completed).inc();
+  void record_handshake_completed(bool is_outbound) {
+    transport_stats_.handshakes.at(direction_of(is_outbound), HandshakeResult::completed).inc();
   }
 
   // MTU state is keyed by local_id and (local_id, peer_id). Peer-specific MTU overrides the
