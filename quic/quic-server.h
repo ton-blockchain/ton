@@ -263,7 +263,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     transport_stats_.dropped.at(dir, reason).inc();
   }
 
-  // Wire tier, one call per batched syscall: everything the transport paths below owe the counters.
+  // Wire tier: packet/byte/drop accounting plus exact syscall totals read from the socket.
+  void reflect_socket_syscalls();
   void record_egress(td::Span<td::UdpSocketFd::OutboundMessage> batch, const td::UdpSocketFd::SendResult &result);
   void record_ingress(td::Span<td::UdpSocketFd::InboundMessage> batch);
 
