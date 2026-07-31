@@ -312,7 +312,7 @@ void ActorExecutor::flush_context_flags() {
     if (actor_execute_context_.get_pause()) {
       flags_.add_signals(ActorSignals::one(ActorSignals::Pause));
     }
-    if (actor_execute_context_.get_yield()) {
+    if (actor_execute_context_.get_yield() || actor_execute_context_.get_request_loop()) {
       flags_.add_signals(ActorSignals::one(ActorSignals::Wakeup));
     }
     if (actor_execute_context_.get_alarm_flag()) {
