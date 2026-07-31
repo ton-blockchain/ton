@@ -265,7 +265,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::uint64 rx_queue_drops_reflected_ = 0;
   TransportStats transport_stats_;
   QuicConnectionMetricsAggregate closed_conn_stats_;
-  metrics::UdpWireStats udp_wire_ = {.listening_sockets = 1};
+  metrics::UdpWireStats udp_wire_ = {.dir = {}, .listening_sockets = 1};
 
   void record_transport_dropped(metrics::Direction dir, metrics::Reason reason) {
     transport_stats_.dropped.at(dir, reason).inc();
