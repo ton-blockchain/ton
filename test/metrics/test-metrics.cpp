@@ -7,6 +7,7 @@
 #include <chrono>
 
 #include "adnl/adnl-peer-table.hpp"
+#include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api.h"
 #include "metrics/collectors.h"
 #include "metrics/tl-traffic-bucket.h"
@@ -18,6 +19,7 @@
 #include "rldp2/rldp-metrics.h"
 #include "td/utils/as.h"
 #include "td/utils/tests.h"
+#include "tl-utils/lite-utils.hpp"
 #include "tl-utils/tl-utils.hpp"
 
 namespace ton::metrics::test {
@@ -382,6 +384,32 @@ TEST(Metrics, TlDhtQueryStaysCoarse) {
       td::BufferSlice(64));
   auto payload = create_serialize_tl_object_suffix<ton_api::dht_query>(a_function(), std::move(node));
   ASSERT_EQ("dht.query", tl_label(payload));
+}
+
+TEST(Metrics, TlLiteServerQueryUnwrapsToItsMethod) {
+  auto inner = create_serialize_tl_object<lite_api::liteServer_getMasterchainInfo>();
+  auto payload = create_serialize_tl_object<lite_api::liteServer_query>(std::move(inner));
+  ASSERT_EQ("liteServer.getMasterchainInfo", tl_label(payload));
+}
+
+TEST(Metrics, TlLiteServerWaitSeqnoPrefixUnwrapsToItsMethod) {
+  auto inner = create_serialize_tl_object<lite_api::liteServer_getMasterchainInfo>();
+  lite_api::liteServer_waitMasterchainSeqno wait_prefix(7, 5000);
+  auto waited = serialize_tl_object(&wait_prefix, true, std::move(inner));
+  auto payload = create_serialize_tl_object<lite_api::liteServer_query>(std::move(waited));
+  ASSERT_EQ("liteServer.getMasterchainInfo", tl_label(payload));
+}
+
+TEST(Metrics, TlLiteServerQueryPrefixUnwrapsToItsMethod) {
+  auto inner = create_serialize_tl_object<lite_api::liteServer_getMasterchainInfo>();
+  lite_api::liteServer_queryPrefix query_prefix;
+  auto payload = serialize_tl_object(&query_prefix, true, std::move(inner));
+  ASSERT_EQ("liteServer.getMasterchainInfo", tl_label(payload));
+}
+
+TEST(Metrics, TlLiteServerEmptyQueryStaysItself) {
+  auto payload = create_serialize_tl_object<lite_api::liteServer_query>(td::BufferSlice());
+  ASSERT_EQ("liteServer.query", tl_label(payload));
 }
 
 TEST(Metrics, TlTruncatedEnvelopeKeepsEnvelope) {
