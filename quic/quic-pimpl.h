@@ -56,6 +56,12 @@ struct QuicConnectionOptions {
   static constexpr size_t DEFAULT_MAX_STREAMS_BIDI = 4096;
   static constexpr ngtcp2_duration DEFAULT_IDLE_TIMEOUT = 15 * NGTCP2_SECONDS;
   static constexpr ngtcp2_duration DEFAULT_KEEP_ALIVE_TIMEOUT = 5 * NGTCP2_SECONDS;
+  // 25ms is RFC 9000's default, but mainnet validators see a ~36ms mean RTT, so advertising 25ms
+  // inflates the peer's PTO (srtt + 4*rttvar + max_ack_delay) by roughly 70% and slows real loss
+  // recovery. The ack threshold stays at ngtcp2's spec-conformant 2: raising it measured no benefit
+  // once stream credit was batched, and deviating costs loss-detection latency on lossy paths.
+  static constexpr ngtcp2_duration DEFAULT_MAX_ACK_DELAY = 10 * NGTCP2_MILLISECONDS;
+  static constexpr size_t DEFAULT_ACK_THRESH = 2;
 
   size_t initial_max_data = DEFAULT_INITIAL_MAX_DATA;
   size_t max_window = DEFAULT_MAX_WINDOW;
@@ -65,6 +71,8 @@ struct QuicConnectionOptions {
   size_t max_streams_bidi = DEFAULT_MAX_STREAMS_BIDI;
   ngtcp2_duration idle_timeout = DEFAULT_IDLE_TIMEOUT;
   ngtcp2_duration keep_alive_timeout = DEFAULT_KEEP_ALIVE_TIMEOUT;
+  ngtcp2_duration max_ack_delay = DEFAULT_MAX_ACK_DELAY;
+  size_t ack_thresh = DEFAULT_ACK_THRESH;
   CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
 };
 

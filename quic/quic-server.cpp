@@ -121,7 +121,17 @@ void QuicServer::on_connection_updated(ConnectionState &state) {
     timeout_heap_.insert(key, &state);
   }
 
-  yield();
+  schedule_wakeup();
+}
+
+// yield() would end the turn here: the Yield flag counts as immediate, so ActorExecutor stops
+// draining the mailbox after this one message and re-queues us. Every send_stream then got its own
+// turn, its own loop(), and its own flush_egress -- so exactly one stream was ever ready when a
+// packet was built, and ngtcp2 had nothing to coalesce despite being asked to. A Wakeup signal
+// re-runs loop() just the same, but only once the mailbox is drained, which is what lets several
+// messages share a datagram.
+void QuicServer::schedule_wakeup() {
+  request_loop();
 }
 
 void QuicServer::bind_cid(const QuicConnectionId &primary_cid, const QuicConnectionId &cid) {
@@ -247,6 +257,12 @@ QuicConnectionOptions QuicServer::build_connection_options() const {
   conn_options.cc_algo = options_.cc_algo;
   if (options_.max_streams_bidi.has_value()) {
     conn_options.max_streams_bidi = *options_.max_streams_bidi;
+  }
+  if (options_.ack_thresh.has_value()) {
+    conn_options.ack_thresh = *options_.ack_thresh;
+  }
+  if (options_.max_ack_delay_seconds.has_value()) {
+    conn_options.max_ack_delay = static_cast<ngtcp2_duration>(*options_.max_ack_delay_seconds * NGTCP2_SECONDS);
   }
   return conn_options;
 }
@@ -752,6 +768,14 @@ void QuicServer::record_ingress(td::Span<td::UdpSocketFd::InboundMessage> batch)
 }
 
 void QuicServer::drain_ingress() {
+  // The drain loop below always ends with a recvmmsg that returns nothing: that is how it learns to
+  // stop, and it is what clears the fd's read flag. loop() also runs on timers and on send-side
+  // wakeups, so draining unconditionally spent that empty syscall on every wakeup with no datagram
+  // waiting. can_read() re-syncs the flag itself, and the flag is cleared only by the EAGAIN above,
+  // so a skipped drain always has a wakeup behind it.
+  if (!td::can_read(fd_)) {
+    return;
+  }
   td::PerfWarningTimer w("drain_ingress", 0.1);
   const size_t buf_size = gro_enabled_ ? kMaxDatagram : DEFAULT_MTU * kMaxBurst;
 
