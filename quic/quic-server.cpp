@@ -603,8 +603,8 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
     if (status.is_error()) {
       // ngtcp2 never sees this failure (the callback returns 0 either way), so this is the only place
       // a synchronously rejected handshake is counted. A callback that defers its verdict to another
-      // actor returns OK here and reports its own rejection via record_handshake_reject().
-      server_.record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
+      // actor returns OK here and reports its own outcome via record_handshake_{reject,completed}().
+      server_.record_handshake_reject(metrics::Reason::invalid);
       LOG(WARNING) << "on_connected failed for " << cid_ << ": " << status;
       server_.to_erase_connections_.push_back(cid_);
     }

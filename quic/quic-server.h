@@ -99,9 +99,17 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   // Counts a handshake the application rejected after Callback::on_connected already returned OK,
   // i.e. from another actor, under the reason that actor decided on. Callers that reject
-  // synchronously are counted at the callback site.
+  // synchronously are counted at the callback site, which calls this too.
   void record_handshake_reject(metrics::Reason reason) {
     record_transport_dropped(metrics::Direction::in, reason);
+    transport_stats_.handshakes.at(HandshakeResult::rejected).inc();
+  }
+
+  // Counts a handshake the application accepted: the connection is ready to carry traffic. Disjoint
+  // from record_handshake_reject() — an accepting application never reports a rejection, and a
+  // rejected connection is torn down instead of becoming ready.
+  void record_handshake_completed() {
+    transport_stats_.handshakes.at(HandshakeResult::completed).inc();
   }
 
   // MTU state is keyed by local_id and (local_id, peer_id). Peer-specific MTU overrides the

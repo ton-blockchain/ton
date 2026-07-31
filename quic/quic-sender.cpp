@@ -634,6 +634,7 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
 
   CHECK(connection);
   connection->is_ready = true;
+  td::actor::send_closure(server, &QuicServer::record_handshake_completed);
   finish_connection_init(connection, td::Unit{});
 }
 

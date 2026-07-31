@@ -12,6 +12,15 @@
 
 namespace ton::quic {
 
+// How the application answered a handshake that reached it: `completed` = the connection is ready
+// to carry traffic, `rejected` = the peer was refused (unusable key, identity mismatch, ...).
+// Handshakes that never got that far are visible only as `dropped` and `connections` counts.
+#define QUIC_HANDSHAKE_RESULT_LIST(F) \
+  F(completed)                        \
+  F(rejected)
+TON_METRIC_DEFINE_LABEL(HandshakeResult, "result", QUIC_HANDSHAKE_RESULT_LIST)
+#undef QUIC_HANDSHAKE_RESULT_LIST
+
 // Per-connection ngtcp2 counters (metrics::ConnectionStats is a different, shared aggregate).
 struct QuicConnectionMetrics {
   metrics::Labeled<metrics::Counter, metrics::Direction> bytes;
@@ -106,14 +115,17 @@ struct QuicConnectionMetricsAggregate {
 
 struct TransportStats {
   metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> dropped;
+  metrics::Labeled<metrics::Counter, HandshakeResult> handshakes;
 
   TransportStats& operator+=(const TransportStats& other) {
     dropped += other.dropped;
+    handshakes += other.handshakes;
     return *this;
   }
 
   void collect(metrics::Context ctx) const {
     ctx.collect(dropped, "dropped");
+    ctx.collect(handshakes, "handshakes");
   }
 };
 

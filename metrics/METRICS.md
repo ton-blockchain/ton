@@ -26,7 +26,7 @@ each nesting level appends a segment joined with `_`:
 - `Counter` renders as `<segments>_total`.
 - `Gauge<T>` renders as `<segments>`, except `std::chrono` types which append `_seconds`.
 - `Labeled<Inner, L...>` adds one label per axis over a **closed** value set — `direction`, `kind`,
-  `reason`, `state`, `workchain`, `source`. (An `outcome` axis is defined too, but its only holder
+  `reason`, `result`, `state`, `workchain`, `source`. (An `outcome` axis is defined too, but its only holder
   `TransferStats` is never instantiated, so no family carries it.) **Every cell of a closed axis is
   emitted on every scrape**, including zero-valued ones, so all such label combinations below are
   always present in the exposition (which is why the permanently-zero series in Known gaps still
@@ -186,7 +186,7 @@ port) and folds their stats together.
 | metric | type | labels | meaning |
 |---|---|---|---|
 | `ton_quic_transport_connections_total` | counter | — | Connections ever installed, including ones that never completed the handshake. |
-| `ton_quic_transport_connections_current` | gauge | — | Currently open connections. |
+| `ton_quic_transport_connections_current` | gauge | — | Connections currently installed. A connection is installed on its first datagram, so this **includes** the ones still handshaking, not only the ready ones. |
 | `ton_quic_transport_bytes_total` | counter | `direction` | ngtcp2 packet bytes. |
 | `ton_quic_transport_packets_total` | counter | `direction` | ngtcp2 packet count. |
 | `ton_quic_transport_stream_bytes_total` | counter | `direction` | STREAM payload. Inbound at delivery; **outbound at ACK time**, so it trails the app tier by everything in flight or lost. |
@@ -199,6 +199,7 @@ port) and folds their stats together.
 | `ton_quic_transport_sids_current` | gauge | — | Open streams, counting both directions of initiation. |
 | `ton_quic_transport_mean_rtt_seconds` | gauge | — | Connection-weighted mean smoothed RTT over open connections. |
 | `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, protocol violation, a handshake rejected over a key or identity mismatch, plus ngtcp2's own discarded-packet delta. `in,limited`: per-IP flood limiter, or a handshake rejected because the path's MTU is 0. `in,internal`: connection creation failure, failing to build a stateless Retry, a fatal ngtcp2 error while handling ingress (our own OOM or callback failure), or a handshake rejected because the outbound connection it belongs to is no longer known. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. Each reject is counted once: a refused datagram is counted here only if `pkt_discarded` did not move across that very `ngtcp2_conn_read_pkt` call, so a packet ngtcp2 counted itself is left to the `pkt_discarded` fold and no other. Failing to *send* a Retry or a stateless close is an egress drop rather than an inbound reject. Rejected handshakes are counted by whoever rejects them — synchronously at the callback (a key that will not parse, always `invalid`), or asynchronously by the actor that deferred its verdict, which supplies the reason — so they are **not** uniformly `invalid`. |
+| `ton_quic_transport_handshakes_total` | counter | `result` | Handshakes that reached the application's verdict, and how it went: `completed` once the connection is ready to carry traffic, `rejected` when the application refused the peer (a key that will not parse, an identity that does not match the one we dialed, a path with no usable MTU, an outbound connection nobody remembers). The two are disjoint, and every rejection also lands in `dropped{direction="in"}` under its reason. A handshake abandoned before the application ever saw it — an idle timeout mid-handshake, a datagram ngtcp2 refused — is counted in neither: it shows up only in `connections_total` and `dropped`. |
 
 ### App
 
@@ -535,10 +536,11 @@ in the legacy TL stats. These are exactly the `limited`/`invalid` events an oper
 leave an unexplained hole between `inbound_packets` and `decrypt_packets`.
 
 **QUIC closes have no reason breakdown.** A closed connection is visible only as a decrement of
-`connections_current`, with no way to distinguish idle timeout from protocol error. Rejected
-handshakes do carry a reason on `ton_quic_transport_dropped_total{direction="in"}`, but it is the
-generic three-value `reason` axis, and it is shared with every other inbound drop. The
-`ConnectionCloseReason` and `HandshakeFailureReason` label domains exist but nothing uses them.
+`connections_current`, with no way to distinguish idle timeout from protocol error. Handshake
+outcomes are broken out (`ton_quic_transport_handshakes_total`), but the reason behind a rejection
+is only the one it carries on `ton_quic_transport_dropped_total{direction="in"}` — the generic
+three-value `reason` axis, shared with every other inbound drop. The `ConnectionCloseReason` and
+`HandshakeFailureReason` label domains exist but nothing uses them.
 
 **Inbound QUIC app-level rejects are unmetered.** A stream closed because it exceeded the per-stream
 `max_size` or ran past its timeout is reported to the caller as an error, but nothing bumps
