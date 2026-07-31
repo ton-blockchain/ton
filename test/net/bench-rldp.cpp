@@ -77,6 +77,9 @@ struct Config {
   bool enable_mmsg = true;
   ton::quic::CongestionControlAlgo cc_algo = ton::quic::CongestionControlAlgo::Bbr;
   bool prometheus = false;
+  bool no_limits = false;
+  std::optional<size_t> ack_thresh;
+  std::optional<double> max_ack_delay_seconds;
 
   // Network mode options
   td::IPAddress local_addr;
@@ -92,6 +95,24 @@ const char* protocol_name(Protocol p) {
       return "quic";
   }
   return "unknown";
+}
+
+// --no-limits lifts the per-peer-address admission limits. A benchmark drives every connection from
+// one address, so the defaults (10 new connections per 0.2s, 1000 concurrent) throttle the load
+// generator rather than the code under test.
+ton::quic::QuicServer::Options quic_options(const Config& config) {
+  ton::quic::QuicServer::Options options{.enable_gso = config.enable_gso,
+                                         .enable_gro = config.enable_gro,
+                                         .enable_mmsg = config.enable_mmsg,
+                                         .cc_algo = config.cc_algo};
+  options.ack_thresh = config.ack_thresh;
+  options.max_ack_delay_seconds = config.max_ack_delay_seconds;
+  if (config.no_limits) {
+    options.flood_control = std::nullopt;
+    options.new_connection_rate_limit_capacity = 1000000;
+    options.new_connection_rate_limit_period = 0.000001;
+  }
+  return options;
 }
 
 // Message format: [header...][payload...][crc32:4]
@@ -359,11 +380,7 @@ void run_loopback(Config config) {
     // Create QUIC sender for loopback testing
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options,
-                            ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
-                                                           .enable_gro = config.enable_gro,
-                                                           .enable_mmsg = config.enable_mmsg,
-                                                           .cc_algo = config.cc_algo});
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options, quic_options(config));
     // Add both local IDs to QUIC sender
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, dst);
@@ -444,11 +461,7 @@ void run_server(Config config) {
     // Start QUIC sender (uses ADNL keys for TLS via RPK)
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options,
-                            ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
-                                                           .enable_gro = config.enable_gro,
-                                                           .enable_mmsg = config.enable_mmsg,
-                                                           .cc_algo = config.cc_algo});
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options, quic_options(config));
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, local_id);
     if (config.prometheus) {
@@ -534,11 +547,7 @@ void run_client(Config config) {
 
     quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
         "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options,
-                            ton::quic::QuicServer::Options{.enable_gso = config.enable_gso,
-                                                           .enable_gro = config.enable_gro,
-                                                           .enable_mmsg = config.enable_mmsg,
-                                                           .cc_algo = config.cc_algo});
+    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options, quic_options(config));
     // Use send_lambda to properly start the coroutine task
     td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
     if (config.prometheus) {
@@ -711,6 +720,19 @@ int main(int argc, char* argv[]) {
   });
   p.add_checked_option('s', "server-addr", "server address (ip:port) for client mode", [&](td::Slice arg) {
     TRY_STATUS(config.server_addr.init_host_port(arg.str()));
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "ack-thresh", "ngtcp2 immediate-ack packet threshold (default 32)", [&](td::Slice arg) {
+    TRY_RESULT(v, td::to_integer_safe<td::uint32>(arg));
+    config.ack_thresh = v;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "max-ack-delay-ms", "advertised max ack delay in ms (default 10)", [&](td::Slice arg) {
+    config.max_ack_delay_seconds = td::to_double(arg) / 1000.0;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "no-limits", "disable per-address connection rate/flood limits (bench only)", [&]() {
+    config.no_limits = true;
     return td::Status::OK();
   });
   p.add_checked_option('p', "prometheus", "enable prometheus exporter", [&]() {
