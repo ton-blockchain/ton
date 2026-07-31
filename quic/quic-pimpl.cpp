@@ -638,8 +638,12 @@ void QuicConnectionPImpl::write_connection_close(UdpMessageBuffer& close_out, in
 td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in, UdpMessageBuffer& close_out) {
   ngtcp2_path path = make_path(msg_in.address);
   ngtcp2_pkt_info pi{};
+  auto pkt_discarded_before = get_conn_info().pkt_discarded;
   int rv = ngtcp2_conn_read_pkt(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
+  // Whether ngtcp2 counted *this* packet: a watermark comparison cannot tell, because an earlier
+  // packet may have bumped pkt_discarded while still returning success (coalesced-packet discard).
+  last_ingress_discarded_ = get_conn_info().pkt_discarded > pkt_discarded_before;
   if (rv == 0) {
     close_out.storage.truncate(0);
     return td::Status::OK();
@@ -730,21 +734,14 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice 
 }
 
 void QuicConnectionPImpl::account_ingress_reject(TransportStats& transport_stats) {
-  ngtcp2_conn_info info;
-  ngtcp2_conn_get_conn_info(conn(), &info);
-  auto& dropped = transport_stats.dropped.at(metrics::Direction::in, metrics::Reason::invalid);
-  if (info.pkt_discarded > last_pkt_discarded_) {
-    // ngtcp2 counted it (and any earlier discard we had not folded yet).
-    dropped.inc(info.pkt_discarded - last_pkt_discarded_);
-    last_pkt_discarded_ = info.pkt_discarded;
-  } else {
-    dropped.inc();
+  if (last_ingress_discarded_) {
+    return;  // already in pkt_discarded; the fold below picks it up on the next get_stats
   }
+  transport_stats.dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
 }
 
 QuicConnectionMetrics QuicConnectionPImpl::get_stats(TransportStats& transport_stats) {
-  ngtcp2_conn_info info;
-  ngtcp2_conn_get_conn_info(conn(), &info);
+  auto info = get_conn_info();
 
   if (info.pkt_discarded > last_pkt_discarded_) {
     transport_stats.dropped.at(metrics::Direction::in, metrics::Reason::invalid)
