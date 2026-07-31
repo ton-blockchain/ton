@@ -65,6 +65,9 @@ td::actor::Task<UdpServerStats> UdpServerImpl::collect() {
   stats.in.dropped = fd_.get_rx_queue_drops();  // kernel-side, so the socket is the only source
   stats.out = fd_.out_counters();
 #endif
+  auto syscall_stats = fd_.get_syscall_stats();
+  stats.in.syscalls = syscall_stats.receive;
+  stats.out.syscalls = syscall_stats.send;
   stats.listening_sockets = is_closing_ ? 0 : 1;
   co_return stats;
 }

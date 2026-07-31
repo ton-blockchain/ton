@@ -36,9 +36,7 @@ namespace td {
 struct UdpDirCounters {
   uint64 bytes{0};
   uint64 packets{0};
-  // Batched send/receive calls, one per call. That is the syscall count while sendmmsg/recvmmsg are
-  // active; on the fallback path (macOS, mmsg disabled, Windows) the kernel is entered once per
-  // datagram, so the counter undercounts there — accepted as an approximation.
+  // Actual data-plane OS calls, including unsuccessful calls and EINTR retries.
   uint64 syscalls{0};
   uint64 dropped{0};  // out: refused by the kernel; in: lost to receive-queue overflow
 };
@@ -60,7 +58,7 @@ class UdpWriter {
 
     UdpSocketFd::SendResult result;
     auto status = fd.send_messages(::td::Span<UdpSocketFd::OutboundMessage>(messages).truncate(to_send_n), result);
-    counters.syscalls++;
+    counters.syscalls = fd.get_syscall_stats().send;
     for (size_t i = 0; i < result.sent; i++) {
       counters.bytes += to_send[i].data.size();
     }
@@ -113,7 +111,7 @@ class UdpReader {
     }
     size_t cnt = 0;
     auto status = fd.receive_messages(messages_, cnt);
-    counters.syscalls++;
+    counters.syscalls = fd.get_syscall_stats().receive;
     for (size_t i = 0; i < cnt; i++) {
       counters.bytes += messages_[i].data.size();
       queue.push(helpers_[i].extract_udp_message(messages_[i]));

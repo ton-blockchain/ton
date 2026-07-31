@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <array>
 #include <set>
 
 #include "td/utils/Slice.h"
@@ -23,7 +24,10 @@
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/FileFd.h"
+#include "td/utils/port/IPAddress.h"
 #include "td/utils/port/IoSlice.h"
+#include "td/utils/port/PollFlags.h"
+#include "td/utils/port/UdpSocketFd.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
 #include "td/utils/port/thread.h"
@@ -31,6 +35,97 @@
 #include "td/utils/tests.h"
 
 using namespace td;
+
+#if TD_PORT_POSIX
+namespace {
+
+struct UdpTestPair {
+  UdpSocketFd sender;
+  UdpSocketFd receiver;
+  IPAddress receiver_address;
+};
+
+UdpTestPair make_udp_test_pair() {
+  IPAddress bind_address;
+  bind_address.init_host_port("127.0.0.1", 0).ensure();
+  auto sender = UdpSocketFd::open(bind_address).move_as_ok();
+  auto receiver = UdpSocketFd::open(bind_address).move_as_ok();
+  auto receiver_bound_address = receiver.get_local_address().move_as_ok();
+  IPAddress receiver_address;
+  receiver_address.init_host_port("127.0.0.1", receiver_bound_address.get_port()).ensure();
+  return {std::move(sender), std::move(receiver), std::move(receiver_address)};
+}
+
+struct UdpInboundBatch {
+  std::array<std::array<char, 64>, 4> buffers;
+  std::array<IPAddress, 4> addresses;
+  std::array<Status, 4> errors;
+  std::array<UdpSocketFd::InboundMessage, 4> messages;
+
+  UdpInboundBatch() {
+    for (size_t i = 0; i < messages.size(); i++) {
+      messages[i].from = &addresses[i];
+      messages[i].data = MutableSlice(buffers[i].data(), buffers[i].size());
+      messages[i].error = &errors[i];
+    }
+  }
+};
+
+std::array<UdpSocketFd::OutboundMessage, 3> make_udp_outbound_batch(const IPAddress &to) {
+  return {{{.to = &to, .data = "one"}, {.to = &to, .data = "two"}, {.to = &to, .data = "three"}}};
+}
+
+}  // namespace
+
+TEST(Port, UdpSocketSyscallStatsFallback) {
+  auto pair = make_udp_test_pair();
+  pair.sender.disable_mmsg();
+  pair.receiver.disable_mmsg();
+
+  auto outbound = make_udp_outbound_batch(pair.receiver_address);
+  UdpSocketFd::SendResult send_result;
+  pair.sender.send_messages(outbound, send_result).ensure();
+  ASSERT_EQ(3u, send_result.sent);
+  ASSERT_EQ(3u, pair.sender.get_syscall_stats().send);
+
+  UdpInboundBatch inbound;
+  pair.receiver.get_poll_info().add_flags(PollFlags::Read());
+  size_t received = 0;
+  pair.receiver.receive_messages(inbound.messages, received).ensure();
+  ASSERT_EQ(3u, received);
+  ASSERT_EQ(4u, pair.receiver.get_syscall_stats().receive);  // three datagrams, then EAGAIN
+
+  pair.receiver.get_poll_info().add_flags(PollFlags::Read());
+  pair.receiver.receive_messages(inbound.messages, received).ensure();
+  ASSERT_EQ(0u, received);
+  ASSERT_EQ(5u, pair.receiver.get_syscall_stats().receive);
+}
+
+TEST(Port, UdpSocketSyscallStatsMmsg) {
+  auto pair = make_udp_test_pair();
+  pair.sender.enable_mmsg();
+  pair.receiver.enable_mmsg();
+  if (!pair.sender.is_mmsg_enabled() || !pair.receiver.is_mmsg_enabled()) {
+    return;
+  }
+
+  auto outbound = make_udp_outbound_batch(pair.receiver_address);
+  UdpSocketFd::SendResult send_result;
+  pair.sender.send_messages(outbound, send_result).ensure();
+  ASSERT_EQ(3u, send_result.sent);
+  ASSERT_EQ(1u, pair.sender.get_syscall_stats().send);
+
+  UdpInboundBatch inbound;
+  size_t received = 0;
+  pair.receiver.receive_messages(inbound.messages, received).ensure();
+  ASSERT_EQ(3u, received);
+  ASSERT_EQ(1u, pair.receiver.get_syscall_stats().receive);
+
+  pair.receiver.receive_messages(inbound.messages, received).ensure();
+  ASSERT_EQ(0u, received);
+  ASSERT_EQ(2u, pair.receiver.get_syscall_stats().receive);
+}
+#endif
 
 TEST(Port, files) {
   CSlice main_dir = "test_dir";

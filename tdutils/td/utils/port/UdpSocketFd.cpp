@@ -135,6 +135,12 @@ class UdpSocketFdImpl : private Iocp::Callback {
   bool is_mmsg_enabled() const {
     return mmsg_enabled_;
   }
+  UdpSocketFd::SyscallStats get_syscall_stats() const {
+    return {
+        .receive = receive_syscalls_.load(std::memory_order_relaxed),
+        .send = send_syscalls_.load(std::memory_order_relaxed),
+    };
+  }
   uint64 get_rx_queue_drops() const {
     return 0;  // TODO
   }
@@ -177,6 +183,8 @@ class UdpSocketFdImpl : private Iocp::Callback {
   PollableFdInfo info_;
   bool mmsg_enabled_{false};
   SpinLock lock_;
+  std::atomic<uint64> receive_syscalls_{0};
+  std::atomic<uint64> send_syscalls_{0};
 
   std::atomic<int> refcnt_{1};
   bool is_connected_{false};
@@ -234,6 +242,7 @@ class UdpSocketFdImpl : private Iocp::Callback {
       return;
     }
 
+    receive_syscalls_.fetch_add(1, std::memory_order_relaxed);
     auto status = WSARecvMsgPtr(get_native_fd().socket(), &receive_message_, nullptr, &receive_overlapped_, nullptr);
     if (status == 0 || check_status("WSARecvMsg failed")) {
       inc_refcnt();
@@ -256,6 +265,7 @@ class UdpSocketFdImpl : private Iocp::Callback {
     WSAMSG message;
     UdpSocketSendHelper send_helper;
     send_helper.to_native(to_send_, message);
+    send_syscalls_.fetch_add(1, std::memory_order_relaxed);
     auto status = WSASendMsg(get_native_fd().socket(), &message, 0, nullptr, &send_overlapped_, nullptr);
     if (status == 0 || check_status("WSASendMsg failed")) {
       inc_refcnt();
@@ -640,6 +650,12 @@ class UdpSocketFdImpl {
   bool is_mmsg_enabled() const {
     return mmsg_enabled_;
   }
+  UdpSocketFd::SyscallStats get_syscall_stats() const {
+    return {
+        .receive = receive_syscalls_,
+        .send = send_syscalls_,
+    };
+  }
   Status get_pending_error() {
     if (!get_poll_info().get_flags_local().has_pending_error()) {
       return Status::OK();
@@ -665,7 +681,10 @@ class UdpSocketFdImpl {
     helper.to_native(message, message_header);
 
     auto native_fd = get_native_fd().socket();
-    auto recvmsg_res = detail::skip_eintr([&] { return recvmsg(native_fd, &message_header, flags); });
+    auto recvmsg_res = detail::skip_eintr([&] {
+      receive_syscalls_++;
+      return recvmsg(native_fd, &message_header, flags);
+    });
     auto recvmsg_errno = errno;
     if (recvmsg_res >= 0) {
       helper.from_native(message_header, recvmsg_res, message);
@@ -720,7 +739,10 @@ class UdpSocketFdImpl {
     helper.to_native(message, message_header, is_gso);
 
     auto native_fd = get_native_fd().socket();
-    auto sendmsg_res = detail::skip_eintr([&] { return sendmsg(native_fd, &message_header, 0); });
+    auto sendmsg_res = detail::skip_eintr([&] {
+      send_syscalls_++;
+      return sendmsg(native_fd, &message_header, 0);
+    });
     auto sendmsg_errno = errno;
     if (sendmsg_res >= 0) {
       is_sent = true;
@@ -827,6 +849,8 @@ class UdpSocketFdImpl {
  private:
   PollableFdInfo info_;
   bool mmsg_enabled_{true};
+  uint64 receive_syscalls_{0};
+  uint64 send_syscalls_{0};
 
   uint64 rx_queue_drops_{0};
   uint32 rx_queue_overflow_last_{0};
@@ -874,8 +898,10 @@ class UdpSocketFdImpl {
       headers[i].msg_len = 0;
     }
     auto native_fd = get_native_fd().socket();
-    auto sendmmsg_res =
-        detail::skip_eintr([&] { return sendmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_send), 0); });
+    auto sendmmsg_res = detail::skip_eintr([&] {
+      send_syscalls_++;
+      return sendmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_send), 0);
+    });
     auto sendmmsg_errno = errno;
     if (sendmmsg_res >= 0) {
       result.sent = sendmmsg_res;
@@ -930,8 +956,10 @@ class UdpSocketFdImpl {
     }
 
     auto native_fd = get_native_fd().socket();
-    auto recvmmsg_res = detail::skip_eintr(
-        [&] { return recvmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_receive), flags, nullptr); });
+    auto recvmmsg_res = detail::skip_eintr([&] {
+      receive_syscalls_++;
+      return recvmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_receive), flags, nullptr);
+    });
     auto recvmmsg_errno = errno;
     if (recvmmsg_res >= 0) {
       cnt = narrow_cast<size_t>(recvmmsg_res);
@@ -1125,6 +1153,10 @@ Result<uint32> UdpSocketFd::maximize_rcv_buffer(uint32 max) {
 
 uint64 UdpSocketFd::get_rx_queue_drops() const {
   return impl_->get_rx_queue_drops();
+}
+
+UdpSocketFd::SyscallStats UdpSocketFd::get_syscall_stats() const {
+  return impl_->get_syscall_stats();
 }
 
 Status UdpSocketFd::send_message(const OutboundMessage &message, bool &is_sent) {
