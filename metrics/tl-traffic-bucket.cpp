@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api.h"
 #include "td/utils/as.h"
 
@@ -178,6 +179,15 @@ bool skip_envelope(Cursor &cur, td::int32 magic) {
     case ton_api::overlay_broadcastTwostepSimple::ID:  // flags:int date:int, src, src_adnl_id:int256,
       return cur.skip(sizeof(td::int32) + 4 + 4) && skip_public_key(cur) && cur.skip(32) && skip_certificate(cur) &&
              cur.enter_bytes();  // certificate, then data:bytes
+    // Liteserver queries arrive wrapped the way lite-client's get_query_info() unwraps them: either
+    // a liteServer.query carrying the real query in `data`, or a bare liteServer.queryPrefix, then
+    // an optional liteServer.waitMasterchainSeqno prefix before the lite_api function itself.
+    case lite_api::liteServer_query::ID:
+      return cur.skip(sizeof(td::int32)) && cur.enter_bytes();
+    case lite_api::liteServer_queryPrefix::ID:
+      return cur.skip(sizeof(td::int32));
+    case lite_api::liteServer_waitMasterchainSeqno::ID:  // seqno:int timeout_ms:int
+      return cur.skip(sizeof(td::int32) + 4 + 4);
     default:
       return false;
   }
@@ -205,7 +215,14 @@ std::optional<std::string> tl_schema_name(td::int32 magic) {
   if (auto name = ton_api::Object::nameof(magic)) {
     return name;
   }
-  return ton_api::Function::nameof(magic);
+  if (auto name = ton_api::Function::nameof(magic)) {
+    return name;
+  }
+  // Liteserver traffic speaks its own schema, so ton_api alone leaves every lite query unnamed.
+  if (auto name = lite_api::Object::nameof(magic)) {
+    return name;
+  }
+  return lite_api::Function::nameof(magic);
 }
 
 std::string tl_name(td::int32 magic) {
