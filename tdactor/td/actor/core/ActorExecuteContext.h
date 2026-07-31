@@ -49,8 +49,10 @@ class ActorExecuteContext : public Context<ActorExecuteContext> {
   bool has_flags() const {
     return flags_ != 0;
   }
+  // Alarm and RequestLoop are deferred: they take effect when the turn ends, so they must not cut
+  // the mailbox drain short the way Stop, Pause and Yield do.
   bool has_immediate_flags() const {
-    return (flags_ & ~(1 << Alarm)) != 0;
+    return (flags_ & ~((1 << Alarm) | (1 << RequestLoop))) != 0;
   }
   void set_stop() {
     flags_ |= 1 << Stop;
@@ -89,13 +91,19 @@ class ActorExecuteContext : public Context<ActorExecuteContext> {
   bool get_yield() {
     return (flags_ & (1 << Yield)) != 0;
   }
+  void set_request_loop() {
+    flags_ |= 1 << RequestLoop;
+  }
+  bool get_request_loop() const {
+    return (flags_ & (1 << RequestLoop)) != 0;
+  }
 
  private:
   Actor *actor_;
   uint32 flags_{0};
   uint64 link_token_{EmptyLinkToken};
   Timestamp alarm_timestamp_;
-  enum { Stop, Pause, Alarm, Yield };
+  enum { Stop, Pause, Alarm, Yield, RequestLoop };
 };
 
 }  // namespace core
