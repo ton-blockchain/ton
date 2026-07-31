@@ -6,6 +6,7 @@ target_link_libraries(test-metrics PRIVATE
     adnl
     rldp2
     tl_api
+    tl_lite_api
     tl-utils
     td-test-main
 )
