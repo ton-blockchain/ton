@@ -101,7 +101,6 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t 
     VLOG(adnl, WARNING) << this << ": dropping ERROR message: " << message.error;
     return;
   }
-  metrics_.dir.at(metrics::Direction::in).data.record(message.data.size());
   if (message.data.size() < 32) {
     record_dropped(metrics::Direction::in, metrics::Reason::invalid);
     VLOG(adnl, WARNING) << this << ": received too small packet of size " << message.data.size();
@@ -155,7 +154,6 @@ void AdnlNetworkManagerImpl::send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdS
 
   CHECK(M.data.size() <= get_mtu());
 
-  metrics_.dir.at(metrics::Direction::out).data.record(M.data.size());
   td::actor::send_closure(socket.server, &td::UdpServer::send, std::move(M));
 }
 
@@ -172,7 +170,8 @@ td::actor::Task<> AdnlNetworkManagerImpl::collect(metrics::Context ctx) {
   // one. Such a snapshot is stale as a whole: folding nothing but keeping it as `reflected` would
   // re-fold the difference against the newer one on the next scrape.
   auto regressed = [](const td::UdpDirCounters &cur, const td::UdpDirCounters &prev) {
-    return cur.syscalls < prev.syscalls || cur.dropped < prev.dropped;
+    return cur.syscalls < prev.syscalls || cur.dropped < prev.dropped || cur.bytes < prev.bytes ||
+           cur.packets < prev.packets;
   };
   CHECK(stats.size() <= udp_sockets_.size());
   for (size_t i = 0; i < stats.size(); i++) {
@@ -186,6 +185,12 @@ td::actor::Task<> AdnlNetworkManagerImpl::collect(metrics::Context ctx) {
     }
     auto &in = metrics_.dir.at(metrics::Direction::in);
     auto &out = metrics_.dir.at(metrics::Direction::out);
+    // The socket is the only honest source for what actually crossed it: it counts bytes/packets for
+    // the datagrams the kernel accepted, and a datagram it refuses is a drop, not wire traffic.
+    in.data.bytes.inc(cur.in.bytes - prev.in.bytes);
+    in.data.packets.inc(cur.in.packets - prev.in.packets);
+    out.data.bytes.inc(cur.out.bytes - prev.out.bytes);
+    out.data.packets.inc(cur.out.packets - prev.out.packets);
     in.syscalls.inc(cur.in.syscalls - prev.in.syscalls);
     out.syscalls.inc(cur.out.syscalls - prev.out.syscalls);
     // Inbound loss is the kernel's receive queue overflowing; outbound loss is the kernel refusing
