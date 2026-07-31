@@ -841,12 +841,7 @@ void QuicServer::drain_ingress() {
           record_transport_dropped(metrics::Direction::in, metrics::Reason::internal);
           LOG(WARNING) << "failed to handle ingress from " << *state << ": " << handle_status;
         } else {
-          // DROP_CONN is ngtcp2 discarding a server's first Initial: it already counted the packet in
-          // pkt_discarded, which get_stats folds into this very counter. It is the only read_pkt error
-          // that does, so every other one still needs an explicit count here.
-          if (handle_status.code() != NGTCP2_ERR_DROP_CONN) {
-            record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
-          }
+          state->impl().account_ingress_reject(transport_stats_);
           LOG(DEBUG) << "closing connection after ingress from " << *state << ": " << handle_status;
         }
         send_connection_close(*state, close_msg);  // no-op when empty

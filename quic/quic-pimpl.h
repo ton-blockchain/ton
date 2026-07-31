@@ -218,6 +218,10 @@ struct QuicConnectionPImpl {
   }
 
   QuicConnectionMetrics get_stats(TransportStats& transport_stats);
+  // Records an ingress packet ngtcp2 refused. Some of its reject paths count the packet in
+  // pkt_discarded and some do not, so the connection resolves which happened rather than the caller
+  // guessing from the error code.
+  void account_ingress_reject(TransportStats& transport_stats);
 
  private:
   td::IPAddress local_address_;
