@@ -427,15 +427,18 @@ td::actor::Task<> AdnlPeerTableImpl::collect(metrics::Context ctx) {
   // maps are never mutated across a suspension), then wait for all the round-trips to land. A
   // peer-pair that dies mid-drain has already drained via its tear_down, so a failed ask is harmless.
   std::vector<td::actor::StartedTask<td::Unit>> drains;
-  td::uint64 peer_pairs = 0;
   for (const auto &[peer_id, info] : peers_) {
-    peer_pairs += info.peers.size();
     for (const auto &[local_id, pp] : info.peers) {
       drains.push_back(td::actor::ask(pp.actor.get(), &AdnlPeerPair::collect_metrics));
     }
   }
   co_await td::actor::all_wrap(std::move(drains));
 
+  // Peers may have come and gone during the drain, so all five gauges are sampled here, after it.
+  td::uint64 peer_pairs = 0;
+  for (const auto &[peer_id, info] : peers_) {
+    peer_pairs += info.peers.size();
+  }
   metrics_.transport.local_ids.set(local_ids_.size());
   metrics_.transport.peers.set(peers_.size());
   metrics_.transport.peer_pairs.set(peer_pairs);
