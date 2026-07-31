@@ -97,8 +97,8 @@ app and query tiers.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_adnl_wire_bytes_total` | counter | `direction=in\|out` | UDP payload bytes at the socket. |
-| `ton_adnl_wire_packets_total` | counter | `direction` | Datagrams at the socket. |
+| `ton_adnl_wire_bytes_total` | counter | `direction=in\|out` | UDP payload bytes the socket actually carried, folded in as deltas during the scrape. Outbound counts only datagrams the kernel accepted — one it refuses is a drop, not wire traffic. |
+| `ton_adnl_wire_packets_total` | counter | `direction` | Datagrams the socket actually carried, same source and semantics. |
 | `ton_adnl_wire_syscalls_total` | counter | `direction` | Batched send/receive calls at the socket — equal to syscalls where `sendmmsg`/`recvmmsg` are active, an undercount on the non-mmsg fallback, which enters the kernel once per datagram. Read from `td::UdpServer`'s counters and folded in as deltas during the scrape. |
 | `ton_adnl_wire_dropped_total` | counter | `direction`, `reason` | `in,limited`: kernel receive-queue overflow (`SO_RXQ_OVFL`, folded in as a delta during the scrape) — these datagrams never reached `wire_packets`. `in,invalid`: packet under 32 bytes. `in,internal`: no callback installed, socket read error, or no `InDesc` for the port. `out,internal`: unknown source id, no matching out rule, or a datagram the kernel refused outright (`EMSGSIZE`/`EACCES`/`EPERM`, folded in as a delta during the scrape). `out,invalid` and `out,limited` are never incremented. |
 | `ton_adnl_wire_listening_sockets` | gauge | — | Bound UDP sockets. |
@@ -336,9 +336,9 @@ ton_adnl_wire_packets_total{direction="in"}
 ```
 
 Subtract only `invalid` and `internal`: `reason="limited"` at the wire tier is kernel receive-queue
-overflow, and those datagrams never reached `wire_packets` to begin with. (Two of the `internal`
-sites — no callback installed, socket read error — also fire before the packet is counted, so this
-subtraction slightly over-corrects; both are degenerate states rather than steady-state traffic.)
+overflow, and those datagrams never reached `wire_packets` to begin with. Both tiers now read
+`wire_bytes`/`wire_packets` from the socket itself, so a datagram the kernel refused on send is
+counted once, as a drop, and never as transmitted traffic.
 
 The `≈` are real. Tiers are sampled at different instants within one scrape, counts are taken at
 different points in a packet's life, and several drop paths are unmetered.
