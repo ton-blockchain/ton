@@ -638,18 +638,14 @@ void QuicConnectionPImpl::write_connection_close(UdpMessageBuffer& close_out, in
 td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in, UdpMessageBuffer& close_out) {
   ngtcp2_path path = make_path(msg_in.address);
   ngtcp2_pkt_info pi{};
-  auto before = get_conn_info();
+  auto pkt_discarded_before = get_conn_info().pkt_discarded;
   int rv = ngtcp2_conn_read_pkt(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
-  // Did ngtcp2 already account for the packet this call is about to report an error on? One call can
-  // drain several coalesced or buffered packets, so a discard alone does not answer that. But ngtcp2
-  // also counts what it accepted, and accepted + discarded is how many packets it accounted for: if
-  // that is exactly one and it was a discard, the discard *is* the packet the error is about, and the
-  // pkt_discarded fold already covers it. Anything else means the error concerns a packet ngtcp2
-  // never counted, so the reject is ours to record.
-  auto after = get_conn_info();
-  auto accounted = (after.pkt_recv - before.pkt_recv) + (after.pkt_discarded - before.pkt_discarded);
-  last_ingress_discarded_ = accounted == 1 && after.pkt_discarded > before.pkt_discarded;
+  // Whether ngtcp2 discarded anything during this call. It is not per-packet: one call drains
+  // coalesced and buffered packets, so a discard here may belong to a packet other than the one the
+  // error is about. In that rare interleaving the counter is short by one; counting every rejected
+  // call unconditionally would double-count the common case already reflected in pkt_discarded.
+  last_ingress_discarded_ = get_conn_info().pkt_discarded > pkt_discarded_before;
   if (rv == 0) {
     close_out.storage.truncate(0);
     return td::Status::OK();
