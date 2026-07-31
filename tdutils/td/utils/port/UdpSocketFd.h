@@ -64,6 +64,13 @@ class UdpSocketFd {
   // Datagrams the kernel receive queue dropped, cumulative since open.
   uint64 get_rx_queue_drops() const;
 
+  // Actual data-plane OS calls made by this socket, cumulative since open. An EINTR retry is another call.
+  struct SyscallStats {
+    uint64 receive{0};
+    uint64 send{0};
+  };
+  SyscallStats get_syscall_stats() const;
+
   static Result<UdpSocketFd> open(const IPAddress &address) TD_WARN_UNUSED_RESULT;
   static bool is_gso_supported();
   static bool has_pmtudisc_probe();

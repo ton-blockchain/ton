@@ -80,7 +80,7 @@ struct BytesAndPackets {
 
 struct UdpDirStats {
   BytesAndPackets data;
-  Counter syscalls;  // batched send/receive calls, one syscall each where sendmmsg/recvmmsg exist
+  Counter syscalls;  // actual UDP send/receive OS calls, including unsuccessful calls and EINTR retries
   Labeled<Counter, Reason> dropped;
 
   UdpDirStats &operator+=(const UdpDirStats &other) {
