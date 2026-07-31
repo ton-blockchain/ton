@@ -59,6 +59,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
     std::optional<size_t> max_streams_bidi = std::nullopt;
+    std::optional<size_t> ack_thresh = std::nullopt;
+    std::optional<double> max_ack_delay_seconds = std::nullopt;
     td::uint32 new_connection_rate_limit_capacity = 10;
     double new_connection_rate_limit_period = 0.2;
     td::uint32 global_new_connection_rate_limit_capacity = 100000;
@@ -151,6 +153,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void loop() override;
 
   void notify() override;
+  // Requests one loop() pass after the current mailbox drain, without cutting the drain short.
+  void schedule_wakeup();
 
  private:
   friend QuicConnectionPImpl;
