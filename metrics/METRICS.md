@@ -72,6 +72,8 @@ process-wide aggregate during the scrape — see the notes in those sections.
 | `ton_exporter_collections_total` | counter | — | Scrapes accepted, including ones coalesced into a gather already in flight. |
 | `ton_exporter_last_collection_duration_seconds` | gauge | — | Duration of the **previous** scrape (it is set after the current one is already serialized). |
 | `ton_exporter_last_collection_timestamp_seconds` | gauge | — | Unix time at which the current scrape started. |
+| `ton_perf_ops_total` | counter | `op` | Executions of a `TD_PERF_COUNTER` site, mirrored from the process-global registry as deltas. `op` is the site name (`Ed25519_sign`, `Ed25519_verify_signature`, `cell_load`, `cell_store`, `raptor_solve`, …) — a closed set fixed by the macros compiled into the binary. |
+| `ton_perf_op_ticks_total` | counter | `op` | CPU ticks (`rdtsc`) spent in those executions. Absolute values are machine-specific, but `rate(ton_perf_op_ticks_total) / rate(ton_perf_ops_total)` is a usable average cost per operation, and its trend catches regressions. |
 
 ## HTTP server
 
@@ -454,6 +456,18 @@ sum by (reason, direction) (rate(ton_adnl_transport_dropped_total[5m]))
 sum by (source) (rate(ton_first_received_total[15m]))
   / ignoring(source) group_left sum(rate(ton_first_received_total[15m]))
 ```
+
+**How much CPU goes into crypto?** Signing and verification rates, and their average cost:
+
+```promql
+sum by (op) (rate(ton_perf_ops_total{op=~"Ed25519_.*"}[5m]))
+rate(ton_perf_op_ticks_total{op="Ed25519_verify_signature"}[5m])
+  / rate(ton_perf_ops_total{op="Ed25519_verify_signature"}[5m])
+```
+
+A verification rate far above the signing rate means inbound work — block signature sets, DHT and
+overlay traffic — rather than our own block production; a sudden jump with no matching block rate is
+the shape of a signature-flood.
 
 **Is the exporter itself healthy?** Scrape staleness — alerts if collection wedges (there is no
 internal scrape deadline; see Known gaps):
