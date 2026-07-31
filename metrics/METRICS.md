@@ -542,11 +542,10 @@ is only the one it carries on `ton_quic_transport_dropped_total{direction="in"}`
 three-value `reason` axis, shared with every other inbound drop. The `ConnectionCloseReason` and
 `HandshakeFailureReason` label domains exist but nothing uses them.
 
-**QUIC `in,invalid` can be short by one on interleaved rejects.** A single `read_pkt` call drains
-coalesced and buffered packets, so ngtcp2 may discard one packet and then return an error about
-another. The discard is detected, the reject folds in with it, and the two count as one. ngtcp2
-exposes no per-packet attribution to separate them; the alternative — counting the reject
-unconditionally — would double-count the far more common case.
+**QUIC `in,invalid` can overcount on multi-discard datagrams.** A `read_pkt` call that accounts for
+exactly one packet is attributed exactly; when a single call discards two or more packets *and*
+reports an error, the reject is assumed to concern a further packet and adds one, which is right if
+it does and one too many if it does not. ngtcp2 offers no per-packet attribution to settle it.
 
 **Inbound QUIC app-level rejects are unmetered.** A stream closed because it exceeded the per-stream
 `max_size` or ran past its timeout is reported to the caller as an error, but nothing bumps
