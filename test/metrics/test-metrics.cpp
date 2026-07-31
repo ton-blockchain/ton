@@ -580,6 +580,7 @@ TEST(MetricsGolden, Quic) {
                 "ton_quic_transport_sids_current gauge",
                 "ton_quic_transport_mean_rtt_seconds gauge",
                 "ton_quic_transport_dropped counter",
+                "ton_quic_transport_handshakes counter",
                 "ton_quic_app_bytes counter",
                 "ton_quic_app_messages counter",
                 "ton_quic_app_dropped counter",
