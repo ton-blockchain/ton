@@ -577,7 +577,7 @@ td::actor::Task<> ValidatorManagerImpl::new_block_candidate_broadcast(BlockIdExt
 
 static td::actor::Task<> check_finality_signatures(BlockIdExt block_id, Ref<block::BlockSignatureSet> sig_set,
                                                    Ref<MasterchainState> mc_state) {
-  co_await td::actor::become_lightweight();
+  co_await td::actor::detach_from_actor();
   auto try_val_set = [&](Ref<block::ValidatorSet> val_set) -> td::Status {
     if (val_set.is_null()) {
       return td::Status::Error("no validator set");
