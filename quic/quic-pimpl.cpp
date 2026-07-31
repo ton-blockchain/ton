@@ -729,7 +729,7 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice 
   return td::Status::OK();
 }
 
-ConnectionStats QuicConnectionPImpl::get_stats(TransportStats& transport_stats) {
+QuicConnectionMetrics QuicConnectionPImpl::get_stats(TransportStats& transport_stats) {
   ngtcp2_conn_info info;
   ngtcp2_conn_get_conn_info(conn(), &info);
 

@@ -329,7 +329,7 @@ td::actor::Task<> QuicSender::collect(metrics::Context ctx) {
     if (stats[i].is_ok()) {
       last = stats[i].move_as_ok();
     }
-    result.combine(last);
+    result += last;
   }
 
   auto quic = ctx.with_name("quic");
