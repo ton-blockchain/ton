@@ -5,6 +5,7 @@
  */
 
 #include "td/actor/coro_utils.h"
+#include "td/utils/ThreadSafeCounter.h"
 
 #include "prometheus-exporter.h"
 
@@ -45,6 +46,23 @@ td::actor::Task<metrics::MetricSet> PrometheusExporter::gather() {
     co_await collector(root);
   }
   co_return std::move(sink).build();
+}
+
+// The registry names each site's pair "<site>.count" / "<site>.duration"; split that back into an
+// `op` label so one site is one series per family.
+static void emit_perf_family(metrics::Context ctx, td::Slice field) {
+  ctx.open_family("counter", "total");
+  td::NamedPerfCounter::get_default().for_each([&](td::Slice name, td::int64 value) {
+    auto dot = name.rfind('.');
+    if (dot != td::Slice::npos && name.substr(dot + 1) == field) {
+      ctx.with_label("op", std::string_view(name.substr(0, dot).data(), dot)).push(static_cast<double>(value));
+    }
+  });
+}
+
+void PrometheusExporter::PerfCounters::collect(metrics::Context ctx) const {
+  emit_perf_family(ctx.with_name("ops"), "count");
+  emit_perf_family(ctx.with_name("op_ticks"), "duration");
 }
 
 td::actor::Task<> PrometheusExporter::collect_and_respond() {
