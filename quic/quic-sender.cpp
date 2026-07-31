@@ -622,7 +622,7 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
     // ServerCallback::on_connected returned OK before hopping here, so this rejection is invisible to
     // QuicServer's own accounting; report it back. Disjoint from the callback's synchronous failures,
     // which never reach this actor.
-    td::actor::send_closure(server, &QuicServer::record_handshake_reject, reject_reason);
+    td::actor::send_closure(server, &QuicServer::record_handshake_reject, reject_reason, is_outbound);
     // the connection will be empty if an error happened during inbound connection initialization
     if (connection) {
       LOG(WARNING) << "Failed to init connection: " << connection->path << " " << result.error();
@@ -634,7 +634,7 @@ void QuicSender::on_connected(td::actor::ActorId<QuicServer> server, QuicConnect
 
   CHECK(connection);
   connection->is_ready = true;
-  td::actor::send_closure(server, &QuicServer::record_handshake_completed);
+  td::actor::send_closure(server, &QuicServer::record_handshake_completed, is_outbound);
   finish_connection_init(connection, td::Unit{});
 }
 
