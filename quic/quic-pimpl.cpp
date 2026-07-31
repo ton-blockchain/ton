@@ -641,8 +641,11 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in, U
   auto pkt_discarded_before = get_conn_info().pkt_discarded;
   int rv = ngtcp2_conn_read_pkt(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
-  // Whether ngtcp2 counted *this* packet: a watermark comparison cannot tell, because an earlier
-  // packet may have bumped pkt_discarded while still returning success (coalesced-packet discard).
+  // Whether ngtcp2 discarded anything during this call. It is not per-packet: one call drains
+  // coalesced and buffered packets, so a discard here may belong to a packet other than the one the
+  // error is about, and ngtcp2 exposes no way to tell them apart. When that happens the reject falls
+  // in with the discard and the counter is short by one — a rare interleaving, and preferable to the
+  // alternative of counting every discarded packet twice.
   last_ingress_discarded_ = get_conn_info().pkt_discarded > pkt_discarded_before;
   if (rv == 0) {
     close_out.storage.truncate(0);
