@@ -37,6 +37,7 @@ class PrometheusExporter final : public td::actor::Actor {
 
   td::actor::Task<> collect(metrics::Context ctx) {
     ctx.collect(stats_, "exporter");
+    ctx.collect(perf_, "perf");
     {
       auto server_ctx = ctx.with_label("server", "exporter");
       co_await td::actor::ask(http_.get(), &http::HttpServer::collect, server_ctx);
@@ -83,6 +84,15 @@ class PrometheusExporter final : public td::actor::Actor {
   };
 
   Stats stats_;
+
+  // TD_PERF_COUNTER sites, read straight from the process-global registry: it already keeps a
+  // cumulative {count, duration} pair per site, so there is nothing to mirror. Duration is in rdtsc
+  // ticks — machine-specific in absolute terms, but it makes rate(ticks)/rate(ops) a usable
+  // average cost per operation.
+  struct PerfCounters {
+    void collect(metrics::Context ctx) const;
+  };
+  PerfCounters perf_;
   std::vector<std::function<td::actor::Task<>(metrics::Context)>> collectors_;
 
   // A full gather fans out over every peer pair, connection and overlay, so concurrent or retrying
