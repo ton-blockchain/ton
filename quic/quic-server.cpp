@@ -449,7 +449,7 @@ td::actor::Task<ServerStats> QuicServer::collect() {
 
   auto summary = closed_conn_stats_;
   for (auto &[id, conn] : connections_) {
-    summary.combine(ConnectionStatsAggregate::from_one(conn->impl_->get_stats(transport_stats_)));
+    summary += QuicConnectionMetricsAggregate::from_one(conn->impl_->get_stats(transport_stats_));
   }
 
   // get_stats updates transport_stats_, so we snapshot after the loop above.
@@ -471,7 +471,7 @@ void QuicServer::on_connection_closed(QuicConnectionId cid) {
   }
   auto state = it->second;
   LOG(INFO) << "Close connection: " << *state;
-  closed_conn_stats_.combine(ConnectionStatsAggregate::from_one(state->impl_->get_stats(transport_stats_)).retire());
+  closed_conn_stats_ += QuicConnectionMetricsAggregate::from_one(state->impl_->get_stats(transport_stats_)).retire();
   unbind_all_cids(*state);
   if (state->in_heap()) {
     timeout_heap_.erase(state.get());
@@ -521,9 +521,6 @@ void QuicServer::log_stats(std::string reason) {
             << " packets=" << ingress.data.packets.value() << " bytes=" << ingress.data.bytes.value()
             << "} egress{syscalls=" << egress.syscalls.value() << " packets=" << egress.data.packets.value()
             << " bytes=" << egress.data.bytes.value() << "}";
-  if (connections_.empty()) {
-    return;
-  }
   for (auto &[cid, state] : connections_) {
     log_conn_stats(*state, reason.c_str());
   }
@@ -705,9 +702,46 @@ td::Result<QuicConnectionId> QuicServer::connect(td::Slice host, int port, td::E
   return QuicConnectionId(state->cid);
 }
 
+// GSO/GRO hand the kernel one descriptor carrying several datagrams; the wire tier counts datagrams.
+static td::uint64 datagram_count(const auto &message) {
+  const size_t size = message.data.size(), gso_size = message.gso_size;
+  return gso_size > 0 && size > gso_size ? (size + gso_size - 1) / gso_size : 1;
+}
+
+void QuicServer::record_egress(td::Span<td::UdpSocketFd::OutboundMessage> batch,
+                               const td::UdpSocketFd::SendResult &result) {
+  auto &egress = udp_wire_.dir.at(metrics::Direction::out);
+  // One batched send call; exact while sendmmsg is active, an undercount on the fallback path that
+  // enters the kernel once per descriptor (see UdpDirCounters::syscalls).
+  egress.syscalls.inc();
+  for (const auto &message : batch.substr(0, result.sent)) {
+    egress.data.bytes.inc(message.data.size());
+    egress.data.packets.inc(datagram_count(message));
+  }
+  // Consumed by the kernel, never put on the wire.
+  for (const auto &message : batch.substr(result.sent, result.dropped)) {
+    egress.dropped.at(metrics::Reason::internal).inc(datagram_count(message));
+  }
+}
+
+void QuicServer::record_ingress(td::Span<td::UdpSocketFd::InboundMessage> batch) {
+  auto &ingress = udp_wire_.dir.at(metrics::Direction::in);
+  // One batched receive call; exact while recvmmsg is active, an undercount on the fallback path
+  // that enters the kernel once per datagram (see UdpDirCounters::syscalls).
+  ingress.syscalls.inc();
+  for (const auto &message : batch) {
+    if (message.error->is_error()) {
+      // Malformed datagram off the socket (e.g. truncated): a wire-level reject.
+      ingress.dropped.at(metrics::Reason::invalid).inc();
+      continue;
+    }
+    ingress.data.bytes.inc(message.data.size());
+    ingress.data.packets.inc(datagram_count(message));
+  }
+}
+
 void QuicServer::drain_ingress() {
   td::PerfWarningTimer w("drain_ingress", 0.1);
-  auto &ingress = udp_wire_.dir.at(metrics::Direction::in);
   const size_t buf_size = gro_enabled_ ? kMaxDatagram : DEFAULT_MTU * kMaxBurst;
 
   std::vector<td::BufferSlice> ingress_data_buffers;  // for Windows receive_messages
@@ -731,9 +765,7 @@ void QuicServer::drain_ingress() {
       }
       break;
     }
-    // One batched receive call; exact while recvmmsg is active, an undercount on the fallback path
-    // that enters the kernel once per datagram (see UdpDirCounters::syscalls).
-    ingress.syscalls.inc();
+    record_ingress({ingress_messages_.data(), cnt});
 
     // Debug: log recvmmsg batch details periodically
     static std::atomic<size_t> ingress_log_counter = 0;
@@ -768,17 +800,13 @@ void QuicServer::drain_ingress() {
     for (size_t i = 0; i < cnt; i++) {
       bytes_budget -= std::max<size_t>(ingress_messages_[i].data.size(), 256);
       if (ingress_errors_[i].is_error()) {
-        // Malformed datagram off the socket (e.g. truncated): a wire-level reject.
-        ingress.dropped.at(metrics::Reason::invalid).inc();
         LOG(DEBUG) << "dropping inbound packet from " << ingress_msg_[i].address << ": " << ingress_errors_[i];
         continue;
       }
       ingress_msg_[i].storage = ingress_messages_[i].data;
-      ingress.data.bytes.inc(ingress_msg_[i].storage.size());
       const size_t segment_size = ingress_messages_[i].gso_size;
 
       auto handle_packet = [&](UdpMessageBuffer &packet) {
-        ingress.data.packets.inc();
         auto R = get_or_create_connection(packet);
         if (R.is_error()) {
           LOG(WARNING) << "dropping inbound packet from " << packet.address << ": " << R.error();
@@ -843,27 +871,11 @@ bool QuicServer::flush_pending() {
     return true;
   }
 
-  const size_t batch_size = pending_batch_count_ - pending_batch_sent_;
+  td::Span<td::UdpSocketFd::OutboundMessage> batch(egress_messages_.data() + pending_batch_sent_,
+                                                   pending_batch_count_ - pending_batch_sent_);
   td::UdpSocketFd::SendResult result;
-  auto status = fd_.send_messages(
-      td::Span<td::UdpSocketFd::OutboundMessage>(egress_messages_.data() + pending_batch_sent_, batch_size), result);
-
-  auto &egress = udp_wire_.dir.at(metrics::Direction::out);
-  // One batched send call; exact while sendmmsg is active, an undercount on the fallback path that
-  // enters the kernel once per descriptor (see UdpDirCounters::syscalls).
-  egress.syscalls.inc();
-  // GSO hands the kernel one descriptor carrying several datagrams; the wire tier counts datagrams.
-  auto datagrams = [](const td::UdpSocketFd::OutboundMessage &message) -> td::uint64 {
-    return message.gso_size > 0 ? (message.data.size() + message.gso_size - 1) / message.gso_size : 1;
-  };
-  for (size_t i = pending_batch_sent_; i < pending_batch_sent_ + result.sent; i++) {
-    egress.data.bytes.inc(egress_messages_[i].data.size());
-    egress.data.packets.inc(datagrams(egress_messages_[i]));
-  }
-  // Consumed by the kernel, never put on the wire.
-  for (size_t i = pending_batch_sent_ + result.sent; i < pending_batch_sent_ + result.consumed(); i++) {
-    egress.dropped.at(metrics::Reason::internal).inc(datagrams(egress_messages_[i]));
-  }
+  auto status = fd_.send_messages(batch, result);
+  record_egress(batch, result);
 
   pending_batch_sent_ += result.consumed();
 

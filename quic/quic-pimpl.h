@@ -217,7 +217,7 @@ struct QuicConnectionPImpl {
     }
   }
 
-  ConnectionStats get_stats(TransportStats& transport_stats);
+  QuicConnectionMetrics get_stats(TransportStats& transport_stats);
 
  private:
   td::IPAddress local_address_;
