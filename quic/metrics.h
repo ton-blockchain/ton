@@ -115,7 +115,9 @@ struct QuicConnectionMetricsAggregate {
 
 struct TransportStats {
   metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> dropped;
-  metrics::Labeled<metrics::Counter, HandshakeResult> handshakes;
+  // `in` is a peer dialling us, `out` is us dialling a peer: a rejection means something very
+  // different on each side, so the two are never mixed.
+  metrics::Labeled<metrics::Counter, metrics::Direction, HandshakeResult> handshakes;
 
   TransportStats& operator+=(const TransportStats& other) {
     dropped += other.dropped;
