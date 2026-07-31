@@ -98,7 +98,7 @@ class PrometheusExporter final : public td::actor::Actor {
   // A full gather fans out over every peer pair, connection and overlay, so concurrent or retrying
   // scrapers must share one: they all wait here and are served from its output. Non-empty exactly
   // while a gather is in flight, which is what makes the flight single.
-  std::vector<PayloadPtr> waiting_;
+  std::vector<http::ResponsePromise> waiting_;
 
   std::string prefix_;
   td::actor::ActorOwn<http::HttpServer> http_ = {};
