@@ -20,6 +20,7 @@
 #include <set>
 
 #include "td/utils/Slice.h"
+#include "td/utils/Time.h"
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
@@ -30,6 +31,7 @@
 #include "td/utils/port/UdpSocketFd.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
+#include "td/utils/port/sleep.h"
 #include "td/utils/port/thread.h"
 #include "td/utils/port/thread_local.h"
 #include "td/utils/tests.h"
@@ -75,6 +77,30 @@ std::array<UdpSocketFd::OutboundMessage, 3> make_udp_outbound_batch(const IPAddr
   return {{{.to = &to, .data = "one"}, {.to = &to, .data = "two"}, {.to = &to, .data = "three"}}};
 }
 
+struct UdpReceiveResult {
+  size_t datagrams = 0;
+  size_t calls = 0;
+};
+
+// Loopback delivery is asynchronous (on macOS the first call routinely sees nothing at all), so the
+// datagrams may take several calls to show up: keep asking until they do. Both the datagram total
+// and the number of calls are exact, which is what lets the tests below pin the syscall counter.
+UdpReceiveResult receive_datagrams(UdpSocketFd &fd, UdpInboundBatch &inbound, size_t expected) {
+  UdpReceiveResult result;
+  auto deadline = Timestamp::in(10.0);
+  while (true) {
+    fd.get_poll_info().add_flags(PollFlags::Read());  // a call that ended in EAGAIN cleared it
+    size_t received = 0;
+    fd.receive_messages(inbound.messages, received).ensure();
+    result.calls++;
+    result.datagrams += received;
+    if (result.datagrams >= expected || deadline.is_in_past()) {
+      return result;
+    }
+    usleep_for(1000);
+  }
+}
+
 }  // namespace
 
 TEST(Port, UdpSocketSyscallStatsFallback) {
@@ -89,16 +115,16 @@ TEST(Port, UdpSocketSyscallStatsFallback) {
   ASSERT_EQ(3u, pair.sender.get_syscall_stats().send);
 
   UdpInboundBatch inbound;
-  pair.receiver.get_poll_info().add_flags(PollFlags::Read());
-  size_t received = 0;
-  pair.receiver.receive_messages(inbound.messages, received).ensure();
-  ASSERT_EQ(3u, received);
-  ASSERT_EQ(4u, pair.receiver.get_syscall_stats().receive);  // three datagrams, then EAGAIN
+  auto received = receive_datagrams(pair.receiver, inbound, 3);
+  ASSERT_EQ(3u, received.datagrams);
+  // One recvmsg per datagram, plus the EAGAIN that ends each call: the queue never holds the four
+  // datagrams it would take to fill the batch instead.
+  ASSERT_EQ(received.datagrams + received.calls, pair.receiver.get_syscall_stats().receive);
 
-  pair.receiver.get_poll_info().add_flags(PollFlags::Read());
-  pair.receiver.receive_messages(inbound.messages, received).ensure();
-  ASSERT_EQ(0u, received);
-  ASSERT_EQ(5u, pair.receiver.get_syscall_stats().receive);
+  auto drained = receive_datagrams(pair.receiver, inbound, 0);
+  ASSERT_EQ(0u, drained.datagrams);
+  ASSERT_EQ(1u, drained.calls);
+  ASSERT_EQ(received.datagrams + received.calls + 1, pair.receiver.get_syscall_stats().receive);
 }
 
 TEST(Port, UdpSocketSyscallStatsMmsg) {
@@ -116,14 +142,14 @@ TEST(Port, UdpSocketSyscallStatsMmsg) {
   ASSERT_EQ(1u, pair.sender.get_syscall_stats().send);
 
   UdpInboundBatch inbound;
-  size_t received = 0;
-  pair.receiver.receive_messages(inbound.messages, received).ensure();
-  ASSERT_EQ(3u, received);
-  ASSERT_EQ(1u, pair.receiver.get_syscall_stats().receive);
+  auto received = receive_datagrams(pair.receiver, inbound, 3);
+  ASSERT_EQ(3u, received.datagrams);
+  ASSERT_EQ(received.calls, pair.receiver.get_syscall_stats().receive);  // one recvmmsg per call
 
-  pair.receiver.receive_messages(inbound.messages, received).ensure();
-  ASSERT_EQ(0u, received);
-  ASSERT_EQ(2u, pair.receiver.get_syscall_stats().receive);
+  auto drained = receive_datagrams(pair.receiver, inbound, 0);
+  ASSERT_EQ(0u, drained.datagrams);
+  ASSERT_EQ(1u, drained.calls);
+  ASSERT_EQ(received.calls + 1, pair.receiver.get_syscall_stats().receive);
 }
 #endif
 
