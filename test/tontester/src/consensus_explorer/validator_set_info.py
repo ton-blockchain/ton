@@ -36,6 +36,9 @@ class ValidatorSetInfoProvider:
         self._cache_dir: Path | None = Path(cache_dir) if cache_dir else None
         if self._cache_dir is not None:
             self._cache_dir.mkdir(parents=True, exist_ok=True)
+        # A group's validator set never changes, but resolving it costs two
+        # explorer round trips even when the output is already on disk.
+        self._text_cache: dict[str, str] = {}
 
     @staticmethod
     def _resolve_show_validator_set_bin(path: str | Path | None) -> Path | None:
@@ -347,6 +350,10 @@ class ValidatorSetInfoProvider:
         if self._show_validator_set_bin is None:
             return "validator set info: show-validator-set binary is not configured"
 
+        cached = self._text_cache.get(valgroup_id)
+        if cached is not None:
+            return cached
+
         parsed_group = self._parse_valgroup_id(valgroup_id)
         if parsed_group is None:
             return f"validator set info: invalid valgroup format ({valgroup_id})"
@@ -369,4 +376,6 @@ class ValidatorSetInfoProvider:
         except Exception as exc:
             return f"validator set info error for {valgroup_id}: {exc}"
 
+        # Successes only, so a transient explorer failure does not stick.
+        self._text_cache[valgroup_id] = result
         return result

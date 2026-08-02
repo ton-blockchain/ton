@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast, final
 
-from .models import GroupData, GroupInfo, SlotData
+from .models import ConsensusData, GroupData, GroupInfo, SlotData
 from .parser import GroupParser
 from .validator_set_info import ValidatorSetInfoProvider
 
@@ -54,6 +54,9 @@ class LeaderStatsAnalyzer:
         self._parser = parser
         self._vset_provider = vset_provider
         self._verbose = verbose
+        # valgroup_name -> (revision it was computed from, stats). Tiny next to
+        # the slots/events behind them, so every analyzed group stays cached.
+        self._stats_cache: dict[str, tuple[int, GroupLeaderStats | None]] = {}
 
     def list_groups(
         self,
@@ -71,7 +74,32 @@ class LeaderStatsAnalyzer:
         return result
 
     def analyze_group(self, valgroup_name: str) -> GroupLeaderStats | None:
-        data = self._parser.parse_group(valgroup_name)
+        revision = self._parser.group_revision(valgroup_name)
+        cached = self._cached_stats(valgroup_name, revision)
+        if cached is not None:
+            return cached[0]
+        stats = self._analyze_data(valgroup_name, self._parser.parse_group(valgroup_name))
+        self._store_stats(valgroup_name, revision, stats)
+        return stats
+
+    def _cached_stats(
+        self, valgroup_name: str, revision: int | None
+    ) -> tuple[GroupLeaderStats | None] | None:
+        """Returns a 1-tuple holding the cached value, or None when not cached."""
+        if revision is None:
+            return None
+        entry = self._stats_cache.get(valgroup_name)
+        if entry is None or entry[0] != revision:
+            return None
+        return (entry[1],)
+
+    def _store_stats(
+        self, valgroup_name: str, revision: int | None, stats: GroupLeaderStats | None
+    ) -> None:
+        if revision is not None:
+            self._stats_cache[valgroup_name] = (revision, stats)
+
+    def _analyze_data(self, valgroup_name: str, data: ConsensusData) -> GroupLeaderStats | None:
         if not data.groups:
             return None
 
@@ -170,12 +198,29 @@ class LeaderStatsAnalyzer:
         time_until: float | None = None,
     ) -> list[GroupLeaderStats]:
         groups = self.list_groups(time_from, time_until)
-        results: list[GroupLeaderStats] = []
+
+        # Read revisions before parsing: a change landing mid-parse then bumps
+        # past what we store, so the next call recomputes.
+        revisions = {g.valgroup_name: self._parser.group_revision(g.valgroup_name) for g in groups}
+
+        results: dict[str, GroupLeaderStats | None] = {}
+        to_parse: list[str] = []
         for g in groups:
-            stats = self.analyze_group(g.valgroup_name)
-            if stats is not None:
-                results.append(stats)
-        return results
+            cached = self._cached_stats(g.valgroup_name, revisions[g.valgroup_name])
+            if cached is not None:
+                results[g.valgroup_name] = cached[0]
+            else:
+                to_parse.append(g.valgroup_name)
+
+        if to_parse:
+            parsed = self._parser.parse_groups(to_parse)
+            for name in to_parse:
+                data = parsed.get(name)
+                stats = self._analyze_data(name, data) if data is not None else None
+                self._store_stats(name, revisions[name], stats)
+                results[name] = stats
+
+        return [stats for g in groups if (stats := results.get(g.valgroup_name)) is not None]
 
     @staticmethod
     def aggregate_by_validator(
@@ -728,7 +773,13 @@ def _main() -> None:
 
         file_index = FileIndex(stats_dir, db_path, sudo_helper=sudo_helper or None)
         cached_parser = CachedGroupParser(
-            file_index, hostname_regex, sudo_helper=sudo_helper or None
+            file_index,
+            hostname_regex,
+            sudo_helper=sudo_helper or None,
+            # Only consensus events are read here; block stats and the MC files
+            # pulled in for crosslink markers are pure overhead.
+            need_block_stats=False,
+            need_crosslinks=False,
         )
         file_index.install_callback(cached_parser)
 
