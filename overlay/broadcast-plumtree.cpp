@@ -982,22 +982,24 @@ void BroadcastsPlumtree::Impl::forward_payload(OverlayImpl *overlay, const td::B
   }
 
   auto active = overlay->get_plumtree_neighbours(options_.active_neighbours_);
-  active.erase(std::remove_if(active.begin(), active.end(),
-                              [&](const auto &peer) { return peer == overlay->local_id() || peer == from; }),
-               active.end());
-  std::set<adnl::AdnlNodeIdShort> full_sent;
   remove_inactive_eager_peers(overlay, *s);
   trim_eager_to_capacity(overlay, *s);
   for (const auto &peer : s->eager) {
-    if (peer != from && send_payload_to(overlay, broadcast_id, part, peer)) {
-      full_sent.insert(peer);
+    if (peer != from) {
+      send_payload_to(overlay, broadcast_id, part, peer);
     }
   }
 
+  active.erase(std::remove_if(active.begin(), active.end(),
+                              [&](const auto &peer) {
+                                return peer == overlay->local_id() || peer == from || s->eager.contains(peer);
+                              }),
+               active.end());
+  td::Random::Fast rnd;
+  td::random_shuffle(td::as_mutable_span(active), rnd);
+  active.resize(std::min<std::size_t>(active.size(), options_.ihave_fanout_));
   for (const auto &peer : active) {
-    if (peer != from && !full_sent.contains(peer) && !s->eager.contains(peer)) {
-      send_ihave_to(overlay, part, broadcast_id, peer);
-    }
+    send_ihave_to(overlay, part, broadcast_id, peer);
   }
 }
 
