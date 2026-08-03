@@ -38,6 +38,11 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
     ++admission_window_.rejected;
     co_return td::Status::Error(ErrorCode::notready, "not ready");
   }
+  auto ext_msg_limits = last_masterchain_state_->get_ext_msg_limits();
+  if (data.size() > ext_msg_limits.max_size) {
+    ++admission_window_.rejected;
+    co_return td::Status::Error("external message too large, rejecting");
+  }
   if (checkers_.empty()) {
     init_checkers();
   }
@@ -64,7 +69,7 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
   ++checker_inflight_[worker];
   td::Timer check_timer;
   auto r_checked = co_await td::actor::ask(checkers_[worker].get(), &ExtMessageChecker::check, std::move(data),
-                                           last_masterchain_state_->get_ext_msg_limits(), last_masterchain_state_)
+                                           ext_msg_limits, last_masterchain_state_)
                        .wrap();
   --checker_inflight_[worker];
   admission_window_.check_time += check_timer.elapsed();

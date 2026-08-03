@@ -368,13 +368,11 @@ void AdnlPeerTableImpl::register_channel(AdnlChannelIdShort id, AdnlNodeIdShort 
                                          td::actor::ActorId<AdnlChannel> channel) {
   auto it = local_ids_.find(local_id);
   auto cat = (it != local_ids_.end()) ? it->second.cat : 255;
-  auto success = channels_.emplace(id, std::make_pair(channel, cat)).second;
-  CHECK(success);
+  channels_.emplace(id, std::make_pair(channel, cat));
 }
 
 void AdnlPeerTableImpl::unregister_channel(AdnlChannelIdShort id) {
-  auto erased = channels_.erase(id);
-  CHECK(erased == 1);
+  channels_.erase(id);
 }
 
 void AdnlPeerTableImpl::start_up() {

@@ -575,10 +575,8 @@ void dump_msghdr(StringBuilder &sb, const struct msghdr &header, size_t index, s
   }
 }
 
-bool is_fatal_sendmsg_error(int sendmsg_errno, bool is_gso) {
+bool is_fatal_sendmsg_error(int sendmsg_errno) {
   switch (sendmsg_errno) {
-    case EINVAL:
-      return !is_gso;
     case EBADF:
     case ENOTSOCK:
     case EPIPE:
@@ -748,7 +746,7 @@ class UdpSocketFdImpl {
       is_sent = true;
       return Status::OK();
     }
-    if (is_fatal_sendmsg_error(sendmsg_errno, is_gso)) {
+    if (is_fatal_sendmsg_error(sendmsg_errno)) {
       log_sendmsg_fatal(native_fd, sendmsg_errno, message, message_header);
     }
     return process_sendmsg_error(sendmsg_errno, is_dropped, is_gso);
@@ -797,10 +795,9 @@ class UdpSocketFdImpl {
           // EMSGSIZE that plain UDP would return after PMTU shrinks. Drop the packet like other
           // path-MTU send errors instead of aborting the process.
           LOG(WARNING) << "Silently drop GSO packet :( " << error;
-          is_dropped = true;
-          return error;
         }
-        [[fallthrough]];
+        is_dropped = true;
+        return error;
       case EBADF:         // impossible
       case ENOTSOCK:      // impossible
       case EPIPE:         // impossible for udp
@@ -909,7 +906,7 @@ class UdpSocketFdImpl {
     }
 
     bool is_dropped = false;
-    if (is_fatal_sendmsg_error(sendmmsg_errno, has_gso)) {
+    if (is_fatal_sendmsg_error(sendmmsg_errno)) {
       log_sendmmsg_fatal(native_fd, sendmmsg_errno, messages, headers, to_send);
     }
     auto status = process_sendmsg_error(sendmmsg_errno, is_dropped, has_gso);

@@ -1867,15 +1867,17 @@ void LiteQuery::perform_getConfigParams(BlockIdExt blkid, int mode, std::vector<
     request_mc_block_data_state(blkid);
   } else {
     // get configuration from previous key block
-    load_prevKeyBlock(blkid, [this, mode, param_list = std::move(param_list)](
+    load_prevKeyBlock(blkid, [this, Self = actor_id(this), mode, param_list = std::move(param_list)](
                                  td::Result<std::pair<BlockIdExt, Ref<BlockQ>>> res) mutable {
-      if (res.is_error()) {
-        this->abort_query(res.move_as_error());
-      } else {
-        this->base_blk_id_ = res.ok().first;
-        this->mc_block_ = res.move_as_ok().second;
-        this->continue_getConfigParams(mode, std::move(param_list));
-      }
+      td::actor::send_lambda(Self, [this, res = std::move(res), mode, param_list = std::move(param_list)]() mutable {
+        if (res.is_error()) {
+          abort_query(res.move_as_error());
+        } else {
+          base_blk_id_ = res.ok().first;
+          mc_block_ = res.move_as_ok().second;
+          continue_getConfigParams(mode, std::move(param_list));
+        }
+      });
     });
   }
 }

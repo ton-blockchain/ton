@@ -1872,15 +1872,21 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   }
   if (in_msg_state.not_null() &&
       (acc_status == Account::acc_uninit ||
-       (acc_status == Account::acc_frozen && account.state_hash == in_msg_state->get_hash().bits()))) {
+       (!was_frozen && acc_status == Account::acc_frozen && account.state_hash == in_msg_state->get_hash().bits()))) {
     if (acc_status == Account::acc_uninit && cfg.is_address_suspended(account.workchain, account.addr)) {
       LOG(DEBUG) << "address is suspended, skipping compute phase";
       cp.skip_reason = ComputePhase::sk_suspended;
       return true;
     }
     use_msg_state = true;
-    if (!(unpack_msg_state(cfg, false) && account.check_addr_rewrite_length(new_fixed_prefix_length))) {
-      LOG(DEBUG) << "cannot unpack in_msg_state, or it has bad fixed_prefix_length; cannot init account state";
+    if (!unpack_msg_state(cfg, false)) {
+      LOG(DEBUG) << "cannot unpack in_msg_state; cannot init account state";
+      cp.skip_reason = ComputePhase::sk_bad_state;
+      return true;
+    }
+    if ((cfg.global_version < 16 || acc_status != Account::acc_frozen) &&
+        !account.check_addr_rewrite_length(new_fixed_prefix_length)) {
+      LOG(DEBUG) << "in_msg_state has bad fixed_prefix_length; cannot init account state";
       cp.skip_reason = ComputePhase::sk_bad_state;
       return true;
     }

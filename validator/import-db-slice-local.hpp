@@ -72,11 +72,26 @@ class ArchiveImporterLocal : public td::actor::Actor {
   td::Promise<std::pair<BlockSeqno, BlockSeqno>> promise_;
 
   struct BlockInfo {
-    td::Ref<BlockData> block;
+    BlockIdExt id;
+    td::BufferSlice block_data;
     td::Ref<Proof> proof;
     td::Ref<ProofLink> proof_link;
     size_t data_size = 0;
     bool import = false;
+
+    td::Result<td::Ref<BlockData>> get_block() {
+      if (block.not_null()) {
+        return block;
+      }
+      if (block_data.is_null()) {
+        return td::Status::Error(PSTRING() << "no block data for " << id.id);
+      }
+      TRY_RESULT_ASSIGN(block, create_block(id, block_data.clone()));
+      return block;
+    }
+
+   private:
+    td::Ref<BlockData> block;
   };
   std::map<BlockIdExt, BlockInfo> blocks_;
   std::map<BlockSeqno, BlockIdExt> masterchain_blocks_;

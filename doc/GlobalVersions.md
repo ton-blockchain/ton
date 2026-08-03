@@ -322,6 +322,7 @@ __Enabled in mainnet on 2026-06-05__
 - When the action phase fails with bounce-on-fail, bounce now returns the whole remaining message balance before action phase.
 
 ## Version 15
+__Enabled in mainnet on 2026-07-23__
 
 ### Transaction changes
 - Libraries:
@@ -330,3 +331,8 @@ __Enabled in mainnet on 2026-06-05__
   - Account cannot be deployed with non-null libraries dict.
 - When action phase fails, action fine is now collected for all successful messages as well.
 - Total bits/cells in outgoing messages of a transaction are now limited to `5242880`/`20480` (configured in `ConfigParam 43`).
+
+## Version 16
+
+### Transaction changes
+- Fixed not being able to unfreeze accounts with non-zero fixed prefix length.
