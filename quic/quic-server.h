@@ -74,6 +74,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     // pre-unidirectional wire behaviour, kept for measurement and old-peer comparison. Consumed by
     // send_message(); nothing outside this server chooses a message's stream kind.
     bool message_streams_bidi = false;
+    // RFC 9221 DATAGRAM frame size; 0 keeps messages on streams.
+    td::uint32 max_datagram_frame_size = 0;
   };
   class Callback {
    public:
@@ -102,9 +104,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
 
-  // A fire-and-forget message on a stream of the server's choosing: unidirectional, so nothing
-  // answers it and its confirmation is the transport's own ack, unless Options::message_streams_bidi
-  // asks for the old bidirectional behaviour. Returns the stream id.
+  // Uses a DATAGRAM when enabled, negotiated, and small enough; otherwise a stream. Returns -1 for a DATAGRAM.
   td::Result<QuicStreamID> send_message(QuicConnectionId cid, td::BufferSlice data);
 
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn,
