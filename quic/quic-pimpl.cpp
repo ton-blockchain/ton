@@ -302,6 +302,8 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   params.initial_max_streams_bidi = options.max_streams_bidi;
   params.initial_max_stream_data_bidi_remote = options.initial_max_stream_data_bidi_remote;
   params.initial_max_stream_data_bidi_local = options.initial_max_stream_data_bidi_local;
+  params.initial_max_streams_uni = options.max_streams_uni;
+  params.initial_max_stream_data_uni = options.initial_max_stream_data_uni;
   params.initial_max_data = options.initial_max_data;
 }
 
@@ -706,17 +708,30 @@ void QuicConnectionPImpl::set_stream_receive_credit_from_max_size(QuicStreamID s
   }
 }
 
-td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
+td::Result<QuicStreamID> QuicConnectionPImpl::open_stream(StreamDirection direction, td::BufferSlice data,
+                                                          bool fin) {
   QuicStreamID sid;
 
-  int rv = ngtcp2_conn_open_bidi_stream(conn(), &sid, nullptr);
+  int rv;
+  if (direction == StreamDirection::Unidirectional) {
+    rv = ngtcp2_conn_open_uni_stream(conn(), &sid, nullptr);
+  } else {
+    rv = ngtcp2_conn_open_bidi_stream(conn(), &sid, nullptr);
+  }
   if (rv != 0) {
     // Carry rv as the status code so callers can classify (e.g. STREAM_ID_BLOCKED = flow control).
-    return td::Status::Error(rv, PSTRING() << "ngtcp2_conn_open_bidi_stream failed: " << ngtcp2_err_str(rv));
+    return td::Status::Error(rv, PSTRING() << "open stream failed: " << ngtcp2_err_str(rv));
   }
 
-  CHECK(streams_.emplace(sid, OutboundStreamState{}).second);
+  auto [it, inserted] = streams_.emplace(sid, OutboundStreamState{});
+  CHECK(inserted);
+  TRY_STATUS(buffer_stream(sid, it->second, std::move(data), fin));
   return sid;
+}
+
+bool QuicConnectionPImpl::peer_advertised_initial_uni_credit() const {
+  const auto* remote_params = ngtcp2_conn_get_remote_transport_params(conn());
+  return remote_params != nullptr && remote_params->initial_max_streams_uni > 0;
 }
 
 td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice data, bool fin) {
@@ -724,7 +739,11 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice 
   if (it == streams_.end()) {
     return td::Status::Error("stream not opened");
   }
-  auto& st = it->second;
+  return buffer_stream(sid, it->second, std::move(data), fin);
+}
+
+td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, OutboundStreamState& st, td::BufferSlice data,
+                                               bool fin) {
   if (st.fin_pending || st.fin_submitted) {
     return td::Status::Error("stream already closed");
   }
@@ -896,13 +915,32 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
   return 0;
 }
 
-int QuicConnectionPImpl::on_stream_close(int64_t stream_id) {
+int QuicConnectionPImpl::on_stream_close(int64_t stream_id, bool clean) {
   streams_.erase(stream_id);
-  if (ngtcp2_is_bidi_stream(stream_id) && !ngtcp2_conn_is_local_stream(conn(), stream_id)) {
-    ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
+  StreamCloseEvent event{.sid = stream_id,
+                         .initiator = ngtcp2_conn_is_local_stream(conn(), stream_id) ? StreamInitiator::Local
+                                                                                     : StreamInitiator::Peer,
+                         .direction = ngtcp2_is_bidi_stream(stream_id) ? StreamDirection::Bidirectional
+                                                                      : StreamDirection::Unidirectional,
+                         .clean = clean};
+  // A peer bidi stream cannot close until both halves have closed, so our response is already done
+  // and its credit can return now. A peer uni stream closes on its receive side alone, while its
+  // payload may still be queued for upper-layer dispatch, so its credit is held until then.
+  if (event.initiator == StreamInitiator::Peer) {
+    if (event.direction == StreamDirection::Bidirectional) {
+      ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
+    } else {
+      ++held_peer_uni_streams_;
+    }
   }
-  callback_->on_stream_closed(stream_id);
+  callback_->on_stream_closed(event);
   return 0;
+}
+
+void QuicConnectionPImpl::release_peer_uni_stream_credit() {
+  CHECK(held_peer_uni_streams_ != 0);
+  --held_peer_uni_streams_;
+  ngtcp2_conn_extend_max_streams_uni(conn(), 1);
 }
 
 int QuicConnectionPImpl::on_extend_max_stream_data(QuicStreamID sid) {
@@ -971,10 +1009,11 @@ int QuicConnectionPImpl::acked_stream_data_offset_cb(ngtcp2_conn*, int64_t strea
   return pimpl->on_acked_stream_data_offset(stream_id, offset, datalen);
 }
 
-int QuicConnectionPImpl::stream_close_cb(ngtcp2_conn*, uint32_t /*flags*/, int64_t stream_id,
-                                         uint64_t /*app_error_code*/, void* user_data, void* /*stream_user_data*/) {
+int QuicConnectionPImpl::stream_close_cb(ngtcp2_conn*, uint32_t flags, int64_t stream_id, uint64_t /*app_error_code*/,
+                                         void* user_data, void* /*stream_user_data*/) {
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
-  return pimpl->on_stream_close(stream_id);
+  // A close carrying an app error code is a reset (ours or the peer's), not a delivered stream.
+  return pimpl->on_stream_close(stream_id, (flags & NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET) == 0);
 }
 
 int QuicConnectionPImpl::extend_max_stream_data_cb(ngtcp2_conn*, int64_t stream_id, uint64_t /*max_data*/,

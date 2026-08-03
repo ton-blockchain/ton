@@ -258,6 +258,9 @@ QuicConnectionOptions QuicServer::build_connection_options() const {
   if (options_.max_streams_bidi.has_value()) {
     conn_options.max_streams_bidi = *options_.max_streams_bidi;
   }
+  if (options_.max_streams_uni.has_value()) {
+    conn_options.max_streams_uni = *options_.max_streams_uni;
+  }
   if (options_.ack_thresh.has_value()) {
     conn_options.ack_thresh = *options_.ack_thresh;
   }
@@ -453,6 +456,15 @@ void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
   on_connection_updated(*state);
 }
 
+void QuicServer::release_peer_uni_stream_credit(QuicConnectionId cid) {
+  auto state = find_connection(cid);
+  if (!state) {
+    return;  // the connection is gone and its credit with it
+  }
+  state->impl().release_peer_uni_stream_credit();
+  on_connection_updated(*state);
+}
+
 td::actor::Task<ServerStats> QuicServer::collect() {
   reflect_socket_syscalls();
   // Only the socket knows how many datagrams the receive queue lost; fold in what accrued since the
@@ -630,8 +642,8 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   td::Status on_stream_data(StreamDataEvent event) override {
     return callback_.on_stream(cid_, event.sid, std::move(event.data), event.fin);
   }
-  void on_stream_closed(QuicStreamID sid) override {
-    return callback_.on_stream_closed(cid_, sid);
+  void on_stream_closed(StreamCloseEvent event) override {
+    return callback_.on_stream_closed(cid_, event);
   }
 
  private:
@@ -1052,20 +1064,41 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::vari
   if (!state) {
     return td::Status::Error("Connection not found");
   }
+  return send_stream_on(*state, std::move(stream), std::move(data), is_end);
+}
 
-  QuicStreamID sid;
+td::Result<QuicStreamID> QuicServer::send_stream_on(ConnectionState &state,
+                                                    std::variant<QuicStreamID, StreamOptions> stream,
+                                                    td::BufferSlice data, bool is_end) {
   if (auto *existing = std::get_if<QuicStreamID>(&stream)) {
-    sid = *existing;
-  } else {
-    TRY_RESULT_ASSIGN(sid, state->impl().open_stream());
-    auto &options = std::get<StreamOptions>(stream);
-    callback_->set_stream_options(cid, sid, options);
-    if (options.max_size.has_value()) {
-      state->impl().set_stream_receive_credit_from_max_size(sid, *options.max_size);
-    }
+    TRY_STATUS(state.impl().buffer_stream(*existing, std::move(data), is_end));
+    on_connection_updated(state);
+    return *existing;
   }
 
-  TRY_STATUS(state->impl().buffer_stream(sid, std::move(data), is_end));
+  auto &options = std::get<StreamOptions>(stream);
+  TRY_RESULT(sid, state.impl().open_stream(options.direction, std::move(data), is_end));
+  if (options.direction == StreamDirection::Bidirectional) {
+    callback_->set_stream_options(state.cid, sid, options);
+    if (options.max_size.has_value()) {
+      state.impl().set_stream_receive_credit_from_max_size(sid, *options.max_size);
+    }
+  }
+  on_connection_updated(state);
+  return sid;
+}
+
+td::Result<QuicStreamID> QuicServer::send_message(QuicConnectionId cid, td::BufferSlice data) {
+  auto state = find_connection(cid);
+  if (!state) {
+    return td::Status::Error("Connection not found");
+  }
+  // A peer that never advertised unidirectional stream credit would refuse every open forever, so
+  // it gets the pre-unidirectional wire behaviour and its messages ride bidirectional streams.
+  auto direction = !options_.message_streams_bidi && state->impl().peer_advertised_initial_uni_credit()
+                       ? StreamDirection::Unidirectional
+                       : StreamDirection::Bidirectional;
+  TRY_RESULT(sid, state->impl().open_stream(direction, std::move(data), true));
   on_connection_updated(*state);
   return sid;
 }

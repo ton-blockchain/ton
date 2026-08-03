@@ -27,14 +27,12 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
 
   td::Status on_connected(QuicConnectionId cid, td::SecureString local_public_key, td::SecureString peer_public_key,
                           bool is_outbound) override {
-    auto server = td::actor::actor_dynamic_cast<QuicServer>(td::actor::actor_id());
-    CHECK(!server.empty());
     TRY_RESULT(peer_id, parse_peer_id(peer_public_key));
     TRY_RESULT(local_id, parse_peer_id(local_public_key));
     auto &conn = connections_[cid];
     conn.local_id = local_id;
     conn.peer_id = peer_id;
-    td::actor::send_closure(sender_, &QuicSender::on_connected, server, cid, local_id, peer_id, is_outbound);
+    td::actor::send_closure(sender_, &QuicSender::on_connected, server_actor(), cid, local_id, peer_id, is_outbound);
     return td::Status::OK();
   }
 
@@ -65,9 +63,24 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     erase_connection(cid);
     td::actor::send_closure(sender_, &QuicSender::on_closed, cid);
   }
-  void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) override {
-    erase_stream(cid, sid);
-    td::actor::send_closure(sender_, &QuicSender::on_stream_closed, cid, sid);
+  void on_stream_closed(QuicConnectionId cid, StreamCloseEvent event) override {
+    if (event.initiator == StreamInitiator::Peer) {
+      erase_stream(cid, event.sid);
+      if (event.direction == StreamDirection::Unidirectional) {
+        // This lands behind the payload in QuicSender's mailbox; only then may the peer reuse the
+        // stream credit.
+        td::actor::send_closure(sender_, &QuicSender::return_peer_uni_stream_credit, server_actor(), cid);
+      }
+      return;
+    }
+
+    if (event.direction == StreamDirection::Unidirectional) {
+      td::actor::send_closure(sender_, &QuicSender::on_local_uni_stream_closed, cid, event.sid, event.clean);
+      return;
+    }
+
+    erase_stream(cid, event.sid);
+    td::actor::send_closure(sender_, &QuicSender::on_local_bidi_stream_closed, cid, event.sid);
   }
 
   void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
@@ -101,6 +114,13 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
  private:
+  td::actor::ActorId<QuicServer> server_actor() {
+    if (server_.empty()) {
+      server_ = td::actor::actor_dynamic_cast<QuicServer>(td::actor::actor_id());
+    }
+    return server_;
+  }
+
   struct StreamState : public td::HeapNode {
     QuicConnectionId cid;
     QuicStreamID sid;
@@ -190,6 +210,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
   td::actor::ActorId<QuicSender> sender_;
+  td::actor::ActorId<QuicServer> server_;
 
   struct Connection {
     using Streams = std::map<QuicStreamID, StreamState>;
@@ -363,6 +384,10 @@ void QuicSender::add_id(adnl::AdnlNodeIdShort local_id) {
   add_local_id_coro(local_id).start().detach("add local id");
 }
 
+td::actor::Task<> QuicSender::add_id_and_wait(adnl::AdnlNodeIdShort local_id) {
+  return add_local_id_coro(local_id);
+}
+
 void QuicSender::log_stats(std::string reason) {
   for (auto &it : servers_by_port_) {
     td::actor::send_closure(it.second.get(), &QuicServer::log_stats, reason);
@@ -393,7 +418,7 @@ td::actor::Task<> QuicSender::collect(metrics::Context ctx) {
   quic.collect(result);
   quic.collect(app_, "app");
   quic.collect(query_roundtrip_, "query_roundtrip");
-  quic.collect(message_delivery_, "message_delivery");
+  quic.collect(message_confirmation_, "message_confirmation");
   co_return {};
 }
 
@@ -457,14 +482,13 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdSh
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
   td::Timer timer;
-  auto stream_id = co_await td::actor::ask(conn->server, &QuicServer::send_stream, conn->cid,
-                                           StreamOptions{get_peer_mtu(src, dst)}, std::move(wire_data), true);
-  // The peer answers every message with an empty response (see on_request), which lands in
-  // on_stream_complete and closes this entry — that is the only delivery confirmation we get.
-  // The receipt cannot overtake this emplace: send_stream only buffers the data and yields, so the
+  auto stream_id = co_await td::actor::ask(conn->server, &QuicServer::send_message, conn->cid, std::move(wire_data));
+  // Nothing comes back on a unidirectional stream, so confirmation is the transport's ack of the data:
+  // the stream closes once the peer has acknowledged all of it, and on_stream_closed records it.
+  // The close cannot overtake this emplace: send_message only buffers the data and yields, so the
   // datagram leaves in a later QuicServer turn, while our resumption was already queued on this
-  // actor when send_stream returned. Both arrive here in FIFO order.
-  conn->messages.emplace(stream_id, Connection::PendingMessage{.magic = magic, .timer = timer});
+  // actor when send_message returned. Both arrive here in FIFO order.
+  CHECK(conn->messages.emplace(stream_id, Connection::PendingMessage{.magic = magic, .timer = timer}).second);
   co_return td::Unit{};
 }
 
@@ -712,7 +736,7 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
   }
 
   if (r_data.is_error()) {
-    record_message_delivery(*connection, stream_id, false);
+    record_message_confirmation(*connection, stream_id, false);
     auto resp_it = connection->responses.find(stream_id);
     if (resp_it != connection->responses.end()) {
       resp_it->second.set_error(r_data.move_as_error());
@@ -723,8 +747,8 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
 
   auto data = r_data.move_as_ok();
   if (data.empty()) {
-    record_message_delivery(*connection, stream_id, true);
-    return;  // a message triggers an empty response, which is its delivery receipt
+    record_message_confirmation(*connection, stream_id, true);
+    return;  // a legacy bidi message triggers an empty response as its confirmation
   }
 
   // Requests are accepted only on inbound connections, answers only on outbound ones: an outbound
@@ -750,27 +774,43 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
              << " head:" << td::format::as_hex_dump<4>(data.as_slice().truncate(32));
 }
 
-void QuicSender::on_stream_closed(QuicConnectionId cid, QuicStreamID stream_id) {
+void QuicSender::return_peer_uni_stream_credit(td::actor::ActorId<QuicServer> server, QuicConnectionId cid) {
+  td::actor::send_closure(server, &QuicServer::release_peer_uni_stream_credit, cid);
+}
+
+void QuicSender::on_local_uni_stream_closed(QuicConnectionId cid, QuicStreamID sid, bool clean) {
   auto it = by_cid_.find(cid);
   if (it == by_cid_.end()) {
     return;
   }
-  auto connection = it->second;
-  record_message_delivery(*connection, stream_id, false);
-  auto resp_it = connection->responses.find(stream_id);
-  if (resp_it == connection->responses.end()) {
+  // A local uni stream closes cleanly only after the peer transport acknowledged data and FIN.
+  record_message_confirmation(*it->second, sid, clean);
+}
+
+void QuicSender::on_local_bidi_stream_closed(QuicConnectionId cid, QuicStreamID sid) {
+  auto it = by_cid_.find(cid);
+  if (it == by_cid_.end()) {
+    return;
+  }
+  auto &connection = *it->second;
+
+  // A legacy bidi message is confirmed by its empty receipt in on_stream_complete. If its stream
+  // closes while the message is still pending, a clean transport close is not a substitute.
+  record_message_confirmation(connection, sid, false);
+  auto resp_it = connection.responses.find(sid);
+  if (resp_it == connection.responses.end()) {
     return;
   }
   resp_it->second.set_error(td::Status::Error("stream closed"));
-  connection->responses.erase(resp_it);
+  connection.responses.erase(resp_it);
 }
 
-void QuicSender::record_message_delivery(Connection &connection, QuicStreamID stream_id, bool ok) {
+void QuicSender::record_message_confirmation(Connection &connection, QuicStreamID stream_id, bool ok) {
   auto it = connection.messages.find(stream_id);
   if (it == connection.messages.end()) {
     return;
   }
-  message_delivery_.record(it->second.magic, connection.path.second, it->second.timer.elapsed(), ok);
+  message_confirmation_.record(it->second.magic, connection.path.second, it->second.timer.elapsed(), ok);
   connection.messages.erase(it);
 }
 
@@ -793,7 +833,7 @@ void QuicSender::on_closed(QuicConnectionId cid) {
 
   // Nothing will confirm the messages still in flight on this connection.
   while (!connection->messages.empty()) {
-    record_message_delivery(*connection, connection->messages.begin()->first, false);
+    record_message_confirmation(*connection, connection->messages.begin()->first, false);
   }
 
   auto status = std::move(connection->init_error).value_or(td::Status::Error("connection closed"));
@@ -809,11 +849,17 @@ void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID
 void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID stream_id,
                             ton_api::quic_message &message) {
   app_.record(metrics::Kind::message, metrics::Direction::in, message.data_.as_slice());
+  // A message on a bidirectional stream (an old peer, or message_streams_bidi) accounts delivery by
+  // our half closing: without the empty receipt its stream state and credit never return -- and
+  // sending it here, once this actor has taken the message, is what makes the peer's budget real
+  // backpressure. A unidirectional stream is already closed by the time we get here, so its credit
+  // is returned instead by on_stream_closed, the message behind it in this actor's mailbox.
+  if (ngtcp2_is_bidi_stream(stream_id)) {
+    td::actor::send_closure(connection->server, &QuicServer::send_stream, connection->cid, stream_id, td::BufferSlice{},
+                            true);
+  }
   td::actor::send_closure(adnl_, &adnl::AdnlPeerTable::deliver, connection->path.second, connection->path.first,
                           std::move(message.data_));
-  // TODO: use unidirectional stream, so there will be no need to process result
-  td::actor::send_closure(connection->server, &QuicServer::send_stream, connection->cid, stream_id, td::BufferSlice{},
-                          true);
 }
 
 td::actor::Task<> QuicSender::on_inbound_query(std::shared_ptr<Connection> connection, QuicStreamID stream_id,

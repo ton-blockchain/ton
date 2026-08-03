@@ -42,7 +42,7 @@ class QuicTester : public td::actor::Actor {
       td::actor::send_closure(tester_, &QuicTester::on_closed, cid);
     }
 
-    void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::QuicStreamID sid) override {
+    void on_stream_closed(ton::quic::QuicConnectionId cid, ton::quic::StreamCloseEvent event) override {
     }
 
     void set_peer_mtu_callback(
