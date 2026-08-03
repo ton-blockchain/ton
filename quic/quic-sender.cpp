@@ -1,4 +1,5 @@
 #include <utility>
+#include <vector>
 
 #include "auto/tl/ton_api.hpp"
 #include "td/actor/coro_utils.h"
@@ -38,28 +39,26 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
   td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) override {
-    TRY_RESULT(stream, get_or_create_stream(cid, sid));
-    auto &state = *stream.state;
-    if (stream.inserted) {
-      td::uint64 mtu = get_peer_mtu_(stream.local_id, stream.peer_id);
-      apply_stream_options(state, StreamOptions{mtu});
+    auto connection_it = connections_.find(cid);
+    if (connection_it == connections_.end()) {
+      return td::Status::Error("unknown connection");
     }
-    if (state.is_failed()) {
-      LOG(INFO) << "got data for closed stream, ignore cid=" << cid << " sid=" << sid;
-      return td::Status::Error("stream failed");
+    auto &connection = connection_it->second;
+    if (!is_end) {
+      return buffer_nonfinal(connection, cid, sid, std::move(data));
     }
-    state.append(std::move(data));
-    auto status = state.check_limits();
-    if (status.is_ok() && !is_end) {
-      return td::Status::OK();
+
+    auto stream_it = connection.streams.find(sid);
+    if (stream_it == connection.streams.end()) {
+      StreamOptions options{get_peer_mtu_(connection.local_id, connection.peer_id)};
+      return complete_direct(cid, sid, options, std::move(data));
     }
-    if (status.is_error()) {
-      LOG(INFO) << "close stream cid=" << cid << " sid=" << sid << " due to " << status.error();
-      fail_stream(state, status.clone());
-      return status;
+    if (stream_it->second.can_complete_direct()) {
+      auto options = stream_it->second.options();
+      erase_stream(connection, stream_it);
+      return complete_direct(cid, sid, options, std::move(data));
     }
-    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, state.extract());
-    return td::Status::OK();
+    return complete_buffered(connection, stream_it, std::move(data));
   }
 
   void on_closed(QuicConnectionId cid) override {
@@ -72,11 +71,12 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   }
 
   void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) override {
-    auto R = get_or_create_stream(cid, sid);
-    if (R.is_error()) {
+    auto connection_it = connections_.find(cid);
+    if (connection_it == connections_.end()) {
       return;
     }
-    apply_stream_options(*R.ok().state, options);
+    auto stream_it = connection_it->second.streams.try_emplace(sid, cid, sid).first;
+    apply_stream_options(stream_it->second, options);
   }
 
   void loop(td::Timestamp now, StreamShutdownList &shutdown) override {
@@ -108,12 +108,16 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     StreamState(QuicConnectionId cid, QuicStreamID sid) : cid(cid), sid(sid) {
     }
 
-    void append(td::BufferSlice data) {
+    td::Status append(td::BufferSlice data) {
       CHECK(!failed_);
-      if (!data.empty()) {
-        total_size_ += data.size();
-        builder_.append(std::move(data));
+      received_size_ += data.size();
+      if (options_.max_size.has_value() && received_size_ > options_.max_size) {
+        return stream_size_error(options_, received_size_);
       }
+      if (!data.empty()) {
+        chunks_.push_back(std::move(data));
+      }
+      return td::Status::OK();
     }
 
     bool is_failed() const {
@@ -122,56 +126,77 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
 
     void mark_failed() {
       failed_ = true;
-      builder_ = {};
-    }
-
-    td::Status check_limits() const {
-      if (failed_) {
-        return td::Status::Error("stream already failed");
-      }
-      if (options_.max_size.has_value() && total_size_ > options_.max_size) {
-        return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options_.max_size
-                                          << " received=" << total_size_ << describe_query());
-      }
-      return td::Status::OK();
+      chunks_ = std::vector<td::BufferSlice>();
     }
 
     td::Status timeout_error() const {
       return td::Status::Error(PSLICE() << "stream timeout exceeded: " << options_.timeout_seconds
-                                        << "s received=" << total_size_ << describe_query());
+                                        << "s received=" << received_size_ << describe_query(options_));
     }
 
-    td::BufferSlice extract() {
+    td::BufferSlice take_payload() {
       CHECK(!failed_);
-      return builder_.extract();
+      CHECK(!chunks_.empty());
+      CHECK(received_size_ != 0);
+      td::BufferSlice result;
+      if (chunks_.size() == 1) {
+        result = std::move(chunks_.front());
+      } else {
+        result = td::BufferSlice(static_cast<size_t>(received_size_));
+        auto dest = result.as_slice();
+        for (const auto &chunk : chunks_) {
+          dest.copy_from(chunk.as_slice());
+          dest.remove_prefix(chunk.size());
+        }
+        CHECK(dest.empty());
+      }
+      chunks_.clear();
+      received_size_ = 0;
+      return result;
     }
 
     void set_options(StreamOptions options) {
       options_ = options;
     }
 
+    const StreamOptions &options() const {
+      return options_;
+    }
+
+    // Holds options only: no chunk has been buffered, so the whole payload can bypass this state.
+    bool can_complete_direct() const {
+      return !failed_ && received_size_ == 0;
+    }
+
    private:
-    td::BufferBuilder builder_;
-    td::uint64 total_size_{0};
+    std::vector<td::BufferSlice> chunks_;
+    td::uint64 received_size_{0};
     StreamOptions options_;
     bool failed_{false};
-
-    // An inbound stream answers no query of ours, so there is nothing to name.
-    std::string describe_query() const {
-      if (options_.query_magic == 0) {
-        return {};
-      }
-      return PSTRING() << " query_size=" << options_.query_size
-                       << " query_tl=" << metrics::tl_name(options_.query_magic);
-    }
   };
+
+  // An inbound stream answers no query of ours, so there is nothing to name.
+  static std::string describe_query(const StreamOptions &options) {
+    if (options.query_magic == 0) {
+      return {};
+    }
+    return PSTRING() << " query_size=" << options.query_size << " query_tl=" << metrics::tl_name(options.query_magic);
+  }
+
+  // One spelling of the limit error for both the single-chunk and the reassembly path.
+  static td::Status stream_size_error(const StreamOptions &options, td::uint64 received) {
+    return td::Status::Error(PSLICE() << "stream size limit exceeded: max=" << *options.max_size
+                                      << " received=" << received << describe_query(options));
+  }
 
   td::actor::ActorId<QuicSender> sender_;
 
   struct Connection {
+    using Streams = std::map<QuicStreamID, StreamState>;
+
     adnl::AdnlNodeIdShort local_id;
     adnl::AdnlNodeIdShort peer_id;
-    std::map<QuicStreamID, StreamState> streams;
+    Streams streams;
   };
   // Node-based: StreamState lives in these Connections and the timeout heap holds raw pointers to
   // it, and callers hold a Connection& across stream work, so entries must not move.
@@ -179,25 +204,59 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
   td::KHeap<double> timeout_heap_;
   std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> get_peer_mtu_;
 
-  struct StreamLookup {
-    StreamState *state;
-    bool inserted;
-    adnl::AdnlNodeIdShort local_id;
-    adnl::AdnlNodeIdShort peer_id;
-  };
-
-  td::Result<StreamLookup> get_or_create_stream(QuicConnectionId cid, QuicStreamID sid) {
-    auto it = connections_.find(cid);
-    if (it == connections_.end()) {
-      return td::Status::Error("unknown connection");
+  td::Status append_chunk(StreamState &state, td::BufferSlice data) {
+    if (state.is_failed()) {
+      LOG(INFO) << "got data for closed stream, ignore cid=" << state.cid << " sid=" << state.sid;
+      return td::Status::Error("stream failed");
     }
-    auto it2 = it->second.streams.try_emplace(sid, StreamState{cid, sid});
-    return StreamLookup{
-        .state = &it2.first->second,
-        .inserted = it2.second,
-        .local_id = it->second.local_id,
-        .peer_id = it->second.peer_id,
-    };
+    auto status = state.append(std::move(data));
+    if (status.is_error()) {
+      LOG(INFO) << "close stream cid=" << state.cid << " sid=" << state.sid << " due to " << status.error();
+      fail_stream(state, status.clone());
+    }
+    return status;
+  }
+
+  td::Status buffer_nonfinal(Connection &connection, QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data) {
+    auto [stream_it, inserted] = connection.streams.try_emplace(sid, cid, sid);
+    if (inserted) {
+      // Inbound stream: nothing has described it, so it is bounded by the peer's MTU.
+      apply_stream_options(stream_it->second, StreamOptions{get_peer_mtu_(connection.local_id, connection.peer_id)});
+    }
+    return append_chunk(stream_it->second, std::move(data));
+  }
+
+  td::Status complete_buffered(Connection &connection, Connection::Streams::iterator stream_it,
+                               td::BufferSlice data) {
+    auto status = append_chunk(stream_it->second, std::move(data));
+    if (status.is_error()) {
+      return status;
+    }
+    auto cid = stream_it->second.cid;
+    auto sid = stream_it->second.sid;
+    auto result = stream_it->second.take_payload();
+    erase_stream(connection, stream_it);
+    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(result));
+    return td::Status::OK();
+  }
+
+  td::Status complete_direct(QuicConnectionId cid, QuicStreamID sid, const StreamOptions &options,
+                             td::BufferSlice data) {
+    if (options.max_size.has_value() && data.size() > options.max_size) {
+      auto error = stream_size_error(options, data.size());
+      LOG(INFO) << "close stream cid=" << cid << " sid=" << sid << " due to " << error;
+      td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, error.clone());
+      return error;
+    }
+    td::actor::send_closure(sender_, &QuicSender::on_stream_complete, cid, sid, std::move(data));
+    return td::Status::OK();
+  }
+
+  void erase_stream(Connection &connection, Connection::Streams::iterator stream_it) {
+    if (stream_it->second.in_heap()) {
+      timeout_heap_.erase(&stream_it->second);
+    }
+    connection.streams.erase(stream_it);
   }
 
   void erase_stream(QuicConnectionId cid, QuicStreamID sid) {
@@ -205,15 +264,11 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     if (cid_it == connections_.end()) {
       return;
     }
-    auto &by_sid = cid_it->second.streams;
-    auto sid_it = by_sid.find(sid);
-    if (sid_it == by_sid.end()) {
+    auto sid_it = cid_it->second.streams.find(sid);
+    if (sid_it == cid_it->second.streams.end()) {
       return;
     }
-    if (sid_it->second.in_heap()) {
-      timeout_heap_.erase(&sid_it->second);
-    }
-    by_sid.erase(sid_it);
+    erase_stream(cid_it->second, sid_it);
   }
 
   void erase_connection(QuicConnectionId cid) {
