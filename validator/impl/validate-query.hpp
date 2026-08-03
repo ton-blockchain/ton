@@ -287,6 +287,7 @@ class ValidateQuery : public td::actor::Actor {
   bool soft_reject_query(std::string error, td::BufferSlice reason = {});
   void alarm() override;
   void start_up() override;
+  void tear_down() override;
 
   void load_prev_states();
 
@@ -485,7 +486,7 @@ class ValidateQuery : public td::actor::Actor {
   }
 
   ValidationStats stats_;
-  void record_stats_and_stop(bool valid, std::string error_message = "");
+  void record_stats();
 };
 
 }  // namespace validator

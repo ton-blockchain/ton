@@ -42,7 +42,7 @@ class ArchiveImporter : public td::actor::Actor {
 
   void processed_mc_archive();
   void check_masterchain_block(BlockSeqno seqno);
-  void checked_masterchain_proof(BlockHandle handle, td::Ref<BlockData> data);
+  void checked_masterchain_proof(BlockHandle handle, td::BufferSlice data);
   void applied_masterchain_block(BlockHandle handle);
   void got_new_masterchain_state(td::Ref<MasterchainState> state);
 

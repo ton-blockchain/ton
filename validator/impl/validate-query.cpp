@@ -136,7 +136,7 @@ bool ValidateQuery::reject_query(std::string error, td::BufferSlice reason) {
   error = error_ctx() + error;
   LOG(ERROR) << "REJECT: aborting validation of block candidate for " << shard_ << " : " << error;
   if (main_promise) {
-    td::actor::send_closure(actor_id(this), &ValidateQuery::record_stats_and_stop, false, error);
+    stats_.comment = error;
     errorlog::ErrorLog::log(PSTRING() << "REJECT: aborting validation of block candidate for " << shard_ << " : "
                                       << error << ": data=" << block_candidate.id.file_hash.to_hex()
                                       << " collated_data=" << block_candidate.collated_file_hash.to_hex());
@@ -144,6 +144,7 @@ bool ValidateQuery::reject_query(std::string error, td::BufferSlice reason) {
     errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
     main_promise.set_result(CandidateReject{std::move(error), std::move(reason)});
   }
+  stop();
   return false;
 }
 
@@ -173,7 +174,7 @@ bool ValidateQuery::soft_reject_query(std::string error, td::BufferSlice reason)
   error = error_ctx() + error;
   LOG(ERROR) << "SOFT REJECT: aborting validation of block candidate for " << shard_ << " : " << error;
   if (main_promise) {
-    td::actor::send_closure(actor_id(this), &ValidateQuery::record_stats_and_stop, false, error);
+    stats_.comment = error;
     errorlog::ErrorLog::log(PSTRING() << "SOFT REJECT: aborting validation of block candidate for " << shard_ << " : "
                                       << error << ": data=" << block_candidate.id.file_hash.to_hex()
                                       << " collated_data=" << block_candidate.collated_file_hash.to_hex());
@@ -181,6 +182,7 @@ bool ValidateQuery::soft_reject_query(std::string error, td::BufferSlice reason)
     errorlog::ErrorLog::log_file(block_candidate.collated_data.clone());
     main_promise.set_result(CandidateReject{std::move(error), std::move(reason)});
   }
+  stop();
   return false;
 }
 
@@ -195,7 +197,7 @@ bool ValidateQuery::fatal_error(td::Status error) {
   error.ensure_error();
   LOG(ERROR) << "aborting validation of block candidate for " << shard_ << " : " << error.to_string();
   if (main_promise) {
-    td::actor::send_closure(actor_id(this), &ValidateQuery::record_stats_and_stop, false, error.message().str());
+    stats_.comment = error.message().str();
     auto c = error.code();
     if (c <= -667 && c >= -670) {
       errorlog::ErrorLog::log(PSTRING() << "FATAL ERROR: aborting validation of block candidate for " << shard_ << " : "
@@ -206,6 +208,7 @@ bool ValidateQuery::fatal_error(td::Status error) {
     }
     main_promise.set_error(std::move(error));
   }
+  stop();
   return false;
 }
 
@@ -256,11 +259,13 @@ void ValidateQuery::finish_query() {
       td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
                               std::move(storage_stat_cache_update_));
     }
-    td::actor::send_closure(actor_id(this), &ValidateQuery::record_stats_and_stop, true, "");
+    stats_.valid = true;
+    stats_.comment = (PSTRING() << "OK ts=" << now_);
     LOG(WARNING) << "validate query done";
     double ok_from_utime = now_ms_ ? (double)now_ms_.value() / 1000.0 : (double)now_;
     main_promise.set_result(CandidateAccept{.ok_from_utime = ok_from_utime});
   }
+  stop();
 }
 
 /*
@@ -424,6 +429,10 @@ void ValidateQuery::start_up() {
                                 });
   // ...
   REJECT_UNLESS_VOID(pending);
+}
+
+void ValidateQuery::tear_down() {
+  record_stats();
 }
 
 /**
@@ -1927,7 +1936,7 @@ void ValidateQuery::after_get_aux_shard_state(ton::BlockIdExt blkid, td::Result<
  * @param ccvc The Catchain validators configuration.
  * @param is_new Set to true if the top shard block is new, false if it existed in the previous shard configuration.
  *
- * @returns True if the validation wasa successful, false otherwise.
+ * @returns True if the validation was successful, false otherwise.
  */
 bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block::McShardHash* sibling,
                                     const block::WorkchainInfo* wc_info, const block::CatchainValidatorsConfig& ccvc,
@@ -2186,6 +2195,19 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
           "before_merge set for shard "s + shard.to_str() +
           " in shard configuration, but it has not been announced in future split/merge for this shard");
     }
+    if (info.fsm_utime() > now_) {
+      return reject_query("before_merge set for shard "s + shard.to_str() +
+                          " in shard configuration, but fsm_utime is in the future");
+    }
+    if (!sibling->is_fsm_merge()) {
+      return reject_query(
+          "before_merge set for shard "s + shard.to_str() +
+          " in shard configuration, but it has not been announced in future split/merge for this shard's sibling");
+    }
+    if (sibling->fsm_utime() > now_) {
+      return reject_query("before_merge set for shard "s + shard.to_str() +
+                          " in shard configuration, fsm_utime in shard's sibling is in the future");
+    }
     if (!merge_cond) {
       return reject_query("before_merge set for shard "s + shard.to_str() +
                           " in shard configuration, but merge conditions are not met");
@@ -2441,6 +2463,9 @@ bool ValidateQuery::check_utime_lt() {
   if (now_ms_.value() / 1000 != now_) {
     return reject_query(PSTRING() << "gen_utime is " << now_ << ", but gen_utime_ms in ConsensusExtraData is "
                                   << now_ms_.value());
+  }
+  if (now_ > (UnixTime)td::Clocks::system() + 30) {
+    return reject_query(PSTRING() << "gen_utime " << now_ << " is too far in the future");
   }
   return true;
 }
@@ -7514,11 +7539,11 @@ bool ValidateQuery::try_validate() {
         if (!compute_next_state()) {
           return reject_query("cannot compute next state");
         }
-        if (!request_neighbor_queues()) {
-          return fatal_error("cannot request neighbor output queues");
-        }
         if (is_masterchain() && !check_shard_layout()) {
           return fatal_error("new shard layout is invalid");
+        }
+        if (!request_neighbor_queues()) {
+          return fatal_error("cannot request neighbor output queues");
         }
         if (!check_cur_validator_set()) {
           return fatal_error("current validator set is not entitled to generate this block");
@@ -7657,17 +7682,11 @@ bool ValidateQuery::try_validate() {
 /**
  * Sends validation work time to manager.
  */
-void ValidateQuery::record_stats_and_stop(bool valid, std::string error_message) {
+void ValidateQuery::record_stats() {
   stats_.block_id = id_;
   stats_.collated_data_hash = block_candidate.collated_file_hash;
   stats_.validated_at = td::Clocks::system();
   stats_.self = local_validator_id_;
-  stats_.valid = valid;
-  if (valid) {
-    stats_.comment = (PSTRING() << "OK ts=" << now_);
-  } else {
-    stats_.comment = std::move(error_message);
-  }
   stats_.actual_bytes = (td::uint32)block_candidate.data.size();
   stats_.actual_collated_data_bytes = (td::uint32)block_candidate.collated_data.size();
   stats_.total_time = perf_timer_.elapsed();
@@ -7678,7 +7697,6 @@ void ValidateQuery::record_stats_and_stop(bool valid, std::string error_message)
                << "s, cpu time = " << stats_.work_time.total.cpu << "s";
   LOG(WARNING) << perf_log_;
   td::actor::send_closure(manager, &ValidatorManager::log_validate_query_stats, std::move(stats_));
-  stop();
 }
 
 }  // namespace validator

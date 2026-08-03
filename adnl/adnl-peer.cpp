@@ -880,14 +880,26 @@ void AdnlPeerPairImpl::update_addr_list(AdnlAddressList addr_list) {
   if (has_reverse_addr_ && addrs.empty()) {
     return;
   }
+  for (const auto &addr : addrs) {
+    auto r_ip = addr->to_ip_address();
+    if (r_ip.is_error()) {
+      VLOG(adnl, INFO) << this << ": dropping addr list: unsupported address: " << r_ip.move_as_error();
+      return;
+    }
+    if (r_ip.ok().is_ipv6()) {
+      VLOG(adnl, INFO) << this << ": dropping addr list: unsupported address: ipv6";
+      return;
+    }
+    if (r_ip.ok().get_port() == 0) {
+      VLOG(adnl, INFO) << this << ": dropping addr list: unsupported address: port is 0";
+      return;
+    }
+  }
   std::vector<Conn> conns;
   auto &old_conns = priority ? priority_conns_ : conns_;
 
   size_t idx = 0;
   for (const auto &addr : addrs) {
-    if ((mode_ & static_cast<td::uint32>(AdnlLocalIdMode::direct_only)) && !addr->is_public()) {
-      continue;
-    }
     auto hash = addr->get_hash();
     if (idx < old_conns.size() && old_conns[idx].addr->get_hash() == hash) {
       conns.push_back(std::move(old_conns[idx]));
