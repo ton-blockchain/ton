@@ -742,12 +742,12 @@ TEST(Metrics, QuicPeerMetricsSplitByTrust) {
   trusted.app.record(::ton::metrics::Kind::query, ::ton::metrics::Direction::out, unknown_magic, 7);
   trusted.app.record_dropped(::ton::metrics::Direction::out, ::ton::metrics::Reason::internal);
   trusted.query_roundtrip.observe(unknown_magic, 0.02, false);
-  trusted.message_delivery.observe(unknown_magic, 0.02, true);
+  trusted.message_confirmation.observe(unknown_magic, 0.02, true);
 
   untrusted.app.record(::ton::metrics::Kind::query, ::ton::metrics::Direction::out, unknown_magic, 3);
   untrusted.app.record_dropped(::ton::metrics::Direction::out, ::ton::metrics::Reason::limited);
   untrusted.query_roundtrip.observe(unknown_magic, 0.02, true);
-  untrusted.message_delivery.observe(unknown_magic, 0.02, false);
+  untrusted.message_confirmation.observe(unknown_magic, 0.02, false);
 
   auto out = render(peers, "quic");
   ASSERT_TRUE(has_line(
@@ -759,10 +759,11 @@ TEST(Metrics, QuicPeerMetricsSplitByTrust) {
                        "quic_app_dropped_total{trust=\"trusted\",direction=\"out\",reason=\"internal\"} "
                        "1.000000"));
   ASSERT_TRUE(has_line(out, "quic_query_roundtrip_failed_total{trust=\"trusted\",tl=\"unknown\"} 1.000000"));
-  ASSERT_TRUE(has_line(out, "quic_message_delivery_failed_total{trust=\"untrusted\",tl=\"unknown\"} 1.000000"));
+  ASSERT_TRUE(
+      has_line(out, "quic_message_confirmation_failed_total{trust=\"untrusted\",tl=\"unknown\"} 1.000000"));
   ASSERT_EQ(1u, count_of(out, "# TYPE quic_app_bytes counter\n"));
   ASSERT_EQ(1u, count_of(out, "# TYPE quic_query_roundtrip_seconds histogram\n"));
-  ASSERT_EQ(1u, count_of(out, "# TYPE quic_message_delivery_seconds histogram\n"));
+  ASSERT_EQ(1u, count_of(out, "# TYPE quic_message_confirmation_seconds histogram\n"));
 }
 
 TEST(MetricsGolden, Quic) {
@@ -794,8 +795,8 @@ TEST(MetricsGolden, Quic) {
                 "ton_quic_app_dropped counter",
                 "ton_quic_query_roundtrip_seconds histogram",
                 "ton_quic_query_roundtrip_failed counter",
-                "ton_quic_message_delivery_seconds histogram",
-                "ton_quic_message_delivery_failed counter",
+                "ton_quic_message_confirmation_seconds histogram",
+                "ton_quic_message_confirmation_failed counter",
             }),
             emitted_families([](Context ctx) {
               ::ton::quic::ServerStats server;

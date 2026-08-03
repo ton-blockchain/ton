@@ -54,12 +54,13 @@ struct QuicConnectionOptions {
   static constexpr size_t DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE = 256 << 10;
   static constexpr size_t DEFAULT_MAX_STREAM_WINDOW = 6 << 20;
   static constexpr size_t DEFAULT_MAX_STREAMS_BIDI = 4096;
+  static constexpr size_t DEFAULT_MAX_STREAMS_UNI = 4096;
   static constexpr ngtcp2_duration DEFAULT_IDLE_TIMEOUT = 15 * NGTCP2_SECONDS;
   static constexpr ngtcp2_duration DEFAULT_KEEP_ALIVE_TIMEOUT = 5 * NGTCP2_SECONDS;
   // 25ms is RFC 9000's default, but mainnet validators see a ~36ms mean RTT, so advertising 25ms
   // inflates the peer's PTO (srtt + 4*rttvar + max_ack_delay) by roughly 70% and slows real loss
-  // recovery. The ack threshold stays at ngtcp2's spec-conformant 2: raising it measured no benefit
-  // once stream credit was batched, and deviating costs loss-detection latency on lossy paths.
+  // recovery. The ack threshold stays at ngtcp2's spec-conformant 2: raising it measured no benefit,
+  // and deviating costs loss-detection latency on lossy paths.
   static constexpr ngtcp2_duration DEFAULT_MAX_ACK_DELAY = 10 * NGTCP2_MILLISECONDS;
   static constexpr size_t DEFAULT_ACK_THRESH = 2;
 
@@ -69,6 +70,10 @@ struct QuicConnectionOptions {
   size_t initial_max_stream_data_bidi_remote = DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE;
   size_t max_stream_window = DEFAULT_MAX_STREAM_WINDOW;
   size_t max_streams_bidi = DEFAULT_MAX_STREAMS_BIDI;
+  // Messages travel on unidirectional streams, avoiding an application-level receipt. Transport
+  // stream credit can be returned together with ACKs.
+  size_t max_streams_uni = DEFAULT_MAX_STREAMS_UNI;
+  size_t initial_max_stream_data_uni = DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE;
   ngtcp2_duration idle_timeout = DEFAULT_IDLE_TIMEOUT;
   ngtcp2_duration keep_alive_timeout = DEFAULT_KEEP_ALIVE_TIMEOUT;
   ngtcp2_duration max_ack_delay = DEFAULT_MAX_ACK_DELAY;
@@ -176,7 +181,7 @@ struct QuicConnectionPImpl {
     virtual void on_local_cid_retired(QuicConnectionId cid) = 0;
     virtual void on_handshake_completed(HandshakeCompletedEvent event) = 0;
     virtual td::Status on_stream_data(StreamDataEvent event) = 0;
-    virtual void on_stream_closed(QuicStreamID sid) = 0;
+    virtual void on_stream_closed(StreamCloseEvent event) = 0;
 
     virtual ~Callback() = default;
   };
@@ -210,9 +215,17 @@ struct QuicConnectionPImpl {
   [[nodiscard]] td::Result<InitialCidState> take_initial_cid_state();
 
   void shutdown_stream(QuicStreamID sid);
+  // Releases one peer-opened unidirectional stream after the upper layer has processed its payload.
+  // Calls are exactly once and correspond one-for-one with peer uni close events.
+  void release_peer_uni_stream_credit();
   void set_stream_receive_credit_from_max_size(QuicStreamID sid, td::uint64 max_size);
 
-  [[nodiscard]] td::Result<QuicStreamID> open_stream();
+  [[nodiscard]] td::Result<QuicStreamID> open_stream(StreamDirection direction, td::BufferSlice data, bool fin);
+  // Whether the peer's initial transport parameters allowed unidirectional streams at all. A peer
+  // from before messages moved onto them advertises none and, receiving none, never sends a
+  // MAX_STREAMS_UNI either -- so opening one would fail forever rather than eventually, and its
+  // messages have to ride bidirectional streams instead.
+  [[nodiscard]] bool peer_advertised_initial_uni_credit() const;
   [[nodiscard]] td::Status buffer_stream(QuicStreamID sid, td::BufferSlice data, bool fin);
   [[nodiscard]] ngtcp2_conn_info get_conn_info() const;
   [[nodiscard]] size_t get_last_packet_streams() const {
@@ -255,6 +268,8 @@ struct QuicConnectionPImpl {
     bool in_ready_queue = false;
   };
 
+  [[nodiscard]] td::Status buffer_stream(QuicStreamID sid, OutboundStreamState& st, td::BufferSlice data, bool fin);
+
   openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_;
   openssl_ptr<SSL, &SSL_free> ssl_;
   openssl_ptr<ngtcp2_crypto_ossl_ctx, &ngtcp2_crypto_ossl_ctx_del> ossl_ctx_;
@@ -263,6 +278,9 @@ struct QuicConnectionPImpl {
   bool local_cid_callbacks_enabled_{false};
 
   size_t sids_encountered = 0;
+  // Peer-opened unidirectional streams the transport has closed but the upper layer has not yet
+  // processed. The close event and release call are an exactly-once counting contract.
+  size_t held_peer_uni_streams_ = 0;
   td::uint64 last_pkt_discarded_ = 0;
   bool last_ingress_discarded_ = false;
   metrics::Labeled<metrics::Counter, metrics::Direction> stream_bytes_;
@@ -335,7 +353,7 @@ struct QuicConnectionPImpl {
   int on_handshake_completed();
   int on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data);
   int on_acked_stream_data_offset(int64_t stream_id, uint64_t offset, uint64_t datalen);
-  int on_stream_close(int64_t stream_id);
+  int on_stream_close(int64_t stream_id, bool clean);
   int on_extend_max_stream_data(QuicStreamID sid);
   int on_get_new_connection_id(ngtcp2_cid* cid, uint8_t* token, size_t cidlen);
   int on_remove_connection_id(const ngtcp2_cid* cid);

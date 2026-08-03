@@ -34,12 +34,12 @@ TON_METRIC_DEFINE_LABEL(Trust, "trust", QUIC_TRUST_LIST)
 struct PeerMetrics {
   metrics::App app;
   metrics::TlLatencyBucket query_roundtrip{"quic query roundtrip", "seconds"};
-  metrics::TlLatencyBucket message_delivery{"quic message delivery", "seconds"};
+  metrics::TlLatencyBucket message_confirmation{"quic message confirmation", "seconds"};
 
   void collect(metrics::Context ctx) const {
     ctx.collect(app, "app");
     ctx.collect(query_roundtrip, "query_roundtrip");
-    ctx.collect(message_delivery, "message_delivery");
+    ctx.collect(message_confirmation, "message_confirmation");
   }
 };
 

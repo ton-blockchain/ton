@@ -41,6 +41,8 @@ struct StreamOptions {
   double timeout_seconds = 0.0;
   td::uint64 query_size = 0;
   td::int32 query_magic = 0;  // 0 on inbound streams: no query of ours to describe
+  // A unidirectional stream has no application receipt or response half to process.
+  StreamDirection direction = StreamDirection::Bidirectional;
 };
 
 struct StreamShutdownList {
@@ -60,6 +62,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
     std::optional<size_t> max_streams_bidi = std::nullopt;
+    std::optional<size_t> max_streams_uni = std::nullopt;
     std::optional<size_t> ack_thresh = std::nullopt;
     std::optional<double> max_ack_delay_seconds = std::nullopt;
     td::uint32 new_connection_rate_limit_capacity = 10;
@@ -67,6 +70,10 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     td::uint32 global_new_connection_rate_limit_capacity = 100000;
     double global_new_connection_rate_limit_period = 0.00001;
     bool stateless_retry = true;
+    // Messages ride bidirectional streams and confirmation is the peer's empty receipt -- the
+    // pre-unidirectional wire behaviour, kept for measurement and old-peer comparison. Consumed by
+    // send_message(); nothing outside this server chooses a message's stream kind.
+    bool message_streams_bidi = false;
   };
   class Callback {
    public:
@@ -74,7 +81,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
                                     td::SecureString peer_public_key, bool is_outbound) = 0;
     virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
-    virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
+    // Each peer-initiated unidirectional close must eventually be matched by exactly one
+    // release_peer_uni_stream_credit() call, after its payload has been processed.
+    virtual void on_stream_closed(QuicConnectionId cid, StreamCloseEvent event) = 0;
     virtual void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
     }
     virtual void loop(td::Timestamp now, StreamShutdownList &streams_to_shutdown) {
@@ -93,10 +102,17 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
 
+  // A fire-and-forget message on a stream of the server's choosing: unidirectional, so nothing
+  // answers it and its confirmation is the transport's own ack, unless Options::message_streams_bidi
+  // asks for the old bidirectional behaviour. Returns the stream id.
+  td::Result<QuicStreamID> send_message(QuicConnectionId cid, td::BufferSlice data);
+
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn,
                                        td::Slice sni);
 
   void shutdown_stream(QuicConnectionId cid, QuicStreamID sid);
+  // Releases exactly one peer-opened unidirectional stream after the callback has processed it.
+  void release_peer_uni_stream_credit(QuicConnectionId cid);
   void on_connection_closed(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
@@ -222,6 +238,8 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg);
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
+  td::Result<QuicStreamID> send_stream_on(ConnectionState &state, std::variant<QuicStreamID, StreamOptions> stream,
+                                          td::BufferSlice data, bool is_end);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
   td::Result<std::shared_ptr<ConnectionState>> create_inbound_connection(const UdpMessageBuffer &msg_in,
                                                                          const VersionCid &initial_packet,

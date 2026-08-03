@@ -251,7 +251,7 @@
         "includeAll": true,
         "multi": false,
         "hide": 0,
-        "description": "Filters peer-attributable QUIC app, query, delivery, and ready-connection metrics. The wire/app overhead ratio remains all-peers so its app denominator matches the unsplit wire numerator. Socket/pre-auth QUIC and all ADNL, RLDP2, and overlay series also remain all-peers. Pre-trust builds expose no trust label: their QUIC series appear under All, but not under trusted or untrusted.",
+        "description": "Filters peer-attributable QUIC app, query, confirmation, and ready-connection metrics. The wire/app overhead ratio remains all-peers so its app denominator matches the unsplit wire numerator. Socket/pre-auth QUIC and all ADNL, RLDP2, and overlay series also remain all-peers. Pre-trust builds expose no trust label: their QUIC series appear under All, but not under trusted or untrusted.",
         "allValue": ".*"
       }
     ]
@@ -944,7 +944,7 @@
     {
       "id": 21,
       "type": "timeseries",
-      "title": "Message delivery p95 (${agg:text} node \u25be)",
+      "title": "Message confirmation p95 (${agg:text} node \u25be)",
       "gridPos": {
         "x": 8,
         "y": 5,
@@ -1069,7 +1069,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval]))))",
+          "expr": "quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_confirmation_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval]))))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1081,7 +1081,7 @@
         },
         {
           "refId": "ATTR",
-          "expr": "(histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) and on (trust, job, instance, ton_scope) (bottomk by (trust)(1, (avg_over_time((abs((histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) - on (trust) group_left() (quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))))))[$__range:5m] @ end()) or last_over_time((abs((histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) - on (trust) group_left() (quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))))))[1ms:1ms] @ end()))))",
+          "expr": "(histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_confirmation_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) and on (trust, job, instance, ton_scope) (bottomk by (trust)(1, (avg_over_time((abs((histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_confirmation_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) - on (trust) group_left() (quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_confirmation_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))))))[$__range:5m] @ end()) or last_over_time((abs((histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_confirmation_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) - on (trust) group_left() (quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_confirmation_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))))))[1ms:1ms] @ end()))))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1091,7 +1091,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "\u25be QUIC fire-and-forget delivery p95 to the receiver's empty acknowledgement, split by peer class; each node's own p95, collapsed across nodes by the Node switch. Plain ADNL has no acknowledgement. RLDP2 transfer delivery is separate below because bulk-transfer latency is not comparable. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+      "description": "\u25be QUIC fire-and-forget confirmation p95 to the peer transport's acknowledgement of stream data and FIN, split by peer class; each node's own p95, collapsed across nodes by the Node switch. Plain ADNL has no acknowledgement. RLDP2 transfer delivery is separate below because bulk-transfer latency is not comparable. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
     },
     {
       "id": 22,
@@ -1454,7 +1454,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0))",
+          "expr": "quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1462,7 +1462,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
-          "legendFormat": "quic {{trust}} delivery"
+          "legendFormat": "quic {{trust}} confirmation"
         },
         {
           "refId": "B",
@@ -1526,12 +1526,12 @@
         },
         {
           "refId": "ATTR",
-          "expr": "(sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) and on (trust, job, instance, ton_scope) (bottomk by (trust)(1, (avg_over_time((abs((sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) - on (trust) group_left() (quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)))))[$__range:5m] @ end()) or last_over_time((abs((sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) - on (trust) group_left() (quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)))))[1ms:1ms] @ end()))))",
+          "expr": "(sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) and on (trust, job, instance, ton_scope) (bottomk by (trust)(1, (avg_over_time((abs((sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) - on (trust) group_left() (quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)))))[$__range:5m] @ end()) or last_over_time((abs((sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) - on (trust) group_left() (quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)))))[1ms:1ms] @ end()))))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "legendFormat": "quic {{trust}} delivery \u21d2 {{instance}}"
+          "legendFormat": "quic {{trust}} confirmation \u21d2 {{instance}}"
         },
         {
           "refId": "ATTR2",
@@ -1581,7 +1581,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "\u25be Failures divided by measured deliveries, roundtrips, or packets, computed per node and then collapsed by the Node aggregation switch rather than fleet-wide, so one struggling peer set is not averaged away; at the default worst each line is its worst node and the hidden \u21d2 row names it. Idle series disappear rather than presenting 0/0 as healthy. QUIC app outcomes are split by peer class; packet loss, ADNL, and RLDP2 remain all-peers. Persistent values above 1% deserve investigation. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+      "description": "\u25be Failures divided by measured confirmations, roundtrips, or packets, computed per node and then collapsed by the Node aggregation switch rather than fleet-wide, so one struggling peer set is not averaged away; at the default worst each line is its worst node and the hidden \u21d2 row names it. Idle series disappear rather than presenting 0/0 as healthy. QUIC app outcomes are split by peer class; packet loss, ADNL, and RLDP2 remain all-peers. Persistent values above 1% deserve investigation. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
     },
     {
       "id": 53,

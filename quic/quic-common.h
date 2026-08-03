@@ -18,6 +18,25 @@
 namespace ton::quic {
 using QuicStreamID = int64_t;
 
+enum class StreamDirection : uint8_t {
+  Bidirectional,
+  Unidirectional,
+};
+
+// Relative to the endpoint emitting the event.
+enum class StreamInitiator : uint8_t {
+  Local,
+  Peer,
+};
+
+struct StreamCloseEvent {
+  QuicStreamID sid;
+  StreamInitiator initiator;
+  StreamDirection direction;
+  // The stream completed without an application error such as RESET_STREAM or STOP_SENDING.
+  bool clean;
+};
+
 struct ServerIdentity {
   [[nodiscard]] static std::string sni(adnl::AdnlNodeIdShort local_id) {
     auto hex = td::to_lower(local_id.bits256_value().to_hex());
