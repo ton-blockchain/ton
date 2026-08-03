@@ -227,7 +227,7 @@ VARIABLES = [
         "trust", label="QUIC peer class", choices=["trusted", "untrusted"], selected="All",
         include_all=True, all_value=".*",
         description=(
-            "Filters peer-attributable QUIC app, query, delivery, and ready-connection metrics. "
+            "Filters peer-attributable QUIC app, query, confirmation, and ready-connection metrics. "
             "The wire/app overhead ratio remains all-peers so its app denominator matches the "
             "unsplit wire numerator. Socket/pre-auth QUIC and all ADNL, RLDP2, and overlay series "
             "also remain all-peers. Pre-trust builds expose no trust label: their QUIC series "
@@ -321,22 +321,23 @@ ROWS = [
             ),
         ),
         net_agg_timeseries(
-            "Message delivery p95",
-            agg_line(quantile("ton_quic_message_delivery_seconds",
+            "Message confirmation p95",
+            agg_line(quantile("ton_quic_message_confirmation_seconds",
                               by=f"trust, {NODE_KEYS}", trusted=True),
                      key="trust", name="quic {{trust}}"),
             unit="s", id=21, w=8, h=9,
             description=(
-                "QUIC fire-and-forget delivery p95 to the receiver's empty acknowledgement, split "
-                "by peer class; each node's own p95, collapsed across nodes by the Node switch. "
+                "QUIC fire-and-forget confirmation p95 to the peer transport's acknowledgement of "
+                "stream data and FIN, split by peer class; each node's own p95, collapsed across "
+                "nodes by the Node switch. "
                 "Plain ADNL has no acknowledgement. RLDP2 transfer delivery is separate below "
                 "because bulk-transfer latency is not comparable."
             ),
         ),
         net_agg_timeseries(
             "Failure & loss ratios",
-            node_share("quic {{trust}} delivery", "ton_quic_message_delivery_failed_total",
-                       "ton_quic_message_delivery_seconds_count", "trust", trusted=True),
+            node_share("quic {{trust}} confirmation", "ton_quic_message_confirmation_failed_total",
+                       "ton_quic_message_confirmation_seconds_count", "trust", trusted=True),
             node_share("quic {{trust}} roundtrip", "ton_quic_query_roundtrip_failed_total",
                        "ton_quic_query_roundtrip_seconds_count", "trust", trusted=True),
             node_share("rldp2 roundtrip", "ton_rldp2_query_roundtrip_failed_total",
@@ -350,7 +351,7 @@ ROWS = [
                        "ton_rldp2_message_delivery_seconds_count"),
             unit="percentunit", id=22, w=8, h=9, thresholds=failure_bands(),
             description=(
-                "Failures divided by measured deliveries, roundtrips, or packets, computed per "
+                "Failures divided by measured confirmations, roundtrips, or packets, computed per "
                 "node and then collapsed by the Node aggregation switch rather than fleet-wide, so "
                 "one struggling peer set is not averaged away; at the default worst each line is "
                 "its worst node and the hidden ⇒ row names it. Idle series disappear rather than "

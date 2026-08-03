@@ -681,8 +681,8 @@ ROWS = [
         ),
         agg_timeseries(
             "Transport failure ratios",
-            failure_ratio("quic delivery", "ton_quic_message_delivery_failed_total",
-                          "ton_quic_message_delivery_seconds_count"),
+            failure_ratio("quic confirmation", "ton_quic_message_confirmation_failed_total",
+                          "ton_quic_message_confirmation_seconds_count"),
             failure_ratio("quic roundtrip", "ton_quic_query_roundtrip_failed_total",
                           "ton_quic_query_roundtrip_seconds_count"),
             failure_ratio("adnl roundtrip", "ton_adnl_query_roundtrip_failed_total",

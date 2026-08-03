@@ -76,7 +76,7 @@ Works against any Prometheus scraping nodes that run the metrics branch (the `to
 match the unlabeled series because **All** expands to `.*`. The same expansion preserves unlabeled
 targets during a mixed labeled/unlabeled rollout.
 
-The default view is incident-oriented: outbound query/delivery health and path/packet health stay
+The default view is incident-oriented: outbound query/message health and path/packet health stay
 expanded. Connection inventory, traffic efficiency, type composition, and noisy per-type failure
 drill-downs are collapsed until needed. RLDP2 bulk-transfer latency and outcomes have their own
 collapsed row instead of sharing a scale with low-latency ADNL/QUIC. Multi-series charts use at most
@@ -92,7 +92,7 @@ the panels say so. **QUIC RTT across nodes** deliberately carries no `▾`: it a
 and max at once, which is the whole distribution the switch would otherwise pick one point of.
 
 The **QUIC peer class** selector is global to peer-attributable QUIC app traffic and drops, query
-roundtrips, message delivery, and ready paths. The one exception is the wire/app overhead ratio: its
+roundtrips, message confirmation, and ready paths. The one exception is the wire/app overhead ratio: its
 app denominator remains all-peers so it matches the unsplit wire numerator. **All** compares trusted
 and untrusted series side by side where useful. QUIC socket/pre-auth totals and all ADNL, RLDP2, and
 overlay metrics stay all-peers because they do not carry a sound trust label; panel descriptions

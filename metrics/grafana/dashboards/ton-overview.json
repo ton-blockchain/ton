@@ -3876,7 +3876,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "quantile(${agg}, ((sum by (job, instance) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0))",
+          "expr": "quantile(${agg}, ((sum by (job, instance) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3884,7 +3884,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
-          "legendFormat": "quic delivery"
+          "legendFormat": "quic confirmation"
         },
         {
           "refId": "B",
@@ -3948,12 +3948,12 @@
         },
         {
           "refId": "ATTR",
-          "expr": "(((sum by (job, instance) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (job, instance) (bottomk(1, (avg_over_time((abs((((sum by (job, instance) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) - on () group_left() (quantile(${agg}, ((sum by (job, instance) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)))))[$__range:5m] @ end()) or last_over_time((abs((((sum by (job, instance) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) - on () group_left() (quantile(${agg}, ((sum by (job, instance) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)))))[1ms:1ms] @ end()))))",
+          "expr": "(((sum by (job, instance) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (job, instance) (bottomk(1, (avg_over_time((abs((((sum by (job, instance) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) - on () group_left() (quantile(${agg}, ((sum by (job, instance) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)))))[$__range:5m] @ end()) or last_over_time((abs((((sum by (job, instance) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) - on () group_left() (quantile(${agg}, ((sum by (job, instance) (rate(ton_quic_message_confirmation_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) or 0 * (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))) / (sum by (job, instance) (rate(ton_quic_message_confirmation_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)))))[1ms:1ms] @ end()))))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "legendFormat": "quic delivery \u21d2 {{instance}}"
+          "legendFormat": "quic confirmation \u21d2 {{instance}}"
         },
         {
           "refId": "ATTR2",
