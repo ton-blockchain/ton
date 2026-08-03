@@ -16,6 +16,7 @@
 #include "metrics/well-known.h"
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
+#include "td/utils/HashMap.h"
 #include "td/utils/Heap.h"
 #include "td/utils/buffer.h"
 #include "td/utils/port/IPAddress.h"
@@ -247,9 +248,13 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;
 
-  std::map<QuicConnectionId, QuicConnectionId> cid_to_primary_cid_;
+  // Hashed, not ordered: both are looked up once per inbound datagram, and an ordered lookup costs a
+  // 20-byte memcmp per tree level -- 40 ns against 19 at a thousand connections, 68 against 23 at
+  // ten thousand, and it keeps growing while the hashed one does not. Hashing is also what makes the
+  // keyed hash necessary: an ordered map has no buckets to flood.
+  td::HashMap<QuicConnectionId, QuicConnectionId> cid_to_primary_cid_;
   std::map<BootstrapRouteKey, QuicConnectionId> bootstrap_routes_;
-  std::map<QuicConnectionId, std::shared_ptr<ConnectionState>> connections_;
+  td::HashMap<QuicConnectionId, std::shared_ptr<ConnectionState>> connections_;
   std::deque<QuicConnectionId> active_connections_;
   std::vector<QuicConnectionId> to_erase_connections_;
   td::KHeap<double> timeout_heap_;

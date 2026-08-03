@@ -173,7 +173,9 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     adnl::AdnlNodeIdShort peer_id;
     std::map<QuicStreamID, StreamState> streams;
   };
-  std::map<QuicConnectionId, Connection> connections_;
+  // Node-based: StreamState lives in these Connections and the timeout heap holds raw pointers to
+  // it, and callers hold a Connection& across stream work, so entries must not move.
+  td::NodeHashMap<QuicConnectionId, Connection> connections_;
   td::KHeap<double> timeout_heap_;
   std::function<td::uint64(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort)> get_peer_mtu_;
 

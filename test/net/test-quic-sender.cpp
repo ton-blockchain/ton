@@ -17,7 +17,6 @@
 #include <atomic>
 #include <mutex>
 #include <optional>
-#include <unordered_set>
 
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl-node-id.hpp"
@@ -32,6 +31,7 @@
 #include "quic/quic-server.h"
 #include "td/actor/coro_task.h"
 #include "td/actor/coro_utils.h"
+#include "td/utils/HashSet.h"
 #include "td/utils/OptionParser.h"
 #include "td/utils/Random.h"
 #include "td/utils/Time.h"
@@ -492,9 +492,9 @@ struct RawQuicEndpointState {
   std::optional<ton::quic::QuicConnectionId> inbound_cid;
   std::optional<std::string> outbound_local_public_key;
   std::optional<std::string> inbound_local_public_key;
-  std::unordered_set<ton::quic::QuicConnectionId> closed_connections;
-  std::unordered_set<ton::quic::QuicStreamID> locally_opened_streams;
-  std::unordered_set<ton::quic::QuicStreamID> closed_streams;
+  td::HashSet<ton::quic::QuicConnectionId> closed_connections;
+  td::HashSet<ton::quic::QuicStreamID> locally_opened_streams;
+  td::HashSet<ton::quic::QuicStreamID> closed_streams;
   size_t closed_stream_count = 0;
   size_t local_closed_stream_count = 0;
 };

@@ -8,6 +8,7 @@
 #include "metrics/collectors.h"
 #include "metrics/well-known.h"
 #include "td/actor/coro_task.h"
+#include "td/utils/HashMap.h"
 #include "td/utils/Timer.h"
 
 #include "quic-server.h"
@@ -77,7 +78,7 @@ class QuicSender : public adnl::AdnlSenderEx {
 
   std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;
-  std::map<QuicConnectionId, std::shared_ptr<Connection>> by_cid_;
+  td::HashMap<QuicConnectionId, std::shared_ptr<Connection>> by_cid_;
 
   std::map<int, td::actor::ActorOwn<QuicServer>> servers_by_port_;
   std::map<int, ServerStats> last_server_stats_;
