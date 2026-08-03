@@ -295,6 +295,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   // Stats
   td::uint64 rx_queue_drops_reflected_ = 0;
+  BatchingStats batching_;
   TransportStats transport_stats_;
   QuicConnectionMetricsAggregate closed_conn_stats_;
   metrics::UdpWireStats udp_wire_ = {.dir = {}, .listening_sockets = 1};
