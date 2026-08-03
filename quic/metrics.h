@@ -6,11 +6,19 @@
 
 #pragma once
 
+#include <array>
 #include <chrono>
 
 #include "metrics/well-known.h"
 
 namespace ton::quic {
+
+// Bucket bounds shared by the batching histograms. They are counts, not durations.
+inline constexpr std::array<double, 5> kBatchBuckets = {1, 4, 8, 16, 32};
+inline constexpr std::array<double, 6> kBatchWithZeroBuckets = {0, 1, 4, 8, 16, 32};
+
+using BatchHistogram = metrics::Histogram<kBatchBuckets>;
+using BatchWithZeroHistogram = metrics::Histogram<kBatchWithZeroBuckets>;
 
 // How the application answered a handshake that reached it: `completed` = the connection is ready
 // to carry traffic, `rejected` = the peer was refused (unusable key, identity mismatch, ...).
@@ -142,6 +150,26 @@ struct TransportStats {
   }
 };
 
+struct BatchingStats {
+  BatchWithZeroHistogram egress_flush_packets;
+  BatchHistogram egress_gso_segments;
+  BatchHistogram egress_syscall_messages;
+
+  BatchingStats& operator+=(const BatchingStats& other) {
+    egress_flush_packets += other.egress_flush_packets;
+    egress_gso_segments += other.egress_gso_segments;
+    egress_syscall_messages += other.egress_syscall_messages;
+    return *this;
+  }
+
+  void collect(metrics::Context ctx) const {
+    auto egress = ctx.with_name("egress");
+    egress.collect(egress_flush_packets, "flush_packets");
+    egress.collect(egress_gso_segments, "gso_segments");
+    egress.collect(egress_syscall_messages, "syscall_messages");
+  }
+};
+
 struct ServerStats {
   struct Transport {
     QuicConnectionMetricsAggregate summary;
@@ -161,16 +189,19 @@ struct ServerStats {
 
   metrics::UdpWireStats wire;
   Transport transport;
+  BatchingStats batching;
 
   ServerStats& operator+=(const ServerStats& other) {
     wire += other.wire;
     transport += other.transport;
+    batching += other.batching;
     return *this;
   }
 
   void collect(metrics::Context ctx) const {
     ctx.collect(wire, "wire");
     ctx.collect(transport, "transport");
+    ctx.collect(batching, "batching");
   }
 };
 

@@ -203,6 +203,19 @@ port) and folds their stats together.
 | `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, protocol violation, a handshake rejected over a key or identity mismatch, plus ngtcp2's own discarded-packet delta. `in,limited`: per-IP flood limiter, or a handshake rejected because the path's MTU is 0. `in,internal`: connection creation failure, failing to build a stateless Retry, a fatal ngtcp2 error while handling ingress (our own OOM or callback failure), or a handshake rejected because the outbound connection it belongs to is no longer known. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. To avoid double-counting, a refused datagram is counted here only if `pkt_discarded` did not move across that `ngtcp2_conn_read_pkt` call. Because ngtcp2 exposes no per-packet attribution, a rare buffered-packet interleaving can undercount by one; see *Known gaps*. Failing to *send* a Retry or a stateless close is an egress drop rather than an inbound reject. Rejected handshakes are counted by whoever rejects them — synchronously at the callback (a key that will not parse, always `invalid`), or asynchronously by the actor that deferred its verdict, which supplies the reason — so they are **not** uniformly `invalid`. |
 | `ton_quic_transport_handshakes_total` | counter | `direction`, `result` | Handshakes that reached the application's verdict, split by who dialled (`in` = the peer dialled us, `out` = we dialled the peer — a rejection means something quite different on each side) and how it went: `completed` once the connection is ready to carry traffic, `rejected` when the application refused the peer (a key that will not parse, an identity that does not match the one we dialed, a path with no usable MTU, an outbound connection nobody remembers). The two are disjoint, and every rejection also lands in `dropped{direction="in"}` under its reason — `dropped`'s `direction` is the direction of the discarded data, not of the dial, so an outbound handshake we reject shows up as `handshakes{direction="out"}` against `dropped{direction="in"}`. A handshake abandoned before the application ever saw it is counted in neither: an idle timeout mid-handshake only removes the connection, so it shows up as a decrement of `connections_current` and nowhere else, while a datagram ngtcp2 refused lands in `dropped`. Only consumers built on `QuicSender` report completions — a callback implemented directly against `QuicServer` (the in-tree examples and raw tests) records rejections but not successes. |
 
+### Batching
+
+Passive observations of batched connection egress; stateless Retry and close sends are excluded.
+Every family is a histogram over counts, not seconds. `_sum / _count` is the mean. On POSIX,
+`gso_segments_sum / syscall_messages_count` is the exact mean UDP datagrams per successful send
+call. Windows currently counts descriptors accepted into its asynchronous send queue instead.
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_quic_batching_egress_flush_packets` | histogram | `le` | UDP datagrams accepted by the send path during one `flush_egress()` call, including pending data from an earlier call. `le="0"` includes flushes that send nothing. |
+| `ton_quic_batching_egress_gso_segments` | histogram | `le` | UDP datagrams in one accepted send descriptor. It is always 1 without GSO. |
+| `ton_quic_batching_egress_syscall_messages` | histogram | `le` | Descriptors accepted by one POSIX send call. Without `sendmmsg`, each successful `sendmsg` contributes 1. |
+
 ### App
 
 | metric | type | labels | meaning |

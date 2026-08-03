@@ -2,6 +2,7 @@
 #include <chrono>
 
 #include "td/actor/actor.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/Timer.h"
 
 #include "quic-pimpl.h"
@@ -490,6 +491,7 @@ td::actor::Task<ServerStats> QuicServer::collect() {
               .summary = summary,
               .stats = transport_stats_,
           },
+      .batching = batching_,
   };
 }
 
@@ -756,9 +758,18 @@ void QuicServer::record_egress(td::Span<td::UdpSocketFd::OutboundMessage> batch,
                                const td::UdpSocketFd::SendResult &result) {
   reflect_socket_syscalls();
   auto &egress = udp_wire_.dir.at(metrics::Direction::out);
+  const bool mmsg = fd_.is_mmsg_enabled();
   for (const auto &message : batch.substr(0, result.sent)) {
+    auto datagrams = datagram_count(message);
     egress.data.bytes.inc(message.data.size());
-    egress.data.packets.inc(datagram_count(message));
+    egress.data.packets.inc(datagrams);
+    batching_.egress_gso_segments.observe(static_cast<double>(datagrams));
+    if (!mmsg) {
+      batching_.egress_syscall_messages.observe(1);
+    }
+  }
+  if (mmsg && result.sent > 0) {
+    batching_.egress_syscall_messages.observe(static_cast<double>(result.sent));
   }
   // Consumed by the kernel, never put on the wire.
   for (const auto &message : batch.substr(result.sent, result.dropped)) {
@@ -973,6 +984,12 @@ bool QuicServer::produce_next_egress(size_t batch_index) {
 
 void QuicServer::flush_egress() {
   td::PerfWarningTimer w("flush_egress_all", 0.1);
+
+  auto packets_before = udp_wire_.dir.at(metrics::Direction::out).data.packets.value();
+  SCOPE_EXIT {
+    auto packets_after = udp_wire_.dir.at(metrics::Direction::out).data.packets.value();
+    batching_.egress_flush_packets.observe(static_cast<double>(packets_after - packets_before));
+  };
 
   // First flush any pending from previous call
   if (!flush_pending()) {
