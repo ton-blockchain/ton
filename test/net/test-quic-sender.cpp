@@ -83,18 +83,40 @@ ton::quic::QuicServer::Options quic_test_options() {
   return options;
 }
 
+class ReceivedMessages {
+ public:
+  void push(td::BufferSlice message) {
+    std::lock_guard guard(mutex_);
+    messages_.push_back(std::move(message));
+  }
+
+  size_t size() const {
+    std::lock_guard guard(mutex_);
+    return messages_.size();
+  }
+
+  td::BufferSlice get(size_t index) const {
+    std::lock_guard guard(mutex_);
+    return messages_.at(index).clone();
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  std::vector<td::BufferSlice> messages_;
+};
+
 class EchoCallback : public ton::adnl::Adnl::Callback {
  public:
-  std::shared_ptr<std::vector<td::BufferSlice>> received_messages;
+  std::shared_ptr<ReceivedMessages> received_messages;
 
-  explicit EchoCallback(std::shared_ptr<std::vector<td::BufferSlice>> msgs = nullptr)
+  explicit EchoCallback(std::shared_ptr<ReceivedMessages> msgs = nullptr)
       : received_messages(std::move(msgs)) {
   }
 
   void receive_message(ton::adnl::AdnlNodeIdShort, ton::adnl::AdnlNodeIdShort, td::BufferSlice data) override {
     LOG(ERROR) << "receive message message";
     if (received_messages) {
-      received_messages->push_back(std::move(data));
+      received_messages->push(std::move(data));
     }
   }
 
@@ -201,7 +223,7 @@ struct TestNode {
   td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
   td::actor::ActorOwn<ton::adnl::Adnl> adnl;
   td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
-  std::shared_ptr<std::vector<td::BufferSlice>> received_messages;
+  std::shared_ptr<ReceivedMessages> received_messages;
 
   TestNode() = default;
   TestNode(TestNode&&) = default;
@@ -265,7 +287,7 @@ class TestRunner : public td::actor::Actor {
 
     td::actor::send_closure(node.adnl, &ton::adnl::Adnl::subscribe, node.id, "Q", std::make_unique<EchoCallback>());
 
-    node.received_messages = std::make_shared<std::vector<td::BufferSlice>>();
+    node.received_messages = std::make_shared<ReceivedMessages>();
     td::actor::send_closure(node.adnl, &ton::adnl::Adnl::subscribe, node.id, "M",
                             std::make_unique<EchoCallback>(node.received_messages));
 
@@ -569,7 +591,7 @@ class RawQuicTestRunner final : public td::actor::Actor {
     LOG(FATAL) << "Test timeout after " << timeout_ << "s";
   }
 
-  td::actor::Task<RawQuicEndpoint> create_endpoint(ton::quic::QuicServer::Options options) {
+  static td::actor::Task<RawQuicEndpoint> create_endpoint(ton::quic::QuicServer::Options options) {
     auto port = next_port();
     auto key = make_quic_key(port);
     auto state = std::make_shared<RawQuicEndpointState>();
@@ -1411,6 +1433,58 @@ TEST(QuicSender, EmptyMessage) {
   });
 }
 
+TEST(QuicSender, SingleDataChunkThenEmptyFin) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto receiver = co_await t.create_node("split-fin", next_port());
+    auto raw = co_await RawQuicTestRunner::create_endpoint(quic_test_options());
+
+    auto sni = ton::quic::ServerIdentity::sni(receiver.id);
+    auto cid_result =
+        co_await td::actor::ask(raw.server, &ton::quic::QuicServer::connect, td::Slice("127.0.0.1"),
+                                receiver.port + 1000, clone_quic_key(raw.key), td::Slice("ton"), td::Slice(sni))
+            .wrap();
+    ASSERT_TRUE(cid_result.is_ok());
+    auto cid = cid_result.move_as_ok();
+    co_await t.wait_until([&] { return raw.state->get_outbound_cid().has_value(); }, 5.0);
+
+    auto sid_result =
+        co_await td::actor::ask(raw.server, &ton::quic::QuicServer::open_stream, cid, ton::quic::StreamOptions{}).wrap();
+    ASSERT_TRUE(sid_result.is_ok());
+    auto sid = sid_result.move_as_ok();
+    raw.state->remember_local_stream(sid);
+
+    auto wire = ton::create_serialize_tl_object<ton::ton_api::quic_message>(td::BufferSlice(td::Slice("Mx")));
+    auto wire_size = wire.size();
+    auto data_result =
+        co_await td::actor::ask(raw.server, &ton::quic::QuicServer::send_stream, cid, sid, std::move(wire), false)
+            .wrap();
+    ASSERT_TRUE(data_result.is_ok());
+    ASSERT_EQ(data_result.move_as_ok(), sid);
+
+    auto ack_deadline = td::Timestamp::in(5.0);
+    while (true) {
+      auto stats = co_await td::actor::ask(raw.server, &ton::quic::QuicServer::collect);
+      auto acked = stats.transport.summary.stats.stream_bytes.at(ton::metrics::Direction::out).value();
+      if (acked >= wire_size) {
+        break;
+      }
+      ASSERT_TRUE(!ack_deadline.is_in_past());
+      co_await td::actor::coro_sleep(td::Timestamp::in(0.001));
+    }
+    ASSERT_EQ(0u, receiver.received_messages->size());
+
+    auto fin_result =
+        co_await td::actor::ask(raw.server, &ton::quic::QuicServer::send_stream, cid, sid, td::BufferSlice{}, true)
+            .wrap();
+    ASSERT_TRUE(fin_result.is_ok());
+    ASSERT_EQ(fin_result.move_as_ok(), sid);
+
+    co_await t.wait_until([&] { return receiver.received_messages->size() == 1; }, 5.0);
+    ASSERT_EQ(receiver.received_messages->get(0).as_slice(), td::Slice("Mx"));
+    co_return td::Unit{};
+  });
+}
+
 TEST(QuicSender, ResponseSizeLimit) {
   run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
     auto a = co_await t.create_node("lim-a", next_port());
@@ -1476,6 +1550,36 @@ TEST(QuicSender, ResponseSizeLimitDoesNotWaitForTimeout) {
 
     auto resp2 = co_await t.send_query(a, b, "after");
     ASSERT_EQ(resp2.as_slice(), td::Slice("Qafter"));
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, SinglePacketResponseSizeLimitRemovesTimeout) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("lim-whole-a", next_port());
+    auto b = co_await t.create_node("lim-whole-b", next_port());
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    auto warmup = co_await t.send_query(a, b, "warmup");
+    ASSERT_EQ(warmup.as_slice(), td::Slice("Qwarmup"));
+
+    std::string data = "one-packet";
+    td::BufferSlice answer_data(1 + data.size());
+    answer_data.as_slice()[0] = 'Q';
+    answer_data.as_slice().substr(1).copy_from(data);
+    auto wire_answer = ton::create_serialize_tl_object<ton::ton_api::quic_answer>(std::move(answer_data));
+
+    auto result = co_await t.send_query_ex(a, b, data, 1.0, wire_answer.size() - 1).wrap();
+    ASSERT_TRUE(result.is_error());
+    ASSERT_TRUE(result.error().message().str().find("stream size limit exceeded") != std::string::npos);
+
+    // The whole-stream path erased an armed timeout together with the stream state. Let its old
+    // deadline pass to catch a stale heap pointer, then verify that the connection still works.
+    co_await td::actor::coro_sleep(td::Timestamp::in(1.1));
+    auto response = co_await t.send_query(a, b, "after");
+    ASSERT_EQ(response.as_slice(), td::Slice("Qafter"));
     co_return td::Unit{};
   });
 }
