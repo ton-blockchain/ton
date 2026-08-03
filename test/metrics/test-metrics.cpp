@@ -759,8 +759,7 @@ TEST(Metrics, QuicPeerMetricsSplitByTrust) {
                        "quic_app_dropped_total{trust=\"trusted\",direction=\"out\",reason=\"internal\"} "
                        "1.000000"));
   ASSERT_TRUE(has_line(out, "quic_query_roundtrip_failed_total{trust=\"trusted\",tl=\"unknown\"} 1.000000"));
-  ASSERT_TRUE(
-      has_line(out, "quic_message_confirmation_failed_total{trust=\"untrusted\",tl=\"unknown\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "quic_message_confirmation_failed_total{trust=\"untrusted\",tl=\"unknown\"} 1.000000"));
   ASSERT_EQ(1u, count_of(out, "# TYPE quic_app_bytes counter\n"));
   ASSERT_EQ(1u, count_of(out, "# TYPE quic_query_roundtrip_seconds histogram\n"));
   ASSERT_EQ(1u, count_of(out, "# TYPE quic_message_confirmation_seconds histogram\n"));
@@ -790,6 +789,9 @@ TEST(MetricsGolden, Quic) {
                 "ton_quic_transport_mean_rtt_seconds gauge",
                 "ton_quic_transport_dropped counter",
                 "ton_quic_transport_handshakes counter",
+                "ton_quic_batching_egress_flush_packets histogram",
+                "ton_quic_batching_egress_gso_segments histogram",
+                "ton_quic_batching_egress_syscall_messages histogram",
                 "ton_quic_transport_connections_ready gauge",
                 "ton_quic_app_bytes counter",
                 "ton_quic_app_messages counter",
