@@ -22,6 +22,7 @@
 #include "adnl/adnl-query.h"
 #include "auto/tl/ton_api.h"
 #include "common/io.hpp"
+#include "metrics/well-known.h"
 #include "td/actor/actor.h"
 #include "td/utils/BufferedUdp.h"
 #include "td/utils/logging.h"
@@ -35,6 +36,18 @@ DECLARE_LOG_CATEGORY(adnl)
 namespace ton {
 
 namespace adnl {
+
+// Metrics a peer-pair accumulates on its own thread and periodically drains into the peer table's
+// aggregate (Counter is non-atomic, hence the drain/absorb instead of a cross-thread bump per event):
+//   - app: the shared app traffic tier (send + deliver of message/query/answer, plus MTU/size drops).
+//   - transport_dropped: transport-tier packet drops detected while (de)processing a peer's packets;
+//     merged into the peer table's adnl_transport_dropped_total{direction,reason}.
+// The peer table has no field of this type — absorb_metrics splits the two members into their
+// places in AdnlPeerTableMetrics — so there is deliberately no operator+= here.
+struct AdnlPeerPairMetrics {
+  metrics::App app;
+  metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> transport_dropped;
+};
 
 class AdnlChannelIdShortImpl {
  public:
@@ -104,6 +117,19 @@ class AdnlPeerTable : public Adnl {
   virtual void decrypt_message(AdnlNodeIdShort dst, td::BufferSlice data, td::Promise<td::BufferSlice> promise) = 0;
 
   virtual void set_peer_pair_idle(AdnlNodeIdShort l_id, AdnlNodeIdShort p_id, bool value) = 0;
+
+  // Merge a peer-pair's drained metrics delta into the peer table's aggregate (Counter is non-atomic,
+  // so it must be accumulated on the peer-table thread). `done` is fulfilled after the merge. Called
+  // both from the collect() drain round-trip and from a peer-pair's tear_down.
+  virtual void absorb_metrics(AdnlPeerPairMetrics delta, td::Promise<td::Unit> done) = 0;
+
+  // How long a query delivered to a local id took to be answered. Called from the query's completion,
+  // which may run on any thread — hence an actor message rather than a direct bump.
+  virtual void record_query_duration(AdnlNodeIdShort src, td::int32 magic, double seconds, bool ok) = 0;
+
+  // Round trip of an outbound query: from the peer pair accepting it to the caller's promise being
+  // fulfilled. Completes on the query's own actor, so it takes the same hop.
+  virtual void record_query_roundtrip(AdnlNodeIdShort dst, td::int32 magic, double seconds, bool ok) = 0;
 };
 
 }  // namespace adnl

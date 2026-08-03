@@ -228,21 +228,15 @@ void ArchiveImporter::check_masterchain_block(BlockSeqno seqno) {
     return;
   }
 
-  if (sha256_bits256(R2.ok().second.as_slice()) != it->second.file_hash) {
+  auto data = std::move(R2.move_as_ok().second);
+  if (sha256_bits256(data) != it->second.file_hash) {
     abort_query(td::Status::Error(ErrorCode::protoviolation, "bad block file hash"));
     return;
   }
-  auto dataR = create_block(it->second, std::move(R2.move_as_ok().second));
-  if (dataR.is_error()) {
-    abort_query(dataR.move_as_error());
-    return;
-  }
-
   auto proof = proofR.move_as_ok();
-  auto data = dataR.move_as_ok();
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), id = last_masterchain_state_->get_block_id(),
-                                       data](td::Result<BlockHandle> R) mutable {
+                                       data = std::move(data)](td::Result<BlockHandle> R) mutable {
     if (R.is_error()) {
       td::actor::send_closure(SelfId, &ArchiveImporter::abort_query, R.move_as_error());
       return;
@@ -261,14 +255,19 @@ void ArchiveImporter::check_masterchain_block(BlockSeqno seqno) {
                         last_masterchain_state_, opts_->is_hardfork(it->second));
 }
 
-void ArchiveImporter::checked_masterchain_proof(BlockHandle handle, td::Ref<BlockData> data) {
+void ArchiveImporter::checked_masterchain_proof(BlockHandle handle, td::BufferSlice data) {
   LOG(DEBUG) << "Checked proof for masterchain block #" << handle->id().seqno();
-  CHECK(data.not_null());
+  auto r_block = create_block(handle->id(), std::move(data));
+  if (r_block.is_error()) {
+    abort_query(r_block.move_as_error());
+    return;
+  }
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle](td::Result<td::Unit> R) {
     R.ensure();
     td::actor::send_closure(SelfId, &ArchiveImporter::applied_masterchain_block, std::move(handle));
   });
-  run_apply_block_query(handle->id(), std::move(data), handle->id(), manager_, td::Timestamp::in(600.0), std::move(P));
+  run_apply_block_query(handle->id(), r_block.move_as_ok(), handle->id(), manager_, td::Timestamp::in(600.0),
+                        std::move(P));
 }
 
 void ArchiveImporter::applied_masterchain_block(BlockHandle handle) {

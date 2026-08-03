@@ -294,7 +294,10 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   settings.cc_algo = CC_ALGO_MAP[cc_alg_id];
   apply_platform_pmtu_policy(settings);
 
+  settings.ack_thresh = options.ack_thresh;
+
   ngtcp2_transport_params_default(&params);
+  params.max_ack_delay = options.max_ack_delay;
   params.max_idle_timeout = options.idle_timeout;
   params.initial_max_streams_bidi = options.max_streams_bidi;
   params.initial_max_stream_data_bidi_remote = options.initial_max_stream_data_bidi_remote;
@@ -387,7 +390,7 @@ td::Status QuicConnectionPImpl::init_quic_server(const ServerInitialInfo& initia
   int rv = ngtcp2_conn_server_new(&new_conn, &client_scid, &server_scid_raw, &path, initial.packet.version, &callbacks,
                                   &settings, &params, nullptr, this);
   if (rv != 0) {
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_server_new failed: " << rv);
+    return td::Status::Error(PSTRING() << "ngtcp2_conn_server_new failed: " << ngtcp2_err_str(rv));
   }
   conn_.reset(new_conn);
   finish_quic_init(server_scid);
@@ -604,7 +607,7 @@ td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool u
   finish_batch();
 
   if (n_write < 0) {
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_write_aggregate_pkt2 failed: " << n_write);
+    return td::Status::Error(PSTRING() << "ngtcp2_conn_write_aggregate_pkt2 failed: " << ngtcp2_err_str(n_write));
   }
 
   ngtcp2_conn_update_pkt_tx_time(conn(), ts);
@@ -638,8 +641,14 @@ void QuicConnectionPImpl::write_connection_close(UdpMessageBuffer& close_out, in
 td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in, UdpMessageBuffer& close_out) {
   ngtcp2_path path = make_path(msg_in.address);
   ngtcp2_pkt_info pi{};
+  auto pkt_discarded_before = get_conn_info().pkt_discarded;
   int rv = ngtcp2_conn_read_pkt(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_in.storage.data()),
                                 msg_in.storage.size(), now_ts());
+  // Whether ngtcp2 discarded anything during this call. It is not per-packet: one call drains
+  // coalesced and buffered packets, so a discard here may belong to a packet other than the one the
+  // error is about. In that rare interleaving the counter is short by one; counting every rejected
+  // call unconditionally would double-count the common case already reflected in pkt_discarded.
+  last_ingress_discarded_ = get_conn_info().pkt_discarded > pkt_discarded_before;
   if (rv == 0) {
     close_out.storage.truncate(0);
     return td::Status::OK();
@@ -652,7 +661,7 @@ td::Status QuicConnectionPImpl::handle_ingress(const UdpMessageBuffer& msg_in, U
     write_connection_close(close_out, rv);
   }
   // Carry rv as the status code so the caller can classify it (ngtcp2_err_is_fatal) for logging.
-  return td::Status::Error(rv, PSTRING() << "ngtcp2_conn_read_pkt failed: " << rv
+  return td::Status::Error(rv, PSTRING() << "ngtcp2_conn_read_pkt failed: " << ngtcp2_err_str(rv)
                                          << " tls_alert=" << (int)ngtcp2_conn_get_tls_alert(conn()));
 }
 
@@ -702,7 +711,8 @@ td::Result<QuicStreamID> QuicConnectionPImpl::open_stream() {
 
   int rv = ngtcp2_conn_open_bidi_stream(conn(), &sid, nullptr);
   if (rv != 0) {
-    return td::Status::Error(PSTRING() << "ngtcp2_conn_open_bidi_stream failed: " << rv);
+    // Carry rv as the status code so callers can classify (e.g. STREAM_ID_BLOCKED = flow control).
+    return td::Status::Error(rv, PSTRING() << "ngtcp2_conn_open_bidi_stream failed: " << ngtcp2_err_str(rv));
   }
 
   CHECK(streams_.emplace(sid, OutboundStreamState{}).second);
@@ -728,23 +738,40 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice 
   return td::Status::OK();
 }
 
-QuicConnectionStats QuicConnectionPImpl::get_stats() {
-  ngtcp2_conn_info info;
-  ngtcp2_conn_get_conn_info(conn(), &info);
+void QuicConnectionPImpl::account_ingress_reject(TransportStats& transport_stats) {
+  if (last_ingress_discarded_) {
+    return;  // already in pkt_discarded; the fold below picks it up on the next get_stats
+  }
+  transport_stats.dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
+}
+
+QuicConnectionMetrics QuicConnectionPImpl::get_stats(TransportStats& transport_stats) {
+  auto info = get_conn_info();
+
+  if (info.pkt_discarded > last_pkt_discarded_) {
+    transport_stats.dropped.at(metrics::Direction::in, metrics::Reason::invalid)
+        .inc(info.pkt_discarded - last_pkt_discarded_);
+    last_pkt_discarded_ = info.pkt_discarded;
+  }
+
   size_t bytes_unacked = 0, bytes_unsent = 0;
   for (auto& [_, stream] : streams_) {
     bytes_unacked += stream.pin_.size();
     bytes_unsent += stream.reader_.size();
   }
+
   return {
-      .bytes_rx = info.bytes_recv,
-      .bytes_tx = info.bytes_sent,
+      .bytes = {{.in = info.bytes_recv, .out = info.bytes_sent}},
+      .packets = {{.in = info.pkt_recv, .out = info.pkt_sent}},
+      .stream_bytes = stream_bytes_,
       .bytes_lost = info.bytes_lost,
+      .packets_lost = info.pkt_lost,
+      .bytes_in_flight = info.bytes_in_flight,
       .bytes_unacked = bytes_unacked,
       .bytes_unsent = bytes_unsent,
-      .total_sids = sids_encountered,
-      .open_sids = streams_.size(),
-      .mean_rtt = static_cast<double>(info.smoothed_rtt),
+      .sids = sids_encountered,
+      .sids_current = streams_.size(),
+      .mean_rtt = {to_chrono(info.smoothed_rtt)},
   };
 }
 
@@ -824,6 +851,7 @@ int QuicConnectionPImpl::on_handshake_completed() {
 }
 
 int QuicConnectionPImpl::on_recv_stream_data(uint32_t flags, int64_t stream_id, td::Slice data) {
+  stream_bytes_.at(metrics::Direction::in).inc(data.size());
   Callback::StreamDataEvent event{
       .sid = stream_id, .data = td::BufferSlice{data}, .fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0};
 
@@ -858,6 +886,7 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
                                        << " expected " << st.acked_prefix;
   st.acked_prefix = offset + datalen;
   st.pin_.advance(datalen);
+  stream_bytes_.at(metrics::Direction::out).inc(datalen);
 
   if (datalen == 0) {
     CHECK(st.fin_submitted);

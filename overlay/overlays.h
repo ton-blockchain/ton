@@ -25,8 +25,10 @@
 #include "adnl/adnl-sender-ex.h"
 #include "auto/tl/ton_api.h"
 #include "dht/dht.h"
+#include "metrics/well-known.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/utils/RateLimiterWindow.h"
 #include "td/utils/Status.h"
 #include "td/utils/buffer.h"
@@ -319,7 +321,7 @@ struct OverlayOptions {
     td::uint32 tree_slots_ = parts_ + 1;
     td::uint32 validator_eager_limit_ = 1;
     td::uint32 eager_limit_ = 4;  // 1 incoming, so fanout is practically 3
-    td::uint32 active_neighbours_ = 20;
+    td::uint32 active_neighbours_ = 5;
     td::uint32 repair_timeout_ms_ = 200;
     td::uint32 max_repair_targets_ = 5;
 
@@ -472,6 +474,14 @@ class Overlays : public td::actor::Actor {
   virtual void get_stats(td::Promise<tl_object_ptr<ton_api::engine_validator_overlaysStats>> promise) = 0;
 
   virtual void forget_peer(adnl::AdnlNodeIdShort local_id, OverlayIdShort overlay, adnl::AdnlNodeIdShort peer_id) = 0;
+
+  virtual td::actor::Task<> collect(metrics::Context ctx) {
+    co_return {};
+  }
+
+  // Merge one overlay's drained inbound broadcast content into the manager's aggregate (the bucket is
+  // non-atomic, so it must be accumulated on the manager thread). `done` is fulfilled after the merge.
+  virtual void absorb_broadcasts(metrics::TlTrafficBucket delta, td::Promise<td::Unit> done) = 0;
 };
 
 }  // namespace overlay

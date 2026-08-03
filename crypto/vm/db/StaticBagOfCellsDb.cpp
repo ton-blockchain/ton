@@ -186,10 +186,11 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     if (idx >= root_count) {
       return td::Status::Error(PSLICE() << "invalid root_cell index: " << idx);
     }
-    TRY_RESULT(cell_idx, load_root_idx(td::narrow_cast<int>(idx)));
+    TRY_RESULT(cell_idx, load_root_idx(idx));
     // Load DataCell in order to ensure lower hashes correctness
     // They will be valid for all non-root cell automatically
-    TRY_RESULT(data_cell, check_result(load_data_cell(td::narrow_cast<int>(cell_idx))));
+    TRY_RESULT(cell_idx_int, td::narrow_cast_safe<int>(cell_idx));
+    TRY_RESULT(data_cell, check_result(load_data_cell(cell_idx_int)));
     return create_root_cell(std::move(data_cell));
   };
 
@@ -281,11 +282,11 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     if (offset_view.size() != (size_t)info_.offset_byte_size) {
       return td::Status::Error(PSTRING() << "bag-of-cell error: invalid offset view size" << offset_view.size());
     }
-    return td::narrow_cast<std::size_t>(info_.read_offset(offset_view.ubegin()));
+    return td::narrow_cast_safe<std::size_t>(info_.read_offset(offset_view.ubegin()));
   }
 
-  td::Result<td::int64> load_root_idx(int root_i) {
-    if (root_i < 0 || root_i >= info_.root_count) {
+  td::Result<td::int64> load_root_idx(size_t root_i) {
+    if (root_i >= (size_t)info_.root_count) {
       return td::Status::Error(PSTRING() << "bag-of-cell error: invalid root index " << root_i);
     }
     if (!info_.has_roots) {
@@ -349,7 +350,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
       return td::Status::Error("bag-of-cell error: wrong data size");
     }
     if (options_.check_crc32c && info_.has_crc32c) {
-      std::string buf(td::narrow_cast<std::size_t>(info_.total_size), '\0');
+      std::string buf(info_.total_size, '\0');
       TRY_RESULT(data, data_.view(td::MutableSlice(buf), 0));
       unsigned crc_computed = td::crc32c(td::Slice{data.ubegin(), data.uend() - 4});
       unsigned crc_stored = td::as<unsigned>(data.uend() - 4);
@@ -375,7 +376,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     std::array<char, 1024> buf;
     auto buf_slice = td::MutableSlice(buf.data(), buf.size());
     for (; index_i_ <= idx; index_i_++) {
-      auto offset = td::narrow_cast<size_t>(info_.data_offset + index_offset_);
+      size_t offset = info_.data_offset + index_offset_;
       if (data_.size() < offset) {
         return td::Status::Error(PSLICE() << "bag-of-cells error: invalid offset " << offset
                                           << " (size=" << data_.size() << ")");
@@ -460,7 +461,7 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
     }
     auto* ref_ptr = cell_slice.ubegin() + cell_info.refs_offset;
     for (int k = 0; k < cell_info.refs_cnt; k++, ref_ptr += info_.ref_byte_size) {
-      int ref_idx = td::narrow_cast<int>(info_.read_ref(ref_ptr));
+      TRY_RESULT(ref_idx, td::narrow_cast_safe<int>(info_.read_ref(ref_ptr)));
       if (ref_idx >= info_.cell_count) {
         return td::Status::Error(PSLICE() << "invalid bag-of-cells cell #" << idx << " refers to cell #" << ref_idx
                                           << " which is too big " << td::tag("cell_count", info_.cell_count));

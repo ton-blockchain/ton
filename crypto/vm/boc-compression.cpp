@@ -979,6 +979,9 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   root_nodes.reserve(root_count);
   for (unsigned index : root_indexes) {
     root_nodes.push_back(nodes[index]);
+    if (root_nodes.back()->get_level() > 0) {
+      return td::Status::Error("root has non-zero level");
+    }
   }
 
   return root_nodes;

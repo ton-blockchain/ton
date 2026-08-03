@@ -315,9 +315,12 @@ td::Status DhtUpdateRuleOverlayNodes::update_value(DhtValue &value, DhtValue &&n
                     "bad dht value in updateRule.overlayNodes: ");
 
   std::vector<tl_object_ptr<ton_api::overlay_node>> res;
-
   std::map<adnl::AdnlNodeIdShort, size_t> S;
+  auto now = td::Clocks::system();
   for (auto &n : N->nodes_) {
+    if (n->version_ < now - 600) {
+      continue;
+    }
     TRY_RESULT(pub, adnl::AdnlNodeIdFull::create(n->id_));
     auto id = pub.compute_short_id();
     auto it = S.find(id);
@@ -332,6 +335,9 @@ td::Status DhtUpdateRuleOverlayNodes::update_value(DhtValue &value, DhtValue &&n
     }
   }
   for (auto &n : L->nodes_) {
+    if (n->version_ < now - 600) {
+      continue;
+    }
     TRY_RESULT(pub, adnl::AdnlNodeIdFull::create(n->id_));
     auto id = pub.compute_short_id();
     auto it = S.find(id);

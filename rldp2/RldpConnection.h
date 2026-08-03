@@ -22,6 +22,7 @@
 #include <set>
 
 #include "common/bitstring.h"
+#include "metrics/well-known.h"
 #include "td/utils/Heap.h"
 #include "td/utils/VectorQueue.h"
 #include "td/utils/buffer.h"
@@ -36,6 +37,46 @@
 namespace ton {
 namespace rldp2 {
 using TransferId = td::Bits256;
+
+// Per-connection metrics scraped by RldpIn (and accumulated into its historical aggregate when the
+// connection actor dies). Holds only what a connection itself produces — wire bytes/packets and the
+// inner protocol drops; transfers/app/gauges stay on RldpIn. Built from real metric nodes and merged
+// via operator+=, so RldpIn just sums (historical + active) and collects.
+struct RldpConnMetrics {
+  struct Wire {
+    metrics::Labeled<metrics::Counter, metrics::Direction> bytes;
+    metrics::Labeled<metrics::Counter, metrics::Direction> packets;
+
+    Wire &operator+=(const Wire &o) {
+      bytes += o.bytes;
+      packets += o.packets;
+      return *this;
+    }
+
+    void collect(metrics::Context ctx) const {
+      ctx.collect(bytes, "bytes");
+      ctx.collect(packets, "packets");
+    }
+  };
+
+  Wire wire;
+  metrics::Labeled<metrics::Counter, metrics::Direction, metrics::Reason> transport_dropped;
+
+  RldpConnMetrics &operator+=(const RldpConnMetrics &o) {
+    wire += o.wire;
+    transport_dropped += o.transport_dropped;
+    return *this;
+  }
+
+  void record_wire(metrics::Direction dir, td::uint64 bytes) {
+    wire.bytes.at(dir).inc(bytes);
+    wire.packets.at(dir).inc();
+  }
+  void record_dropped(metrics::Direction dir, metrics::Reason reason) {
+    transport_dropped.at(dir, reason).inc();
+  }
+};
+
 class ConnectionCallback {
  public:
   virtual ~ConnectionCallback() {
@@ -56,6 +97,15 @@ class RldpConnection {
   void receive_raw(td::BufferSlice packet);
 
   td::Timestamp run(ConnectionCallback &callback);
+
+  const RldpConnMetrics &stats() const {
+    return stats_;
+  }
+  // Hand off accumulated metrics: returns the delta since the last drain and resets the local
+  // counters to empty, so each increment is absorbed by RldpIn exactly once.
+  RldpConnMetrics drain() {
+    return std::exchange(stats_, RldpConnMetrics{});
+  }
 
   void set_default_mtu(td::uint64 mtu) {
     default_mtu_ = mtu;
@@ -111,8 +161,11 @@ class RldpConnection {
   std::vector<std::pair<TransferId, td::Result<td::Unit>>> to_on_sent_;
 
   void send_packet(td::BufferSlice packet) {
+    stats_.record_wire(metrics::Direction::out, packet.size());
     to_send_raw_.push_back(std::move(packet));
   };
+
+  RldpConnMetrics stats_;
 
   td::Timestamp run(const TransferId &transfer_id, InboundTransfer &inbound);
   struct Guard {

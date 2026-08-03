@@ -802,13 +802,16 @@ td::Status ShardState::unpack_state(ton::BlockIdExt blkid, Ref<vm::Cell> prev_st
   root_ = std::move(prev_state_root);
   vert_seqno_ = state.vert_seq_no;
   before_split_ = state.before_split;
-  account_dict_ = std::make_unique<vm::AugmentedDictionary>(
-      vm::load_cell_slice(std::move(state.accounts)).prefetch_ref(), 256, block::tlb::aug_ShardAccounts);
+  account_dict_ = std::make_unique<vm::AugmentedDictionary>(vm::load_cell_slice_ref(std::move(state.accounts)), 256,
+                                                            block::tlb::aug_ShardAccounts, false);
+  if (!account_dict_->validate()) {
+    return td::Status::Error(-666, "account dictionary of state "s + id_.to_str() + " is invalid");
+  }
   // check that all keys in account_dict have correct prefixes
   td::BitArray<64> acc_pfx{(long long)shard1.shard};
   int acc_pfx_len = shard_prefix_length(shard1);
   if (!account_dict_->has_common_prefix(acc_pfx.bits(), acc_pfx_len)) {
-    return td::Status::Error(-666, "account dictionary of previous state of "s + id_.to_str() + " does not have " +
+    return td::Status::Error(-666, "account dictionary of state "s + id_.to_str() + " does not have " +
                                        acc_pfx.bits().to_hex(acc_pfx_len) + " as common key prefix");
   }
   // get overload / underload history

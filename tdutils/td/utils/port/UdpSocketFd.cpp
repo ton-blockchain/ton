@@ -135,6 +135,15 @@ class UdpSocketFdImpl : private Iocp::Callback {
   bool is_mmsg_enabled() const {
     return mmsg_enabled_;
   }
+  UdpSocketFd::SyscallStats get_syscall_stats() const {
+    return {
+        .receive = receive_syscalls_.load(std::memory_order_relaxed),
+        .send = send_syscalls_.load(std::memory_order_relaxed),
+    };
+  }
+  uint64 get_rx_queue_drops() const {
+    return 0;  // TODO
+  }
 
   void close() {
     notify_iocp_close();
@@ -174,6 +183,8 @@ class UdpSocketFdImpl : private Iocp::Callback {
   PollableFdInfo info_;
   bool mmsg_enabled_{false};
   SpinLock lock_;
+  std::atomic<uint64> receive_syscalls_{0};
+  std::atomic<uint64> send_syscalls_{0};
 
   std::atomic<int> refcnt_{1};
   bool is_connected_{false};
@@ -231,6 +242,7 @@ class UdpSocketFdImpl : private Iocp::Callback {
       return;
     }
 
+    receive_syscalls_.fetch_add(1, std::memory_order_relaxed);
     auto status = WSARecvMsgPtr(get_native_fd().socket(), &receive_message_, nullptr, &receive_overlapped_, nullptr);
     if (status == 0 || check_status("WSARecvMsg failed")) {
       inc_refcnt();
@@ -253,6 +265,7 @@ class UdpSocketFdImpl : private Iocp::Callback {
     WSAMSG message;
     UdpSocketSendHelper send_helper;
     send_helper.to_native(to_send_, message);
+    send_syscalls_.fetch_add(1, std::memory_order_relaxed);
     auto status = WSASendMsg(get_native_fd().socket(), &message, 0, nullptr, &send_overlapped_, nullptr);
     if (status == 0 || check_status("WSASendMsg failed")) {
       inc_refcnt();
@@ -409,6 +422,7 @@ class UdpSocketReceiveHelper {
 
   void from_native(struct msghdr &message_header, size_t message_size, UdpSocketFd::InboundMessage &message) {
     message.gso_size = 0;
+    message.queue_overflow.reset();
 #if TD_LINUX
     struct cmsghdr *cmsg;
     struct sock_extended_err *ee = nullptr;
@@ -423,6 +437,14 @@ class UdpSocketReceiveHelper {
           uint16_t gro = 0;
           std::memcpy(&gro, CMSG_DATA(cmsg), sizeof(gro));
           message.gso_size = gro;
+        }
+#endif
+#if defined(SO_RXQ_OVFL)
+      } else if (cmsg->cmsg_type == SO_RXQ_OVFL && cmsg->cmsg_level == SOL_SOCKET) {
+        if (cmsg->cmsg_len >= CMSG_LEN(sizeof(uint32_t))) {
+          uint32_t ovfl = 0;
+          std::memcpy(&ovfl, CMSG_DATA(cmsg), sizeof(ovfl));
+          message.queue_overflow = ovfl;
         }
 #endif
       } else if ((cmsg->cmsg_type == IP_RECVERR && cmsg->cmsg_level == IPPROTO_IP) ||
@@ -553,10 +575,8 @@ void dump_msghdr(StringBuilder &sb, const struct msghdr &header, size_t index, s
   }
 }
 
-bool is_fatal_sendmsg_error(int sendmsg_errno, bool is_gso) {
+bool is_fatal_sendmsg_error(int sendmsg_errno) {
   switch (sendmsg_errno) {
-    case EINVAL:
-      return !is_gso;
     case EBADF:
     case ENOTSOCK:
     case EPIPE:
@@ -628,6 +648,12 @@ class UdpSocketFdImpl {
   bool is_mmsg_enabled() const {
     return mmsg_enabled_;
   }
+  UdpSocketFd::SyscallStats get_syscall_stats() const {
+    return {
+        .receive = receive_syscalls_,
+        .send = send_syscalls_,
+    };
+  }
   Status get_pending_error() {
     if (!get_poll_info().get_flags_local().has_pending_error()) {
       return Status::OK();
@@ -653,7 +679,10 @@ class UdpSocketFdImpl {
     helper.to_native(message, message_header);
 
     auto native_fd = get_native_fd().socket();
-    auto recvmsg_res = detail::skip_eintr([&] { return recvmsg(native_fd, &message_header, flags); });
+    auto recvmsg_res = detail::skip_eintr([&] {
+      receive_syscalls_++;
+      return recvmsg(native_fd, &message_header, flags);
+    });
     auto recvmsg_errno = errno;
     if (recvmsg_res >= 0) {
       helper.from_native(message_header, recvmsg_res, message);
@@ -700,7 +729,7 @@ class UdpSocketFdImpl {
     }
   }
 
-  Status send_message(const UdpSocketFd::OutboundMessage &message, bool &is_sent) {
+  Status send_message(const UdpSocketFd::OutboundMessage &message, bool &is_sent, bool &is_dropped) {
     is_sent = false;
     struct msghdr message_header;
     detail::UdpSocketSendHelper helper;
@@ -708,18 +737,23 @@ class UdpSocketFdImpl {
     helper.to_native(message, message_header, is_gso);
 
     auto native_fd = get_native_fd().socket();
-    auto sendmsg_res = detail::skip_eintr([&] { return sendmsg(native_fd, &message_header, 0); });
+    auto sendmsg_res = detail::skip_eintr([&] {
+      send_syscalls_++;
+      return sendmsg(native_fd, &message_header, 0);
+    });
     auto sendmsg_errno = errno;
     if (sendmsg_res >= 0) {
       is_sent = true;
       return Status::OK();
     }
-    if (is_fatal_sendmsg_error(sendmsg_errno, is_gso)) {
+    if (is_fatal_sendmsg_error(sendmsg_errno)) {
       log_sendmsg_fatal(native_fd, sendmsg_errno, message, message_header);
     }
-    return process_sendmsg_error(sendmsg_errno, is_sent, is_gso);
+    return process_sendmsg_error(sendmsg_errno, is_dropped, is_gso);
   }
-  Status process_sendmsg_error(int sendmsg_errno, bool &is_sent, bool is_gso) {
+  // `is_dropped` marks the errors that consume the message without sending it: retrying it would fail
+  // the same way, so the caller must dequeue it, but it never reached the wire.
+  Status process_sendmsg_error(int sendmsg_errno, bool &is_dropped, bool is_gso) {
     if (sendmsg_errno == EAGAIN
 #if EAGAIN != EWOULDBLOCK
         || sendmsg_errno == EWOULDBLOCK
@@ -737,7 +771,7 @@ class UdpSocketFdImpl {
       case EPERM:
         LOG(WARNING) << "Silently drop packet :( " << error;
         //TODO: get errors from MSG_ERRQUEUE is possible
-        is_sent = true;
+        is_dropped = true;
         return error;
 
       // Some general problems, which may be fixed in future
@@ -761,10 +795,9 @@ class UdpSocketFdImpl {
           // EMSGSIZE that plain UDP would return after PMTU shrinks. Drop the packet like other
           // path-MTU send errors instead of aborting the process.
           LOG(WARNING) << "Silently drop GSO packet :( " << error;
-          is_sent = true;
-          return error;
         }
-        [[fallthrough]];
+        is_dropped = true;
+        return error;
       case EBADF:         // impossible
       case ENOTSOCK:      // impossible
       case EPIPE:         // impossible for udp
@@ -783,35 +816,60 @@ class UdpSocketFdImpl {
     }
   }
 
-  Status send_messages(Span<UdpSocketFd::OutboundMessage> messages, size_t &cnt) {
+  Status send_messages(Span<UdpSocketFd::OutboundMessage> messages, UdpSocketFd::SendResult &result) {
 #if TD_HAS_MMSG
     if (mmsg_enabled_) {
-      return send_messages_fast(messages, cnt);
+      return send_messages_fast(messages, result);
     }
 #endif
-    return send_messages_slow(messages, cnt);
+    return send_messages_slow(messages, result);
   }
 
   Status receive_messages(MutableSpan<UdpSocketFd::InboundMessage> messages, size_t &cnt) {
+    Status status;
 #if TD_HAS_MMSG
     if (mmsg_enabled_) {
-      return receive_messages_fast(messages, cnt);
-    }
+      status = receive_messages_fast(messages, cnt);
+    } else
 #endif
-    return receive_messages_slow(messages, cnt);
+    {
+      status = receive_messages_slow(messages, cnt);
+    }
+    account_rx_overflow(messages, cnt);
+    return status;
+  }
+
+  uint64 get_rx_queue_drops() const {
+    return rx_queue_drops_;
   }
 
  private:
   PollableFdInfo info_;
   bool mmsg_enabled_{true};
+  uint64 receive_syscalls_{0};
+  uint64 send_syscalls_{0};
 
-  Status send_messages_slow(Span<UdpSocketFd::OutboundMessage> messages, size_t &cnt) {
-    cnt = 0;
+  uint64 rx_queue_drops_{0};
+  uint32 rx_queue_overflow_last_{0};
+
+  void account_rx_overflow(MutableSpan<UdpSocketFd::InboundMessage> messages, size_t cnt) {
+    if (cnt == 0 || !messages[cnt - 1].queue_overflow.has_value()) {
+      return;  // no cmsg in this batch says nothing about the counter, it does not say "no drops"
+    }
+    // SO_RXQ_OVFL is a cumulative 32-bit counter: subtract modulo 2^32 so a wrap costs one delta,
+    // not the ~4 billion increments it takes to come back around.
+    auto cur = *messages[cnt - 1].queue_overflow;
+    rx_queue_drops_ += static_cast<uint32>(cur - rx_queue_overflow_last_);
+    rx_queue_overflow_last_ = cur;
+  }
+
+  Status send_messages_slow(Span<UdpSocketFd::OutboundMessage> messages, UdpSocketFd::SendResult &result) {
     for (auto &message : messages) {
       CHECK(!message.data.empty());
-      bool is_sent;
-      auto status = send_message(message, is_sent);
-      cnt += is_sent;
+      bool is_sent = false, is_dropped = false;
+      auto status = send_message(message, is_sent, is_dropped);
+      result.sent += is_sent;
+      result.dropped += is_dropped;
       if (!is_sent) {
         return status;
       }
@@ -821,7 +879,7 @@ class UdpSocketFdImpl {
   }
 
 #if TD_HAS_MMSG
-  Status send_messages_fast(Span<UdpSocketFd::OutboundMessage> messages, size_t &cnt) {
+  Status send_messages_fast(Span<UdpSocketFd::OutboundMessage> messages, UdpSocketFd::SendResult &result) {
     //struct mmsghdr {
     //  struct msghdr msg_hdr; [> Message header <]
     //  unsigned int msg_len;  [> Number of bytes transmitted <]
@@ -837,20 +895,22 @@ class UdpSocketFdImpl {
       headers[i].msg_len = 0;
     }
     auto native_fd = get_native_fd().socket();
-    auto sendmmsg_res =
-        detail::skip_eintr([&] { return sendmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_send), 0); });
+    auto sendmmsg_res = detail::skip_eintr([&] {
+      send_syscalls_++;
+      return sendmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_send), 0);
+    });
     auto sendmmsg_errno = errno;
     if (sendmmsg_res >= 0) {
-      cnt = sendmmsg_res;
+      result.sent = sendmmsg_res;
       return Status::OK();
     }
 
-    bool is_sent = false;
-    if (is_fatal_sendmsg_error(sendmmsg_errno, has_gso)) {
+    bool is_dropped = false;
+    if (is_fatal_sendmsg_error(sendmmsg_errno)) {
       log_sendmmsg_fatal(native_fd, sendmmsg_errno, messages, headers, to_send);
     }
-    auto status = process_sendmsg_error(sendmmsg_errno, is_sent, has_gso);
-    cnt = is_sent;
+    auto status = process_sendmsg_error(sendmmsg_errno, is_dropped, has_gso);
+    result.dropped = is_dropped;
     return status;
   }
 #endif
@@ -893,8 +953,10 @@ class UdpSocketFdImpl {
     }
 
     auto native_fd = get_native_fd().socket();
-    auto recvmmsg_res = detail::skip_eintr(
-        [&] { return recvmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_receive), flags, nullptr); });
+    auto recvmmsg_res = detail::skip_eintr([&] {
+      receive_syscalls_++;
+      return recvmmsg(native_fd, headers.data(), narrow_cast<unsigned int>(to_receive), flags, nullptr);
+    });
     auto recvmmsg_errno = errno;
     if (recvmmsg_res >= 0) {
       cnt = narrow_cast<size_t>(recvmmsg_res);
@@ -962,6 +1024,12 @@ Result<UdpSocketFd> UdpSocketFd::open(const IPAddress &address) {
 #endif
   setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char *>(&flags), sizeof(flags));
   // TODO: SO_REUSEADDR, SO_KEEPALIVE, TCP_NODELAY, SO_SNDBUF, SO_RCVBUF, TCP_QUICKACK, SO_LINGER
+#if defined(SO_RXQ_OVFL)
+  {
+    int on = 1;
+    setsockopt(sock, SOL_SOCKET, SO_RXQ_OVFL, reinterpret_cast<const char *>(&on), sizeof(on));
+  }
+#endif
 
   auto bind_addr = address.get_any_addr();
   bind_addr.set_port(address.get_port());
@@ -1080,10 +1148,18 @@ Result<uint32> UdpSocketFd::maximize_rcv_buffer(uint32 max) {
 }
 #endif
 
+uint64 UdpSocketFd::get_rx_queue_drops() const {
+  return impl_->get_rx_queue_drops();
+}
+
+UdpSocketFd::SyscallStats UdpSocketFd::get_syscall_stats() const {
+  return impl_->get_syscall_stats();
+}
+
 Status UdpSocketFd::send_message(const OutboundMessage &message, bool &is_sent) {
-  size_t count = 0;
-  auto status = send_messages({&message, 1}, count);
-  is_sent = count > 0;
+  SendResult result;
+  auto status = send_messages({&message, 1}, result);
+  is_sent = result.sent > 0;
   return status;
 }
 
@@ -1095,8 +1171,8 @@ Status UdpSocketFd::receive_message(InboundMessage &message, bool &is_received, 
 }
 
 #if TD_PORT_POSIX
-Status UdpSocketFd::send_messages(Span<OutboundMessage> messages, size_t &count) {
-  return impl_->send_messages(messages, count);
+Status UdpSocketFd::send_messages(Span<OutboundMessage> messages, SendResult &result) {
+  return impl_->send_messages(messages, result);
 }
 
 Status UdpSocketFd::receive_messages(MutableSpan<InboundMessage> messages, size_t &count) {
@@ -1120,14 +1196,13 @@ Status UdpSocketFd::flush_send() {
   return impl_->flush_send();
 }
 
-Status UdpSocketFd::send_messages(Span<OutboundMessage> messages, size_t &count) {
-  count = 0;
+Status UdpSocketFd::send_messages(Span<OutboundMessage> messages, SendResult &result) {
   for (auto &message : messages) {
     UdpMessage msg;
     msg.address = *message.to;
     msg.data = BufferSlice(message.data);
     impl_->send(std::move(msg));
-    count++;
+    result.sent++;
   }
   return impl_->flush_send();
 }

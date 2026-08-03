@@ -19,10 +19,20 @@
 #include "td/utils/Time.h"
 #include "td/utils/port/UdpSocketFd.h"
 
+#include "metrics.h"
 #include "openssl-utils.h"
 #include "quic-common.h"
 
 namespace ton::quic {
+
+inline std::chrono::nanoseconds to_chrono(ngtcp2_duration d) {
+  return std::chrono::nanoseconds(d);
+}
+
+// "-206 (ERR_STREAM_ID_BLOCKED)" — the numeric code alone is opaque in logs.
+inline std::string ngtcp2_err_str(ngtcp2_ssize rv) {
+  return std::to_string(rv) + " (" + ngtcp2_strerror(static_cast<int>(rv)) + ")";
+}
 
 struct ServerIdentities : td::CntObject {
   std::map<std::string, ServerIdentity> by_sni;
@@ -46,6 +56,12 @@ struct QuicConnectionOptions {
   static constexpr size_t DEFAULT_MAX_STREAMS_BIDI = 4096;
   static constexpr ngtcp2_duration DEFAULT_IDLE_TIMEOUT = 15 * NGTCP2_SECONDS;
   static constexpr ngtcp2_duration DEFAULT_KEEP_ALIVE_TIMEOUT = 5 * NGTCP2_SECONDS;
+  // 25ms is RFC 9000's default, but mainnet validators see a ~36ms mean RTT, so advertising 25ms
+  // inflates the peer's PTO (srtt + 4*rttvar + max_ack_delay) by roughly 70% and slows real loss
+  // recovery. The ack threshold stays at ngtcp2's spec-conformant 2: raising it measured no benefit
+  // once stream credit was batched, and deviating costs loss-detection latency on lossy paths.
+  static constexpr ngtcp2_duration DEFAULT_MAX_ACK_DELAY = 10 * NGTCP2_MILLISECONDS;
+  static constexpr size_t DEFAULT_ACK_THRESH = 2;
 
   size_t initial_max_data = DEFAULT_INITIAL_MAX_DATA;
   size_t max_window = DEFAULT_MAX_WINDOW;
@@ -55,6 +71,8 @@ struct QuicConnectionOptions {
   size_t max_streams_bidi = DEFAULT_MAX_STREAMS_BIDI;
   ngtcp2_duration idle_timeout = DEFAULT_IDLE_TIMEOUT;
   ngtcp2_duration keep_alive_timeout = DEFAULT_KEEP_ALIVE_TIMEOUT;
+  ngtcp2_duration max_ack_delay = DEFAULT_MAX_ACK_DELAY;
+  size_t ack_thresh = DEFAULT_ACK_THRESH;
   CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
 };
 
@@ -207,7 +225,11 @@ struct QuicConnectionPImpl {
     }
   }
 
-  QuicConnectionStats get_stats();
+  QuicConnectionMetrics get_stats(TransportStats& transport_stats);
+  // Records the reject from the last handle_ingress() call unless ngtcp2 reported a discard during
+  // that call. ngtcp2 exposes only aggregate per-call counters, so a rare buffered-packet
+  // interleaving can merge the reject with an unrelated discard; see metrics/METRICS.md.
+  void account_ingress_reject(TransportStats& transport_stats);
 
  private:
   td::IPAddress local_address_;
@@ -241,6 +263,9 @@ struct QuicConnectionPImpl {
   bool local_cid_callbacks_enabled_{false};
 
   size_t sids_encountered = 0;
+  td::uint64 last_pkt_discarded_ = 0;
+  bool last_ingress_discarded_ = false;
+  metrics::Labeled<metrics::Counter, metrics::Direction> stream_bytes_;
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
   std::deque<QuicStreamID> ready_streams_;
   QuicStreamID write_sid_ = -1;

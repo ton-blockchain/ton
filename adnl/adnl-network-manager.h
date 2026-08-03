@@ -20,8 +20,10 @@
 
 #include <bitset>
 
+#include "metrics/collectors.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/utils/port/IPAddress.h"
 
 #include "adnl-node-id.hpp"
@@ -76,6 +78,10 @@ class AdnlNetworkManager : public td::actor::Actor {
   //virtual void send_answer_packet(AdnlNodeIdShort src_id, AdnlNodeIdShort dst_id, td::IPAddress dst_addr,
   //                             ConnHandle conn_handle, td::uint32 priority, td::BufferSlice data) = 0;
   virtual void set_local_id_category(AdnlNodeIdShort id, td::uint8 cat) = 0;
+
+  virtual td::actor::Task<> collect(metrics::Context ctx) {
+    co_return {};
+  }
 
   static constexpr td::uint32 get_mtu() {
     return 1440;

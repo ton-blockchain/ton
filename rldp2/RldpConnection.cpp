@@ -133,8 +133,10 @@ void RldpConnection::send(TransferId transfer_id, td::BufferSlice data, td::Time
 }
 
 void RldpConnection::receive_raw(td::BufferSlice packet) {
+  stats_.record_wire(metrics::Direction::in, packet.size());
   auto F = ton::fetch_tl_object<ton::ton_api::rldp2_MessagePart>(std::move(packet), true);
   if (F.is_error()) {
+    stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
     return;
   }
   downcast_call(*F.move_as_ok(), [&](auto &obj) { this->receive_raw_obj(obj); });
@@ -276,20 +278,24 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
 
   auto r_total_size = td::narrow_cast_safe<std::size_t>(part.total_size_);
   if (r_total_size.is_error()) {
+    stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
     VLOG(rldp2, INFO) << "Drop bad rldp message: " << r_total_size.move_as_error();
     return;
   }
   auto r_fec_type = ton::fec::FecType::create(std::move(part.fec_type_));
   if (r_fec_type.is_error()) {
+    stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
     VLOG(rldp2, INFO) << "Drop bad rldp message: " << r_fec_type.move_as_error();
     return;
   }
   if (r_fec_type.ok().symbol_size() != OutboundTransfer::symbol_size()) {
+    stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
     VLOG(rldp2, INFO) << "Drop bad rldp message: bad symbol size " << r_fec_type.ok().symbol_size();
     return;
   }
   auto r_seqno = td::narrow_cast_safe<td::uint32>(part.seqno_);
   if (r_seqno.is_error()) {
+    stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
     VLOG(rldp2, INFO) << "Drop bad rldp message: " << r_seqno.move_as_error();
     return;
   }
@@ -310,12 +316,14 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
     max_size = limit_it->max_size;
   }
   if (total_size > max_size) {
+    stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::limited).inc();
     VLOG(rldp2, INFO) << "Drop too big rldp message: " << part.total_size_ << " > " << max_size;
     return;
   }
   size_t n_parts = (total_size + OutboundTransfer::part_size() - 1) / OutboundTransfer::part_size();
   td::uint32 part_idx = part.part_;
   if (part_idx >= n_parts) {
+    stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
     VLOG(rldp2, INFO) << "Drop rldp message: part_idx=" << part_idx << " >= n_parts=" << n_parts
                       << " (total_size=" << total_size << ")";
     return;
@@ -325,6 +333,7 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
                                   ? total_size % OutboundTransfer::part_size()
                                   : OutboundTransfer::part_size();
   if (part_size != expected_part_size) {
+    stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
     VLOG(rldp2, INFO) << "Drop rldp message: part_size=" << part_size << " != " << expected_part_size
                       << " (total_size=" << total_size << ", part_idx=" << part_idx << ")";
     return;
@@ -370,6 +379,11 @@ void RldpConnection::receive_raw_obj(ton::ton_api::rldp2_messagePart &part) {
   }();
 
   if (!ignore) {
+    if (res.is_error()) {
+      // A bad fec type or an undecodable symbol kills the whole transfer: the peer's fault, and the
+      // last chance to count the parts it already made us buffer.
+      stats_.transport_dropped.at(metrics::Direction::in, metrics::Reason::invalid).inc();
+    }
     drop_limits(transfer_id, true);
     on_inbound_completed(transfer_id, td::Timestamp::now());
     to_receive_.emplace_back(transfer_id, std::move(res));

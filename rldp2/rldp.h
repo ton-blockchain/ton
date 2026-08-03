@@ -19,6 +19,8 @@
 #pragma once
 
 #include "adnl/adnl-sender-ex.h"
+#include "metrics/collectors.h"
+#include "td/actor/coro_task.h"
 
 namespace ton {
 
@@ -36,6 +38,8 @@ class Rldp : public adnl::AdnlSenderEx {
 
   virtual void send_message_ex(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst, td::Timestamp timeout,
                                td::BufferSlice data) = 0;
+
+  virtual td::actor::Task<> collect(metrics::Context ctx) = 0;
 
   static td::actor::ActorOwn<Rldp> create(td::actor::ActorId<adnl::Adnl> adnl);
 };

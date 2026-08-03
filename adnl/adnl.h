@@ -21,7 +21,9 @@
 #include "auto/tl/ton_api.h"
 #include "common/errorcode.h"
 #include "keyring/keyring.h"
+#include "metrics/collectors.h"
 #include "td/actor/actor.h"
+#include "td/actor/coro_task.h"
 #include "td/utils/port/IPAddress.h"
 
 #include "adnl-node-id.hpp"
@@ -127,6 +129,10 @@ class Adnl : public AdnlSenderInterface {
                              td::Promise<std::pair<td::actor::ActorOwn<AdnlTunnel>, AdnlAddress>> promise) = 0;
 
   virtual void get_stats(bool all, td::Promise<tl_object_ptr<ton_api::adnl_stats>> promise) = 0;
+
+  virtual td::actor::Task<> collect(metrics::Context ctx) {
+    co_return {};
+  }
 
   static td::actor::ActorOwn<Adnl> create(std::string db, td::actor::ActorId<keyring::Keyring> keyring);
 

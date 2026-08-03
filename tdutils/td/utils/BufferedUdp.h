@@ -33,11 +33,20 @@
 
 namespace td {
 
+struct UdpDirCounters {
+  uint64 bytes{0};
+  uint64 packets{0};
+  // Actual data-plane OS calls, including unsuccessful calls and EINTR retries.
+  uint64 syscalls{0};
+  uint64 dropped{0};  // out: refused by the kernel; in: lost to receive-queue overflow
+};
+
 #if TD_PORT_POSIX
 namespace detail {
 class UdpWriter {
  public:
-  static Status write_once(UdpSocketFd &fd, VectorQueue<UdpMessage> &queue) TD_WARN_UNUSED_RESULT {
+  static Status write_once(UdpSocketFd &fd, VectorQueue<UdpMessage> &queue,
+                           UdpDirCounters &counters) TD_WARN_UNUSED_RESULT {
     std::array<UdpSocketFd::OutboundMessage, 16> messages;
     auto to_send = queue.as_span();
     size_t to_send_n = td::min(messages.size(), to_send.size());
@@ -47,9 +56,15 @@ class UdpWriter {
       messages[i].data = to_send[i].data.as_slice();
     }
 
-    size_t cnt;
-    auto status = fd.send_messages(::td::Span<UdpSocketFd::OutboundMessage>(messages).truncate(to_send_n), cnt);
-    queue.pop_n(cnt);
+    UdpSocketFd::SendResult result;
+    auto status = fd.send_messages(::td::Span<UdpSocketFd::OutboundMessage>(messages).truncate(to_send_n), result);
+    counters.syscalls = fd.get_syscall_stats().send;
+    for (size_t i = 0; i < result.sent; i++) {
+      counters.bytes += to_send[i].data.size();
+    }
+    counters.packets += result.sent;
+    counters.dropped += result.dropped;
+    queue.pop_n(result.consumed());
     return status;
   }
 };
@@ -90,16 +105,19 @@ class UdpReader {
       helpers_[i].init_inbound_message(messages_[i]);
     }
   }
-  Status read_once(UdpSocketFd &fd, VectorQueue<UdpMessage> &queue) TD_WARN_UNUSED_RESULT {
+  Status read_once(UdpSocketFd &fd, VectorQueue<UdpMessage> &queue, UdpDirCounters &counters) TD_WARN_UNUSED_RESULT {
     for (size_t i = 0; i < messages_.size(); i++) {
       CHECK(messages_[i].data.size() == 2048);
     }
     size_t cnt = 0;
     auto status = fd.receive_messages(messages_, cnt);
+    counters.syscalls = fd.get_syscall_stats().receive;
     for (size_t i = 0; i < cnt; i++) {
+      counters.bytes += messages_[i].data.size();
       queue.push(helpers_[i].extract_udp_message(messages_[i]));
       helpers_[i].init_inbound_message(messages_[i]);
     }
+    counters.packets += cnt;
     for (size_t i = cnt; i < messages_.size(); i++) {
       LOG_CHECK(messages_[i].data.size() == 2048)
           << " cnt = " << cnt << " i = " << i << " size = " << messages_[i].data.size() << " status = " << status;
@@ -158,10 +176,23 @@ class BufferedUdp : public UdpSocketFd {
     return *static_cast<UdpSocketFd *>(this);
   }
 
+#if TD_PORT_POSIX
+  // `in_counters().dropped` stays 0 here: only the socket tracks receive-queue overflow, so a reader
+  // of these counters must fill it from get_rx_queue_drops().
+  const UdpDirCounters &in_counters() const {
+    return in_counters_;
+  }
+  const UdpDirCounters &out_counters() const {
+    return out_counters_;
+  }
+#endif
+
  private:
 #if TD_PORT_POSIX
   VectorQueue<UdpMessage> input_;
   VectorQueue<UdpMessage> output_;
+  UdpDirCounters in_counters_;
+  UdpDirCounters out_counters_;
 
   VectorQueue<UdpMessage> &input() {
     return input_;
@@ -171,12 +202,12 @@ class BufferedUdp : public UdpSocketFd {
   }
 
   Status flush_send_once() TD_WARN_UNUSED_RESULT {
-    return detail::UdpWriter::write_once(as_fd(), output_);
+    return detail::UdpWriter::write_once(as_fd(), output_, out_counters_);
   }
 
   Status flush_read_once() TD_WARN_UNUSED_RESULT {
     init_thread_local<detail::UdpReader>(udp_reader_);
-    return udp_reader_->read_once(as_fd(), input_);
+    return udp_reader_->read_once(as_fd(), input_, in_counters_);
   }
 
   static TD_THREAD_LOCAL detail::UdpReader *udp_reader_;

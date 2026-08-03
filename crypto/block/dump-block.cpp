@@ -263,7 +263,6 @@ int main(int argc, char* const argv[]) {
   bool vset_compute_test = false;
   bool store_loaded = false;
   int dump = 3;
-  auto zerostate = std::make_unique<block::ZerostateInfo>();
   while ((i = getopt(argc, argv, "CSt:hqv:V")) != -1) {
     switch (i) {
       case 'C':
