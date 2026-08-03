@@ -26,6 +26,7 @@ struct QuicConnectionMetrics {
   metrics::Labeled<metrics::Counter, metrics::Direction> bytes;
   metrics::Labeled<metrics::Counter, metrics::Direction> packets;
   metrics::Labeled<metrics::Counter, metrics::Direction> stream_bytes;
+  metrics::Labeled<metrics::Counter, metrics::Direction> datagrams;
   metrics::Counter bytes_lost;
   metrics::Counter packets_lost;
   metrics::Gauge<td::uint64> bytes_in_flight;
@@ -39,6 +40,7 @@ struct QuicConnectionMetrics {
     bytes += other.bytes;
     packets += other.packets;
     stream_bytes += other.stream_bytes;
+    datagrams += other.datagrams;
     bytes_lost += other.bytes_lost;
     packets_lost += other.packets_lost;
     bytes_in_flight += other.bytes_in_flight;
@@ -54,6 +56,7 @@ struct QuicConnectionMetrics {
     ctx.collect(bytes, "bytes");
     ctx.collect(packets, "packets");
     ctx.collect(stream_bytes, "stream_bytes");
+    ctx.collect(datagrams, "datagrams");
     ctx.collect(bytes_lost, "bytes_lost");
     ctx.collect(packets_lost, "packets_lost");
     ctx.collect(bytes_in_flight, "bytes_in_flight");

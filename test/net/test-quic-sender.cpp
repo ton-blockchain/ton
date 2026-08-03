@@ -397,6 +397,12 @@ class TestRunner : public td::actor::Actor {
     co_return td::Unit{};
   }
 
+  td::actor::Task<std::string> quic_metrics(const TestNode& node) {
+    ton::metrics::Sink sink;
+    co_await td::actor::ask(node.quic_sender.get(), &ton::quic::QuicSender::collect, ton::metrics::Context{sink});
+    co_return std::move(sink).build().render();
+  }
+
  private:
   std::string db_root_;
   double timeout_;
@@ -1781,6 +1787,42 @@ TEST(QuicMessageStreams, ConfirmationDistinguishesAckFromReset) {
       co_await td::actor::yield_on_current();
     }
     ASSERT_TRUE(rendered.find("quic_message_confirmation_failed_total{tl=\"unknown\"} 1") != std::string::npos);
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicDatagram, MessageTransportSelection) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto options = quic_test_options();
+    options.max_datagram_frame_size = 64;
+    auto a = co_await t.create_node("dg-a", next_port(), std::nullopt, "127.0.0.1", options);
+    auto b = co_await t.create_node("dg-b", next_port(), std::nullopt, "127.0.0.1", options);
+    auto c = co_await t.create_node("dg-c", next_port(), std::nullopt, "127.0.0.1", quic_test_options());
+
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+    t.add_peer(a, c);
+    t.add_peer(c, a);
+
+    t.send_message(a, b, "small");
+    t.send_message(a, b, std::string(200, 'L'));
+    t.send_message(a, c, "stream");
+    t.send_message(c, a, "stream");
+
+    co_await t.wait_until([&] {
+      return a.received_messages->size() == 1 && b.received_messages->size() == 2 &&
+             c.received_messages->size() == 1;
+    }, 30.0);
+
+    auto sender = co_await t.quic_metrics(a);
+    auto receiver = co_await t.quic_metrics(b);
+    auto legacy_receiver = co_await t.quic_metrics(c);
+    ASSERT_TRUE(sender.find("quic_transport_datagrams_total{direction=\"out\"} 1.000000\n") != std::string::npos);
+    ASSERT_TRUE(sender.find("quic_transport_datagrams_total{direction=\"in\"} 0.000000\n") != std::string::npos);
+    ASSERT_TRUE(receiver.find("quic_transport_datagrams_total{direction=\"in\"} 1.000000\n") != std::string::npos);
+    ASSERT_TRUE(legacy_receiver.find("quic_transport_datagrams_total{direction=\"in\"} 0.000000\n") !=
+                std::string::npos);
+
     co_return td::Unit{};
   });
 }

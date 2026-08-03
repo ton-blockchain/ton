@@ -191,6 +191,7 @@ port) and folds their stats together.
 | `ton_quic_transport_bytes_total` | counter | `direction` | ngtcp2 packet bytes. |
 | `ton_quic_transport_packets_total` | counter | `direction` | ngtcp2 packet count. |
 | `ton_quic_transport_stream_bytes_total` | counter | `direction` | STREAM payload. Inbound at delivery; **outbound at ACK time**, so it trails the app tier by everything in flight or lost. |
+| `ton_quic_transport_datagrams_total` | counter | `direction` | RFC 9221 unreliable DATAGRAM frames. `out` counts them as ngtcp2 takes them, `in` as they are delivered. Zero unless the endpoint opted into the extension (`QuicServer::Options::max_datagram_frame_size`); a fire-and-forget message uses one only when the peer also advertised it and the framed message fits. |
 | `ton_quic_transport_bytes_lost_total` | counter | — | Bytes in packets declared lost by loss detection. |
 | `ton_quic_transport_packets_lost_total` | counter | — | Packets declared lost. |
 | `ton_quic_transport_bytes_in_flight` | gauge | — | ngtcp2 bytes in flight. |

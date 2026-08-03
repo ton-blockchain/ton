@@ -267,6 +267,7 @@ QuicConnectionOptions QuicServer::build_connection_options() const {
   if (options_.max_ack_delay_seconds.has_value()) {
     conn_options.max_ack_delay = static_cast<ngtcp2_duration>(*options_.max_ack_delay_seconds * NGTCP2_SECONDS);
   }
+  conn_options.max_datagram_frame_size = options_.max_datagram_frame_size;
   return conn_options;
 }
 
@@ -1092,6 +1093,11 @@ td::Result<QuicStreamID> QuicServer::send_message(QuicConnectionId cid, td::Buff
   auto state = find_connection(cid);
   if (!state) {
     return td::Status::Error("Connection not found");
+  }
+  if (state->impl().can_send_datagram(data.size())) {
+    state->impl().send_datagram(std::move(data));
+    on_connection_updated(*state);
+    return -1;
   }
   // A peer that never advertised unidirectional stream credit would refuse every open forever, so
   // it gets the pre-unidirectional wire behaviour and its messages ride bidirectional streams.

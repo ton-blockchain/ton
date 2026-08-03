@@ -305,6 +305,7 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   params.initial_max_streams_uni = options.max_streams_uni;
   params.initial_max_stream_data_uni = options.initial_max_stream_data_uni;
   params.initial_max_data = options.initial_max_data;
+  params.max_datagram_frame_size = options.max_datagram_frame_size;
 }
 
 void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bool is_client) {
@@ -332,6 +333,7 @@ void QuicConnectionPImpl::setup_ngtcp2_callbacks(ngtcp2_callbacks& callbacks, bo
   callbacks.acked_stream_data_offset = acked_stream_data_offset_cb;
   callbacks.stream_close = stream_close_cb;
   callbacks.extend_max_stream_data = extend_max_stream_data_cb;
+  callbacks.recv_datagram = recv_datagram_cb;
 }
 
 void QuicConnectionPImpl::finish_quic_init(const QuicConnectionId& scid) {
@@ -578,6 +580,40 @@ ngtcp2_ssize QuicConnectionPImpl::write_streams_to_packet(ngtcp2_path* path, ngt
   return n_write;
 }
 
+ngtcp2_ssize QuicConnectionPImpl::write_frames_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
+                                                         size_t destlen, bool padding, ngtcp2_tstamp ts) {
+  if (next_ready_stream_id() != -1) {
+    return write_streams_to_packet(path, pi, dest, destlen, padding, ts);
+  }
+
+  auto n_write = write_datagrams_to_packet(path, pi, dest, destlen, padding, ts);
+  if (n_write != NGTCP2_ERR_WRITE_MORE) {
+    return n_write;
+  }
+
+  return write_streams_to_packet(path, pi, dest, destlen, padding, ts);
+}
+
+ngtcp2_ssize QuicConnectionPImpl::write_datagrams_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
+                                                            size_t destlen, bool padding, ngtcp2_tstamp ts) {
+  auto flags = NGTCP2_WRITE_DATAGRAM_FLAG_MORE | (padding ? NGTCP2_WRITE_DATAGRAM_FLAG_PADDING : 0u);
+  while (!pending_datagrams_.empty()) {
+    auto& data = pending_datagrams_.front();
+    int accepted = 0;
+    auto n_write = ngtcp2_conn_write_datagram(conn(), path, pi, dest, destlen, &accepted, flags, 0,
+                                              data.as_slice().ubegin(), data.size(), ts);
+    if (accepted != 0) {
+      datagrams_.at(metrics::Direction::out).inc();
+      pending_datagrams_.pop_front();
+    }
+    if (n_write != NGTCP2_ERR_WRITE_MORE) {
+      last_packet_streams_ = 0;
+      return n_write;
+    }
+  }
+  return NGTCP2_ERR_WRITE_MORE;
+}
+
 ngtcp2_ssize QuicConnectionPImpl::write_pkt_cb(ngtcp2_conn* /*conn*/, ngtcp2_path* path, ngtcp2_pkt_info* pi,
                                                uint8_t* dest, size_t destlen, ngtcp2_tstamp ts, void* user_data) {
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
@@ -586,7 +622,7 @@ ngtcp2_ssize QuicConnectionPImpl::write_pkt_cb(ngtcp2_conn* /*conn*/, ngtcp2_pat
 
 ngtcp2_ssize QuicConnectionPImpl::write_pkt_aggregate(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
                                                       size_t destlen, ngtcp2_tstamp ts) {
-  return write_streams_to_packet(path, pi, dest, destlen, false, ts);
+  return write_frames_to_packet(path, pi, dest, destlen, false, ts);
 }
 
 td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool use_gso, size_t max_packets) {
@@ -603,8 +639,8 @@ td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool u
     n_write = ngtcp2_conn_write_aggregate_pkt2(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()),
                                                msg_out.storage.size(), &gso_size, &write_pkt_cb, max_packets, ts);
   } else {
-    n_write = write_streams_to_packet(&path, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()),
-                                      msg_out.storage.size(), false, ts);
+    n_write = write_frames_to_packet(&path, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()),
+                                     msg_out.storage.size(), false, ts);
   }
   finish_batch();
 
@@ -757,6 +793,24 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, OutboundStreamSt
   return td::Status::OK();
 }
 
+static constexpr size_t DATAGRAM_FRAME_OVERHEAD = 1 + 2;
+static constexpr size_t DATAGRAM_PACKET_OVERHEAD = 64;
+
+bool QuicConnectionPImpl::can_send_datagram(size_t size) const {
+  const auto* remote_params = ngtcp2_conn_get_remote_transport_params(conn());
+  return options_.max_datagram_frame_size != 0 && remote_params != nullptr &&
+         remote_params->max_datagram_frame_size > DATAGRAM_FRAME_OVERHEAD &&
+         size <= remote_params->max_datagram_frame_size - DATAGRAM_FRAME_OVERHEAD &&
+         size <= NGTCP2_MAX_UDP_PAYLOAD_SIZE - DATAGRAM_PACKET_OVERHEAD;
+}
+
+void QuicConnectionPImpl::send_datagram(td::BufferSlice data) {
+  if (pending_datagrams_.size() >= MAX_PENDING_DATAGRAMS) {
+    pending_datagrams_.pop_front();
+  }
+  pending_datagrams_.push_back(std::move(data));
+}
+
 void QuicConnectionPImpl::account_ingress_reject(TransportStats& transport_stats) {
   if (last_ingress_discarded_) {
     return;  // already in pkt_discarded; the fold below picks it up on the next get_stats
@@ -783,6 +837,7 @@ QuicConnectionMetrics QuicConnectionPImpl::get_stats(TransportStats& transport_s
       .bytes = {{.in = info.bytes_recv, .out = info.bytes_sent}},
       .packets = {{.in = info.pkt_recv, .out = info.pkt_sent}},
       .stream_bytes = stream_bytes_,
+      .datagrams = datagrams_,
       .bytes_lost = info.bytes_lost,
       .packets_lost = info.pkt_lost,
       .bytes_in_flight = info.bytes_in_flight,
@@ -1014,6 +1069,15 @@ int QuicConnectionPImpl::stream_close_cb(ngtcp2_conn*, uint32_t flags, int64_t s
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
   // A close carrying an app error code is a reset (ours or the peer's), not a delivered stream.
   return pimpl->on_stream_close(stream_id, (flags & NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET) == 0);
+}
+
+int QuicConnectionPImpl::recv_datagram_cb(ngtcp2_conn*, uint32_t /*flags*/, const uint8_t* data, size_t datalen,
+                                          void* user_data) {
+  auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
+  pimpl->datagrams_.at(metrics::Direction::in).inc();
+  auto payload = datalen == 0 ? td::Slice{} : td::Slice{data, datalen};
+  pimpl->callback_->on_stream_data({.sid = -1, .data = td::BufferSlice{payload}, .fin = true}).ignore();
+  return 0;
 }
 
 int QuicConnectionPImpl::extend_max_stream_data_cb(ngtcp2_conn*, int64_t stream_id, uint64_t /*max_data*/,

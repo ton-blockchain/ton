@@ -599,6 +599,7 @@ TEST(MetricsGolden, Quic) {
                 "ton_quic_transport_bytes counter",
                 "ton_quic_transport_packets counter",
                 "ton_quic_transport_stream_bytes counter",
+                "ton_quic_transport_datagrams counter",
                 "ton_quic_transport_bytes_lost counter",
                 "ton_quic_transport_packets_lost counter",
                 "ton_quic_transport_bytes_in_flight gauge",

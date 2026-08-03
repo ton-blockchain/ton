@@ -481,8 +481,11 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(adnl::AdnlNodeIdSh
                                                               td::BufferSlice data, td::int32 magic) {
   auto conn = co_await find_or_create_connection({src, dst});
   td::BufferSlice wire_data = create_serialize_tl_object<ton_api::quic_message>(std::move(data));
-  td::Timer timer;
   auto stream_id = co_await td::actor::ask(conn->server, &QuicServer::send_message, conn->cid, std::move(wire_data));
+  if (stream_id < 0) {
+    co_return td::Unit{};
+  }
+  td::Timer timer;
   // Nothing comes back on a unidirectional stream, so confirmation is the transport's ack of the data:
   // the stream closes once the peer has acknowledged all of it, and on_stream_closed records it.
   // The close cannot overtake this emplace: send_message only buffers the data and yields, so the
@@ -726,12 +729,9 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
     return;
   }
   auto connection = it->second;
-
-  // Deliver only on a connection whose peer identity is confirmed: is_ready is set in on_connected
-  // once the peer key matched the expected peer; a not-yet-ready or init_error connection is being
-  // torn down, and delivering its streams would attribute traffic to an unauthenticated peer.
+  // Never attribute peer data until the handshake identity has been accepted.
   if (!connection->is_ready || connection->init_error) {
-    LOG(ERROR) << "drop stream from unauthenticated connection CID:" << cid << " SID:" << stream_id;
+    LOG(ERROR) << "drop data from unauthenticated connection CID:" << cid << " SID:" << stream_id;
     return;
   }
 
@@ -746,6 +746,15 @@ void QuicSender::on_stream_complete(QuicConnectionId cid, QuicStreamID stream_id
   }
 
   auto data = r_data.move_as_ok();
+  if (stream_id < 0) {
+    if (!connection->is_outbound) {
+      auto message = fetch_tl_object<ton_api::quic_message>(std::move(data), true);
+      if (message.is_ok()) {
+        on_request(std::move(connection), stream_id, *message.ok());
+      }
+    }
+    return;
+  }
   if (data.empty()) {
     record_message_confirmation(*connection, stream_id, true);
     return;  // a legacy bidi message triggers an empty response as its confirmation
@@ -854,7 +863,7 @@ void QuicSender::on_request(std::shared_ptr<Connection> connection, QuicStreamID
   // sending it here, once this actor has taken the message, is what makes the peer's budget real
   // backpressure. A unidirectional stream is already closed by the time we get here, so its credit
   // is returned instead by on_stream_closed, the message behind it in this actor's mailbox.
-  if (ngtcp2_is_bidi_stream(stream_id)) {
+  if (stream_id >= 0 && ngtcp2_is_bidi_stream(stream_id)) {
     td::actor::send_closure(connection->server, &QuicServer::send_stream, connection->cid, stream_id, td::BufferSlice{},
                             true);
   }
