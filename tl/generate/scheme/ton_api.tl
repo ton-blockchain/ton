@@ -354,6 +354,8 @@ tonNode.data data:bytes = tonNode.Data;
 
 tonNode.externalMessage data:bytes = tonNode.ExternalMessage;
 
+tonNode.newShardBlock block:tonNode.blockIdExt cc_seqno:int data:bytes = tonNode.NewShardBlock;
+
 tonNode.blockBroadcastCompressed.data signatures:(vector tonNode.blockSignature) proof_data:bytes = tonNode.blockBroadcaseCompressed.Data;
 
 tonNode.blockBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
@@ -365,6 +367,7 @@ tonNode.blockBroadcastCompressedV2 id:tonNode.blockIdExt signature_set:tonNode.S
 tonNode.finalityBroadcastId id:tonNode.blockIdExt = tonNode.FinalityBroadcastId;
 tonNode.blockFinalityBroadcast id:tonNode.blockIdExt signature_set:tonNode.SignatureSet = tonNode.Broadcast;
 tonNode.externalMessageBroadcast message:tonNode.externalMessage = tonNode.Broadcast;
+tonNode.newShardBlockBroadcast block:tonNode.newShardBlock = tonNode.Broadcast;
 // signature may be empty, at least for now
 tonNode.newBlockCandidateBroadcast id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature data:bytes = tonNode.Broadcast;
@@ -372,6 +375,10 @@ tonNode.newBlockCandidateBroadcastCompressed id:tonNode.blockIdExt catchain_seqn
               collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
 tonNode.newBlockCandidateBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
+
+// optimistic broadcast of response to tonNode.getOutMsgQueueProof with dst_shard, block and limits arguments
+tonNode.outMsgQueueProofBroadcast dst_shard:tonNode.shardId block:tonNode.blockIdExt
+              limits:ImportedMsgQueueLimits proof:tonNode.OutMsgQueueProof = tonNode.Broadcast;
 
 tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int256 = tonNode.ShardPublicOverlayId;
 
@@ -875,8 +882,7 @@ validatorStats.blockLimitsStatus
     load_fraction_queue_cleanup:double load_fraction_dispatch:double
     load_fraction_internals:double load_fraction_externals:double
     load_fraction_new_msgs:double
-    limits_log:string
-    overload_reason:int want_split:Bool peak_block_limit_class:int = validatorStats.BlockLimitsStatus;
+    limits_log:string = validatorStats.BlockLimitsStatus;
 validatorStats.blockStats.extMsgsStats
     ext_msgs_total:int ext_msgs_filtered:int ext_msgs_accepted:int ext_msgs_rejected:int = validatorStats.ExtMsgsStats;
 validatorStats.blockStats.neighborStats shard:tonNode.shardId is_trivial:Bool is_local:Bool msg_limit:int
@@ -1090,6 +1096,7 @@ quic.answer data:bytes = quic.Response;
 engineConsoleClient.config address:string server_public_key:PublicKey client_private_key:PrivateKey = engineConsoleClient.Config;
 
 consensus.overlayId session_id:int256 nodes:(vector int256) = consensus.OverlayId;
+consensus.blockSyncOverlayId session_id:int256 = consensus.BlockOverlayId;
 consensus.dbId session_id:int256 is_validator:Bool validator_key:int256 adnl_id:int256 = consensus.DbId;
 consensus.dataToSign session_id:int256 data:bytes = consensus.DataToSign;
 

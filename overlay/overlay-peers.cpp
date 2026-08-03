@@ -263,7 +263,8 @@ void OverlayImpl::add_peer(OverlayNode node, bool verified, bool checked_signatu
       X->set_neighbour(true);
     }
     if (X != nullptr && !X->is_plumtree_neighbour() &&
-        peer_list_.plumtree_neighbours_.size() < max_plumtree_neighbours() && X->get_id() != local_id_) {
+        peer_list_.plumtree_neighbours_.size() < max_plumtree_neighbours() &&
+        !(X->get_node()->flags() & OverlayMemberFlags::DoNotReceiveBroadcasts) && X->get_id() != local_id_) {
       peer_list_.plumtree_neighbours_.push_back(X->get_id());
       X->set_plumtree_neighbour(true);
     }
@@ -530,8 +531,8 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
     return;
   }
   auto update_list = [&](std::vector<adnl::AdnlNodeIdShort> &neighbours, td::uint32 max_neighbours,
-                         td::uint32 nodes_to_change, auto is_neighbour, auto set_neighbour, const char *neighbour_name,
-                         bool include_non_receivers) {
+                         td::uint32 nodes_to_change, auto is_neighbour, auto set_neighbour,
+                         const char *neighbour_name) {
     td::uint32 iter = 0;
     td::uint32 max_iterations = nodes_to_change == 0 ? 10 : 100;
     while (iter++ < max_iterations && (nodes_to_change > 0 || neighbours.size() < max_neighbours)) {
@@ -562,8 +563,8 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
         continue;
       }
 
-      if (!include_non_receivers && (X->get_node()->flags() & OverlayMemberFlags::DoNotReceiveBroadcasts)) {
-        del_from_neighbour_list(X);
+      if (X->get_node()->flags() & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+        del_from_all_neighbour_lists(X);
         continue;
       }
 
@@ -592,13 +593,13 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
 
   update_list(
       peer_list_.neighbours_, max_neighbours(), nodes_to_change, [](OverlayPeer *P) { return P->is_neighbour(); },
-      [](OverlayPeer *P, bool value) { P->set_neighbour(value); }, "neighbour", false);
+      [](OverlayPeer *P, bool value) { P->set_neighbour(value); }, "neighbour");
   if (max_plumtree_neighbours() > 0) {
     auto plumtree_nodes_to_change = nodes_to_change == 0 ? 0 : std::max<td::uint32>(nodes_to_change, 5);
     update_list(
         peer_list_.plumtree_neighbours_, max_plumtree_neighbours(), plumtree_nodes_to_change,
         [](OverlayPeer *P) { return P->is_plumtree_neighbour(); },
-        [](OverlayPeer *P, bool value) { P->set_plumtree_neighbour(value); }, "Plumtree neighbour", true);
+        [](OverlayPeer *P, bool value) { P->set_plumtree_neighbour(value); }, "Plumtree neighbour");
   }
 }
 

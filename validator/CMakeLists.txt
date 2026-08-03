@@ -90,7 +90,6 @@ set(VALIDATOR_SOURCE
   validator-group.cpp
 
   consensus/simplex/bus.cpp
-  consensus/simplex/candidate-broadcast-relay.cpp
   consensus/simplex/candidate-resolver.cpp
   consensus/simplex/certificate.cpp
   consensus/simplex/collator-schedule.cpp
@@ -102,6 +101,7 @@ set(VALIDATOR_SOURCE
   consensus/simplex/votes.cpp
   consensus/block-accepter.cpp
   consensus/block-producer.cpp
+  consensus/block-sync-overlay.cpp
   consensus/block-validator.cpp
   consensus/bridge.cpp
   consensus/bus.cpp
