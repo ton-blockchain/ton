@@ -79,6 +79,8 @@ struct QuicConnectionOptions {
   ngtcp2_duration max_ack_delay = DEFAULT_MAX_ACK_DELAY;
   size_t ack_thresh = DEFAULT_ACK_THRESH;
   CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
+  // RFC 9221 DATAGRAM frame size advertised to the peer; 0 disables DATAGRAM messages.
+  td::uint32 max_datagram_frame_size = 0;
 };
 
 struct QuicConnectionIdAccess {
@@ -227,6 +229,9 @@ struct QuicConnectionPImpl {
   // messages have to ride bidirectional streams instead.
   [[nodiscard]] bool peer_advertised_initial_uni_credit() const;
   [[nodiscard]] td::Status buffer_stream(QuicStreamID sid, td::BufferSlice data, bool fin);
+
+  [[nodiscard]] bool can_send_datagram(size_t size) const;
+  void send_datagram(td::BufferSlice data);
   [[nodiscard]] ngtcp2_conn_info get_conn_info() const;
   [[nodiscard]] size_t get_last_packet_streams() const {
     return last_packet_streams_;
@@ -284,8 +289,11 @@ struct QuicConnectionPImpl {
   td::uint64 last_pkt_discarded_ = 0;
   bool last_ingress_discarded_ = false;
   metrics::Labeled<metrics::Counter, metrics::Direction> stream_bytes_;
+  metrics::Labeled<metrics::Counter, metrics::Direction> datagrams_;
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
   std::deque<QuicStreamID> ready_streams_;
+  static constexpr size_t MAX_PENDING_DATAGRAMS = 4096;
+  std::deque<td::BufferSlice> pending_datagrams_;
   QuicStreamID write_sid_ = -1;
   std::vector<ngtcp2_vec> write_datav_;
   size_t last_packet_streams_ = 0;
@@ -332,6 +340,10 @@ struct QuicConnectionPImpl {
   QuicStreamID next_ready_stream_id();
 
   void finish_batch();
+  ngtcp2_ssize write_frames_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest, size_t destlen,
+                                      bool padding, ngtcp2_tstamp ts);
+  ngtcp2_ssize write_datagrams_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest, size_t destlen,
+                                         bool padding, ngtcp2_tstamp ts);
   ngtcp2_ssize write_streams_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest, size_t destlen,
                                        bool padding, ngtcp2_tstamp ts);
   ngtcp2_ssize write_pkt_aggregate(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest, size_t destlen,
@@ -370,6 +382,8 @@ struct QuicConnectionPImpl {
                                          void* user_data, void* stream_user_data);
   static int stream_close_cb(ngtcp2_conn* /*conn*/, uint32_t flags, int64_t stream_id, uint64_t app_error_code,
                              void* user_data, void* stream_user_data);
+  static int recv_datagram_cb(ngtcp2_conn* /*conn*/, uint32_t flags, const uint8_t* data, size_t datalen,
+                              void* user_data);
 
   static int alpn_select_cb(SSL* ssl, const unsigned char** out, unsigned char* outlen, const unsigned char* in,
                             unsigned int inlen, void* arg);
