@@ -5451,14 +5451,6 @@ bool Collator::check_block_overload() {
                 << out_msg_queue_size_ << " > " << SPLIT_MAX_QUEUE_SIZE << ")";
     } else {
       overload_history_ |= 1;
-      // Record which cause set the overload bit, mirroring the message priority above.
-      if (block_limit_class_ >= block::ParamLimits::cl_soft) {
-        stats_.overload_reason = 1;  // load: a block-limit axis hit soft
-      } else if (long_collation_overload) {
-        stats_.overload_reason = 3;  // collation took too long
-      } else {
-        stats_.overload_reason = 4;  // long dispatch queue processing
-      }
       LOG(INFO) << message;
     }
   } else if (block_limit_class_ <= block::ParamLimits::cl_underload) {
@@ -5478,7 +5470,6 @@ bool Collator::check_block_overload() {
   if (!(overload_history_ & 1) && out_msg_queue_size_ >= FORCE_SPLIT_QUEUE_SIZE &&
       out_msg_queue_size_ <= SPLIT_MAX_QUEUE_SIZE) {
     overload_history_ |= 1;
-    stats_.overload_reason = 2;  // out_msg_queue reached the force-split limit
     LOG(INFO) << "setting overload history because out_msg_queue reached force split limit (" << out_msg_queue_size_
               << " >= " << FORCE_SPLIT_QUEUE_SIZE << ")";
   }
@@ -5492,9 +5483,6 @@ bool Collator::check_block_overload() {
     LOG(INFO) << "want_merge set because of underload history " << buffer;
     want_merge_ = true;
   }
-  // Record the final want_split decision and the peak block-limit class for session-stats attribution.
-  stats_.want_split = want_split_;
-  stats_.peak_block_limit_class = block_limit_class_;
   return true;
 }
 
@@ -6425,6 +6413,41 @@ bool Collator::create_block_candidate() {
   block_candidate = std::make_unique<BlockCandidate>(params_.creator, new_block_id_ext,
                                                      block::compute_file_hash(cdata_slice.as_slice()),
                                                      blk_slice.clone(), cdata_slice.clone());
+  bool need_out_msg_queue_broadcasts = false;  // Not supported yet
+  if (need_out_msg_queue_broadcasts) {
+    // we can't generate two proofs at the same time for the same root (it is not currently supported by cells)
+    // so we have can't reuse new state and have to regenerate it with merkle update
+    auto new_state = vm::MerkleUpdate::apply(prev_state_root_pure_, state_update).ensure().move_as_ok();
+    CHECK(new_state->get_hash() == state_root->get_hash());
+    CHECK(shard_conf_);
+    auto neighbor_list = shard_conf_->get_neighbor_shard_hash_ids(shard_);
+    LOG(INFO) << "Build OutMsgQueueProofs for " << neighbor_list.size() << " neighbours";
+    for (BlockId blk_id : neighbor_list) {
+      auto prefix = blk_id.shard_full();
+      if (shard_intersects(prefix, shard_)) {
+        continue;
+      }
+      auto limits = mc_state_->get_imported_msg_queue_limits(blk_id.workchain);
+
+      // one could use monitor_min_split_depth here, to decrease number of broadcasts
+      // but current implementation OutMsgQueueImporter doesn't support it
+
+      auto r_proof = OutMsgQueueProof::build(
+          prefix,
+          {OutMsgQueueProof::OneBlock{.id = new_block_id_ext, .state_root = new_state, .block_root = new_block}},
+          limits);
+      if (r_proof.is_ok()) {
+        auto proof = r_proof.move_as_ok();
+        CHECK(proof->msg_counts_.size() == 1);
+        block_candidate->out_msg_queue_proof_broadcasts.push_back(td::Ref<OutMsgQueueProofBroadcast>(
+            true, OutMsgQueueProofBroadcast(prefix, new_block_id_ext, limits.max_bytes, limits.max_msgs,
+                                            std::move(proof->queue_proofs_), std::move(proof->block_state_proofs_),
+                                            proof->msg_counts_[0])));
+      } else {
+        LOG(ERROR) << "Failed to build OutMsgQueueProof to " << prefix << ": " << r_proof.error();
+      }
+    }
+  }
 
   // 3.1 check block and collated data size
   if (block_candidate->data.size() > consensus_config.max_block_size) {

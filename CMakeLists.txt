@@ -595,7 +595,6 @@ add_subdirectory(create-hardfork)
 add_subdirectory(dht-server)
 add_subdirectory(utils)
 add_subdirectory(rldp-http-proxy)
-add_subdirectory(benchmark)
 endif()
 #END internal
 

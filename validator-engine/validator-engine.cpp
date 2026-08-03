@@ -5785,32 +5785,22 @@ int main(int argc, char *argv[]) {
 #endif
     td::set_signal_handler(td::SignalType::HangUp, force_rotate_logs).ensure();
   });
-  enum class LogType { None, Synchronous, Asynchronous };
-  LogType log_type = LogType::None;
-  std::string log_file;
   std::string session_logs_file;
-  auto set_log_file = [&](td::Slice fname, LogType type) {
+  auto init_log_file = [&](td::Slice fname) {
     if (session_logs_file.empty()) {
       session_logs_file = fname.str() + ".session-stats";
     }
-    log_type = type;
-    log_file = fname.str();
+    td::log_interface = logger_.get();
+    td::set_log_fatal_error_callback([](td::CSlice s) { std::cerr << "FATAL_ERROR: " << s.c_str() << std::endl; });
   };
-  p.add_option('l', "logname", "log to file", [&](td::Slice fname) { set_log_file(fname, LogType::Synchronous); });
-  p.add_option('\0', "async-logname", "log to file asynchronously",
-               [&](td::Slice fname) { set_log_file(fname, LogType::Asynchronous); });
-  td::int64 async_log_max_file_size = td::AsyncFileLog::DEFAULT_ROTATE_THRESHOLD;
-  p.add_checked_option(
-      '\0', "async-log-max-file-size",
-      PSTRING() << "maximum async log file size in bytes before rotation (default=" << async_log_max_file_size << ")",
-      [&](td::Slice arg) {
-        TRY_RESULT(value, td::to_integer_safe<td::int64>(arg));
-        if (value <= 0) {
-          return td::Status::Error("async-log-max-file-size should be positive");
-        }
-        async_log_max_file_size = value;
-        return td::Status::OK();
-      });
+  p.add_option('l', "logname", "log to file", [&](td::Slice fname) {
+    logger_ = td::TsFileLog::create(fname.str()).move_as_ok();
+    init_log_file(fname);
+  });
+  p.add_option('\0', "async-logname", "log to file asynchronously", [&](td::Slice fname) {
+    logger_ = td::AsyncFileLog::create(fname.str()).move_as_ok();
+    init_log_file(fname);
+  });
   p.add_checked_option('s', "state-ttl", "state will be gc'd after this time (in seconds) default=86400",
                        [&](td::Slice fname) {
                          auto v = td::to_double(fname);
@@ -6245,21 +6235,6 @@ int main(int argc, char *argv[]) {
   if (S.is_error()) {
     LOG(ERROR) << "failed to parse options: " << S.move_as_error();
     std::_Exit(2);
-  }
-
-  switch (log_type) {
-    case LogType::None:
-      break;
-    case LogType::Synchronous:
-      logger_ = td::TsFileLog::create(log_file).move_as_ok();
-      break;
-    case LogType::Asynchronous:
-      logger_ = td::AsyncFileLog::create(log_file, async_log_max_file_size).move_as_ok();
-      break;
-  }
-  if (logger_) {
-    td::log_interface = logger_.get();
-    td::set_log_fatal_error_callback([](td::CSlice s) { std::cerr << "FATAL_ERROR: " << s.c_str() << std::endl; });
   }
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
