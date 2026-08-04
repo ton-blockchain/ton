@@ -947,10 +947,9 @@ bool QuicServer::flush_pending() {
   return true;
 }
 
-bool QuicServer::produce_next_egress(size_t batch_index) {
-  const size_t max_packets = gso_enabled_ ? kMaxBurst : 1;
-  const size_t max_buf = DEFAULT_MTU * max_packets;
-
+size_t QuicServer::produce_next_egress(size_t first_message) {
+  CHECK(first_message < kEgressBatch);
+  const size_t max_packets = gso_enabled_ ? kMaxBurst : kEgressBatch - first_message;
   while (!active_connections_.empty()) {
     auto cid = active_connections_.front();
     active_connections_.pop_front();
@@ -962,10 +961,11 @@ bool QuicServer::produce_next_egress(size_t batch_index) {
 
     conn->in_active_queue = false;
 
-    auto &batch = egress_batches_[batch_index];
-    batch.storage = td::MutableSlice(egress_buffers_[batch_index].data(), max_buf);
+    auto &batch = egress_batches_[first_message];
+    auto &buffer = egress_buffers_[first_message];
+    batch.storage = td::MutableSlice(buffer.data(), buffer.size());
 
-    auto status = conn->impl().produce_egress(batch, gso_enabled_, max_packets);
+    auto status = conn->impl().produce_egress(batch, max_packets);
     if (status.is_error()) {
       record_transport_dropped(metrics::Direction::out, metrics::Reason::internal);
       LOG(WARNING) << "produce_egress failed for " << conn->remote_address << ": " << status;
@@ -976,10 +976,26 @@ bool QuicServer::produce_next_egress(size_t batch_index) {
     }
     on_connection_updated(*conn);
 
-    egress_batch_owners_[batch_index] = conn;
-    return true;
+    if (gso_enabled_) {
+      egress_messages_[first_message] = {.to = &batch.address, .data = batch.storage, .gso_size = batch.gso_size};
+      egress_message_owners_[first_message] = conn;
+      return 1;
+    }
+
+    // The same pacing burst becomes ordinary UDP datagrams when UDP_SEGMENT is unavailable.
+    CHECK(batch.gso_size != 0);
+    size_t count = 0;
+    for (size_t offset = 0; offset < batch.storage.size(); offset += batch.gso_size) {
+      CHECK(first_message + count < kEgressBatch);
+      const auto size = td::min(batch.gso_size, batch.storage.size() - offset);
+      egress_messages_[first_message + count] = {
+          .to = &batch.address, .data = batch.storage.substr(offset, size), .gso_size = 0};
+      egress_message_owners_[first_message + count] = conn;
+      ++count;
+    }
+    return count;
   }
-  return false;
+  return 0;
 }
 
 void QuicServer::flush_egress() {
@@ -1002,18 +1018,18 @@ void QuicServer::flush_egress() {
   td::int64 bytes_budget = 10 << 20;
   while (!active_connections_.empty() && bytes_budget > 0) {
     size_t batch_count = 0;
-    while (batch_count < kEgressBatch && produce_next_egress(batch_count)) {
-      batch_count++;
+    while (batch_count < kEgressBatch) {
+      auto count = produce_next_egress(batch_count);
+      if (count == 0) {
+        break;
+      }
+      batch_count += count;
     }
     if (batch_count == 0) {
       break;
     }
 
-    // Prepare messages
     for (size_t i = 0; i < batch_count; i++) {
-      egress_messages_[i].to = &egress_batches_[i].address;
-      egress_messages_[i].data = egress_batches_[i].storage;
-      egress_messages_[i].gso_size = gso_enabled_ ? egress_batches_[i].gso_size : 0;
       bytes_budget -= std::max<size_t>(egress_messages_[i].data.size(), 256);
     }
 
@@ -1024,7 +1040,7 @@ void QuicServer::flush_egress() {
         std::map<QuicConnectionId, size_t> conn_to_idx;
         std::vector<size_t> packet_conn_idx(batch_count);
         for (size_t i = 0; i < batch_count; i++) {
-          auto [it, inserted] = conn_to_idx.try_emplace(egress_batch_owners_[i]->cid, conn_to_idx.size());
+          auto [it, inserted] = conn_to_idx.try_emplace(egress_message_owners_[i]->cid, conn_to_idx.size());
           packet_conn_idx[i] = it->second;
         }
         sb << "sendmmsg batch=" << batch_count << " conns=" << conn_to_idx.size() << " [";
@@ -1032,11 +1048,14 @@ void QuicServer::flush_egress() {
           if (i > 0) {
             sb << ", ";
           }
-          sb << egress_batches_[i].storage.size();
-          if (egress_batches_[i].gso_size > 0) {
-            sb << "(gso=" << egress_batches_[i].gso_size << ")";
+          sb << egress_messages_[i].data.size();
+          if (egress_messages_[i].gso_size > 0) {
+            sb << "(gso=" << egress_messages_[i].gso_size << ")";
           }
-          sb << "/c" << packet_conn_idx[i] << "/s" << egress_batch_owners_[i]->impl().get_last_packet_streams();
+          sb << "/c" << packet_conn_idx[i];
+          if (gso_enabled_) {
+            sb << "/s" << egress_message_owners_[i]->impl().get_last_packet_streams();
+          }
         }
         sb << "] active/total=" << active_count << "/" << total_count;
       };
