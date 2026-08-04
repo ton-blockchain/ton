@@ -234,7 +234,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void drain_ingress();
   void flush_egress();
   bool flush_pending();
-  bool produce_next_egress(size_t batch_index);
+  size_t produce_next_egress(size_t batch_index);
   void send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg);
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
@@ -286,7 +286,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   // Pre-allocated egress buffers
   std::array<std::array<char, DEFAULT_MTU * kMaxBurst>, kEgressBatch> egress_buffers_;
   std::array<UdpMessageBuffer, kEgressBatch> egress_batches_;
-  std::array<std::shared_ptr<ConnectionState>, kEgressBatch> egress_batch_owners_;
+  std::array<std::shared_ptr<ConnectionState>, kEgressBatch> egress_message_owners_;
   std::array<td::UdpSocketFd::OutboundMessage, kEgressBatch> egress_messages_;
 
   // Pending batch state (for handling blocked sends)

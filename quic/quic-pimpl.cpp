@@ -471,16 +471,18 @@ void QuicConnectionPImpl::commit_write(UdpMessageBuffer& msg_out, size_t n_write
   msg_out.gso_size = gso_size;
 }
 
-void QuicConnectionPImpl::prepare_stream_write(QuicStreamID sid, bool padding, StreamWriteContext& ctx,
+void QuicConnectionPImpl::prepare_stream_write(QuicStreamID sid, bool may_pad, StreamWriteContext& ctx,
                                                std::vector<ngtcp2_vec>& datav) {
   ctx = StreamWriteContext{};
-  if (padding) {
-    ctx.flags |= NGTCP2_WRITE_STREAM_FLAG_PADDING;
-  }
   datav.clear();
 
   if (sid == -1) {
     return;
+  }
+
+  ctx.flags = NGTCP2_WRITE_STREAM_FLAG_MORE;
+  if (may_pad) {
+    ctx.flags |= NGTCP2_WRITE_STREAM_FLAG_PADDING;
   }
 
   auto it = streams_.find(sid);
@@ -542,16 +544,15 @@ void QuicConnectionPImpl::finish_batch() {
 }
 
 ngtcp2_ssize QuicConnectionPImpl::write_streams_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
-                                                          size_t destlen, bool padding, ngtcp2_tstamp ts) {
+                                                          size_t destlen, bool may_pad, ngtcp2_tstamp ts) {
   ngtcp2_ssize n_write = 0;
   size_t streams_in_packet = 0;
 
   for (;;) {
     auto sid = next_ready_stream_id();
+    // Data-bearing packets may continue an aggregate; the final empty call stays short.
     StreamWriteContext ctx;
-    prepare_stream_write(sid, padding, ctx, write_datav_);
-
-    ctx.flags |= NGTCP2_WRITE_STREAM_FLAG_MORE;
+    prepare_stream_write(sid, may_pad, ctx, write_datav_);
     ngtcp2_ssize pdatalen = -1;
     n_write =
         ngtcp2_conn_writev_stream(conn(), path, pi, dest, destlen, sid == -1 ? nullptr : &pdatalen, ctx.flags, sid,
@@ -581,22 +582,22 @@ ngtcp2_ssize QuicConnectionPImpl::write_streams_to_packet(ngtcp2_path* path, ngt
 }
 
 ngtcp2_ssize QuicConnectionPImpl::write_frames_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
-                                                         size_t destlen, bool padding, ngtcp2_tstamp ts) {
+                                                         size_t destlen, bool may_pad, ngtcp2_tstamp ts) {
   if (next_ready_stream_id() != -1) {
-    return write_streams_to_packet(path, pi, dest, destlen, padding, ts);
+    return write_streams_to_packet(path, pi, dest, destlen, may_pad, ts);
   }
 
-  auto n_write = write_datagrams_to_packet(path, pi, dest, destlen, padding, ts);
+  auto n_write = write_datagrams_to_packet(path, pi, dest, destlen, may_pad, ts);
   if (n_write != NGTCP2_ERR_WRITE_MORE) {
     return n_write;
   }
 
-  return write_streams_to_packet(path, pi, dest, destlen, padding, ts);
+  return write_streams_to_packet(path, pi, dest, destlen, may_pad, ts);
 }
 
 ngtcp2_ssize QuicConnectionPImpl::write_datagrams_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
-                                                            size_t destlen, bool padding, ngtcp2_tstamp ts) {
-  auto flags = NGTCP2_WRITE_DATAGRAM_FLAG_MORE | (padding ? NGTCP2_WRITE_DATAGRAM_FLAG_PADDING : 0u);
+                                                            size_t destlen, bool may_pad, ngtcp2_tstamp ts) {
+  auto flags = NGTCP2_WRITE_DATAGRAM_FLAG_MORE | (may_pad ? NGTCP2_WRITE_DATAGRAM_FLAG_PADDING : 0u);
   while (!pending_datagrams_.empty()) {
     auto& data = pending_datagrams_.front();
     int accepted = 0;
@@ -614,34 +615,35 @@ ngtcp2_ssize QuicConnectionPImpl::write_datagrams_to_packet(ngtcp2_path* path, n
   return NGTCP2_ERR_WRITE_MORE;
 }
 
-ngtcp2_ssize QuicConnectionPImpl::write_pkt_cb(ngtcp2_conn* /*conn*/, ngtcp2_path* path, ngtcp2_pkt_info* pi,
-                                               uint8_t* dest, size_t destlen, ngtcp2_tstamp ts, void* user_data) {
+ngtcp2_ssize QuicConnectionPImpl::write_pkt_cb(ngtcp2_conn* conn, ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
+                                               size_t destlen, ngtcp2_tstamp ts, void* user_data) {
   auto* pimpl = static_cast<QuicConnectionPImpl*>(user_data);
-  return pimpl->write_pkt_aggregate(path, pi, dest, destlen, ts);
+  if (pimpl->stop_packet_aggregation_) {
+    return 0;
+  }
+  auto n_write = pimpl->write_frames_to_packet(path, pi, dest, destlen, /*may_pad=*/true, ts);
+  // An aggregate has one destination, so an off-path validation packet ends it.
+  if (n_write > 0 && !ngtcp2_path_eq(path, ngtcp2_conn_get_path(conn))) {
+    pimpl->stop_packet_aggregation_ = true;
+  }
+  return n_write;
 }
 
-ngtcp2_ssize QuicConnectionPImpl::write_pkt_aggregate(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
-                                                      size_t destlen, ngtcp2_tstamp ts) {
-  return write_frames_to_packet(path, pi, dest, destlen, false, ts);
-}
-
-td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, bool use_gso, size_t max_packets) {
+td::Status QuicConnectionPImpl::produce_egress(UdpMessageBuffer& msg_out, size_t max_packets) {
   td::PerfWarningTimer w("produce_egress", 0.1);
+  CHECK(max_packets != 0);
 
   const auto ts = now_ts();
   auto path = make_path();
   ngtcp2_pkt_info pi{};
   size_t gso_size = 0;
-  ngtcp2_ssize n_write = -1;
+  const auto max_bytes = td::min(msg_out.storage.size(), ngtcp2_conn_get_send_quantum(conn()));
 
   start_batch();
-  if (use_gso) {
-    n_write = ngtcp2_conn_write_aggregate_pkt2(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()),
-                                               msg_out.storage.size(), &gso_size, &write_pkt_cb, max_packets, ts);
-  } else {
-    n_write = write_frames_to_packet(&path, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()),
-                                     msg_out.storage.size(), false, ts);
-  }
+  stop_packet_aggregation_ = false;
+  auto n_write =
+      ngtcp2_conn_write_aggregate_pkt2(conn(), &path, &pi, reinterpret_cast<uint8_t*>(msg_out.storage.data()),
+                                       max_bytes, &gso_size, &write_pkt_cb, max_packets, ts);
   finish_batch();
 
   if (n_write < 0) {
@@ -744,8 +746,7 @@ void QuicConnectionPImpl::set_stream_receive_credit_from_max_size(QuicStreamID s
   }
 }
 
-td::Result<QuicStreamID> QuicConnectionPImpl::open_stream(StreamDirection direction, td::BufferSlice data,
-                                                          bool fin) {
+td::Result<QuicStreamID> QuicConnectionPImpl::open_stream(StreamDirection direction, td::BufferSlice data, bool fin) {
   QuicStreamID sid;
 
   int rv;
@@ -779,7 +780,7 @@ td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, td::BufferSlice 
 }
 
 td::Status QuicConnectionPImpl::buffer_stream(QuicStreamID sid, OutboundStreamState& st, td::BufferSlice data,
-                                               bool fin) {
+                                              bool fin) {
   if (st.fin_pending || st.fin_submitted) {
     return td::Status::Error("stream already closed");
   }
@@ -972,12 +973,11 @@ int QuicConnectionPImpl::on_acked_stream_data_offset(int64_t stream_id, uint64_t
 
 int QuicConnectionPImpl::on_stream_close(int64_t stream_id, bool clean) {
   streams_.erase(stream_id);
-  StreamCloseEvent event{.sid = stream_id,
-                         .initiator = ngtcp2_conn_is_local_stream(conn(), stream_id) ? StreamInitiator::Local
-                                                                                     : StreamInitiator::Peer,
-                         .direction = ngtcp2_is_bidi_stream(stream_id) ? StreamDirection::Bidirectional
-                                                                      : StreamDirection::Unidirectional,
-                         .clean = clean};
+  StreamCloseEvent event{
+      .sid = stream_id,
+      .initiator = ngtcp2_conn_is_local_stream(conn(), stream_id) ? StreamInitiator::Local : StreamInitiator::Peer,
+      .direction = ngtcp2_is_bidi_stream(stream_id) ? StreamDirection::Bidirectional : StreamDirection::Unidirectional,
+      .clean = clean};
   // A peer bidi stream cannot close until both halves have closed, so our response is already done
   // and its credit can return now. A peer uni stream closes on its receive side alone, while its
   // payload may still be queued for upper-layer dispatch, so its credit is held until then.

@@ -207,7 +207,7 @@ struct QuicConnectionPImpl {
       td::Slice alpn, const ServerInitialInfo& initial, std::unique_ptr<Callback> callback,
       QuicConnectionOptions options = {});
 
-  [[nodiscard]] td::Status produce_egress(UdpMessageBuffer& msg_out, bool use_gso, size_t max_packets);
+  [[nodiscard]] td::Status produce_egress(UdpMessageBuffer& msg_out, size_t max_packets);
   [[nodiscard]] td::Status handle_ingress(const UdpMessageBuffer& msg_in, UdpMessageBuffer& close_msg_out);
 
   [[nodiscard]] td::Timestamp get_expiry_timestamp() const;
@@ -292,6 +292,7 @@ struct QuicConnectionPImpl {
   metrics::Labeled<metrics::Counter, metrics::Direction> datagrams_;
   std::unordered_map<QuicStreamID, OutboundStreamState> streams_;
   std::deque<QuicStreamID> ready_streams_;
+  bool stop_packet_aggregation_ = false;
   static constexpr size_t MAX_PENDING_DATAGRAMS = 4096;
   std::deque<td::BufferSlice> pending_datagrams_;
   QuicStreamID write_sid_ = -1;
@@ -334,20 +335,18 @@ struct QuicConnectionPImpl {
 
   void commit_write(UdpMessageBuffer& msg_out, size_t n_write, size_t gso_size, const ngtcp2_path& path);
   void write_connection_close(UdpMessageBuffer& close_out, int liberr);
-  void prepare_stream_write(QuicStreamID sid, bool padding, StreamWriteContext& ctx, std::vector<ngtcp2_vec>& datav);
+  void prepare_stream_write(QuicStreamID sid, bool may_pad, StreamWriteContext& ctx, std::vector<ngtcp2_vec>& datav);
   void finish_stream_write(QuicStreamID sid, const StreamWriteContext& ctx, ngtcp2_ssize pdatalen);
   void start_batch();
   QuicStreamID next_ready_stream_id();
 
   void finish_batch();
   ngtcp2_ssize write_frames_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest, size_t destlen,
-                                      bool padding, ngtcp2_tstamp ts);
+                                      bool may_pad, ngtcp2_tstamp ts);
   ngtcp2_ssize write_datagrams_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest, size_t destlen,
-                                         bool padding, ngtcp2_tstamp ts);
+                                         bool may_pad, ngtcp2_tstamp ts);
   ngtcp2_ssize write_streams_to_packet(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest, size_t destlen,
-                                       bool padding, ngtcp2_tstamp ts);
-  ngtcp2_ssize write_pkt_aggregate(ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest, size_t destlen,
-                                   ngtcp2_tstamp ts);
+                                       bool may_pad, ngtcp2_tstamp ts);
   static ngtcp2_ssize write_pkt_cb(ngtcp2_conn* conn, ngtcp2_path* path, ngtcp2_pkt_info* pi, uint8_t* dest,
                                    size_t destlen, ngtcp2_tstamp ts, void* user_data);
   static int extend_max_stream_data_cb(ngtcp2_conn* conn, int64_t stream_id, uint64_t max_data, void* user_data,
