@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Compact human summary of a suite summary.tsv: medians across repetitions, key columns only."""
+
 import collections
 import csv
 import re
@@ -21,7 +22,7 @@ def median(rows, field):
     for row in rows:
         try:
             values.append(float(row[field]))
-        except (KeyError, ValueError):
+        except KeyError, ValueError:
             pass
     return statistics.median(values) if values else None
 
@@ -56,30 +57,65 @@ def main():
         for row in table:
             print("  ".join(cell.ljust(width) for cell, width in zip(row, widths)).rstrip())
 
-    traffic = [("scenario", "impl", "proto", "delivered/s", "app MiB/s", "cpu us/msg",
-                "peer cores", "dgram/msg", "wire B/msg", "status")]
-    idle = [("scenario", "impl", "proto", "peers", "cores", "RSS MiB", "KiB/peer",
-             "wire dgram/s", "status")]
+    traffic = [
+        (
+            "scenario",
+            "impl",
+            "proto",
+            "delivered/s",
+            "app MiB/s",
+            "cpu us/msg",
+            "peer cores",
+            "dgram/msg",
+            "wire B/msg",
+            "status",
+        )
+    ]
+    idle = [
+        (
+            "scenario",
+            "impl",
+            "proto",
+            "peers",
+            "cores",
+            "RSS MiB",
+            "KiB/peer",
+            "wire dgram/s",
+            "status",
+        )
+    ]
     for key in order:
         scenario, impl, proto = key
         group = groups[key]
         if group[0].get("workload") == "idle":
-            idle.append((scenario, impl, proto,
-                         fmt(median(group, "target_peers"), ".0f"),
-                         fmt(median(group, "cpu_cores"), ".4f"),
-                         fmt(median(group, "rss_mib"), ".1f"),
-                         fmt(median(group, "rss_kib_per_peer"), ".1f"),
-                         fmt(median(group, "wire_packets_per_s"), ".1f"),
-                         status_of(group)))
+            idle.append(
+                (
+                    scenario,
+                    impl,
+                    proto,
+                    fmt(median(group, "target_peers"), ".0f"),
+                    fmt(median(group, "cpu_cores"), ".4f"),
+                    fmt(median(group, "rss_mib"), ".1f"),
+                    fmt(median(group, "rss_kib_per_peer"), ".1f"),
+                    fmt(median(group, "wire_packets_per_s"), ".1f"),
+                    status_of(group),
+                )
+            )
             continue
-        traffic.append((scenario, impl, proto,
-                        fmt_rate(median(group, "messages_per_s")),
-                        fmt(median(group, "app_mib_per_s"), ".1f"),
-                        fmt(median(group, "cpu_us_per_message")),
-                        fmt(median(group, "peer_cpu_cores")),
-                        fmt(median(group, "egress_datagrams_per_message"), ".3f"),
-                        fmt(median(group, "wire_bytes_per_message"), ".0f"),
-                        status_of(group)))
+        traffic.append(
+            (
+                scenario,
+                impl,
+                proto,
+                fmt_rate(median(group, "messages_per_s")),
+                fmt(median(group, "app_mib_per_s"), ".1f"),
+                fmt(median(group, "cpu_us_per_message")),
+                fmt(median(group, "peer_cpu_cores")),
+                fmt(median(group, "egress_datagrams_per_message"), ".3f"),
+                fmt(median(group, "wire_bytes_per_message"), ".0f"),
+                status_of(group),
+            )
+        )
 
     if len(traffic) > 1:
         emit(traffic)
