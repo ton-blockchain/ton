@@ -8,7 +8,9 @@ probes, warm-up, fixed measurement windows, exporters scraped on both sides.
 ## Run
 
 ```sh
-ninja -C cmake-build-relwithdebinfo bench-rldp bench-adnl-quic-message   # needs -DTON_USE_JEMALLOC=ON
+# jemalloc is worth ~40% here and TON_USE_JEMALLOC defaults off, so it must be on the configure line
+cmake -B cmake-build-relwithdebinfo -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTON_USE_JEMALLOC=ON
+ninja -C cmake-build-relwithdebinfo bench-rldp bench-adnl-quic-message
 (cd test/net/bench/quicbench-go && go build -o quicmsgbench-go .)
 cargo build --release --locked --manifest-path test/net/bench/quicbench-rs/Cargo.toml
 

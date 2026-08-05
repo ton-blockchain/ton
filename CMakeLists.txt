@@ -818,6 +818,7 @@ if (NOT TON_ONLY_TONLIB)
 ton_test(test-adnl)
 ton_test(test-dht)
 ton_test(test-rldp2)
+ton_test(test-quic-sender)
 ton_test(test-emulator)
 
 ton_test(test-fec)

@@ -1097,10 +1097,12 @@ async fn run_saturate(args: Args) -> Result<(), AnyError> {
     } else {
         100.0 * received as f64 / submitted as f64
     };
-    let cpu_us_per_message = if received == 0 {
+    // CPU covers the drain as well, so it is charged against everything submitted, not against the
+    // count sampled before the drain.
+    let cpu_us_per_message = if submitted == 0 {
         0.0
     } else {
-        cpu / received as f64 * 1e6
+        cpu / submitted as f64 * 1e6
     };
     println!("protocol=quinn");
     println!("threads={}", args.threads);

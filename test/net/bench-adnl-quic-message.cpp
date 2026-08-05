@@ -56,7 +56,9 @@ double process_cpu_seconds() {
   if (getrusage(RUSAGE_SELF, &usage) != 0) {
     return 0.0;
   }
-  auto to_seconds = [](const timeval& t) { return t.tv_sec + t.tv_usec / 1e6; };
+  auto to_seconds = [](const timeval& t) {
+    return static_cast<double>(t.tv_sec) + static_cast<double>(t.tv_usec) / 1e6;
+  };
   return to_seconds(usage.ru_utime) + to_seconds(usage.ru_stime);
 #else
   return 0.0;

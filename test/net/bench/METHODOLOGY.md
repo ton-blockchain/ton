@@ -36,7 +36,7 @@ transport. Native implementations support only `-P quic`. `suite.sh` runs the ma
 its default remains TON only.
 
 ```sh
-cmake -B cmake-build-relwithdebinfo -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake -B cmake-build-relwithdebinfo -GNinja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTON_USE_JEMALLOC=ON
 ninja -C cmake-build-relwithdebinfo bench-rldp
 
 test/net/bench/suite.sh

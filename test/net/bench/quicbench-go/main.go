@@ -690,7 +690,11 @@ func runSaturate(opts options) error {
 	var nsPerMessage, deliveryPercent, cpuUsPerMessage float64
 	if received != 0 {
 		nsPerMessage = elapsed * 1e9 / float64(received)
-		cpuUsPerMessage = cpu / float64(received) * 1e6
+	}
+	// CPU covers the drain as well, so it is charged against everything submitted, not against the
+	// count sampled before the drain.
+	if submitted != 0 {
+		cpuUsPerMessage = cpu / float64(submitted) * 1e6
 	}
 	if submitted != 0 {
 		deliveryPercent = 100 * float64(received) / float64(submitted)

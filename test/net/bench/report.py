@@ -319,7 +319,9 @@ def main():
         cpu_per_message = rate(cpu, args.elapsed) / messages_per_s * 1e6 if messages_per_s else 0.0
         if not native:
             wire_bytes = rows["in"]["bytes"] + rows["out"]["bytes"]
-            per_message = lambda value: rate(value, args.metrics_elapsed) / messages_per_s if messages_per_s else 0.0
+            def per_message(value):
+                return rate(value, args.metrics_elapsed) / messages_per_s if messages_per_s else 0.0
+
             egress_datagrams_per_message = per_message(rows["out"]["packets"])
             egress_syscalls_per_message = per_message(rows["out"]["syscalls"])
             wire_per_message = per_message(wire_bytes)
