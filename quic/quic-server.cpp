@@ -67,6 +67,11 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, ServerIdentit
     }
     return static_cast<td::uint64>(0);
   });
+  auto rcv_buffer = fd_.maximize_rcv_buffer();
+  auto snd_buffer = fd_.maximize_snd_buffer();
+  LOG(INFO) << "UDP buffers: rcv=" << (rcv_buffer.is_ok() ? rcv_buffer.move_as_ok() : 0)
+            << " snd=" << (snd_buffer.is_ok() ? snd_buffer.move_as_ok() : 0);
+
   if (options.enable_gro) {
     auto gro_status = fd_.enable_gro();
     if (gro_status.is_ok()) {
