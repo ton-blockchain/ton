@@ -20,6 +20,10 @@ static td::Result<adnl::AdnlNodeIdShort> parse_peer_id(td::Slice peer_public_key
   return adnl::AdnlNodeIdFull(PublicKey(pubkeys::Ed25519(key_bits))).compute_short_id();
 }
 
+static td::Status connection_wait_timeout() {
+  return td::Status::Error(ErrorCode::timeout, "timeout while waiting for a connection");
+}
+
 class QuicSender::ServerCallback final : public QuicServer::Callback {
  public:
   explicit ServerCallback(td::actor::ActorId<QuicSender> sender) : sender_(sender) {
@@ -247,8 +251,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     return append_chunk(stream_it->second, std::move(data));
   }
 
-  td::Status complete_buffered(Connection &connection, Connection::Streams::iterator stream_it,
-                               td::BufferSlice data) {
+  td::Status complete_buffered(Connection &connection, Connection::Streams::iterator stream_it, td::BufferSlice data) {
     auto status = append_chunk(stream_it->second, std::move(data));
     if (status.is_error()) {
       return status;
@@ -471,11 +474,6 @@ QuicSender::Connection::~Connection() {
   }
 }
 
-void QuicSender::start_up() {
-  AdnlSenderInterface::start_up();
-  alarm_timestamp() = td::Timestamp::now();
-}
-
 td::actor::Task<td::Unit> QuicSender::send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                         td::BufferSlice data) {
   auto size = data.size();
@@ -522,13 +520,15 @@ td::actor::Task<td::Unit> QuicSender::send_message_coro_inner(std::shared_ptr<Co
 td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                              std::string name, td::Timestamp timeout,
                                                              td::BufferSlice data, std::optional<td::uint64> limit) {
+  if (timeout && timeout.is_in_past()) {
+    co_return connection_wait_timeout();
+  }
   auto magic = metrics::resolve_tl_magic(data.as_slice());
   auto conn = get_or_create_connection({src, dst});
   auto trust = conn->trust;
   peer_metrics_.at(trust).app.record(metrics::Kind::query, metrics::Direction::out, magic, data.size());
-  // Getting a connection is not part of the round trip: a cold handshake, or a peer that does not
-  // speak QUIC at all, would otherwise be timed as query latency. Such a failure is not a round trip.
-  conn = co_await wait_connection_ready(std::move(conn));
+  // Connection setup is excluded from round-trip latency, but not from the caller's deadline.
+  conn = co_await wait_connection_ready(std::move(conn), timeout);
   StreamOptions options{.max_size = limit,
                         .timeout = timeout,
                         .timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0,
@@ -602,6 +602,9 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
 }
 
 std::shared_ptr<QuicSender::Connection> QuicSender::get_or_create_connection(AdnlPath path) {
+  if (!waiter_timeouts_.empty() && waiter_timeouts_.top_key().is_in_past()) {
+    alarm();
+  }
   auto iter = outbound_.find(path);
   if (iter == outbound_.end()) {
     auto connection = std::make_shared<Connection>();
@@ -615,21 +618,60 @@ std::shared_ptr<QuicSender::Connection> QuicSender::get_or_create_connection(Adn
 }
 
 td::actor::Task<std::shared_ptr<QuicSender::Connection>> QuicSender::wait_connection_ready(
-    std::shared_ptr<Connection> connection) {
+    std::shared_ptr<Connection> connection, td::Timestamp timeout) {
+  if (timeout && timeout.is_in_past()) {
+    if (!connection->init_started) {
+      CHECK(outbound_.erase(connection->path) == 1);
+    }
+    co_return connection_wait_timeout();
+  }
   if (connection->is_ready) {
     co_return connection;
   }
   auto [future, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
-  connection->waiting_ready.push_back(std::move(promise));
+  auto &waiting = connection->waiting_ready;
+  CHECK(waiting.size() <= Connection::MAX_WAITERS);
+  td::Promise<td::Unit> dropped;
+  if (waiting.size() == Connection::MAX_WAITERS) {
+    dropped = take_waiter(waiting.front());
+  }
+  auto waiter = waiting.emplace(waiting.end(), waiting, std::move(promise));
+  waiter->position = waiter;
+  if (timeout) {
+    waiter_timeouts_.insert(timeout, &*waiter);
+  }
+  update_waiter_alarm();
 
   if (!connection->init_started) {
     connection->init_started = true;
     init_connection(connection->path, connection).start().detach("init connection");
   }
-
-  co_await std::move(future);
-
+  if (dropped) {
+    // Promise callbacks run inline; defer so retries cannot recurse through evictions.
+    td::actor::send_lambda_later(actor_id(this), [promise = std::move(dropped)]() mutable {
+      promise.set_error(td::Status::Error("dropped waiting for a connection"));
+    });
+  }
+  auto result = co_await std::move(future).wrap();
+  if (timeout && timeout.is_in_past()) {
+    co_return connection_wait_timeout();
+  }
+  co_await std::move(result);
   co_return connection;
+}
+
+td::Promise<td::Unit> QuicSender::take_waiter(Waiter &waiter) {
+  if (waiter.in_heap()) {
+    waiter_timeouts_.erase(&waiter);
+  }
+  CHECK(&*waiter.position == &waiter);
+  auto promise = std::move(waiter.promise);
+  waiter.queue.erase(waiter.position);
+  return promise;
+}
+
+void QuicSender::update_waiter_alarm() {
+  alarm_timestamp() = waiter_timeouts_.empty() ? td::Timestamp::never() : waiter_timeouts_.top_key();
 }
 
 td::actor::Task<td::Unit> QuicSender::init_connection(AdnlPath path, std::shared_ptr<Connection> connection) {
@@ -676,9 +718,27 @@ td::actor::Task<td::Unit> QuicSender::init_connection_inner(AdnlPath path, std::
 }
 
 void QuicSender::finish_connection_init(const std::shared_ptr<Connection> &connection, td::Result<td::Unit> result) {
-  auto promises = std::move(connection->waiting_ready);
-  for (auto &promise : promises) {
-    promise.set_result(result.clone());
+  auto waiters = std::exchange(connection->waiting_ready, {});
+  for (auto &waiter : waiters) {
+    if (waiter.in_heap()) {
+      waiter_timeouts_.erase(&waiter);
+    }
+  }
+  update_waiter_alarm();
+  for (auto &waiter : waiters) {
+    waiter.promise.set_result(result.clone());
+  }
+}
+
+void QuicSender::alarm() {
+  std::vector<td::Promise<td::Unit>> expired;
+  auto now = td::Timestamp::now();
+  while (!waiter_timeouts_.empty() && waiter_timeouts_.top_key().is_in_past(now)) {
+    expired.push_back(take_waiter(*static_cast<Waiter *>(waiter_timeouts_.pop())));
+  }
+  update_waiter_alarm();
+  for (auto &promise : expired) {
+    promise.set_error(connection_wait_timeout());
   }
 }
 

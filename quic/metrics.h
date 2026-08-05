@@ -20,12 +20,14 @@ inline constexpr std::array<double, 6> kBatchWithZeroBuckets = {0, 1, 4, 8, 16, 
 using BatchHistogram = metrics::Histogram<kBatchBuckets>;
 using BatchWithZeroHistogram = metrics::Histogram<kBatchWithZeroBuckets>;
 
-// How the application answered a handshake that reached it: `completed` = the connection is ready
-// to carry traffic, `rejected` = the peer was refused (unusable key, identity mismatch, ...).
-// Handshakes that never got that far are visible only as `dropped` and `connections` counts.
+// How a handshake ended: `completed` = the connection is ready to carry traffic, `rejected` = the
+// application refused the peer (unusable key, identity mismatch, ...), `timed_out` = it never
+// finished within the handshake timeout, so the application never saw it at all. Handshakes
+// abandoned for any other reason are visible only as `dropped` and `connections` counts.
 #define QUIC_HANDSHAKE_RESULT_LIST(F) \
   F(completed)                        \
-  F(rejected)
+  F(rejected)                         \
+  F(timed_out)
 TON_METRIC_DEFINE_LABEL(HandshakeResult, "result", QUIC_HANDSHAKE_RESULT_LIST)
 #undef QUIC_HANDSHAKE_RESULT_LIST
 

@@ -57,6 +57,10 @@ struct QuicConnectionOptions {
   static constexpr size_t DEFAULT_MAX_STREAMS_UNI = 4096;
   static constexpr ngtcp2_duration DEFAULT_IDLE_TIMEOUT = 15 * NGTCP2_SECONDS;
   static constexpr ngtcp2_duration DEFAULT_KEEP_ALIVE_TIMEOUT = 5 * NGTCP2_SECONDS;
+  // Two round trips of handshake (stateless retry adds one) plus room for a lost packet at ngtcp2's
+  // 333ms assumed initial RTT. Long enough not to abandon a slow peer, short enough that queued
+  // application messages fail while they still matter.
+  static constexpr ngtcp2_duration DEFAULT_HANDSHAKE_TIMEOUT = 5 * NGTCP2_SECONDS;
   // 25ms is RFC 9000's default, but mainnet validators see a ~36ms mean RTT, so advertising 25ms
   // inflates the peer's PTO (srtt + 4*rttvar + max_ack_delay) by roughly 70% and slows real loss
   // recovery. The ack threshold stays at ngtcp2's spec-conformant 2: raising it measured no benefit,
@@ -76,6 +80,7 @@ struct QuicConnectionOptions {
   size_t initial_max_stream_data_uni = DEFAULT_INITIAL_MAX_STREAM_DATA_BIDI_REMOTE;
   ngtcp2_duration idle_timeout = DEFAULT_IDLE_TIMEOUT;
   ngtcp2_duration keep_alive_timeout = DEFAULT_KEEP_ALIVE_TIMEOUT;
+  ngtcp2_duration handshake_timeout = DEFAULT_HANDSHAKE_TIMEOUT;
   ngtcp2_duration max_ack_delay = DEFAULT_MAX_ACK_DELAY;
   size_t ack_thresh = DEFAULT_ACK_THRESH;
   CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
@@ -157,6 +162,7 @@ struct QuicConnectionPImpl {
     None,
     ScheduleWrite,
     IdleClose,
+    HandshakeTimeout,
     Close,
   };
   struct InitialCidState {
