@@ -14,74 +14,77 @@
     You should have received a copy of the GNU General Public License
     along with TON Blockchain.  If not, see <http://www.gnu.org/licenses/>.
 */
+#include <cmath>
+#include <limits>
 #include <memory>
-#include <thread>
 
 #include "adnl/adnl-network-manager.h"
 #include "adnl/adnl-peer-table.h"
-#include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "keys/keys.hpp"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
 #include "td/utils/OptionParser.h"
-#include "td/utils/Random.h"
 #include "td/utils/as.h"
-#include "td/utils/base64.h"
 #include "td/utils/format.h"
 #include "td/utils/port/path.h"
 #include "td/utils/port/signals.h"
 
 namespace {
-// Create deterministic Ed25519 private key from a seed byte
-ton::PrivateKey make_private_key(td::uint8 seed) {
+// Deterministic keys, so a client can derive any server's identity without exchanging anything. The
+// tag separates the two id spaces: a client and a server with the same index must not share a key.
+ton::PrivateKey make_private_key(char tag, td::uint32 index) {
   td::uint8 data[32];
-  std::memset(data, seed, 32);
+  std::memset(data, tag, 32);
+  td::as<td::uint32>(data) = index;
   return ton::PrivateKey{ton::privkeys::Ed25519{td::Slice(data, 32)}};
 }
 
-// Fixed keys for benchmarking (lazy initialization)
-const ton::PrivateKey& server_private_key() {
-  static auto key = make_private_key(1);
-  return key;
+ton::PrivateKey server_private_key(td::uint32 server_id = 0) {
+  return make_private_key('S', server_id);
 }
-const ton::PublicKey& server_public_key() {
-  static auto key = server_private_key().compute_public_key();
-  return key;
+ton::PublicKey server_public_key(td::uint32 server_id = 0) {
+  return server_private_key(server_id).compute_public_key();
 }
 ton::PrivateKey client_private_key(td::uint32 client_id = 0) {
-  return make_private_key(static_cast<td::uint8>(2 + client_id));
-}
-ton::PublicKey client_public_key(td::uint32 client_id = 0) {
-  return client_private_key(client_id).compute_public_key();
+  return make_private_key('C', client_id);
 }
 }  // namespace
 
-enum class Mode { loopback, server, client, both };
-enum class Protocol { rldp2, quic };
+enum class Mode { unset, server, client };
+enum class Protocol { rldp2, quic, adnl };
 
 struct Config {
-  Mode mode = Mode::loopback;
+  Mode mode = Mode::unset;
   Protocol protocol = Protocol::rldp2;
   td::uint32 client_id = 0;
+  td::uint32 server_id = 0;
+  td::uint32 servers = 1;  // client fans out over servers at consecutive ports from --server-addr
+  // Peer sessions this client owns, spread round-robin over the servers. Each one is a distinct
+  // local ADNL identity, which is what makes it a distinct QUIC connection to the same server.
+  td::uint32 connections = 1;
+  td::uint32 connect_inflight = 256;  // concurrent readiness probes during setup
   td::uint32 threads = 7;
   td::uint32 query_size = 1024;
   td::uint32 response_size = 1024;
   td::uint32 num_queries = 100;
   td::uint32 max_inflight = 0;  // 0 = unlimited
   double timeout = 60.0;
-  double test_timeout = 5.0;  // Global test timeout
+  double test_timeout = 5.0;
   bool enable_gso = true;
   bool enable_gro = true;
   bool enable_mmsg = true;
   ton::quic::CongestionControlAlgo cc_algo = ton::quic::CongestionControlAlgo::Bbr;
-  bool prometheus = false;
+  int prometheus_port = 0;  // 0 = disabled
+  bool messages = false;    // fire-and-forget instead of query/response
+  td::uint32 rate = 0;      // messages/sec, message mode only
+  td::uint32 message_burst = 1;
+  bool stay_alive = false;
   bool no_limits = false;
   std::optional<size_t> ack_thresh;
   std::optional<double> max_ack_delay_seconds;
 
-  // Network mode options
   td::IPAddress local_addr;
   td::IPAddress public_addr;
   td::IPAddress server_addr;
@@ -93,6 +96,8 @@ const char* protocol_name(Protocol p) {
       return "rldp2";
     case Protocol::quic:
       return "quic";
+    case Protocol::adnl:
+      return "adnl";
   }
   return "unknown";
 }
@@ -111,21 +116,128 @@ ton::quic::QuicServer::Options quic_options(const Config& config) {
     options.flood_control = std::nullopt;
     options.new_connection_rate_limit_capacity = 1000000;
     options.new_connection_rate_limit_period = 0.000001;
+    // At 50ms RTT the default 4096-stream budget caps a connection near 80k msg/s; a ceiling
+    // probe must be bounded by the transport, not by the advertised window.
+    options.max_streams_bidi = 1 << 16;
+    options.max_streams_uni = 1 << 16;
   }
   return options;
 }
 
-// Message format: [header...][payload...][crc32:4]
-inline td::uint32 compute_crc(td::Slice msg) {
-  return td::crc32(msg.substr(0, msg.size() - 4));
+// The transport is the subject of the benchmark. Build deterministic payloads instead of charging
+// secure randomness and a full-payload CRC to every timed message.
+void prepare_payload(td::MutableSlice msg) {
+  std::memset(msg.data(), 0, msg.size());
+  msg[0] = 'B';
 }
-inline td::uint32 stored_crc(td::Slice msg) {
-  return td::as<td::uint32>(msg.end() - 4);
+
+struct Node {
+  td::actor::ActorOwn<ton::keyring::Keyring> keyring;
+  td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
+  td::actor::ActorOwn<ton::adnl::Adnl> adnl;
+  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
+  td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
+  td::actor::ActorOwn<ton::PrometheusExporter> exporter;
+  std::vector<ton::adnl::AdnlNodeIdShort> local_ids;
+
+  ton::adnl::AdnlNodeIdShort local_id() const {
+    CHECK(!local_ids.empty());
+    return local_ids[0];
+  }
+};
+
+td::actor::ActorId<ton::adnl::AdnlSenderInterface> pick_sender(Protocol protocol, const Node& node) {
+  switch (protocol) {
+    case Protocol::rldp2:
+      CHECK(!node.rldp2.empty());
+      return node.rldp2.get();
+    case Protocol::quic:
+      CHECK(!node.quic_sender.empty());
+      return node.quic_sender.get();
+    case Protocol::adnl:
+      // Adnl implements AdnlSenderInterface itself, so raw ADNL queries need no extra layer.
+      return td::actor::actor_dynamic_cast<ton::adnl::AdnlSenderInterface>(node.adnl.get());
+  }
+  UNREACHABLE();
+}
+
+Node make_node(const Config& config, const std::string& db_root, ton::PrivateKey private_key, char identity_tag = 'C',
+               td::uint32 identity_index = 0) {
+  Node node;
+  if (config.prometheus_port) {
+    td::IPAddress addr;
+    addr.init_host_port(PSTRING() << "127.0.0.1:" << config.prometheus_port).ensure();
+    node.exporter = ton::PrometheusExporter::create();
+    td::actor::send_closure(node.exporter, &ton::PrometheusExporter::listen, addr);
+  }
+
+  node.keyring = ton::keyring::Keyring::create(db_root);
+  node.network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
+  node.adnl = ton::adnl::Adnl::create(db_root, node.keyring.get());
+  td::actor::send_closure(node.adnl, &ton::adnl::Adnl::register_network_manager, node.network_manager.get());
+
+  ton::adnl::AdnlCategoryMask cat_mask;
+  cat_mask[0] = true;
+  const auto& self_addr = config.public_addr.is_valid() ? config.public_addr : config.local_addr;
+  td::actor::send_closure(node.network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, self_addr,
+                          std::move(cat_mask), 0);
+
+  ton::adnl::AdnlAddressList addr_list;
+  addr_list.add_udp_adnl_address(self_addr).ensure();
+  addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
+  addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
+
+  // One identity per session: `private_key` is the first, the rest are derived from its index space
+  // so a client can hold many sessions with one server over one socket.
+  for (td::uint32 i = 0; i < std::max<td::uint32>(config.connections, 1); i++) {
+    auto key = i == 0 ? private_key : make_private_key(identity_tag, identity_index + i);
+    auto public_key = key.compute_public_key();
+    node.local_ids.push_back(ton::adnl::AdnlNodeIdShort{public_key.compute_short_id()});
+    td::actor::send_closure(node.keyring, &ton::keyring::Keyring::add_key, std::move(key), true, [](td::Result<>) {});
+    td::actor::send_closure(node.adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{public_key}, addr_list,
+                            td::uint8(0));
+  }
+
+  auto max_size = static_cast<td::uint64>(std::max(config.query_size, config.response_size)) + 1024;
+  if (config.protocol == Protocol::rldp2) {
+    node.rldp2 = ton::rldp2::Rldp::create(node.adnl.get());
+    td::actor::send_closure(node.rldp2, &ton::rldp2::Rldp::set_default_mtu, max_size);
+    for (auto id : node.local_ids) {
+      td::actor::send_closure(node.rldp2, &ton::rldp2::Rldp::add_id, id);
+    }
+  } else if (config.protocol == Protocol::quic) {
+    node.quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
+        "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(node.adnl.get()), node.keyring.get(),
+        quic_options(config));
+    // QuicSender defaults to the ADNL MTU, which rejects any answer larger than one datagram.
+    td::actor::send_closure(node.quic_sender, &ton::adnl::AdnlSenderEx::set_default_mtu, max_size);
+    for (auto id : node.local_ids) {
+      td::actor::send_closure(node.quic_sender, &ton::quic::QuicSender::add_id, id);
+    }
+  }
+
+  if (config.prometheus_port) {
+    td::actor::send_closure(node.exporter, &ton::PrometheusExporter::add<ton::adnl::AdnlNetworkManager>,
+                            node.network_manager.get(), &ton::adnl::AdnlNetworkManager::collect);
+    td::actor::send_closure(node.exporter, &ton::PrometheusExporter::add<ton::adnl::Adnl>, node.adnl.get(),
+                            &ton::adnl::Adnl::collect);
+    if (!node.rldp2.empty()) {
+      td::actor::send_closure(node.exporter, &ton::PrometheusExporter::add<ton::rldp2::Rldp>, node.rldp2.get(),
+                              &ton::rldp2::Rldp::collect);
+    }
+    if (!node.quic_sender.empty()) {
+      td::actor::send_closure(node.exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>,
+                              node.quic_sender.get(), &ton::quic::QuicSender::collect);
+    }
+  }
+  return node;
 }
 
 class Server : public ton::adnl::Adnl::Callback {
  public:
-  Server(td::uint32 response_size) : response_size_(response_size) {
+  explicit Server(td::uint32 response_size) : response_(response_size) {
+    std::memset(response_.as_slice().data(), 0, response_.size());
+    response_.as_slice()[0] = 'R';
   }
 
   void receive_message(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data) override {
@@ -134,40 +246,43 @@ class Server : public ton::adnl::Adnl::Callback {
   void receive_query(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst, td::BufferSlice data,
                      td::Promise<td::BufferSlice> promise) override {
     auto q = data.as_slice();
-    if (q.size() < 9 || compute_crc(q) != stored_crc(q)) {
+    if (q.empty() || q[0] != 'B') {
       return promise.set_error(td::Status::Error("bad query"));
     }
-    td::uint32 id = td::as<td::uint32>(q.data() + 1);
-
-    td::BufferSlice resp{response_size_};
-    auto r = resp.as_slice();
-    td::as<td::uint32>(r.data()) = id;
-    td::Random::secure_bytes(r.substr(4, r.size() - 8));
-    td::as<td::uint32>(r.end() - 4) = compute_crc(r);
-    promise.set_value(std::move(resp));
+    if (q == td::Slice("BP")) {
+      return promise.set_value(td::BufferSlice("P", 1));
+    }
+    promise.set_value(response_.clone());
   }
 
  private:
-  td::uint32 response_size_;
+  td::BufferSlice response_;
 };
 
 class BenchmarkRunner : public td::actor::Actor {
  public:
-  BenchmarkRunner(Config config, td::actor::ActorId<ton::adnl::AdnlSenderInterface> rldp,
-                  ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst)
-      : config_(config), rldp_(rldp), src_(src), dst_(dst) {
-    query_start_times_.resize(config.num_queries);
+  struct Session {
+    ton::adnl::AdnlNodeIdShort src;
+    ton::adnl::AdnlNodeIdShort dst;
+  };
+
+  BenchmarkRunner(Config config, td::actor::ActorId<ton::adnl::AdnlSenderInterface> sender,
+                  std::vector<Session> sessions)
+      : config_(config)
+      , sender_(sender)
+      , sessions_(std::move(sessions))
+      , probe_ready_(sessions_.size())
+      , payload_(config.query_size) {
+    CHECK(!sessions_.empty());
+    prepare_payload(payload_.as_slice());
   }
 
   void start_up() override {
-    alarm_timestamp() = td::Timestamp::in(0.5);
     test_timeout_at_ = td::Timestamp::in(config_.test_timeout);
+    alarm_timestamp() = td::Timestamp::now();
   }
 
   void alarm() override {
-    if (exit_pending_) {
-      std::_Exit(0);
-    }
     if (test_timeout_at_.is_in_past()) {
       LOG(ERROR) << "Test timeout reached after " << config_.test_timeout << "s";
       LOG(ERROR) << "Sent: " << sent_ << ", Received: " << received_ << ", Errors: " << errors_
@@ -175,71 +290,175 @@ class BenchmarkRunner : public td::actor::Actor {
       std::_Exit(1);
     }
 
+    if (!ready_) {
+      if (probes_started_ == sessions_.size() && probes_pending_ == 0) {
+        probes_started_ = 0;  // nothing outstanding and not done: sweep the unready ones again
+      }
+      send_probes();
+      return;
+    }
     if (start_time_ == 0) {
-      start_time_ = td::Clocks::system();
+      start_time_ = td::Time::now();
+    }
+    if (config_.messages) {
+      send_messages();
+      auto interval = static_cast<double>(config_.message_burst) / config_.rate;
+      next_message_at_ += interval;
+      auto now = td::Time::now();
+      if (now - next_message_at_ >= interval) {
+        next_message_at_ = now + interval;
+      }
+      alarm_timestamp() = td::Timestamp::at(next_message_at_);
+      alarm_timestamp().relax(test_timeout_at_);
+      return;
     }
     send_queries();
 
     alarm_timestamp() = td::Timestamp::in(0.1);
+    alarm_timestamp().relax(test_timeout_at_);
   }
 
  private:
   Config config_;
-  td::actor::ActorId<ton::adnl::AdnlSenderInterface> rldp_;
-  ton::adnl::AdnlNodeIdShort src_;
-  ton::adnl::AdnlNodeIdShort dst_;
+  td::actor::ActorId<ton::adnl::AdnlSenderInterface> sender_;
+  // Round-robin: one client against many servers is the fan-out shape a node actually has, and it is
+  // the only way to get distinct destination addresses, which is what egress batching sees. Several
+  // sessions may share a destination -- they differ by local identity, and so by connection.
+  std::vector<Session> sessions_;
+  std::vector<bool> probe_ready_;
 
   double start_time_ = 0;
+  double next_message_at_ = 0;
   td::uint32 sent_ = 0;
   td::uint32 received_ = 0;
   td::uint32 errors_ = 0;
   td::uint32 inflight_ = 0;
+  td::uint32 probes_pending_ = 0;
+  td::uint32 probes_ready_ = 0;
+  td::uint32 probes_started_ = 0;
+  std::vector<td::uint32> probes_retry_;
   td::Timestamp test_timeout_at_;
-  bool exit_pending_{false};
+  bool ready_ = false;
 
-  std::vector<double> query_start_times_;
-  std::vector<double> latencies_;
+  td::BufferSlice payload_;
+
+  // Probes are windowed: a client may own 100k sessions, and firing every probe at once means
+  // 100k simultaneous queries that all time out together. Keep `connect_inflight` outstanding and
+  // start the next as each one lands.
+  void send_probes() {
+    auto self = actor_id(this);
+    while (probes_pending_ < config_.connect_inflight && probes_started_ < sessions_.size()) {
+      auto i = probes_started_++;
+      if (probe_ready_[i]) {
+        continue;
+      }
+      probes_pending_++;
+      auto promise = td::PromiseCreator::lambda([self, i](td::Result<td::BufferSlice> result) {
+        td::actor::send_closure(self, &BenchmarkRunner::on_probe, i, std::move(result));
+      });
+      auto timeout = td::Timestamp::in(std::min(config_.timeout, 5.0));
+      timeout.relax(test_timeout_at_);
+      td::actor::send_closure(sender_, &ton::adnl::AdnlSenderInterface::send_query_ex, sessions_[i].src,
+                              sessions_[i].dst, std::string("bench-ready"), std::move(promise), timeout,
+                              td::BufferSlice("BP", 2), 1024);
+    }
+    if (probes_pending_ == 0 && probes_ready_ == sessions_.size()) {
+      on_all_probes_done();
+      return;
+    }
+    alarm_timestamp() = td::Timestamp::in(0.5);
+    alarm_timestamp().relax(test_timeout_at_);
+  }
+
+  void on_probe(td::uint32 peer, td::Result<td::BufferSlice> R) {
+    probes_pending_--;
+    if (R.is_error()) {
+      LOG(DEBUG) << "Readiness probe to session " << peer << " failed: " << R.error();
+      probes_retry_.push_back(peer);  // a busy setup ramp times probes out; try it again
+    } else if (R.ok().as_slice() != td::Slice("P")) {
+      LOG(ERROR) << "Readiness probe to session " << peer << " returned a bad response";
+      std::_Exit(1);
+    } else {
+      CHECK(!probe_ready_[peer]);
+      probe_ready_[peer] = true;
+      probes_ready_++;
+      if (probes_ready_ % 10000 == 0) {
+        LOG(INFO) << "sessions ready: " << probes_ready_ << "/" << sessions_.size();
+      }
+    }
+    if (probes_ready_ == sessions_.size()) {
+      on_all_probes_done();
+      return;
+    }
+    // Retries wait for the pass to drain, so a stuck session cannot spin ahead of fresh ones.
+    if (probes_started_ == sessions_.size() && probes_pending_ == 0 && !probes_retry_.empty()) {
+      for (auto index : probes_retry_) {
+        probe_ready_[index] = false;
+      }
+      probes_started_ = 0;
+      probes_retry_.clear();
+    }
+    send_probes();
+  }
+
+  void on_all_probes_done() {
+    ready_ = true;
+    if (config_.stay_alive && !config_.messages && config_.num_queries == 0) {
+      keep_idle();
+      return;
+    }
+    LOG(ERROR) << "Ready: 1";
+    next_message_at_ = td::Time::now();
+    alarm_timestamp() = td::Timestamp::now();
+  }
+
+  // One explicit burst per timer event. This makes fan-out/IHAVE burstiness a workload parameter
+  // instead of an accidental consequence of how often the benchmark actor happened to wake up.
+  void send_messages() {
+    for (td::uint32 i = 0; i < config_.message_burst; ++i) {
+      const auto& session = sessions_[sent_ % sessions_.size()];
+      td::actor::send_closure(sender_, &ton::adnl::AdnlSenderInterface::send_message, session.src, session.dst,
+                              payload_.clone());
+      sent_++;
+    }
+  }
 
   void send_queries() {
     td::uint32 max_inflight = config_.max_inflight > 0 ? config_.max_inflight : config_.num_queries;
     while (sent_ < config_.num_queries && inflight_ < max_inflight) {
-      td::BufferSlice query{config_.query_size};
-      auto q = query.as_slice();
-      q[0] = 'B';
-      td::as<td::uint32>(q.data() + 1) = sent_;
-      td::Random::secure_bytes(q.substr(5, q.size() - 9));
-      td::as<td::uint32>(q.end() - 4) = compute_crc(q);
-
-      query_start_times_[sent_] = td::Clocks::system();
+      auto query = payload_.clone();
 
       auto self = actor_id(this);
-      auto promise = td::PromiseCreator::lambda([self, idx = sent_](td::Result<td::BufferSlice> R) {
-        td::actor::send_closure(self, &BenchmarkRunner::on_response, idx, std::move(R));
+      auto promise = td::PromiseCreator::lambda([self, idx = sent_](td::Result<td::BufferSlice> result) {
+        td::actor::send_closure(self, &BenchmarkRunner::on_response, idx, std::move(result));
       });
 
-      td::actor::send_closure(rldp_, &ton::adnl::AdnlSenderInterface::send_query_ex, src_, dst_, std::string("bench"),
-                              std::move(promise), td::Timestamp::in(config_.timeout), std::move(query),
-                              (td::uint64)config_.response_size + 1024);
+      const auto& session = sessions_[sent_ % sessions_.size()];
+      td::actor::send_closure(sender_, &ton::adnl::AdnlSenderInterface::send_query_ex, session.src, session.dst,
+                              std::string("bench"), std::move(promise), td::Timestamp::in(config_.timeout),
+                              std::move(query), (td::uint64)config_.response_size + 1024);
       sent_++;
       inflight_++;
     }
   }
 
   void on_response(td::uint32 idx, td::Result<td::BufferSlice> R) {
-    double latency = td::Clocks::system() - query_start_times_[idx];
     inflight_--;
 
     if (R.is_error()) {
-      LOG(WARNING) << "Query " << idx << " failed: " << R.error();
+      if (errors_ < 5) {
+        LOG(WARNING) << "Query " << idx << " failed: " << R.error();
+      }
       errors_++;
     } else {
       auto r = R.ok().as_slice();
-      if (r.size() < 8 || td::as<td::uint32>(r.data()) != idx || compute_crc(r) != stored_crc(r)) {
-        LOG(ERROR) << "Query " << idx << ": bad response";
+      if (r.size() != config_.response_size || r[0] != 'R') {
+        if (errors_ < 5) {
+          LOG(ERROR) << "Query " << idx << ": bad response";
+        }
         errors_++;
       } else {
         received_++;
-        latencies_.push_back(latency);
       }
     }
 
@@ -250,17 +469,11 @@ class BenchmarkRunner : public td::actor::Actor {
     }
   }
 
-  double percentile(std::vector<double>& sorted, double p) {
-    if (sorted.empty())
-      return 0;
-    size_t idx = static_cast<size_t>(p * static_cast<double>(sorted.size() - 1));
-    return sorted[idx];
-  }
-
   void finish() {
-    auto elapsed = td::Clocks::system() - start_time_;
-    auto qps = config_.num_queries / elapsed;
-    auto total_bytes = (td::uint64)config_.num_queries * (config_.query_size + config_.response_size);
+    auto elapsed = td::Time::now() - start_time_;
+    auto qps = received_ / elapsed;
+    auto total_bytes =
+        static_cast<td::uint64>(received_) * (static_cast<td::uint64>(config_.query_size) + config_.response_size);
     auto throughput_mbps = (static_cast<double>(total_bytes) / elapsed) / (1024 * 1024);
 
     LOG(ERROR) << "Benchmark complete:";
@@ -272,215 +485,35 @@ class BenchmarkRunner : public td::actor::Actor {
     LOG(ERROR) << "  QPS: " << qps;
     LOG(ERROR) << "  Throughput: " << throughput_mbps << " MB/s";
 
-    if (!latencies_.empty()) {
-      std::sort(latencies_.begin(), latencies_.end());
-      double sum = 0;
-      for (auto l : latencies_)
-        sum += l;
-      double avg = sum / static_cast<double>(latencies_.size());
-
-      LOG(ERROR) << "  Latency:";
-      LOG(ERROR) << "    min: " << td::format::as_time(latencies_.front());
-      LOG(ERROR) << "    avg: " << td::format::as_time(avg);
-      LOG(ERROR) << "    p50: " << td::format::as_time(percentile(latencies_, 0.50));
-      LOG(ERROR) << "    p90: " << td::format::as_time(percentile(latencies_, 0.90));
-      LOG(ERROR) << "    p99: " << td::format::as_time(percentile(latencies_, 0.99));
-      LOG(ERROR) << "    max: " << td::format::as_time(latencies_.back());
+    LOG(ERROR) << "Sent: " << sent_ << ", Received: " << received_ << ", Errors: " << errors_;
+    if (errors_ != 0) {
+      std::_Exit(1);
     }
-
-    if (config_.protocol == Protocol::quic) {
-      auto quic_sender = td::actor::actor_dynamic_cast<ton::quic::QuicSender>(rldp_);
-      td::actor::send_closure(quic_sender, &ton::quic::QuicSender::log_stats, "bench-complete");
-      exit_pending_ = true;
-      alarm_timestamp() = td::Timestamp::in(0.2);
+    if (config_.stay_alive) {
+      keep_idle();
       return;
     }
-
     std::_Exit(0);
   }
+
+  void keep_idle() {
+    LOG(ERROR) << "Ready: 1";
+    alarm_timestamp() = test_timeout_at_;
+  }
 };
-
-class StatsReporter : public td::actor::Actor {
- public:
-  StatsReporter(td::actor::ActorId<ton::quic::QuicSender> quic_sender, std::string reason, bool enabled,
-                double interval_sec)
-      : quic_sender_(quic_sender), reason_(std::move(reason)), enabled_(enabled), interval_sec_(interval_sec) {
-  }
-
-  void start_up() override {
-    alarm_timestamp() = td::Timestamp::in(interval_sec_);
-  }
-
-  void alarm() override {
-    if (enabled_ && !quic_sender_.empty()) {
-      td::actor::send_closure(quic_sender_, &ton::quic::QuicSender::log_stats, reason_);
-    }
-    alarm_timestamp() = td::Timestamp::in(interval_sec_);
-  }
-
- private:
-  td::actor::ActorId<ton::quic::QuicSender> quic_sender_;
-  std::string reason_;
-  bool enabled_{false};
-  double interval_sec_{10.0};
-};
-
-void run_loopback(Config config) {
-  std::string db_root = "tmp-dir-bench-rldp";
-  td::rmrf(db_root).ignore();
-  td::mkdir(db_root).ensure();
-
-  td::actor::Scheduler scheduler({config.threads});
-
-  td::actor::ActorOwn<ton::keyring::Keyring> keyring;
-  td::actor::ActorOwn<ton::adnl::TestLoopbackNetworkManager> network_manager;
-  td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
-  td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
-  td::actor::ActorOwn<BenchmarkRunner> runner;
-  td::actor::ActorOwn<StatsReporter> stats_reporter;
-
-  ton::adnl::AdnlNodeIdShort src;
-  ton::adnl::AdnlNodeIdShort dst;
-
-  scheduler.run_in_context([&] {
-    keyring = ton::keyring::Keyring::create(db_root);
-    network_manager = td::actor::create_actor<ton::adnl::TestLoopbackNetworkManager>("net");
-    adnl = ton::adnl::Adnl::create(db_root, keyring.get());
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
-
-    auto max_size = std::max(config.query_size, config.response_size) + 1024;
-
-    rldp2 = ton::rldp2::Rldp::create(adnl.get());
-    td::actor::send_closure(rldp2, &ton::rldp2::Rldp::set_default_mtu, (td::uint64)max_size);
-
-    auto pk1 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
-    auto pub1 = pk1.compute_public_key();
-    src = ton::adnl::AdnlNodeIdShort{pub1.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk1), true, [](td::Result<>) {});
-
-    auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
-    auto pub2 = pk2.compute_public_key();
-    dst = ton::adnl::AdnlNodeIdShort{pub2.compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
-
-    auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
-
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub1}, addr, td::uint8(0));
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{pub2}, addr, td::uint8(0));
-
-    td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, src);
-    td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, dst);
-
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_peer, src, ton::adnl::AdnlNodeIdFull{pub2}, addr);
-
-    td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, src, true, true);
-    td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::add_node_id, dst, true, true);
-
-    // Create QUIC sender for loopback testing
-    quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
-        "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options, quic_options(config));
-    // Add both local IDs to QUIC sender
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, dst);
-
-    stats_reporter = td::actor::create_actor<StatsReporter>(
-        "quic-stats-loopback", quic_sender.get(), "loopback-periodic", config.protocol == Protocol::quic, 10.0);
-
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, dst, "B",
-                            std::make_unique<Server>(config.response_size));
-
-    td::actor::ActorId<ton::adnl::AdnlSenderInterface> sender_id;
-    switch (config.protocol) {
-      case Protocol::rldp2:
-        sender_id = rldp2.get();
-        break;
-      case Protocol::quic:
-        sender_id = quic_sender.get();
-        break;
-    }
-    runner = td::actor::create_actor<BenchmarkRunner>("runner", config, sender_id, src, dst);
-  });
-
-  scheduler.run();
-  td::rmrf(db_root).ignore();
-}
 
 void run_server(Config config) {
-  std::string db_root = "tmp-dir-bench-rldp-server";
+  std::string db_root = "tmp-dir-bench-rldp-server-" + std::to_string(config.server_id);
   td::rmrf(db_root).ignore();
   td::mkdir(db_root).ensure();
 
   td::actor::Scheduler scheduler({config.threads});
-
-  td::actor::ActorOwn<ton::keyring::Keyring> keyring;
-  td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
-  td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
-  td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
-  td::actor::ActorOwn<StatsReporter> stats_reporter;
-  td::actor::ActorOwn<ton::PrometheusExporter> exporter;
+  Node node;
 
   scheduler.run_in_context([&] {
-    if (config.prometheus) {
-      td::IPAddress addr;
-      addr.init_host_port("127.0.0.1:19777").ensure();
-      exporter = ton::PrometheusExporter::create();
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
-    }
-    keyring = ton::keyring::Keyring::create(db_root);
-    network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
-    adnl = ton::adnl::Adnl::create(db_root, keyring.get());
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
-
-    ton::adnl::AdnlCategoryMask cat_mask;
-    cat_mask[0] = true;
-    const auto& self_addr = config.public_addr.is_valid() ? config.public_addr : config.local_addr;
-    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, self_addr,
-                            std::move(cat_mask), 0);
-
-    auto local_id = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, server_private_key(), true, [](td::Result<>) {});
-
-    ton::adnl::AdnlAddressList addr_list;
-    addr_list.add_udp_adnl_address(self_addr).ensure();
-    addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
-    addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
-
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id, ton::adnl::AdnlNodeIdFull{server_public_key()}, addr_list,
-                            td::uint8(0));
-
-    auto max_size = std::max(config.query_size, config.response_size) + 1024;
-
-    // Start RLDP v2
-    rldp2 = ton::rldp2::Rldp::create(adnl.get());
-    td::actor::send_closure(rldp2, &ton::rldp2::Rldp::set_default_mtu, (td::uint64)max_size);
-    td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, local_id);
-
-    // Start QUIC sender (uses ADNL keys for TLS via RPK)
-    quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
-        "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options, quic_options(config));
-    // Use send_lambda to properly start the coroutine task
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, local_id);
-    if (config.prometheus) {
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::adnl::AdnlNetworkManager>,
-                              network_manager.get(), &ton::adnl::AdnlNetworkManager::collect);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::adnl::Adnl>, adnl.get(),
-                              &ton::adnl::Adnl::collect);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::rldp2::Rldp>, rldp2.get(),
-                              &ton::rldp2::Rldp::collect);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
-                              &ton::quic::QuicSender::collect);
-    }
-
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
+    node = make_node(config, db_root, server_private_key(config.server_id), 'S', config.server_id);
+    td::actor::send_closure(node.adnl, &ton::adnl::Adnl::subscribe, node.local_id(), "B",
                             std::make_unique<Server>(config.response_size));
-
-    stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-server", quic_sender.get(), "server-periodic",
-                                                            config.protocol == Protocol::quic, 10.0);
-
     LOG(ERROR) << "Server listening on " << config.local_addr;
   });
 
@@ -493,124 +526,41 @@ void run_client(Config config) {
   td::mkdir(db_root).ensure();
 
   td::actor::Scheduler scheduler({config.threads});
-
-  td::actor::ActorOwn<ton::keyring::Keyring> keyring;
-  td::actor::ActorOwn<ton::adnl::AdnlNetworkManager> network_manager;
-  td::actor::ActorOwn<ton::adnl::Adnl> adnl;
-  td::actor::ActorOwn<ton::rldp2::Rldp> rldp2;
-  td::actor::ActorOwn<ton::quic::QuicSender> quic_sender;
+  Node node;
   td::actor::ActorOwn<BenchmarkRunner> runner;
-  td::actor::ActorOwn<ton::PrometheusExporter> exporter;
-  td::actor::ActorOwn<StatsReporter> stats_reporter;
-
-  ton::adnl::AdnlNodeIdShort src;
-  ton::adnl::AdnlNodeIdShort dst;
 
   scheduler.run_in_context([&] {
-    if (config.prometheus) {
-      td::IPAddress addr;
-      addr.init_host_port("127.0.0.1:29777").ensure();
-      exporter = ton::PrometheusExporter::create();
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
-    }
+    // Each client owns a millionth of the identity space, so its derived session identities cannot
+    // collide with another client's however many it holds.
+    node = make_node(config, db_root, client_private_key(config.client_id * 1000000), 'C', config.client_id * 1000000);
 
-    keyring = ton::keyring::Keyring::create(db_root);
-    network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
-    adnl = ton::adnl::Adnl::create(db_root, keyring.get());
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
-
-    ton::adnl::AdnlCategoryMask cat_mask;
-    cat_mask[0] = true;
-    const auto& self_addr = config.public_addr.is_valid() ? config.public_addr : config.local_addr;
-    td::actor::send_closure(network_manager, &ton::adnl::AdnlNetworkManager::add_self_addr, self_addr,
-                            std::move(cat_mask), 0);
-
-    auto client_priv_key = client_private_key(config.client_id);
-    src = ton::adnl::AdnlNodeIdShort{client_priv_key.compute_public_key().compute_short_id()};
-    td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(client_priv_key), true,
-                            [](td::Result<>) {});
-
-    ton::adnl::AdnlAddressList local_addr_list;
-    local_addr_list.add_udp_adnl_address(self_addr).ensure();
-    local_addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
-    local_addr_list.set_reinit_date(ton::adnl::Adnl::adnl_start_time());
-
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_id,
-                            ton::adnl::AdnlNodeIdFull{client_public_key(config.client_id)}, local_addr_list,
-                            td::uint8(0));
-
-    auto max_size = std::max(config.query_size, config.response_size) + 1024;
-
-    rldp2 = ton::rldp2::Rldp::create(adnl.get());
-    td::actor::send_closure(rldp2, &ton::rldp2::Rldp::set_default_mtu, (td::uint64)max_size);
-    td::actor::send_closure(rldp2, &ton::rldp2::Rldp::add_id, src);
-
-    quic_sender = td::actor::create_actor<ton::quic::QuicSender>(
-        "quic", td::actor::actor_dynamic_cast<ton::adnl::AdnlPeerTable>(adnl.get()), keyring.get());
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::set_quic_options, quic_options(config));
-    // Use send_lambda to properly start the coroutine task
-    td::actor::send_closure(quic_sender, &ton::quic::QuicSender::add_id, src);
-    if (config.prometheus) {
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::adnl::AdnlNetworkManager>,
-                              network_manager.get(), &ton::adnl::AdnlNetworkManager::collect);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::adnl::Adnl>, adnl.get(),
-                              &ton::adnl::Adnl::collect);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::rldp2::Rldp>, rldp2.get(),
-                              &ton::rldp2::Rldp::collect);
-      td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
-                              &ton::quic::QuicSender::collect);
-    }
-
-    stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-client", quic_sender.get(), "client-periodic",
-                                                            config.protocol == Protocol::quic, 10.0);
-
-    // Add server as static node
-    dst = ton::adnl::AdnlNodeIdShort{server_public_key().compute_short_id()};
-    ton::adnl::AdnlAddressList server_addr_list;
-    server_addr_list.add_udp_adnl_address(config.server_addr).ensure();
-    server_addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
-    server_addr_list.set_reinit_date(0);
-
+    // Servers occupy consecutive ports from --server-addr, and their identities are derived from the
+    // same index, so no address exchange is needed.
     ton::adnl::AdnlNodesList static_nodes;
-    static_nodes.push(ton::adnl::AdnlNode{ton::adnl::AdnlNodeIdFull{server_public_key()}, server_addr_list});
-    td::actor::send_closure(adnl, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(static_nodes));
-
-    td::actor::ActorId<ton::adnl::AdnlSenderInterface> sender_id;
-    switch (config.protocol) {
-      case Protocol::rldp2:
-        sender_id = rldp2.get();
-        break;
-      case Protocol::quic:
-        sender_id = quic_sender.get();
-        break;
+    std::vector<ton::adnl::AdnlNodeIdShort> dsts;
+    for (td::uint32 i = 0; i < config.servers; i++) {
+      auto addr = config.server_addr;
+      addr.set_port(static_cast<td::uint16>(config.server_addr.get_port() + i));
+      ton::adnl::AdnlAddressList server_addr_list;
+      server_addr_list.add_udp_adnl_address(addr).ensure();
+      server_addr_list.set_version(static_cast<td::int32>(td::Clocks::system()));
+      server_addr_list.set_reinit_date(0);
+      auto server_id = config.server_id + i;
+      auto server_key = server_public_key(server_id);
+      static_nodes.push(ton::adnl::AdnlNode{ton::adnl::AdnlNodeIdFull{server_key}, server_addr_list});
+      dsts.push_back(ton::adnl::AdnlNodeIdShort{server_key.compute_short_id()});
     }
-    runner = td::actor::create_actor<BenchmarkRunner>("runner", config, sender_id, src, dst);
+    td::actor::send_closure(node.adnl, &ton::adnl::Adnl::add_static_nodes_from_config, std::move(static_nodes));
+
+    std::vector<BenchmarkRunner::Session> sessions;
+    for (size_t i = 0; i < node.local_ids.size(); i++) {
+      sessions.push_back({node.local_ids[i], dsts[i % dsts.size()]});
+    }
+    runner = td::actor::create_actor<BenchmarkRunner>("runner", config, pick_sender(config.protocol, node),
+                                                      std::move(sessions));
   });
 
   scheduler.run();
-  td::rmrf(db_root).ignore();
-}
-
-void run_both(Config config) {
-  // Create separate configs for server and client
-  Config server_config = config;
-  Config client_config = config;
-
-  // Server uses local_addr as its listening address
-  // Client uses a different port for its own address
-  client_config.local_addr.init_host_port("127.0.0.1:19201").ensure();
-  client_config.server_addr = server_config.local_addr;
-
-  // Run server and client in separate threads
-  std::thread server_thread([server_config]() { run_server(server_config); });
-
-  // Give server time to start
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-  std::thread client_thread([client_config]() { run_client(client_config); });
-
-  client_thread.join();
-  server_thread.detach();  // Server runs forever, let it die with process
 }
 
 int main(int argc, char* argv[]) {
@@ -618,9 +568,10 @@ int main(int argc, char* argv[]) {
   td::set_default_failure_signal_handler().ensure();
 
   Config config;
+  bool prometheus_default_port = false;
 
   td::OptionParser p;
-  p.set_description("RLDP benchmark");
+  p.set_description("transport benchmark (adnl / rldp2 / quic)");
   p.add_option('h', "help", "print help", [&]() {
     char b[10240];
     td::StringBuilder sb(td::MutableSlice{b, 10000});
@@ -638,6 +589,10 @@ int main(int argc, char* argv[]) {
   });
   p.add_checked_option('\0', "quic", "use QUIC", [&]() {
     config.protocol = Protocol::quic;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "adnl", "use raw ADNL queries (no RLDP2, no QUIC)", [&]() {
+    config.protocol = Protocol::adnl;
     return td::Status::OK();
   });
   p.add_checked_option('\0', "no-gso", "disable UDP GSO for QUIC", [&]() {
@@ -706,10 +661,6 @@ int main(int argc, char* argv[]) {
     config.client_id = v;
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "both", "run server and client in same process", [&]() {
-    config.mode = Mode::both;
-    return td::Status::OK();
-  });
   p.add_checked_option('a', "addr", "local address (ip:port)", [&](td::Slice arg) {
     TRY_STATUS(config.local_addr.init_host_port(arg.str()));
     return td::Status::OK();
@@ -735,10 +686,64 @@ int main(int argc, char* argv[]) {
     config.no_limits = true;
     return td::Status::OK();
   });
-  p.add_checked_option('p', "prometheus", "enable prometheus exporter", [&]() {
-    config.prometheus = true;
+  p.add_checked_option('p', "prometheus", "enable prometheus exporter on the mode default port", [&]() {
+    prometheus_default_port = true;
     return td::Status::OK();
   });
+  p.add_checked_option('\0', "server-id", "server identity index; servers must all differ (default 0)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT(v, td::to_integer_safe<td::uint32>(arg));
+                         config.server_id = v;
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "connections", "peer sessions this client owns, spread over the servers (default: 1)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT(value, td::to_integer_safe<td::uint32>(arg));
+                         if (value == 0) {
+                           return td::Status::Error("connections must be positive");
+                         }
+                         config.connections = value;
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "connect-inflight", "concurrent session readiness probes during setup (default: 256)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT(value, td::to_integer_safe<td::uint32>(arg));
+                         if (value == 0) {
+                           return td::Status::Error("connect-inflight must be positive");
+                         }
+                         config.connect_inflight = value;
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "servers", "client only: fan out over N servers at consecutive ports from --server-addr",
+                       [&](td::Slice arg) {
+                         TRY_RESULT(v, td::to_integer_safe<td::uint32>(arg));
+                         config.servers = v;
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "messages", "send fire-and-forget messages instead of queries (needs --rate)", [&]() {
+    config.messages = true;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "rate", "messages/sec offered in --messages mode", [&](td::Slice arg) {
+    TRY_RESULT(v, td::to_integer_safe<td::uint32>(arg));
+    config.rate = v;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "message-burst", "messages emitted per timer event (default: 1)", [&](td::Slice arg) {
+    TRY_RESULT(v, td::to_integer_safe<td::uint32>(arg));
+    config.message_burst = v;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "stay-alive", "after readiness or finite queries, keep the established peer idle", [&]() {
+    config.stay_alive = true;
+    return td::Status::OK();
+  });
+  p.add_checked_option('\0', "prometheus-port", "exporter port (default 19777 server, 29777 client)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT(v, td::to_integer_safe<int>(arg));
+                         config.prometheus_port = v;
+                         return td::Status::OK();
+                       });
 
   auto S = p.run(argc, argv);
   if (S.is_error()) {
@@ -746,7 +751,29 @@ int main(int argc, char* argv[]) {
     std::_Exit(1);
   }
 
-  // Set default addresses
+  if (config.mode == Mode::unset) {
+    LOG(FATAL) << "Choose --server or --client";
+  }
+
+  if (prometheus_default_port && !config.prometheus_port) {
+    config.prometheus_port = config.mode == Mode::client ? 29777 : 19777;
+  }
+  if (config.prometheus_port < 0 || config.prometheus_port > 65535) {
+    LOG(FATAL) << "--prometheus-port must be between 0 and 65535";
+  }
+  if (config.threads == 0) {
+    LOG(FATAL) << "--threads must be at least 1";
+  }
+  if (!std::isfinite(config.timeout) || config.timeout <= 0) {
+    LOG(FATAL) << "--timeout must be finite and positive";
+  }
+  if (!std::isfinite(config.test_timeout) || config.test_timeout <= 0) {
+    LOG(FATAL) << "--test-timeout must be finite and positive";
+  }
+  if (config.max_ack_delay_seconds &&
+      (!std::isfinite(*config.max_ack_delay_seconds) || *config.max_ack_delay_seconds < 0)) {
+    LOG(FATAL) << "--max-ack-delay-ms must be finite and nonnegative";
+  }
   if (config.mode == Mode::server && !config.local_addr.is_valid()) {
     config.local_addr.init_host_port("127.0.0.1:19200").ensure();
   }
@@ -758,44 +785,75 @@ int main(int argc, char* argv[]) {
       config.server_addr.init_host_port("127.0.0.1:19200").ensure();
     }
   }
-  if (config.mode == Mode::both) {
-    // For both mode, set server and client addresses appropriately
-    config.local_addr.init_host_port("127.0.0.1:19200").ensure();   // Server port
-    config.server_addr.init_host_port("127.0.0.1:19200").ensure();  // Client connects to server
-  }
 
   const char* mode_str = "unknown";
   switch (config.mode) {
-    case Mode::loopback:
-      mode_str = "loopback";
-      break;
+    case Mode::unset:
+      UNREACHABLE();
     case Mode::server:
       mode_str = "server";
       break;
     case Mode::client:
       mode_str = "client";
       break;
-    case Mode::both:
-      mode_str = "both";
-      break;
+  }
+  if (config.messages && config.rate == 0) {
+    LOG(FATAL) << "--messages needs --rate: an unpaced fire-and-forget loop measures the queue, not the transport";
+  }
+  if (config.message_burst == 0) {
+    LOG(FATAL) << "--message-burst must be at least 1";
+  }
+  if (config.mode == Mode::client && !config.messages && config.num_queries == 0 && !config.stay_alive) {
+    LOG(FATAL) << "zero queries require --stay-alive";
+  }
+  if (config.messages && config.stay_alive) {
+    LOG(FATAL) << "--stay-alive is only meaningful in query mode";
+  }
+  if (config.query_size == 0 || config.response_size == 0) {
+    LOG(FATAL) << "query and response sizes must be positive";
+  }
+  if (config.protocol == Protocol::adnl && config.query_size > ton::adnl::Adnl::huge_packet_max_size()) {
+    LOG(FATAL) << "raw ADNL requests and messages are limited to " << ton::adnl::Adnl::huge_packet_max_size()
+               << " bytes";
+  }
+  if (config.protocol == Protocol::adnl && config.response_size > ton::adnl::Adnl::get_mtu()) {
+    LOG(FATAL) << "raw ADNL responses are limited to " << ton::adnl::Adnl::get_mtu() << " bytes";
+  }
+  if (config.servers == 0) {
+    LOG(FATAL) << "--servers must be at least 1";
+  }
+  if (static_cast<td::uint64>(config.server_id) + config.servers - 1 > std::numeric_limits<td::uint32>::max()) {
+    LOG(FATAL) << "server identity range exceeds uint32";
+  }
+  if (config.mode == Mode::client &&
+      static_cast<td::uint64>(config.server_addr.get_port()) + config.servers - 1 > 65535) {
+    LOG(FATAL) << "server port range exceeds 65535";
+  }
+  if (config.protocol == Protocol::quic) {
+    constexpr td::uint64 port_offset = 1000;
+    const auto& self_addr = config.public_addr.is_valid() ? config.public_addr : config.local_addr;
+    auto self_port = static_cast<td::uint64>(self_addr.get_port());
+    if (self_port == 0 || self_port + port_offset > 65535) {
+      LOG(FATAL) << "QUIC local ADNL port must be between 1 and 64535";
+    }
+    if (config.mode == Mode::client) {
+      auto first_port = static_cast<td::uint64>(config.server_addr.get_port());
+      auto last_port = first_port + config.servers - 1;
+      if (first_port == 0 || last_port + port_offset > 65535) {
+        LOG(FATAL) << "QUIC remote ADNL port range must be between 1 and 64535";
+      }
+    }
   }
   LOG(ERROR) << "Starting benchmark (mode: " << mode_str << ", protocol: " << protocol_name(config.protocol) << ")";
-  LOG(ERROR) << "Server public key: " << td::base64_encode(server_public_key().ed25519_value().raw().as_slice());
-  LOG(ERROR) << "Client public key (id=" << config.client_id
-             << "): " << td::base64_encode(client_public_key(config.client_id).ed25519_value().raw().as_slice());
 
   switch (config.mode) {
-    case Mode::loopback:
-      run_loopback(config);
-      break;
+    case Mode::unset:
+      UNREACHABLE();
     case Mode::server:
       run_server(config);
       break;
     case Mode::client:
       run_client(config);
-      break;
-    case Mode::both:
-      run_both(config);
       break;
   }
 
