@@ -463,7 +463,11 @@ void QuicServer::release_peer_uni_stream_credit(QuicConnectionId cid) {
   if (!state) {
     return;  // the connection is gone and its credit with it
   }
-  state->impl().release_peer_uni_stream_credit();
+  // Only the release that actually announces credit needs the connection back in the egress
+  // rotation; the batched ones in between have nothing to put on the wire.
+  if (!state->impl().release_peer_uni_stream_credit()) {
+    return;
+  }
   on_connection_updated(*state);
 }
 
