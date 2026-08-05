@@ -17,6 +17,11 @@
 #include <queue>
 #include <unistd.h>
 
+#include "td/utils/port/config.h"
+#if TD_PORT_POSIX
+#include <sys/resource.h>
+#endif
+
 #include "auto/tl/ton_api.h"
 #include "block/block-auto.h"
 #include "block/block-parse.h"
@@ -42,7 +47,9 @@
 #include "td/utils/format.h"
 #include "td/utils/misc.h"
 #include "td/utils/port/Stat.h"
+#include "td/utils/port/config.h"
 #include "td/utils/port/path.h"
+#include "td/utils/port/rlimit.h"
 #include "td/utils/port/thread.h"
 #include "tl-utils/tl-utils.hpp"
 #include "ton/ton-tl.hpp"
@@ -79,6 +86,7 @@ struct Config {
   std::string out_dir;
   std::string tmp_dir;
   int threads = static_cast<int>(td::thread::hardware_concurrency());
+  int merge_shards = 0;  // 0 → derived from threads; power of two in [1, 256]
   bool overwrite = false;
   td::uint64 run_batch_bytes = 512ULL << 20;
   td::uint64 sst_chunk_bytes = 512ULL << 20;
@@ -162,40 +170,69 @@ class CountingSink : public CellSink {
   Progress *progress_;
 };
 
-// Registry of sorted run files produced by all sinks
+// Merge shards: cells are routed to a shard by the top bits of their hash, so a
+// shard owns a contiguous key range and can be merged independently of the rest.
+// Equal hashes always land in the same shard, so dedup is unaffected.
+constexpr int kMaxMergeShards = 256;
+
+int merge_shard_bits(int shards) {
+  int bits = 0;
+  while ((1 << bits) < shards) {
+    bits++;
+  }
+  return bits;
+}
+
+int shard_of(const td::Bits256 &hash, int shard_bits) {
+  return shard_bits == 0 ? 0 : hash.data()[0] >> (8 - shard_bits);
+}
+
+// Registry of sorted run files produced by all sinks, grouped by merge shard
 class RunRegistry {
  public:
-  explicit RunRegistry(std::string dir) : dir_(std::move(dir)) {
+  RunRegistry(std::string dir, int shards) : dir_(std::move(dir)), runs_(shards) {
+    CHECK(shards >= 1 && shards <= kMaxMergeShards);
   }
-  std::string next_path() {
+  int shards() const {
+    return static_cast<int>(runs_.size());
+  }
+  std::string next_path(int shard) {
     auto idx = counter_.fetch_add(1);
-    return PSTRING() << dir_ << "/run-" << idx;
+    return PSTRING() << dir_ << "/run-" << shard << "-" << idx;
   }
-  void register_run(std::string path) {
+  void register_run(int shard, std::string path) {
     std::lock_guard<std::mutex> lock(mutex_);
-    runs_.push_back(std::move(path));
+    runs_[shard].push_back(std::move(path));
   }
-  std::vector<std::string> runs() {
+  // sorted so that the merge input order does not depend on thread scheduling
+  std::vector<std::string> runs(int shard) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return runs_;
+    auto res = runs_[shard];
+    std::sort(res.begin(), res.end());
+    return res;
   }
 
  private:
   std::string dir_;
   std::atomic<td::uint64> counter_{0};
   std::mutex mutex_;
-  std::vector<std::string> runs_;
+  std::vector<std::vector<std::string>> runs_;
 };
 
 // Buffers (hash, serialized value) records, sorts ~run_batch_bytes batches in
-// RAM by hash and spills them to run files. Run record: [hash:32][len:u32][value].
+// RAM by hash and spills them to run files, one per merge shard. Run record:
+// [hash:32][len:u32][value].
 class RunFileSink : public CellSink {
  public:
   RunFileSink(RunRegistry &registry, Progress &progress, td::uint64 batch_bytes)
-      : registry_(registry), progress_(progress), batch_bytes_(batch_bytes) {
+      : registry_(registry)
+      , progress_(progress)
+      , batch_bytes_(batch_bytes)
+      , shard_bits_(merge_shard_bits(registry.shards()))
+      , recs_(registry.shards()) {
   }
   ~RunFileSink() override {
-    CHECK(recs_.empty());  // flush() must be called explicitly
+    CHECK(n_recs_ == 0);  // flush() must be called explicitly
   }
   void emit(const Ref<vm::DataCell> &cell) override {
     emit_raw(td::Bits256{cell->get_hash().bits()}, vm::CellStorer::serialize_value(kRefcnt, cell, false));
@@ -205,7 +242,8 @@ class RunFileSink : public CellSink {
     rec.hash = hash;
     rec.offset = buf_.size();
     rec.len = td::narrow_cast<td::uint32>(value.size());
-    recs_.push_back(rec);
+    recs_[shard_of(hash, shard_bits_)].push_back(rec);
+    n_recs_++;
     buf_.append(value);
     progress_.cells.fetch_add(1, std::memory_order_relaxed);
     if (buf_.size() >= batch_bytes_) {
@@ -213,25 +251,32 @@ class RunFileSink : public CellSink {
     }
   }
   void flush() {
-    if (recs_.empty()) {
+    if (n_recs_ == 0) {
       return;
     }
-    std::sort(recs_.begin(), recs_.end(),
-              [](const Rec &a, const Rec &b) { return memcmp(a.hash.data(), b.hash.data(), 32) < 0; });
-    auto path = registry_.next_path();
-    std::FILE *f = std::fopen(path.c_str(), "wb");
-    LOG_CHECK(f != nullptr) << "cannot create run file " << path;
-    std::vector<char> io_buf(1 << 22);
-    setvbuf(f, io_buf.data(), _IOFBF, io_buf.size());
-    for (const auto &rec : recs_) {
-      CHECK(std::fwrite(rec.hash.data(), 1, 32, f) == 32);
-      CHECK(std::fwrite(&rec.len, 1, 4, f) == 4);
-      CHECK(std::fwrite(buf_.data() + rec.offset, 1, rec.len, f) == rec.len);
+    for (int shard = 0; shard < static_cast<int>(recs_.size()); shard++) {
+      auto &recs = recs_[shard];
+      if (recs.empty()) {
+        continue;
+      }
+      std::sort(recs.begin(), recs.end(),
+                [](const Rec &a, const Rec &b) { return memcmp(a.hash.data(), b.hash.data(), 32) < 0; });
+      auto path = registry_.next_path(shard);
+      std::FILE *f = std::fopen(path.c_str(), "wb");
+      LOG_CHECK(f != nullptr) << "cannot create run file " << path;
+      std::vector<char> io_buf(1 << 22);
+      setvbuf(f, io_buf.data(), _IOFBF, io_buf.size());
+      for (const auto &rec : recs) {
+        CHECK(std::fwrite(rec.hash.data(), 1, 32, f) == 32);
+        CHECK(std::fwrite(&rec.len, 1, 4, f) == 4);
+        CHECK(std::fwrite(buf_.data() + rec.offset, 1, rec.len, f) == rec.len);
+      }
+      CHECK(std::fclose(f) == 0);
+      registry_.register_run(shard, std::move(path));
+      recs.clear();
     }
-    CHECK(std::fclose(f) == 0);
-    progress_.run_bytes.fetch_add(buf_.size() + recs_.size() * 36, std::memory_order_relaxed);
-    registry_.register_run(std::move(path));
-    recs_.clear();
+    progress_.run_bytes.fetch_add(buf_.size() + n_recs_ * 36, std::memory_order_relaxed);
+    n_recs_ = 0;
     buf_.clear();
     buf_.shrink_to_fit();
   }
@@ -245,7 +290,9 @@ class RunFileSink : public CellSink {
   RunRegistry &registry_;
   Progress &progress_;
   td::uint64 batch_bytes_;
-  std::vector<Rec> recs_;
+  int shard_bits_;
+  std::vector<std::vector<Rec>> recs_;
+  td::uint64 n_recs_{0};
   std::string buf_;
 };
 
@@ -535,10 +582,10 @@ DictNode build_bucket(const GenContext &ctx, const std::string &bucket_file, Cel
 
 class RunCursor {
  public:
-  explicit RunCursor(const std::string &path) {
+  RunCursor(const std::string &path, size_t io_buf_bytes) {
     f_ = std::fopen(path.c_str(), "rb");
     LOG_CHECK(f_ != nullptr) << "cannot open run file " << path;
-    io_buf_.resize(1 << 22);
+    io_buf_.resize(io_buf_bytes);
     setvbuf(f_, io_buf_.data(), _IOFBF, io_buf_.size());
     advance();
   }
@@ -600,12 +647,18 @@ struct MergeStats {
   std::vector<std::string> sst_files;
 };
 
-MergeStats merge_runs_to_sst(const std::vector<std::string> &runs, const std::string &sst_dir,
-                             td::uint64 sst_chunk_bytes, Progress &progress) {
-  progress.phase.store("phase3-merge");
+// read-ahead budget shared by all cursors of one shard merge
+constexpr td::uint64 kMergeReadBufBudget = 64ULL << 20;
+
+MergeStats merge_shard_to_sst(const std::vector<std::string> &runs, const std::string &sst_dir, int shard,
+                              td::uint64 sst_chunk_bytes, Progress &progress) {
+  size_t io_buf_bytes = 1 << 22;
+  if (!runs.empty()) {
+    io_buf_bytes = static_cast<size_t>(std::max<td::uint64>(64 << 10, std::min<td::uint64>(1 << 22, kMergeReadBufBudget / runs.size())));
+  }
   std::vector<std::unique_ptr<RunCursor>> cursors;
   for (const auto &path : runs) {
-    auto cur = std::make_unique<RunCursor>(path);
+    auto cur = std::make_unique<RunCursor>(path, io_buf_bytes);
     if (cur->ok()) {
       cursors.push_back(std::move(cur));
     }
@@ -627,7 +680,7 @@ MergeStats merge_runs_to_sst(const std::vector<std::string> &runs, const std::st
   std::unique_ptr<rocksdb::SstFileWriter> writer;
   td::uint64 chunk_bytes = 0;
   auto open_writer = [&] {
-    auto path = PSTRING() << sst_dir << "/chunk-" << stats.sst_files.size() << ".sst";
+    auto path = PSTRING() << sst_dir << "/chunk-" << shard << "-" << stats.sst_files.size() << ".sst";
     writer = std::make_unique<rocksdb::SstFileWriter>(rocksdb::EnvOptions(), options);
     auto status = writer->Open(path);
     LOG_CHECK(status.ok()) << "SstFileWriter::Open " << path << ": " << status.ToString();
@@ -680,6 +733,71 @@ MergeStats merge_runs_to_sst(const std::vector<std::string> &runs, const std::st
     emit_kv(prev_hash, prev_value);
   }
   close_writer();
+  return stats;
+}
+
+// Every cursor of every in-flight shard holds its run file open, so the number of
+// concurrent shard merges is bounded by the open-file limit, not just by threads.
+td::uint64 open_file_budget() {
+#if TD_PORT_POSIX
+  struct rlimit r;
+  if (getrlimit(RLIMIT_NOFILE, &r) == 0) {
+    td::uint64 cur = r.rlim_cur == RLIM_INFINITY ? (1ULL << 20) : static_cast<td::uint64>(r.rlim_cur);
+    return cur > 512 ? cur - 256 : 64;  // leave headroom for sst writers, logs, rocksdb
+  }
+#endif
+  return 768;
+}
+
+// Shards own disjoint key ranges, so they merge in parallel and their SST files
+// stay globally ordered when concatenated in shard order.
+MergeStats merge_runs_to_sst(RunRegistry &registry, const std::string &sst_dir, td::uint64 sst_chunk_bytes, int threads,
+                             Progress &progress) {
+  progress.phase.store("phase3-merge");
+  int shards = registry.shards();
+  std::vector<std::vector<std::string>> shard_runs(shards);
+  size_t max_runs = 1;
+  for (int shard = 0; shard < shards; shard++) {
+    shard_runs[shard] = registry.runs(shard);
+    max_runs = std::max(max_runs, shard_runs[shard].size());
+  }
+
+  int workers = std::min(threads, shards);
+  td::change_maximize_rlimit(td::RlimitType::nofile, static_cast<td::uint64>(workers) * (max_runs + 4) + 1024).ignore();
+  auto by_files = static_cast<int>(std::max<td::uint64>(1, open_file_budget() / (max_runs + 4)));
+  workers = std::max(1, std::min(workers, by_files));
+  LOG(INFO) << "phase 3: " << shards << " shards, " << workers << " merged concurrently, up to " << max_runs
+            << " run files per shard";
+
+  std::vector<MergeStats> per_shard(shards);
+  {
+    std::atomic<int> next_shard{0};
+    auto worker = [&] {
+      while (true) {
+        int shard = next_shard.fetch_add(1);
+        if (shard >= shards) {
+          break;
+        }
+        per_shard[shard] = merge_shard_to_sst(shard_runs[shard], sst_dir, shard, sst_chunk_bytes, progress);
+      }
+    };
+    std::vector<td::thread> pool;
+    for (int t = 0; t < workers; t++) {
+      pool.emplace_back(worker);
+    }
+    for (auto &t : pool) {
+      t.join();
+    }
+  }
+
+  MergeStats stats;
+  for (auto &shard_stats : per_shard) {
+    stats.distinct_cells += shard_stats.distinct_cells;
+    stats.value_bytes += shard_stats.value_bytes;
+    for (auto &path : shard_stats.sst_files) {
+      stats.sst_files.push_back(std::move(path));
+    }
+  }
   return stats;
 }
 
@@ -742,6 +860,9 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   if (cfg.threads <= 0) {
     cfg.threads = 1;
   }
+  if (cfg.merge_shards <= 0) {
+    cfg.merge_shards = 1 << merge_shard_bits(std::min(cfg.threads, kMaxMergeShards));
+  }
   if (write_db) {
     if (cfg.out_dir.empty()) {
       return td::Status::Error("--out-dir is required for gen");
@@ -788,7 +909,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   // ---- phase 2 ----
   progress.phase.store("phase2-build");
   progress.accounts.store(0);
-  RunRegistry registry(run_dir);
+  RunRegistry registry(run_dir, cfg.merge_shards);
   std::array<DictNode, 256> pendings;
   {
     std::atomic<int> next_bucket{0};
@@ -890,7 +1011,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   }
 
   // ---- phase 3 ----
-  auto stats = merge_runs_to_sst(registry.runs(), sst_dir, cfg.sst_chunk_bytes, progress);
+  auto stats = merge_runs_to_sst(registry, sst_dir, cfg.sst_chunk_bytes, cfg.threads, progress);
   res.distinct_cells = stats.distinct_cells;
   res.value_bytes = stats.value_bytes;
   LOG(INFO) << "phase 3 (merge) done in " << timer.elapsed() << "s: " << stats.distinct_cells << " cells, "
@@ -1404,6 +1525,15 @@ int main(int argc, char *argv[]) {
                [&](td::Slice arg) { cfg.out_dir = arg.str(); });
   p.add_option('\0', "tmp-dir", "scratch directory for bucket/run files (default: <out-dir>/tmp)",
                [&](td::Slice arg) { cfg.tmp_dir = arg.str(); });
+  p.add_checked_option('\0', "merge-shards", "parallel phase-3 merge shards, power of two <= 256 (default: threads)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(cfg.merge_shards, td::to_integer_safe<int>(arg));
+                         if (cfg.merge_shards < 1 || cfg.merge_shards > bench::kMaxMergeShards ||
+                             (cfg.merge_shards & (cfg.merge_shards - 1)) != 0) {
+                           return td::Status::Error("--merge-shards must be a power of two in [1, 256]");
+                         }
+                         return td::Status::OK();
+                       });
   p.add_checked_option('\0', "threads", "worker threads", [&](td::Slice arg) {
     TRY_RESULT_ASSIGN(cfg.threads, td::to_integer_safe<int>(arg));
     return td::Status::OK();
