@@ -295,6 +295,10 @@ void QuicConnectionPImpl::setup_settings_and_params(ngtcp2_settings& settings, n
   apply_platform_pmtu_policy(settings);
 
   settings.ack_thresh = options.ack_thresh;
+  // Without this ngtcp2 never gives up on a handshake (its default is UINT64_MAX), so a dial to an
+  // unreachable peer retransmits Initial packets forever and everything queued behind it waits with
+  // it. On expiry handle_expiry() closes the connection, which fails those waiters.
+  settings.handshake_timeout = options.handshake_timeout;
 
   ngtcp2_transport_params_default(&params);
   params.max_ack_delay = options.max_ack_delay;
@@ -872,6 +876,10 @@ td::Result<QuicConnectionPImpl::ExpiryAction> QuicConnectionPImpl::handle_expiry
 
   if (rv == NGTCP2_ERR_IDLE_CLOSE) {
     return ExpiryAction::IdleClose;
+  }
+
+  if (rv == NGTCP2_ERR_HANDSHAKE_TIMEOUT) {
+    return ExpiryAction::HandshakeTimeout;
   }
 
   return ExpiryAction::Close;
