@@ -247,8 +247,7 @@ class QuicSender::ServerCallback final : public QuicServer::Callback {
     return append_chunk(stream_it->second, std::move(data));
   }
 
-  td::Status complete_buffered(Connection &connection, Connection::Streams::iterator stream_it,
-                               td::BufferSlice data) {
+  td::Status complete_buffered(Connection &connection, Connection::Streams::iterator stream_it, td::BufferSlice data) {
     auto status = append_chunk(stream_it->second, std::move(data));
     if (status.is_error()) {
       return status;
@@ -503,6 +502,12 @@ td::actor::Task<td::BufferSlice> QuicSender::send_query_coro(adnl::AdnlNodeIdSho
   // Getting a connection is not part of the round trip: a cold handshake, or a peer that does not
   // speak QUIC at all, would otherwise be timed as query latency. Such a failure is not a round trip.
   auto conn = co_await find_or_create_connection({src, dst});
+  // Waiting for the handshake can outlast what the caller was willing to wait for. Nothing tracks
+  // that deadline while we wait -- checking it here, once, is enough to stop sending a query whose
+  // answer would arrive after the caller gave up.
+  if (timeout && timeout.is_in_past()) {
+    co_return td::Status::Error(ton::ErrorCode::timeout, "timeout while waiting for a connection");
+  }
   StreamOptions options{.max_size = limit,
                         .timeout = timeout,
                         .timeout_seconds = timeout ? timeout.at() - td::Time::now() : 0.0,
@@ -587,6 +592,10 @@ td::actor::Task<std::shared_ptr<QuicSender::Connection>> QuicSender::find_or_cre
     co_return connection;
   }
   auto [future, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
+  if (connection->waiting_ready.size() >= Connection::MAX_WAITING_READY) {
+    connection->waiting_ready.front().set_error(td::Status::Error("dropped waiting for a connection"));
+    connection->waiting_ready.pop_front();
+  }
   connection->waiting_ready.push_back(std::move(promise));
 
   if (!connection->init_started) {

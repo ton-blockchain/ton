@@ -58,7 +58,10 @@ class QuicSender : public adnl::AdnlSenderEx {
     QuicConnectionId cid{};
     AdnlPath path{};
     td::actor::ActorId<QuicServer> server;
-    std::vector<td::Promise<td::Unit>> waiting_ready{};
+    // Callers blocked on the handshake. Bounded: a peer that never completes one would otherwise
+    // accumulate a message and its payload per send for the whole handshake timeout.
+    static constexpr size_t MAX_WAITING_READY = 1024;
+    std::deque<td::Promise<td::Unit>> waiting_ready{};
     std::optional<td::Status> init_error{};
     std::unordered_map<QuicStreamID, td::Promise<td::BufferSlice>> responses{};
     std::unordered_map<QuicStreamID, PendingMessage> messages{};

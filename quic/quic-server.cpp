@@ -441,6 +441,10 @@ bool QuicServer::handle_expiry(ConnectionState &state) {
     case QuicConnectionPImpl::ExpiryAction::IdleClose:
       LOG(INFO) << "expiry IdleClose for " << state.remote_address;
       return true;
+    case QuicConnectionPImpl::ExpiryAction::HandshakeTimeout:
+      LOG(INFO) << "expiry HandshakeTimeout for " << state.remote_address;
+      transport_stats_.handshakes.at(direction_of(state.is_outbound), HandshakeResult::timed_out).inc();
+      return true;
     case QuicConnectionPImpl::ExpiryAction::Close:
       LOG(INFO) << "expiry Close for " << state.remote_address;
       on_connection_updated(state);  // should we?..
