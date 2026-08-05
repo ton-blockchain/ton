@@ -218,8 +218,9 @@ struct QuicConnectionPImpl {
 
   void shutdown_stream(QuicStreamID sid);
   // Releases one peer-opened unidirectional stream after the upper layer has processed its payload.
-  // Calls are exactly once and correspond one-for-one with peer uni close events.
-  void release_peer_uni_stream_credit();
+  // Calls are exactly once and correspond one-for-one with peer uni close events. Returns whether
+  // the release put a MAX_STREAMS on the wire, so the caller can skip the ones that did not.
+  [[nodiscard]] bool release_peer_uni_stream_credit();
   void set_stream_receive_credit_from_max_size(QuicStreamID sid, td::uint64 max_size);
 
   [[nodiscard]] td::Result<QuicStreamID> open_stream(StreamDirection direction, td::BufferSlice data, bool fin);
@@ -275,6 +276,10 @@ struct QuicConnectionPImpl {
 
   [[nodiscard]] td::Status buffer_stream(QuicStreamID sid, OutboundStreamState& st, td::BufferSlice data, bool fin);
 
+  // Announces the credit of one closed peer stream, batching announcements. Returns whether this
+  // one went on the wire.
+  bool extend_peer_stream_credit(StreamDirection direction);
+
   openssl_ptr<SSL_CTX, &SSL_CTX_free> ssl_ctx_;
   openssl_ptr<SSL, &SSL_free> ssl_;
   openssl_ptr<ngtcp2_crypto_ossl_ctx, &ngtcp2_crypto_ossl_ctx_del> ossl_ctx_;
@@ -286,6 +291,9 @@ struct QuicConnectionPImpl {
   // Peer-opened unidirectional streams the transport has closed but the upper layer has not yet
   // processed. The close event and release call are an exactly-once counting contract.
   size_t held_peer_uni_streams_ = 0;
+  // Credit of closed peer streams not announced yet, per direction. See extend_peer_stream_credit().
+  size_t withheld_bidi_credit_ = 0;
+  size_t withheld_uni_credit_ = 0;
   td::uint64 last_pkt_discarded_ = 0;
   bool last_ingress_discarded_ = false;
   metrics::Labeled<metrics::Counter, metrics::Direction> stream_bytes_;

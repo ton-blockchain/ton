@@ -983,7 +983,7 @@ int QuicConnectionPImpl::on_stream_close(int64_t stream_id, bool clean) {
   // payload may still be queued for upper-layer dispatch, so its credit is held until then.
   if (event.initiator == StreamInitiator::Peer) {
     if (event.direction == StreamDirection::Bidirectional) {
-      ngtcp2_conn_extend_max_streams_bidi(conn(), 1);
+      static_cast<void>(extend_peer_stream_credit(event.direction));
     } else {
       ++held_peer_uni_streams_;
     }
@@ -992,10 +992,31 @@ int QuicConnectionPImpl::on_stream_close(int64_t stream_id, bool clean) {
   return 0;
 }
 
-void QuicConnectionPImpl::release_peer_uni_stream_credit() {
+// ngtcp2 queues an ack-eliciting MAX_STREAMS on any pending extension, with no threshold of its
+// own, so returning credit one stream at a time costs the peer a MAX_STREAMS plus our ACK on every
+// message. Batching amortizes that. A batch never withholds more than a sixteenth of the peer's
+// window, and a window too small for that fraction to round up returns credit per stream.
+bool QuicConnectionPImpl::extend_peer_stream_credit(StreamDirection direction) {
+  const bool bidi = direction == StreamDirection::Bidirectional;
+  const size_t window = bidi ? options_.max_streams_bidi : options_.max_streams_uni;
+  auto& withheld = bidi ? withheld_bidi_credit_ : withheld_uni_credit_;
+
+  if (++withheld < std::clamp<size_t>(window / 16, 1, 64)) {
+    return false;
+  }
+  if (bidi) {
+    ngtcp2_conn_extend_max_streams_bidi(conn(), withheld);
+  } else {
+    ngtcp2_conn_extend_max_streams_uni(conn(), withheld);
+  }
+  withheld = 0;
+  return true;
+}
+
+bool QuicConnectionPImpl::release_peer_uni_stream_credit() {
   CHECK(held_peer_uni_streams_ != 0);
   --held_peer_uni_streams_;
-  ngtcp2_conn_extend_max_streams_uni(conn(), 1);
+  return extend_peer_stream_credit(StreamDirection::Unidirectional);
 }
 
 int QuicConnectionPImpl::on_extend_max_stream_data(QuicStreamID sid) {
