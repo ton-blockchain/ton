@@ -20,7 +20,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   static bool should_be_spawned(const Bus& bus) {
-    return bus.is_validator() || bus.config.observers_in_private_overlay();
+    return bus.is_validator() || bus.is_collator || bus.config.observers_in_private_overlay();
   }
 
   template <>

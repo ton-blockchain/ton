@@ -156,12 +156,12 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
                                                                  << "Src is not the leader of slot " << window_start);
     }
     if (last_window_.has_value() && window_start < last_window_->start_slot) {
-      co_return td::Status::Error(PSTRING() << "Too old slot" << window_start << " < " << last_window_->start_slot);
+      co_return td::Status::Error(PSTRING() << "Too old slot " << window_start << " < " << last_window_->start_slot);
     }
     td::uint32 first_too_new_slot =
         (last_window_ ? last_window_->start_slot : 0) + MAX_FUTURE_WINDOW * slots_per_leader_window_;
     if (window_start >= first_too_new_slot) {
-      co_return td::Status::Error(PSTRING() << "Too new slot" << window_start << " > " << first_too_new_slot);
+      co_return td::Status::Error(PSTRING() << "Too new slot " << window_start << " > " << first_too_new_slot);
     }
     if (delegation_signatures_.contains(window_start)) {
       co_return td::Status::Error(PSTRING() << "Duplicate delegation for slot " << window_start);
