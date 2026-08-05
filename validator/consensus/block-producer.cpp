@@ -35,21 +35,14 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
     if (!bus.shard.is_masterchain()) {
       auto list = bus.validator_opts.load()->get_collators_list();
-      std::set<adnl::AdnlNodeIdShort> session_collators;
-      for (const auto& validator : bus.validator_set) {
-        if (auto it = bus.collators_by_validator.find(validator.short_id); it != bus.collators_by_validator.end()) {
-          session_collators.insert(it->second.begin(), it->second.end());
-        }
-      }
-      for (const adnl::AdnlNodeIdShort& collator_id : list->collators) {
-        if (session_collators.contains(collator_id)) {
+      allow_self_collate_ = !list->disable_self_collate;
+      LOG(INFO) << "Allow self collate = " << allow_self_collate_;
+      if (auto it = bus.collators_by_validator.find(bus.local_id->short_id); it != bus.collators_by_validator.end()) {
+        for (const adnl::AdnlNodeIdShort& collator_id : it->second) {
           collator_nodes_.push_back(collator_id);
           LOG(INFO) << "Configured collator node " << collator_id;
-        } else {
-          LOG(WARNING) << "Collator node " << collator_id << " is not in overlay!";
         }
       }
-      allow_self_collate_ = !list->disable_self_collate;
 
       auto delegated_windows = bus.db->get_by_prefix(tl::db_key_delegatedWindow::ID);
       for (auto& [key_str, value_str] : delegated_windows) {
