@@ -842,9 +842,9 @@ fun main() {
   test25() PROC:<{              // 
     NEWDICT                     //  m
     1 PUSHINT                   //  m '3=1
-    x{0101} PUSHSLICE           //  m '3=1 '4
+    x{0101} PUSHSLICE           //  m '3=1 '5
     s0 s2 XCHG
-    8 PUSHINT                   //  '4 '3=1 m '8=8
+    8 PUSHINT                   //  '5 '3=1 m '9=8
     DICTISET                    //  m
   }>
 """

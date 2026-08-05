@@ -336,6 +336,9 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
         }
         return std_compute_used_vars(next_var_info, true);
       }
+      if (edit) {
+        set_disabled(false);
+      }
       if (cl == _Call && does_function_always_throw(f_sym)) {
         VarDescrList new_var_info;    // empty, not next_var_info
         if (args.size() == right.size()) {
@@ -381,6 +384,8 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
       if (!cnt && edit && !force_keep) {
         // all variables in `left` are not needed
         set_disabled();
+      } else if (edit) {
+        set_disabled(false);
       }
       return set_var_info(std::move(new_var_info));
     }

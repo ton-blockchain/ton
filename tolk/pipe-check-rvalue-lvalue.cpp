@@ -58,6 +58,9 @@ static void validate_function_used_as_noncall(FunctionPtr cur_f, AnyExprV v, Fun
   if (fun_ref->does_return_self()) {
     err("saving `{}` into a variable is impossible, since it returns `self` and should be used as a method", fun_ref).collect(v, cur_f);
   }
+  if (fun_ref->is_builtin() && fun_ref->name.find("__") != std::string::npos) {
+    err("internal compiler functions are not allowed to be called").collect(v, cur_f);
+  }
 }
 
 class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {

@@ -29,7 +29,7 @@ static constexpr AnyV NULL_ORIGIN = nullptr;
 
 static void sanitize_fift_name(std::string &name) {
   for (char &c : name) {
-    if (c == ' ' || c == '\t') {
+    if (c == ' ' || c == '\t' || c == '\r') {
       c = '`';
     }
   }
@@ -640,7 +640,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         int j = ret_order ? ret_order->at(i) : i;
         stack.push_new_var(left.at(j));
       }
-      return !f_sym || f_sym->declared_return_type != TypeDataNever::create();
+      return !f_sym || f_sym->inferred_return_type != TypeDataNever::create();
     }
     case _SetGlob: {
       tolk_assert(g_sym);

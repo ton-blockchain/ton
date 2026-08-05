@@ -1445,7 +1445,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
                       || has_type_arm     // all possible types must be covered, checked in a later pipe
                       || subject_type->unwrap_alias()->try_as<TypeDataEnum>();  // all enum members must be covered
     // special case: `match (boolVar) { true => false => }`
-    if (subject_type == TypeDataBool::create() && v->get_arms_count() == 2 && has_expr_arm) {
+    if (subject_type->unwrap_alias() == TypeDataBool::create() && v->get_arms_count() == 2 && has_expr_arm) {
       auto arm0 = v->get_arm(0)->get_pattern_expr()->try_as<ast_bool_const>();
       auto arm1 = v->get_arm(1)->get_pattern_expr()->try_as<ast_bool_const>();
       is_exhaustive |= arm0 && arm1 && arm0->bool_val != arm1->bool_val;

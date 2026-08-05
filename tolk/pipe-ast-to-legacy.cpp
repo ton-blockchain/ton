@@ -756,11 +756,11 @@ static void pre_compile_let(CodeBlob& code, AnyExprV lhs, std::vector<var_idx_t>
   local_lval.after_let(std::move(ir_left), code, lhs);
 }
 
-std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, AnyV origin, const char* debug_desc) {
+std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, AnyV origin, const char* purpose) {
   FunctionPtr eq_sym = lookup_function("_==_");
   FunctionPtr isnull_sym = lookup_function("__isNull");
   FunctionPtr not_sym = lookup_function("!b_");
-  std::vector ir_result = code.create_tmp_var(TypeDataBool::create(), origin, debug_desc);
+  std::vector ir_result = code.create_tmp_var(TypeDataBool::create(), origin, purpose);
 
   const TypeDataUnion* lhs_union = expr_type->unwrap_alias()->try_as<TypeDataUnion>();
   if (!lhs_union && expr_type == TypeDataUnknown::create() && cmp_type == TypeDataNullLiteral::create()) {
@@ -1607,13 +1607,6 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     code.add_indirect_invoke(v, rvect, std::move(args_vars));
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
-  // `grams("0.05")` and others, we even don't need to calculate ir_idx for arguments, just replace with constexpr
-  if (fun_ref->is_compile_time_const_val()) {
-    ConstValExpression value = eval_expression_if_const_or_fire(v);
-    auto [type, rvect] = pre_compile_constant_expression(value, code, v);
-    return transition_to_target_type(std::move(rvect), code, target_type, v);
-  }
-
   // for `num.inc()` use `inc` as origin for tmp vars; specifically, for `num.inc().inc()` (multi-line)
   // after each `inc` the debugger will remain here (as opposed to origin=v (whole range), producing jumps backward)
   AnyV call_origin = v;
@@ -1717,16 +1710,24 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     op_call_type = TypeDataTensor::create(std::move(types_list));
   }
 
-  std::vector<var_idx_t> args_vars;
-  for (const std::vector<var_idx_t>& list : vars_per_arg) {
-    args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
-  }
   std::vector<var_idx_t> rvect;
-  if (fun_ref->is_compile_time_special_gen()) {
+  if (fun_ref->is_compile_time_const_val()) {
+    // `grams("0.05")` / `reflect.typeNameOfObject(...)` — calculate value at compile-time;
+    // args already lowered above (for side effects and control flow); pure args will be DCE'd
+    ConstValExpression value = eval_expression_if_const_or_fire(v);
+    rvect = pre_compile_constant_expression(value, code, v).second;
+  } else if (fun_ref->is_compile_time_special_gen()) {
+    // `createMessage()` / `obj.toCell()` — generate IR code instead of Op::_Call
     rvect = gen_compile_time_code_instead_of_fun_call(code, v, vars_per_arg);
   } else if (fun_ref->is_inlined_in_place() && fun_ref->is_code_function()) {
+    // `inlinedF()` — copy-paste f's body right here instead of Op::_Call
     rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, self_obj, v == code.stmt_before_immediate_return, vars_per_arg);
   } else {
+    // asm or non-inline call: regular Op::_Call with flattened IR vars
+    std::vector<var_idx_t> args_vars;
+    for (const std::vector<var_idx_t>& list : vars_per_arg) {
+      args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
+    }
     rvect = code.create_tmp_var(op_call_type, v, "(fun-call)");
     code.add_call(call_origin, rvect, std::move(args_vars), fun_ref, true, arg_order_already_equals_asm);
   }

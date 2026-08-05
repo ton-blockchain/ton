@@ -325,17 +325,21 @@ static void iterate_through_file_symbols(SrcFilePtr file, FileSymbolsRegistratio
   }
   tolk_assert(file && file->ast);
 
-  // first pass: detect `contract XXX { ... }` anywhere in a file, before processing all declarations
-  for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-    if (v->kind == ast_contract_directive && !file->has_contract_directive()) {
-      file->mutate()->assign_contract_directive(parse_contract_directive(v));
-      break;
-    }
-  }
-
   bool is_imported = !ctx.import_stack.empty();
   ctx.import_stack.push_back(file);
   bool should_register_symbols = ctx.registered_files.insert(file).second;
+
+  // first pass: detect `contract XXX { ... }` anywhere in a file, before processing all declarations
+  for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
+    if (v->kind == ast_contract_directive && should_register_symbols) {
+      auto v_contract = v->as<ast_contract_directive>();
+      if (file->has_contract_directive()) {
+        err("a file can have only one `contract` directive").fire(v_contract->get_identifier());
+      }
+      file->mutate()->assign_contract_directive(parse_contract_directive(v_contract));
+    }
+  }
+
   SrcFilePtr nearest_contract_file = ctx.find_nearest_contract_file();
   std::vector<V<ast_function_declaration>> skipped_get_fun;
 

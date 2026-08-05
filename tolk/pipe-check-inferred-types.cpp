@@ -172,9 +172,8 @@ static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr arg_t
 // make an error on `var n = null`
 // technically it's correct, type of `n` is TypeDataNullLiteral, but it's not what the user wanted
 // so, it's better to see an error on assignment, that later, on `n` usage and types mismatch
-// (most common is situation above, but generally, `var (x,n) = xn` where xn is a tensor with 2-nd always-null, can be)
-static Error err_assign_always_null_to_variable(LocalVarPtr assigned_var, bool is_assigned_null_literal) {
-  return err("can not infer type of `{}`, it's always null\nspecify its type with `{}: <type>`{}", assigned_var, assigned_var, (is_assigned_null_literal ? " or use `null as <type>`" : ""));
+static Error err_assign_null_literal_to_variable(LocalVarPtr assigned_var) {
+  return err("can not infer type of `{}`, it's always null\nspecify its type with `{}: <type>` or use `null as <type>`", assigned_var, assigned_var);
 }
 
 // handle __expect_type(expr, "type") call
@@ -262,7 +261,7 @@ static bool check_eq_neq_operator(TypePtr lhs_type, TypePtr rhs_type, bool& not_
 
 // given `fun Some.packToBuilder`, check that it's declared correctly
 static void check_declared_packToBuilder(FunctionPtr f_pack) {
-  bool declared_correctly = f_pack->does_accept_self() && !f_pack->does_mutate_self()
+  bool declared_correctly = f_pack->does_accept_self() && !f_pack->does_mutate_self() && !f_pack->does_return_self()
                          && f_pack->get_num_params() == 2 && f_pack->has_mutate_params()
                          && f_pack->get_param(1).declared_type == TypeDataBuilder::create()
                          && f_pack->inferred_return_type->equal_to(TypeDataVoid::create());
@@ -526,8 +525,8 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, declared_type).collect(err_loc, cur_f);
         }
       } else {
-        if (rhs_type == TypeDataNullLiteral::create()) {
-          err_assign_always_null_to_variable(lhs_var->var_ref->try_as<LocalVarPtr>(), corresponding_maybe_rhs && corresponding_maybe_rhs->kind == ast_null_keyword).collect(err_loc, cur_f);
+        if (rhs_type == TypeDataNullLiteral::create() && corresponding_maybe_rhs && corresponding_maybe_rhs->kind == ast_null_keyword) {
+          err_assign_null_literal_to_variable(lhs_var->var_ref->try_as<LocalVarPtr>()).collect(err_loc, cur_f);
         }
       }
       return;
@@ -549,7 +548,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       for (int i = 0; i < lhs_tensor->size(); ++i) {
         process_assignment_lhs(lhs_tensor->get_item(i), rhs_type_tensor->items[i], rhs_tensor_maybe ? rhs_tensor_maybe->get_item(i) : nullptr);
       }
-      return;
     }
 
     // `[v1, v2] = rhs` / `var [v1, v2] = rhs` (rhs may be `[1,2]` or `shapedTupleVar`)
@@ -559,7 +557,10 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         err("can not assign `{}` to `[...]`", rhs_type).collect(err_loc, cur_f);
         return;
       }
-      // i-th component compatibility will be checked automatically below
+      V<ast_square_brackets> rhs_shaped_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_square_brackets>() : nullptr;
+      for (int i = 0; i < lhs_shaped->size(); ++i) {
+        process_assignment_lhs(lhs_shaped->get_item(i), rhs_type_shaped->items[i], rhs_shaped_maybe ? rhs_shaped_maybe->get_item(i) : nullptr);
+      }
     }
 
     // here is `v = rhs` (just assignment, not `var v = rhs`) / `a.0 = rhs` / `getObj(z=f()).0 = rhs` etc.

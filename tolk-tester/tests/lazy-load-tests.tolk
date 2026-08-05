@@ -2169,7 +2169,7 @@ fun main() {
 """
   demo134() PROC:<{             //
     x{010f} PUSHSLICE           //  lazyS
-    x{01} SDBEGINSQ             //  lazyS '6
+    x{01} SDBEGINSQ             //  lazyS '7
     134 THROWIFNOT              //  lazyS
     8 PLDI                      //  cc
   }>
@@ -2225,11 +2225,11 @@ fun main() {
 """
   demo203() PROC:<{             //
     x{010203040506070809} PUSHSLICE     //  lazyS
-    DUP                         //  '14 lazyS
-    8 PLDU                      //  '14 o.f1
-    1 EQINT                     //  '14 '18
-    IFJMP:<{                    //  '14
-      NEWC                      //  '14 b
+    DUP                         //  '15 lazyS
+    8 PLDU                      //  '15 o.f1
+    1 EQINT                     //  '15 '19
+    IFJMP:<{                    //  '15
+      NEWC                      //  '15 b
       STSLICE                   //  b
       BTOS                      //  s
 """
@@ -2238,16 +2238,16 @@ fun main() {
 """
   demo206() PROC:<{             //
     x{010203040506070809} PUSHSLICE     //  lazyS
-    DUP                         //  '14 lazyS
-    8 LDU                       //  '14 o.f1 lazyS
-    8 LDU                       //  '14 o.f1 o.f2 lazyS
-    8 LDU                       //  '14 o.f1 o.f2 o.f3 lazyS
-    8 LDU                       //  '14 o.f1 o.f2 o.f3 o.f4 lazyS
-    8 LDU                       //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 lazyS
-    8 LDU                       //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 lazyS
-    8 LDU                       //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 lazyS
-    8 LDU                       //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 o.f8 lazyS
-    8 PLDU                      //  '14 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 o.f8 o.f9
+    DUP                         //  '15 lazyS
+    8 LDU                       //  '15 o.f1 lazyS
+    8 LDU                       //  '15 o.f1 o.f2 lazyS
+    8 LDU                       //  '15 o.f1 o.f2 o.f3 lazyS
+    8 LDU                       //  '15 o.f1 o.f2 o.f3 o.f4 lazyS
+    8 LDU                       //  '15 o.f1 o.f2 o.f3 o.f4 o.f5 lazyS
+    8 LDU                       //  '15 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 lazyS
+    8 LDU                       //  '15 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 lazyS
+    8 LDU                       //  '15 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 o.f8 lazyS
+    8 PLDU                      //  '15 o.f1 o.f2 o.f3 o.f4 o.f5 o.f6 o.f7 o.f8 o.f9
 """
 
 @fif_codegen

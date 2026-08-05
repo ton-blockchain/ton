@@ -1112,6 +1112,20 @@ fun quiet_shrmod_nan_shift_test(): (int, int, int, int, int, int) {
     return (is_nan(rshifted), is_nan(modded), is_nan(q1), is_nan(r1), is_nan(q2), is_nan(r2));
 }
 
+@method_id(10030)
+fun muldiv_zero_num_unknown_div(z: int): int {
+    try {
+        return mulDivFloor(0, 5, z);
+    } catch (excNo) {
+        return -excNo;
+    }
+}
+
+@method_id(10031)
+fun muldiv_zero_num_known_div(y: int): int {
+    return mulDivFloor(0, y, 5);
+}
+
 fun main() {
   var One: int = 1;
   // repeat(76 / 4) { One *= 10000; }
@@ -1254,4 +1268,15 @@ fun main() {
 @testcase | 10027 |   (1<<248)//5 | 89284547973388213553327350968415123522888028497458323165947767504203347189
 @testcase | 10028 |   (1<<248)//239 | 708598849781543798951441405045469962900811296151941404481049216461523216127
 @testcase | 10029 |   | -1 -1 -1 -1 -1 -1
+@testcase | 10030 |  0 | -4
+@testcase | 10030 |  5 | 0
+@testcase | 10031 | 99 | 0
+
+@fif_codegen
+"""
+  muldiv_zero_num_known_div() PROC:<{
+    DROP
+    0 PUSHINT
+  }>
+"""
 */

@@ -144,10 +144,10 @@ public:
   var_idx_t option_assertEndAfterReading() const { return ir_options[0]; }
   var_idx_t option_throwIfOpcodeDoesNotMatch() const { return ir_options[1]; }
 
-  std::vector<var_idx_t> loadInt(int len, const char* debug_desc) const;
-  std::vector<var_idx_t> loadUint(int len, const char* debug_desc) const;
-  std::vector<var_idx_t> loadRef(const char* debug_desc) const;
-  std::vector<var_idx_t> loadMaybeRef(const char* debug_desc) const;
+  std::vector<var_idx_t> loadInt(int len, const char* purpose) const;
+  std::vector<var_idx_t> loadUint(int len, const char* purpose) const;
+  std::vector<var_idx_t> loadRef(const char* purpose) const;
+  std::vector<var_idx_t> loadMaybeRef(const char* purpose) const;
   void loadAndCheckOpcode(PackOpcode opcode) const;
   void skipBits(int len) const;
   void skipBits_var(var_idx_t ir_len) const;

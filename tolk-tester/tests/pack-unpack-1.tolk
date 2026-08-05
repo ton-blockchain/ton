@@ -78,22 +78,6 @@ fun test6() {
     return (s.remainingBitsCount(), b.bitsCount(), Point.fromSlice(s.getLastBits(64)), s.remainingBitsCount());
 }
 
-// this function is used in serialization codegen, it's not exposed to stdlib;
-// it constructs "x{...}" slices for SDBEGINSQ, used for opcode matching;
-// here we write some unit tests and fif codegen tests for it
-fun slice.tryStripPrefix(mutate self, prefix: int, prefixLen: int): bool
-    builtin;
-
-@method_id(107)
-fun test7(s: slice) {
-    if (s.tryStripPrefix(0x10, 32)) { return (1, s.remainingBitsCount()); }
-    if (s.tryStripPrefix(0x40, 31)) { return (2, s.remainingBitsCount()); }
-    if (s.tryStripPrefix(0xFF18, 16)) { return (3, s.remainingBitsCount()); }
-    if (s.tryStripPrefix(0b1001, 8)) { return (4, s.remainingBitsCount()); }
-    if (s.tryStripPrefix(0b01, 3)) { return (5, s.remainingBitsCount()); }
-    return (6, s.remainingBitsCount());
-}
-
 @method_id(108)
 fun test8(): cell | int {
     try {
@@ -140,10 +124,6 @@ fun main(c: cell) {
 @testcase | 104 |               | 1 2 96
 @testcase | 105 |               | 1 2 32
 @testcase | 106 |               | 96 96 10 20 96
-@testcase | 107 | x{00000080}   | 2 1
-@testcase | 107 | x{09332}      | 4 12
-@testcase | 107 | x{2}          | 5 1
-@testcase | 107 | x{0234}       | 6 16
 @testcase | 108 |               | 5 1
 @testcase | 109 |               | 20 10 30 -1
 @testcase | 110 |               | 18
@@ -158,9 +138,4 @@ fun main(c: cell) {
   }>
 """
 
-@fif_codegen x{00000010} SDBEGINSQ
-@fif_codegen b{0000000000000000000000001000000} SDBEGINSQ
-@fif_codegen x{ff18} SDBEGINSQ
-@fif_codegen x{09} SDBEGINSQ
-@fif_codegen b{001} SDBEGINSQ
  */

@@ -837,8 +837,8 @@ static AsmOp compile_muldiv(std::vector<VarDescr>& res, std::vector<VarDescr>& a
     z.unused();
     return push_const(origin, r.int_const);
   }
-  if (x.always_zero() || y.always_zero()) {
-    // dubious optimization for z=0...
+  // 0 * y / z = 0 only when z is known non-zero; otherwise preserve potential div-by-zero at runtime
+  if ((x.always_zero() || y.always_zero()) && z.always_nonzero()) {
     x.unused();
     y.unused();
     z.unused();
@@ -1224,7 +1224,7 @@ static AsmOp compile_fetch_slice(std::vector<VarDescr>& res, std::vector<VarDesc
   return exec_op(origin, fetch ? "LDSLICEX" : "PLDSLICEX", 2, 1 + (unsigned)fetch);
 }
 
-// fun slice.tryStripPrefix(mutate self, prefix: int, prefixLen: int): bool
+// fun slice.__tryStripPrefix(mutate self, prefix: int, prefixLen: int): bool
 // constructs "x{...} SDBEGINSQ" for constant arguments
 static AsmOp compile_slice_sdbeginsq(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(args.size() == 3 && res.size() == 2);
@@ -1237,7 +1237,7 @@ static AsmOp compile_slice_sdbeginsq(std::vector<VarDescr>& res, std::vector<Var
     StructData::PackOpcode opcode(prefix.int_const->to_long(), static_cast<int>(prefix_len.int_const->to_long()));
     return AsmOp::Custom(origin, opcode.format_as_string(true) + " SDBEGINSQ", 0, 1);
   }
-  err("slice.tryStripPrefix can be used only with constant arguments").fire(origin);
+  err("slice.__tryStripPrefix can be used only with constant arguments").fire(origin);
 }
 
 // fun slice.skipBits(mutate self, len: int): self    "SDSKIPFIRST"
@@ -1769,7 +1769,7 @@ void define_builtins() {
   define_builtin_method("slice.preloadBits", Slice, ParamsSliceInt, Slice, nullptr,
                               std::bind(compile_fetch_slice, _1, _2, _3, false),
                                 FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf);
-  define_builtin_method("slice.tryStripPrefix", Slice, {Slice, Int, Int}, Bool, nullptr,
+  define_builtin_method("slice.__tryStripPrefix", Slice, {Slice, Int, Int}, Bool, nullptr,
                               compile_slice_sdbeginsq,
                                 FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
   define_builtin_method("builder.storeInt", Builder, {Builder, Int, Int}, Unit, nullptr,

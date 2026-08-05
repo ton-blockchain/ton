@@ -304,7 +304,7 @@ void TypeDataUnknown::as_abi_json(std::string& out, JsonTypeExporter& registry) 
 }
 
 void TypeDataNotInferred::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
-  tolk_assert(false);
+  out += R"({"kind":"unknown"})";
 }
 
 void TypeDataNever::as_abi_json(std::string& out, JsonTypeExporter& registry) const {

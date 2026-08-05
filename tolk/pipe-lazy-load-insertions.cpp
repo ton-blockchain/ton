@@ -916,6 +916,18 @@ class CollectAllLazyObjectsAndFieldsVisitor final : public ASTVisitorFunctionBod
     parent::visit(v);
   }
 
+  // `match (val x = lazy ...)` as an expression is unsafe (statement form is fine)
+  void visit(V<ast_match_expression> v) override {
+    if (!v->is_statement()) {
+      if (auto v_assign = v->get_subject()->try_as<ast_assign>()) {
+        if (auto rhs_lazy = v_assign->get_rhs()->try_as<ast_lazy_operator>()) {
+          err("incorrect `lazy` operator usage, it's not directly assigned to a variable\n""hint: use `lazy` like this:\n> var st = lazy MyStorage.fromSlice(...)").fire(rhs_lazy->keyword_range(), cur_f);
+        }
+      }
+    }
+    parent::visit(v);
+  }
+
   // check that `lazy` operator used in a correct pattern with a correct expression
   void visit(V<ast_lazy_operator> v) override {
     for (const LazyVarInFunction& lazy_var : functions_with_lazy_vars[cur_f]) {

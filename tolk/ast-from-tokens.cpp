@@ -471,9 +471,10 @@ struct AnnotationsAbove {
   std::vector<V<ast_annotation>> above;
   std::string_view doc_lines_buf[100];
   int n_doc_lines = 0;
+  bool has_ignored_custom = false;  // @custom/@test/@deprecated are not stored in `above`
 
   bool empty() const {
-    return above.empty();
+    return above.empty() && !has_ignored_custom;
   }
 
   void collect_doc_comment(Lexer& lex) {
@@ -491,6 +492,7 @@ struct AnnotationsAbove {
     }
     above.clear();
     n_doc_lines = 0;
+    has_ignored_custom = false;
     return result;
   }
 
@@ -506,9 +508,11 @@ struct AnnotationsAbove {
       }
     }
 
-    if (v_annotation->kind != AnnotationKind::custom) {   // totally ignore @custom, @deprecated, etc.
+    if (v_annotation->kind != AnnotationKind::custom) {   // don't store @custom, @deprecated, etc. in AST
       above.push_back(v_annotation);                      // allow any arguments, don't analyze
-    }                                                     // don't even store them in AST tree
+    } else {
+      has_ignored_custom = true;                          // but still remember them (e.g. for EOF check)
+    }
   }
 };
 

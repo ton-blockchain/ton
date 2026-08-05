@@ -180,14 +180,14 @@ IF:<{
 @fif_codegen
 """
   test8() PROC:<{               //
-    x{010f} PUSHSLICE           //  '0
-    16 PUSHPOW2DEC              //  s '2=65535
-    SWAP                        //  '2=65535 s
-    x{01} SDBEGINSQ             //  '2=65535 s '4
-    s1 s2 XCHG                  //  s '2=65535 '4
+    x{010f} PUSHSLICE           //  '1
+    16 PUSHPOW2DEC              //  s '3=65535
+    SWAP                        //  '3=65535 s
+    x{01} SDBEGINSQ             //  '3=65535 s '5
+    s1 s2 XCHG                  //  s '3=65535 '5
     THROWANYIFNOT               //  s
-    8 LDI                       //  '8 s
-    ENDS                        //  '8
+    8 LDI                       //  '9 s
+    ENDS                        //  '9
   }>
 """
 

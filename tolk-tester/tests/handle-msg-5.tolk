@@ -30,7 +30,7 @@ fun onInternalMessage(in: InMessage) {
   onInternalMessage() PROC:<{   //  in.body
     INMSG_BOUNCED               //  in.body '1
     IFJMP:<{                    //  in.body
-      onBouncedMessage() CALLDICT       //
+      onBouncedMessage() CALLDICT
     }>                          //  in.body
     DROP                        //
     INMSG_VALUE                 //  '3
