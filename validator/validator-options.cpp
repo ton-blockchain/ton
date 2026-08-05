@@ -28,33 +28,12 @@ namespace ton {
 namespace validator {
 
 td::Status CollatorsList::unpack(const ton_api::engine_validator_collatorsList& obj) {
-  shards.clear();
-  for (const auto& shard_obj : obj.shards_) {
-    ShardIdFull shard_id = create_shard_id(shard_obj->shard_id_);
-    if (shard_id.is_masterchain()) {
-      return td::Status::Error("masterchain shard in collators list");
-    }
-    if (!shard_id.is_valid_ext()) {
-      return td::Status::Error(PSTRING() << "invalid shard " << shard_id);
-    }
-    shards.emplace_back();
-    Shard& shard = shards.back();
-    shard.shard_id = shard_id;
-    shard.self_collate = shard_obj->self_collate_;
-    for (const auto& collator : shard_obj->collators_) {
-      shard.collators.push_back(adnl::AdnlNodeIdShort{collator->adnl_id_});
-    }
+  collators.clear();
+  for (const auto& collator : obj.collators_) {
+    collators.push_back(adnl::AdnlNodeIdShort{collator->adnl_id_});
   }
+  disable_self_collate = obj.disable_self_collate_;
   return td::Status::OK();
-}
-
-const CollatorsList::Shard* CollatorsList::get_shard(ShardIdFull shard_id) const {
-  for (const Shard& shard : shards) {
-    if (shard_intersects(shard_id, shard.shard_id)) {
-      return &shard;
-    }
-  }
-  return nullptr;
 }
 
 CollatorsList CollatorsList::default_list() {

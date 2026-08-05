@@ -126,9 +126,7 @@ Ref<vm::Cell> ValidatorRegistryWatcher::make_entry_cell(Ref<MasterchainState> mc
   }
   auto config = r_config.move_as_ok();
   std::set<adnl::AdnlNodeIdShort> collators;
-  for (auto& shard : collators_list_->shards) {
-    collators.insert(shard.collators.begin(), shard.collators.end());
-  }
+  collators.insert(collators_list_->collators.begin(), collators_list_->collators.end());
   if (collators.size() > config.max_collators_per_validator) {
     LOG(WARNING) << "Make entry cell: too many collators, pruning (max. " << config.max_collators_per_validator
                  << ", found " << collators.size() << ")";

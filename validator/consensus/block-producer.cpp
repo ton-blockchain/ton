@@ -35,19 +35,21 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
     if (!bus.shard.is_masterchain()) {
       auto list = bus.validator_opts.load()->get_collators_list();
-      auto shard = list->get_shard(bus.shard);
-      if (shard != nullptr) {
-        for (const adnl::AdnlNodeIdShort& collator_id : shard->collators) {
-          if (std::find(bus.all_overlay_nodes.begin(), bus.all_overlay_nodes.end(), collator_id) !=
-              bus.all_overlay_nodes.end()) {
-            collator_nodes_.push_back(collator_id);
-            LOG(INFO) << "Configured collator node " << collator_id;
-          } else {
-            LOG(WARNING) << "Collator node " << collator_id << " is not in overlay!";
-          }
+      std::set<adnl::AdnlNodeIdShort> session_collators;
+      for (const auto& validator : bus.validator_set) {
+        if (auto it = bus.collators_by_validator.find(validator.short_id); it != bus.collators_by_validator.end()) {
+          session_collators.insert(it->second.begin(), it->second.end());
         }
-        allow_self_collate_ = shard->self_collate;
       }
+      for (const adnl::AdnlNodeIdShort& collator_id : list->collators) {
+        if (session_collators.contains(collator_id)) {
+          collator_nodes_.push_back(collator_id);
+          LOG(INFO) << "Configured collator node " << collator_id;
+        } else {
+          LOG(WARNING) << "Collator node " << collator_id << " is not in overlay!";
+        }
+      }
+      allow_self_collate_ = !list->disable_self_collate;
 
       auto delegated_windows = bus.db->get_by_prefix(tl::db_key_delegatedWindow::ID);
       for (auto& [key_str, value_str] : delegated_windows) {

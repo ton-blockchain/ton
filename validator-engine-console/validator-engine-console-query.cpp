@@ -1889,17 +1889,14 @@ td::Status ShowCollatorsListQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(list, ton::fetch_tl_object<ton::ton_api::engine_validator_collatorsList>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "Collators list:\n";
-  if (list->shards_.empty()) {
-    td::TerminalIO::out() << "Shard list is empty\n";
+  if (list->collators_.empty()) {
+    td::TerminalIO::out() << "List is empty\n";
     return td::Status::OK();
   }
-  for (const auto &shard : list->shards_) {
-    td::TerminalIO::out() << "Shard " << create_shard_id(shard->shard_id_).to_str() << "\n";
-    td::TerminalIO::out() << "  Self collate = " << shard->self_collate_ << "\n";
-    for (const auto &collator : shard->collators_) {
-      td::TerminalIO::out() << "  Collator " << collator->adnl_id_ << "\n";
-    }
+  for (const auto &collator : list->collators_) {
+    td::TerminalIO::out() << "Collator " << collator->adnl_id_ << "\n";
   }
+  td::TerminalIO::out() << "Disable self collate = " << list->disable_self_collate_ << "\n";
   return td::Status::OK();
 }
 
