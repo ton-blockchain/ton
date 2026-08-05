@@ -184,6 +184,9 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
+  void get_cell_from_cell_db(td::Bits256 hash, td::Promise<td::Ref<vm::DataCell>> promise) override {
+    td::actor::send_closure(db_, &Db::get_cell_from_cell_db, hash, std::move(promise));
+  }
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                    td::BufferSlice state, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
