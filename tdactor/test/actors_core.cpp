@@ -37,6 +37,72 @@
 #include "td/utils/port/thread.h"
 #include "td/utils/tests.h"
 
+namespace td::actor::core {
+
+struct ActorTypeStatMaxCounterTestAccess {
+  using Counter = RecentMaxCounter<td::uint64, 1>;
+
+  static td::uint64 at_segment(td::uint64 segment, td::uint64 offset = 0) {
+    return segment * td::Clocks::rdtsc_frequency() + offset;
+  }
+};
+
+}  // namespace td::actor::core
+
+TEST(ActorTypeStat, CountsOnlyCompletedMessageTime) {
+  td::actor::core::ActorTypeStatImpl stat;
+
+  stat.execute_start(100);
+  stat.message_finish(110, 10);
+  CHECK(stat.to_stat(1).seconds == 10);
+  stat.message_finish(130, 20);
+  CHECK(stat.to_stat(1).seconds == 30);
+  stat.execute_finish(140);
+  CHECK(stat.to_stat(1).seconds == 30);
+}
+
+TEST(ActorTypeStat, MaxCounterRetainsValueAcrossOneBoundaryWithoutUpdate) {
+  using Access = td::actor::core::ActorTypeStatMaxCounterTestAccess;
+  Access::Counter counter;
+  auto last_tick = td::Clocks::rdtsc_frequency() - 1;
+
+  counter.update(Access::at_segment(0, last_tick), 17);
+  CHECK(counter.get_max(Access::at_segment(0, last_tick)) == 17);
+  CHECK(counter.get_max(Access::at_segment(1)) == 17);
+  CHECK(counter.get_max(Access::at_segment(1, last_tick)) == 17);
+  CHECK(counter.get_max(Access::at_segment(2)) == 0);
+}
+
+TEST(ActorTypeStat, MaxCounterRetainsPreviousBucketWhileUpdatingCurrentBucket) {
+  using Access = td::actor::core::ActorTypeStatMaxCounterTestAccess;
+  Access::Counter counter;
+
+  counter.update(Access::at_segment(0), 71);
+  counter.update(Access::at_segment(1), 7);
+  CHECK(counter.get_max(Access::at_segment(1)) == 71);
+
+  counter.update(Access::at_segment(1, 1), 53);
+  CHECK(counter.get_max(Access::at_segment(1, 1)) == 71);
+
+  counter.update(Access::at_segment(2), 11);
+  CHECK(counter.get_max(Access::at_segment(2)) == 53);
+}
+
+TEST(ActorTypeStat, MaxCounterExpiresValuesAcrossSkippedSegments) {
+  using Access = td::actor::core::ActorTypeStatMaxCounterTestAccess;
+  Access::Counter counter;
+
+  counter.update(Access::at_segment(3), 29);
+  CHECK(counter.get_max(Access::at_segment(5)) == 0);
+
+  counter.update(Access::at_segment(5), 13);
+  CHECK(counter.get_max(Access::at_segment(5)) == 13);
+  CHECK(counter.get_max(Access::at_segment(6)) == 13);
+
+  counter.update(Access::at_segment(8), 5);
+  CHECK(counter.get_max(Access::at_segment(8)) == 5);
+}
+
 TEST(Actor2, signals) {
   using td::actor::core::ActorSignals;
   ActorSignals signals;

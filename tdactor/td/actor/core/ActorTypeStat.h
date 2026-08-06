@@ -26,7 +26,7 @@ struct ActorTypeStat {
   td::int32 executing{0};
   double executing_start{1e20};
 
-  // max statistics (TODO: recent_max)
+  // max statistics
   template <class T>
   struct MaxStatGroup {
     T value_forever{};
@@ -82,6 +82,84 @@ struct ActorTypeStat {
     }
     return *this;
   }
+};
+
+template <class ValueT, int Interval>
+class RecentMaxCounter {
+ public:
+  void update(td::uint64 now, ValueT value) {
+    if (unlikely(next_segment_at_ == 0 || now >= next_segment_at_)) {
+      update_segment(now);
+    }
+    auto &current = values_[current_segment_ & 1];
+    auto old_value = current.load(std::memory_order_relaxed);
+    if (value > old_value) {
+      current.store(value, std::memory_order_relaxed);
+    }
+  }
+
+  ValueT get_max(td::uint64 now) const {
+    auto current_segment = now / interval_ticks();
+    auto last_segment = last_segment_.load(std::memory_order_acquire);
+    if (current_segment <= last_segment) {
+      return std::max(load(values_[0]), load(values_[1]));
+    }
+    if (current_segment - last_segment == 1) {
+      return load(values_[last_segment & 1]);
+    }
+    return 0;
+  }
+
+ private:
+  static ValueT load(const std::atomic<ValueT> &value) {
+    return value.load(std::memory_order_relaxed);
+  }
+  static td::uint64 interval_ticks() {
+    return Clocks::rdtsc_frequency() * Interval;
+  }
+  void update_segment(td::uint64 now) {
+    auto ticks = interval_ticks();
+    auto segment = now / ticks;
+    auto last_segment = last_segment_.load(std::memory_order_relaxed);
+    if (next_segment_at_ == 0 || segment < last_segment || segment - last_segment >= 2) {
+      values_[0].store(0, std::memory_order_relaxed);
+      values_[1].store(0, std::memory_order_relaxed);
+    } else if (segment != last_segment) {
+      values_[segment & 1].store(0, std::memory_order_relaxed);
+    }
+    current_segment_ = segment;
+    next_segment_at_ = (segment + 1) * ticks;
+    last_segment_.store(segment, std::memory_order_release);
+  }
+
+  alignas(64) std::atomic<ValueT> values_[2] = {0};
+  std::atomic<td::uint64> last_segment_{0};
+  td::uint64 current_segment_{0};
+  td::uint64 next_segment_at_{0};
+};
+
+template <class ValueT>
+class MaxCounterGroup {
+ public:
+  void update(td::uint64 now, ValueT value) {
+    auto old_value = max_forever_.load(std::memory_order_relaxed);
+    if (value > old_value) {
+      max_forever_.store(value, std::memory_order_relaxed);
+    }
+    max_10s_.update(now, value);
+    max_10m_.update(now, value);
+  }
+
+  ActorTypeStat::MaxStatGroup<ValueT> get(td::uint64 now) const {
+    return {.value_forever = max_forever_.load(std::memory_order_relaxed),
+            .value_10s = max_10s_.get_max(now),
+            .value_10m = max_10m_.get_max(now)};
+  }
+
+ private:
+  std::atomic<ValueT> max_forever_{0};
+  RecentMaxCounter<ValueT, 10> max_10s_;
+  RecentMaxCounter<ValueT, 10 * 60> max_10m_;
 };
 
 struct ActorTypeStatImpl {
@@ -161,30 +239,32 @@ struct ActorTypeStatImpl {
     return ++next_id_;
   }
   ActorTypeStat to_stat(double inv_ticks_per_second) const {
-    auto execute_start_copy = load(execute_start_);
-    auto actual_total_ticks = load(total_ticks_);
-    auto ts = Clocks::rdtsc();
-    if (execute_start_copy != 0) {
-      actual_total_ticks += ts - execute_start_copy;
-    }
+    auto now = Clocks::rdtsc();
     auto execute_start = ticks_to_seconds(load(execute_start_), inv_ticks_per_second);
     return ActorTypeStat{.created = double(load(total_created_)),
                          .executions = double(load(total_executions_)),
                          .messages = double(load(total_messages_)),
-                         .seconds = ticks_to_seconds(actual_total_ticks, inv_ticks_per_second),
+                         .seconds = ticks_to_seconds(load(total_ticks_), inv_ticks_per_second),
 
                          .alive = load(alive_),
                          .executing = load(executing_),
                          .executing_start = execute_start < 1e-9 ? 1e20 : execute_start,
-                         .max_execute_messages = load(max_execute_messages_),
-                         .max_message_seconds = load_seconds(max_message_ticks_, inv_ticks_per_second),
-                         .max_execute_seconds = load_seconds(max_execute_ticks_, inv_ticks_per_second),
-                         .max_delay_seconds = load_seconds(max_delay_ticks_, inv_ticks_per_second)};
+                         .max_execute_messages = max_execute_messages_.get(now),
+                         .max_message_seconds = ticks_to_seconds(max_message_ticks_.get(now), inv_ticks_per_second),
+                         .max_execute_seconds = ticks_to_seconds(max_execute_ticks_.get(now), inv_ticks_per_second),
+                         .max_delay_seconds = ticks_to_seconds(max_delay_ticks_.get(now), inv_ticks_per_second)};
   }
 
  private:
   static double ticks_to_seconds(td::uint64 ticks, double inv_tick_per_second) {
     return double(ticks) * inv_tick_per_second;
+  }
+  template <class T>
+  static ActorTypeStat::MaxStatGroup<double> ticks_to_seconds(ActorTypeStat::MaxStatGroup<T> ticks,
+                                                              double inv_ticks_per_second) {
+    return {.value_forever = ticks_to_seconds(ticks.value_forever, inv_ticks_per_second),
+            .value_10s = ticks_to_seconds(ticks.value_10s, inv_ticks_per_second),
+            .value_10m = ticks_to_seconds(ticks.value_10m, inv_ticks_per_second)};
   }
 
   template <class T>
@@ -210,83 +290,6 @@ struct ActorTypeStatImpl {
   static T dec(std::atomic<T> &a) {
     return add(a, -1);
   }
-  template <class T>
-  static void relax_max(std::atomic<T> &a, T value) {
-    auto old_value = load(a);
-    if (value > old_value) {
-      store(a, value);
-    }
-  }
-
-  template <class ValueT, int Interval>
-  class MaxCounter {
-    alignas(64) std::atomic<ValueT> max_values[2] = {0};
-    std::atomic<td::uint64> last_update_segment_time = 0;
-
-    void update_current_segment(uint64 current_segment_time, uint64 segment_difference) {
-      if (segment_difference >= 2) {
-        store(max_values[0], 0);
-        store(max_values[1], 0);
-      } else if (segment_difference == 1) {
-        store(max_values[1 - (current_segment_time & 1)], 0);
-      }
-      store(last_update_segment_time, current_segment_time);
-    }
-
-   public:
-    inline void update(td::uint64 rdtsc, ValueT value) {
-      auto current_segment_time = rdtsc / (Clocks::rdtsc_frequency() * Interval);
-
-      auto segment_difference = current_segment_time - last_update_segment_time;
-
-      if (unlikely(segment_difference != 0)) {
-        update_current_segment(current_segment_time, segment_difference);
-      }
-
-      relax_max(max_values[current_segment_time & 1], value);
-    }
-
-    inline ValueT get_max(uint64_t rdtsc) const {
-      uint64_t current_segment_time = rdtsc / (Clocks::rdtsc_frequency() * Interval);
-      uint64_t segment_difference = current_segment_time - load(last_update_segment_time);
-
-      if (segment_difference >= 2) {
-        return 0;
-      } else if (segment_difference == 1) {
-        return load(max_values[current_segment_time & 1]);
-      } else {
-        return std::max(load(max_values[0]), load(max_values[1]));
-      }
-    }
-  };
-
-  template <class T>
-  struct MaxCounterGroup {
-    std::atomic<T> max_forever{};
-    MaxCounter<T, 60 * 10> max_10m;
-    MaxCounter<T, 10> max_10s;
-
-    inline void update(td::uint64 rdtsc, T value) {
-      relax_max(max_forever, value);
-      max_10m.update(rdtsc, value);
-      max_10s.update(rdtsc, value);
-    }
-  };
-  template <class T>
-  static ActorTypeStat::MaxStatGroup<T> load(const MaxCounterGroup<T> &src) {
-    auto ts = Clocks::rdtsc();
-    return {.value_forever = load(src.max_forever),
-            .value_10s = src.max_10s.get_max(ts),
-            .value_10m = src.max_10m.get_max(ts)};
-  }
-  template <class T>
-  static ActorTypeStat::MaxStatGroup<double> load_seconds(const MaxCounterGroup<T> &src, double inv_ticks_per_second) {
-    auto ts = Clocks::rdtsc();
-    return {.value_forever = ticks_to_seconds(load(src.max_forever), inv_ticks_per_second),
-            .value_10s = ticks_to_seconds(src.max_10s.get_max(ts), inv_ticks_per_second),
-            .value_10m = ticks_to_seconds(src.max_10m.get_max(ts), inv_ticks_per_second)};
-  }
-
   // total (increment only statistics)
   std::atomic<td::int64> total_created_{0};
   std::atomic<td::uint64> total_executions_{0};
@@ -297,7 +300,7 @@ struct ActorTypeStatImpl {
   std::atomic<td::int64> alive_{0};
   std::atomic<td::int32> executing_{0};
 
-  // max statistics (TODO: recent_max)
+  // max statistics
   MaxCounterGroup<td::uint32> max_execute_messages_;
   MaxCounterGroup<td::uint64> max_message_ticks_;
   MaxCounterGroup<td::uint64> max_execute_ticks_;
