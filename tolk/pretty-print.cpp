@@ -167,8 +167,8 @@ std::string debug_print(const Op* op) {
     os << " |disabled";
   if (op->flags & Op::_NoReturn)
     os << " |noret";
-  if (op->flags & Op::_Impure)
-    os << " |impure";
+  if (op->flags & Op::_KeepEvenIfUnused)
+    os << " |keep";
 
   return os.str();
 }

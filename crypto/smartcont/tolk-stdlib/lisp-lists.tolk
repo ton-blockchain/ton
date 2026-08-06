@@ -21,7 +21,6 @@ tolk 1.4.2
     ```
  */
 
-@pure
 fun lisp_list<T>.isEmpty(self): bool {
     return self.tvmTuple == null
 }
@@ -29,7 +28,6 @@ fun lisp_list<T>.isEmpty(self): bool {
 /// Inserts an element an the front.
 /// Before: `[a b c]`.
 /// After: `[new a b c]`.
-@pure
 fun lisp_list<T>.prependHead(mutate self, value: T): void {
     self.tvmTuple = [value, self.tvmTuple as unknown as lisp_list<T>];
 }
@@ -38,7 +36,6 @@ fun lisp_list<T>.prependHead(mutate self, value: T): void {
 /// Before: `[a b c]`.
 /// After: `[b c]`, returns `a`.
 /// Throws an exceptions if a list is empty.
-@pure
 fun lisp_list<T>.popHead(mutate self): T {
     var [head, tail] = self.tvmTuple!;
     self.tvmTuple = tail as unknown as [T, lisp_list<T>]?;
@@ -47,21 +44,18 @@ fun lisp_list<T>.popHead(mutate self): T {
 
 /// Returns an element from the front: `a` for `[a b c]`.
 /// Throws an exceptions if a list is empty.
-@pure
 fun lisp_list<T>.getHead(self): T {
     return self.tvmTuple!.0
 }
 
 /// Returns all but the frontmost element: `[b c]` for `[a b c]`.
 /// Throws an exceptions if a list is empty.
-@pure
 fun lisp_list<T>.getTail(self): lisp_list<T> {
     return self.tvmTuple!.1
 }
 
 /// Calculates the size of a list by looping all the elements (there is no other way to do it).
 /// The longer the list — the more gas consumption (O(N) complexity).
-@pure
 fun lisp_list<T>.calculateSize(self): int {
     var size = 0;
     var ptr = self;
@@ -74,7 +68,6 @@ fun lisp_list<T>.calculateSize(self): int {
 
 /// Returns the list with elements in reversed order.
 /// Given `[a b c]` returns `[c b a]`.
-@pure
 fun lisp_list<T>.calculateReversed(self): lisp_list<T> {
     var reversed = [] as lisp_list<T>;
     var ptr = self;
@@ -86,7 +79,6 @@ fun lisp_list<T>.calculateReversed(self): lisp_list<T> {
 
 /// Returns the concatenation of two lists.
 /// Given `[a b]` and `[c d]`, returns `[a b c d]`.
-@pure
 fun lisp_list<T>.calculateConcatenation(self, other: lisp_list<T>): lisp_list<T> {
     var reversed = [] as lisp_list<T>;
     var ptr = self;

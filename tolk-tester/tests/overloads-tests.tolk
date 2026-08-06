@@ -432,9 +432,15 @@ fun main() {
 @fif_codegen
 """
   test16() PROC:<{
+    <b b> PUSHREF
+    DROP
+    <b b> PUSHREF
+    DROP
     111222 PUSHINT
   }>
   test18() PROC:<{
+    <b b> PUSHREF
+    DROP
     123 PUSHINT
   }>
 """

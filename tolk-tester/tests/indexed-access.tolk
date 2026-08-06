@@ -180,7 +180,6 @@ fun test112(f: int, s: int) {
     return (yy, yy.1, yy.1.plus(yy.1 / 20), eq(yy.1 += (yy.0 *= 0)), yy.1 = yy.1 * 2, yy.1, yy.1 += 1, yy.1, yy);
 }
 
-@pure
 @noinline
 fun getConstTuple(): Tup2Int {
     return [1,2];

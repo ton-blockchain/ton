@@ -26,7 +26,6 @@ set(TOLK_SOURCE
         pipe-refine-lvalue-for-mutate.cpp
         pipe-check-rvalue-lvalue.cpp
         pipe-check-private-fields.cpp
-        pipe-check-pure-impure.cpp
         pipe-check-const-expr.cpp
         pipe-mini-borrow-checker.cpp
         pipe-optimize-boolean-expr.cpp

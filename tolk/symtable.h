@@ -117,7 +117,7 @@ struct FunctionData final : Symbol {
     flagIsLambda = 2,           // it's an anonymous function (instantiated from a function expression, a lambda)
     flagTypeInferringDone = 4,  // type inferring step of function's body (all AST nodes assigning v->inferred_type) is done
     flagUsedAsNonCall = 8,      // used not only as `f()`, but as a 1-st class function (assigned to var, pushed to tuple, etc.)
-    flagMarkedAsPure = 16,      // declared as `pure`, can't call impure and access globals, unused invocations are optimized out
+    flagRemovableIfUnused = 16, // asm `@pure` or built-in intrinsic; unused compiler-generated calls may be optimized out
     flagImplicitReturn = 32,    // control flow reaches end of function, so it needs implicit return at the end
     flagContractGetter = 64,    // was declared via `get func(): T`, tvm_method_id is auto-assigned
     flagIsEntrypoint = 128,    // it's `main` / `onExternalMessage` / etc.
@@ -212,7 +212,7 @@ struct FunctionData final : Symbol {
   bool is_inlined_in_place() const { return inline_mode == FunctionInlineMode::inlineInPlace; }
   bool is_type_inferring_done() const { return flags & flagTypeInferringDone; }
   bool is_used_as_noncall() const { return flags & flagUsedAsNonCall; }
-  bool is_marked_as_pure() const { return flags & flagMarkedAsPure; }
+  bool is_removable_if_unused() const { return flags & flagRemovableIfUnused; }
   bool is_implicit_return() const { return flags & flagImplicitReturn; }
   bool is_contract_getter() const { return flags & flagContractGetter; }
   bool has_tvm_method_id() const { return tvm_method_id != EMPTY_TVM_METHOD_ID; }

@@ -10,7 +10,6 @@ type OkAlias<T> = Ok<T>;
 
 type Response<TResult, TError> = Ok<TResult> | Err<TError>;
 
-@pure
 fun getResponse(success: bool): Response<int, slice> {
     return success ? Ok { result: 10 } : Err { errPayload: beginCell().storeInt(-1,32).endCell().beginParse() };
 }
@@ -137,6 +136,8 @@ fun main() {
 @fif_codegen
 """
   test3() PROC:<{
+    x{} PUSHSLICE
+    DROP
     10 PUSHINT  // r.USlot1=10
     -1 PUSHINT  // r.USlot1=10 '22=-1
     FALSE       // r.USlot1=10 '22=-1 '24

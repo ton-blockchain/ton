@@ -76,13 +76,6 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
       // deny `SOME_CONST = rhs` / `mutate CONST_TENSOR.0` / etc.
       err("modifying immutable constant `{}`", const_ref->name).collect(range, cur_f);
 
-    } else if (GlobalVarPtr glob_ref = sym->try_as<GlobalVarPtr>()) {
-      // fire on `global = rhs` in a @pure function: it's easier to do this check here,
-      // because it's very similar to checking immutable variables, especially `(global!).field = rhs`
-      if (cur_f->is_marked_as_pure()) {
-        err("modifying a global `{}` in a pure function", glob_ref->name).collect(range, cur_f);
-      }
-
     } else if (sym->try_as<const TypeReferenceUsedAsSymbol*>() || sym->try_as<FunctionPtr>()) {
       // `Point.create = f` or `Enum.value = v`
       err("invalid left side of assignment").collect(range, cur_f);

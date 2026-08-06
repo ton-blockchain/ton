@@ -151,66 +151,67 @@ PackContext::PackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_
 
 void PackContext::storeInt(var_idx_t ir_idx, int len) const {
   std::vector args = { ir_builder0, ir_idx, code.create_int(origin, len, "(storeW)") };
-  code.add_call(origin, ir_builder, std::move(args), f_storeInt);
+  code.add_call(origin, ir_builder, std::move(args), f_storeInt, /* force_keep = */ true);
 }
 
 void PackContext::storeUint(var_idx_t ir_idx, int len) const {
   std::vector args = { ir_builder0, ir_idx, code.create_int(origin, len, "(storeW)") };
-  code.add_call(origin, ir_builder, std::move(args), f_storeUint);
+  code.add_call(origin, ir_builder, std::move(args), f_storeUint, /* force_keep = */ true);
 }
 
 void PackContext::storeUint_var(var_idx_t ir_idx, var_idx_t ir_len) const {
   std::vector args = { ir_builder0, ir_idx, ir_len };
-  code.add_call(origin, ir_builder, std::move(args), f_storeUint);
+  code.add_call(origin, ir_builder, std::move(args), f_storeUint, /* force_keep = */ true);
 }
 
 void PackContext::storeBool(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
-  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeBool"));
+  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeBool"), /* force_keep = */ true);
 }
 
 void PackContext::storeCoins(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
-  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeCoins"));
+  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeCoins"), /* force_keep = */ true);
 }
 
 void PackContext::storeRef(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
-  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeRef"));
+  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeRef"), /* force_keep = */ true);
 }
 
 void PackContext::storeMaybeRef(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
-  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeMaybeRef"));
+  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeMaybeRef"), /* force_keep = */ true);
 }
 
 void PackContext::storeAddressInt(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
-  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeAddress"));
+  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeAddress"), /* force_keep = */ true);
 }
 
 void PackContext::storeAddressAny(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
-  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeAddressAny"));
+  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeAddressAny"), /* force_keep = */ true);
 }
 
 void PackContext::storeBuilder(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
-  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeBuilder"));
+  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeBuilder"), /* force_keep = */ true);
 }
 
 void PackContext::storeSlice(var_idx_t ir_idx) const {
   std::vector args = { ir_builder0, ir_idx };
-  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeSlice"));
+  code.add_call(origin, ir_builder, std::move(args), lookup_function("builder.storeSlice"), /* force_keep = */ true);
 }
 
 void PackContext::storeOpcode(PackOpcode opcode) const {
   std::vector args = { ir_builder0, code.create_int(origin, opcode.pack_prefix, "(struct-prefix)"), code.create_int(origin, opcode.prefix_len, "(storeW)") };
-  code.add_call(origin, ir_builder, std::move(args), f_storeUint);
+  code.add_call(origin, ir_builder, std::move(args), f_storeUint, /* force_keep = */ true);
 }
 
 
-UnpackContext::UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, std::vector<var_idx_t> ir_options)
+UnpackContext::UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, std::vector<var_idx_t> ir_options,
+                             GeneratedLoadPolicy generated_load_policy)
   : code(code)
   , origin(origin)
   , f_loadInt(lookup_function("slice.loadInt"))
@@ -218,70 +219,71 @@ UnpackContext::UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t>
   , f_skipBits(lookup_function("slice.skipBits"))
   , ir_options(std::move(ir_options))
   , ir_slice(std::move(ir_slice))
-  , ir_slice0(this->ir_slice[0]) {
+  , ir_slice0(this->ir_slice[0])
+  , generated_load_policy(generated_load_policy) {
 }
 
 std::vector<var_idx_t> UnpackContext::loadInt(int len, const char* debug_desc) const {
   std::vector args = { ir_slice0, code.create_int(origin, len, "(loadW)") };
   std::vector result = code.create_tmp_var(TypeDataInt::create(), origin, debug_desc);
-  code.add_call(origin, {ir_slice0, result[0]}, std::move(args), f_loadInt);
+  code.add_call(origin, {ir_slice0, result[0]}, std::move(args), f_loadInt, force_keep_arg());
   return result;
 }
 
 std::vector<var_idx_t> UnpackContext::loadUint(int len, const char* debug_desc) const {
   std::vector args = { ir_slice0, code.create_int(origin, len, "(loadW)") };
   std::vector result = code.create_tmp_var(TypeDataInt::create(), origin, debug_desc);
-  code.add_call(origin, {ir_slice0, result[0]}, std::move(args), f_loadUint);
+  code.add_call(origin, {ir_slice0, result[0]}, std::move(args), f_loadUint, force_keep_arg());
   return result;
 }
 
 std::vector<var_idx_t> UnpackContext::loadRef(const char* debug_desc) const {
   std::vector args = ir_slice;
   std::vector result = code.create_tmp_var(TypeDataCell::create(), origin, debug_desc);
-  code.add_call(origin, {ir_slice0, result[0]}, std::move(args), lookup_function("slice.loadRef"));
+  code.add_call(origin, {ir_slice0, result[0]}, std::move(args), lookup_function("slice.loadRef"), force_keep_arg());
   return result;
 }
 
 std::vector<var_idx_t> UnpackContext::loadMaybeRef(const char* debug_desc) const {
   std::vector args = ir_slice;
   std::vector ir_result = code.create_tmp_var(TypeDataCell::create(), origin, debug_desc);
-  code.add_call(origin, {ir_slice0, ir_result[0]}, std::move(args), lookup_function("slice.loadMaybeRef"));
+  code.add_call(origin, {ir_slice0, ir_result[0]}, std::move(args), lookup_function("slice.loadMaybeRef"), force_keep_arg());
   return ir_result;
 }
 
 void UnpackContext::loadAndCheckOpcode(PackOpcode opcode) const {
   std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
   std::vector args = { ir_slice0, code.create_int(origin, opcode.pack_prefix, "(pack-prefix)"), code.create_int(origin, opcode.prefix_len, "(prefix-len)") };
-  code.add_call(origin, {ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"));
+  code.add_call(origin, {ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"), force_keep_arg());
   std::vector args_throwifnot = { option_throwIfOpcodeDoesNotMatch(), ir_prefix_eq[0] };
   code.add_call(origin, {}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
 }
 
 void UnpackContext::skipBits(int len) const {
   std::vector args = { ir_slice0, code.create_int(origin, len, "(skipW)") };
-  code.add_call(origin, ir_slice, std::move(args), f_skipBits);
+  code.add_call(origin, ir_slice, std::move(args), f_skipBits, force_keep_arg());
 }
 
 void UnpackContext::skipBits_var(var_idx_t ir_len) const {
   std::vector args = { ir_slice0, ir_len };
-  code.add_call(origin, ir_slice, std::move(args), f_skipBits);
+  code.add_call(origin, ir_slice, std::move(args), f_skipBits, force_keep_arg());
 }
 
 void UnpackContext::skipRef() const {
   std::vector args = ir_slice;
   std::vector dummy_loaded = code.create_tmp_var(TypeDataCell::create(), origin, "(loaded-cell)");
-  code.add_call(origin, {ir_slice0, dummy_loaded[0]}, std::move(args), lookup_function("slice.loadRef"));
+  code.add_call(origin, {ir_slice0, dummy_loaded[0]}, std::move(args), lookup_function("slice.loadRef"), force_keep_arg());
 }
 
 void UnpackContext::skipMaybeRef() const {
-  code.add_call(origin, ir_slice, ir_slice, lookup_function("slice.skipMaybeRef"));
+  code.add_call(origin, ir_slice, ir_slice, lookup_function("slice.skipMaybeRef"), force_keep_arg());
 }
 
 void UnpackContext::assertEndIfOption() const {
   Op& if_assertEnd = code.add_if_else(origin, {option_assertEndAfterReading()});
   {
     code.push_set_cur(if_assertEnd.block0);
-    code.add_call(origin, {}, ir_slice, lookup_function("slice.assertEnd"));
+    code.add_call(origin, {}, ir_slice, lookup_function("slice.assertEnd"), force_keep_arg());
     code.close_pop_cur(origin);
   }
   {
@@ -368,14 +370,14 @@ struct S_VariadicIntN final : ISerializer {
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
     FunctionPtr f_storeVarInt = lookup_function("builder.__storeVarInt");
     std::vector args = { ctx->ir_builder0, rvect[0], code.create_int(origin, n_bits, "(n-bits)"), code.create_int(origin, is_unsigned, "(is-unsigned)") };
-    code.add_call(origin, ctx->ir_builder, std::move(args), f_storeVarInt);
+    code.add_call(origin, ctx->ir_builder, std::move(args), f_storeVarInt, /* force_keep = */ true);
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
     FunctionPtr f_loadVarInt = lookup_function("slice.__loadVarInt");
     std::vector args = { ctx->ir_slice0, code.create_int(origin, n_bits, "(n-bits)"), code.create_int(origin, is_unsigned, "(is-unsigned)") };
     std::vector result = code.create_tmp_var(TypeDataInt::create(), origin, "(loaded-varint)");
-    code.add_call(origin, {ctx->ir_slice0, result[0]}, std::move(args), f_loadVarInt);
+    code.add_call(origin, {ctx->ir_slice0, result[0]}, std::move(args), f_loadVarInt, ctx->force_keep_arg());
     return result;
   }
 
@@ -429,7 +431,7 @@ struct S_BitsN final : ISerializer {
     FunctionPtr f_loadBits = lookup_function("slice.loadBits");
     std::vector args = { ctx->ir_slice0, code.create_int(origin, n_bits, "(loadW)") };
     std::vector ir_result = code.create_tmp_var(TypeDataSlice::create(), origin, "(loaded-slice)");
-    code.add_call(origin, {ctx->ir_slice0, ir_result[0]}, std::move(args), f_loadBits);
+    code.add_call(origin, {ctx->ir_slice0, ir_result[0]}, std::move(args), f_loadBits, ctx->force_keep_arg());
     return ir_result;
   }
 
@@ -528,7 +530,7 @@ struct S_Coins final : ISerializer {
     FunctionPtr f_loadCoins = lookup_function("slice.loadCoins");
     std::vector args = ctx->ir_slice;
     std::vector ir_result = code.create_tmp_var(TypeDataInt::create(), origin, "(loaded-coins)");
-    code.add_call(origin, {ctx->ir_slice0, ir_result[0]}, std::move(args), f_loadCoins);
+    code.add_call(origin, {ctx->ir_slice0, ir_result[0]}, std::move(args), f_loadCoins, ctx->force_keep_arg());
     return ir_result;
   }
 
@@ -551,7 +553,7 @@ struct S_AddressInt final : ISerializer {
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
     FunctionPtr f_loadAddress = lookup_function("slice.loadAddress");
     std::vector ir_address = code.create_tmp_var(TypeDataSlice::create(), origin, "(loaded-addr)");
-    code.add_call(origin, {ctx->ir_slice0, ir_address[0]}, ctx->ir_slice, f_loadAddress);
+    code.add_call(origin, {ctx->ir_slice0, ir_address[0]}, ctx->ir_slice, f_loadAddress, ctx->force_keep_arg());
     return ir_address;
   }
 
@@ -572,13 +574,13 @@ struct S_AddressIntOrNull final : ISerializer {
     // `address?`, when null, is stored as '00' (addr_none), so `address?` is not TL/B (Maybe MsgAddressInt)
     tolk_assert(rvect.size() == 1);
     std::vector args = { ctx->ir_builder0, rvect[0] };
-    code.add_call(origin, ctx->ir_builder, std::move(args), lookup_function("builder.storeAddressOpt"));
+    code.add_call(origin, ctx->ir_builder, std::move(args), lookup_function("builder.storeAddressOpt"), /* force_keep = */ true);
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
     FunctionPtr f_loadAddressOpt = lookup_function("slice.loadAddressOpt");
     std::vector ir_address_orN = code.create_tmp_var(TypeDataSlice::create(), origin, "(loaded-addr)");
-    code.add_call(origin, {ctx->ir_slice0, ir_address_orN[0]}, ctx->ir_slice, f_loadAddressOpt);
+    code.add_call(origin, {ctx->ir_slice0, ir_address_orN[0]}, ctx->ir_slice, f_loadAddressOpt, ctx->force_keep_arg());
     return ir_address_orN;
   }
 
@@ -600,7 +602,7 @@ struct S_AddressAny final : ISerializer {
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
     FunctionPtr f_loadAddressAny = lookup_function("slice.loadAddressAny");
     std::vector ir_address_any = code.create_tmp_var(TypeDataSlice::create(), origin, "(loaded-addr)");
-    code.add_call(origin, {ctx->ir_slice0, ir_address_any[0]}, ctx->ir_slice, f_loadAddressAny);
+    code.add_call(origin, {ctx->ir_slice0, ir_address_any[0]}, ctx->ir_slice, f_loadAddressAny, ctx->force_keep_arg());
     return ir_address_any;
   }
 
@@ -639,7 +641,7 @@ struct S_Builder final : ISerializer {
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
     tolk_assert(rvect.size() == 1);
     std::vector args = { ctx->ir_builder0, rvect[0] };
-    code.add_call(origin, ctx->ir_builder, std::move(args), lookup_function("builder.storeBuilder"));
+    code.add_call(origin, ctx->ir_builder, std::move(args), lookup_function("builder.storeBuilder"), /* force_keep = */ true);
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
@@ -841,7 +843,7 @@ struct S_Either final : ISerializer {
     tolk_assert(options.match_blocks.size() == 2);
     std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
     std::vector args = { ctx->ir_slice0, code.create_int(origin, 1, "(pack-prefix)"), code.create_int(origin, 1, "(prefix-len)") };
-    code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"));
+    code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"), ctx->force_keep_arg());
     Op& if_op = code.add_if_else(origin, ir_prefix_eq);
     {
       code.push_set_cur(if_op.block0);
@@ -952,7 +954,7 @@ struct S_MultipleConstructors final : ISerializer {
     for (int i = 0; i < t_union->size() - has_void(); ++i) {
       TypePtr variant = t_union->variants[i];
       std::vector args = { ctx->ir_slice0, code.create_int(origin, opcodes[i].pack_prefix, "(pack-prefix)"), code.create_int(origin, opcodes[i].prefix_len, "(prefix-len)") };
-      code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix);
+      code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix, ctx->force_keep_arg());
       Op& if_prefix_eq = code.add_if_else(origin, ir_prefix_eq);
       code.push_set_cur(if_prefix_eq.block0);
       std::vector ith_rvect = ctx->generate_unpack_any(variant, PrefixReadMode::DoNothingAlreadyLoaded);
@@ -1001,7 +1003,7 @@ struct S_MultipleConstructors final : ISerializer {
       StructData::PackOpcode opcode = opcodes[opcodes_order_mapping[i]];
       tolk_assert(opcode.prefix_len > 0);     // prefix_len == 0 only for `void`, not allowed in lazy
       std::vector args = { ctx->ir_slice0, code.create_int(origin, opcode.pack_prefix, "(pack-prefix)"), code.create_int(origin, opcode.prefix_len, "(prefix-len)") };
-      code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix);
+      code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), f_tryStripPrefix, ctx->force_keep_arg());
       Op& if_op = code.add_if_else(origin, ir_prefix_eq);
       code.push_set_cur(if_op.block0);
       if (options.lazy_var_ref && options.match_blocks[i].arm_variant) {
@@ -1180,7 +1182,7 @@ struct S_Array final : ISerializer {
       // var chunkB = beginCell().storeMaybeRef(tail);
       std::vector var_chunkB = code.create_tmp_var(TypeDataBuilder::create(), origin, "(var-chunkB)");
       code.add_call(origin, var_chunkB, {}, lookup_function("beginCell"));
-      code.add_call(origin, var_chunkB, {var_chunkB[0], var_tail[0]}, lookup_function("builder.storeMaybeRef"));
+      code.add_call(origin, var_chunkB, {var_chunkB[0], var_tail[0]}, lookup_function("builder.storeMaybeRef"), /* force_keep = */ true);
       // var curChunkSize = min(idx, chunkSize);
       std::vector var_curChunkSize = code.create_tmp_var(TypeDataInt::create(), origin, "(var-curChunkSize)");
       code.add_call(origin, var_curChunkSize, {var_chunkSize[0], var_idx[0]}, lookup_function("min"));
@@ -1234,7 +1236,7 @@ struct S_Array final : ISerializer {
       // var s = head.beginParse();
       std::vector var_s = code.create_tmp_var(TypeDataSlice::create(), origin, "(var-s)");
       code.add_call(origin, var_s, var_head, lookup_function("cell.beginParse"));
-      UnpackContext chunk_ctx(code, origin, var_s, ctx->ir_options);
+      UnpackContext chunk_ctx(code, origin, var_s, ctx->ir_options, ctx->generated_load_policy);
       // head = s.loadMaybeRef();
       code.add_let(origin, var_head, chunk_ctx.loadMaybeRef("(var-snakeTail)"));
       // do { outArr.push(s.loadAny<T>()); } while (!s.isEmpty());
@@ -1327,7 +1329,7 @@ struct S_CustomStruct final : ISerializer {
     StructData::PackOpcode opcode = struct_ref->opcode;
     if (opcode.exists()) {    // it's `match` over a struct (makes sense for a struct with prefix and `else` branch)
       std::vector args = { ctx->ir_slice0, code.create_int(origin, opcode.pack_prefix, "(pack-prefix)"), code.create_int(origin, opcode.prefix_len, "(prefix-len)") };
-      code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"));
+      code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.tryStripPrefix"), ctx->force_keep_arg());
     } else {
       code.add_let(origin, ir_prefix_eq, {code.create_int(origin, -1, "(true)")});
     }
@@ -1466,7 +1468,7 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
       code.add_let(origin, ctx->ir_builder, std::move(ir_mutated_builder));
     } else {
       rvect.push_back(ctx->ir_builder0);
-      code.add_call(origin, ctx->ir_builder, rvect, f.f_pack);
+      code.add_call(origin, ctx->ir_builder, rvect, f.f_pack, /* force_keep = */ true);
     }
   }
 
@@ -1480,7 +1482,7 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
       ir_slice_and_res = gen_inline_fun_call_in_place(code, ret_type, origin, f.f_unpack, nullptr, false, {ctx->ir_slice});
     } else {
       ir_slice_and_res = code.create_tmp_var(ret_type, origin, "(slice-and-res)");
-      code.add_call(origin, ir_slice_and_res, ctx->ir_slice, f.f_unpack);
+      code.add_call(origin, ir_slice_and_res, ctx->ir_slice, f.f_unpack, ctx->force_keep_arg());
     }
     code.add_let(origin, ctx->ir_slice, {ir_slice_and_res.front()});
     return std::vector(ir_slice_and_res.begin() + 1, ir_slice_and_res.end());

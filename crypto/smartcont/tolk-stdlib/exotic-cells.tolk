@@ -46,7 +46,6 @@ fun cell.loadSpecial(self): cell
 
 /// Transforms an ordinary or exotic cell into a library reference
 /// (into an exotic cell with contents "8 bits cell type" + "256 bits lib hash").
-@pure
 fun cell.toLibraryReference(self): cell {
     return beginCell()
         .storeInt(ExoticCellType.LibraryReference, 8)

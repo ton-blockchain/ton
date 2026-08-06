@@ -76,7 +76,6 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_refine_lvalue_for_mutate_arguments();
     pipeline_check_rvalue_lvalue();
     pipeline_check_private_fields_usage();
-    pipeline_check_pure_impure_operations();
     pipeline_check_constant_expressions();
     pipeline_mini_borrow_checker_for_mutate();
     pipeline_optimize_boolean_expressions();

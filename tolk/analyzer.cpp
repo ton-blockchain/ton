@@ -329,7 +329,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
     case _Tuple:
     case _UnTuple: {
       // left = EXEC right;
-      if (!next_var_info.count_used(left) && !impure()) {
+      if (!next_var_info.count_used(left) && !keep_even_if_unused()) {
         // all variables in `left` are not needed
         if (edit) {
           set_disabled();
@@ -359,6 +359,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
     case _Let: {
       // left = right
       std::size_t cnt = next_var_info.count_used(left);
+      bool force_keep = keep_even_if_unused();
       tolk_assert(left.size() == right.size());
       auto l_it = left.cbegin(), r_it = right.cbegin();
       VarDescrList new_var_info{next_var_info};
@@ -368,7 +369,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
       for (; l_it < left.cend(); ++l_it, ++r_it) {
         if (std::find(l_it + 1, left.cend(), *l_it) == left.cend()) {
           auto p = next_var_info[*l_it];
-          new_var_info.add_var(*r_it, edit && (!p || p->is_unused()));
+          new_var_info.add_var(*r_it, !force_keep && edit && (!p || p->is_unused()));
           new_left.push_back(*l_it);
           new_right.push_back(*r_it);
         }
@@ -377,7 +378,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
         left = std::move(new_left);
         right = std::move(new_right);
       }
-      if (!cnt && edit) {
+      if (!cnt && edit && !force_keep) {
         // all variables in `left` are not needed
         set_disabled();
       }
@@ -797,6 +798,13 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
             maybe_swap_builtin_args_to_compile();
           }
         }
+        bool result_is_int_const = !left.empty();
+        for (const VarDescr& r : res) {
+          result_is_int_const &= r.is_int_const();
+        }
+        if (f_sym->is_removable_if_unused() && result_is_int_const) {
+          set_keep_flag(false);
+        }
         int j = 0;
         for (var_idx_t i : left) {
           values.add_newval(i).set_value(res[j++]);
@@ -933,8 +941,12 @@ bool Op::set_noreturn(bool flag) {
   return flag;
 }
 
-void Op::set_impure_flag() {
-  flags |= _Impure;
+void Op::set_keep_flag(bool flag) {
+  if (flag) {
+    flags |= _KeepEvenIfUnused;
+  } else {
+    flags &= ~_KeepEvenIfUnused;
+  }
 }
 
 void Op::set_arg_order_already_equals_asm_flag() {
@@ -1069,8 +1081,8 @@ void CodeBlob::mark_noreturn() {
  *   So we explicitly search for that shape — see `try_fold_condition`.
  *
  *   How `_!=_` / `_==_` are removed.
- * We don't disable the matched `_Call`: we just stop using its result.
- * On the next iteration, `compute_used_code_vars` sees that nobody reads it anymore, and DCE prunes it.
+ * After rewiring the condition to `x`, clear keep flag on the matched `_Call`.
+ * On the next `compute_used_code_vars` pass, if nobody else reads its result, DCE prunes it.
  */
 
 // Recognize `tmp := x != 0` or `tmp := x == 0`. On match:
@@ -1262,6 +1274,7 @@ static bool try_fold_condition(Op& cond_op, OpList& search_list, int search_max_
     if (is_eq) {
       std::swap(cond_op.block0, cond_op.block1);
     }
+    producer.op->set_keep_flag(false);
     any_changed = true;
     // keep looping to detect cases like `(x != 0) != 0`
   }
@@ -1355,6 +1368,7 @@ static bool try_fold_call_cond_arg(Op& call_op, OpList& search_list, int search_
     }
     // important: `args` is cached, wipe it. `compute_used_vars` reads variable indices from `args`, not from `right`.
     call_op.args.clear();
+    producer.op->set_keep_flag(false);
     any_changed = true;
   }
   return any_changed;

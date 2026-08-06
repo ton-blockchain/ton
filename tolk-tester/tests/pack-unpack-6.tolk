@@ -142,6 +142,7 @@ RETALT
 @fif_codegen
 """
 IF:<{
+  8 PLDI
   DROP
   129 PUSHINT
 }>ELSE<{
@@ -196,6 +197,7 @@ IF:<{
     x{010f} PUSHSLICE
     x{01} SDBEGINSQ
     IF:<{
+      8 PLDI
       DROP
       129 PUSHINT
     }>ELSE<{

@@ -361,6 +361,12 @@ fun main() {}
 @fif_codegen
 """
   test202() PROC:<{     // x
+    DUP
+    10 GTINT
+    DROP
+    DUP
+    10 LESSINT
+    DROP
   }>
 """
 

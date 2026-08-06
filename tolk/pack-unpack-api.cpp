@@ -421,7 +421,7 @@ void generate_lazy_struct_from_slice(CodeBlob& code, AnyV origin, const LazyVari
   tolk_assert(loaded_state && !loaded_state->was_loaded_once());
   loaded_state->mutate()->on_started_loading(hidden_struct);
 
-  UnpackContext ctx(code, origin, lazy_variable->ir_slice, lazy_variable->ir_options);
+  UnpackContext ctx(code, origin, lazy_variable->ir_slice, lazy_variable->ir_options, GeneratedLoadPolicy::AllowRemoving);
 
   if (hidden_struct->opcode.exists()) {
     ctx.loadAndCheckOpcode(hidden_struct->opcode);
@@ -516,7 +516,7 @@ void generate_lazy_match_for_union(CodeBlob& code, AnyV origin, TypePtr union_ty
   if (options.match_blocks.empty()) {   // empty `match` statement, no arms
     return;
   }
-  UnpackContext ctx(code, origin, lazy_variable->ir_slice, lazy_variable->ir_options);
+  UnpackContext ctx(code, origin, lazy_variable->ir_slice, lazy_variable->ir_options, GeneratedLoadPolicy::AllowRemoving);
   ctx.generate_lazy_match_any(union_type, options);
   // return void: lazy match generator called a callback which updated ir_match_result of ast_match_expression
 }
@@ -532,7 +532,8 @@ std::vector<var_idx_t> generate_lazy_object_finish_loading(CodeBlob& code, AnyV 
   static_cast<void>(ir_obj);
 
   std::vector ir_slice = code.create_tmp_var(TypeDataSlice::create(), origin, "(lazy-slice)");
-  code.add_let(origin, ir_slice, lazy_variable->ir_slice);
+  // pass force_keep true
+  code.add_let(origin, ir_slice, lazy_variable->ir_slice, true);
   return ir_slice;
 }
 

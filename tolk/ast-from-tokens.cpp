@@ -1835,7 +1835,10 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
         inline_mode = FunctionInlineMode::noInline;
         break;
       case AnnotationKind::pure:
-        flags |= FunctionData::flagMarkedAsPure;
+        if (v_body->kind == ast_block_statement) {
+          err("@pure has no effect on a regular function since user calls are now always preserved\n""hint: remove `@pure`").fire(v_annotation);
+        }
+        flags |= FunctionData::flagRemovableIfUnused;
         break;
       case AnnotationKind::method_id: {
         if (is_contract_getter || genericsT_list || receiver_type || is_entrypoint || n_mutate_params || accepts_self || !is_code_function) {

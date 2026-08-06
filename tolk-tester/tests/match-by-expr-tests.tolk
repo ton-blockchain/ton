@@ -327,6 +327,7 @@ fun main() {
 @fif_codegen
 """
   test8() PROC:<{   // x
+    0 MULCONST
     DROP            //
     30 PUSHINT      // r1
   }>

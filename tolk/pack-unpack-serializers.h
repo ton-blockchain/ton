@@ -60,6 +60,14 @@ enum class PrefixWriteMode {
   DoNothingAlreadyWritten,
 };
 
+// Operation-liveness for compiler-emitted load/skip calls inside unpack.
+// Not a property of `slice.loadUint` itself: preserved for `fromSlice` but removable in `lazy fromSlice`.
+// Pack always preserves generated `builder.storeXXX` (no policy there).
+enum class GeneratedLoadPolicy {
+  AllowRemoving,
+  Preserve,
+};
+
 class PackContext {
   CodeBlob& code;
   AnyV origin;
@@ -125,10 +133,13 @@ public:
   const std::vector<var_idx_t> ir_options;    // struct UnpackOptions from stdlib
   const std::vector<var_idx_t> ir_slice;
   const var_idx_t ir_slice0;
+  const GeneratedLoadPolicy generated_load_policy;
 
-  UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, std::vector<var_idx_t> ir_options);
+  UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, std::vector<var_idx_t> ir_options,
+                GeneratedLoadPolicy generated_load_policy = GeneratedLoadPolicy::Preserve);
 
   PrefixReadMode get_prefix_mode() const { return prefix_mode; }
+  bool force_keep_arg() const { return generated_load_policy == GeneratedLoadPolicy::Preserve; }
 
   var_idx_t option_assertEndAfterReading() const { return ir_options[0]; }
   var_idx_t option_throwIfOpcodeDoesNotMatch() const { return ir_options[1]; }

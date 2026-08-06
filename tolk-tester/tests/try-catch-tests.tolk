@@ -550,6 +550,7 @@ fun main() {
       SETCODE
       0 THROW
     }>	    //  paramVal
+    CTOS    //  '7
     DROP	//
   }>
 """

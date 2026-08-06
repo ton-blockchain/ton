@@ -376,7 +376,7 @@ class CheckReorderingForAsmArgOrderIsSafeVisitor final : public ASTVisitorFuncti
   bool has_side_effects = false;
 
   void visit(V<ast_function_call> v) override {
-    has_side_effects |= v->fun_maybe == nullptr || !v->fun_maybe->is_marked_as_pure() || v->fun_maybe->has_mutate_params();
+    has_side_effects |= v->fun_maybe == nullptr || !v->fun_maybe->is_removable_if_unused() || v->fun_maybe->has_mutate_params();
     parent::visit(v);
   }
 
@@ -1119,7 +1119,7 @@ static std::vector<var_idx_t> process_set_assign(V<ast_set_assign> v, CodeBlob& 
   args_vars.insert(args_vars.end(), ir_lhs.begin(), ir_lhs.end());
   args_vars.insert(args_vars.end(), ir_rhs.begin(), ir_rhs.end());
   std::vector ir_result = code.create_tmp_var(v->inferred_type, v, "(set-assign)");
-  code.add_call(v, ir_result, std::move(args_vars), v->fun_ref);
+  code.add_call(v, ir_result, std::move(args_vars), v->fun_ref, true);
   code.add_extra_mark_location(v->get_lhs()->range);
 
   code.add_let(v, ir_lhs, ir_result);   // += and others for math only, transition not required
@@ -1134,30 +1134,37 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
   if (v->fun_ref) {   // almost all operators, fun_ref was assigned at type inferring
     std::vector args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
     std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(binary-op)");
-    code.add_call(v, rvect, std::move(args_vars), v->fun_ref);
+    code.add_call(v, rvect, std::move(args_vars), v->fun_ref, true);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
   if (t == tok_logical_and || t == tok_logical_or) {
-    // do the following transformations:
+    // emit the following IR:
     // a && b  ->  a ? (b != 0) : 0
-    // a || b  ->  a ? 1 : (b != 0)
-    AnyExprV v_0 = createV<ast_int_const>(v->range, td::make_refint(0), "0");
-    v_0->mutate()->assign_inferred_type(TypeDataInt::create());
-    AnyExprV v_1 = createV<ast_int_const>(v->range, td::make_refint(-1), "-1");
-    v_1->mutate()->assign_inferred_type(TypeDataInt::create());
-    auto v_b_ne_0 = createV<ast_binary_operator>(v->range, v->operator_range, "!=", tok_neq, v->get_rhs(), v_0);
-    v_b_ne_0->mutate()->assign_inferred_type(TypeDataInt::create());
-    v_b_ne_0->mutate()->assign_fun_ref(lookup_function("_!=_"));
+    // a || b  ->  a ? -1 : (b != 0)
     std::vector ir_cond = pre_compile_expr(v->get_lhs(), code, nullptr);
     tolk_assert(ir_cond.size() == 1);
-    std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(ternary)");
+    std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(logical-op)");
+    FunctionPtr f_neq = lookup_function("_!=_");
     Op& if_op = code.add_if_else(v, ir_cond);
-    code.push_set_cur(if_op.block0);
-    code.add_let(v, rvect, pre_compile_expr(t == tok_logical_and ? v_b_ne_0 : v_1, code, nullptr));
-    code.close_pop_cur(v);
-    code.push_set_cur(if_op.block1);
-    code.add_let(v, rvect, pre_compile_expr(t == tok_logical_and ? v_0 : v_b_ne_0, code, nullptr));
-    code.close_pop_cur(v);
+    if (t == tok_logical_and) {
+      code.push_set_cur(if_op.block0);
+      std::vector ir_rhs = pre_compile_expr(v->get_rhs(), code, nullptr);
+      tolk_assert(ir_rhs.size() == 1);
+      code.add_call(v, rvect, {ir_rhs[0], code.create_int(v, 0, "(zero)")}, f_neq);
+      code.close_pop_cur(v);
+      code.push_set_cur(if_op.block1);
+      code.add_int_const(v, rvect, td::make_refint(0));
+      code.close_pop_cur(v);
+    } else {
+      code.push_set_cur(if_op.block0);
+      code.add_int_const(v, rvect, td::make_refint(-1));
+      code.close_pop_cur(v);
+      code.push_set_cur(if_op.block1);
+      std::vector ir_rhs = pre_compile_expr(v->get_rhs(), code, nullptr);
+      tolk_assert(ir_rhs.size() == 1);
+      code.add_call(v, rvect, {ir_rhs[0], code.create_int(v, 0, "(zero)")}, f_neq);
+      code.close_pop_cur(v);
+    }
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
   if (t == tok_eq || t == tok_neq) {
@@ -1165,7 +1172,7 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     tolk_assert(f_eq->name != "_==_");
     std::vector args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
     std::vector rvect = code.create_tmp_var(TypeDataBool::create(), v, "(eq-operator)");
-    code.add_call(v, rvect, {args_vars[0], args_vars[1]}, f_eq);
+    code.add_call(v, rvect, {args_vars[0], args_vars[1]}, f_eq, true);
     if (t == tok_neq) {
       FunctionPtr not_sym = lookup_function("!b_");
       code.add_call(v, rvect, rvect, not_sym);
@@ -1179,7 +1186,7 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
 static std::vector<var_idx_t> process_unary_operator(V<ast_unary_operator> v, CodeBlob& code, TypePtr target_type) {
   std::vector rhs_vars = pre_compile_expr(v->get_rhs(), code, nullptr);
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(unary-op)");
-  code.add_call(v, rvect, std::move(rhs_vars), v->fun_ref);
+  code.add_call(v, rvect, std::move(rhs_vars), v->fun_ref, true);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
@@ -1721,7 +1728,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, self_obj, v == code.stmt_before_immediate_return, vars_per_arg);
   } else {
     rvect = code.create_tmp_var(op_call_type, v, "(fun-call)");
-    code.add_call(call_origin, rvect, std::move(args_vars), fun_ref, arg_order_already_equals_asm);
+    code.add_call(call_origin, rvect, std::move(args_vars), fun_ref, true, arg_order_already_equals_asm);
   }
 
   // `x.inc().inc()` — mutating chaining was called in lval context, here we get `x` expression in an outer call;

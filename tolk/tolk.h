@@ -301,7 +301,7 @@ struct Op {
     _DebugMark,
   };
   OpKind cl;
-  enum { _Disabled = 1, _NoReturn = 2, _Impure = 4, _ArgOrderAlreadyEqualsAsm = 8 };
+  enum { _Disabled = 1, _NoReturn = 2, _KeepEvenIfUnused = 4, _ArgOrderAlreadyEqualsAsm = 8 };
   int flags;
   FunctionPtr f_sym = nullptr;
   GlobalVarPtr g_sym = nullptr;
@@ -331,8 +331,8 @@ struct Op {
   bool set_noreturn() { flags |= _NoReturn; return true; }
   bool set_noreturn(bool flag);
 
-  bool impure() const { return flags & _Impure; }
-  void set_impure_flag();
+  bool keep_even_if_unused() const { return flags & _KeepEvenIfUnused; }
+  void set_keep_flag(bool flag);
 
   bool arg_order_already_equals_asm() const { return flags & _ArgOrderAlreadyEqualsAsm; }
   void set_arg_order_already_equals_asm_flag();
@@ -984,21 +984,22 @@ struct CodeBlob {
     cur_ops->push_back(std::make_unique<Op>(origin, Op::_Nop));
   }
   void add_call(AnyV origin, std::vector<var_idx_t> ret, std::vector<var_idx_t> args, FunctionPtr called_f,
-                bool arg_order_already_equals_asm = false) {
+                bool force_keep = false, bool arg_order_already_equals_asm = false) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Call, std::move(ret)));
     op.right = std::move(args);
     op.f_sym = called_f;
-    if (!called_f->is_marked_as_pure()) op.set_impure_flag();
+    if (force_keep || !called_f->is_removable_if_unused()) op.set_keep_flag(true);
     if (arg_order_already_equals_asm) op.set_arg_order_already_equals_asm_flag();
   }
   void add_indirect_invoke(AnyV origin, std::vector<var_idx_t> ret, std::vector<var_idx_t> args) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_CallInd, std::move(ret)));
     op.right = std::move(args);
-    op.set_impure_flag();
+    op.set_keep_flag(true);
   }
-  void add_let(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
+  void add_let(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src, bool force_keep = false) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Let, std::move(dst)));
     op.right = std::move(src);
+    if (force_keep) op.set_keep_flag(true);
   }
   void add_int_const(AnyV origin, std::vector<var_idx_t> dst, td::RefInt256 value) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_IntConst, std::move(dst)));
@@ -1024,7 +1025,6 @@ struct CodeBlob {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_SetGlob));
     op.right = std::move(src);
     op.g_sym = g;
-    op.set_impure_flag();
     op.debug_mark = DebugMarkSetGlob{g, op.right};
   }
   void add_setcontargs(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {

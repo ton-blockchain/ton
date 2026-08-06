@@ -1015,7 +1015,6 @@ struct MapLookupResult<TValue> {
     isFound: bool
 }
 
-@pure
 fun MapLookupResult<TValue>.loadValue(self): TValue {
     // it's assumed that you check for `isFound` before calling `loadValue()`;
     // note that `assertEnd` is called to ensure no remaining data left besides TValue
@@ -1024,7 +1023,6 @@ fun MapLookupResult<TValue>.loadValue(self): TValue {
     })
 }
 
-@pure
 fun MapLookupResult<slice>.loadValue(self): slice {
     return self.rawSlice!
 }
@@ -1044,14 +1042,12 @@ struct MapEntry<K, V> {
     isFound: bool
 }
 
-@pure
 fun MapEntry<K, V>.getKey(self): K {
     // it's assumed that you check for `isFound` before calling `getKey()`;
     // (otherwise, it will contain an incorrect stack slot with `null` value, not K)
     return self.key
 }
 
-@pure
 fun MapEntry<K, V>.loadValue(self): V {
     // it's assumed that you check for `isFound` before calling `loadValue()`;
     // note that `assertEnd` is inserted to ensure no remaining data left besides TValue
@@ -1060,7 +1056,6 @@ fun MapEntry<K, V>.loadValue(self): V {
     })
 }
 
-@pure
 fun MapEntry<K, slice>.loadValue(self): slice {
     return self.rawValue!
 }

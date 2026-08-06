@@ -41,7 +41,6 @@ void pipeline_check_inferred_types();
 void pipeline_refine_lvalue_for_mutate_arguments();
 void pipeline_check_rvalue_lvalue();
 void pipeline_check_private_fields_usage();
-void pipeline_check_pure_impure_operations();
 void pipeline_check_constant_expressions();
 void pipeline_mini_borrow_checker_for_mutate();
 void pipeline_optimize_boolean_expressions();

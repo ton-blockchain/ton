@@ -1531,99 +1531,99 @@ void define_builtins() {
   // unary operators
   define_builtin_func("-_", ParamsInt1, Int, nullptr,
                               compile_unary_minus,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("+_", ParamsInt1, Int, nullptr,
                               compile_unary_plus,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("!_", ParamsInt1, Bool, nullptr,
                               std::bind(compile_logical_not, _1, _2, _3, true),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("!b_", {Bool}, Bool, nullptr,   // "overloaded" separate version for bool
                               std::bind(compile_logical_not, _1, _2, _3, false),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("~_", ParamsInt1, Int, nullptr,
                               compile_bitwise_not,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
 
   // binary operators
   define_builtin_func("_+_", ParamsInt2, Int, nullptr,
                               compile_add,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_-_", ParamsInt2, Int, nullptr,
                               compile_sub,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_*_", ParamsInt2, Int, nullptr,
                               compile_mul,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_/_", ParamsInt2, Int, nullptr,
                               std::bind(compile_div, _1, _2, _3, -1),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_~/_", ParamsInt2, Int, nullptr,
                               std::bind(compile_div, _1, _2, _3, 0),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_^/_", ParamsInt2, Int, nullptr,
                               std::bind(compile_div, _1, _2, _3, 1),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_%_", ParamsInt2, Int, nullptr,
                               std::bind(compile_mod, _1, _2, _3, -1),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_<<_", ParamsInt2, Int, nullptr,
                               compile_lshift,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_>>_", ParamsInt2, Int, nullptr,
                               std::bind(compile_rshift, _1, _2, _3, -1),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_~>>_", ParamsInt2, Int, nullptr,
                               std::bind(compile_rshift, _1, _2, _3, 0),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_^>>_", ParamsInt2, Int, nullptr,
                               std::bind(compile_rshift, _1, _2, _3, 1),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_&_", ParamsInt2, Int, nullptr,        // also works for bool
                               compile_bitwise_and,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_|_", ParamsInt2, Int, nullptr,        // also works for bool
                               compile_bitwise_or,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_^_", ParamsInt2, Int, nullptr,        // also works for bool
                               compile_bitwise_xor,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_==_", ParamsInt2, Int, nullptr,       // also works for bool
                               std::bind(compile_cmp_int, _1, _2, _3, 2),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_!=_", ParamsInt2, Int, nullptr,       // also works for bool
                               std::bind(compile_cmp_int, _1, _2, _3, 5),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_<_", ParamsInt2, Int, nullptr,
                               std::bind(compile_cmp_int, _1, _2, _3, 4),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_>_", ParamsInt2, Int, nullptr,
                               std::bind(compile_cmp_int, _1, _2, _3, 1),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_<=_", ParamsInt2, Int, nullptr,
                               std::bind(compile_cmp_int, _1, _2, _3, 6),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_>=_", ParamsInt2, Int, nullptr,
                               std::bind(compile_cmp_int, _1, _2, _3, 3),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("_<=>_", ParamsInt2, Int, nullptr,
                               std::bind(compile_cmp_int, _1, _2, _3, 7),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
 
   // special function used for internal compilation of some lexical constructs
   // for example, `throw 123;` is actually calling `__throw(123)`
   define_builtin_func("__true", {}, Bool, nullptr, /* AsmOp::Const("TRUE") */
                               std::bind(compile_bool_const, _1, _2, _3, true),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("__false", {}, Bool, nullptr, /* AsmOp::Const("FALSE") */
                               std::bind(compile_bool_const, _1, _2, _3, false),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("__null", {}, typeT, declGenericT,
                               compile_push_null,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("__isNull", {typeT}, Bool, declGenericT,
                               compile_is_null,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("__throw", ParamsInt1, Never, nullptr,
                               compile_throw,
                                 0);
@@ -1638,162 +1638,162 @@ void define_builtins() {
                                 0);
   define_builtin_func("__InMessage.originalForwardFee", ParamsInt2, Int, nullptr,
                                 compile_calc_InMessage_originalForwardFee,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("__InMessage.getInMsgParam", ParamsInt1, Int, nullptr,
                                 compile_calc_InMessage_getInMsgParam,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_method("builder.__storeVarInt", Builder, {Builder, Int, Int, Bool}, Unit, nullptr,
                                 compile_store_varint,   // not exposed to stdlib, used in auto-serialization
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
   define_builtin_method("slice.__loadVarInt", Slice, {Slice, Int, Bool}, Int, nullptr,
                                 compile_fetch_varint,   // not exposed to stdlib, used in auto-serialization
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
   define_builtin_func("__condsel", ParamsInt3, Int, nullptr,
                               compile_ternary_as_condsel,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
 
   // compile-time only functions, evaluated essentially at compile-time, no runtime implementation
   // they are placed in stdlib and marked as `builtin`
   // note their parameter being `unknown`: in order to `grams(1)` pass type inferring but fire a more gentle error later
   define_builtin_func("grams", {TypeDataUnknown::create()}, TypeDataCoins::create(), nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
   define_builtin_func("ton", {TypeDataUnknown::create()}, TypeDataCoins::create(), nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
   define_builtin_func("stringCrc32", {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
   define_builtin_func("stringCrc16", {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
   define_builtin_func("stringSha256", {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
   define_builtin_func("stringSha256_32", {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
   define_builtin_func("stringToBase256", {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
   define_builtin_func("stringHexToSlice", {String}, Slice, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
   define_builtin_func("address", {String}, TypeDataAddress::internal(), nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
 
   // string compile-time methods: "hello".crc32(), "hello".sha256(), etc.
   define_builtin_method("string.crc32", String, {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
   define_builtin_method("string.crc16", String, {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
   define_builtin_method("string.sha256", String, {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
   define_builtin_method("string.sha256_32", String, {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
   define_builtin_method("string.hexToSlice", String, {String}, Slice, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
   define_builtin_method("string.toBase256", String, {String}, Int, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
   define_builtin_method("string.literalSlice", String, {String}, Slice, nullptr,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAcceptsSelf);
 
   // array<T> — a TVM tuple under the hood
   // implemented as built-in functions to support variable-width T (not 1-slot values are backed by sub-tuples)
   define_builtin_method("array<T>.get", ArrayOfT, {ArrayOfT, Int}, typeT, declReceiverT,
                               compile_array_get,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("array<T>.set", ArrayOfT, {ArrayOfT, typeT, Int}, Unit, declReceiverT,
                               compile_array_set_at,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("array<T>.push", ArrayOfT, {ArrayOfT, typeT}, Unit, declReceiverT,
                               compile_array_push,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("array<T>.size", ArrayOfT, {ArrayOfT}, Int, declReceiverT,
                               compile_array_size,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("array<T>.last", ArrayOfT, {ArrayOfT}, typeT, declReceiverT,
                               compile_array_last,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("array<T>.first", ArrayOfT, {ArrayOfT}, typeT, declReceiverT,
                               compile_array_first,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("array<T>.pop", ArrayOfT, {ArrayOfT}, typeT, declReceiverT,
                               compile_array_pop,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
 
   // functions from stdlib marked as `builtin`, implemented at compiler level for optimizations
   // (for example, `loadInt(1)` is `1 LDI`, but `loadInt(n)` for non-constant requires it be on a stack and `LDIX`)
   define_builtin_func("mulDivFloor", ParamsInt3, Int, nullptr,
                               std::bind(compile_muldiv, _1, _2, _3, -1),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("mulDivRound", ParamsInt3, Int, nullptr,
                               std::bind(compile_muldiv, _1, _2, _3, 0),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("mulDivCeil", ParamsInt3, Int, nullptr,
                               std::bind(compile_muldiv, _1, _2, _3, 1),
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("mulDivMod", ParamsInt3, TypeDataTensor::create({Int, Int}), nullptr,
                               compile_muldivmod,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_method("slice.loadInt", Slice, ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, _3, true, true),
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
   define_builtin_method("slice.loadUint", Slice, ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, _3, true, false),
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
   define_builtin_method("slice.loadBits", Slice, ParamsSliceInt, Slice, nullptr,
                               std::bind(compile_fetch_slice, _1, _2, _3, true),
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf,
                                 {}, {1, 0});
   define_builtin_method("slice.skipBits", Slice, ParamsSliceInt, Slice, nullptr,
                               compile_skip_bits_in_slice,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
   define_builtin_method("slice.preloadInt", Slice, ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, _3, false, true),
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf);
   define_builtin_method("slice.preloadUint", Slice, ParamsSliceInt, Int, nullptr,
                               std::bind(compile_fetch_int, _1, _2, _3, false, false),
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf);
   define_builtin_method("slice.preloadBits", Slice, ParamsSliceInt, Slice, nullptr,
                               std::bind(compile_fetch_slice, _1, _2, _3, false),
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf);
   define_builtin_method("slice.tryStripPrefix", Slice, {Slice, Int, Int}, Bool, nullptr,
                               compile_slice_sdbeginsq,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf);
   define_builtin_method("builder.storeInt", Builder, {Builder, Int, Int}, Unit, nullptr,
                               std::bind(compile_store_int, _1, _2, _3, true),
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0, 2}, {});
   define_builtin_method("builder.storeUint", Builder, {Builder, Int, Int}, Unit, nullptr,
                               std::bind(compile_store_int, _1, _2, _3, false),
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0, 2}, {});
   define_builtin_method("builder.storeBool", Builder, {Builder, Bool}, Unit, nullptr,
                               compile_store_bool,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf,
                                 {1, 0}, {});
   define_builtin_method("builder.storeCoins", Builder, {Builder, TypeDataCoins::create()}, Unit, nullptr,
                               compile_store_coins,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagHasMutateParams | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf);
   define_builtin_method("address.buildSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Builder, nullptr,
                                 generate_address_buildInAnotherShard,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf,
                                 {"self", "options"});
   define_builtin_method("address.calculateSameAddressInAnotherShard", Address, {Address, AddressShardingOptions}, Address, nullptr,
                                 generate_address_calculateInAnotherShard,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf,
                                 {"self", "options"});
   define_builtin_method("debug.print", debug, {typeT}, Unit, declGenericT,
                                 compile_debug_print_to_string,
@@ -1809,95 +1809,95 @@ void define_builtins() {
   // a couple of its methods are "consteval" and can be used in constants / fields defaults / etc.
   define_builtin_method("reflect.typeNameOf", reflect, {}, String, declGenericT,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.typeNameOfObject", reflect, {typeT}, String, declGenericT,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.typeUniqueIdxOf", reflect, {}, Int, declGenericT,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.typeUniqueIdxOfObject", reflect, {typeT}, Int, declGenericT,
                               compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.stackSizeOf", reflect, {}, Int, declGenericT,
                                 generate_reflect_stackSizeOf,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.stackSizeOfObject", reflect, {typeT}, Int, declGenericT,
                                 compile_reflect_stackSizeOfObject,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.serializationPrefixOf", reflect, {}, TypeDataTensor::create({Int, Int}), declGenericT,
                                 generate_reflect_serializationPrefixOf,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.estimateSerializationOf", typeT, {}, TypeDataTensor::create({Int, Int, Int, Int}), declGenericT,
                                 generate_reflect_estimateSerializationOf,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("reflect.sourceLocation", reflect, {}, SourceLocation, nullptr,
                                 compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
   define_builtin_method("reflect.sourceLocationAsString", reflect, {}, String, nullptr,
                                 compile_time_only_function,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagCompileTimeVal);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagCompileTimeVal);
 
   // serialization/deserialization methods to/from cells (or, more low-level, slices/builders)
   // they work with structs (or, more low-level, with arbitrary types)
   define_builtin_method("T.toCell", typeT, {typeT, PackOptions}, CellT, declReceiverT,
                                 generate_T_toCell,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "options"});
   define_builtin_method("T.fromCell", typeT, {TypeDataCell::create(), UnpackOptions}, typeT, declReceiverT,
                                 generate_T_fromCell,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT,
                                 {"packedCell", "options"});
   define_builtin_method("T.fromSlice", typeT, {Slice, UnpackOptions}, typeT, declReceiverT,
                                 generate_T_fromSlice,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT,
                                 {"rawSlice", "options"});
   define_builtin_method("T.forceLoadLazyObject", typeT, {typeT}, Slice, declReceiverT,
                                 generate_T_forceLoadLazyObject,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self"});
   define_builtin_method("Cell<T>.load", CellT, {CellT, UnpackOptions}, typeT, declReceiverT,
                                 generate_T_fromCell,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "options"});
   define_builtin_method("slice.loadAny", Slice, {Slice, UnpackOptions}, typeT, declGenericT,
                                 generate_slice_loadAny,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "options"});
   define_builtin_method("slice.skipAny", Slice, {Slice, UnpackOptions}, Slice, declGenericT,
                                 generate_slice_skipAny,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "options"});
   define_builtin_method("builder.storeAny", Builder, {Builder, typeT, PackOptions}, Builder, declGenericT,
                                 generate_builder_storeAny,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagReturnsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "v", "options"});
   define_builtin_method("T.toTuple", typeT, {typeT}, TypeDataArray::create(TypeDataUnknown::create()), declReceiverT,
                                 compile_T_to_tuple,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("T.fromTuple", typeT, {TypeDataArray::create(TypeDataUnknown::create())}, typeT, declReceiverT,
                                 compile_T_from_tuple,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT);
 
   define_builtin_func("createMessage", {CreateMessageOptions}, OutMessage, declTBody,
                                 generate_createMessage,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT,
                                 {"options"});
   define_builtin_func("createExternalLogMessage", {CreateExternalLogMessageOptions}, OutMessage, declTBody,
                                 generate_createExternalLogMessage,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT,
                                 {"options"});
   define_builtin_method("AutoDeployAddress.buildAddress", AutoDeployAddress, {AutoDeployAddress}, Builder, nullptr,
                                 generate_AutoDeployAddress_buildAddress,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf,
                                 {"self"});
   define_builtin_method("AutoDeployAddress.calculateAddress", AutoDeployAddress, {AutoDeployAddress}, Address, nullptr,
                                 generate_AutoDeployAddress_calculateAddress,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf,
                                 {"self"});
   define_builtin_method("AutoDeployAddress.addressMatches", AutoDeployAddress, {AutoDeployAddress, Address}, Bool, nullptr,
                                 generate_AutoDeployAddress_addressMatches,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf,
                                 {"self", "addr"});
 
   // functions not presented in stdlib at all
@@ -1905,13 +1905,13 @@ void define_builtins() {
   // each of them is handled in a special way, search by its name
   define_builtin_func("__expect_type", {typeT, String}, Unit, declGenericT,
                                 compile_expect_type,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT);
   define_builtin_func("__expect_inline", {Bool}, Unit, nullptr,
                                 compile_expect_type,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
   define_builtin_func("__expect_lazy", {String}, Unit, nullptr,
                                 compile_expect_type,
-                                FunctionData::flagMarkedAsPure);
+                                FunctionData::flagRemovableIfUnused);
 
   TypePtr MapKV = TypeDataMapKV::create(TypeDataGenericT::create("K"), TypeDataGenericT::create("V"));
   TypePtr TKey = TypeDataGenericT::create("K");
@@ -1926,85 +1926,85 @@ void define_builtins() {
   // but all calls to them are handled at generating Ops from AST, their "simple compile" is not called
   define_builtin_func("createEmptyMap", {}, MapKV, declGenericMapKV,
                                 compile_createEmptyMap,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT);
   define_builtin_func("createMapFromLowLevelDict", {TypeDataUnion::create_nullable(TypeDataCell::create())}, MapKV, declGenericMapKV,
                                 compile_createMapFromLowLevelDict,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAllowAnyWidthT);
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAllowAnyWidthT);
   define_builtin_method("map<K,V>.exists", MapKV, {MapKV, TKey}, TypeDataBool::create(), declReceiverMapKV,
                                 generate_mapKV_exists,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key"});
   define_builtin_method("map<K,V>.get", MapKV, {MapKV, TKey}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_get,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key"});
   define_builtin_method("map<K,V>.mustGet", MapKV, {MapKV, TKey, TypeDataInt::create()}, TValue, declReceiverMapKV,
                                 generate_mapKV_mustGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key", "throwIfNotFound"});
   define_builtin_method("map<K,V>.set", MapKV, {MapKV, TKey, TValue}, TypeDataVoid::create(), declReceiverMapKV,
                                 generate_mapKV_set,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT | FunctionData::flagReturnsSelf,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT | FunctionData::flagReturnsSelf,
                                 {"self", "key", "value"});
   define_builtin_method("map<K,V>.setAndGetPrevious", MapKV, {MapKV, TKey, TValue}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_setGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key", "value"});
   define_builtin_method("map<K,V>.replaceIfExists", MapKV, {MapKV, TKey, TValue}, TypeDataBool::create(), declReceiverMapKV,
                                 generate_mapKV_replace,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key", "value"});
   define_builtin_method("map<K,V>.replaceAndGetPrevious", MapKV, {MapKV, TKey, TValue}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_replaceGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key", "value"});
   define_builtin_method("map<K,V>.addIfNotExists", MapKV, {MapKV, TKey, TValue}, TypeDataBool::create(), declReceiverMapKV,
                                 generate_mapKV_add,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key", "value"});
   define_builtin_method("map<K,V>.addOrGetExisting", MapKV, {MapKV, TKey, TValue}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_addGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key", "value"});
   define_builtin_method("map<K,V>.delete", MapKV, {MapKV, TKey}, TypeDataBool::create(), declReceiverMapKV,
                                 generate_mapKV_del,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key"});
   define_builtin_method("map<K,V>.deleteAndGetDeleted", MapKV, {MapKV, TKey}, LookupResultT, declReceiverMapKV,
                                 generate_mapKV_delGet,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagHasMutateParams | FunctionData::flagAllowAnyWidthT,
                                 {"self", "key"});
   define_builtin_method("map<K,V>.findFirst", MapKV, {MapKV}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findFirst,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self"});
   define_builtin_method("map<K,V>.findLast", MapKV, {MapKV}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findLast,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self"});
   define_builtin_method("map<K,V>.findKeyGreater", MapKV, {MapKV, TKey}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findKeyGreater,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "pivotKey"});
   define_builtin_method("map<K,V>.findKeyGreaterOrEqual", MapKV, {MapKV, TKey}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findKeyGreaterOrEqual,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "pivotKey"});
   define_builtin_method("map<K,V>.findKeyLess", MapKV, {MapKV, TKey}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findKeyLess,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "pivotKey"});
   define_builtin_method("map<K,V>.findKeyLessOrEqual", MapKV, {MapKV, TKey}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_findKeyLessOrEqual,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "pivotKey"});
   define_builtin_method("map<K,V>.iterateNext", MapKV, {MapKV, EntryKV}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_iterateNext,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "current"});
   define_builtin_method("map<K,V>.iteratePrev", MapKV, {MapKV, EntryKV}, EntryKV, declReceiverMapKV,
                                 generate_mapKV_iteratePrev,
-                                FunctionData::flagMarkedAsPure | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
+                                FunctionData::flagRemovableIfUnused | FunctionData::flagAcceptsSelf | FunctionData::flagAllowAnyWidthT,
                                 {"self", "current"});
 
   // low-level functions that actually emit TVM assembly, they work on a "dict" level
@@ -2015,35 +2015,35 @@ void define_builtins() {
   TypePtr LookupSliceFound = TypeDataTensor::create({TypeDataSlice::create(), TypeDataInt::create()});
 
   define_builtin_func("__dict.get", {KeySliceOrInt, PlainDict, TypeDataInt::create()}, LookupSliceFound, nullptr,
-                                  compile_dict_get, FunctionData::flagMarkedAsPure);
+                                  compile_dict_get, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.getMin", {PlainDict}, TypeDataTensor::create({ValueSlice, KeySliceOrInt, ValueFound}), nullptr,
-                                  compile_dict_getMin, FunctionData::flagMarkedAsPure);
+                                  compile_dict_getMin, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.getMax", {PlainDict}, TypeDataTensor::create({ValueSlice, KeySliceOrInt, ValueFound}), nullptr,
-                                  compile_dict_getMax, FunctionData::flagMarkedAsPure);
+                                  compile_dict_getMax, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.getNext", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getNext, FunctionData::flagMarkedAsPure);
+                                  compile_dict_getNext, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.getNextEq", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getNextEq, FunctionData::flagMarkedAsPure);
+                                  compile_dict_getNextEq, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.getPrev", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getPrev, FunctionData::flagMarkedAsPure);
+                                  compile_dict_getPrev, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.getPrevEq", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_getPrevEq, FunctionData::flagMarkedAsPure);
+                                  compile_dict_getPrevEq, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.set", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, PlainDict, nullptr,
-                                  compile_dict_set, FunctionData::flagMarkedAsPure);
+                                  compile_dict_set, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.setGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_setGet, FunctionData::flagMarkedAsPure);
+                                  compile_dict_setGet, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.replace", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_replace, FunctionData::flagMarkedAsPure);
+                                  compile_dict_replace, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.replaceGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_replaceGet, FunctionData::flagMarkedAsPure);
+                                  compile_dict_replaceGet, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.add", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_add, FunctionData::flagMarkedAsPure);
+                                  compile_dict_add, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.addGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_addGet, FunctionData::flagMarkedAsPure);
+                                  compile_dict_addGet, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.del", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, TypeDataBool::create()}), nullptr,
-                                  compile_dict_del, FunctionData::flagMarkedAsPure);
+                                  compile_dict_del, FunctionData::flagRemovableIfUnused);
   define_builtin_func("__dict.delGet", {KeySliceOrInt, TypeDataSlice::create(), PlainDict, TypeDataInt::create()}, TypeDataTensor::create({PlainDict, LookupSliceFound}), nullptr,
-                                  compile_dict_delGet, FunctionData::flagMarkedAsPure);
+                                  compile_dict_delGet, FunctionData::flagRemovableIfUnused);
 }
 
 // there are some built-in functions that operate on types declared in stdlib (like Cell<T>)
