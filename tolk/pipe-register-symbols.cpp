@@ -244,12 +244,15 @@ static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
 }
 
 static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr base_fun_ref = nullptr, std::string override_name = {}, const GenericsSubstitutions* substitutedTs = nullptr) {
-  if (v->is_builtin_function()) {
-    return nullptr;
-  }
-
   V<ast_identifier> v_ident = v->get_identifier();
   std::string_view f_identifier = v_ident->name;   // function or method name
+
+  // `builtin` is a compiler/stdlib contract, not a way for user code to declare new intrinsics
+  if (v->is_builtin_function() && !v->range.get_src_file()->is_stdlib_file) {
+    return nullptr;
+  }
+  // note that `builtin` from stdlib pass the pipeline, their names/params are registered,
+  // and later (after all symbols are registered) their implementation is redefined, see `setup_legacy_builtins`
 
   std::vector<LocalVarData> parameters;
   int n_mutate_params = 0;
@@ -270,11 +273,13 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   }
 
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  FunctionBody f_body = v->is_code_function()
-    ? static_cast<FunctionBody>(new FunctionBodyCode)
-    : v->is_get_prototype()
-      ? static_cast<FunctionBody>(new FunctionBodyPrototype)
-      : static_cast<FunctionBody>(new FunctionBodyAsm);
+  FunctionBody f_body = v->is_builtin_function()
+      ? static_cast<FunctionBody>(new FunctionBodyBuiltinStub)
+      : v->is_code_function()
+        ? static_cast<FunctionBody>(new FunctionBodyCode)
+        : v->is_get_prototype()
+          ? static_cast<FunctionBody>(new FunctionBodyPrototype)
+          : static_cast<FunctionBody>(new FunctionBodyAsm);
   if (v->is_get_prototype() && !G_settings.allow_empty_get_fun) {
     err("empty `get fun` is allowed only with --allow-empty-get-fun\n""hint: provide a function body `{ ... }`, or pass this flag for ABI-only prototypes").fire(v_ident);
   }

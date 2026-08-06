@@ -215,7 +215,7 @@ std::vector<var_idx_t> UnpackContext::loadMaybeRef(const char* purpose) const {
 void UnpackContext::loadAndCheckOpcode(PackOpcode opcode) const {
   std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
   std::vector args = { ir_slice0, code.create_int(origin, opcode.pack_prefix, "(pack-prefix)"), code.create_int(origin, opcode.prefix_len, "(prefix-len)") };
-  code.add_call(origin, {ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.__tryStripPrefix"), force_keep_arg());
+  code.add_call(origin, {ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("__tryStripPrefix"), force_keep_arg());
   std::vector args_throwifnot = { option_throwIfOpcodeDoesNotMatch(), ir_prefix_eq[0] };
   code.add_call(origin, {}, std::move(args_throwifnot), lookup_function("__throw_ifnot"));
 }
@@ -329,16 +329,16 @@ struct S_VariadicIntN final : ISerializer {
     : n_bits(n_bits), is_unsigned(is_unsigned) {}
 
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
-    FunctionPtr f_storeVarInt = lookup_function("builder.__storeVarInt");
+    FunctionPtr f_storeVarInt = lookup_function("__storeVarInt");
     std::vector args = { ctx->ir_builder0, rvect[0], code.create_int(origin, n_bits, "(n-bits)"), code.create_int(origin, is_unsigned, "(is-unsigned)") };
     code.add_call(origin, ctx->ir_builder, std::move(args), f_storeVarInt, /* force_keep = */ true);
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
-    FunctionPtr f_loadVarInt = lookup_function("slice.__loadVarInt");
+    FunctionPtr f_loadVarInt = lookup_function("__loadVarInt");
     std::vector args = { ctx->ir_slice0, code.create_int(origin, n_bits, "(n-bits)"), code.create_int(origin, is_unsigned, "(is-unsigned)") };
     std::vector result = code.create_tmp_var(TypeDataInt::create(), origin, "(loaded-varint)");
-    code.add_call(origin, {ctx->ir_slice0, result[0]}, std::move(args), f_loadVarInt, ctx->force_keep_arg());
+    code.add_call(origin, {result[0], ctx->ir_slice0}, std::move(args), f_loadVarInt, ctx->force_keep_arg());
     return result;
   }
 
@@ -804,7 +804,7 @@ struct S_Either final : ISerializer {
     tolk_assert(options.match_blocks.size() == 2);
     std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
     std::vector args = { ctx->ir_slice0, code.create_int(origin, 1, "(pack-prefix)"), code.create_int(origin, 1, "(prefix-len)") };
-    code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.__tryStripPrefix"), ctx->force_keep_arg());
+    code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("__tryStripPrefix"), ctx->force_keep_arg());
     Op& if_op = code.add_if_else(origin, ir_prefix_eq);
     {
       code.push_set_cur(if_op.block0);
@@ -910,7 +910,7 @@ struct S_MultipleConstructors final : ISerializer {
       return ir_result;
     }
 
-    FunctionPtr f_tryStripPrefix = lookup_function("slice.__tryStripPrefix");
+    FunctionPtr f_tryStripPrefix = lookup_function("__tryStripPrefix");
     std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
     for (int i = 0; i < t_union->size() - has_void(); ++i) {
       TypePtr variant = t_union->variants[i];
@@ -957,7 +957,7 @@ struct S_MultipleConstructors final : ISerializer {
       }
     }
 
-    FunctionPtr f_tryStripPrefix = lookup_function("slice.__tryStripPrefix");
+    FunctionPtr f_tryStripPrefix = lookup_function("__tryStripPrefix");
     std::vector ir_prefix_eq = code.create_tmp_var(TypeDataInt::create(), origin, "(prefix-eq)");
 
     for (int i = 0; i < t_union->size(); ++i) {
@@ -1290,7 +1290,7 @@ struct S_CustomStruct final : ISerializer {
     StructData::PackOpcode opcode = struct_ref->opcode;
     if (opcode.exists()) {    // it's `match` over a struct (makes sense for a struct with prefix and `else` branch)
       std::vector args = { ctx->ir_slice0, code.create_int(origin, opcode.pack_prefix, "(pack-prefix)"), code.create_int(origin, opcode.prefix_len, "(prefix-len)") };
-      code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("slice.__tryStripPrefix"), ctx->force_keep_arg());
+      code.add_call(origin, {ctx->ir_slice0, ir_prefix_eq[0]}, std::move(args), lookup_function("__tryStripPrefix"), ctx->force_keep_arg());
     } else {
       code.add_let(origin, ir_prefix_eq, {code.create_int(origin, -1, "(true)")});
     }

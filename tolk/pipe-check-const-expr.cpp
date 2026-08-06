@@ -74,7 +74,7 @@ void pipeline_check_constant_expressions() {
     }
   }
   // and for default values of parameters
-  for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
+  for (FunctionPtr fun_ref : get_all_functions()) {
     for (int i = 0; i < fun_ref->get_num_params(); ++i) {
       LocalVarPtr param_ref = &fun_ref->get_param(i);
       if (param_ref->has_default_value() && !fun_ref->is_generic_function()) {

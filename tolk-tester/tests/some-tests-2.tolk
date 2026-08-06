@@ -125,7 +125,8 @@ fun test96(p: Point) {
     ...
     DUMPSTK
     x{6d79} PUSHSLICE
-    STRDUMP DROP        //  f s
+    STRDUMP
+    DROP                //  f s
     CTOS                //  f '6
     SBITS	            //  f '7
   }>

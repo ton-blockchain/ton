@@ -2437,7 +2437,8 @@ static void convert_asm_body_to_AsmOp(FunctionPtr fun_ref, FunctionBodyAsm* asm_
 class UpdateArgRetOrderConsideringStackWidth final {
 public:
   static bool should_visit_function(FunctionPtr fun_ref) {
-    return !fun_ref->is_generic_function() && (!fun_ref->ret_order.empty() || !fun_ref->arg_order.empty());
+    return fun_ref->is_asm_function() && !fun_ref->is_generic_function() &&
+           (!fun_ref->ret_order.empty() || !fun_ref->arg_order.empty());
   }
 
   static void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
@@ -2491,7 +2492,7 @@ public:
 class ConvertASTToLegacyOpVisitor final {
 public:
   static bool should_visit_function(FunctionPtr fun_ref) {
-    return !fun_ref->is_generic_function();
+    return !fun_ref->is_generic_function() && (fun_ref->is_code_function() || fun_ref->is_asm_function());
   }
 
   static void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration>) {

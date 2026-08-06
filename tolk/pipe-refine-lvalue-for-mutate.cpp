@@ -36,20 +36,14 @@ namespace tolk {
 
 static Error err_invalid_mutate_arg_passed(FunctionPtr fun_ref, const LocalVarData& p_sym, bool arg_passed_as_mutate, AnyV arg_expr) {
   std::string arg_str(arg_expr->kind == ast_reference ? arg_expr->as<ast_reference>()->get_name() : "obj");
-  std::string param_name(p_sym.name);
-
-  // built-in functions don't have parameter names, let it be `slice` / `builder` / etc.
-  if (param_name.empty()) {
-    param_name = p_sym.declared_type->as_human_readable();
-  }
 
   if (p_sym.is_mutate_parameter() && !arg_passed_as_mutate) {
     // called `mutating_function(arg)`; suggest: `mutate arg`
-    return err("function `{}` mutates parameter `{}`\n""hint: specify `mutate` when passing an argument, like `mutate {}`", fun_ref, param_name, arg_str)
+    return err("function `{}` mutates parameter `{}`\n""hint: specify `mutate` when passing an argument, like `mutate {}`", fun_ref, p_sym.name, arg_str)
       .with_secondary(&p_sym, "parameter declared here");
   } else {
     // called `usual_function(mutate arg)`
-    return err("incorrect `mutate`, since `{}` does not mutate parameter `{}`", fun_ref, param_name)
+    return err("incorrect `mutate`, since `{}` does not mutate parameter `{}`", fun_ref, p_sym.name)
       .with_secondary(&p_sym, "parameter declared here");
   }
 }

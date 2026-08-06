@@ -32,8 +32,7 @@ class ErrorCollector;  // forward declaration
 struct CompilerState {
   GlobalSymbolTable symtable;
 
-  std::vector<FunctionPtr> all_builtins;        // all built-in functions
-  std::vector<FunctionPtr> all_functions;       // all user-defined (not built-in) global-scope functions, with generic instantiations, with lambdas
+  std::vector<FunctionPtr> all_functions;       // all functions traversed by pipelines, including built-ins, generic instantiations, and lambdas
   std::vector<FunctionPtr> all_methods;         // all user-defined and built-in extension methods for arbitrary types (receivers)
   std::vector<GlobalVarPtr> all_global_vars;
   std::vector<GlobalConstPtr> all_constants;

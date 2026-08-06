@@ -110,6 +110,7 @@ fun createEmptyList<T>(): lisp_list<T>
 /// `lisp_list<T>` can be serialized if `T` is serializable. It's encoded as reversed snake refs:
 /// A list `[1 2 3]` (on a stack: `[1 [2 [3 null]]]`) is "3.ref(2.ref(1.ref(empty cell)))".
 /// An empty list `[]` (on a stack: `null`) is "empty cell"
+@inline
 fun lisp_list<T>.packToBuilder(self, mutate b: builder): void {
     var tail = createEmptyCell();
     var ptr = self;
@@ -121,6 +122,7 @@ fun lisp_list<T>.packToBuilder(self, mutate b: builder): void {
 
 /// Unserialize `lisp_list<T>` from snake refs:
 /// From "3.ref(2.ref(1.ref(empty cell)))" get a list `[1 2 3]` (on a stack: `[1 [2 [3 null]]]`).
+@inline
 fun lisp_list<T>.unpackFromSlice(mutate s: slice): lisp_list<T> {
     var result = [] as lisp_list<T>;
     var head = s.loadRef().beginParse();

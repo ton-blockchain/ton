@@ -217,38 +217,38 @@ fun createEmptyTuple(): array<unknown>
 /// If its size exceeds 255, throws a type check exception.
 @pure
 fun array<T>.push(mutate self, value: T): void
-    builtin
+    asm "TPUSH" // for multi-slot T, the value is first TUPLE'd
 
 /// Returns the first element of a non-empty array.
 @pure
 fun array<T>.first(self): T
-    builtin
+    asm "FIRST" // for multi-slot T, the result is additionally UNTUPLE'd
 
 /// Returns the `i`-th element of an array.
 @pure
 fun array<T>.get(self, index: int): T
-    builtin
+    asm "INDEXVAR" // constant index uses `INDEX n`; multi-slot T is additionally UNTUPLE'd
 
 /// Sets the `i`-th element of an array to a specified value
 /// (an element with this index must already exist, a new element is not created).
 @pure
 fun array<T>.set(mutate self, value: T, index: int): void
-    builtin
+    asm "SETINDEXVAR" // constant index uses `SETINDEX n`; multi-slot T is first TUPLE'd
 
 /// Returns the size of an array (elements count in it).
 @pure
 fun array<T>.size(self): int
-    builtin
+    asm "TLEN"
 
 /// Returns the last element of a non-empty array.
 @pure
 fun array<T>.last(self): T
-    builtin
+    asm "LAST" // for multi-slot T, the result is additionally UNTUPLE'd
 
 /// Pops and returns the last element of a non-empty array.
 @pure
 fun array<T>.pop(mutate self): T
-    builtin
+    asm "TPOP" // for multi-slot T, the result is additionally UNTUPLE'd
 
 /// Packs any object from a stack to a tuple. 
 /// An object occupies N slots on a stack — the tuple will be of size N.
@@ -266,14 +266,14 @@ fun array<T>.pop(mutate self): T
 /// See [T.fromTuple] counterpart.
 @pure
 fun T.toTuple(self): array<unknown>
-    builtin
+    asm "1 TUPLE" // 1 is replaced by T's stack width; TUPLEVAR is used above 15
 
 /// Unpacks a tuple back to an object on a stack.
 /// It works identically as casting `unknown` to an object.
 /// See [T.toTuple] for explanation and examples.
 @pure
 fun T.fromTuple(packedObject: array<unknown>): T
-    builtin
+    asm "1 UNTUPLE" // 1 is replaced by T's stack width; UNTUPLEVAR is used above 15
 
 /**
     Mathematical primitives.
@@ -332,22 +332,22 @@ fun modDiv(x: int, y: int): (int, int)
 /// The intermediate result is stored in a 513-bit integer to prevent precision loss.
 @pure
 fun mulDivFloor(x: int, y: int, z: int): int
-    builtin
+    asm "MULDIV" // constants may fold or use specialized shift/div instructions
 
 /// Similar to [mulDivFloor], but rounds the result: round(x * y / z).
 @pure
 fun mulDivRound(x: int, y: int, z: int): int
-    builtin
+    asm "MULDIVR" // constants may fold or use specialized shift/div instructions
 
 /// Similar to [mulDivFloor], but ceils the result: ceil(x * y / z).
 @pure
 fun mulDivCeil(x: int, y: int, z: int): int
-    builtin
+    asm "MULDIVC" // constants may fold or use specialized shift/div instructions
 
 /// Computes the quotient and remainder of (x * y / z). Example: mulDivMod(112,3,10) = (33,6)
 @pure
 fun mulDivMod(x: int, y: int, z: int): (int, int)
-    builtin
+    asm "MULDIVMOD"
 
 
 /**
@@ -788,15 +788,15 @@ struct debug
 
 /// Dump a variable to the debug log as a raw TVM stack value.
 fun debug.print<T>(x: T): void
-    builtin
+    asm "s0 DUMP" "DROP" // repeated for every stack slot of multi-slot T
 
 /// Dump a string to the debug log.
 fun debug.printString(x: string): void
-    builtin
+    asm "CTOS" "STRDUMP" "DROP" // only the first snake chunk is dumped
 
 /// Dumps the stack (at most the top 255 values) and shows the total stack depth.
 fun debug.dumpStack(): void
-    builtin
+    asm "DUMPSTK"
 
 
 /*
@@ -822,14 +822,14 @@ fun debug.dumpStack(): void
 @pure
 @deprecated("use `[]` instead of `createEmptyMap`")
 fun createEmptyMap<K, V>(): map<K, V>
-    builtin
+    asm "NEWDICT" // an empty map is represented by TVM null
 
 /// Converts a low-level TVM dictionary to a typed map.
 /// Actually, does nothing: accepts an "optional cell" and returns the same "optional cell",
 /// so if you specify key/value types incorrectly, it will fail later, at `map.get` and similar.
 @pure
 fun createMapFromLowLevelDict<K, V>(d: dict): map<K, V>
-    builtin
+    asm "NOP" // map and low-level dict have the same runtime representation
 
 /// Converts a high-level map to a low-level TVM dictionary.
 /// Actually, does nothing: returns the same "optional cell".
@@ -847,7 +847,7 @@ fun map<K, V>.isEmpty(self): bool
 /// Checks whether a key exists in a map.
 @pure
 fun map<K, V>.exists(self, key: K): bool
-    builtin
+    asm "DICTGET" // actual lowering depends on K/V serialization
 
 /// Gets an element by key. If not found, does NOT throw, just returns isFound = false.
 /// ```
@@ -858,12 +858,12 @@ fun map<K, V>.exists(self, key: K): bool
 /// ```
 @pure
 fun map<K, V>.get(self, key: K): MapLookupResult<V>
-    builtin
+    asm "DICTGET" // actual lowering depends on K/V serialization
 
 /// Gets an element by key and throws if it doesn't exist.
 @pure
 fun map<K, V>.mustGet(self, key: K, throwIfNotFound: int = 9): V
-    builtin
+    asm "DICTGET" // actual lowering depends on K/V serialization
 
 /// Sets an element by key.
 /// ```
@@ -872,7 +872,7 @@ fun map<K, V>.mustGet(self, key: K, throwIfNotFound: int = 9): V
 /// Since it returns `self`, calls may be chained.
 @pure
 fun map<K, V>.set(mutate self, key: K, value: V): self
-    builtin
+    asm "DICTSET" // actual lowering depends on K/V serialization
 
 /// Sets an element and returns the previous element at that key. If no previous, isFound = false.
 /// ```
@@ -883,32 +883,32 @@ fun map<K, V>.set(mutate self, key: K, value: V): self
 /// ```
 @pure
 fun map<K, V>.setAndGetPrevious(mutate self, key: K, value: V): MapLookupResult<V>
-    builtin
+    asm "DICTSETGET" // actual lowering depends on K/V serialization
 
 /// Sets an element only if the key already exists. Returns whether an element was replaced.
 @pure
 fun map<K, V>.replaceIfExists(mutate self, key: K, value: V): bool
-    builtin
+    asm "DICTREPLACE" // actual lowering depends on K/V serialization
 
 /// Sets an element only if the key already exists and returns the previous element at that key.
 @pure
 fun map<K, V>.replaceAndGetPrevious(mutate self, key: K, value: V): MapLookupResult<V>
-    builtin
+    asm "DICTREPLACEGET" // actual lowering depends on K/V serialization
 
 /// Sets an element only if the key does not exist. Returns whether an element was added.
 @pure
 fun map<K, V>.addIfNotExists(mutate self, key: K, value: V): bool
-    builtin
+    asm "DICTADD" // actual lowering depends on K/V serialization
 
 /// Sets an element only if the key does not exist. If exists, returns an old value.
 @pure
 fun map<K, V>.addOrGetExisting(mutate self, key: K, value: V): MapLookupResult<V>
-    builtin
+    asm "DICTADDGET" // actual lowering depends on K/V serialization
 
 /// Delete an element at the key. Returns whether an element was deleted. 
 @pure
 fun map<K, V>.delete(mutate self, key: K): bool
-    builtin
+    asm "DICTDEL" // actual lowering depends on K/V serialization
 
 /// Delete an element at the key and returns the deleted element. If not exists, isFound = false.
 /// ```
@@ -919,7 +919,7 @@ fun map<K, V>.delete(mutate self, key: K): bool
 /// ```
 @pure
 fun map<K, V>.deleteAndGetDeleted(mutate self, key: K): MapLookupResult<V>
-    builtin
+    asm "DICTDELGET" // actual lowering depends on K/V serialization
 
 /// Finds the first (minimal) element in a map. If key are integers, it's the minimal integer.
 /// If keys are addresses or complex structures (represented as slices), it's lexicographically smallest.
@@ -934,7 +934,7 @@ fun map<K, V>.deleteAndGetDeleted(mutate self, key: K): MapLookupResult<V>
 /// ```
 @pure
 fun map<K, V>.findFirst(self): MapEntry<K, V>
-    builtin
+    asm "DICTMIN" // actual lowering depends on K/V serialization
 
 /// Finds the last (maximal) element in a map. If key are integers, it's the maximal integer.
 /// If keys are addresses or complex structures (represented as slices), it's lexicographically largest.
@@ -949,31 +949,31 @@ fun map<K, V>.findFirst(self): MapEntry<K, V>
 /// ```
 @pure
 fun map<K, V>.findLast(self): MapEntry<K, V>
-    builtin
+    asm "DICTMAX" // actual lowering depends on K/V serialization
 
 /// Finds an element with key > pivotKey.
 /// Don't forget to check `isFound` before using `getKey()` and `loadValue()` of the result.
 @pure
 fun map<K, V>.findKeyGreater(self, pivotKey: K): MapEntry<K, V>
-    builtin
+    asm "DICTGETNEXT" // actual lowering depends on K/V serialization
 
 /// Finds an element with key >= pivotKey.
 /// Don't forget to check `isFound` before using `getKey()` and `loadValue()` of the result.
 @pure
 fun map<K, V>.findKeyGreaterOrEqual(self, pivotKey: K): MapEntry<K, V>
-    builtin
+    asm "DICTGETNEXTEQ" // actual lowering depends on K/V serialization
 
 /// Finds an element with key < pivotKey.
 /// Don't forget to check `isFound` before using `getKey()` and `loadValue()` of the result.
 @pure
 fun map<K, V>.findKeyLess(self, pivotKey: K): MapEntry<K, V>
-    builtin
+    asm "DICTGETPREV" // actual lowering depends on K/V serialization
 
 /// Finds an element with key <= pivotKey.
 /// Don't forget to check `isFound` before using `getKey()` and `loadValue()` of the result.
 @pure
 fun map<K, V>.findKeyLessOrEqual(self, pivotKey: K): MapEntry<K, V>
-    builtin
+    asm "DICTGETPREVEQ" // actual lowering depends on K/V serialization
 
 /// Iterate over a map in ascending order.
 /// ```
@@ -986,7 +986,7 @@ fun map<K, V>.findKeyLessOrEqual(self, pivotKey: K): MapEntry<K, V>
 /// ```
 @pure
 fun map<K, V>.iterateNext(self, current: MapEntry<K, V>): MapEntry<K, V>
-    builtin
+    asm "DICTGETNEXT" // actual lowering depends on K/V serialization
 
 /// Iterate over a map in reverse order.
 /// ```
@@ -999,7 +999,7 @@ fun map<K, V>.iterateNext(self, current: MapEntry<K, V>): MapEntry<K, V>
 /// ```
 @pure
 fun map<K, V>.iteratePrev(self, current: MapEntry<K, V>): MapEntry<K, V>
-    builtin
+    asm "DICTGETPREV" // actual lowering depends on K/V serialization
 
 /// `MapLookupResult` is a return value of `map.get`, `map.setAndGetPrevious`, and similar.
 /// Instead of returning a nullable value (that you'd check on null before usage),
@@ -1178,32 +1178,32 @@ fun slice.preloadRef(self): cell
 /// Loads a signed len-bit integer from a slice.
 @pure
 fun slice.loadInt(mutate self, len: int): int
-    builtin
+    asm(-> 1 0) "LDIX" // constant len uses "LDI len"
 
 /// Loads an unsigned len-bit integer from a slice.
 @pure
 fun slice.loadUint(mutate self, len: int): int
-    builtin
+    asm(-> 1 0) "LDUX" // constant len uses "LDU len"
 
 /// Loads the first `0 ≤ len ≤ 1023` bits from a slice.
 @pure
 fun slice.loadBits(mutate self, len: int): slice
-    builtin
+    asm(-> 1 0) "LDSLICEX" // constant len uses "LDSLICE len"
 
 /// Preloads a signed len-bit integer from a slice.
 @pure
 fun slice.preloadInt(self, len: int): int
-    builtin
+    asm "PLDIX" // constant len uses "PLDI len"
 
 /// Preloads an unsigned len-bit integer from a slice.
 @pure
 fun slice.preloadUint(self, len: int): int
-    builtin
+    asm "PLDUX" // constant len uses "PLDU len"
 
 /// Preloads the first `0 ≤ len ≤ 1023` bits from a slice.
 @pure
 fun slice.preloadBits(self, len: int): slice
-    builtin
+    asm "PLDSLICEX" // constant len uses "PLDSLICE len"
 
 /// Loads the serialized amount of nanograms (any unsigned integer up to `2^120 - 1`).
 @pure
@@ -1218,7 +1218,7 @@ fun slice.loadBool(mutate self): bool
 /// Shifts a slice pointer to len bits forward.
 @pure
 fun slice.skipBits(mutate self, len: int): self
-    builtin
+    asm "SDSKIPFIRST" // constant skips can be merged
 
 /// Returns the first `0 ≤ len ≤ 1023` bits of a slice.
 @pure
@@ -1309,12 +1309,12 @@ fun builder.storeRef(mutate self, c: cell): self
 /// Stores a signed len-bit integer into a builder (`0 ≤ len ≤ 257`).
 @pure
 fun builder.storeInt(mutate self, x: int, len: int): self
-    builtin
+    asm(x self len) "STIX" // constant len uses "STI len" or even merged to STSLICECONST
 
 /// Stores an unsigned len-bit integer into a builder (`0 ≤ len ≤ 256`).
 @pure
 fun builder.storeUint(mutate self, x: int, len: int): self
-    builtin
+    asm(x self len) "STUX" // constant len uses "STU len" or even merged to STSLICECONST
 
 /// Stores a slice into a builder.
 @pure
@@ -1350,12 +1350,12 @@ fun builder.storeAddressNone(mutate self): self
 /// Stores the amount of nanograms into a builder.
 @pure
 fun builder.storeCoins(mutate self, x: coins): self
-    builtin
+    asm "STGRAMS" // compile-time zero can be merged with adjacent stores
 
 /// Stores a boolean into a builder.
 @pure
 fun builder.storeBool(mutate self, x: bool): self
-    builtin
+    asm(x self) "1 STI" // compile-time value can be merged with adjacent stores
 
 /// Stores a low-level TVM dictionary (optional cell) into a builder.
 /// In other words, if `c` is null, stores `0`; if `c` is not null, stores `1` and a reference to `c`.

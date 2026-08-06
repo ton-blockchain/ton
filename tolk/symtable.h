@@ -27,7 +27,7 @@ namespace tolk {
 
 struct Symbol {
   std::string name;
-  AnyV ident_anchor;    // "identifier node", e.g. for `struct Demo { ... }` will be `Demo`; nullptr for builtin
+  AnyV ident_anchor;    // "identifier node", e.g. for `struct Demo { ... }` will be `Demo`; nullptr for compiler-only builtins
 
   Symbol(std::string name, AnyV ident_anchor)
     : name(std::move(name))
@@ -44,7 +44,6 @@ struct Symbol {
     return dynamic_cast<ConstTPtr>(this);
   }
 
-  bool is_builtin() const { return ident_anchor == nullptr; }
   void check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) const;
 };
 
@@ -100,6 +99,7 @@ struct LocalVarData final : Symbol {
 struct FunctionBodyCode;
 struct FunctionBodyAsm;
 struct FunctionBodyPrototype;
+struct FunctionBodyBuiltinStub {};
 struct FunctionBodyBuiltinAsmOp;
 struct FunctionBodyBuiltinGenerateOps;
 struct GenericsDeclaration;
@@ -108,6 +108,7 @@ typedef std::variant<
   FunctionBodyCode*,
   FunctionBodyAsm*,
   FunctionBodyPrototype*,
+  FunctionBodyBuiltinStub*,
   FunctionBodyBuiltinAsmOp*,
   FunctionBodyBuiltinGenerateOps*
 > FunctionBody;
@@ -128,7 +129,6 @@ struct FunctionData final : Symbol {
     flagReturnsSelf = 1024,     // return type is `self` (returns the mutated 1st argument), calls can be chainable
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
     flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `grams("0.05")`, `"str".crc32()`, and others
-    flagAllowAnyWidthT = 16384, // for built-in generic functions that <T> is not restricted to be 1-slot type
     flagManualOnBounce = 32768, // for onInternalMessage, don't insert "if (isBounced) return"
   };
 
@@ -153,7 +153,7 @@ struct FunctionData final : Symbol {
   DocCommentLines doc_lines;
   FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`; for a lambda, a containing function
   FunctionBody body;
-  AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
+  AnyV ast_root;                                  // V<ast_function_declaration> for functions declared in source; nullptr for compiler-only builtins
   const LazyLoadPlan* lazy_load_plan = nullptr;   // when has `lazy` vars; see pipe-lazy-load-insertions.cpp
 
   FunctionData(std::string name, AnyV ident_anchor, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, DocCommentLines doc_lines, FunctionBody body, AnyV ast_root)
@@ -212,6 +212,11 @@ struct FunctionData final : Symbol {
   bool is_generic_function() const { return genericTs != nullptr; }
   bool is_instantiation_of_generic_function() const { return substitutedTs != nullptr; }
   bool is_lambda() const { return flags & flagIsLambda; }
+  bool is_builtin() const {
+    return std::holds_alternative<FunctionBodyBuiltinStub*>(body) ||
+           std::holds_alternative<FunctionBodyBuiltinAsmOp*>(body) ||
+           std::holds_alternative<FunctionBodyBuiltinGenerateOps*>(body);
+  }
 
   bool is_inlined_in_place() const { return inline_mode == FunctionInlineMode::inlineInPlace; }
   bool is_type_inferring_done() const { return flags & flagTypeInferringDone; }
@@ -228,7 +233,6 @@ struct FunctionData final : Symbol {
   bool is_really_used() const { return flags & flagReallyUsed; }
   bool is_compile_time_const_val() const { return flags & flagCompileTimeVal; }
   bool is_compile_time_special_gen() const { return std::holds_alternative<FunctionBodyBuiltinGenerateOps*>(body); }
-  bool is_variadic_width_T_allowed() const { return flags & flagAllowAnyWidthT; }
   bool is_manual_on_bounce() const { return flags & flagManualOnBounce; }
 
   bool is_onInternalMessage() const;

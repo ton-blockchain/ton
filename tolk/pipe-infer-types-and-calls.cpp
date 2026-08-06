@@ -244,23 +244,13 @@ static TypePtr pick_exact_type_if_generics_omitted(TypePtr expr_type, TypePtr cm
 // make an error "call to method is ambiguous, valid candidates: formatted list"
 GNU_ATTRIBUTE_NOINLINE
 static Error err_ambiguous_receiver(TypePtr receiver_type, std::string_view method_name, const std::vector<MethodCallCandidate>& candidates) {
-  // built-in functions don't have ident_anchor, so can't call with_secondary with them todo rework built-ins
-  std::string builtin_list;
+  Error diagnostic = err("call to method `{}` for type `{}` is ambiguous", method_name, receiver_type);
   for (const MethodCallCandidate& candidate : candidates) {
     FunctionPtr method_ref = candidate.method_ref;
-    if (method_ref->is_builtin()) {
-      builtin_list += "\ncandidate function: `" + method_ref->as_human_readable() + "` (builtin)";
-    }
-  }
-  Error diagnostic = err("call to method `{}` for type `{}` is ambiguous{}", method_name, receiver_type, builtin_list);
-  for (const MethodCallCandidate& candidate : candidates) {
-    FunctionPtr method_ref = candidate.method_ref;
-    if (!method_ref->is_builtin()) {
-      if (method_ref->is_generic_function()) {
-        diagnostic.with_secondary(method_ref, "candidate function: `{}` with {}", method_ref, candidate.substitutedTs.as_human_readable(false));
-      } else {
-        diagnostic.with_secondary(method_ref, "candidate function: `{}`", method_ref);
-      }
+    if (method_ref->is_generic_function()) {
+      diagnostic.with_secondary(method_ref, "candidate function: `{}` with {}", method_ref, candidate.substitutedTs.as_human_readable(false));
+    } else {
+      diagnostic.with_secondary(method_ref, "candidate function: `{}`", method_ref);
     }
   }
   return diagnostic;
@@ -938,7 +928,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   // returns fun_ref to instantiated function
   FunctionPtr check_and_instantiate_generic_function(SrcRange range, FunctionPtr fun_ref, GenericsSubstitutions&& substitutedTs) const {
     // T for asm function must be a TVM primitive (width 1), otherwise, asm would act incorrectly
-    if (fun_ref->is_asm_function() || fun_ref->is_builtin()) {
+    if (fun_ref->is_asm_function()) {
       for (int i = 0; i < substitutedTs.size(); ++i) {
         if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !is_allowed_asm_generic_function_with_non1_width_T(fun_ref, substitutedTs, i)) {
           err_calling_asm_function_with_non1_stack_width_arg(fun_ref, substitutedTs, i).collect(range, cur_f);
@@ -954,6 +944,16 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // at current point, v is a reference:
     // - either a standalone: `local_var` / `SOME_CONST` / `globalF` / `genericFn<int>`
     // - or inside a call: `globalF()` / `genericFn()` / `genericFn<int>()` / `local_var()`
+
+    if (v->sym == nullptr) {
+      // nullptr may be left after `pipe-resolve-identifiers` only for compiler intrinsics like `__expect_type`
+      // (ordinary functions and variables already have sym assigned)
+      const Symbol* sym = lookup_global_symbol(v->get_name());
+      if (!sym || !sym->try_as<FunctionPtr>()) {
+        err("undefined symbol `{}`", v->get_name()).fire(v->get_identifier(), cur_f);
+      }
+      v->mutate()->assign_sym(sym);
+    }
 
     if (LocalVarPtr var_ref = v->sym->try_as<LocalVarPtr>()) {
       TypePtr local_type = flow.smart_cast_or(SinkExpression(var_ref), nullptr);
@@ -1880,7 +1880,19 @@ public:
     assign_inferred_type(fun_ref, inferred_return_type, TypeDataFunCallable::create(std::move(params_types), inferred_return_type));
   }
 
+  void start_visiting_parameter_defaults(FunctionPtr fun_ref) {
+    FlowContext params_flow;
+    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
+      LocalVarPtr param_ref = &fun_ref->get_param(i);
+      if (param_ref->has_default_value()) {
+        params_flow = infer_any_expr(param_ref->default_value, std::move(params_flow), false, param_ref->declared_type).out_flow;
+      }
+      params_flow.register_known_type(SinkExpression(param_ref), param_ref->declared_type);
+    }
+  }
+
   void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
+    return_statements.clear();
     TypePtr inferred_return_type = fun_ref->declared_return_type;
     if (fun_ref->is_prototype_only()) {
       tolk_assert(fun_ref->declared_return_type);   // checked at lexer
@@ -1947,14 +1959,7 @@ public:
     }
 
     // visit default values of parameters; to correctly track symbols in `fun f(a: int, b: int = a)`, use flow context
-    FlowContext params_flow;
-    for (int i = 0; i < fun_ref->get_num_params(); ++i) {
-      LocalVarPtr param_ref = &fun_ref->get_param(i);
-      if (param_ref->has_default_value()) {
-        params_flow = infer_any_expr(param_ref->default_value, std::move(params_flow), false, param_ref->declared_type).out_flow;
-      }
-      params_flow.register_known_type(SinkExpression(param_ref), param_ref->declared_type);
-    }
+    start_visiting_parameter_defaults(fun_ref);
 
     assign_fun_full_type(fun_ref, inferred_return_type);
     fun_ref->mutate()->assign_is_type_inferring_done();
@@ -1979,19 +1984,6 @@ public:
   // given `enum Color { Red = 1 }` infer that it's int
   void start_visiting_enum_member(EnumMemberPtr member_ref) {
     infer_any_expr(member_ref->init_value, FlowContext(), false);
-  }
-};
-
-class LaunchInferTypesAndMethodsOnce final {
-public:
-  static bool should_visit_function(FunctionPtr fun_ref) {
-    // since inferring can be requested on demand, prevent second execution from a regular pipeline launcher
-    return !fun_ref->is_type_inferring_done() && !fun_ref->is_generic_function();
-  }
-
-  static void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
-    InferTypesAndCallsAndFieldsVisitor visitor;
-    visitor.start_visiting_function(fun_ref, v_function);
   }
 };
 
@@ -2046,19 +2038,29 @@ static void infer_and_save_type_of_constant(GlobalConstPtr const_ref) {
 }
 
 void pipeline_infer_types_and_calls_and_fields() {
-  // loop over user-defined functions
-  LaunchInferTypesAndMethodsOnce launcher;
-  visit_ast_of_all_functions(launcher);
+  // infer every function in registration order; compiler-only built-ins like `__expect_type` have no AST,
+  // while stdlib `builtin` functions have, they also need parameter defaults inferred from the declaration
+  InferTypesAndCallsAndFieldsVisitor visitor;
+  const std::vector<FunctionPtr>& all = get_all_functions();
+  for (size_t i = 0; i < all.size(); ++i) { // NOLINT(*-loop-convert)
+    FunctionPtr fun_ref = all[i];   // generic instantiations can be appended while inferring
+    // inferring could already be done while processing another function on demand
+    if (fun_ref->is_type_inferring_done()) {
+      continue;
+    }
 
-  // assign inferred_type to built-in functions like __throw() 
-  for (FunctionPtr fun_ref : get_all_builtin_functions()) {
-    if (LaunchInferTypesAndMethodsOnce::should_visit_function(fun_ref)) {
-      infer_and_save_return_type_of_function(fun_ref);      
-    }    
+    if (fun_ref->is_generic_function()) {
+      if (fun_ref->is_builtin() && fun_ref->ast_root) {
+        visitor.start_visiting_parameter_defaults(fun_ref);
+      }
+    } else if (fun_ref->ast_root) {
+      visitor.start_visiting_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
+    } else {
+      infer_and_save_return_type_of_function(fun_ref);
+    }
   }
 
   // analyze constants that weren't referenced by any function
-  InferTypesAndCallsAndFieldsVisitor visitor;
   for (GlobalConstPtr const_ref : get_all_declared_constants()) {
     if (!const_ref->inferred_type) {
       visitor.start_visiting_constant(const_ref);

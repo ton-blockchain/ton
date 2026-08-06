@@ -501,11 +501,11 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     new_parameters.reserve(fun_ref->get_num_params());
     for (const LocalVarData& orig_p : fun_ref->parameters) {
       TypePtr new_param_type = replace_genericT_with_deduced(orig_p.declared_type, allocatedTs);
-      new_parameters.emplace_back(orig_p.name, nullptr, new_param_type, orig_p.default_value, orig_p.flags, orig_p.param_idx);
+      new_parameters.emplace_back(orig_p.name, orig_p.ident_anchor, new_param_type, orig_p.default_value, orig_p.flags, orig_p.param_idx);
     }
     TypePtr new_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, allocatedTs);
     TypePtr new_receiver_type = replace_genericT_with_deduced(fun_ref->receiver_type, allocatedTs);
-    FunctionData* new_fun_ref = new FunctionData(new_name, nullptr, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, {}, fun_ref->body, fun_ref->ast_root);
+    FunctionData* new_fun_ref = new FunctionData(new_name, fun_ref->ident_anchor, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, {}, fun_ref->body, fun_ref->ast_root);
     new_fun_ref->arg_order = fun_ref->arg_order;
     new_fun_ref->ret_order = fun_ref->ret_order;
     new_fun_ref->base_fun_ref = fun_ref;
@@ -644,13 +644,8 @@ FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_re
 }
 
 // a function `myFunPTuplePush<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
-// almost all asm/built-in generic functions expect one stack slot, but there are exceptions
+// almost all asm generic functions expect one stack slot, but there are exceptions
 bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, const GenericsSubstitutions& substitutedTs, int idxT) {
-  // if a built-in function is marked with a special flag
-  if (fun_ref->is_variadic_width_T_allowed()) {
-    return true;
-  }
-
   // allow `fun Cell<T>.hash(self)` or `fun map<K,V>.isEmpty(self)` for any generics, because asm does not depend on T/K/V;
   // more specifically: can we use T=Point? yes, if substituting T=Point and T=int gives equal stack width everywhere
   GenericsSubstitutions probeTs(fun_ref->genericTs);

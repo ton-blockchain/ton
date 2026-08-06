@@ -304,9 +304,6 @@ EnumMemberPtr EnumDefData::find_member(std::string_view member_name) const {
 }
 
 static Error err_redefinition_of_symbol(const Symbol* previous) {
-  if (previous->is_builtin()) {
-    return err("redefinition of built-in symbol");
-  }
   return err("redefinition of symbol `{}`", previous->name)
     .with_secondary(previous, "previous definition is here");
 }

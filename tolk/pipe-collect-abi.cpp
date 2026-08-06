@@ -78,7 +78,7 @@ class CollectAbiFromBodyVisitor final : public ASTVisitorFunctionBody {
 
     if (called_f && called_f->is_builtin() && called_f->is_instantiation_of_generic_function()) {
       std::string_view f_name = called_f->base_fun_ref->name;
-      if (f_name == "map<K,V>.mustGet" && v->get_num_args() > 1) {
+      if (f_name == "map<K, V>.mustGet" && v->get_num_args() > 1) {
         on_assert_throw(v->get_arg(1)->get_expr());
       } else if (f_name == "createMessage" && collect_outgoing_messages) {
         abi->register_outgoing_message(called_f->substitutedTs->typeT_at(0));

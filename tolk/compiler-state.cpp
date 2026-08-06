@@ -56,11 +56,7 @@ std::string_view CompilerSettings::get_path_mapping(std::string_view at_prefix) 
   return "";
 }
 
-const std::vector<FunctionPtr>& get_all_builtin_functions() {
-  return G.all_builtins;
-}
-
-const std::vector<FunctionPtr>& get_all_not_builtin_functions() {
+const std::vector<FunctionPtr>& get_all_functions() {
   return G.all_functions;
 }
 

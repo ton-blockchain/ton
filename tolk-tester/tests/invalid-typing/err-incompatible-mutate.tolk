@@ -66,8 +66,8 @@ fun firstMutateSecondNot(x77: int, mutate y77: int) {
 // @stderr incorrect `mutate`, since `firstMutateSecondNot` does not mutate parameter `x77`
 // @stderr function `firstMutateSecondNot` mutates parameter `y77`
 // @stderr specify `mutate` when passing an argument, like `mutate b77`
-// @stderr function `slice.loadUint` mutates parameter `slice`
-// @stderr incorrect `mutate`, since `slice.loadUint` does not mutate parameter `int`
+// @stderr function `slice.loadUint` mutates parameter `self`
+// @stderr incorrect `mutate`, since `slice.loadUint` does not mutate parameter `len`
 // @stderr note: parameter declared here
 fun invalidMutateArgumentPassed(a77: int, b77: int, p77: slice) {
     firstMutateSecondNot(mutate a77, b77);

@@ -205,7 +205,7 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
   FunctionPtr fun_ref = v->fun_maybe;
   tolk_assert(fun_ref && fun_ref->is_builtin());
 
-  // prohibit calling built-ins `__dict.XXX`, `builder.__storeVarInt`, etc.
+  // prohibit calling compiler-only built-ins like `__dict.XXX` and `__storeVarInt`
   if (!fun_ref->name.starts_with("__expect")) {
     err("internal compiler functions are not allowed to be called").fire(v, cur_f);
   }

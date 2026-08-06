@@ -26,8 +26,6 @@
 
 namespace tolk {
 
-void patch_builtins_after_stdlib_loaded();
-
 /*
  *   This pipe transforms AST of types into TypePtr.
  *   It happens after all global symbols were registered, and all local references were bound.
@@ -199,7 +197,8 @@ class TypeNodesVisitorResolver {
         if (const Symbol* sym = lookup_global_symbol(text)) {
           if (TypePtr custom_type = try_resolve_user_defined_type(cur_f, v->range, sym, allow_without_type_arguments)) {
             bool already_resolved = v->resolved_type != nullptr;
-            bool allow_no_import = sym->is_builtin() || sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
+            bool allow_no_import = sym->ident_anchor == nullptr ||
+                                   sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
             if (!allow_no_import && !already_resolved) {
               sym->check_import_exists_when_used_from(cur_f, v);
             }
@@ -537,8 +536,6 @@ class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_reference> v) override {
-    tolk_assert(v->sym != nullptr);
-
     // for `f<int, MyAlias>` / `f<T>`, resolve "MyAlias" and "T"
     // (for function call `f<T>()`, this v (ast_reference `f<T>`) is callee)
     if (auto v_instantiationTs = v->get_instantiationTs()) {
@@ -636,7 +633,7 @@ class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
 
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
-    return !fun_ref->is_builtin();
+    return true;
   }
 
   void on_enter_function(V<ast_function_declaration> v) override {
@@ -853,8 +850,6 @@ void pipeline_resolve_types_and_aliases() {
   }
 
   InfiniteStructSizeDetector::detect_and_fire_if_any_struct_is_infinite();
-
-  patch_builtins_after_stdlib_loaded();
 }
 
 void pipeline_resolve_types_and_aliases(FunctionPtr fun_ref) {

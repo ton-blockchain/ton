@@ -175,7 +175,7 @@ Error& Error::with_secondary(AnyV at, std::string note) {
 }
 
 Error& Error::with_secondary(const Symbol* at_sym, std::string note) {
-  // ident_anchor may be nullptr in built-in symbols todo rework built-ins
+  // compiler-only built-ins like `__throw` have no ident_anchor
   if (at_sym->ident_anchor) {
     secondary_locations.push_back(ErrorSecondaryLocation{at_sym->ident_anchor->range, std::move(note)});
   }

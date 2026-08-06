@@ -38,7 +38,7 @@ thread_local CompilerSettings G_settings;
 thread_local CompilerState G;
 
 // prototypes of functions initializing/resetting global state and pointers
-void define_builtins();
+void attach_builtins_implementation();
 void type_system_init();
 void lexer_init();
 void clear_computed_constants_cache();
@@ -56,7 +56,6 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
   // reset per-compilation mutable state to allow successive compilation within each thread
   G = CompilerState{};
   clear_computed_constants_cache();
-  define_builtins();    // add built-in functions into G.symtable
   G.symbol_types_pool.seed_primitive_types();
 
   // enable error collecting for check stages (multiple errors can be reported):
@@ -70,6 +69,7 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_register_global_symbols();
     pipeline_resolve_identifiers_and_assign_symbols();
     pipeline_resolve_types_and_aliases();
+    attach_builtins_implementation();
     pipeline_calculate_rvalue_lvalue();
     pipeline_infer_types_and_calls_and_fields();
     pipeline_check_inferred_types();
