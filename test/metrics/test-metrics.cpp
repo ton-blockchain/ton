@@ -7,6 +7,7 @@
 #include <chrono>
 
 #include "adnl/adnl-peer-table.hpp"
+#include "adnl/adnl-sender-ex.h"
 #include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api.h"
 #include "metrics/actor-metrics.h"
@@ -56,6 +57,70 @@ TON_METRIC_DEFINE_LABEL(Kind, "kind", KIND_LIST)
   F(internal)
 TON_METRIC_DEFINE_LABEL(Reason, "reason", REASON_LIST)
 #undef REASON_LIST
+
+class TestAdnlSenderEx final : public adnl::AdnlSenderEx {
+ public:
+  void add_id(adnl::AdnlNodeIdShort) override {
+  }
+  void send_message(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, td::BufferSlice) override {
+  }
+  void send_query(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, std::string, td::Promise<td::BufferSlice>,
+                  td::Timestamp, td::BufferSlice) override {
+  }
+  void send_query_ex(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, std::string, td::Promise<td::BufferSlice>,
+                     td::Timestamp, td::BufferSlice, td::uint64) override {
+  }
+  void get_conn_ip_str(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, td::Promise<td::string>) override {
+  }
+
+  adnl::PeerMtu peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) {
+    return get_peer_mtu_inner(local_id, peer_id);
+  }
+  td::uint64 accepted_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) {
+    return get_peer_mtu(local_id, peer_id);
+  }
+  std::vector<std::pair<adnl::AdnlNodeIdShort, adnl::PeerMtu>> peers_mtu(adnl::AdnlNodeIdShort local_id) {
+    return get_local_id_peers_mtu(local_id);
+  }
+
+ private:
+  void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort>, td::optional<adnl::AdnlNodeIdShort>) override {
+  }
+};
+
+TEST(AdnlSenderEx, AggregatesPeerMtuAndTrustIndependently) {
+  TestAdnlSenderEx sender;
+  adnl::AdnlNodeIdShort local_id{td::Bits256::zero()};
+  adnl::AdnlNodeIdShort peer_id{td::Bits256::ones()};
+
+  sender.set_default_mtu(4'000);
+  sender.set_local_id_mtu(local_id, 5'000);
+  ASSERT_EQ(td::uint64{5'000}, sender.accepted_mtu(local_id, peer_id));
+  ASSERT_EQ(td::uint64{0}, sender.peer_mtu(local_id, peer_id).mtu);
+  ASSERT_TRUE(!sender.peer_mtu(local_id, peer_id).trusted);
+
+  sender.add_peer_mtu(local_id, peer_id, 9'000, false);
+  sender.add_peer_mtu(local_id, peer_id, 7'000, true);
+  sender.add_peer_mtu(local_id, peer_id, 6'000, true);
+  ASSERT_EQ(td::uint64{9'000}, sender.peer_mtu(local_id, peer_id).mtu);
+  ASSERT_TRUE(sender.peer_mtu(local_id, peer_id).trusted);
+
+  auto peers = sender.peers_mtu(local_id);
+  ASSERT_EQ(size_t{1}, peers.size());
+  ASSERT_EQ(peer_id, peers[0].first);
+  ASSERT_EQ(td::uint64{9'000}, peers[0].second.mtu);
+  ASSERT_TRUE(peers[0].second.trusted);
+
+  sender.remove_peer_mtu(local_id, peer_id, 7'000, true);
+  ASSERT_TRUE(sender.peer_mtu(local_id, peer_id).trusted);
+  sender.remove_peer_mtu(local_id, peer_id, 6'000, true);
+  ASSERT_EQ(td::uint64{9'000}, sender.peer_mtu(local_id, peer_id).mtu);
+  ASSERT_TRUE(!sender.peer_mtu(local_id, peer_id).trusted);
+
+  sender.remove_peer_mtu(local_id, peer_id, 9'000, false);
+  ASSERT_EQ(td::uint64{0}, sender.peer_mtu(local_id, peer_id).mtu);
+  ASSERT_TRUE(!sender.peer_mtu(local_id, peer_id).trusted);
+}
 
 TEST(Metrics, LabeledDesignatedInitOneDim) {
   Labeled<Cell, Direction> m{{.in = {.v = 1}, .out = {.v = 2}}};

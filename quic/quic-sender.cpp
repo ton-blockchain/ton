@@ -358,8 +358,8 @@ void QuicSender::on_mtu_updated(td::optional<adnl::AdnlNodeIdShort> local_id,
                             get_local_id_mtu(local_id.value()));
     return;
   }
-  td::actor::send_closure(it->second, &QuicServer::set_peer_mtu, local_id.value(), peer_id.value(),
-                          get_peer_mtu_inner(local_id.value(), peer_id.value()));
+  auto peer_mtu = get_peer_mtu_inner(local_id.value(), peer_id.value());
+  td::actor::send_closure(it->second, &QuicServer::set_peer_mtu, local_id.value(), peer_id.value(), peer_mtu.mtu);
 }
 
 QuicSender::Connection::~Connection() {
@@ -467,8 +467,8 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
   if (auto it = servers_by_port_.find(port); it != servers_by_port_.end()) {
     server = it->second.get();
     td::actor::send_closure(server, &QuicServer::set_default_mtu, local_id, default_mtu);
-    for (const auto &[peer_id, mtu] : peers_mtu) {
-      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, mtu);
+    for (const auto &[peer_id, peer_mtu] : peers_mtu) {
+      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, peer_mtu.mtu);
     }
     td::actor::send_closure(server, &QuicServer::add_identity, local_id,
                             td::Ed25519::PrivateKey(local_keys_.at(local_id).as_octet_string()));
@@ -479,8 +479,8 @@ td::actor::Task<> QuicSender::add_local_id_coro(adnl::AdnlNodeIdShort local_id) 
                                              std::move(identity), "ton", "0.0.0.0", server_options_);
     server = owned.get();
     servers_by_port_[port] = std::move(owned);
-    for (const auto &[peer_id, mtu] : peers_mtu) {
-      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, mtu);
+    for (const auto &[peer_id, peer_mtu] : peers_mtu) {
+      td::actor::send_closure(server, &QuicServer::set_peer_mtu, local_id, peer_id, peer_mtu.mtu);
     }
   }
   servers_by_id_[local_id] = server;
