@@ -28,6 +28,7 @@
 #include "downloaders/wait-block-state.hpp"
 #include "impl/applied-ext-message-cleanup.hpp"
 #include "interfaces/validator-full-id.h"
+#include "metrics/chain-metrics.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/JsonBuilder.h"
@@ -3486,9 +3487,46 @@ void ValidatorManagerImpl::cleanup_nonfinal_groups() {
   }
 }
 
+void ValidatorManagerImpl::collect_chain_metrics(metrics::Context ctx) {
+  metrics::ChainSnapshot snapshot;
+  snapshot.collated_blocks = {
+      .master = {.ok = total_collated_blocks_master_ok_, .error = total_collated_blocks_master_error_},
+      .shard = {.ok = total_collated_blocks_shard_ok_, .error = total_collated_blocks_shard_error_}};
+  snapshot.validated_blocks = {
+      .master = {.ok = total_validated_blocks_master_ok_, .error = total_validated_blocks_master_error_},
+      .shard = {.ok = total_validated_blocks_shard_ok_, .error = total_validated_blocks_shard_error_}};
+  if (last_masterchain_block_handle_) {
+    snapshot.masterchain_seqno = last_masterchain_block_handle_->id().seqno();
+    snapshot.masterchain_block_age_seconds = td::Clocks::system() - double(last_masterchain_block_handle_->unix_time());
+  }
+  // ShardClient sends this handle after advancing processed_masterchain_block_. Reading the
+  // manager-owned mirror avoids making a scrape wait for the child actor's mailbox.
+  if (shard_client_handle_) {
+    snapshot.shardclient_seqno = shard_client_handle_->id().seqno();
+  }
+  if (is_validator() && network_state_ != nullptr) {
+    auto count = network_state_->validator_group_count();
+    snapshot.validator_groups = metrics::ChainSnapshot::Groups{.master = count.masterchain, .shard = count.shard};
+  }
+  ctx.collect(snapshot);
+}
+
+td::actor::Task<> ValidatorManagerImpl::collect_ext_message_pool_metrics(metrics::Context ctx) {
+  if (ext_message_pool_.empty()) {
+    co_return {};
+  }
+  auto r_snapshot = co_await td::actor::ask(ext_message_pool_.get(), &ExtMessagePool::get_metrics_snapshot).wrap();
+  if (r_snapshot.is_ok()) {
+    ctx.collect(r_snapshot.ok(), "mempool");
+  }
+  co_return {};
+}
+
 td::actor::Task<> ValidatorManagerImpl::collect(metrics::Context ctx) {
   ctx.collect(first_received_, "first_received");
   ctx.collect(received_, "received");
+  collect_chain_metrics(ctx);
+  co_await collect_ext_message_pool_metrics(ctx);
   co_return {};
 }
 

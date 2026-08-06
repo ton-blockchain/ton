@@ -20,6 +20,7 @@
 #include <set>
 
 #include "interfaces/validator-manager.h"
+#include "metrics/ext-message-pool-metrics.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/PersistentTreap.h"
 
@@ -51,6 +52,10 @@ class ExtMessagePool : public td::actor::Actor {
     opts_ = std::move(opts);
   }
   std::vector<std::pair<std::string, std::string>> prepare_stats();
+
+  // Cross the actor boundary with values, not a scrape-local metrics::Context.
+  using MetricsSnapshot = metrics::ExtMessagePoolSnapshot;
+  MetricsSnapshot get_metrics_snapshot();
 
   void alarm() override;
   void start_up() override {

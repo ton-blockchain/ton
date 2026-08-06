@@ -304,6 +304,9 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::ActorOwn<ExtMessagePool> ext_message_pool_;
   td::actor::ActorOwn<AppliedExtMessageCleanupActor> applied_ext_message_cleanup_actor_;
 
+  void collect_chain_metrics(metrics::Context ctx);
+  td::actor::Task<> collect_ext_message_pool_metrics(metrics::Context ctx);
+
  private:
   // VALIDATOR GROUPS
   std::unique_ptr<NetworkState> network_state_;

@@ -10,7 +10,9 @@
 #include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api.h"
 #include "metrics/actor-metrics.h"
+#include "metrics/chain-metrics.h"
 #include "metrics/collectors.h"
+#include "metrics/ext-message-pool-metrics.h"
 #include "metrics/tl-traffic-bucket.h"
 #include "metrics/well-known.h"
 #ifdef TON_TEST_METRICS_QUIC
@@ -668,6 +670,54 @@ TEST(MetricsGolden, Actor) {
 TEST(Metrics, ActorTicksPerSecondHandlesCounterRegression) {
   EXPECT_EQ(::ton::metrics::detail::estimate_ticks_per_second(0.5, 100, 164), 128);
   EXPECT_EQ(::ton::metrics::detail::estimate_ticks_per_second(0.5, 100, 99), td::Clocks::ticks_per_second());
+}
+
+TEST(Metrics, ChainSnapshotRendersEachFamily) {
+  ChainSnapshot snapshot{
+      .masterchain_seqno = 1,
+      .masterchain_block_age_seconds = 2.5,
+      .shardclient_seqno = 3,
+      .collated_blocks = {.master = {.ok = 4, .error = 5}, .shard = {.ok = 6, .error = 7}},
+      .validated_blocks = {.master = {.ok = 8, .error = 9}, .shard = {.ok = 10, .error = 11}},
+      .validator_groups = ChainSnapshot::Groups{.master = 12, .shard = 13},
+  };
+  EXPECT_EQ(
+      "# TYPE masterchain_seqno gauge\n"
+      "masterchain_seqno 1.000000\n"
+      "# TYPE masterchain_block_age_seconds gauge\n"
+      "masterchain_block_age_seconds 2.500000\n"
+      "# TYPE shardclient_seqno gauge\n"
+      "shardclient_seqno 3.000000\n"
+      "# TYPE collated_blocks counter\n"
+      "collated_blocks_total{chain=\"master\",result=\"ok\"} 4.000000\n"
+      "collated_blocks_total{chain=\"master\",result=\"error\"} 5.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"ok\"} 6.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"error\"} 7.000000\n"
+      "# TYPE validated_blocks counter\n"
+      "validated_blocks_total{chain=\"master\",result=\"ok\"} 8.000000\n"
+      "validated_blocks_total{chain=\"master\",result=\"error\"} 9.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"ok\"} 10.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"error\"} 11.000000\n"
+      "# TYPE validator_groups gauge\n"
+      "validator_groups{chain=\"master\"} 12.000000\n"
+      "validator_groups{chain=\"shard\"} 13.000000\n",
+      render(snapshot, ""));
+}
+
+TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
+  ExtMessagePoolSnapshot snapshot{
+      .pending_ext_messages = 3,
+      .check_ok = 5,
+      .check_error = 7,
+  };
+  auto out = render(snapshot, "mempool");
+  EXPECT_EQ(
+      "# TYPE mempool_ext_messages gauge\n"
+      "mempool_ext_messages 3.000000\n"
+      "# TYPE mempool_ext_check counter\n"
+      "mempool_ext_check_total{result=\"ok\"} 5.000000\n"
+      "mempool_ext_check_total{result=\"error\"} 7.000000\n",
+      out);
 }
 
 TEST(Metrics, ActorCollectorIncludesLiveBusyTimeAndOmitsOwnLiveness) {

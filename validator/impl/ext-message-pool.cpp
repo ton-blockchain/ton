@@ -309,12 +309,20 @@ bool ExtMessagePool::erase_message(int priority, const MessageId &id) {
 }
 
 std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats() {
+  auto stats = get_metrics_snapshot();
   std::vector<std::pair<std::string, std::string>> vec;
-  vec.emplace_back("total.ext_msg_check",
-                   PSTRING() << "ok:" << total_check_ext_messages_ok_ << " error:" << total_check_ext_messages_error_);
+  vec.emplace_back("total.ext_msg_check", PSTRING() << "ok:" << stats.check_ok << " error:" << stats.check_error);
   vec.emplace_back("total.ext_msg_applied_cleanup", PSTRING() << "requested:" << applied_ext_msgs_delete_requests_
                                                               << " deleted:" << applied_ext_msgs_deleted_);
   return vec;
+}
+
+ExtMessagePool::MetricsSnapshot ExtMessagePool::get_metrics_snapshot() {
+  return {
+      .pending_ext_messages = static_cast<td::uint64>(ext_messages_hashes_.size()),
+      .check_ok = total_check_ext_messages_ok_,
+      .check_error = total_check_ext_messages_error_,
+  };
 }
 
 void ExtMessagePool::alarm() {
