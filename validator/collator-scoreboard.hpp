@@ -15,14 +15,21 @@ namespace ton::validator {
 
 class CollatorScoreboard : public td::actor::Actor {
  public:
-  void report_outcome(adnl::AdnlNodeIdShort collator, bool success);
+  void report_outcome(adnl::AdnlNodeIdShort collator_id, bool success);
   void pick_collator(std::vector<adnl::AdnlNodeIdShort> candidates, td::Promise<adnl::AdnlNodeIdShort> promise);
 
  private:
-  static constexpr double outcome_weight = 0.25;
-  static constexpr double good_enough_score = 0.5;
+  static constexpr double MIN_BAN_DURATION = 60.0;
+  static constexpr double MAX_BAN_DURATION = 3600.0;
+  static constexpr double BAN_DURATION_MULTIPLIER = 1.5;
 
-  std::map<adnl::AdnlNodeIdShort, double> scores_;
+  struct Collator {
+    td::Timestamp ban_until = td::Timestamp::never();
+    double ban_duration = MIN_BAN_DURATION;
+  };
+  std::map<adnl::AdnlNodeIdShort, Collator> collators_;
+
+  bool is_banned(adnl::AdnlNodeIdShort collator_id);
 };
 
 }  // namespace ton::validator
