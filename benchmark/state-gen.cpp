@@ -654,7 +654,8 @@ MergeStats merge_shard_to_sst(const std::vector<std::string> &runs, const std::s
                               td::uint64 sst_chunk_bytes, Progress &progress) {
   size_t io_buf_bytes = 1 << 22;
   if (!runs.empty()) {
-    io_buf_bytes = static_cast<size_t>(std::max<td::uint64>(64 << 10, std::min<td::uint64>(1 << 22, kMergeReadBufBudget / runs.size())));
+    io_buf_bytes = static_cast<size_t>(
+        std::max<td::uint64>(64 << 10, std::min<td::uint64>(1 << 22, kMergeReadBufBudget / runs.size())));
   }
   std::vector<std::unique_ptr<RunCursor>> cursors;
   for (const auto &path : runs) {

@@ -23,7 +23,7 @@ PROGRAM{
     // 94: if (c == null)
     ISNULL                  	//  c '1
     IFJMP:<{                	//  c
-      DROP                  	// 
+      DROP                  	//
     }>                      	//  c
     // 97: val entry = c.load()
     CTOS                    	//  s
@@ -96,7 +96,7 @@ PROGRAM{
       8 PUSHPOW2            	//  entry.collators maxCollators nCollators r.key entry.collators '92=256
       DICTUGETNEXT NULLSWAPIFNOT2	//  entry.collators maxCollators nCollators r.rawValue r.key r.isFound
     }>                      	//  entry.collators maxCollators nCollators r.rawValue r.key
-    5 BLKDROP               	// 
+    5 BLKDROP               	//
   }>
   // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:110
   getValidatorKeys() PROC:<{	//  configIdx validators
@@ -144,7 +144,7 @@ PROGRAM{
     3 BLKDROP               	//  validators
   }>
   // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:190
-  onInternalMessage() PROC:<{	// 
+  onInternalMessage() PROC:<{	//
   }>
   // /home/spycheese/soft/ton/ton/crypto/smartcont/validator-registry.tolk:193
   onExternalMessage() PROC:<{	//  inMsg
@@ -157,7 +157,7 @@ PROGRAM{
     IFJMP:<{                	//  opcode inMsg
       NIP                   	//  inMsg
       // 196: inMsg.assertEnd()
-      ENDS                  	// 
+      ENDS                  	//
       // 134: var storage = Storage.fromCell(contract.getData())
       c4 PUSH               	//  '7
       CTOS                  	//  s
@@ -249,7 +249,7 @@ PROGRAM{
       STOPTREF              	//  storage.lastCleanupKeyBlockSeqno b
       32 STU                	//  b
       ENDC                  	//  '81
-      c4 POP                	// 
+      c4 POP                	//
     }>                      	//  opcode inMsg
     // 200: if (opcode == OP_UPDATE_CODE)
     OVER
@@ -301,9 +301,9 @@ PROGRAM{
       NEQ                   	//  newCode '122
       913 THROWIFNOT        	//  newCode
       // 170: contract.setCodePostponed(newCode)
-      SETCODE               	// 
+      SETCODE               	//
       // 171: acceptExternalMessage()
-      ACCEPT                	// 
+      ACCEPT                	//
     }>                      	//  opcode inMsg
     SWAP
     // 207: assert (opcode == OP_REQUEST) throw ERR_INVALID_OP
@@ -467,6 +467,6 @@ PROGRAM{
     STOPTREF                	//  storage.lastCleanupKeyBlockSeqno b
     32 STU                  	//  b
     ENDC                    	//  '287
-    c4 POP                  	// 
+    c4 POP                  	//
   }>
 }END>c
