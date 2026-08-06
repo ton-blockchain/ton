@@ -51,6 +51,7 @@
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/optional.h"
+#include "td/utils/port/Clocks.h"
 #include "td/utils/port/Poll.h"
 #include "td/utils/port/detail/Iocp.h"
 #include "td/utils/port/thread.h"
@@ -84,7 +85,11 @@ struct Debug {
   }
   struct Destructor {
     void operator()(Debug *debug) {
+      auto finished_at = Clocks::rdtsc();
       std::lock_guard<std::mutex> lock(debug->info_mutex_);
+      CHECK(debug->info_.is_active);
+      debug->busy_ticks_ += finished_at - debug->started_at_;
+      debug->started_at_ = 0;
       debug->info_.is_active = false;
     }
   };
@@ -98,8 +103,11 @@ struct Debug {
     if (!is_on()) {
       return {};
     }
+    auto started_at = Clocks::rdtsc();
     {
       std::lock_guard<std::mutex> lock(info_mutex_);
+      CHECK(!info_.is_active);
+      started_at_ = started_at;
       info_.is_active = true;
       info_.start_at = Time::now();
       info_.set_name(name);
@@ -107,9 +115,16 @@ struct Debug {
     return std::unique_ptr<Debug, Destructor>(this);
   }
 
+  td::uint64 busy_ticks() const {
+    std::lock_guard<std::mutex> lock(info_mutex_);
+    return busy_ticks_;
+  }
+
  private:
-  std::mutex info_mutex_;
+  mutable std::mutex info_mutex_;
   DebugInfo info_;
+  td::uint64 started_at_{0};
+  td::uint64 busy_ticks_{0};
 };
 
 struct WorkerInfo {
@@ -171,6 +186,7 @@ struct SchedulerGroupInfo {
   int active_scheduler_count{0};
   std::mutex active_scheduler_count_mutex;
   std::condition_variable active_scheduler_count_condition_variable;
+  ActorTypeStatRegistry actor_type_stats;
 
 #if TD_PORT_WINDOWS
   td::detail::Iocp iocp;
@@ -236,6 +252,7 @@ class Scheduler {
     KHeap<Timestamp> &get_heap() override;
 
     Debug &get_debug() override;
+    ActorTypeStatTable *actor_type_stats() override;
 
     void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override;
 
@@ -256,6 +273,7 @@ class Scheduler {
     KHeap<Timestamp> *heap_;
 
     Debug *debug_;
+    ActorTypeStatTable *actor_type_stats_{nullptr};
   };
 
   template <class F>

@@ -103,6 +103,185 @@ TEST(ActorTypeStat, MaxCounterExpiresValuesAcrossSkippedSegments) {
   CHECK(counter.get_max(Access::at_segment(8)) == 5);
 }
 
+TEST(ActorTypeStat, WorkerTablesAreScopedToSchedulerGroup) {
+  using namespace td::actor;
+  using namespace td::actor::core;
+
+  class ScopedActor final : public Actor {};
+
+  auto was_debug_enabled = need_debug();
+  set_debug(true);
+
+  auto group_a = std::make_shared<SchedulerGroupInfo>(1);
+  auto group_b = std::make_shared<SchedulerGroupInfo>(1);
+  core::Scheduler scheduler_a{group_a, SchedulerId{0}, 0};
+  core::Scheduler scheduler_b{group_b, SchedulerId{0}, 0};
+  scheduler_a.start();
+  scheduler_b.start();
+
+  ScopedActor actor;
+  auto stat_id = ActorTypeStatImpl::get_unique_id<ScopedActor>();
+  auto add_messages = [&](core::Scheduler &scheduler, size_t count) {
+    scheduler.run_in_context([&] {
+      auto stat = ActorTypeStatManager::get_actor_type_stat(stat_id, &actor);
+      stat.created();
+      for (size_t i = 0; i < count; i++) {
+        auto timer = stat.create_message_timer();
+      }
+      stat.destroyed();
+    });
+  };
+
+  add_messages(scheduler_a, 2);
+  add_messages(scheduler_b, 5);
+  add_messages(scheduler_a, 3);
+
+  auto stats_a = ActorTypeStatManager::get_stats(*group_a, 1);
+  auto stats_b = ActorTypeStatManager::get_stats(*group_b, 1);
+  auto type = std::type_index(typeid(ScopedActor));
+  CHECK(stats_a.stats.at(type).created == 2);
+  CHECK(stats_a.stats.at(type).messages == 5);
+  CHECK(stats_b.stats.at(type).created == 1);
+  CHECK(stats_b.stats.at(type).messages == 5);
+  CHECK(stats_a.by_worker[static_cast<size_t>(WorkerKind::Io)].messages == 5);
+  CHECK(stats_b.by_worker[static_cast<size_t>(WorkerKind::Io)].messages == 5);
+  CHECK(stats_a.by_worker[static_cast<size_t>(WorkerKind::Cpu)].messages == 0);
+
+  scheduler_a.stop();
+  scheduler_b.stop();
+  CHECK(!scheduler_a.run(0));
+  CHECK(!scheduler_b.run(0));
+  core::Scheduler::close_scheduler_group(*group_a);
+  core::Scheduler::close_scheduler_group(*group_b);
+  set_debug(was_debug_enabled);
+}
+
+TEST(ActorTypeStat, WorkerTotalsAreAttributedToIoAndCpuThreads) {
+  using namespace td::actor;
+  using namespace td::actor::core;
+
+  class ClassifiedActor final : public Actor {
+   public:
+    explicit ClassifiedActor(std::shared_ptr<td::Destructor> watcher) : watcher_(std::move(watcher)) {
+    }
+
+   private:
+    void start_up() override {
+      stop();
+    }
+
+    std::shared_ptr<td::Destructor> watcher_;
+  };
+
+  auto was_debug_enabled = need_debug();
+  set_debug(true);
+  auto group = std::make_shared<SchedulerGroupInfo>(1);
+  core::Scheduler scheduler{group, SchedulerId{0}, 1};
+  scheduler.start();
+
+  auto watcher = td::create_shared_destructor([] { SchedulerContext::get().stop(); });
+  scheduler.run_in_context([watcher] {
+    create_actor<ClassifiedActor>(ActorOptions().with_name("io").with_poll(), watcher).release();
+    create_actor<ClassifiedActor>(ActorOptions().with_name("cpu"), watcher).release();
+  });
+  watcher.reset();
+  while (scheduler.run(1000)) {
+  }
+  core::Scheduler::close_scheduler_group(*group);
+
+  auto stats = ActorTypeStatManager::get_stats(*group, 1);
+  auto actor = stats.stats.find(std::type_index(typeid(ClassifiedActor)));
+  CHECK(actor != stats.stats.end());
+  const auto &io = stats.by_worker[static_cast<size_t>(WorkerKind::Io)];
+  const auto &cpu = stats.by_worker[static_cast<size_t>(WorkerKind::Cpu)];
+  CHECK(io.messages > 0);
+  CHECK(cpu.messages > 0);
+  CHECK(actor->second.messages == io.messages + cpu.messages);
+  CHECK(io.seconds > 0);
+  CHECK(cpu.seconds > 0);
+  set_debug(was_debug_enabled);
+}
+
+TEST(ActorTypeStat, ConcurrentRunAndRunInContextKeepExecutionsSeparate) {
+  using namespace td::actor;
+  using namespace td::actor::core;
+
+  class ManualProbe final : public Actor {};
+  struct State {
+    td::Stage started;
+    td::Stage inspected;
+    td::Stage message_finished;
+    td::Stage execution_finished;
+    td::uint32 stat_id{};
+    SchedulerGroupInfo *group{};
+
+    void account(ActorTypeStatRef stat, bool inspect) {
+      stat.start_execute();
+      started.wait(2);
+      if (inspect) {
+        auto stats = ActorTypeStatManager::get_stats(*group, 1);
+        const auto &probe = stats.stats.at(std::type_index(typeid(ManualProbe)));
+        CHECK(probe.executing == 2);
+        CHECK(probe.executions == 0);
+      }
+      inspected.wait(2);
+      {
+        auto timer = stat.create_message_timer();
+      }
+      message_finished.wait(2);
+      stat.finish_execute();
+      execution_finished.wait(2);
+    }
+  };
+  class Runner final : public Actor {
+   public:
+    explicit Runner(std::shared_ptr<State> state) : state_(std::move(state)) {
+    }
+
+   private:
+    void start_up() override {
+      ManualProbe probe;
+      state_->account(ActorTypeStatManager::get_actor_type_stat(state_->stat_id, &probe), false);
+      SchedulerContext::get().stop();
+    }
+
+    std::shared_ptr<State> state_;
+  };
+
+  auto was_debug_enabled = need_debug();
+  set_debug(true);
+  auto state = std::make_shared<State>();
+  state->stat_id = ActorTypeStatImpl::get_unique_id<ManualProbe>();
+
+  auto group = std::make_shared<SchedulerGroupInfo>(1);
+  state->group = group.get();
+  core::Scheduler scheduler{group, SchedulerId{0}, 0};
+  scheduler.start();
+  scheduler.run_in_context(
+      [&] { create_actor<Runner>(ActorOptions().with_name("stats runner").with_poll(), state).release(); });
+
+  td::thread runner([&] {
+    while (scheduler.run(1000)) {
+    }
+  });
+  scheduler.run_in_context([&] {
+    ManualProbe probe;
+    state->account(ActorTypeStatManager::get_actor_type_stat(state->stat_id, &probe), true);
+  });
+  runner.join();
+  core::Scheduler::close_scheduler_group(*group);
+
+  auto stats = ActorTypeStatManager::get_stats(*group, 1);
+  const auto &probe = stats.stats.at(std::type_index(typeid(ManualProbe)));
+  CHECK(probe.executions == 2);
+  CHECK(probe.messages == 2);
+  CHECK(probe.executing == 0);
+  CHECK(probe.max_execute_messages.value_forever == 1);
+  CHECK(stats.by_worker[static_cast<size_t>(WorkerKind::Io)].messages >= 2);
+  CHECK(stats.by_worker[static_cast<size_t>(WorkerKind::Cpu)].messages == 0);
+  set_debug(was_debug_enabled);
+}
+
 TEST(Actor2, signals) {
   using td::actor::core::ActorSignals;
   ActorSignals signals;

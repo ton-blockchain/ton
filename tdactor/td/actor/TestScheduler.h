@@ -92,6 +92,7 @@ class TestScheduler {
   KHeap<Timestamp> heap_;
   Poll poll_;
   core::Debug debug_;
+  core::ActorTypeStatTable actor_type_stats_;
   core::ActorInfoCreator creator_{true};
   std::coroutine_handle<> control_continuation_;
 
@@ -146,6 +147,10 @@ class TestScheduler {
 
     core::Debug &get_debug() override {
       return sched_->debug_;
+    }
+
+    core::ActorTypeStatTable *actor_type_stats() override {
+      return &sched_->actor_type_stats_;
     }
 
     core::SchedulerGroupInfo *scheduler_group() const override {

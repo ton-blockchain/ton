@@ -1,3 +1,4 @@
+#include "td/actor/ActorStats.h"
 #include "td/actor/TestScheduler.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/tests.h"
@@ -411,6 +412,23 @@ TEST(TestScheduler, CpuBeforeAlarms) {
     co_return {};
   });
   EXPECT_EQ(events, (std::vector<int>{0, 1, 2, 3}));
+}
+
+TEST(TestScheduler, ActorStatsWorksWithoutSchedulerGroup) {
+  auto was_debug_enabled = core::need_debug();
+  core::set_debug(true);
+
+  TestScheduler scheduler;
+  scheduler.run([&]() -> Task<> {
+    auto stats = create_actor<ActorStats>("actor stats");
+    co_await scheduler.wait_sync_work();
+    auto text = co_await ask(stats, &ActorStats::prepare_stats);
+    EXPECT(text.find("ACTORS STATS") != std::string::npos);
+    EXPECT(text.find("ActorStats") != std::string::npos);
+    co_return {};
+  });
+
+  core::set_debug(was_debug_enabled);
 }
 
 }  // namespace

@@ -216,6 +216,13 @@ KHeap<Timestamp> &Scheduler::ContextImpl::get_heap() {
 Debug &Scheduler::ContextImpl::get_debug() {
   return *debug_;
 }
+ActorTypeStatTable *Scheduler::ContextImpl::actor_type_stats() {
+  if (!actor_type_stats_) {
+    auto kind = has_poll() ? WorkerKind::Io : WorkerKind::Cpu;
+    actor_type_stats_ = &scheduler_group_->actor_type_stats.thread_table(kind);
+  }
+  return actor_type_stats_;
+}
 
 void Scheduler::ContextImpl::set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) {
   // Ideas for optimization

@@ -1,9 +1,15 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <typeindex>
+#include <typeinfo>
+#include <vector>
 
 #include "td/utils/common.h"
 #include "td/utils/int_types.h"
@@ -13,6 +19,10 @@ namespace td {
 namespace actor {
 namespace core {
 class Actor;
+struct SchedulerGroupInfo;
+
+enum class WorkerKind : td::uint8 { Io, Cpu, Count };
+inline constexpr size_t WORKER_KIND_COUNT = static_cast<size_t>(WorkerKind::Count);
 
 struct ActorTypeStat {
   // diff (speed)
@@ -187,6 +197,7 @@ struct ActorTypeStatImpl {
     ActorTypeStatImpl *stat_;
     td::uint64 started_at_;
   };
+
   void created() {
     inc(total_created_);
     inc(alive_);
@@ -353,7 +364,6 @@ class ActorTypeStatRef {
     }
     return ActorTypeStatImpl::MessageTimer{ref_};
   }
-
   struct ExecuteTimer {
     ExecuteTimer() = delete;
     ExecuteTimer(const ExecuteTimer &) = delete;
@@ -374,12 +384,16 @@ class ActorTypeStatRef {
   }
 };
 
-// TODO: currently it is implemented via TD_THREAD_LOCAL, so the statistics is global across different schedulers
 struct ActorTypeStats {
   std::map<std::type_index, ActorTypeStat> stats;
+  // Aggregate message counts and busy time over every actor type.
+  std::array<ActorTypeStat, WORKER_KIND_COUNT> by_worker{};
   ActorTypeStats &operator-=(const ActorTypeStats &other) {
     for (auto &it : other.stats) {
       stats.at(it.first) -= it.second;
+    }
+    for (size_t i = 0; i < by_worker.size(); i++) {
+      by_worker[i] -= other.by_worker[i];
     }
     return *this;
   }
@@ -387,13 +401,58 @@ struct ActorTypeStats {
     for (auto &it : stats) {
       it.second /= x;
     }
+    for (auto &stat : by_worker) {
+      stat /= x;
+    }
     return *this;
   }
 };
+
+class ActorTypeStatTable {
+ public:
+  ActorTypeStatTable() = default;
+  ActorTypeStatTable(const ActorTypeStatTable &) = delete;
+  ActorTypeStatTable &operator=(const ActorTypeStatTable &) = delete;
+
+ private:
+  friend class ActorTypeStatManager;
+  friend class ActorTypeStatRegistry;
+
+  struct Entry {
+    std::unique_ptr<ActorTypeStatImpl> stat;
+    std::optional<std::type_index> type;
+  };
+
+  ActorTypeStatRef get(td::uint32 id, const std::type_info &type);
+  void append_to(ActorTypeStats &result, double inv_ticks_per_second, WorkerKind kind) const;
+
+  mutable std::mutex mutex_;
+  std::vector<Entry> by_id_;
+};
+
+class ActorTypeStatRegistry {
+ public:
+  ActorTypeStatTable &thread_table(WorkerKind kind);
+  void append_to(ActorTypeStats &result, double inv_ticks_per_second) const;
+
+ private:
+  struct ThreadTable {
+    explicit ThreadTable(WorkerKind kind) : kind(kind) {
+    }
+
+    WorkerKind kind;
+    ActorTypeStatTable table;
+  };
+
+  mutable std::mutex mutex_;
+  std::vector<std::shared_ptr<ThreadTable>> tables_;
+};
+
 class ActorTypeStatManager {
  public:
   static ActorTypeStatRef get_actor_type_stat(td::uint32 id, Actor *actor);
   static ActorTypeStats get_stats(double inv_ticks_per_second);
+  static ActorTypeStats get_stats(const SchedulerGroupInfo &group, double inv_ticks_per_second);
   static std::string get_class_name(const char *name);
 };
 
