@@ -6737,6 +6737,33 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlockHeader& req
   return td::Status::OK();
 }
 
+td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlock& request,
+                                    td::Promise<object_ptr<tonlib_api::blocks_blockData>>&& promise) {
+  if (!request.id_) {
+    return TonlibError::EmptyField("id");
+  }
+
+  TRY_RESULT(lite_block, to_lite_api(*request.id_));
+  TRY_RESULT(req_block_id, to_block_id(*request.id_));
+
+  client_.send_query(ton::lite_api::liteServer_getBlock(std::move(lite_block)),
+                     promise.wrap([req_block_id](lite_api_ptr<ton::lite_api::liteServer_blockData>&& block_data)
+                                      -> td::Result<tonlib_api::object_ptr<tonlib_api::blocks_blockData>> {
+                       const auto block_id = ton::create_block_id(block_data->id_);
+                       if (req_block_id != block_id) {
+                         return td::Status::Error("Liteserver responded with wrong block");
+                       }
+
+                       tonlib_api::blocks_blockData r;
+                       r.id_ = to_tonlib_api(*block_data->id_);
+                       r.data_ = block_data->data_.as_slice().str();
+
+                       return tonlib_api::make_object<tonlib_api::blocks_blockData>(std::move(r));
+                     }));
+
+  return td::Status::OK();
+}
+
 td::Status TonlibClient::do_request(const tonlib_api::blocks_getMasterchainBlockSignatures& request,
                                     td::Promise<object_ptr<tonlib_api::blocks_BlockSignatures>>&& promise) {
   auto actor_id = actor_id_++;
