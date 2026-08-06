@@ -9,6 +9,7 @@
 #include "adnl/adnl-peer-table.hpp"
 #include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api.h"
+#include "metrics/actor-metrics.h"
 #include "metrics/collectors.h"
 #include "metrics/tl-traffic-bucket.h"
 #include "metrics/well-known.h"
@@ -17,6 +18,9 @@
 #endif
 #include "rldp2/RldpConnection.h"
 #include "rldp2/rldp-metrics.h"
+#include "td/actor/actor.h"
+#include "td/actor/core/Scheduler.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/as.h"
 #include "td/utils/tests.h"
 #include "tl-utils/lite-utils.hpp"
@@ -630,6 +634,106 @@ TEST(MetricsGolden, Quic) {
             }));
 }
 #endif
+
+TEST(MetricsGolden, Actor) {
+  // PrometheusExporter::collect, over metrics::ActorMetrics. No scheduler runs here, so the
+  // worker_threads and per-scheduler families take the null scheduler-group path and emit no
+  // samples.
+  ASSERT_EQ(families({
+                "ton_actor_busy_ticks counter",
+                "ton_actor_messages counter",
+                "ton_actor_executions counter",
+                "ton_actor_created counter",
+                "ton_actor_alive gauge",
+                "ton_actor_max_message_ticks gauge",
+                "ton_actor_max_execute_ticks gauge",
+                "ton_actor_max_batch_messages gauge",
+                "ton_actor_max_queue_ticks gauge",
+                "ton_actor_worker_busy_ticks counter",
+                "ton_actor_worker_messages counter",
+                "ton_actor_worker_threads gauge",
+                "ton_actor_scheduler_threads gauge",
+                "ton_actor_scheduler_local_queue_length gauge",
+                "ton_actor_scheduler_workers_active gauge",
+                "ton_actor_scheduler_current_execute_seconds gauge",
+                "ton_actor_stats_enabled gauge",
+                "ton_actor_ticks_per_second gauge",
+            }),
+            emitted_families([](Context ctx) {
+              ActorMetrics actors;
+              ctx.collect(actors, "actor");
+            }));
+}
+
+TEST(Metrics, ActorTicksPerSecondHandlesCounterRegression) {
+  EXPECT_EQ(::ton::metrics::detail::estimate_ticks_per_second(0.5, 100, 164), 128);
+  EXPECT_EQ(::ton::metrics::detail::estimate_ticks_per_second(0.5, 100, 99), td::Clocks::ticks_per_second());
+}
+
+TEST(Metrics, ActorCollectorIncludesLiveBusyTimeAndOmitsOwnLiveness) {
+  namespace actor_core = td::actor::core;
+  class MetricsActor final : public td::actor::Actor {};
+
+  auto was_debug_enabled = actor_core::need_debug();
+  actor_core::set_debug(true);
+  SCOPE_EXIT {
+    actor_core::set_debug(was_debug_enabled);
+  };
+  auto group = std::make_shared<actor_core::SchedulerGroupInfo>(1);
+  actor_core::Scheduler scheduler{group, actor_core::SchedulerId{0}, 1};
+  scheduler.start();
+
+  ActorMetrics actors;
+  std::string during;
+  std::string after;
+  scheduler.run_in_context([&] {
+    MetricsActor actor;
+    auto stat = actor_core::ActorTypeStatManager::get_actor_type_stat(
+        actor_core::ActorTypeStatImpl::get_unique_id<MetricsActor>(), &actor);
+    stat.created();
+    stat.start_execute();
+    {
+      auto message = stat.create_message_timer();
+    }
+    stat.finish_execute();
+    stat.destroyed();
+
+    {
+      // Simulate collection inside the exporter actor. Busy time includes the live scope, while
+      // liveness omits the collector itself.
+      auto exporter_execution = actor_core::SchedulerContext::get().get_debug().start("metrics-exporter");
+      Sink sink;
+      Context(sink).collect(actors, "ton_actor");
+      during = std::move(sink).build().render();
+    }
+    Sink sink;
+    Context(sink).collect(actors, "ton_actor");
+    after = std::move(sink).build().render();
+  });
+
+  ASSERT_TRUE(has_line(during, "ton_actor_scheduler_workers_active{scheduler=\"0\"} 0.000000"));
+  ASSERT_TRUE(has_line(during, "ton_actor_scheduler_current_execute_seconds{scheduler=\"0\"} 0.000000"));
+  ASSERT_TRUE(during.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} 0.000000\n") == std::string::npos);
+  ASSERT_TRUE(during.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} ") != std::string::npos);
+  ASSERT_TRUE(after.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} 0.000000\n") == std::string::npos);
+  ASSERT_TRUE(after.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} ") != std::string::npos);
+  auto type = actor_core::ActorTypeStatManager::get_class_name(typeid(MetricsActor).name());
+  ASSERT_TRUE(has_line(after, PSTRING() << "ton_actor_messages_total{type=\"" << type << "\"} 1.000000"));
+  ASSERT_TRUE(has_line(after, PSTRING() << "ton_actor_executions_total{type=\"" << type << "\"} 1.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_worker_messages_total{worker=\"io\"} 1.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_worker_messages_total{worker=\"cpu\"} 0.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_worker_threads{worker=\"io\"} 1.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_worker_threads{worker=\"cpu\"} 1.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_scheduler_threads{scheduler=\"0\"} 2.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_scheduler_local_queue_length{scheduler=\"0\"} 0.000000"));
+  ASSERT_TRUE(after.find("worker=\"other\"") == std::string::npos);
+  ASSERT_EQ(1u, count_of(during, "ton_actor_scheduler_workers_active{scheduler=\"0\"}"));
+  ASSERT_EQ(1u, count_of(during, "ton_actor_scheduler_current_execute_seconds{scheduler=\"0\"}"));
+
+  scheduler.stop();
+  ASSERT_TRUE(!scheduler.run(0));
+  actor_core::Scheduler::close_scheduler_group(*group);
+}
 
 TEST(MetricsGolden, Overlay) {
   // OverlayManager::collect, over OverlayManager::broadcasts_ (overlay/overlay-manager.h).
