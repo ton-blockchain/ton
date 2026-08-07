@@ -657,6 +657,38 @@ TEST(MetricsGolden, Rldp2) {
 }
 
 #ifdef TON_TEST_METRICS_QUIC
+TEST(Metrics, QuicPeerMetricsSplitByTrust) {
+  ::ton::metrics::Labeled<::ton::quic::PeerMetrics, ::ton::quic::Trust> peers;
+  auto &trusted = peers.at(::ton::quic::Trust::trusted);
+  auto &untrusted = peers.at(::ton::quic::Trust::untrusted);
+  constexpr td::int32 unknown_magic = 0x11223344;
+
+  trusted.app.record(::ton::metrics::Kind::query, ::ton::metrics::Direction::out, unknown_magic, 7);
+  trusted.app.record_dropped(::ton::metrics::Direction::out, ::ton::metrics::Reason::internal);
+  trusted.query_roundtrip.observe(unknown_magic, 0.02, false);
+  trusted.message_delivery.observe(unknown_magic, 0.02, true);
+
+  untrusted.app.record(::ton::metrics::Kind::query, ::ton::metrics::Direction::out, unknown_magic, 3);
+  untrusted.app.record_dropped(::ton::metrics::Direction::out, ::ton::metrics::Reason::limited);
+  untrusted.query_roundtrip.observe(unknown_magic, 0.02, true);
+  untrusted.message_delivery.observe(unknown_magic, 0.02, false);
+
+  auto out = render(peers, "quic");
+  ASSERT_TRUE(has_line(
+      out, "quic_app_bytes_total{trust=\"trusted\",kind=\"query\",direction=\"out\",tl=\"unknown\"} 7.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "quic_app_bytes_total{trust=\"untrusted\",kind=\"query\",direction=\"out\",tl=\"unknown\"} "
+                       "3.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "quic_app_dropped_total{trust=\"trusted\",direction=\"out\",reason=\"internal\"} "
+                       "1.000000"));
+  ASSERT_TRUE(has_line(out, "quic_query_roundtrip_failed_total{trust=\"trusted\",tl=\"unknown\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "quic_message_delivery_failed_total{trust=\"untrusted\",tl=\"unknown\"} 1.000000"));
+  ASSERT_EQ(1u, count_of(out, "# TYPE quic_app_bytes counter\n"));
+  ASSERT_EQ(1u, count_of(out, "# TYPE quic_query_roundtrip_seconds histogram\n"));
+  ASSERT_EQ(1u, count_of(out, "# TYPE quic_message_delivery_seconds histogram\n"));
+}
+
 TEST(MetricsGolden, Quic) {
   // QuicSender::collect
   ASSERT_EQ(families({
@@ -680,6 +712,7 @@ TEST(MetricsGolden, Quic) {
                 "ton_quic_transport_mean_rtt_seconds gauge",
                 "ton_quic_transport_dropped counter",
                 "ton_quic_transport_handshakes counter",
+                "ton_quic_transport_connections_ready gauge",
                 "ton_quic_app_bytes counter",
                 "ton_quic_app_messages counter",
                 "ton_quic_app_dropped counter",
@@ -690,14 +723,12 @@ TEST(MetricsGolden, Quic) {
             }),
             emitted_families([](Context ctx) {
               ::ton::quic::ServerStats server;
-              App app;
-              TlLatencyBucket query_roundtrip{"quic query roundtrip", "seconds"},
-                  message_delivery{"quic message delivery", "seconds"};
+              Labeled<Gauge<td::uint64>, Direction, ::ton::quic::Trust> connections_ready;
+              Labeled<::ton::quic::PeerMetrics, ::ton::quic::Trust> peer_metrics;
               auto quic = ctx.with_name("quic");
               quic.collect(server);
-              quic.collect(app, "app");
-              quic.collect(query_roundtrip, "query_roundtrip");
-              quic.collect(message_delivery, "message_delivery");
+              quic.with_name("transport").collect(connections_ready, "connections_ready");
+              quic.collect(peer_metrics);
             }));
 }
 #endif
