@@ -600,6 +600,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::Task<> start_up_advance_mc();
 
   bool is_validator();
+  bool is_collator();
   bool validating_masterchain();
   PublicKeyHash get_validator(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set);
 

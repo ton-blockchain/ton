@@ -467,7 +467,7 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::Buffe
   }
   auto r_check_result =
       co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), priority,
-                              /* add_to_mempool = */ is_validator())
+                              /* add_to_mempool = */ is_validator() || is_collator())
           .wrap();
   if (r_check_result.is_error()) {
     VLOG(validator, DEBUG) << "Dropping external message broadcast (prio=" << priority
@@ -489,7 +489,7 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::Buffe
 td::actor::Task<> ValidatorManagerImpl::new_external_message_query(td::BufferSlice data) {
   auto [message, wait_allow_broadcast] =
       co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), 0,
-                              /* add_to_mempool = */ is_validator());
+                              /* add_to_mempool = */ is_validator() || is_collator());
   new_external_message_query_cont(std::move(message), std::move(wait_allow_broadcast)).start().detach();
   co_return td::Unit{};
 }
@@ -2893,6 +2893,10 @@ bool ValidatorManagerImpl::is_validator() {
   return validator_keys_.size() > 0;
 }
 
+bool ValidatorManagerImpl::is_collator() {
+  return !local_collator_adnl_ids_.empty();
+}
+
 bool ValidatorManagerImpl::validating_masterchain() {
   return !get_validator(ShardIdFull(masterchainId),
                         last_masterchain_state_->get_validator_set(ShardIdFull(masterchainId)))
@@ -3008,14 +3012,15 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
                                                               << " error:" << total_validated_blocks_master_error_);
   vec.emplace_back("total.validated_blocks.shard", PSTRING() << "ok:" << total_validated_blocks_shard_ok_
                                                              << " error:" << total_validated_blocks_shard_error_);
-  if (is_validator() && network_state_ != nullptr) {
+  if ((is_validator() || is_collator()) && network_state_ != nullptr) {
     auto validator_groups = network_state_->validator_group_count();
     vec.emplace_back("active_validator_groups",
                      PSTRING() << "master:" << validator_groups.masterchain << " shard:" << validator_groups.shard);
   }
 
   bool serializer_enabled = opts_->get_state_serializer_enabled();
-  if (is_validator() && last_masterchain_state_.not_null() && last_masterchain_state_->get_global_id() == -239) {
+  if ((is_validator() || is_collator()) && last_masterchain_state_.not_null() &&
+      last_masterchain_state_->get_global_id() == -239) {
     serializer_enabled = false;
   }
   vec.emplace_back("stateserializerenabled", serializer_enabled ? "true" : "false");
