@@ -151,7 +151,8 @@ The outbound mirror is **per transport**, measured where the transport accepts t
 | metric | type | labels | meaning |
 |---|---|---|---|
 | `ton_adnl_query_roundtrip_seconds` / `ton_rldp2_…` / `ton_quic_…` | histogram | `tl`, `le` | Transport-accept to answer for queries we send: network + peer processing + transfer time. Errors and timeouts land in the matching `…_query_roundtrip_failed_total{tl}`. |
-| `ton_rldp2_message_delivery_seconds` / `ton_quic_…` | histogram | `tl`, `le` | Transport-accept to the protocol's receipt confirmation for fire-and-forget messages: rldp2 confirms via the transfer's completion (`on_sent`), QUIC via the empty response the receiver answers every message with. Failures (including a connection closing with messages still in flight) land in `…_message_delivery_failed_total{tl}`. |
+| `ton_rldp2_message_delivery_seconds` | histogram | `tl`, `le` | Transport-accept to the transfer's completion (`on_sent`) for fire-and-forget messages. Failures land in `ton_rldp2_message_delivery_failed_total{tl}`. |
+| `ton_quic_message_confirmation_seconds` | histogram | `tl`, `le` | Send-accept to confirmation: the peer transport's stream acknowledgement for unidirectional messages, or the receiver's empty receipt for legacy bidirectional messages. Failures land in `ton_quic_message_confirmation_failed_total{tl}`. |
 
 Note the asymmetry: inbound `ton_adnl_query_duration_seconds` covers queries from **all** transports
 at the single delivery layer, while roundtrip/delivery are per-transport at the sending layer. Plain
@@ -190,16 +191,30 @@ port) and folds their stats together.
 | `ton_quic_transport_bytes_total` | counter | `direction` | ngtcp2 packet bytes. |
 | `ton_quic_transport_packets_total` | counter | `direction` | ngtcp2 packet count. |
 | `ton_quic_transport_stream_bytes_total` | counter | `direction` | STREAM payload. Inbound at delivery; **outbound at ACK time**, so it trails the app tier by everything in flight or lost. |
+| `ton_quic_transport_datagrams_total` | counter | `direction` | RFC 9221 unreliable DATAGRAM frames. `out` counts them as ngtcp2 takes them, `in` as they are delivered. Zero unless the endpoint opted into the extension (`QuicServer::Options::max_datagram_frame_size`); a fire-and-forget message uses one only when the peer also advertised it and the framed message fits. |
 | `ton_quic_transport_bytes_lost_total` | counter | — | Bytes in packets declared lost by loss detection. |
 | `ton_quic_transport_packets_lost_total` | counter | — | Packets declared lost. |
 | `ton_quic_transport_bytes_in_flight` | gauge | — | ngtcp2 bytes in flight. |
 | `ton_quic_transport_bytes_unacked` | gauge | — | Stream bytes appended but not yet acked, so it **includes** `bytes_unsent` — the two are not disjoint. |
 | `ton_quic_transport_bytes_unsent` | gauge | — | App-buffered stream bytes not yet handed to ngtcp2. |
 | `ton_quic_transport_sids_total` | counter | — | **Peer-initiated** bidi streams accepted. Locally opened streams are not counted. |
-| `ton_quic_transport_sids_current` | gauge | — | Open streams, counting both directions of initiation. |
+| `ton_quic_transport_sids_current` | gauge | — | Open streams with an outbound half: locally initiated bidirectional or unidirectional streams, plus peer-initiated bidirectional streams. |
 | `ton_quic_transport_mean_rtt_seconds` | gauge | — | Connection-weighted mean smoothed RTT over open connections. |
 | `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, protocol violation, a handshake rejected over a key or identity mismatch, plus ngtcp2's own discarded-packet delta. `in,limited`: per-IP flood limiter, or a handshake rejected because the path's MTU is 0. `in,internal`: connection creation failure, failing to build a stateless Retry, a fatal ngtcp2 error while handling ingress (our own OOM or callback failure), or a handshake rejected because the outbound connection it belongs to is no longer known. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. To avoid double-counting, a refused datagram is counted here only if `pkt_discarded` did not move across that `ngtcp2_conn_read_pkt` call. Because ngtcp2 exposes no per-packet attribution, a rare buffered-packet interleaving can undercount by one; see *Known gaps*. Failing to *send* a Retry or a stateless close is an egress drop rather than an inbound reject. Rejected handshakes are counted by whoever rejects them — synchronously at the callback (a key that will not parse, always `invalid`), or asynchronously by the actor that deferred its verdict, which supplies the reason — so they are **not** uniformly `invalid`. |
-| `ton_quic_transport_handshakes_total` | counter | `direction`, `result` | Handshakes that reached the application's verdict, split by who dialled (`in` = the peer dialled us, `out` = we dialled the peer — a rejection means something quite different on each side) and how it went: `completed` once the connection is ready to carry traffic, `rejected` when the application refused the peer (a key that will not parse, an identity that does not match the one we dialed, a path with no usable MTU, an outbound connection nobody remembers). The two are disjoint, and every rejection also lands in `dropped{direction="in"}` under its reason — `dropped`'s `direction` is the direction of the discarded data, not of the dial, so an outbound handshake we reject shows up as `handshakes{direction="out"}` against `dropped{direction="in"}`. A handshake abandoned before the application ever saw it is counted in neither: an idle timeout mid-handshake only removes the connection, so it shows up as a decrement of `connections_current` and nowhere else, while a datagram ngtcp2 refused lands in `dropped`. Only consumers built on `QuicSender` report completions — a callback implemented directly against `QuicServer` (the in-tree examples and raw tests) records rejections but not successes. |
+| `ton_quic_transport_handshakes_total` | counter | `direction`, `result` | Handshakes that reached the application's verdict, split by who dialled (`in` = the peer dialled us, `out` = we dialled the peer — a rejection means something quite different on each side) and how it went: `completed` once the connection is ready to carry traffic, `rejected` when the application refused the peer (a key that will not parse, an identity that does not match the one we dialed, a path with no usable MTU, an outbound connection nobody remembers), `timed_out` when the handshake did not finish within `QuicConnectionOptions::handshake_timeout` (5s) — the application never saw that one, and every caller queued behind it was failed. The three are disjoint, and every rejection also lands in `dropped{direction="in"}` under its reason — `dropped`'s `direction` is the direction of the discarded data, not of the dial, so an outbound handshake we reject shows up as `handshakes{direction="out"}` against `dropped{direction="in"}`. A handshake abandoned before the application ever saw it is counted in neither: an idle timeout mid-handshake only removes the connection, so it shows up as a decrement of `connections_current` and nowhere else, while a datagram ngtcp2 refused lands in `dropped`. Only consumers built on `QuicSender` report completions — a callback implemented directly against `QuicServer` (the in-tree examples and raw tests) records rejections but not successes. |
+
+### Batching
+
+Passive observations of batched connection egress; stateless Retry and close sends are excluded.
+Every family is a histogram over counts, not seconds. `_sum / _count` is the mean. On POSIX,
+`gso_segments_sum / syscall_messages_count` is the exact mean UDP datagrams per successful send
+call. Windows currently counts descriptors accepted into its asynchronous send queue instead.
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_quic_batching_egress_flush_packets` | histogram | `le` | UDP datagrams accepted by the send path during one `flush_egress()` call, including pending data from an earlier call. `le="0"` includes flushes that send nothing. |
+| `ton_quic_batching_egress_gso_segments` | histogram | `le` | UDP datagrams in one accepted send descriptor. It is always 1 without GSO. |
+| `ton_quic_batching_egress_syscall_messages` | histogram | `le` | Descriptors accepted by one POSIX send call. Without `sendmmsg`, each successful `sendmsg` contributes 1. |
 
 ### App
 
@@ -217,8 +232,8 @@ Described in full under ADNL → *Outbound: roundtrips and deliveries*; the QUIC
 |---|---|---|---|
 | `ton_quic_query_roundtrip_seconds` | histogram | `tl`, `le` | Send-accept to answer for queries we send over QUIC. Connection setup is deliberately outside the measured window. |
 | `ton_quic_query_roundtrip_failed_total` | counter | `tl` | Of those, the ones that errored or timed out. |
-| `ton_quic_message_delivery_seconds` | histogram | `tl`, `le` | Send-accept to the empty response the receiver answers every fire-and-forget message with. |
-| `ton_quic_message_delivery_failed_total` | counter | `tl` | Of those, the ones that never got their confirmation (including a connection closing with messages in flight). |
+| `ton_quic_message_confirmation_seconds` | histogram | `tl`, `le` | Send-accept to the peer transport's stream acknowledgement for unidirectional messages, or to the receiver's empty receipt for legacy bidirectional messages. |
+| `ton_quic_message_confirmation_failed_total` | counter | `tl` | Of those, the ones whose stream was reset or connection closed before confirmation. |
 
 ---
 
@@ -435,17 +450,16 @@ histogram_quantile(0.95, sum by (le) (rate(ton_rldp2_query_roundtrip_seconds_buc
 histogram_quantile(0.95, sum by (le) (rate(ton_adnl_query_duration_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
 ```
 
-**Are my messages actually arriving?** Delivery confirmation failure ratio (rldp2 confirms via
-transfer completion, QUIC via the empty response) — on a healthy link this is ~0 and deliveries
-confirm in milliseconds; a peer that silently lost its connection state shows up here within
-seconds:
+**Are my QUIC messages reaching the peer transport?** Confirmation failure ratio (a unidirectional
+stream confirms when the peer acknowledges it; legacy bidirectional mode uses the empty receipt) —
+on a healthy link this is ~0:
 
 ```promql
-sum by (tl) (rate(ton_quic_message_delivery_failed_total[5m]))
-  / sum by (tl) (rate(ton_quic_message_delivery_seconds_count[5m]))
+sum by (tl) (rate(ton_quic_message_confirmation_failed_total[5m]))
+  / sum by (tl) (rate(ton_quic_message_confirmation_seconds_count[5m]))
 ```
 
-**QUIC stream-credit exhaustion** (the `ngtcp2_conn_open_bidi_stream failed: -206` signature —
+**QUIC stream-credit exhaustion** (the `open stream failed: -206 (ERR_STREAM_ID_BLOCKED)` signature —
 fire-and-forget sends being dropped because a peer stopped granting stream credit):
 
 ```promql
@@ -453,11 +467,10 @@ rate(ton_quic_app_dropped_total{direction="out",reason="limited"}[1m]) > 0
 ton_quic_transport_sids_current   # corroborates; read it with the caveat below
 ```
 
-The first line is the detector. `sids_current` only corroborates: it counts open streams in **both**
-directions of initiation, each capped at 4096, so a connection's ceiling is 8192 and the gauge cannot
-isolate the half that matters. The credit that blocks our sends is the peer's limit on the
-locally-initiated half, so a plateau near 4096 × connections is the exhaustion signature only while
-inbound stream use is low.
+The first line is the detector. `sids_current` only corroborates: it combines locally initiated bidi
+and uni streams with peer-initiated bidi streams, so it cannot isolate the budget that matters. At
+the defaults, those three independent limits are 4096 each. Message sends normally consume the
+peer's uni budget; old-peer fallback consumes its bidi budget.
 
 **Why am I dropping traffic?** The reason axis separates runbooks — `limited` on the wire tier is
 kernel receive-queue overflow (raise `SO_RCVBUF` / add CPU), `invalid` is garbage from peers,

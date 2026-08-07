@@ -599,6 +599,7 @@ TEST(MetricsGolden, Quic) {
                 "ton_quic_transport_bytes counter",
                 "ton_quic_transport_packets counter",
                 "ton_quic_transport_stream_bytes counter",
+                "ton_quic_transport_datagrams counter",
                 "ton_quic_transport_bytes_lost counter",
                 "ton_quic_transport_packets_lost counter",
                 "ton_quic_transport_bytes_in_flight gauge",
@@ -609,24 +610,27 @@ TEST(MetricsGolden, Quic) {
                 "ton_quic_transport_mean_rtt_seconds gauge",
                 "ton_quic_transport_dropped counter",
                 "ton_quic_transport_handshakes counter",
+                "ton_quic_batching_egress_flush_packets histogram",
+                "ton_quic_batching_egress_gso_segments histogram",
+                "ton_quic_batching_egress_syscall_messages histogram",
                 "ton_quic_app_bytes counter",
                 "ton_quic_app_messages counter",
                 "ton_quic_app_dropped counter",
                 "ton_quic_query_roundtrip_seconds histogram",
                 "ton_quic_query_roundtrip_failed counter",
-                "ton_quic_message_delivery_seconds histogram",
-                "ton_quic_message_delivery_failed counter",
+                "ton_quic_message_confirmation_seconds histogram",
+                "ton_quic_message_confirmation_failed counter",
             }),
             emitted_families([](Context ctx) {
               ::ton::quic::ServerStats server;
               App app;
               TlLatencyBucket query_roundtrip{"quic query roundtrip", "seconds"},
-                  message_delivery{"quic message delivery", "seconds"};
+                  message_confirmation{"quic message confirmation", "seconds"};
               auto quic = ctx.with_name("quic");
               quic.collect(server);
               quic.collect(app, "app");
               quic.collect(query_roundtrip, "query_roundtrip");
-              quic.collect(message_delivery, "message_delivery");
+              quic.collect(message_confirmation, "message_confirmation");
             }));
 }
 #endif

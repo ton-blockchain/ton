@@ -6,18 +6,28 @@
 
 #pragma once
 
+#include <array>
 #include <chrono>
 
 #include "metrics/well-known.h"
 
 namespace ton::quic {
 
-// How the application answered a handshake that reached it: `completed` = the connection is ready
-// to carry traffic, `rejected` = the peer was refused (unusable key, identity mismatch, ...).
-// Handshakes that never got that far are visible only as `dropped` and `connections` counts.
+// Bucket bounds shared by the batching histograms. They are counts, not durations.
+inline constexpr std::array<double, 5> kBatchBuckets = {1, 4, 8, 16, 32};
+inline constexpr std::array<double, 6> kBatchWithZeroBuckets = {0, 1, 4, 8, 16, 32};
+
+using BatchHistogram = metrics::Histogram<kBatchBuckets>;
+using BatchWithZeroHistogram = metrics::Histogram<kBatchWithZeroBuckets>;
+
+// How a handshake ended: `completed` = the connection is ready to carry traffic, `rejected` = the
+// application refused the peer (unusable key, identity mismatch, ...), `timed_out` = it never
+// finished within the handshake timeout, so the application never saw it at all. Handshakes
+// abandoned for any other reason are visible only as `dropped` and `connections` counts.
 #define QUIC_HANDSHAKE_RESULT_LIST(F) \
   F(completed)                        \
-  F(rejected)
+  F(rejected)                         \
+  F(timed_out)
 TON_METRIC_DEFINE_LABEL(HandshakeResult, "result", QUIC_HANDSHAKE_RESULT_LIST)
 #undef QUIC_HANDSHAKE_RESULT_LIST
 
@@ -26,6 +36,7 @@ struct QuicConnectionMetrics {
   metrics::Labeled<metrics::Counter, metrics::Direction> bytes;
   metrics::Labeled<metrics::Counter, metrics::Direction> packets;
   metrics::Labeled<metrics::Counter, metrics::Direction> stream_bytes;
+  metrics::Labeled<metrics::Counter, metrics::Direction> datagrams;
   metrics::Counter bytes_lost;
   metrics::Counter packets_lost;
   metrics::Gauge<td::uint64> bytes_in_flight;
@@ -39,6 +50,7 @@ struct QuicConnectionMetrics {
     bytes += other.bytes;
     packets += other.packets;
     stream_bytes += other.stream_bytes;
+    datagrams += other.datagrams;
     bytes_lost += other.bytes_lost;
     packets_lost += other.packets_lost;
     bytes_in_flight += other.bytes_in_flight;
@@ -54,6 +66,7 @@ struct QuicConnectionMetrics {
     ctx.collect(bytes, "bytes");
     ctx.collect(packets, "packets");
     ctx.collect(stream_bytes, "stream_bytes");
+    ctx.collect(datagrams, "datagrams");
     ctx.collect(bytes_lost, "bytes_lost");
     ctx.collect(packets_lost, "packets_lost");
     ctx.collect(bytes_in_flight, "bytes_in_flight");
@@ -139,6 +152,26 @@ struct TransportStats {
   }
 };
 
+struct BatchingStats {
+  BatchWithZeroHistogram egress_flush_packets;
+  BatchHistogram egress_gso_segments;
+  BatchHistogram egress_syscall_messages;
+
+  BatchingStats& operator+=(const BatchingStats& other) {
+    egress_flush_packets += other.egress_flush_packets;
+    egress_gso_segments += other.egress_gso_segments;
+    egress_syscall_messages += other.egress_syscall_messages;
+    return *this;
+  }
+
+  void collect(metrics::Context ctx) const {
+    auto egress = ctx.with_name("egress");
+    egress.collect(egress_flush_packets, "flush_packets");
+    egress.collect(egress_gso_segments, "gso_segments");
+    egress.collect(egress_syscall_messages, "syscall_messages");
+  }
+};
+
 struct ServerStats {
   struct Transport {
     QuicConnectionMetricsAggregate summary;
@@ -158,16 +191,19 @@ struct ServerStats {
 
   metrics::UdpWireStats wire;
   Transport transport;
+  BatchingStats batching;
 
   ServerStats& operator+=(const ServerStats& other) {
     wire += other.wire;
     transport += other.transport;
+    batching += other.batching;
     return *this;
   }
 
   void collect(metrics::Context ctx) const {
     ctx.collect(wire, "wire");
     ctx.collect(transport, "transport");
+    ctx.collect(batching, "batching");
   }
 };
 

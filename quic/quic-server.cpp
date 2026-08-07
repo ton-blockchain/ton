@@ -2,6 +2,7 @@
 #include <chrono>
 
 #include "td/actor/actor.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/Timer.h"
 
 #include "quic-pimpl.h"
@@ -66,6 +67,11 @@ QuicServer::QuicServer(td::UdpSocketFd fd, td::uint64 default_mtu, ServerIdentit
     }
     return static_cast<td::uint64>(0);
   });
+  auto rcv_buffer = fd_.maximize_rcv_buffer();
+  auto snd_buffer = fd_.maximize_snd_buffer();
+  LOG(INFO) << "UDP buffers: rcv=" << (rcv_buffer.is_ok() ? rcv_buffer.move_as_ok() : 0)
+            << " snd=" << (snd_buffer.is_ok() ? snd_buffer.move_as_ok() : 0);
+
   if (options.enable_gro) {
     auto gro_status = fd_.enable_gro();
     if (gro_status.is_ok()) {
@@ -258,12 +264,16 @@ QuicConnectionOptions QuicServer::build_connection_options() const {
   if (options_.max_streams_bidi.has_value()) {
     conn_options.max_streams_bidi = *options_.max_streams_bidi;
   }
+  if (options_.max_streams_uni.has_value()) {
+    conn_options.max_streams_uni = *options_.max_streams_uni;
+  }
   if (options_.ack_thresh.has_value()) {
     conn_options.ack_thresh = *options_.ack_thresh;
   }
   if (options_.max_ack_delay_seconds.has_value()) {
     conn_options.max_ack_delay = static_cast<ngtcp2_duration>(*options_.max_ack_delay_seconds * NGTCP2_SECONDS);
   }
+  conn_options.max_datagram_frame_size = options_.max_datagram_frame_size;
   return conn_options;
 }
 
@@ -436,6 +446,10 @@ bool QuicServer::handle_expiry(ConnectionState &state) {
     case QuicConnectionPImpl::ExpiryAction::IdleClose:
       LOG(INFO) << "expiry IdleClose for " << state.remote_address;
       return true;
+    case QuicConnectionPImpl::ExpiryAction::HandshakeTimeout:
+      LOG(INFO) << "expiry HandshakeTimeout for " << state.remote_address;
+      transport_stats_.handshakes.at(direction_of(state.is_outbound), HandshakeResult::timed_out).inc();
+      return true;
     case QuicConnectionPImpl::ExpiryAction::Close:
       LOG(INFO) << "expiry Close for " << state.remote_address;
       on_connection_updated(state);  // should we?..
@@ -450,6 +464,19 @@ void QuicServer::shutdown_stream(QuicConnectionId cid, QuicStreamID sid) {
     return;
   }
   state->impl().shutdown_stream(sid);
+  on_connection_updated(*state);
+}
+
+void QuicServer::release_peer_uni_stream_credit(QuicConnectionId cid) {
+  auto state = find_connection(cid);
+  if (!state) {
+    return;  // the connection is gone and its credit with it
+  }
+  // Only the release that actually announces credit needs the connection back in the egress
+  // rotation; the batched ones in between have nothing to put on the wire.
+  if (!state->impl().release_peer_uni_stream_credit()) {
+    return;
+  }
   on_connection_updated(*state);
 }
 
@@ -477,6 +504,7 @@ td::actor::Task<ServerStats> QuicServer::collect() {
               .summary = summary,
               .stats = transport_stats_,
           },
+      .batching = batching_,
   };
 }
 
@@ -630,8 +658,8 @@ class QuicServer::PImplCallback final : public QuicConnectionPImpl::Callback {
   td::Status on_stream_data(StreamDataEvent event) override {
     return callback_.on_stream(cid_, event.sid, std::move(event.data), event.fin);
   }
-  void on_stream_closed(QuicStreamID sid) override {
-    return callback_.on_stream_closed(cid_, sid);
+  void on_stream_closed(StreamCloseEvent event) override {
+    return callback_.on_stream_closed(cid_, event);
   }
 
  private:
@@ -743,9 +771,18 @@ void QuicServer::record_egress(td::Span<td::UdpSocketFd::OutboundMessage> batch,
                                const td::UdpSocketFd::SendResult &result) {
   reflect_socket_syscalls();
   auto &egress = udp_wire_.dir.at(metrics::Direction::out);
+  const bool mmsg = fd_.is_mmsg_enabled();
   for (const auto &message : batch.substr(0, result.sent)) {
+    auto datagrams = datagram_count(message);
     egress.data.bytes.inc(message.data.size());
-    egress.data.packets.inc(datagram_count(message));
+    egress.data.packets.inc(datagrams);
+    batching_.egress_gso_segments.observe(static_cast<double>(datagrams));
+    if (!mmsg) {
+      batching_.egress_syscall_messages.observe(1);
+    }
+  }
+  if (mmsg && result.sent > 0) {
+    batching_.egress_syscall_messages.observe(static_cast<double>(result.sent));
   }
   // Consumed by the kernel, never put on the wire.
   for (const auto &message : batch.substr(result.sent, result.dropped)) {
@@ -923,10 +960,9 @@ bool QuicServer::flush_pending() {
   return true;
 }
 
-bool QuicServer::produce_next_egress(size_t batch_index) {
-  const size_t max_packets = gso_enabled_ ? kMaxBurst : 1;
-  const size_t max_buf = DEFAULT_MTU * max_packets;
-
+size_t QuicServer::produce_next_egress(size_t first_message) {
+  CHECK(first_message < kEgressBatch);
+  const size_t max_packets = gso_enabled_ ? kMaxBurst : kEgressBatch - first_message;
   while (!active_connections_.empty()) {
     auto cid = active_connections_.front();
     active_connections_.pop_front();
@@ -938,10 +974,11 @@ bool QuicServer::produce_next_egress(size_t batch_index) {
 
     conn->in_active_queue = false;
 
-    auto &batch = egress_batches_[batch_index];
-    batch.storage = td::MutableSlice(egress_buffers_[batch_index].data(), max_buf);
+    auto &batch = egress_batches_[first_message];
+    auto &buffer = egress_buffers_[first_message];
+    batch.storage = td::MutableSlice(buffer.data(), buffer.size());
 
-    auto status = conn->impl().produce_egress(batch, gso_enabled_, max_packets);
+    auto status = conn->impl().produce_egress(batch, max_packets);
     if (status.is_error()) {
       record_transport_dropped(metrics::Direction::out, metrics::Reason::internal);
       LOG(WARNING) << "produce_egress failed for " << conn->remote_address << ": " << status;
@@ -952,14 +989,36 @@ bool QuicServer::produce_next_egress(size_t batch_index) {
     }
     on_connection_updated(*conn);
 
-    egress_batch_owners_[batch_index] = conn;
-    return true;
+    if (gso_enabled_) {
+      egress_messages_[first_message] = {.to = &batch.address, .data = batch.storage, .gso_size = batch.gso_size};
+      egress_message_owners_[first_message] = conn;
+      return 1;
+    }
+
+    // The same pacing burst becomes ordinary UDP datagrams when UDP_SEGMENT is unavailable.
+    CHECK(batch.gso_size != 0);
+    size_t count = 0;
+    for (size_t offset = 0; offset < batch.storage.size(); offset += batch.gso_size) {
+      CHECK(first_message + count < kEgressBatch);
+      const auto size = td::min(batch.gso_size, batch.storage.size() - offset);
+      egress_messages_[first_message + count] = {
+          .to = &batch.address, .data = batch.storage.substr(offset, size), .gso_size = 0};
+      egress_message_owners_[first_message + count] = conn;
+      ++count;
+    }
+    return count;
   }
-  return false;
+  return 0;
 }
 
 void QuicServer::flush_egress() {
   td::PerfWarningTimer w("flush_egress_all", 0.1);
+
+  auto packets_before = udp_wire_.dir.at(metrics::Direction::out).data.packets.value();
+  SCOPE_EXIT {
+    auto packets_after = udp_wire_.dir.at(metrics::Direction::out).data.packets.value();
+    batching_.egress_flush_packets.observe(static_cast<double>(packets_after - packets_before));
+  };
 
   // First flush any pending from previous call
   if (!flush_pending()) {
@@ -972,18 +1031,18 @@ void QuicServer::flush_egress() {
   td::int64 bytes_budget = 10 << 20;
   while (!active_connections_.empty() && bytes_budget > 0) {
     size_t batch_count = 0;
-    while (batch_count < kEgressBatch && produce_next_egress(batch_count)) {
-      batch_count++;
+    while (batch_count < kEgressBatch) {
+      auto count = produce_next_egress(batch_count);
+      if (count == 0) {
+        break;
+      }
+      batch_count += count;
     }
     if (batch_count == 0) {
       break;
     }
 
-    // Prepare messages
     for (size_t i = 0; i < batch_count; i++) {
-      egress_messages_[i].to = &egress_batches_[i].address;
-      egress_messages_[i].data = egress_batches_[i].storage;
-      egress_messages_[i].gso_size = gso_enabled_ ? egress_batches_[i].gso_size : 0;
       bytes_budget -= std::max<size_t>(egress_messages_[i].data.size(), 256);
     }
 
@@ -994,7 +1053,7 @@ void QuicServer::flush_egress() {
         std::map<QuicConnectionId, size_t> conn_to_idx;
         std::vector<size_t> packet_conn_idx(batch_count);
         for (size_t i = 0; i < batch_count; i++) {
-          auto [it, inserted] = conn_to_idx.try_emplace(egress_batch_owners_[i]->cid, conn_to_idx.size());
+          auto [it, inserted] = conn_to_idx.try_emplace(egress_message_owners_[i]->cid, conn_to_idx.size());
           packet_conn_idx[i] = it->second;
         }
         sb << "sendmmsg batch=" << batch_count << " conns=" << conn_to_idx.size() << " [";
@@ -1002,11 +1061,14 @@ void QuicServer::flush_egress() {
           if (i > 0) {
             sb << ", ";
           }
-          sb << egress_batches_[i].storage.size();
-          if (egress_batches_[i].gso_size > 0) {
-            sb << "(gso=" << egress_batches_[i].gso_size << ")";
+          sb << egress_messages_[i].data.size();
+          if (egress_messages_[i].gso_size > 0) {
+            sb << "(gso=" << egress_messages_[i].gso_size << ")";
           }
-          sb << "/c" << packet_conn_idx[i] << "/s" << egress_batch_owners_[i]->impl().get_last_packet_streams();
+          sb << "/c" << packet_conn_idx[i];
+          if (gso_enabled_) {
+            sb << "/s" << egress_message_owners_[i]->impl().get_last_packet_streams();
+          }
         }
         sb << "] active/total=" << active_count << "/" << total_count;
       };
@@ -1052,20 +1114,46 @@ td::Result<QuicStreamID> QuicServer::send_stream(QuicConnectionId cid, std::vari
   if (!state) {
     return td::Status::Error("Connection not found");
   }
+  return send_stream_on(*state, std::move(stream), std::move(data), is_end);
+}
 
-  QuicStreamID sid;
+td::Result<QuicStreamID> QuicServer::send_stream_on(ConnectionState &state,
+                                                    std::variant<QuicStreamID, StreamOptions> stream,
+                                                    td::BufferSlice data, bool is_end) {
   if (auto *existing = std::get_if<QuicStreamID>(&stream)) {
-    sid = *existing;
-  } else {
-    TRY_RESULT_ASSIGN(sid, state->impl().open_stream());
-    auto &options = std::get<StreamOptions>(stream);
-    callback_->set_stream_options(cid, sid, options);
-    if (options.max_size.has_value()) {
-      state->impl().set_stream_receive_credit_from_max_size(sid, *options.max_size);
-    }
+    TRY_STATUS(state.impl().buffer_stream(*existing, std::move(data), is_end));
+    on_connection_updated(state);
+    return *existing;
   }
 
-  TRY_STATUS(state->impl().buffer_stream(sid, std::move(data), is_end));
+  auto &options = std::get<StreamOptions>(stream);
+  TRY_RESULT(sid, state.impl().open_stream(options.direction, std::move(data), is_end));
+  if (options.direction == StreamDirection::Bidirectional) {
+    callback_->set_stream_options(state.cid, sid, options);
+    if (options.max_size.has_value()) {
+      state.impl().set_stream_receive_credit_from_max_size(sid, *options.max_size);
+    }
+  }
+  on_connection_updated(state);
+  return sid;
+}
+
+td::Result<QuicStreamID> QuicServer::send_message(QuicConnectionId cid, td::BufferSlice data) {
+  auto state = find_connection(cid);
+  if (!state) {
+    return td::Status::Error("Connection not found");
+  }
+  if (state->impl().can_send_datagram(data.size())) {
+    state->impl().send_datagram(std::move(data));
+    on_connection_updated(*state);
+    return -1;
+  }
+  // A peer that never advertised unidirectional stream credit would refuse every open forever, so
+  // it gets the pre-unidirectional wire behaviour and its messages ride bidirectional streams.
+  auto direction = !options_.message_streams_bidi && state->impl().peer_advertised_initial_uni_credit()
+                       ? StreamDirection::Unidirectional
+                       : StreamDirection::Bidirectional;
+  TRY_RESULT(sid, state->impl().open_stream(direction, std::move(data), true));
   on_connection_updated(*state);
   return sid;
 }
