@@ -84,6 +84,11 @@ td::Result<ContractSet> load_contracts(td::CSlice dir) {
   TRY_RESULT_ASSIGN(res.w5_code, load_boc_file(PSTRING() << dir << "/wallet-v5.code.boc"));
   TRY_RESULT_ASSIGN(res.jw_code, load_boc_file(PSTRING() << dir << "/jetton-wallet.code.boc"));
   TRY_RESULT_ASSIGN(res.minter_code, load_boc_file(PSTRING() << dir << "/jetton-minter.code.boc"));
+  // Optional: only needed when generating fat accounts (--fats-count > 0).
+  auto fat_path = PSTRING() << dir << "/fat.code.boc";
+  if (td::stat(fat_path).is_ok()) {
+    TRY_RESULT_ASSIGN(res.fat_code, load_boc_file(fat_path));
+  }
   return res;
 }
 
@@ -198,13 +203,13 @@ Ref<vm::DataCell> build_w5_data(const td::Bits256 &pubkey, td::uint32 wallet_id)
   return cb.finalize_novm();
 }
 
-Ref<vm::DataCell> build_jw_data(Uint128 jetton_balance, const td::Bits256 &owner_addr, const td::Bits256 &minter_addr,
-                                Ref<vm::Cell> jw_code) {
+Ref<vm::DataCell> build_jw_data(Uint128 jetton_balance, const td::Bits256 &owner_addr, const td::Bits256 &minter_addr) {
+  // Prepaid Tolk WalletStorage: jettonBalance:coins | ownerAddress:address | minterAddress:address.
+  // No jetton-wallet-code ref in data (unlike the legacy FunC jetton).
   vm::CellBuilder cb;
   store_grams(cb, jetton_balance);
   store_addr_std(cb, owner_addr);
   store_addr_std(cb, minter_addr);
-  cb.store_ref(std::move(jw_code));
   return cb.finalize_novm();
 }
 
@@ -259,6 +264,24 @@ Ref<vm::DataCell> build_ballast_code() {
 
 Ref<vm::DataCell> build_empty_cell() {
   return vm::CellBuilder{}.finalize_novm();
+}
+
+std::vector<Ref<vm::DataCell>> build_fat_storage(const td::Bits256 &addr, int fats_size) {
+  // ~fats_size bytes of unique cells (127 data bytes each), reusing the ballast filler keyed by addr
+  // so nothing dedups. bigDict is the chain head; the storage root prefixes a zero nonce and refs it.
+  int num_cells = std::max(1, fats_size / 127);
+  auto chain = build_ballast_chain(addr, num_cells);
+  vm::CellBuilder cb;
+  cb.store_long(0, 64);    // nonce:uint64 = 0
+  cb.store_ref(chain[0]);  // ^bigDict
+  auto root = cb.finalize_novm();
+  std::vector<Ref<vm::DataCell>> cells;
+  cells.reserve(chain.size() + 1);
+  cells.push_back(std::move(root));
+  for (auto &c : chain) {
+    cells.push_back(c);
+  }
+  return cells;
 }
 
 // bits of the AccountStorage "root" (the part serialized inline in the Account cell)
@@ -341,10 +364,54 @@ void emit_subtree(CellSink &sink, const Ref<vm::Cell> &root) {
 }
 
 // ---------------------------------------------------------------------------
+// Bundling
+// ---------------------------------------------------------------------------
+
+void BundleTracker::retain(const Ref<vm::DataCell> &cell) {
+  retained_.emplace(cell->get_hash(), cell);
+}
+
+void BundleTracker::close_out(const vm::CellHash &hash) {
+  auto it = retained_.find(hash);
+  LOG_CHECK(it != retained_.end()) << "bundle root not retained: " << hash.to_hex();
+  auto root = std::move(it->second);
+  retained_.erase(it);
+  std::vector<vm::CellHash> claimed;
+  auto value = vm::CellStorer::serialize_value_bundle(refcnt_, root, [&](const vm::CellHash &h) -> Ref<vm::DataCell> {
+    auto it2 = retained_.find(h);
+    if (it2 == retained_.end()) {
+      return {};
+    }
+    claimed.push_back(h);
+    return it2->second;
+  });
+  for (const auto &h : claimed) {
+    retained_.erase(h);
+  }
+  sink_.emit_raw(td::Bits256{root->get_hash().bits()}, std::move(value));
+}
+
+std::vector<Ref<vm::DataCell>> BundleTracker::take_retained() {
+  std::vector<Ref<vm::DataCell>> res;
+  res.reserve(retained_.size());
+  for (auto &it : retained_) {
+    res.push_back(std::move(it.second));
+  }
+  retained_.clear();
+  return res;
+}
+
+void BundleTracker::adopt(std::vector<Ref<vm::DataCell>> cells) {
+  for (auto &cell : cells) {
+    retain(cell);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Streaming ShardAccounts builder
 // ---------------------------------------------------------------------------
 
-Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, int edge_start) {
+Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, int edge_start, BundleTracker *tracker) {
   CHECK(node.type != DictNode::Type::Empty);
   vm::CellBuilder cb;
   if (node.type == DictNode::Type::Leaf) {
@@ -362,6 +429,19 @@ Ref<vm::DataCell> materialize_dict_node(CellSink &sink, const DictNode &node, in
   }
   auto cell = cb.finalize_novm();
   sink.emit(cell);
+  if (tracker != nullptr) {
+    tracker->retain(cell);
+    if (node.type == DictNode::Type::Fork) {
+      // Children edges start right after the fork bit; if that crosses into the
+      // next bit window, both children are bundle roots — close them out now
+      // (their subtrees are complete: the dict is built bottom-up).
+      int child_start = node.fork_pos + 1;
+      if (tracker->window(child_start) != tracker->window(edge_start)) {
+        tracker->close_out(node.left->get_hash());
+        tracker->close_out(node.right->get_hash());
+      }
+    }
+  }
   return cell;
 }
 
@@ -397,7 +477,7 @@ void ShardAccountsStreamBuilder::add_node(DictNode node) {
     auto fork = std::move(stack_.back());
     stack_.pop_back();
     CHECK(fork.pos != fork_pos);
-    auto right = materialize_dict_node(sink_, carry_, fork.pos + 1);
+    auto right = materialize_dict_node(sink_, carry_, fork.pos + 1, tracker_);
     DictNode merged;
     merged.type = DictNode::Type::Fork;
     merged.key = carry_.key;
@@ -408,7 +488,7 @@ void ShardAccountsStreamBuilder::add_node(DictNode node) {
     carry_ = std::move(merged);
   }
   // Open the new fork: its left child is now complete.
-  auto left = materialize_dict_node(sink_, carry_, fork_pos + 1);
+  auto left = materialize_dict_node(sink_, carry_, fork_pos + 1, tracker_);
   stack_.push_back(OpenFork{fork_pos, make_standin(left), carry_.balance});
   carry_ = std::move(node);
 }
@@ -421,7 +501,7 @@ DictNode ShardAccountsStreamBuilder::finish() {
   while (!stack_.empty()) {
     auto fork = std::move(stack_.back());
     stack_.pop_back();
-    auto right = materialize_dict_node(sink_, carry_, fork.pos + 1);
+    auto right = materialize_dict_node(sink_, carry_, fork.pos + 1, tracker_);
     DictNode merged;
     merged.type = DictNode::Type::Fork;
     merged.key = carry_.key;
@@ -526,6 +606,8 @@ std::string Manifest::to_json() const {
   obj("num_v5", static_cast<td::int64>(num_v5));
   obj("num_ballast", static_cast<td::int64>(num_ballast));
   obj("ballast_cells", ballast_cells);
+  obj("num_fats", static_cast<td::int64>(num_fats));
+  obj("fats_size", fats_size);
   obj("wallet_id", static_cast<td::int64>(wallet_id));
   obj("w5_code_hash_hex", td::hex_encode(w5_code_hash.as_slice()));
   obj("jw_code_hash_hex", td::hex_encode(jw_code_hash.as_slice()));
@@ -576,6 +658,10 @@ td::Result<Manifest> Manifest::from_json(td::Slice json) {
   TRY_RESULT(num_ballast, obj.get_required_long_field("num_ballast"));
   m.num_ballast = static_cast<td::uint64>(num_ballast);
   TRY_RESULT_ASSIGN(m.ballast_cells, obj.get_required_int_field("ballast_cells"));
+  // Optional (added later): old manifests without these parse as 0.
+  TRY_RESULT(num_fats, obj.get_optional_long_field("num_fats", 0));
+  m.num_fats = static_cast<td::uint64>(num_fats);
+  TRY_RESULT_ASSIGN(m.fats_size, obj.get_optional_int_field("fats_size", 0));
   TRY_RESULT(wallet_id, obj.get_required_long_field("wallet_id"));
   m.wallet_id = static_cast<td::uint32>(wallet_id);
   TRY_RESULT(w5_code_hash_hex, obj.get_required_string_field("w5_code_hash_hex"));
@@ -604,9 +690,9 @@ td::Result<WalletInfo> derive_wallet(const td::Bits256 &seed, td::uint64 index, 
   TRY_RESULT_ASSIGN(info.pubkey, derive_w5_pubkey(seed, index));
   auto w5_data = build_w5_data(info.pubkey, wallet_id);
   info.w5_addr = build_state_init(contracts.w5_code, w5_data)->get_hash().bits();
-  // Jetton wallet address is derived from the *zero-balance* initial data, as
-  // the jetton contracts do in calculate_user_jetton_wallet_address().
-  auto jw_data0 = build_jw_data(0, info.w5_addr, minter_addr, contracts.jw_code);
+  // Prepaid jetton wallet: the address is derived from the PREPAID_BALANCE initial data (matching
+  // calcDeployedJettonWallet in jetton-utils.tolk), and the live data is the same cell.
+  auto jw_data0 = build_jw_data(kPrepaidJettonBalance, info.w5_addr, minter_addr);
   info.jw_addr = build_state_init(contracts.jw_code, jw_data0)->get_hash().bits();
   return info;
 }

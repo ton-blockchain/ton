@@ -27,16 +27,11 @@
 #include "block/block-parse.h"
 #include "common/checksum.h"
 #include "common/io.hpp"
-
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
 #include "rocksdb/db.h"
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
-#pragma GCC diagnostic pop
-
 #include "td/db/RocksDb.h"
 #include "td/utils/HashSet.h"
 #include "td/utils/OptionParser.h"
@@ -76,6 +71,8 @@ struct Config {
   td::uint64 num_v5 = 1000000;
   td::uint64 num_ballast = 0;
   int ballast_cells = 17;
+  td::uint64 num_fats = 0;
+  int fats_size = 100000;  // target bytes of storage dict per fat account
   td::uint32 wallet_id = 0;
   td::uint32 gen_utime = 0;                   // 0 → now()
   Uint128 v5_balance = 100'000'000'000ULL;    // 100 TON
@@ -86,6 +83,9 @@ struct Config {
   std::string out_dir;
   std::string tmp_dir;
   int threads = static_cast<int>(td::thread::hardware_concurrency());
+  // Bundle ~bundle_depth key-bit levels of the accounts dict (plus the leaf's
+  // account/data cells) into one celldb record; 0 disables bundling.
+  int bundle_depth = 5;
   int merge_shards = 0;  // 0 → derived from threads; power of two in [1, 256]
   bool overwrite = false;
   td::uint64 run_batch_bytes = 512ULL << 20;
@@ -93,6 +93,9 @@ struct Config {
 
   Uint128 total_supply() const {
     return jw_jetton_balance * num_v5;
+  }
+  td::uint64 num_accounts() const {
+    return 2 * num_v5 + num_ballast + (num_v5 > 0 ? 1 : 0);
   }
 };
 
@@ -159,15 +162,25 @@ class CountingSink : public CellSink {
   explicit CountingSink(Progress *progress = nullptr) : progress_(progress) {
   }
   void emit(const Ref<vm::DataCell> &cell) override {
+    count_++;
     if (progress_ != nullptr) {
       progress_->cells.fetch_add(1, std::memory_order_relaxed);
     }
   }
   void emit_raw(const td::Bits256 &hash, std::string value) override {
+    bundles_++;
+  }
+  td::uint64 count() const {
+    return count_;
+  }
+  td::uint64 bundles() const {
+    return bundles_;
   }
 
  private:
   Progress *progress_;
+  td::uint64 count_{0};
+  td::uint64 bundles_{0};
 };
 
 // Merge shards: cells are routed to a shard by the top bits of their hash, so a
@@ -231,7 +244,7 @@ class RunFileSink : public CellSink {
       , shard_bits_(merge_shard_bits(registry.shards()))
       , recs_(registry.shards()) {
   }
-  ~RunFileSink() override {
+  ~RunFileSink() {
     CHECK(n_recs_ == 0);  // flush() must be called explicitly
   }
   void emit(const Ref<vm::DataCell> &cell) override {
@@ -300,7 +313,7 @@ class RunFileSink : public CellSink {
 // Phase 1: parallel derivation into 256 bucket files
 // ---------------------------------------------------------------------------
 
-enum class AccountType : td::uint8 { W5 = 0, JW = 1, Ballast = 2, Minter = 3 };
+enum class AccountType : td::uint8 { W5 = 0, JW = 1, Ballast = 2, Minter = 3, Fat = 4 };
 
 #pragma pack(push, 1)
 struct DeriveRecord {
@@ -391,9 +404,10 @@ struct GenContext {
   td::Bits256 minter_addr{};
   // shared stand-ins (cells emitted once globally)
   Ref<vm::Cell> w5_code_standin, jw_code_standin, minter_code_standin, ballast_code_standin, empty_cell_standin;
+  Ref<vm::Cell> fat_code_standin;
   Ref<vm::DataCell> ballast_code, empty_cell;
   // storage_used per account shape
-  StorageUsedStat w5_used, jw_used, ballast_used, minter_used;
+  StorageUsedStat w5_used, jw_used, ballast_used, minter_used, fat_used;
 };
 
 td::Result<GenContext> make_gen_context(const Config &cfg) {
@@ -416,7 +430,7 @@ td::Result<GenContext> make_gen_context(const Config &cfg) {
   auto w5_data = build_w5_data(sample.pubkey, cfg.wallet_id);
   std::vector<Ref<vm::Cell>> w5_roots{ctx.contracts.w5_code, w5_data};
   ctx.w5_used = compute_account_storage_used(cfg.v5_balance, w5_roots);
-  auto jw_data = build_jw_data(cfg.jw_jetton_balance, sample.w5_addr, ctx.minter_addr, ctx.contracts.jw_code);
+  auto jw_data = build_jw_data(kPrepaidJettonBalance, sample.w5_addr, ctx.minter_addr);
   std::vector<Ref<vm::Cell>> jw_roots{ctx.contracts.jw_code, jw_data};
   ctx.jw_used = compute_account_storage_used(cfg.jw_balance, jw_roots);
   auto ballast_chain = build_ballast_chain(tagged_sha256(cfg.seed, "bl", 0), cfg.ballast_cells);
@@ -424,6 +438,14 @@ td::Result<GenContext> make_gen_context(const Config &cfg) {
   ctx.ballast_used = compute_account_storage_used(cfg.jw_balance, ballast_roots);
   std::vector<Ref<vm::Cell>> minter_roots{ctx.contracts.minter_code, minter_data};
   ctx.minter_used = compute_account_storage_used(cfg.minter_balance, minter_roots);
+  if (cfg.num_fats > 0) {
+    LOG_CHECK(!ctx.contracts.fat_code.is_null()) << "fat.code.boc is required for --fats-count > 0";
+    LOG_CHECK(cfg.fats_size >= 1) << "--fats-size must be >= 1 when --fats-count > 0";
+    ctx.fat_code_standin = make_standin(ctx.contracts.fat_code);
+    auto fat_cells = build_fat_storage(tagged_sha256(cfg.seed, "fat", 0), cfg.fats_size);
+    std::vector<Ref<vm::Cell>> fat_roots{ctx.contracts.fat_code, fat_cells[0]};
+    ctx.fat_used = compute_account_storage_used(cfg.jw_balance, fat_roots);
+  }
   return std::move(ctx);
 }
 
@@ -433,6 +455,7 @@ void derive_phase(const GenContext &ctx, BucketWriter &writer, Progress &progres
   constexpr td::uint64 kChunk = 4096;
   std::atomic<td::uint64> next_v5{0};
   std::atomic<td::uint64> next_ballast{0};
+  std::atomic<td::uint64> next_fat{0};
   auto worker = [&] {
     BucketBuffer buf(writer);
     while (true) {
@@ -474,6 +497,22 @@ void derive_phase(const GenContext &ctx, BucketWriter &writer, Progress &progres
         progress.accounts.fetch_add(1, std::memory_order_relaxed);
       }
     }
+    while (true) {
+      auto begin = next_fat.fetch_add(kChunk);
+      if (begin >= cfg.num_fats) {
+        break;
+      }
+      auto end = std::min(begin + kChunk, cfg.num_fats);
+      for (td::uint64 i = begin; i < end; i++) {
+        DeriveRecord rec{};
+        auto addr = tagged_sha256(cfg.seed, "fat", i);
+        td::MutableSlice(rec.addr, 32).copy_from(addr.as_slice());
+        rec.type = static_cast<td::uint8>(AccountType::Fat);
+        rec.index = i;
+        buf.add(rec);
+        progress.accounts.fetch_add(1, std::memory_order_relaxed);
+      }
+    }
     buf.flush_all();
   };
   std::vector<td::thread> threads;
@@ -499,11 +538,18 @@ void derive_phase(const GenContext &ctx, BucketWriter &writer, Progress &progres
 // ---------------------------------------------------------------------------
 
 // Rebuild the account's cells from a derivation record; emits everything below
-// the Account cell, returns the Account cell stand-in + balance.
-std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, const DeriveRecord &rec, CellSink &sink) {
+// the Account cell, returns the Account cell stand-in + balance. With a tracker,
+// the Account cell and its data-root cell are retained so the dict-leaf bundle
+// can inline them (shared code cells and deeper ballast chain cells are not
+// retained and stay external references).
+std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, const DeriveRecord &rec, CellSink &sink,
+                                                      BundleTracker *tracker) {
   const auto &cfg = ctx.cfg;
   auto emit_retain_standin = [&](const Ref<vm::DataCell> &cell) {
     sink.emit(cell);
+    if (tracker != nullptr) {
+      tracker->retain(cell);
+    }
     return make_standin(cell);
   };
   td::Bits256 addr;
@@ -522,7 +568,8 @@ std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, con
       used = &ctx.w5_used;
       break;
     case AccountType::JW:
-      data = emit_retain_standin(build_jw_data(cfg.jw_jetton_balance, payload, ctx.minter_addr, ctx.jw_code_standin));
+      // Prepaid: live data == address-defining data (balance = kPrepaidJettonBalance, no code ref).
+      data = emit_retain_standin(build_jw_data(kPrepaidJettonBalance, payload, ctx.minter_addr));
       code = ctx.jw_code_standin;
       balance = cfg.jw_balance;
       used = &ctx.jw_used;
@@ -536,6 +583,17 @@ std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, con
       code = ctx.ballast_code_standin;
       balance = cfg.jw_balance;
       used = &ctx.ballast_used;
+      break;
+    }
+    case AccountType::Fat: {
+      auto cells = build_fat_storage(addr, cfg.fats_size);
+      for (size_t i = 1; i < cells.size(); i++) {
+        sink.emit(cells[i]);
+      }
+      data = emit_retain_standin(cells[0]);
+      code = ctx.fat_code_standin;
+      balance = cfg.jw_balance;
+      used = &ctx.fat_used;
       break;
     }
     case AccountType::Minter:
@@ -552,7 +610,8 @@ std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, con
 }
 
 // Process one bucket file: sort records, build account cells + dict subtree.
-DictNode build_bucket(const GenContext &ctx, const std::string &bucket_file, CellSink &sink, Progress &progress) {
+DictNode build_bucket(const GenContext &ctx, const std::string &bucket_file, CellSink &sink, BundleTracker *tracker,
+                      Progress &progress) {
   auto r_data = td::read_file(bucket_file);
   LOG_CHECK(r_data.is_ok()) << "cannot read " << bucket_file << ": " << r_data.error();
   auto data = r_data.move_as_ok();
@@ -565,9 +624,9 @@ DictNode build_bucket(const GenContext &ctx, const std::string &bucket_file, Cel
   data = {};
   std::sort(records.begin(), records.end(),
             [](const DeriveRecord &a, const DeriveRecord &b) { return memcmp(a.addr, b.addr, 32) < 0; });
-  ShardAccountsStreamBuilder builder(sink);
+  ShardAccountsStreamBuilder builder(sink, tracker);
   for (const auto &rec : records) {
-    auto [account, balance] = build_account_cells(ctx, rec, sink);
+    auto [account, balance] = build_account_cells(ctx, rec, sink, tracker);
     td::Bits256 addr;
     addr.as_slice().copy_from(td::Slice(rec.addr, 32));
     builder.add_account(addr, std::move(account), balance);
@@ -711,12 +770,25 @@ MergeStats merge_shard_to_sst(const std::vector<std::string> &runs, const std::s
     stats.value_bytes += value.size();
     progress.merged_bytes.fetch_add(32 + value.size(), std::memory_order_relaxed);
   };
+  auto is_bundle_value = [](const std::string &value) {
+    return value.size() >= 4 && td::as<td::int32>(value.data()) == vm::CellStorer::kBundleTag;
+  };
   while (!heap.empty()) {
     auto idx = heap.top();
     heap.pop();
     auto &cur = *cursors[idx];
     if (have_prev && cur.hash() == prev_hash) {
-      LOG_CHECK(cur.value() == prev_value) << "hash collision with different values: " << prev_hash.to_hex();
+      if (cur.value() != prev_value) {
+        // A bundle-root hash carries both its plain record (emitted at cell
+        // materialization) and its bundle record (emitted at close-out); the
+        // bundle wins. Anything else is a genuine collision.
+        bool prev_bundle = is_bundle_value(prev_value);
+        bool cur_bundle = is_bundle_value(cur.value());
+        LOG_CHECK(prev_bundle != cur_bundle) << "hash collision with different values: " << prev_hash.to_hex();
+        if (cur_bundle) {
+          prev_value = cur.value();
+        }
+      }
     } else {
       if (have_prev) {
         emit_kv(prev_hash, prev_value);
@@ -912,6 +984,9 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   progress.accounts.store(0);
   RunRegistry registry(run_dir, cfg.merge_shards);
   std::array<DictNode, 256> pendings;
+  // Retained cells whose bundle root lies above the bucket root (handed over to
+  // the top-level builder's tracker); empty when bundling is off.
+  std::array<std::vector<Ref<vm::DataCell>>, 256> bundle_leftovers;
   {
     std::atomic<int> next_bucket{0};
     auto worker = [&] {
@@ -930,7 +1005,15 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
         if (bucket >= 256) {
           break;
         }
-        pendings[bucket] = build_bucket(ctx, BucketWriter::bucket_path(bucket_dir, bucket), *sink, progress);
+        std::unique_ptr<BundleTracker> tracker;
+        if (cfg.bundle_depth > 0) {
+          tracker = std::make_unique<BundleTracker>(*sink, cfg.bundle_depth, kRefcnt);
+        }
+        pendings[bucket] =
+            build_bucket(ctx, BucketWriter::bucket_path(bucket_dir, bucket), *sink, tracker.get(), progress);
+        if (tracker != nullptr) {
+          bundle_leftovers[bucket] = tracker->take_retained();
+        }
       }
       if (run_sink != nullptr) {
         run_sink->flush();
@@ -967,7 +1050,17 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
     if (cfg.num_ballast > 0) {
       main_sink->emit(ctx.ballast_code);
     }
-    ShardAccountsStreamBuilder top_builder(*main_sink);
+    if (cfg.num_fats > 0) {
+      emit_subtree(*main_sink, ctx.contracts.fat_code);
+    }
+    std::unique_ptr<BundleTracker> top_tracker;
+    if (cfg.bundle_depth > 0) {
+      top_tracker = std::make_unique<BundleTracker>(*main_sink, cfg.bundle_depth, kRefcnt);
+      for (auto &leftovers : bundle_leftovers) {
+        top_tracker->adopt(std::move(leftovers));
+      }
+    }
+    ShardAccountsStreamBuilder top_builder(*main_sink, top_tracker.get());
     for (int b = 0; b < 256; b++) {
       if (pendings[b].type != DictNode::Type::Empty) {
         top_builder.add_subtree(std::move(pendings[b]));
@@ -977,7 +1070,16 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
     Ref<vm::Cell> dict_root;
     if (root_node.type != DictNode::Type::Empty) {
       res.total_balance = root_node.balance;
-      dict_root = materialize_dict_node(*main_sink, root_node, 0);
+      dict_root = materialize_dict_node(*main_sink, root_node, 0, top_tracker.get());
+      if (top_tracker != nullptr) {
+        // the dict root is always a bundle root
+        top_tracker->close_out(dict_root->get_hash());
+      }
+    }
+    if (top_tracker != nullptr) {
+      // every dict node / account cell must have been claimed by exactly one bundle
+      LOG_CHECK(top_tracker->retained_count() == 0)
+          << "bundle tracker leak: " << top_tracker->retained_count() << " cells never claimed";
     }
     auto state_root = build_shard_state_root(*main_sink, dict_root, res.total_balance, cfg.gen_utime);
     res.root_hash = td::Bits256{state_root->get_hash().bits()};
@@ -997,6 +1099,8 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   res.manifest.num_v5 = cfg.num_v5;
   res.manifest.num_ballast = cfg.num_ballast;
   res.manifest.ballast_cells = cfg.ballast_cells;
+  res.manifest.num_fats = cfg.num_fats;
+  res.manifest.fats_size = cfg.fats_size;
   res.manifest.wallet_id = cfg.wallet_id;
   res.manifest.w5_code_hash = td::Bits256{ctx.contracts.w5_code->get_hash().bits()};
   res.manifest.jw_code_hash = td::Bits256{ctx.contracts.jw_code->get_hash().bits()};
@@ -1021,6 +1125,21 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   write_celldb(celldb_path, stats, res.root_hash, res.file_hash);
 
   TRY_STATUS(td::write_file(cfg.out_dir + "/manifest.json", res.manifest.to_json()));
+
+  // fats.addrs (+ .sizes sidecar): the raw addresses of the fat load-targets, for go-spam --mode fats.
+  // Re-derived here (they aren't retained after phase 1); deterministic from the seed, so every host
+  // that regenerates the same state writes the identical file.
+  if (cfg.num_fats > 0) {
+    std::string fats_addrs;
+    std::string fats_sizes;
+    for (td::uint64 i = 0; i < cfg.num_fats; i++) {
+      auto addr = tagged_sha256(cfg.seed, "fat", i);
+      fats_addrs += PSTRING() << "0:" << addr.to_hex() << "\n";
+      fats_sizes += PSTRING() << "0:" << addr.to_hex() << "\t" << cfg.fats_size << "\n";
+    }
+    TRY_STATUS(td::write_file(cfg.out_dir + "/fats.addrs", fats_addrs));
+    TRY_STATUS(td::write_file(cfg.out_dir + "/fats.sizes", fats_sizes));
+  }
 
   // verify: the DB opens and the root cell loads via vm::CellLoader
   {
@@ -1096,8 +1215,7 @@ std::vector<TestAccount> make_test_accounts(const GenContext &ctx, size_t count)
         break;
       case 1:
         code = ctx.contracts.jw_code;
-        data = build_jw_data(cfg.jw_jetton_balance, tagged_sha256(cfg.seed, "to", i), ctx.minter_addr,
-                             ctx.contracts.jw_code);
+        data = build_jw_data(kPrepaidJettonBalance, tagged_sha256(cfg.seed, "to", i), ctx.minter_addr);
         acc.balance = cfg.jw_balance;
         used = &ctx.jw_used;
         break;
@@ -1282,10 +1400,13 @@ std::pair<td::uint64, td::uint64> count_descent_loads(vm::CellLoader &loader, vm
   return {loads, cells};
 }
 
-td::Bits256 self_test_celldb(const Config &base_cfg) {
+td::Bits256 self_test_celldb(const Config &base_cfg, int bundle_depth) {
   Config cfg = base_cfg;
   cfg.num_v5 = 2000;
   cfg.num_ballast = 100;
+  cfg.bundle_depth = bundle_depth;
+  cfg.num_fats = 20;
+  cfg.fats_size = 4000;  // small fat dicts keep the self-test fast while exercising AccountType::Fat
   cfg.out_dir = PSTRING() << "/tmp/bench-state-gen-selftest." << getpid();
   cfg.tmp_dir = cfg.out_dir + "/tmp";
   cfg.overwrite = true;
@@ -1302,8 +1423,12 @@ td::Bits256 self_test_celldb(const Config &base_cfg) {
   vm::CellLoader loader(reader);
   StandinCellCreator creator;
 
-  // full traversal: load every cell by hash, verify hashes + refcnt
+  // full traversal: load every cell by hash, verify hashes + refcnt; for bundle
+  // records additionally verify the materialized slab byte-matches the
+  // standalone plain records of the same cells
   td::uint64 visited = 0;
+  td::uint64 bundle_records = 0;
+  td::uint64 bundled_cells = 0;
   td::HashSet<vm::CellHash> seen;
   std::vector<td::Bits256> stack{res.root_hash};
   while (!stack.empty()) {
@@ -1321,8 +1446,46 @@ td::Bits256 self_test_celldb(const Config &base_cfg) {
     for (unsigned i = 0; i < cell->get_refs_cnt(); i++) {
       stack.push_back(td::Bits256{cell->get_ref(i)->get_hash().bits()});
     }
+    if (load_res.stored_bundle_) {
+      bundle_records++;
+      // walk the materialized slab (loaded children; ext cells mark the cut)
+      td::HashSet<vm::CellHash> slab_seen;
+      std::vector<Ref<vm::DataCell>> slab_stack{cell};
+      while (!slab_stack.empty()) {
+        auto parent = std::move(slab_stack.back());
+        slab_stack.pop_back();
+        for (unsigned i = 0; i < parent->get_refs_cnt(); i++) {
+          auto child = parent->get_ref(i);
+          if (!child->is_loaded() || !slab_seen.insert(child->get_hash()).second) {
+            continue;
+          }
+          auto in_bundle = child->load_cell().move_as_ok().data_cell;
+          bundled_cells++;
+          // interior slab cells must also exist as standalone plain records
+          auto standalone_res = loader.load(child->get_hash().as_slice(), true, creator).move_as_ok();
+          LOG_CHECK(standalone_res.status == vm::CellLoader::LoadResult::Ok)
+              << "missing standalone record for bundled cell " << child->get_hash().to_hex();
+          CHECK(!standalone_res.stored_bundle_);
+          auto standalone = standalone_res.cell();
+          CHECK(standalone->get_hash() == in_bundle->get_hash());
+          CHECK(standalone->get_bits() == in_bundle->get_bits());
+          CHECK(memcmp(standalone->get_data(), in_bundle->get_data(), (in_bundle->get_bits() + 7) / 8) == 0);
+          CHECK(standalone->get_refs_cnt() == in_bundle->get_refs_cnt());
+          for (unsigned r = 0; r < in_bundle->get_refs_cnt(); r++) {
+            CHECK(standalone->get_ref(r)->get_hash() == in_bundle->get_ref(r)->get_hash());
+          }
+          slab_stack.push_back(std::move(in_bundle));
+        }
+      }
+    }
   }
   LOG_CHECK(visited == res.distinct_cells) << "traversed " << visited << " cells, db has " << res.distinct_cells;
+  if (bundle_depth == 0) {
+    CHECK(bundle_records == 0);
+  } else {
+    CHECK(bundle_records > 0);
+    CHECK(bundled_cells > bundle_records);  // slabs actually contain inlined cells
+  }
 
   // dictionary descent cost: with bundling, descending to an account's data cell
   // must take far fewer DB reads than the number of cells on the path
@@ -1336,12 +1499,18 @@ td::Bits256 self_test_celldb(const Config &base_cfg) {
       total_loads += loads;
       total_cells += cells;
     }
-    CHECK(total_loads == total_cells);
-    LOG(INFO) << "self-test (c) descent cost: " << total_loads << " loads / " << total_cells
-              << " cells over 8 descents";
+    if (bundle_depth == 0) {
+      CHECK(total_loads == total_cells);
+    } else {
+      LOG_CHECK(2 * total_loads < total_cells)
+          << "bundled descent too expensive: " << total_loads << " loads for " << total_cells << " cells";
+    }
+    LOG(INFO) << "self-test (c) descent cost (bundle_depth=" << bundle_depth << "): " << total_loads << " loads / "
+              << total_cells << " cells over 8 descents";
   }
 
-  // V2 dynamic BoC reader (the validator's celldb path): full DFS through the shared cache
+  // V2 dynamic BoC reader (the validator's celldb path): full DFS through the
+  // shared cache, ext cells at bundle cuts load transparently
   {
     auto boc = vm::DynamicBagOfCellsDb::create_v2({.extra_threads = 0});
     boc->set_loader(std::make_unique<vm::CellLoader>(reader));
@@ -1400,9 +1569,17 @@ td::Bits256 self_test_celldb(const Config &base_cfg) {
   CHECK(manifest.file_hash == res.file_hash);
   CHECK(manifest.total_balance == res.total_balance);
   CHECK(manifest.num_v5 == cfg.num_v5 && manifest.num_ballast == cfg.num_ballast);
+  CHECK(manifest.num_fats == cfg.num_fats && manifest.fats_size == cfg.fats_size);
   CHECK(manifest.seed == cfg.seed);
 
-  LOG(INFO) << "self-test (c) celldb round-trip: OK (" << visited << " cells, root " << res.root_hash.to_hex() << ")";
+  // fats.addrs: one raw address per fat, matching the deterministic derivation
+  auto fats_addrs = td::read_file_str(cfg.out_dir + "/fats.addrs").move_as_ok();
+  size_t fats_lines = std::count(fats_addrs.begin(), fats_addrs.end(), '\n');
+  CHECK(fats_lines == cfg.num_fats);
+  CHECK(fats_addrs.find("0:" + tagged_sha256(cfg.seed, "fat", 0).to_hex()) != std::string::npos);
+
+  LOG(INFO) << "self-test (c) celldb round-trip (bundle_depth=" << bundle_depth << "): OK (" << visited << " cells, "
+            << bundle_records << " bundles, root " << res.root_hash.to_hex() << ")";
   return res.root_hash;
 }
 
@@ -1474,7 +1651,10 @@ td::Status do_self_test(const Config &base_cfg) {
   TRY_RESULT(ctx, make_gen_context(cfg));
   self_test_streaming(ctx);
   self_test_external(ctx);
-  self_test_celldb(cfg);
+  auto root_plain = self_test_celldb(cfg, 0);
+  auto root_bundled = self_test_celldb(cfg, 5);
+  // bundling is a storage-layer change only: the state root must not move
+  CHECK(root_plain == root_bundled);
   self_test_empty_root(cfg);
   LOG(INFO) << "self-test: ALL OK";
   return td::Status::OK();
@@ -1487,6 +1667,7 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   bench::Config cfg;
   std::string src, dst;
+  td::uint64 derive_index = 0;
 
   td::OptionParser p;
   p.set_description("bench-state-gen <gen|root-only|self-test|checkpoint> [options] (see benchmark/DESIGN.md)");
@@ -1512,6 +1693,22 @@ int main(int argc, char *argv[]) {
     }
     return td::Status::OK();
   });
+  p.add_checked_option('\0', "fats-count", "number of fat load-target accounts (large storage dict)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(cfg.num_fats, td::to_integer_safe<td::uint64>(arg));
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "fats-size", "approx bytes of storage dict per fat account (ignored if fats-count=0)",
+                       [&](td::Slice arg) {
+                         // Accept 0 so callers can pass --fats-size unconditionally alongside --fats-count 0
+                         // (the remote regeneration script does). It only has to be >= 1 when fats exist,
+                         // which make_gen_context enforces.
+                         TRY_RESULT_ASSIGN(cfg.fats_size, td::to_integer_safe<int>(arg));
+                         if (cfg.fats_size < 0) {
+                           return td::Status::Error("--fats-size must be >= 0");
+                         }
+                         return td::Status::OK();
+                       });
   p.add_checked_option('\0', "gen-utime", "state generation unixtime (default: now)", [&](td::Slice arg) {
     TRY_RESULT_ASSIGN(cfg.gen_utime, td::to_integer_safe<td::uint32>(arg));
     return td::Status::OK();
@@ -1520,6 +1717,15 @@ int main(int argc, char *argv[]) {
     TRY_RESULT_ASSIGN(cfg.wallet_id, td::to_integer_safe<td::uint32>(arg));
     return td::Status::OK();
   });
+  p.add_checked_option('\0', "bundle-depth",
+                       "bundle this many key-bit levels of the accounts dict per celldb record (default 5, 0 = off)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(cfg.bundle_depth, td::to_integer_safe<int>(arg));
+                         if (cfg.bundle_depth < 0 || cfg.bundle_depth > 16) {
+                           return td::Status::Error("--bundle-depth must be in [0, 16]");
+                         }
+                         return td::Status::OK();
+                       });
   p.add_option('\0', "contracts-dir", "directory with contract .boc files (default: benchmark/contracts)",
                [&](td::Slice arg) { cfg.contracts_dir = arg.str(); });
   p.add_option('\0', "out-dir", "output directory (celldb + manifest.json)",
@@ -1540,6 +1746,10 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
   p.add_option('\0', "overwrite", "overwrite an existing celldb", [&] { cfg.overwrite = true; });
+  p.add_checked_option('\0', "index", "wallet index for the `derive` command", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(derive_index, td::to_integer_safe<td::uint64>(arg));
+    return td::Status::OK();
+  });
   p.add_option('\0', "src", "checkpoint source celldb", [&](td::Slice arg) { src = arg.str(); });
   p.add_option('\0', "dst", "checkpoint destination", [&](td::Slice arg) { dst = arg.str(); });
   p.add_option('v', "verbosity", "verbosity level",
@@ -1567,6 +1777,25 @@ int main(int argc, char *argv[]) {
              res.ok().distinct_cells ? res.ok().distinct_cells : res.ok().emitted_cells);
     } else {
       status = res.move_as_error();
+    }
+  } else if (command == "derive") {
+    // Golden-vector dump for the Go cross-toolchain parity test: prints the deterministic W5 pubkey +
+    // address, its prepaid jetton-wallet address, the minter address, and the fat address for `--index`.
+    auto r_ctx = bench::make_gen_context(cfg);
+    if (r_ctx.is_error()) {
+      status = r_ctx.move_as_error();
+    } else {
+      auto ctx = r_ctx.move_as_ok();
+      auto r_w = bench::derive_wallet(cfg.seed, derive_index, cfg.wallet_id, ctx.minter_addr, ctx.contracts);
+      if (r_w.is_error()) {
+        status = r_w.move_as_error();
+      } else {
+        auto w = r_w.move_as_ok();
+        auto fat_addr = bench::tagged_sha256(cfg.seed, "fat", derive_index);
+        printf("index=%" PRIu64 "\nwallet_id=%u\npubkey=%s\nw5_addr=%s\njw_addr=%s\nminter_addr=%s\nfat_addr=%s\n",
+               derive_index, cfg.wallet_id, w.pubkey.to_hex().c_str(), w.w5_addr.to_hex().c_str(),
+               w.jw_addr.to_hex().c_str(), ctx.minter_addr.to_hex().c_str(), fat_addr.to_hex().c_str());
+      }
     }
   } else if (command == "self-test") {
     status = bench::do_self_test(cfg);
