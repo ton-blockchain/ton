@@ -95,8 +95,8 @@ struct Config {
   std::map<ton::PublicKeyHash, AdnlCategory> adnl_ids;
   std::set<ton::PublicKeyHash> dht_ids;
   std::map<ton::PublicKeyHash, Validator> validators;
-  std::map<ton::adnl::AdnlNodeIdShort, std::vector<ton::ShardIdFull>> collators;
-  bool collator_node_whiltelist_enabled = false;
+  std::set<ton::adnl::AdnlNodeIdShort> collators;
+  bool collator_node_whitelist_enabled = false;
   std::set<ton::adnl::AdnlNodeIdShort> collator_node_whitelist;
   ton::PublicKeyHash full_node = ton::PublicKeyHash::zero();
   std::vector<FullNodeSlave> full_node_slaves;
@@ -129,8 +129,8 @@ struct Config {
                                                  ton::UnixTime expire_at);
   td::Result<bool> config_add_validator_adnl_id(ton::PublicKeyHash perm_key, ton::PublicKeyHash adnl_id,
                                                 ton::UnixTime expire_at);
-  td::Result<bool> config_add_collator(ton::adnl::AdnlNodeIdShort addr, ton::ShardIdFull shard);
-  td::Result<bool> config_del_collator(ton::adnl::AdnlNodeIdShort addr, ton::ShardIdFull shard);
+  td::Result<bool> config_add_collator(ton::adnl::AdnlNodeIdShort addr);
+  td::Result<bool> config_del_collator(ton::adnl::AdnlNodeIdShort addr);
   td::Result<bool> config_add_full_node_adnl_id(ton::PublicKeyHash id);
   td::Result<bool> config_add_full_node_slave(td::IPAddress addr, ton::PublicKey id);
   td::Result<bool> config_add_full_node_master(td::int32 port, ton::PublicKeyHash id);
@@ -687,8 +687,6 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_clearCollatorsList &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_showCollatorsList &query, td::BufferSlice data,
-                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
-  void run_control_query(ton::ton_api::engine_validator_getCollationManagerStats &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_signOverlayMemberCertificate &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);

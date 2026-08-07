@@ -140,9 +140,9 @@ void AdnlLocalId::subscribe(std::string prefix, std::unique_ptr<AdnlPeerTable::C
   for (auto &cb : cb_) {
     auto G = td::Slice(cb.first);
     if (S.size() < G.size()) {
-      LOG_CHECK(G.substr(0, S.size()) != S) << this << ": duplicate subscribe prefix";
+      LOG_CHECK(G.substr(0, S.size()) != S) << this << ": duplicate subscribe prefix " << td::buffer_to_hex(prefix);
     } else {
-      LOG_CHECK(S.substr(0, G.size()) != G) << this << ": duplicate subscribe prefix";
+      LOG_CHECK(S.substr(0, G.size()) != G) << this << ": duplicate subscribe prefix " << td::buffer_to_hex(prefix);
     }
   }
   cb_.emplace_back(prefix, std::move(callback));
@@ -158,7 +158,7 @@ void AdnlLocalId::unsubscribe(std::string prefix) {
       it++;
     }
   }
-  LOG_CHECK(deleted) << this << ": cannot unsubscribe: prefix not found";
+  LOG_CHECK(deleted) << this << ": cannot unsubscribe: prefix " << td::buffer_to_hex(prefix) << " not found";
 }
 
 void AdnlLocalId::update_address_list(AdnlAddressList addr_list) {

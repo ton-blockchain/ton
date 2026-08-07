@@ -274,6 +274,22 @@ void DownloadShardState::checked_proof_link() {
 }
 
 void DownloadShardState::download_zero_state() {
+  static bool tontester_mode = []() -> bool {
+    const char *s = std::getenv("TON_TONTESTER");
+    return s != nullptr && !strcmp(s, "1");
+  }();
+  if (tontester_mode && !handle_->id().is_masterchain()) {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
+      if (R.is_error()) {
+        fail_handler(SelfId, R.move_as_error());
+      } else {
+        td::actor::send_closure(SelfId, &DownloadShardState::written_shard_state, R.move_as_ok());
+      }
+    });
+    td::actor::send_closure(manager_, &ValidatorManager::wait_block_state, handle_, priority_, timeout_, true,
+                            std::move(P));
+    return;
+  }
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::BufferSlice> R) {
     if (R.is_error()) {
       fail_handler(SelfId, R.move_as_error());

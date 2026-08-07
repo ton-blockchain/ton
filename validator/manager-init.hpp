@@ -94,6 +94,7 @@ class ValidatorManagerMasterchainStarter : public td::actor::Actor {
   td::actor::Task<> run();
   td::actor::Task<ValidatorManagerInitResult> run_inner();
   td::actor::Task<> get_latest_applied_block();
+  td::actor::Task<Ref<MasterchainState>> get_prev_rotated_all_shards(BlockHandle handle, Ref<MasterchainState> state);
   td::actor::Task<> truncate(BlockSeqno truncate_seqno);
 
  private:

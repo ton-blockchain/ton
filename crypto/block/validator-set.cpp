@@ -27,9 +27,17 @@ namespace block {
 using td::Ref;
 
 const ton::ValidatorDescr *ValidatorSet::get_validator(const ton::NodeIdShort &id) const {
+  return get_validator_with_idx(id).first;
+}
+
+std::pair<const ton::ValidatorDescr *, td::uint32> ValidatorSet::get_validator_with_idx(
+    const ton::NodeIdShort &id) const {
   auto it =
       std::lower_bound(ids_map_.begin(), ids_map_.end(), id, [](const auto &p, const auto &x) { return p.first < x; });
-  return it < ids_map_.end() && it->first == id ? &ids_[it->second] : nullptr;
+  if (it < ids_map_.end() && it->first == id) {
+    return {&ids_[it->second], it->second};
+  }
+  return {nullptr, ~0U};
 }
 
 bool ValidatorSet::is_validator(ton::NodeIdShort id) const {

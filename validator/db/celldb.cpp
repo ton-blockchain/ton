@@ -140,6 +140,13 @@ void CellDbIn::validate_meta() {
     LOG_IF(ERROR, cell.is_error()) << "Cannot load root from meta: " << entry.block_id << " " << cell.error();
   }
 
+  static bool tontester_mode = []() -> bool {
+    const char* s = std::getenv("TON_TONTESTER");
+    return s != nullptr && !strcmp(s, "1");
+  }();
+  if (tontester_mode) {
+    return;
+  }
   // load_known_roots is only supported by InMemory database, so it is ok to check all known roots here
   auto known_roots = boc_->load_known_roots().move_as_ok();
   for (auto& root : known_roots) {

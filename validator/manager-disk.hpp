@@ -152,6 +152,9 @@ class ValidatorManagerImpl : public ValidatorManager {
                                  td::Promise<td::Ref<ShardState>> promise) override;
   void set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) override;
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
+  void get_cell_from_cell_db(td::Bits256 hash, td::Promise<td::Ref<vm::DataCell>> promise) override {
+    td::actor::send_closure(db_, &Db::get_cell_from_cell_db, hash, std::move(promise));
+  }
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                    td::BufferSlice state, td::Promise<td::Unit> promise) override;
   void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
@@ -397,18 +400,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     get_block_by_seqno_from_db(account, seqno, std::move(promise));
   }
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override {
-  }
-
-  void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
-    UNREACHABLE();
-  }
-  void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
-    UNREACHABLE();
-  }
-
-  void get_collation_manager_stats(
-      td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) override {
-    UNREACHABLE();
   }
 
   void update_options(td::Ref<ValidatorManagerOptions> opts) override {

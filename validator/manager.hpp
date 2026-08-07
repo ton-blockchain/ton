@@ -42,6 +42,7 @@
 #include "td/utils/port/StdStreams.h"
 #include "ton/ton-io.hpp"
 
+#include "collator-scoreboard.hpp"
 #include "manager-init.h"
 #include "queue-size-counter.hpp"
 #include "shard-block-retainer.hpp"
@@ -51,6 +52,7 @@
 #include "storage-stat-cache.hpp"
 #include "token-manager.h"
 #include "validator-group.hpp"
+#include "validator-registry-watcher.hpp"
 
 namespace ton {
 
@@ -362,11 +364,15 @@ class ValidatorManagerImpl : public ValidatorManager {
   }
 
   void add_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
-    validator_keys_.insert(key);
+    if (validator_keys_.insert(key).second) {
+      validator_registry_watchers_[key] =
+          td::actor::create_actor<ValidatorRegistryWatcher>("ValidatorRegistry", key, actor_id(this), keyring_);
+    }
     promise.set_value(td::Unit());
   }
   void del_temp_key(PublicKeyHash key, td::Promise<td::Unit> promise) override {
     validator_keys_.erase(key);
+    validator_registry_watchers_.erase(key);
     promise.set_value(td::Unit());
   }
 
@@ -438,6 +444,7 @@ class ValidatorManagerImpl : public ValidatorManager {
                                  td::Promise<td::Ref<ShardState>> promise) override;
   void set_block_state_from_data_bulk(std::vector<td::Ref<BlockData>> blocks, td::Promise<td::Unit> promise) override;
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
+  void get_cell_from_cell_db(td::Bits256 hash, td::Promise<td::Ref<vm::DataCell>> promise) override;
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                    td::BufferSlice state, td::Promise<td::Unit> promise) override;
   void store_persistent_state_file_gen(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
@@ -595,7 +602,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   bool is_validator();
   bool validating_masterchain();
   PublicKeyHash get_validator(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set);
-  bool is_shard_collator(ShardIdFull shard);
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
@@ -637,12 +643,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override;
 
-  void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
-  void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override;
-  void add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) override;
-
-  void get_collation_manager_stats(
-      td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) override;
+  void add_collator(adnl::AdnlNodeIdShort id) override;
+  void del_collator(adnl::AdnlNodeIdShort id) override;
 
   void get_out_msg_queue_size(BlockIdExt block_id, td::Promise<td::uint64> promise) override {
     if (queue_size_counter_.empty()) {
@@ -702,6 +704,10 @@ class ValidatorManagerImpl : public ValidatorManager {
 
  private:
   std::set<PublicKeyHash> validator_keys_;
+  std::map<PublicKeyHash, td::actor::ActorOwn<ValidatorRegistryWatcher>> validator_registry_watchers_;
+  std::set<adnl::AdnlNodeIdShort> local_collator_adnl_ids_;
+  td::actor::ActorOwn<CollatorScoreboard> collator_scoreboard_ =
+      td::actor::create_actor<CollatorScoreboard>("CollatorScoreboard");
 
  private:
   td::Ref<ValidatorManagerOptions> opts_;
