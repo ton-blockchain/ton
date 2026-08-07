@@ -4,6 +4,12 @@
 namespace td {
 namespace actor {
 
+namespace detail {
+
+double actor_stats_inv_ticks_per_second(double elapsed_seconds, td::uint64 begin_ticks, td::uint64 current_ticks);
+
+}  // namespace detail
+
 class ActorStats : public td::actor::Actor {
  public:
   ActorStats() {
@@ -23,7 +29,8 @@ class ActorStats : public td::actor::Actor {
     }
     double get_duration(double inv_ticks_per_second) const {
       if (first_) {
-        return std::max(1.0, static_cast<double>(Clocks::rdtsc() - first_ts_) * inv_ticks_per_second);
+        return std::max(1.0,
+                        static_cast<double>(core::elapsed_ticks(Clocks::rdtsc(), first_ts_)) * inv_ticks_per_second);
       }
       return 1.0;
     }

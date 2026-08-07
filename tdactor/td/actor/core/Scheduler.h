@@ -80,15 +80,27 @@ bool need_debug();
 
 struct Debug {
  public:
+  enum class Work { Actor, Coroutine };
+  struct Stats {
+    td::uint64 busy_ticks;
+    ActorTypeStat coroutine;
+  };
+
   bool is_on() const {
     return need_debug();
   }
   struct Destructor {
     void operator()(Debug *debug) {
-      auto finished_at = Clocks::rdtsc();
       std::lock_guard<std::mutex> lock(debug->info_mutex_);
-      CHECK(debug->info_.is_active);
-      debug->busy_ticks_ += finished_at - debug->started_at_;
+      if (!debug->info_.is_active) {
+        return;
+      }
+      auto finished_at = Clocks::rdtsc();
+      auto duration = elapsed_ticks(finished_at, debug->started_at_);
+      debug->busy_ticks_ += duration;
+      if (debug->work_ == Work::Coroutine) {
+        debug->coroutine_.add(finished_at, duration);
+      }
       debug->started_at_ = 0;
       debug->info_.is_active = false;
     }
@@ -99,15 +111,17 @@ struct Debug {
     info = info_;
   }
 
-  std::unique_ptr<Debug, Destructor> start(td::Slice name) {
+  std::unique_ptr<Debug, Destructor> start(td::Slice name, Work work = Work::Actor) {
     if (!is_on()) {
       return {};
     }
-    auto started_at = Clocks::rdtsc();
     {
       std::lock_guard<std::mutex> lock(info_mutex_);
-      CHECK(!info_.is_active);
-      started_at_ = started_at;
+      if (info_.is_active) {
+        return {};
+      }
+      started_at_ = Clocks::rdtsc();
+      work_ = work;
       info_.is_active = true;
       info_.start_at = Time::now();
       info_.set_name(name);
@@ -115,9 +129,12 @@ struct Debug {
     return std::unique_ptr<Debug, Destructor>(this);
   }
 
-  td::uint64 busy_ticks() const {
+  Stats stats(double inv_ticks_per_second) const {
     std::lock_guard<std::mutex> lock(info_mutex_);
-    return busy_ticks_;
+    auto now = Clocks::rdtsc();
+    auto active_since = info_.is_active && work_ == Work::Coroutine ? started_at_ : 0;
+    auto busy_ticks = busy_ticks_ + (info_.is_active ? elapsed_ticks(now, started_at_) : 0);
+    return {.busy_ticks = busy_ticks, .coroutine = coroutine_.to_stat(now, inv_ticks_per_second, active_since)};
   }
 
  private:
@@ -125,13 +142,15 @@ struct Debug {
   DebugInfo info_;
   td::uint64 started_at_{0};
   td::uint64 busy_ticks_{0};
+  Work work_{Work::Actor};
+  CoroutineStat coroutine_;
 };
 
 struct WorkerInfo {
-  enum class Type { Io, Cpu } type{Type::Io};
+  WorkerKind kind{WorkerKind::Io};
   WorkerInfo() = default;
-  explicit WorkerInfo(Type type, bool allow_shared, CpuWorkerId cpu_worker_id)
-      : type(type), actor_info_creator(allow_shared), cpu_worker_id(cpu_worker_id) {
+  explicit WorkerInfo(WorkerKind kind, bool allow_shared, CpuWorkerId cpu_worker_id)
+      : kind(kind), actor_info_creator(allow_shared), cpu_worker_id(cpu_worker_id) {
   }
   ActorInfoCreator actor_info_creator;
   CpuWorkerId cpu_worker_id;
@@ -281,7 +300,7 @@ class Scheduler {
 #if TD_PORT_WINDOWS
     td::detail::Iocp::Guard iocp_guard(&scheduler_group_info_->iocp);
 #endif
-    bool is_io_worker = worker_info.type == WorkerInfo::Type::Io;
+    bool is_io_worker = worker_info.kind == WorkerKind::Io;
     ContextImpl context(&worker_info.actor_info_creator, info_->id, worker_info.cpu_worker_id,
                         scheduler_group_info_.get(), is_io_worker ? &poll_ : nullptr, is_io_worker ? &heap_ : nullptr,
                         &worker_info.debug);

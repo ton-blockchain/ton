@@ -20,6 +20,35 @@ namespace td {
 namespace actor {
 namespace core {
 
+void CoroutineStat::add(td::uint64 finished_at, td::uint64 elapsed_ticks) {
+  count_++;
+  total_ticks_ += elapsed_ticks;
+  last_finished_at_ = finished_at;
+  max_ticks_.update(finished_at, elapsed_ticks);
+}
+
+ActorTypeStat CoroutineStat::to_stat(td::uint64 now, double inv_ticks_per_second, td::uint64 active_since) const {
+  auto max_ticks = max_ticks_.get(now);
+  auto seconds = [inv_ticks_per_second](td::uint64 ticks) { return double(ticks) * inv_ticks_per_second; };
+  ActorTypeStat::MaxStatGroup<double> max_seconds{.value_forever = seconds(max_ticks.value_forever),
+                                                  .value_10s = seconds(max_ticks.value_10s),
+                                                  .value_10m = seconds(max_ticks.value_10m)};
+  ActorTypeStat::MaxStatGroup<td::uint32> max_messages{.value_forever = count_ == 0 ? 0u : 1u,
+                                                       .value_10s = has_recent_completion<10>(now) ? 1u : 0u,
+                                                       .value_10m = has_recent_completion<10 * 60>(now) ? 1u : 0u};
+  auto is_active = active_since != 0;
+  auto total_ticks = total_ticks_ + (is_active ? elapsed_ticks(now, active_since) : 0);
+  return ActorTypeStat{.executions = double(count_),
+                       .messages = double(count_),
+                       .seconds = seconds(total_ticks),
+                       .executing = is_active ? 1 : 0,
+                       .executing_start = is_active ? seconds(std::min(now, active_since)) : 1e20,
+                       .max_execute_messages = max_messages,
+                       .max_message_seconds = max_seconds,
+                       .max_execute_seconds = max_seconds,
+                       .max_delay_seconds = {}};
+}
+
 ActorTypeStatRef ActorTypeStatTable::get(td::uint32 id, const std::type_info &type) {
   if (id >= by_id_.size()) {
     std::lock_guard<std::mutex> guard(mutex_);
@@ -117,6 +146,31 @@ std::string ActorTypeStatManager::get_class_name(const char *name) {
 #endif
 }
 
+namespace {
+void append_worker_stats(ActorTypeStats &result, const Debug &debug, WorkerKind kind, double inv_ticks_per_second) {
+  auto stats = debug.stats(inv_ticks_per_second);
+  auto &worker = result.by_worker[static_cast<size_t>(kind)];
+  worker.seconds += double(stats.busy_ticks) * inv_ticks_per_second;
+  if (stats.coroutine.messages != 0 || stats.coroutine.executing != 0) {
+    worker.messages += stats.coroutine.messages;
+    result.stats[typeid(CoroutineResume)] += stats.coroutine;
+  }
+}
+}  // namespace
+
+void ActorTypeStatManager::append_thread_stats(ActorTypeStats &result, const ActorTypeStatTable *table,
+                                               const Debug &debug, WorkerKind kind, double inv_ticks_per_second) {
+  if (table) {
+    table->append_to(result, inv_ticks_per_second, kind);
+  }
+  append_worker_stats(result, debug, kind, inv_ticks_per_second);
+}
+
+void SchedulerContext::append_actor_type_stats(ActorTypeStats &result, double inv_ticks_per_second) {
+  auto kind = has_poll() ? WorkerKind::Io : WorkerKind::Cpu;
+  ActorTypeStatManager::append_thread_stats(result, actor_type_stats(), get_debug(), kind, inv_ticks_per_second);
+}
+
 ActorTypeStats ActorTypeStatManager::get_stats(double inv_ticks_per_second) {
   auto *context = SchedulerContext::get_ptr();
   if (!context) {
@@ -127,27 +181,19 @@ ActorTypeStats ActorTypeStatManager::get_stats(double inv_ticks_per_second) {
   }
 
   ActorTypeStats result;
-  if (auto *table = context->actor_type_stats()) {
-    auto kind = context->has_poll() ? WorkerKind::Io : WorkerKind::Cpu;
-    table->append_to(result, inv_ticks_per_second, kind);
-  }
+  context->append_actor_type_stats(result, inv_ticks_per_second);
   return result;
 }
 
 ActorTypeStats ActorTypeStatManager::get_stats(const SchedulerGroupInfo &group, double inv_ticks_per_second) {
   ActorTypeStats result;
   group.actor_type_stats.append_to(result, inv_ticks_per_second);
-  auto append = [&](const WorkerInfo &worker) {
-    auto kind = worker.type == WorkerInfo::Type::Io ? WorkerKind::Io : WorkerKind::Cpu;
-    auto &worker_stat = result.by_worker[static_cast<size_t>(kind)];
-    worker_stat.seconds += double(worker.debug.busy_ticks()) * inv_ticks_per_second;
-  };
   for (const auto &scheduler : group.schedulers) {
     if (scheduler.io_worker) {
-      append(*scheduler.io_worker);
+      append_worker_stats(result, scheduler.io_worker->debug, scheduler.io_worker->kind, inv_ticks_per_second);
     }
     for (const auto &worker : scheduler.cpu_workers) {
-      append(*worker);
+      append_worker_stats(result, worker->debug, worker->kind, inv_ticks_per_second);
     }
   }
   return result;

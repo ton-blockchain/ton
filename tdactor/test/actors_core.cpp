@@ -19,12 +19,14 @@
 #include <array>
 #include <atomic>
 #include <deque>
+#include <limits>
 #include <memory>
 
 #include "td/actor/ActorStats.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
 #include "td/actor/core/ActorLocker.h"
+#include "td/actor/coro.h"
 #include "td/utils/Random.h"
 #include "td/utils/Slice.h"
 #include "td/utils/StringBuilder.h"
@@ -59,6 +61,48 @@ TEST(ActorTypeStat, CountsOnlyCompletedMessageTime) {
   CHECK(stat.to_stat(1).seconds == 30);
   stat.execute_finish(140);
   CHECK(stat.to_stat(1).seconds == 30);
+}
+
+TEST(ActorTypeStat, QueueDelayIgnoresClockRegression) {
+  td::actor::core::ActorTypeStatImpl stat;
+  td::actor::core::ActorTypeStatRef ref{&stat};
+
+  ref.pop_from_queue(std::numeric_limits<td::uint64>::max());
+  auto current = stat.to_stat(1);
+  CHECK(current.max_delay_seconds.value_forever == 0);
+  CHECK(current.max_delay_seconds.value_10s == 0);
+  CHECK(current.max_delay_seconds.value_10m == 0);
+}
+
+TEST(ActorTypeStat, DurationsIgnoreClockRegression) {
+  using namespace td::actor::core;
+
+  auto future = std::numeric_limits<td::uint64>::max();
+  ActorTypeStatImpl stat;
+  {
+    ActorTypeStatImpl::MessageTimer timer{&stat, future};
+  }
+  stat.execute_start(future);
+  stat.execute_finish(1);
+
+  auto current = stat.to_stat(1);
+  CHECK(current.messages == 1);
+  CHECK(current.seconds == 0);
+  CHECK(current.max_message_seconds.value_forever == 0);
+  CHECK(current.max_execute_seconds.value_forever == 0);
+
+  CoroutineStat coroutine;
+  current = coroutine.to_stat(1, 1, future);
+  CHECK(current.executing == 1);
+  CHECK(current.executing_start == 1);
+  CHECK(current.seconds == 0);
+}
+
+TEST(ActorStats, TickEstimateIgnoresClockRegression) {
+  auto fallback = td::Clocks::inv_ticks_per_second();
+  CHECK(td::actor::detail::actor_stats_inv_ticks_per_second(0.5, 100, 99) == fallback);
+  CHECK(td::actor::detail::actor_stats_inv_ticks_per_second(0.05, 100, 164) == fallback);
+  CHECK(td::actor::detail::actor_stats_inv_ticks_per_second(0.5, 100, 164) == 0.5 / 64.0);
 }
 
 TEST(ActorTypeStat, MaxCounterRetainsValueAcrossOneBoundaryWithoutUpdate) {
@@ -101,6 +145,103 @@ TEST(ActorTypeStat, MaxCounterExpiresValuesAcrossSkippedSegments) {
 
   counter.update(Access::at_segment(8), 5);
   CHECK(counter.get_max(Access::at_segment(8)) == 5);
+}
+
+TEST(ActorTypeStat, CoroutineStatUsesCoarseRecentWindows) {
+  using td::actor::core::CoroutineStat;
+
+  auto ticks_per_second = td::Clocks::rdtsc_frequency();
+  CoroutineStat stat;
+  stat.add(9 * ticks_per_second, 7);
+  stat.add(11 * ticks_per_second, 5);
+
+  auto current = stat.to_stat(11 * ticks_per_second, 1);
+  CHECK(current.messages == 2);
+  CHECK(current.executions == 2);
+  CHECK(current.seconds == 12);
+  CHECK(current.max_message_seconds.value_forever == 7);
+  CHECK(current.max_message_seconds.value_10s == 7);
+  CHECK(current.max_message_seconds.value_10m == 7);
+  CHECK(current.max_execute_seconds.value_forever == 7);
+  CHECK(current.max_execute_seconds.value_10s == 7);
+  CHECK(current.max_execute_seconds.value_10m == 7);
+  CHECK(current.max_execute_messages.value_forever == 1);
+  CHECK(current.max_execute_messages.value_10s == 1);
+  CHECK(current.max_execute_messages.value_10m == 1);
+  CHECK(current.max_delay_seconds.value_forever == 0);
+
+  current = stat.to_stat(21 * ticks_per_second, 1);
+  CHECK(current.max_message_seconds.value_10s == 5);
+  CHECK(current.max_message_seconds.value_10m == 7);
+  current = stat.to_stat(31 * ticks_per_second, 1);
+  CHECK(current.max_message_seconds.value_10s == 0);
+  CHECK(current.max_execute_messages.value_10s == 0);
+
+  stat.add(601 * ticks_per_second, 3);
+  current = stat.to_stat(1201 * ticks_per_second, 1);
+  CHECK(current.max_message_seconds.value_forever == 7);
+  CHECK(current.max_message_seconds.value_10m == 3);
+  current = stat.to_stat(1801 * ticks_per_second, 1);
+  CHECK(current.max_message_seconds.value_10m == 0);
+  CHECK(current.max_execute_messages.value_10m == 0);
+
+  auto now = 1801 * ticks_per_second;
+  auto active_since = now - 2;
+  current = stat.to_stat(now, 1, active_since);
+  CHECK(current.messages == 3);
+  CHECK(current.executions == 3);
+  CHECK(current.seconds == 17);
+  CHECK(current.executing == 1);
+  CHECK(current.executing_start == active_since);
+
+  CoroutineStat zero_duration;
+  zero_duration.add(ticks_per_second, 0);
+  current = zero_duration.to_stat(ticks_per_second, 1);
+  CHECK(current.max_message_seconds.value_forever == 0);
+  CHECK(current.max_execute_messages.value_forever == 1);
+  CHECK(current.max_execute_messages.value_10s == 1);
+  CHECK(current.max_execute_messages.value_10m == 1);
+}
+
+TEST(ActorTypeStat, DebugTracksCoroutineResume) {
+  using namespace td::actor::core;
+
+  auto was_debug_enabled = need_debug();
+  set_debug(true);
+  Debug debug;
+  {
+    auto lock = debug.start("coro", Debug::Work::Coroutine);
+    auto active = debug.stats(1);
+    CHECK(active.coroutine.executing == 1);
+    CHECK(active.coroutine.messages == 0);
+    CHECK(active.coroutine.executions == 0);
+  }
+  auto completed = debug.stats(1);
+  CHECK(completed.coroutine.executing == 0);
+  CHECK(completed.coroutine.messages == 1);
+  CHECK(completed.coroutine.executions == 1);
+  CHECK(completed.busy_ticks == completed.coroutine.seconds);
+  set_debug(was_debug_enabled);
+}
+
+TEST(ActorTypeStat, DebugIgnoresOverlappingScopes) {
+  using namespace td::actor::core;
+
+  auto was_debug_enabled = need_debug();
+  set_debug(true);
+  Debug debug;
+  auto outer = debug.start("outer", Debug::Work::Coroutine);
+  auto overlapping = debug.start("overlapping");
+  CHECK(outer);
+  CHECK(!overlapping);
+  outer.reset();
+
+  auto completed = debug.stats(1);
+  CHECK(completed.coroutine.messages == 1);
+  CHECK(completed.coroutine.executing == 0);
+  Debug::Destructor{}(&debug);
+  CHECK(debug.stats(1).coroutine.messages == 1);
+  set_debug(was_debug_enabled);
 }
 
 TEST(ActorTypeStat, WorkerTablesAreScopedToSchedulerGroup) {
@@ -199,6 +340,52 @@ TEST(ActorTypeStat, WorkerTotalsAreAttributedToIoAndCpuThreads) {
   CHECK(actor->second.messages == io.messages + cpu.messages);
   CHECK(io.seconds > 0);
   CHECK(cpu.seconds > 0);
+  set_debug(was_debug_enabled);
+}
+
+TEST(ActorTypeStat, RawCoroutineResumeIsCounted) {
+  using namespace td::actor;
+  using namespace td::actor::core;
+
+  auto was_debug_enabled = need_debug();
+  set_debug(true);
+  auto group = std::make_shared<SchedulerGroupInfo>(1);
+  core::Scheduler scheduler{group, SchedulerId{0}, 1};
+  scheduler.start();
+
+  scheduler.run_in_context([] {
+    []() -> Task<td::Unit> {
+      SchedulerContext::get().stop();
+      co_return td::Unit{};
+    }()
+                .start()
+                .detach_silent();
+  });
+  while (scheduler.run(1000)) {
+  }
+  core::Scheduler::close_scheduler_group(*group);
+
+  auto stats = ActorTypeStatManager::get_stats(*group, 1);
+  const auto &coroutine = stats.stats.at(std::type_index(typeid(CoroutineResume)));
+  CHECK(coroutine.created == 0);
+  CHECK(coroutine.alive == 0);
+  CHECK(coroutine.messages == 1);
+  CHECK(coroutine.executions == 1);
+  CHECK(coroutine.executing == 0);
+  CHECK(coroutine.seconds > 0);
+  CHECK(coroutine.max_execute_messages.value_forever == 1);
+  CHECK(coroutine.max_execute_messages.value_10s == 1);
+  CHECK(coroutine.max_execute_messages.value_10m == 1);
+  CHECK(coroutine.max_message_seconds.value_forever > 0);
+  CHECK(coroutine.max_message_seconds.value_10s > 0);
+  CHECK(coroutine.max_message_seconds.value_10m > 0);
+  CHECK(coroutine.max_execute_seconds.value_forever > 0);
+  CHECK(coroutine.max_execute_seconds.value_10s > 0);
+  CHECK(coroutine.max_execute_seconds.value_10m > 0);
+  CHECK(stats.by_worker[static_cast<size_t>(WorkerKind::Io)].messages == 0);
+  const auto &cpu = stats.by_worker[static_cast<size_t>(WorkerKind::Cpu)];
+  CHECK(cpu.messages == 1);
+  CHECK(cpu.seconds == coroutine.seconds);
   set_debug(was_debug_enabled);
 }
 

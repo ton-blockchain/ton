@@ -19,10 +19,15 @@ namespace td {
 namespace actor {
 namespace core {
 class Actor;
+struct Debug;
 struct SchedulerGroupInfo;
 
 enum class WorkerKind : td::uint8 { Io, Cpu, Count };
 inline constexpr size_t WORKER_KIND_COUNT = static_cast<size_t>(WorkerKind::Count);
+
+inline td::uint64 elapsed_ticks(td::uint64 now, td::uint64 started_at) {
+  return now >= started_at ? now - started_at : 0;
+}
 
 struct ActorTypeStat {
   // diff (speed)
@@ -172,6 +177,29 @@ class MaxCounterGroup {
   RecentMaxCounter<ValueT, 10 * 60> max_10m_;
 };
 
+class CoroutineStat {
+ public:
+  void add(td::uint64 finished_at, td::uint64 elapsed_ticks);
+  ActorTypeStat to_stat(td::uint64 now, double inv_ticks_per_second, td::uint64 active_since = 0) const;
+
+ private:
+  template <int Interval>
+  bool has_recent_completion(td::uint64 now) const {
+    if (count_ == 0) {
+      return false;
+    }
+    auto interval_ticks = Clocks::rdtsc_frequency() * Interval;
+    auto current_segment = now / interval_ticks;
+    auto last_segment = last_finished_at_ / interval_ticks;
+    return current_segment <= last_segment || current_segment - last_segment == 1;
+  }
+
+  td::uint64 count_{0};
+  td::uint64 total_ticks_{0};
+  td::uint64 last_finished_at_{0};
+  MaxCounterGroup<td::uint64> max_ticks_;
+};
+
 struct ActorTypeStatImpl {
  public:
   ActorTypeStatImpl() {
@@ -189,7 +217,7 @@ struct ActorTypeStatImpl {
     ~MessageTimer() {
       if (stat_) {
         auto ts = td::Clocks::rdtsc();
-        stat_->message_finish(ts, ts - started_at_);
+        stat_->message_finish(ts, elapsed_ticks(ts, started_at_));
       }
     }
 
@@ -231,7 +259,7 @@ struct ActorTypeStatImpl {
     CHECK(executing_ > 0);
     if (dec(executing_) == 0) {
       max_execute_messages_.update(ts, load(execute_messages_));
-      max_execute_ticks_.update(ts, ts - load(execute_start_));
+      max_execute_ticks_.update(ts, elapsed_ticks(ts, load(execute_start_)));
 
       inc(total_executions_);
       store(execute_start_, 0);
@@ -344,6 +372,9 @@ class ActorTypeStatRef {
     }
     CHECK(in_queue_since);
     auto ts = td::Clocks::rdtsc();
+    if (unlikely(ts < in_queue_since)) {
+      return;
+    }
     ref_->on_delay(ts, ts - in_queue_since);
   }
   void start_execute() {
@@ -448,9 +479,13 @@ class ActorTypeStatRegistry {
   std::vector<std::shared_ptr<ThreadTable>> tables_;
 };
 
+struct CoroutineResume {};
+
 class ActorTypeStatManager {
  public:
   static ActorTypeStatRef get_actor_type_stat(td::uint32 id, Actor *actor);
+  static void append_thread_stats(ActorTypeStats &result, const ActorTypeStatTable *table, const Debug &debug,
+                                  WorkerKind kind, double inv_ticks_per_second);
   static ActorTypeStats get_stats(double inv_ticks_per_second);
   static ActorTypeStats get_stats(const SchedulerGroupInfo &group, double inv_ticks_per_second);
   static std::string get_class_name(const char *name);

@@ -55,10 +55,10 @@ Scheduler::Scheduler(std::shared_ptr<SchedulerGroupInfo> scheduler_group_info, S
   info_->cpu_workers.resize(cpu_threads_count);
   td::uint8 cpu_worker_id = 0;
   for (auto &worker : info_->cpu_workers) {
-    worker = std::make_unique<WorkerInfo>(WorkerInfo::Type::Cpu, true, CpuWorkerId{cpu_worker_id});
+    worker = std::make_unique<WorkerInfo>(WorkerKind::Cpu, true, CpuWorkerId{cpu_worker_id});
     cpu_worker_id++;
   }
-  info_->io_worker = std::make_unique<WorkerInfo>(WorkerInfo::Type::Io, !info_->cpu_workers.empty(), CpuWorkerId{});
+  info_->io_worker = std::make_unique<WorkerInfo>(WorkerKind::Io, !info_->cpu_workers.empty(), CpuWorkerId{});
 
   poll_.init();
   io_worker_ = std::make_unique<IoWorker>(*info_->io_queue);
@@ -90,7 +90,7 @@ void Scheduler::start() {
   if (info_->id.value() == 0) {
     scheduler_group_info_->iocp_thread = td::thread([this] {
       WorkerInfo info;
-      info.type = WorkerInfo::Type::Cpu;
+      info.kind = WorkerKind::Cpu;
       this->run_in_context_impl(info, [this] { scheduler_group_info_->iocp.loop(); });
     });
   }
