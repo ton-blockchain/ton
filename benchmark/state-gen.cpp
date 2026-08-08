@@ -10,9 +10,11 @@
 */
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cinttypes>
 #include <condition_variable>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <queue>
 #include <unistd.h>
@@ -82,6 +84,10 @@ struct Config {
   std::string contracts_dir = "benchmark/contracts";
   std::string out_dir;
   std::string tmp_dir;
+  // Best-effort machine-readable progress snapshot (progress.json). Empty path disables the feature
+  // entirely (behavior then byte-identical to before); interval is the snapshot cadence in seconds.
+  std::string progress_file;
+  double progress_interval = 3.0;
   int threads = static_cast<int>(td::thread::hardware_concurrency());
   // Bundle ~bundle_depth key-bit levels of the accounts dict (plus the leaf's
   // account/data cells) into one celldb record; 0 disables bundling.
@@ -111,12 +117,41 @@ struct Progress {
   std::atomic<const char *> phase{"init"};
 };
 
+// Ticks ~every `interval` seconds off a single background thread. Besides the existing
+// human-readable LOG line it (when `progress_file` is non-empty) atomically rewrites a
+// machine-readable progress.json snapshot per PROGRESS_CONTRACT.md §1. Emission is strictly
+// best-effort side output: every file op is wrapped so it can never throw/fail/slow generation,
+// and it never touches any generation state, so the produced CellDB is unaffected (deterministic).
 class ProgressPrinter {
  public:
-  explicit ProgressPrinter(Progress &progress) : progress_(progress) {
+  ProgressPrinter(Progress &progress, std::string progress_file, double interval_sec, td::uint64 accounts_total)
+      : progress_(progress)
+      , progress_file_(std::move(progress_file))
+      , interval_ms_(std::max<td::int64>(1, static_cast<td::int64>((interval_sec > 0 ? interval_sec : 3.0) * 1000)))
+      , accounts_total_(accounts_total) {
+    start_ = td::Timestamp::now().at();
+    prev_tick_time_ = start_;
     thread_ = td::thread([this] { run(); });
   }
   ~ProgressPrinter() {
+    stop_thread();
+  }
+
+  // Stop the background thread and write the terminal snapshot (phase "done", global_pct 1.0,
+  // done_flag true). Idempotent; safe to call once at pipeline completion. Best-effort like the rest.
+  void finish() {
+    stop_thread();
+    if (!progress_file_.empty()) {
+      write_snapshot(/*final_snapshot=*/true);
+    }
+  }
+
+ private:
+  void stop_thread() {
+    if (stopped_) {
+      return;
+    }
+    stopped_ = true;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       stop_ = true;
@@ -125,30 +160,203 @@ class ProgressPrinter {
     thread_.join();
   }
 
- private:
   void run() {
-    auto start = td::Timestamp::now();
-    td::uint64 prev_accounts = 0;
     std::unique_lock<std::mutex> lock(mutex_);
     while (!stop_) {
-      cv_.wait_for(lock, std::chrono::seconds(3));
+      cv_.wait_for(lock, std::chrono::milliseconds(interval_ms_));
       if (stop_) {
         break;
       }
       auto accounts = progress_.accounts.load();
-      auto elapsed = td::Timestamp::now().at() - start.at();
-      LOG(INFO) << "[" << progress_.phase.load() << "] accounts=" << accounts << " (" << (accounts - prev_accounts) / 3
-                << "/s) cells=" << progress_.cells.load()
+      auto elapsed = td::Timestamp::now().at() - start_;
+      // Human-readable LOG line — unchanged.
+      LOG(INFO) << "[" << progress_.phase.load() << "] accounts=" << accounts << " ("
+                << (accounts - prev_log_accounts_) / 3 << "/s) cells=" << progress_.cells.load()
                 << " run_bytes=" << td::format::as_size(progress_.run_bytes.load())
                 << " merged_bytes=" << td::format::as_size(progress_.merged_bytes.load()) << " elapsed=" << elapsed
                 << "s";
-      prev_accounts = accounts;
+      prev_log_accounts_ = accounts;
+      if (!progress_file_.empty()) {
+        write_snapshot(/*final_snapshot=*/false);
+      }
     }
   }
+
+  // Compose and atomically write progress.json (<path>.tmp then rename). Wrapped so it can never
+  // throw or otherwise perturb generation. Called only from the printer thread (under mutex_) and
+  // from finish() after the thread has been joined, so its members need no extra locking.
+  void write_snapshot(bool final_snapshot) {
+    try {
+      static constexpr double kWDerive = 0.05, kWBuild = 0.35, kWMerge = 0.55, kWIngest = 0.05;
+
+      const char *raw_phase = progress_.phase.load();
+      if (raw_phase == nullptr) {
+        raw_phase = "init";
+      }
+      auto is = [&](const char *s) { return std::strcmp(raw_phase, s) == 0; };
+
+      td::uint64 accounts = progress_.accounts.load();
+      td::uint64 run_bytes = progress_.run_bytes.load();
+      td::uint64 merged_bytes = progress_.merged_bytes.load();
+      double now = td::Timestamp::now().at();
+      double elapsed = now - start_;
+
+      const char *phase_name;
+      int phase_index;
+      const char *unit;
+      td::uint64 done, total;
+      std::string phase_label;
+      if (final_snapshot) {
+        phase_name = "done";
+        phase_index = 4;
+        unit = "accounts";
+        done = accounts;
+        total = accounts_total_;
+        phase_label = "done";
+      } else if (is("phase2-build")) {
+        phase_name = "build";
+        phase_index = 2;
+        unit = "accounts";
+        done = accounts;
+        total = accounts_total_;
+        phase_label = raw_phase;
+      } else if (is("phase3-merge")) {
+        phase_name = "merge";
+        phase_index = 3;
+        unit = "bytes";
+        // total = total run bytes produced by phase 2, captured once at the first merge tick.
+        if (!merge_total_captured_) {
+          merge_total_ = run_bytes;
+          merge_total_captured_ = true;
+        }
+        done = merged_bytes;
+        total = merge_total_;
+        phase_label = raw_phase;
+      } else if (is("phase3-ingest")) {
+        phase_name = "ingest";
+        phase_index = 4;
+        unit = "bytes";
+        done = merged_bytes;
+        total = 0;  // no per-cell ingest counter → phase_pct best-effort 0
+        phase_label = raw_phase;
+      } else {
+        // "init" and "phase1-derive"
+        phase_name = "derive";
+        phase_index = 1;
+        unit = "accounts";
+        done = accounts;
+        total = accounts_total_;
+        phase_label = raw_phase;
+      }
+
+      double phase_pct;
+      if (final_snapshot) {
+        phase_pct = 1.0;
+      } else if (total > 0) {
+        phase_pct = static_cast<double>(done) / static_cast<double>(total);
+        phase_pct = std::min(1.0, std::max(0.0, phase_pct));
+      } else {
+        phase_pct = 0.0;
+      }
+
+      double global_pct;
+      if (final_snapshot) {
+        global_pct = 1.0;
+      } else {
+        switch (phase_index) {
+          case 1:
+            global_pct = kWDerive * phase_pct;
+            break;
+          case 2:
+            global_pct = kWDerive + kWBuild * phase_pct;
+            break;
+          case 3:
+            global_pct = kWDerive + kWBuild + kWMerge * phase_pct;
+            break;
+          default:
+            global_pct = kWDerive + kWBuild + kWMerge + kWIngest * phase_pct;
+            break;
+        }
+      }
+      // Enforce monotonic non-decreasing global_pct across the whole run.
+      if (global_pct < last_global_pct_) {
+        global_pct = last_global_pct_;
+      }
+      last_global_pct_ = global_pct;
+
+      // rate = units/sec of the current phase; reset across phase boundaries (unit/counter changes).
+      double dt = now - prev_tick_time_;
+      double rate = 0.0;
+      if (phase_index == prev_phase_index_ && dt > 1e-6 && done >= prev_done_) {
+        rate = static_cast<double>(done - prev_done_) / dt;
+      }
+      prev_phase_index_ = phase_index;
+      prev_done_ = done;
+      prev_tick_time_ = now;
+
+      td::int64 eta_sec;
+      if (final_snapshot) {
+        eta_sec = 0;
+      } else if (global_pct > 1e-9) {
+        eta_sec = static_cast<td::int64>(elapsed * (1.0 - global_pct) / global_pct);
+        if (eta_sec < 0) {
+          eta_sec = 0;
+        }
+      } else {
+        eta_sec = -1;
+      }
+
+      td::int64 seq = static_cast<td::int64>(++seq_);
+      td::int64 ts_unix = static_cast<td::int64>(td::Clocks::system());
+
+      char buf[1024];
+      int n = std::snprintf(
+          buf, sizeof(buf),
+          "{\"schema\":1,\"phase\":\"%s\",\"phase_name\":\"%s\",\"phase_index\":%d,\"phase_count\":4,"
+          "\"done\":%llu,\"total\":%llu,\"unit\":\"%s\",\"phase_pct\":%.6f,\"global_pct\":%.6f,"
+          "\"rate\":%.3f,\"eta_sec\":%lld,\"elapsed_sec\":%lld,\"accounts\":%llu,\"accounts_total\":%llu,"
+          "\"seq\":%lld,\"ts_unix\":%lld,\"done_flag\":%s}\n",
+          phase_label.c_str(), phase_name, phase_index, static_cast<unsigned long long>(done),
+          static_cast<unsigned long long>(total), unit, phase_pct, global_pct, rate, static_cast<long long>(eta_sec),
+          static_cast<long long>(elapsed), static_cast<unsigned long long>(accounts),
+          static_cast<unsigned long long>(accounts_total_), static_cast<long long>(seq),
+          static_cast<long long>(ts_unix), final_snapshot ? "true" : "false");
+      if (n <= 0 || n >= static_cast<int>(sizeof(buf))) {
+        return;
+      }
+      std::string tmp_path = progress_file_ + ".tmp";
+      std::FILE *f = std::fopen(tmp_path.c_str(), "wb");
+      if (f == nullptr) {
+        return;
+      }
+      bool ok = std::fwrite(buf, 1, static_cast<size_t>(n), f) == static_cast<size_t>(n);
+      // fflush is implied by fclose; ignore its result — this is best-effort.
+      if (std::fclose(f) != 0 || !ok) {
+        return;
+      }
+      std::rename(tmp_path.c_str(), progress_file_.c_str());
+    } catch (...) {
+      // Best-effort side output: never let progress emission affect generation.
+    }
+  }
+
   Progress &progress_;
+  std::string progress_file_;
+  td::int64 interval_ms_;
+  td::uint64 accounts_total_;
+  double start_ = 0.0;
+  double prev_tick_time_ = 0.0;
+  td::uint64 prev_log_accounts_ = 0;
+  td::uint64 prev_done_ = 0;
+  int prev_phase_index_ = 0;
+  double last_global_pct_ = 0.0;
+  td::uint64 merge_total_ = 0;
+  bool merge_total_captured_ = false;
+  td::uint64 seq_ = 0;
   std::mutex mutex_;
   std::condition_variable cv_;
   bool stop_ = false;
+  bool stopped_ = false;
   td::thread thread_;
 };
 
@@ -969,7 +1177,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
 
   TRY_RESULT(ctx, make_gen_context(cfg));
   Progress progress;
-  ProgressPrinter printer(progress);
+  ProgressPrinter printer(progress, cfg.progress_file, cfg.progress_interval, cfg.num_accounts());
 
   // ---- phase 1 ----
   {
@@ -1111,6 +1319,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   res.manifest.celldb_path = celldb_path;
 
   if (!write_db) {
+    printer.finish();
     TRY_STATUS(td::rmrf(cfg.tmp_dir));
     return res;
   }
@@ -1157,6 +1366,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
 
   LOG(INFO) << "gen done in " << timer.elapsed() << "s; root_hash=" << res.root_hash.to_hex()
             << " file_hash=" << res.file_hash.to_hex() << " total_balance=" << u128_to_dec(res.total_balance);
+  printer.finish();
   return res;
 }
 
@@ -1732,6 +1942,18 @@ int main(int argc, char *argv[]) {
                [&](td::Slice arg) { cfg.out_dir = arg.str(); });
   p.add_option('\0', "tmp-dir", "scratch directory for bucket/run files (default: <out-dir>/tmp)",
                [&](td::Slice arg) { cfg.tmp_dir = arg.str(); });
+  p.add_option('\0', "progress-file", "path for a machine-readable progress.json snapshot (default: empty = disabled)",
+               [&](td::Slice arg) { cfg.progress_file = arg.str(); });
+  p.add_checked_option('\0', "progress-interval", "seconds between progress.json snapshots (default 3)",
+                       [&](td::Slice arg) {
+                         int v = 0;
+                         TRY_RESULT_ASSIGN(v, td::to_integer_safe<int>(arg));
+                         if (v < 1) {
+                           return td::Status::Error("--progress-interval must be >= 1");
+                         }
+                         cfg.progress_interval = v;
+                         return td::Status::OK();
+                       });
   p.add_checked_option('\0', "merge-shards", "parallel phase-3 merge shards, power of two <= 256 (default: threads)",
                        [&](td::Slice arg) {
                          TRY_RESULT_ASSIGN(cfg.merge_shards, td::to_integer_safe<int>(arg));
