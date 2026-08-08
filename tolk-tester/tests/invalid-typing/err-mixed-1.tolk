@@ -113,7 +113,7 @@ fun unionTypesNotAllowedInIs(a: int | slice | builder) {
 type UserId = int
 type OwnerId = int
 
-// @stderr wrong pattern matching: `OwnerId` is not a variant of `UserId`
+// @stderr wrong pattern matching: use `UserId` instead of `OwnerId`
 fun f(v: UserId) {
     match (v) {
         OwnerId => {}

@@ -102,16 +102,17 @@ std::string SinkExpression::to_string() const {
   while (cur_path != 0) {
     result += ".";
     bool formatted = false;
+    int index_at = static_cast<int>(cur_path & 0xFF) - 1;
     try {
       if (const TypeDataStruct* t_struct = cur_type->try_as<TypeDataStruct>()) {
-        StructFieldPtr field_ref = t_struct->struct_ref->get_field((cur_path & 0xFF) - 1);
+        StructFieldPtr field_ref = t_struct->struct_ref->get_field(index_at);
         result += field_ref->name;
         cur_type = field_ref->declared_type;
         formatted = true;
       }
     } catch (...) {}
     if (!formatted) {
-      result += std::to_string((cur_path & 0xFF) - 1);
+      result += std::to_string(index_at);
     }
     cur_path >>= 8;
   }
@@ -130,14 +131,14 @@ bool SinkExpression::is_child_of(SinkExpression rhs) const {
 }
 
 SinkExpression SinkExpression::get_child_s_expr(int field_idx) const {
-  uint64_t new_index_path = index_path;    // if we have c.1 (index_path = 2) and construct c.1.N, calc (N<<8 + 2)
+  SinkExpression child = *this;    // if we have c.1 (index_path = 2) and construct c.1.N, calc (N<<8 + 2)
   for (int empty_byte = 0; empty_byte < 8; ++empty_byte) {
-    if ((index_path & (static_cast<uint64_t>(0xFF) << (empty_byte*8))) == 0) {
-      new_index_path += (static_cast<uint64_t>(field_idx) + 1) << (empty_byte*8);
+    if ((child.index_path & (static_cast<uint64_t>(0xFF) << (empty_byte*8))) == 0) {
+      child.index_path += (static_cast<uint64_t>(field_idx) + 1) << (empty_byte*8);
       break;
     }
   }
-  return SinkExpression(var_ref, new_index_path);
+  return child;
 }
 
 static std::string to_string(SignState s) {
@@ -166,32 +167,52 @@ static AnyExprV unwrap_not_null_operator(AnyExprV expr) {
 //    example: `cond ? beginCell() : null`; lca(`builder`,`null`) = `builder?`
 // 3) when two data flows rejoin
 //    example: `if (tensorVar != null) ... else ...` rejoin `(int,int)` and `null` into `(int,int)?`
-// when lca can't be calculated (example: `(int,int)` and `(int,int,int)`), nullptr is returned
-static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nullptr) {
-  if (a->equal_to(b)) {
-    return a;
-  }
+enum class TypeLcaStatus {
+  NotAUnion,
+  BecameUnion,
+  FailedUnion,
+};
 
+struct TypeLcaResult {
+  TypePtr type;
+  TypeLcaStatus status = TypeLcaStatus::NotAUnion;
+};
+
+// when making a union, we allow `int | int | slice` (flatten it to `int | slice`),
+// but disallow `int | IntAlias | slice`: also flatten, but `IntAlias` is an invalid duplicate
+static TypeLcaResult calculate_union_lca(TypePtr a, TypePtr b) {
+  std::vector<TypeDataUnion::InvalidDuplicateVariant> invalid_duplicates;
+  TypePtr result = TypeDataUnion::create(std::vector{a, b}, &invalid_duplicates);
+  if (!invalid_duplicates.empty()) {
+    return {result, TypeLcaStatus::FailedUnion};
+  }
+  if (!a->equal_to(result) && !b->equal_to(result)) {
+    return {result, TypeLcaStatus::BecameUnion};    // result is TypeDataUnion
+  }
+  return {result, TypeLcaStatus::NotAUnion};        // result is not TypeDataUnion
+}
+
+static TypeLcaResult calculate_type_lca(TypePtr a, TypePtr b) {
   if (a == TypeDataNotInferred::create() || b == TypeDataNotInferred::create()) {
-    return TypeDataNotInferred::create();
+    return {TypeDataNotInferred::create()};
   }
 
   if (a == TypeDataUnknown::create() || b == TypeDataUnknown::create()) {
-    return TypeDataUnknown::create();
+    return {TypeDataUnknown::create()};
   }
 
   if (a == TypeDataNever::create()) {
-    return b;
+    return {b};
   }
   if (b == TypeDataNever::create()) {
-    return a;
+    return {a};
   }
 
   if (a == TypeDataNullLiteral::create()) {
-    return TypeDataUnion::create_nullable(b);
+    return {TypeDataUnion::create_nullable(b)};
   }
   if (b == TypeDataNullLiteral::create()) {
-    return TypeDataUnion::create_nullable(a);
+    return {TypeDataUnion::create_nullable(a)};
   }
 
   const auto* tensor1 = a->try_as<TypeDataTensor>();
@@ -201,22 +222,24 @@ static TypePtr calculate_type_lca(TypePtr a, TypePtr b, bool* became_union = nul
     types_lca.reserve(tensor1->size());
     bool ith_became_union = false;
     for (int i = 0; i < tensor1->size(); ++i) {
-      TypePtr next = calculate_type_lca(tensor1->items[i], tensor2->items[i], &ith_became_union);
-      if (next == nullptr) {
-        return nullptr;
-      }
-      types_lca.push_back(next);
+      TypeLcaResult next = calculate_type_lca(tensor1->items[i], tensor2->items[i]);
+      ith_became_union |= next.status != TypeLcaStatus::NotAUnion;
+      types_lca.push_back(next.type);
     }
     if (!ith_became_union) {
-      return TypeDataTensor::create(std::move(types_lca));
+      return {TypeDataTensor::create(std::move(types_lca))};
     }
+    // for `(T,U)` and `(T,V)` return not `(T,U|V)` but `(T,U)|(T,V)`, this is correct for rejoin
+    return calculate_union_lca(a, b);
   }
 
-  TypePtr resulting_union = TypeDataUnion::create(std::vector{a, b});
-  if (became_union != nullptr && !a->equal_to(resulting_union) && !b->equal_to(resulting_union)) {
-    *became_union = true;
+  const auto* alias1 = a->try_as<TypeDataAlias>();
+  const auto* alias2 = b->try_as<TypeDataAlias>();
+  if (alias1 && alias2 && alias1->alias_ref == alias2->alias_ref) {
+    return {alias1};
   }
-  return resulting_union;
+
+  return calculate_union_lca(a, b);
 }
 
 // merge (unify) of two sign states: what sign do we definitely have
@@ -259,6 +282,39 @@ BoolState calculate_bool_lca(BoolState a, BoolState b) {
   return transformations[static_cast<int>(a)][static_cast<int>(b)];
 }
 
+// given an indexable type, calculate its child type at index
+// example: `Point` at index_at=1 is `int` (field `y`)
+static TypePtr get_child_type(TypePtr parent_type, int index_at) {
+  parent_type = parent_type->unwrap_alias();
+  if (const auto* t_union = parent_type->try_as<TypeDataUnion>(); t_union && t_union->or_null) {
+    parent_type = t_union->or_null->unwrap_alias();
+  }
+
+  if (const auto* t_struct = parent_type->try_as<TypeDataStruct>()) {
+    return t_struct->struct_ref->get_field(index_at)->declared_type;
+  }
+  if (const auto* t_tensor = parent_type->try_as<TypeDataTensor>()) {
+    return t_tensor->items[index_at];
+  }
+  if (const auto* t_shaped = parent_type->try_as<TypeDataShapedTuple>()) {
+    return t_shaped->items[index_at];
+  }
+  return nullptr;
+}
+
+// given a SinkExpression, calculate its original (declared) type without smart casts
+// example: s_expr = `somePoint.y`, return `int`
+static TypePtr get_declared_type(SinkExpression s_expr) {
+  TypePtr cur_type = s_expr.var_ref->declared_type;
+  uint64_t remaining_path = s_expr.index_path;
+  while (remaining_path != 0 && cur_type != nullptr) {
+    int index_at = static_cast<int>(remaining_path & 0xFF) - 1;
+    cur_type = get_child_type(cur_type, index_at);
+    remaining_path >>= 8;
+  }
+  return cur_type;
+}
+
 // example for a ternary operator: `var v = cond ? someSlice : someCell` (no hint) will give a compilation error,
 // but `var v: HINT = <same>` is okay, if hint is valid;
 // for instance, `var v: int = cond ? someInt32 : someInt64` is ok: no unification
@@ -292,11 +348,9 @@ void TypeInferringUnifyStrategy::unify_with(TypePtr next) {
     return;
   }
 
-  bool became_union = false;
-  TypePtr combined = calculate_type_lca(unified_result, next, &became_union);
-  different_types_became_union |= became_union;
-
-  unified_result = combined;
+  TypeLcaResult combined = calculate_type_lca(unified_result, next);
+  lca_needs_hint |= combined.status != TypeLcaStatus::NotAUnion;
+  unified_result = combined.type;
 }
 
 // invalidate knowledge about sub-fields of a variable or its field
@@ -313,20 +367,30 @@ void FlowContext::invalidate_all_subfields(LocalVarPtr var_ref, uint64_t parent_
   }
 }
 
-// get the resulting type of variable or struct field
-TypePtr FlowContext::smart_cast_or_original(SinkExpression s_expr, TypePtr originally_declared_type) const {
-  auto it = known_facts.find(s_expr);
-  if (it == known_facts.end()) {
-    return originally_declared_type;
-  }
+// get the current type of SinkExpression by known_facts; for example, after
+// > if (myDict == null) { return }
+// `myDict` will be `cell`, not `dict`
+TypePtr FlowContext::get_effective_type(SinkExpression s_expr) const {
+  uint64_t remaining_path = s_expr.index_path;
+  s_expr = SinkExpression(s_expr.var_ref);        // will iterate `obj`, `obj.field`, `obj.field.0`
 
-  TypePtr smart_casted = it->second.expr_type;
-  if (smart_casted->equal_to(originally_declared_type)) {
-    // given `var a: dict`, after merging control flow branches, restore `a: dict` instead of `a: cell?`
-    // (same for struct fields and other sink expressions)
-    return originally_declared_type;
+  TypePtr cur_type = smart_cast_or(s_expr, s_expr.var_ref->declared_type);
+
+  while (remaining_path != 0) {
+    int index_at = static_cast<int>(remaining_path & 0xFF) - 1;
+    s_expr = s_expr.get_child_s_expr(index_at);
+    if (TypePtr smart_casted = smart_cast_or(s_expr, nullptr)) {
+      cur_type = smart_casted;
+    } else {
+      cur_type = get_child_type(cur_type, index_at);
+      if (cur_type == nullptr) {
+        return nullptr;   // example: `m: Msg1|Msg2`, so `m.field` is undefined
+      }
+    }
+
+    remaining_path >>= 8;
   }
-  return smart_casted;
+  return cur_type;
 }
 
 // update current type of `local_var` / `tensorVar.0` / `obj.field`
@@ -348,6 +412,44 @@ void FlowContext::register_known_type(SinkExpression s_expr, TypePtr assigned_ty
   // if just `int` assigned, we have no considerations about its sign
   // so, even if something existed by the key s_expr, drop all knowledge
   known_facts[s_expr] = FactsAboutExpr(assigned_type, SignState::Unknown, BoolState::Unknown);
+}
+
+// after control-flow branches rejoin, restore the exact source-level type from the entry flow:
+// > fun demo(d: dict) {
+// >     if (d != null) {}
+// >     // here merge_flow joins to `d: cell?`
+// >     // and reanchor_to restores `d: dict`, because equal_to
+void FlowContext::reanchor_to(const FlowContext& flow_before_branching) {
+  for (auto it = known_facts.begin(); it != known_facts.end();) {
+    const SinkExpression& s_expr = it->first;
+    FactsAboutExpr& facts = it->second;
+
+    // step 1: reanchor to parent flow considering all intermediate smart casts (that's why it's not smart_cast_or)
+    TypePtr type_before = flow_before_branching.get_effective_type(s_expr);
+    if (type_before != nullptr && facts.expr_type->equal_to(type_before)) {
+      auto it_before = flow_before_branching.known_facts.find(s_expr);
+      if (it_before != flow_before_branching.known_facts.end()) {
+        facts.expr_type = it_before->second.expr_type;
+        ++it;
+      } else {
+        it = known_facts.erase(it);
+      }
+      continue;
+    }
+
+    // step 2: if it became identical to original var/field type, restore it
+    TypePtr declared_type = get_declared_type(s_expr);
+    if (declared_type != nullptr && facts.expr_type->equal_to(declared_type)) {
+      if (s_expr.index_path == 0) {
+        facts.expr_type = declared_type;  // local vars are always stored in flow
+        ++it;
+      } else {
+        it = known_facts.erase(it);
+      }
+      continue;
+    }
+    ++it;
+  }
 }
 
 // mark control flow unreachable / interrupted
@@ -404,7 +506,7 @@ FlowContext FlowContext::merge_flow(FlowContext&& c1, FlowContext&& c2) {
       if (auto it2 = c2.known_facts.find(s_expr); it2 != c2.known_facts.end()) {
         const FactsAboutExpr& i2 = it2->second;
         unified.emplace(s_expr, i1 == i2 ? i1 : FactsAboutExpr(
-          calculate_type_lca(i1.expr_type, i2.expr_type),
+          calculate_type_lca(i1.expr_type, i2.expr_type).type,
           calculate_sign_lca(i1.sign_state, i2.sign_state),
           calculate_bool_lca(i1.bool_state, i2.bool_state)
         ));
@@ -492,11 +594,11 @@ SinkExpression extract_sink_expression_from_vertex(AnyExprV v) {
     }
     if (index_path && depth < 8) {     // `(x = rhs).field` is the same sink as `x.field`
       if (SinkExpression inner = extract_sink_expression_from_vertex(cur_dot->get_obj())) {
-        int inner_n_bits = 0;
-        for (uint64_t tmp = inner.index_path; tmp; tmp >>= 8) {
-          inner_n_bits += 8;
+        while (index_path != 0) {
+          inner = inner.get_child_s_expr(static_cast<int>(index_path & 0xFF) - 1);
+          index_path >>= 8;
         }
-        return SinkExpression(inner.var_ref, (index_path << inner_n_bits) | inner.index_path);
+        return inner;
       }
     }
   }

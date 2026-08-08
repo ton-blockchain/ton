@@ -255,7 +255,7 @@ fun test22(a: int, b: int | string) {
 }
 
 @method_id(123)
-fun test23(p2: bool) {
+fun test23(p2: bool): (int, int) {
     var p: Pair2Or3 = p2 ? (1, 2) : (3, 4, 5);
     __expect_type(p, "Pair2Or3");
     if (p is (int, int) && 10 < 0) {
@@ -558,7 +558,7 @@ type IntOrInt8OrInt16 = int | int8 | int16;
 fun test48(a: IntOrInt8OrInt16) {
     var b = a;
     __expect_type(b, "IntOrInt8OrInt16");
-    match (b) { MInt => {} int8 => {} int16 => {} }
+    match (b) { int => {} int8 => {} int16 => {} }
     __expect_type(b, "IntOrInt8OrInt16");
     match (b) { int => {}, int8 => { return ((0, null), (0, null)); }, int16 => "" };
     __expect_type(b, "int | int16");
@@ -585,13 +585,13 @@ fun test50() {
     test49(a);
     test49(match (a) { int => a, slice => a, null => a, });
     __expect_type(b, "VeryComplexType");
-    match (b) { int => {} Pair2 => {} builder => {} null => {} }
+    match (b) { int => {} (MInt, int) => {} builder => {} null => {} }
     __expect_type(b, "VeryComplexType");
     __expect_type(b!, "int | (MInt, int) | builder");
-    match (b) { int => 100, Pair2 => {} builder => return -2, null => "null" }
-    __expect_type(b, "int | Pair2 | null");
+    match (b) { int => 100, (MInt, int) => {} builder => return -2, null => "null" }
+    __expect_type(b, "int | (MInt, int) | null");
     if (b !is null) {
-        match (b) { int => {}, Pair2 => {} }
+        match (b) { int => {}, (MInt, int) => {} }
     } else {
         match (b) { null => {} }
     }
@@ -667,7 +667,7 @@ fun test53(a: int | builder) {
     };
     __expect_type(cc, "int");
     match (var (a, (b, c)) = (10, (20, 30))) {
-        (int, Pair2) => {}
+        (int, (int, int)) => {}
     }
     return cc
 }

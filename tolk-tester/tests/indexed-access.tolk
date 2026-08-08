@@ -70,7 +70,7 @@ fun testCodegenSimple() {
 
 @method_id(101)
 fun test101() {
-    var t = (1, (2, 3), [4, 5, [6, 7]] as [int, int, [int, int]], 8);
+    var t = (1, (2, 3), [4, 5, [6, 7]] as [int, int, [int, int]], 8 as MInt);
     (t.0, t.1.0, t.2.0) = (2, 3, 5);
     t.3.increment();
     t.2.1 += (t.1.1 += 1) - t.1.1 + 1;
@@ -142,13 +142,13 @@ fun test107() {
     return (ab.get(0), getBuilderBitsCount(ab.get(1) as builder));
 }
 
-global t108: [int, [int, [int]]];
+global t108: [int, [int, [MInt]]];
 
 @method_id(108)
 fun test108(last: int) {
     t108 = [1, [2, [last]]];
     t108.1.1.0.increment();
-    var t: [int, [int, [int]]] = [1, [2, [last]]];
+    var t: [int, [int, [MInt]]] = [1, [2, [last]]];
     t.1.1.0.increment();
     return (t108, t);
 }
@@ -215,7 +215,7 @@ fun test116() {
 }
 
 @method_id(117)
-fun test117() {
+fun test117(): int {
     var t = createEmptyTuple();
     t.push(1);
     try {

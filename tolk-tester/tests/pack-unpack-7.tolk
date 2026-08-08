@@ -412,6 +412,44 @@ fun test16() {
 }
 
 
+struct Box117<T> {
+    value: T
+}
+
+type BoxAlias117<T> = Box117<T>
+
+fun Box117<T>.packToBuilder(self, mutate b: builder) {
+    b.storeUint(10, 4);
+    b.storeAny<T>(self.value);
+}
+
+fun Box117<T>.unpackFromSlice(mutate s: slice): Box117<T> {
+    assert (s.loadUint(4) == 10) throw 123;
+    return { value: s.loadAny<T>() };
+}
+
+fun BoxAlias117<T>.packToBuilder(self, mutate b: builder) {
+    b.storeUint(11, 4);
+    b.storeAny<T>(self.value);
+}
+
+fun BoxAlias117<T>.unpackFromSlice(mutate s: slice): BoxAlias117<T> {
+    assert (s.loadUint(4) == 11) throw 123;
+    return { value: s.loadAny<T>() };
+}
+
+@method_id(117)
+fun test117() {
+    var box: Box117<uint8> = { value: 1 };
+    var ali: BoxAlias117<uint8> = { value: 1 };
+    var sBox = box.toCell().beginParse();
+    var sAli = ali.toCell().beginParse();
+    return (
+        sBox.remainingBitsCount(), sBox.preloadUint(4), box = sBox.loadAny(),
+        sAli.remainingBitsCount(), sAli.preloadUint(4), ali = sAli.loadAny(),
+    );
+}
+
 fun main() {
     __expect_type(createEmptySlice() as TelegramString, "TelegramString");
 }
@@ -436,6 +474,7 @@ fun main() {
 @testcase | 114 |     | 8 0
 @testcase | 115 |     | 258
 @testcase | 116 |     | 5
+@testcase | 117 |     | 12 10 1 12 11 1
 
 @fif_codegen
 """

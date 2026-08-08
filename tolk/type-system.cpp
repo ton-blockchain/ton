@@ -118,28 +118,6 @@ bool TypeData::is_cell_or_CellT() const {
   return this == TypeDataCell::create();
 }
 
-// having `type UserId = int` and `type OwnerId = int` (when their underlying types are equal),
-// make `UserId` and `OwnerId` NOT equal and NOT assignable (although they'll have the same type_id);
-// it allows overloading methods for these types independently, e.g.
-// > type BalanceList = dict
-// > type AssetList = dict
-// > fun BalanceList.validate(self)
-// > fun AssetList.validate(self)
-static bool are_two_equal_type_aliases_different(const TypeDataAlias* t1, const TypeDataAlias* t2) {
-  if (t1->alias_ref == t2->alias_ref) {
-    return false;
-  }
-  if (t1->alias_ref->is_instantiation_of_generic_alias() && t2->alias_ref->is_instantiation_of_generic_alias()) {
-    return t1->alias_ref->base_alias_ref != t2->alias_ref->base_alias_ref
-       || !t1->alias_ref->substitutedTs->equal_to(t2->alias_ref->substitutedTs);
-  }
-  // handle `type MInt2 = MInt1`, as well as `type BalanceList = dict`, then they are equal
-  const TypeDataAlias* t_und1 = t1->underlying_type->try_as<TypeDataAlias>();
-  const TypeDataAlias* t_und2 = t2->underlying_type->try_as<TypeDataAlias>();
-  bool one_aliases_another = (t_und1 && t_und1->alias_ref == t2->alias_ref)
-                          || (t_und2 && t1->alias_ref == t_und2->alias_ref);
-  return !one_aliases_another;
-}
 
 // --------------------------------------------
 //    create()
@@ -608,13 +586,6 @@ TypePtr TypeDataMapKV::replace_children_custom(const ReplacerCallbackT& callback
 //
 
 bool TypeDataAlias::can_rhs_be_assigned(TypePtr rhs) const {
-  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
-    // having `type UserId = int` and `type OwnerId = int`, make them NOT assignable without `as`
-    // (although they both have the same type_id) 
-    if (underlying_type->equal_to(rhs_alias->underlying_type)) {
-      return !are_two_equal_type_aliases_different(this, rhs_alias);
-    }
-  }
   return underlying_type->can_rhs_be_assigned(rhs);
 }
 
@@ -1308,20 +1279,13 @@ bool TypeDataVoid::can_hold_tvm_null_instead() const {
 // --------------------------------------------
 //    equal_to()
 //
-// comparing types for equality (when implementation differs from a default "compare pointers");
-// two types are EQUAL is a much more strict property than "assignable";
+// comparing types for runtime equality (when implementation differs from a default "compare pointers");
+// two types are EQUAL is a more strict property than "assignable", but aliases are erased;
 // a union type can hold only non-equal types; for instance, having `type MyInt = int`, a union `int | MyInt` == `int`;
-// searching for a compatible method for a receiver is also based on equal_to() as first priority
+// searching for a compatible method for a receiver is handled separately via SubtypeDistance::calc_between()
 //
 
 bool TypeDataAlias::equal_to(TypePtr rhs) const {
-  if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
-    // given `type UserId = int` and `type OwnerId = int`, treat them as NOT equal (they are also not assignable);
-    // (but nevertheless, they will have the same type_id, and `UserId | OwnerId` is not a valid union)
-    if (underlying_type->equal_to(rhs_alias->underlying_type)) {
-      return !are_two_equal_type_aliases_different(this, rhs_alias);
-    }
-  }
   return underlying_type->equal_to(rhs);
 }
 
@@ -1506,7 +1470,7 @@ bool TypeDataUnion::has_all_variants_of(const TypeDataUnion* rhs_type) const {
   return true;
 }
 
-int TypeDataUnion::get_variant_idx(TypePtr lookup_variant) const {
+int TypeDataUnion::get_variant_equal_to(TypePtr lookup_variant) const {
   for (int i = 0; i < size(); ++i) {
     if (variants[i]->equal_to(lookup_variant)) {
       return i;
@@ -1535,6 +1499,115 @@ TypePtr TypeDataUnion::calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) cons
     }
   }
   return first_covering;
+}
+
+// --------------------------------------------
+//    SubtypeDistance
+//
+
+// from `array<T>` collect [T], from `Pair<A,B>` collect [A,B], and so on;
+// collected children from two types are compared for subtype distance, see below
+static std::vector<TypePtr> collect_subtype_children(TypePtr t) {
+  if (const TypeDataArray* t_array = t->try_as<TypeDataArray>()) {
+    return {t_array->innerT};
+  }
+  if (const TypeDataShapedTuple* t_shaped = t->try_as<TypeDataShapedTuple>()) {
+    return t_shaped->items;
+  }
+  if (const TypeDataTensor* t_tensor = t->try_as<TypeDataTensor>()) {
+    return t_tensor->items;
+  }
+  if (const TypeDataMapKV* t_map = t->try_as<TypeDataMapKV>()) {
+    return {t_map->TKey, t_map->TValue};
+  }
+  if (const TypeDataGenericTypeWithTs* t_Ts = t->try_as<TypeDataGenericTypeWithTs>()) {
+    return t_Ts->type_arguments;
+  }
+  if (const TypeDataFunCallable* t_callable = t->try_as<TypeDataFunCallable>()) {
+    std::vector<TypePtr> children = t_callable->params_types;
+    children.push_back(t_callable->return_type);
+    return children;
+  }
+  if (const TypeDataStruct* t_struct = t->try_as<TypeDataStruct>(); t_struct && t_struct->struct_ref->is_instantiation_of_generic_struct()) {
+    const GenericsSubstitutions* substitutedTs = t_struct->struct_ref->substitutedTs;
+    std::vector<TypePtr> children;
+    children.reserve(substitutedTs->size());
+    for (int i = 0; i < substitutedTs->size(); ++i) {
+      children.push_back(substitutedTs->typeT_at(i));
+    }
+    return children;
+  }
+  return {};   // int / bool / enum / genericT / ... — no children, so distance 0 once they're equal_to
+}
+
+// A type alias makes a structural "subtype" for its underlying_type:
+// > type IntAlias = int         // distance 1 from `int`
+// > type DeeperInt = IntAlias   // distance 2 from `int`, distance 1 from `IntAlias`
+// The relation is structural:
+// - `Wrapper<IntAlias>` is a subtype of `Wrapper<int>` (distance 1)
+// - but `Wrapper<int>` is NOT a subtype of `Wrapper<IntAlias>` (incomparable)
+// What for:
+// - `fun int.method` can be called both for provided `int` and `IntAlias`
+// - `fun MyInt.method` can NOT be called with `int` (e.g., `42.method()` is "method not found")
+SubtypeDistance SubtypeDistance::calc_between(TypePtr provided, TypePtr receiver) {
+  // `builder` and `slice` are incomparable, neither is a subtype of another
+  if (!provided->equal_to(receiver)) {
+    return incomparable();
+  }
+
+  // aliases form subtypes, check them first
+  if (const TypeDataAlias* provided_alias = provided->try_as<TypeDataAlias>()) {
+    if (const TypeDataAlias* receiver_alias = receiver->try_as<TypeDataAlias>()) {
+      // `IntAlias` and `IntAlias`
+      if (provided_alias->alias_ref == receiver_alias->alias_ref) {
+        return ok(0);
+      }
+      // `GenericAlias<P>` and `GenericAlias<R>`, compare P and R
+      if (provided_alias->alias_ref->is_instantiation_of_generic_alias() &&
+          receiver_alias->alias_ref->is_instantiation_of_generic_alias() &&
+          provided_alias->alias_ref->base_alias_ref == receiver_alias->alias_ref->base_alias_ref) {
+        const GenericsSubstitutions* providedTs = provided_alias->alias_ref->substitutedTs;
+        const GenericsSubstitutions* receiverTs = receiver_alias->alias_ref->substitutedTs;
+        SubtypeDistance sum = ok(0);
+        for (int i = 0; i < providedTs->size(); ++i) {
+          sum = sum + calc_between(providedTs->typeT_at(i), receiverTs->typeT_at(i));
+        }
+        return sum;
+      }
+    }
+    // `DeeperInt` and `int`, calc `IntAlias` and `int` + 1
+    return calc_between(provided_alias->underlying_type, receiver) + ok(1);
+  }
+
+  // `int` and `IntAlias`, distance is -1 formally, but for our purposes it's incomparable
+  if (receiver->try_as<TypeDataAlias>()) {
+    return incomparable();
+  }
+
+  // `slice | IntAlias` and `slice | int` (may be reordered, but still runtime equal), sum 0 + 1
+  if (const TypeDataUnion* provided_union = provided->try_as<TypeDataUnion>()) {
+    const TypeDataUnion* receiver_union = receiver->try_as<TypeDataUnion>();
+    SubtypeDistance sum = ok(0);
+    for (TypePtr receiver_variant : receiver_union->variants) {
+      int provided_idx = provided_union->get_variant_equal_to(receiver_variant);
+      tolk_assert(provided_idx >= 0);
+      sum = sum + calc_between(provided_union->variants[provided_idx], receiver_variant);
+    }
+    return sum;
+  }
+
+  // okay, provided and receiver have equal shapes:
+  // - `array<MyInt>` and `array<int>` => collect [MyInt] and [int]
+  // - `map<A, B>` and `map<C, D>` => collect [A,B] and [C,D]
+  // - `int8` and `int8` => collect [] and []
+  std::vector<TypePtr> provided_children = collect_subtype_children(provided);
+  std::vector<TypePtr> receiver_children = collect_subtype_children(receiver);
+  tolk_assert(provided_children.size() == receiver_children.size());
+  SubtypeDistance sum = ok(0);
+  for (int i = 0; i < static_cast<int>(provided_children.size()); ++i) {
+    sum = sum + calc_between(provided_children[i], receiver_children[i]);
+  }
+  return sum;
 }
 
 } // namespace tolk

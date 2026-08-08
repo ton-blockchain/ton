@@ -611,7 +611,7 @@ struct LazyVarInFunction {
           auto v_arm_body = v_arm->get_body()->get_block_statement();
           if (!v_arm_body->empty()) {
             const TypeDataUnion* t_union = field_ref->declared_type->unwrap_alias()->try_as<TypeDataUnion>();
-            int variant_idx = t_union->get_variant_idx(union_variant);
+            int variant_idx = t_union->get_variant_equal_to(union_variant);
             LazyStructLoadInfo load_all = last_field_usages.variants[variant_idx].generate_hidden_struct_load_all(true);
             load_points.emplace_back(std::vector{v_arm_body->get_item(0)}, union_variant, field_ref, std::move(load_all));
           }
@@ -738,7 +738,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
         auto v_arm = v->get_arm(i);
         if (v_arm->pattern_kind == MatchArmKind::exact_type) {
           TypePtr exact_type = v_arm->pattern_type_node->resolved_type;
-          int variant_idx = expr_as_union ? expr_as_union->get_variant_idx(exact_type) : 0;   // match over non-union is ok
+          int variant_idx = expr_as_union ? expr_as_union->get_variant_equal_to(exact_type) : 0;   // match over non-union is ok
           tolk_assert(variant_idx != -1);   // in case of aliases, it may point to another StructPtr (but still equal_to)
           exact_type = expr_as_union ? expr_as_union->variants[variant_idx] : lazy_expr->expr_type;
           auto v_block = v_arm->get_body()->get_block_statement();

@@ -42,45 +42,6 @@ std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, Ty
 std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, AnyV origin);
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
-// Unlike regular methods, custom serializers must not leak from aliases to underlying types.
-// Example:
-// > struct Box { ... }
-// > type BoxAlias = Box
-// > fun BoxAlias.packToBuilder
-// It must NOT be auto-applicable to `Box`. Whereas for other methods, like `fun BoxAlias.xyz`, `box.xyz()` is okay.
-static bool is_same_custom_serialization_receiver(TypePtr receiver_type, TypePtr candidate_receiver) {
-  if (const TypeDataAlias* t_alias = receiver_type->try_as<TypeDataAlias>()) {
-    const TypeDataAlias* c_alias = candidate_receiver->try_as<TypeDataAlias>();
-    return c_alias && c_alias->alias_ref == t_alias->alias_ref;
-  }
-  if (receiver_type->try_as<TypeDataStruct>()) {
-    return candidate_receiver->try_as<TypeDataStruct>() && candidate_receiver->equal_to(receiver_type);
-  }
-  if (receiver_type->try_as<TypeDataEnum>()) {
-    return candidate_receiver->try_as<TypeDataEnum>() && candidate_receiver->equal_to(receiver_type);
-  }
-  return false;
-}
-
-static std::vector<MethodCallCandidate> filter_pack_candidates(TypePtr receiver_type, const std::vector<MethodCallCandidate>& candidates) {
-  int min_generics = 100;
-  for (const MethodCallCandidate& c : candidates) {
-    if (is_same_custom_serialization_receiver(receiver_type, c.instantiated_receiver)) {
-      int n_generics = c.is_generic() ? c.substitutedTs.size() : 0;
-      min_generics = std::min(min_generics, n_generics);
-    }
-  }
-
-  std::vector<MethodCallCandidate> filtered;
-  for (MethodCallCandidate c : candidates) {
-    int n_generics = c.is_generic() ? c.substitutedTs.size() : 0;
-    if (n_generics == min_generics && is_same_custom_serialization_receiver(receiver_type, c.instantiated_receiver)) {
-      filtered.emplace_back(std::move(c));
-    }
-  }
-  return filtered;
-}
-
 // Any type alias or struct can have custom pack/unpack functions declared:
 // > type TelegramString = slice
 // > fun TelegramString.packToBuilder(self, mutate b: builder) { ... }
@@ -101,7 +62,6 @@ CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::ve
   std::vector<MethodCallCandidate> c_pack = resolve_methods_for_call(receiver_type, "packToBuilder", false);
   std::vector<MethodCallCandidate> c_unpack = resolve_methods_for_call(receiver_type, "unpackFromSlice", false);
 
-  c_pack = filter_pack_candidates(receiver_type, c_pack);
   if (c_pack.size() > 1) {
     err("ambiguous method, both `{}` and `{}` are applicable", c_pack[0].method_ref, c_pack[1].method_ref).fire(c_pack[0].method_ref->ident_anchor);
   }
@@ -109,19 +69,11 @@ CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::ve
     f.f_pack = c_pack[0].method_ref;
   }
 
-  c_unpack = filter_pack_candidates(receiver_type, c_unpack);
   if (c_unpack.size() > 1) {
     err("ambiguous method, both `{}` and `{}` are applicable", c_unpack[0].method_ref, c_unpack[1].method_ref).fire(c_unpack[0].method_ref->ident_anchor);
   }
   if (!c_unpack.empty()) {
     f.f_unpack = c_unpack[0].method_ref;
-  }
-
-  // for `type A = B`, if `A` does not declare its own serializers, take them from B
-  if (!f) {
-    if (const TypeDataAlias* t_alias = receiver_type->try_as<TypeDataAlias>()) {
-      f = get_custom_pack_unpack_function(t_alias->underlying_type, out_candidates);
-    }
   }
 
   if (out_candidates) {
@@ -987,7 +939,7 @@ struct S_MultipleConstructors final : ISerializer {
     const LazyMatchOptions::MatchBlock* else_block = nullptr;
     for (int i = 0; i < static_cast<int>(options.match_blocks.size()); ++i) {
       if (options.match_blocks[i].arm_variant) {
-        int variant_idx = t_union->get_variant_idx(options.match_blocks[i].arm_variant);
+        int variant_idx = t_union->get_variant_equal_to(options.match_blocks[i].arm_variant);
         tolk_assert(variant_idx != -1);
         opcodes_order_mapping[i] = variant_idx;
       } else {

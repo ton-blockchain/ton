@@ -18,6 +18,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr wrong pattern matching: `OwnerId` is not a variant of `UserId | slice`
+@stderr wrong pattern matching: use `UserId` instead of `OwnerId`
 @stderr OwnerId => {}
  */

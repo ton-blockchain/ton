@@ -97,7 +97,7 @@ fun test2() {
     __expect_type(i1.value, "int");
     __expect_type(i1.value + i2.value + i3.value, "int");
     __expect_type(i3, "JustIntAlias2");
-    __expect_type([i2, i3], "array<JustInt>");
+    __expect_type(array<JustInt> [i2, i3], "array<JustInt>");
     __expect_type([i2] as [JustIntAlias], "[JustIntAlias]");
     return (i1, i2, i3, [i1, JustInt{value:5}]);
 }
@@ -347,10 +347,10 @@ fun test22(x: JustInt) {
 
 @method_id(123)
 fun test23(p: Point) {
-    var complex = p as Point | (JustInt | Storage);
+    var complex = p as PointAlias | (JustInt | Storage);
     return match (complex) {
         JustInt => 10 * complex.value,
-        PointAlias => 20,
+        Point => 20,
         Storage => 30 + complex.lastPoint.x,
     };
 }

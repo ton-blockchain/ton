@@ -199,7 +199,7 @@ global tup111: tuple;
 
 @method_id(111)
 fun testForallFunctionsWithSelf(): (int, int, tuple) {
-    var t = createEmptyTuple();
+    var t: tuple = createEmptyTuple();
     tup111 = createEmptyTuple();
     t.myTuplePush(10);
     tup111.myTuplePush(1).myTuplePush(2).myTuplePush(3);

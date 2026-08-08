@@ -2,12 +2,12 @@ type UserId = int
 type OwnerId = int
 
 fun directAliasCheck(x: UserId?): bool {
-    return x is OwnerId;
+    return x is slice;
 }
 
 @inline
 fun waitUntilNotOwner(x: UserId?): int {
-    while (!(x is OwnerId)) {
+    while (!(x is slice)) {
     }
 }
 
@@ -24,7 +24,7 @@ fun compileInlinedAlwaysTrueLoop(x: UserId?): int {
 @testcase | 0 | null | 0
 @testcase | 0 | 123  | 0
 
-@stderr warning: variable `x` of type `UserId?` can never be `OwnerId`, this condition is always false
+@stderr warning: variable `x` of type `UserId?` can never be `slice`, this condition is always false
 @stderr warning: condition of `while` is always true
 
 @fif_codegen

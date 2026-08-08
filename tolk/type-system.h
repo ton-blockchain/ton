@@ -117,6 +117,9 @@ public:
     return true;
   }
 
+  // equal_to is RUNTIME equality (aliases erased); for instance, `int` equal_to `IntAlias` and vice versa;
+  // but some compiler features (overload resolution, pattern matching) treat aliases-as-subtypes:
+  // for example, `fun IntAlias.method` can't be called with `int`; see `SubtypeDistance`
   virtual bool equal_to(TypePtr rhs) const {
     return this == rhs->unwrap_alias();
   }
@@ -129,7 +132,7 @@ public:
 };
 
 /*
- * `type AliasName = underlying_type` is an alias, which is fully interchangeable with its original type.
+ * `type AliasName = underlying_type` is a subtype of its underlying type.
  * It never occurs at runtime: at IR generation it's erased, replaced by an underlying type.
  * But until IR generation, aliases exists, and `var t: MyTensor2 = (1,2)` is alias "MyTensor", not tensor (int,int).
  * That's why lots of code comparing types use `type->unwrap_alias()` or `try_as<TypeDataAlias>`.
@@ -687,7 +690,7 @@ public:
   TypePtr calculate_exact_variant_to_fit_rhs(TypePtr rhs_type) const;
   bool has_variant_equal_to(TypePtr rhs_type) const;
   bool has_all_variants_of(const TypeDataUnion* rhs_type) const;
-  int get_variant_idx(TypePtr lookup_variant) const;
+  int get_variant_equal_to(TypePtr lookup_variant) const;
 
   int get_width_on_stack() const override;
   int get_type_id() const override;
@@ -821,5 +824,38 @@ public:
   bool can_hold_tvm_null_instead() const override;
 };
 
+/*
+ * `SubtypeDistance` is a metric between a type alias and its underlying type:
+ * > type IntAlias = int           // distance 1 from int
+ * > type DeeperInt = IntAlias     // distance 2 from int, 1 from IntAlias
+ * Relation is structural: d(array<DeeperInt>,array<int>) = 2.
+ * Identical types have distance 0 between: d(int,int) = 0, d(cell,cell) = 0.
+ * Incomparable types don't have a valid value: d(int,slice) = d(int8,int16) = incomparable.
+ */
+class SubtypeDistance {
+  int distance;
+
+  explicit SubtypeDistance(int distance): distance(distance) {}
+
+public:
+  bool is_applicable() const { return distance >= 0; }
+  int get_distance() const { return distance; }
+
+  SubtypeDistance operator+(SubtypeDistance rhs) const {
+    if (!is_applicable() || !rhs.is_applicable()) {
+      return incomparable();
+    }
+    return ok(distance + rhs.distance);
+  }
+
+  static SubtypeDistance ok(int distance) {
+    return SubtypeDistance(distance);
+  }
+  static SubtypeDistance incomparable() {
+    return SubtypeDistance{-1};
+  }
+
+  static SubtypeDistance calc_between(TypePtr provided, TypePtr receiver);
+};
 
 } // namespace tolk

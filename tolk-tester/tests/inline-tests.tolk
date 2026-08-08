@@ -241,7 +241,7 @@ fun test8() {
 fun test9(x: int) {
     var p1: Point = {x, y: 0};
     var p2: Point = {x: 0, y: p1.getX()};
-    var t = createEmptyTuple();
+    var t: tuple = createEmptyTuple();
     t.pushPoint(p1);
     t.pushPoint(p2);
     return (t.popPoint(), t.popPoint(), t);

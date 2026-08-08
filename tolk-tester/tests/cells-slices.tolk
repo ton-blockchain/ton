@@ -280,7 +280,7 @@ fun test19() {
 fun test20() {
   var x = false;
   var n = 4;
-  var b = true ? beginCell() : null;
+  var b = (true ? beginCell() : null)!;
   b.storeBool(true).storeBool(x);
   b = b.storeBool(true).storeUint(0, n *= 2).storeBool(!!true).storeCoins(0);
   var s = b.toSlice();

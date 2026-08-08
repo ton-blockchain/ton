@@ -167,12 +167,12 @@ global t107_2: int
 
 @method_id(107)
 fun testMutableTensor() {
-    var t = (40, 50);
+    var t: Pair2 = (40, 50);
     t.updateTwoItems(10);
     updateTwoItems(mutate t, 10);
     t107_1 = 1;
     t107_2 = 2;
-    var globalsPair = (t107_1, t107_2);
+    var globalsPair = (t107_1, t107_2) as Pair2;
     globalsPair.updateTwoItems(10);
     updateTwoItems(mutate globalsPair, 10);
     val before = t107_1;

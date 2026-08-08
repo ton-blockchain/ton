@@ -17,6 +17,10 @@ struct JustAddress {
 type MInt32 = int32
 type MSlice = slice
 
+fun MapEntry<K, MSlice>.loadValue(self): MSlice {
+    return self.rawValue!
+}
+
 struct Point {
     x: int8
     y: int8

@@ -374,7 +374,7 @@ fun test19() {
     var i2: StrangeInt<slice> = 30;
     var i3: StrangeInt<StrangeInt<int>> = 40;
     i1 = i2 as StrangeInt<builder>; i1 = i3 as StrangeInt<builder>;
-    return (i1 as StrangeInt<()>, i3 as StrangeAlsoInt, i1 is StrangeInt, i1 is StrangeInt<cell>, i3 is StrangeInt, i3 is StrangeAlsoInt);
+    return (i1 as StrangeInt<()>, i3 as StrangeAlsoInt, i1 is StrangeInt, i3 is StrangeInt);
 }
 
 @method_id(120)
@@ -415,12 +415,12 @@ fun test21(w: AnotherWrapper<builder>) {
 fun test22(w: int | WrapperAlias<int> | slice) {
     match (w) {
         int => {}
-        WrapperAlias<MyInt> => {}
+        WrapperAlias<int> => {}
         slice => {}
     }
     __expect_type(w, "int | WrapperAlias<int> | slice");
     match (w) {
-        MyInt => {}
+        int => {}
         slice => {}
         WrapperAlias<int> => {}
     }
@@ -569,7 +569,7 @@ fun getValueOfAlias<T>(w: WrapperAlias<T>): T { return w.value }
 fun test31(w1: Wrapper<int>, w2: WrapperAlias<int>) {
   __expect_type(getValueOfAlias(w1), "int");
   __expect_type(getValueOfAlias(w2), "int");
-  __expect_type((w1).getValueOfAlias(), "int");
+  __expect_type((w1 as WrapperAlias<int>).getValueOfAlias(), "int");
   __expect_type((w2).getValueOfAlias(), "int");
 }
 
@@ -625,7 +625,7 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @testcase | 116 |         | 1 2 3 4
 @testcase | 117 |         | 100 123
 @testcase | 118 |         | 123 1 777 123 1 -1 2
-@testcase | 119 |         | 40 40 -1 0 -1 0
+@testcase | 119 |         | 40 40 -1 -1
 @testcase | 120 |         | (null) typeid-10 777 (null) (null) 0 typeid-11 -1 -1
 @testcase | 123 |         | 10 10 10 10 10
 @testcase | 126 |         | 0 0 0 (null) 777 0 typeid-13 (null) typeid-13 (null) 0

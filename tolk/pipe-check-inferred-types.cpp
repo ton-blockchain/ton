@@ -34,6 +34,30 @@ static std::string expression_as_string(AnyExprV v) {
   return "expression";
 }
 
+struct TypePatternVariantMatch {
+  int variant_idx;
+  bool is_subtype_violated;
+  TypePtr variant_type;
+};
+
+// given `type MyUnion = IntAlias | slice`, we can use `v is IntAlias` and `v is int` (narrowed subtype)
+// but for `int | slice`, we can NOT use `v is IntAlias` (subtype extension is violated)
+static TypePatternVariantMatch calculate_type_pattern_variant_match(TypePtr subject_type, TypePtr pattern_type) {
+  if (const TypeDataUnion* subject_union = subject_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+    int variant_idx = subject_union->get_variant_equal_to(pattern_type);   // it's runtime equality
+    if (variant_idx == -1) {
+      return {-1, false, nullptr};
+    }
+    TypePtr variant_type = subject_union->variants[variant_idx];
+    return {variant_idx, !SubtypeDistance::calc_between(variant_type, pattern_type).is_applicable(), variant_type};
+  }
+
+  if (!subject_type->equal_to(pattern_type)) {
+    return {-1, false, nullptr};
+  }
+  return {0, !SubtypeDistance::calc_between(subject_type, pattern_type).is_applicable(), subject_type};
+}
+
 // make a general error on type mismatch; for example, "can not assign `cell` to `slice`";
 // for instance, if `as` operator is applicable, compiler will suggest it
 static Error err_type_mismatch(const char* text_tpl, TypePtr src, TypePtr dst) {
@@ -134,6 +158,18 @@ static void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_
   }
 }
 
+// mutate writeback uses equal_to(), plus alias identity when both sides are aliases
+static bool mutate_types_compatible(TypePtr from, TypePtr to) {
+  if (!from->equal_to(to)) {
+    return false;
+  }
+  if (from->try_as<TypeDataAlias>() && to->try_as<TypeDataAlias>()) {
+    // only when both aliases: `tuple.push` is okay for `array<T>.push`, even though distance == 1
+    return SubtypeDistance::calc_between(from, to).get_distance() == 0;
+  }
+  return true;
+}
+
 // given `f(x: mutate int?)` and a call `f(expr)`, check that `int?` is assignable to expr_type
 // (for instance, can't call `f(mutate intVal)`, since f can potentially assign null to it)
 static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr arg_type_before_mutate, AnyExprV ith_arg, bool is_obj_of_dot_call) {
@@ -149,14 +185,14 @@ static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr arg_t
   }
 
   // here, in checking mutations, we will emit an error if this back-assignment is incompatible;
-  // we don't allow passing `int` to mutate `coins` and similar: not can_rhs_be_assigned(), but equal_to()
-  bool ok = arg_type_orig->equal_to(param_type);
+  // we don't allow passing `int` to mutate `coins` and similar: not can_rhs_be_assigned(), but mutate_types_compatible()
+  bool ok = mutate_types_compatible(arg_type_orig, param_type);
   if (!ok) {
     // the only exception, if we originally have `var x: int|builder`, and `x` is smart-cast to `builder`,
     // we allow calling method for `builder`; we also don't allow intersection between unions
     if (const TypeDataUnion* orig_union = arg_type_orig->unwrap_alias()->try_as<TypeDataUnion>()) {
       TypePtr only_t = orig_union->calculate_exact_variant_to_fit_rhs(param_type);
-      ok = only_t != nullptr && only_t->equal_to(param_type) && arg_type_before_mutate->equal_to(param_type);
+      ok = only_t != nullptr && mutate_types_compatible(only_t, param_type) && mutate_types_compatible(arg_type_before_mutate, param_type);
     }
   }
 
@@ -419,6 +455,12 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       return;
     }
 
+    TypePtr expr_type = v->get_expr()->inferred_type;
+    TypePatternVariantMatch match = calculate_type_pattern_variant_match(expr_type, rhs_type);
+    if (match.is_subtype_violated) {
+      err("wrong pattern matching: use `{}` instead of `{}`", match.variant_type, rhs_type).collect(v, cur_f);
+    }
+
     if ((v->is_always_true && !v->is_negated) || (v->is_always_false && v->is_negated)) {
       err("{} is always `{}`, this condition is always {}", expression_as_string(v->get_expr()), rhs_type, v->is_always_true).warning(v, cur_f);
     }
@@ -619,16 +661,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     if (cond->is_always_true || cond->is_always_false) {
       warning_condition_always_true_or_false(cur_f, cond->range, cond, "ternary operator");
-      return;
-    }
-
-    AnyExprV when_true = v->get_when_true();
-    AnyExprV when_false = v->get_when_false();
-    if (!v->inferred_type->can_rhs_be_assigned(when_true->inferred_type)) {
-      err_type_mismatch("can not convert type {src} to ternary result type {dst}", when_true->inferred_type, v->inferred_type).collect(when_true, cur_f);
-    }
-    if (!v->inferred_type->can_rhs_be_assigned(when_false->inferred_type)) {
-      err_type_mismatch("can not convert type {src} to ternary result type {dst}", when_false->inferred_type, v->inferred_type).collect(when_false, cur_f);
     }
   }
 
@@ -704,15 +736,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     const TypeDataEnum* subject_enum = subject_type->unwrap_alias()->try_as<TypeDataEnum>();
     const TypeDataUnion* subject_union = subject_type->unwrap_alias()->try_as<TypeDataUnion>();
 
-    if (!v->is_statement()) {
-      for (int i = 0; i < v->get_arms_count(); ++i) {
-        AnyExprV arm_body = v->get_arm(i)->get_body();
-        if (!v->inferred_type->can_rhs_be_assigned(arm_body->inferred_type)) {
-          err_type_mismatch("can not convert type {src} to match result type {dst}", arm_body->inferred_type, v->inferred_type).collect(arm_body, cur_f);
-        }
-      }
-    }
-
     std::vector<int> covered_variants;        // union variant indexes; for non-union, the only matching type is 0
     std::vector<EnumMemberPtr> covered_enum;  // for `match` over an enum, we want it to be exhaustive
 
@@ -732,8 +755,11 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           if (lhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {
             err("wrong pattern matching: union types are not allowed, use concrete types in `match`").collect(v_arm->get_pattern_expr(), cur_f);
           }
-          int variant_idx = subject_union ? subject_union->get_variant_idx(lhs_type) : (subject_type->equal_to(lhs_type) ? 0 : -1);
-          if (variant_idx == -1) {
+          TypePatternVariantMatch match = calculate_type_pattern_variant_match(subject_type, lhs_type);
+          int variant_idx = match.is_subtype_violated ? -1 : match.variant_idx;
+          if (match.is_subtype_violated) {
+            err("wrong pattern matching: use `{}` instead of `{}`", match.variant_type, lhs_type).collect(v_arm->get_pattern_expr(), cur_f);
+          } else if (variant_idx == -1) {
             err("wrong pattern matching: `{}` is not a variant of `{}`", lhs_type, subject_type).collect(v_arm->get_pattern_expr(), cur_f);
           }
           bool is_duplicated = variant_idx != -1 && std::find(covered_variants.begin(), covered_variants.end(), variant_idx) != covered_variants.end();

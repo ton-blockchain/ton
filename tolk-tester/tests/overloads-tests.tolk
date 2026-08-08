@@ -57,9 +57,9 @@ fun MyPair<K, V>.mapFn(self): int4 { return 0 }
 
 fun test3() {
     __expect_type(MyPair<int, slice>{}.mapFn(), "int1");
-    __expect_type(MyPair<MInt, slice>{}.mapFn(), "int1");
+    __expect_type(MyPair<MInt, slice>{}.mapFn(), "int2");
     __expect_type(MyPair<int8, slice>{}.mapFn(), "int2");
-    __expect_type(MyPair<int8, MSlice>{}.mapFn(), "int2");
+    __expect_type(MyPair<int8, MSlice>{}.mapFn(), "int4");
     __expect_type(MyPair<int, slice?>{}.mapFn(), "int3");
     __expect_type(MyPair<int8, cell>{}.mapFn(), "int4");
     __expect_type(MyPair<never, (slice,slice)>{}.mapFn(), "int4");
@@ -96,33 +96,46 @@ fun U?.myBAlias(self): int5 { return 0 }
 fun test6(b: builder, b1: AliasBuilder1, b2: AliasBuilder2, b1n: AliasBuilder1?, b2n: AliasBuilder2?) {
     __expect_type(b1.myBAlias(), "int1");
     __expect_type(b2.myBAlias(), "int2");
-    __expect_type(b1n.myBAlias(), "int3");
+    __expect_type(b1n.myBAlias(), "int5");
     __expect_type((b2n as builder?).myBAlias(), "int3");
 
     __expect_type((b as builder|slice).myBAlias(), "int4");
     __expect_type(0.myBAlias(), "int4");
     __expect_type((0 as int|int16).myBAlias(), "int4");
-    __expect_type(b2n.myBAlias(), "int3");
+    __expect_type(b2n.myBAlias(), "int5");
     __expect_type((null as builder|slice?).myBAlias(), "int5");
     __expect_type((0 as int?).myBAlias(), "int5");
 }
 
 type AssetBuilder = builder
 type BalanceBuilder = builder
+type AssetBuilderWrapper = Wrapper<AssetBuilder>
+type BalanceBuilderWrapper = Wrapper<BalanceBuilder>
 
-fun AssetBuilder.validate(self): int1 { return 0 }
-fun BalanceBuilder.validate(self): int2 { return 0 }
-fun Wrapper<AssetBuilder>.validate(self): int3 { return 0 }
-fun Wrapper<BalanceBuilder>.validate(self): int4 { return 0 }
+fun builder.validate(self): int { return 0 }
+fun AssetBuilder.validate(self): int1 { return 1 }
+fun BalanceBuilder.validate(self): int2 { return 2 }
+fun AssetBuilderWrapper.validate(self): int3 { return 3 }
+fun BalanceBuilderWrapper.validate(self): int4 { return 4 }
 
+@method_id(107)
 fun test7() {
     var a: AssetBuilder = beginCell();
     var b: BalanceBuilder = beginCell();
 
     __expect_type(a.validate(), "int1");
     __expect_type(b.validate(), "int2");
-    __expect_type(Wrapper{item:a}.validate(), "int3");
-    __expect_type(Wrapper{item:b}.validate(), "int4");
+
+    var aw: AssetBuilderWrapper = Wrapper{item:a};
+    var bw: BalanceBuilderWrapper = Wrapper{item:b};
+    __expect_type(aw.validate(), "int3");
+    __expect_type(bw.validate(), "int4");
+
+    return (
+        match (a) { AssetBuilder => a.validate() },     // 1
+        match (a) { builder => a.validate() },          // 0
+        a.validate(),                                   // 1
+    )
 }
 
 fun (slice|TT).supposeMe(self): TT { if (self is slice) { throw 123 } return self }
@@ -156,7 +169,7 @@ fun test9(
     __expect_type(m1.mySize(), "int1");
     __expect_type(m2.mySize(), "int2");
     __expect_type(m3.mySize(), "int3");
-    __expect_type(m4.mySize(), "int3");
+    __expect_type(m4.mySize(), "int4");
     __expect_type(m5.mySize(), "int4");
     __expect_type(m6.mySize(), "int4");
     __expect_type(m7.mySize(), "int5");
@@ -273,10 +286,10 @@ fun test14(
     m10: map<int8, slice>,
 ) {
     __expect_type(m1.mySize(), "int5");
-    __expect_type(m2.mySize(), "int5");
+    __expect_type(m2.mySize(), "int4");
     __expect_type(m3.mySize(), "int4");
-    __expect_type(m4.mySize(), "int4");
-    __expect_type(m5.mySize(), "int4");
+    __expect_type(m4.mySize(), "int3");
+    __expect_type(m5.mySize(), "int3");
     __expect_type(m6.mySize(), "int3");
     __expect_type(m7.mySize(), "int2");
     __expect_type(m8.mySize(), "int2");
@@ -302,15 +315,15 @@ fun test15(
     arrArrInt8_2: ArrAlias<array<int8>>,
     arrArrInt8_3: ArrAlias<ArrAlias<int8>>,
 ) {
-    __expect_type(arrInt.mySize(), "int1");
+    __expect_type(arrInt.size(), "int");
     __expect_type(arrArrInt.mySize(), "int2");
     __expect_type(arrArrArrInt.mySize(), "int2");
-    __expect_type(tup.mySize(), "int1");
+    __expect_type(tup.size(), "int");
     __expect_type(aliasInt.mySize(), "int1");
-    __expect_type(aliasArrInt.mySize(), "int2");
+    __expect_type(aliasArrInt.mySize(), "int1");
     __expect_type(arrArrInt8_1.mySize(), "int3");
-    __expect_type(arrArrInt8_2.mySize(), "int3");
-    __expect_type(arrArrInt8_3.mySize(), "int3");
+    __expect_type(arrArrInt8_2.mySize(), "int1");
+    __expect_type(arrArrInt8_3.mySize(), "int1");
 }
 
 type AA<T> = cell
@@ -370,7 +383,7 @@ fun test19() {
     val direct: GenericCellForWhich<int> = createEmptyCell();
     val throughAlias: GenericCellForWhichInt = createEmptyCell();
     __expect_type(direct.which(), "int1");
-    __expect_type(throughAlias.which(), "int1");
+    __expect_type(throughAlias.which(), "int3");
 }
 
 type TaggedCellForPick<T> = cell
@@ -415,6 +428,21 @@ fun test22(): int {
     return order1.tagRes() + order2.tagRes();
 }
 
+fun alwaysThrow() { throw 123 }
+
+fun test23(a: AssetBuilder?, b: BalanceBuilder?) {
+    var ok1: AssetBuilder = a ?? b ?? alwaysThrow();
+    var ok2: BalanceBuilder = a ?? b ?? alwaysThrow();
+    __expect_type(((a ?? b ?? ok1 ?? ok2) as AssetBuilder).validate(), "int1");
+    __expect_type(((a ?? b ?? alwaysThrow()) as BalanceBuilder).validate(), "int2");
+    __expect_type(((a == null ? b! : a) as BalanceBuilder).validate(), "int2");
+    __expect_type(((a == null ? b! : a) as builder).validate(), "int");
+    __expect_type(a, "AssetBuilder?");
+    __expect_type(b!, "BalanceBuilder");
+    __expect_type(match(a) { builder => a.validate(), null => alwaysThrow() }, "int");
+    __expect_type(a, "builder");
+}
+
 fun main() {
     // besides these positive tests, there are many negative resulting in "ambiguous call"
     return 0
@@ -422,6 +450,7 @@ fun main() {
 
 /**
 @testcase | 0   |   | 0
+@testcase | 107 |   | 1 0 1
 @testcase | 113 |   | [ 1 2 258 1 2 -777 ]
 @testcase | 116 |   | 111222
 @testcase | 118 |   | 123

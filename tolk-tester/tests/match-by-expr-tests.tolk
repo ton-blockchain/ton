@@ -231,12 +231,12 @@ fun test16(x: int) {
 type asdf = int;
 
 fun main() {
-    match (10) {
+    match (10 as asdf) {
         asdf => 1,      // it's match by type
     };
 
     var asdf = 5;
-    return match (10) {
+    return match (10 as asdf) {
         asdf => 2,      // also match by type, regardless of local var
     };
 }

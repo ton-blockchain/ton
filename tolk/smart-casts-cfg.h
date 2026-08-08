@@ -36,14 +36,14 @@ namespace tolk {
 class TypeInferringUnifyStrategy {
   TypePtr dest_hint = nullptr;
   TypePtr unified_result = nullptr;
-  bool different_types_became_union = false;
+  bool lca_needs_hint = false;
 
 public:
   explicit TypeInferringUnifyStrategy(TypePtr hint);
   void unify_with(TypePtr next);
 
   TypePtr get_result() const { return unified_result; }
-  bool became_union_without_hint() const { return different_types_became_union && dest_hint == nullptr; }
+  bool became_union_without_hint() const { return lca_needs_hint && dest_hint == nullptr; }
 };
 
 /*
@@ -55,8 +55,8 @@ public:
  * Note, that globals are NOT sink: don't encourage to use a global twice, it costs gas, better assign it to a local.
  */
 struct SinkExpression {
-  LocalVarPtr const var_ref;            // smart casts and data flow applies only to locals
-  const uint64_t index_path;            // 0 for just `v`; for `v.N` it's (N+1), for `v.N.M` it's (N+1) + (M+1)<<8, etc.
+  LocalVarPtr var_ref;    // smart casts and data flow applies only to locals
+  uint64_t index_path;    // 0 for just `v`; for `v.N` it's (N+1), for `v.N.M` it's (N+1) + (M+1)<<8, etc.
 
   SinkExpression()
     : var_ref(nullptr), index_path(0) {}
@@ -66,7 +66,7 @@ struct SinkExpression {
     : var_ref(var_ref), index_path(index_path) {}
 
   SinkExpression(const SinkExpression&) = default;
-  SinkExpression& operator=(const SinkExpression&) = delete;
+  SinkExpression& operator=(const SinkExpression&) = default;
 
   bool operator==(const SinkExpression& rhs) const { return var_ref == rhs.var_ref && index_path == rhs.index_path; }
   bool operator<(const SinkExpression& rhs) const { return var_ref == rhs.var_ref ? index_path < rhs.index_path : var_ref < rhs.var_ref; }
@@ -144,6 +144,7 @@ class FlowContext {
     : known_facts(std::move(known_facts)), unreachable(unreachable) {}
 
   void invalidate_all_subfields(LocalVarPtr var_ref, uint64_t parent_path, uint64_t parent_mask);
+  TypePtr get_effective_type(SinkExpression s_expr) const;
 
   friend std::ostream& operator<<(std::ostream& os, const FlowContext& flow);
 
@@ -162,10 +163,13 @@ public:
   bool is_unreachable() const { return unreachable; }
   bool equivalent_to(const FlowContext& another) const;
 
-  bool smart_cast_exists(SinkExpression s_expr) const { return known_facts.find(s_expr) != known_facts.end(); }
-  TypePtr smart_cast_or_original(SinkExpression s_expr, TypePtr originally_declared_type) const;
+  TypePtr smart_cast_or(SinkExpression s_expr, TypePtr fallback) const {
+    auto it = known_facts.find(s_expr);
+    return it == known_facts.end() ? fallback : it->second.expr_type;
+  }
 
   void register_known_type(SinkExpression s_expr, TypePtr assigned_type);
+  void reanchor_to(const FlowContext& flow_before_branching);
   void mark_unreachable(UnreachableKind reason);
 
   static FlowContext merge_flow(FlowContext&& c1, FlowContext&& c2);

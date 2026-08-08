@@ -36,10 +36,9 @@ fun test1(x: MInt): MVoid {
     __expect_type(rand() != 0 ? x : y, "MInt");
     __expect_type((x, 1, y), "(MInt, int, MInt)");
 
-    __expect_type(rand() != 0 ? (1, 2) : (1, 2) as Pair2_v1, "(int, int)");
-    __expect_type(rand() != 0 ? (1, 2) : (1, 2) as Pair2_v2, "(int, int)");
-    __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : (1, 2), "Pair2_v1");
+    __expect_type(rand() != 0 ? (1, 2) as Pair2_v1 : (3, 4) as Pair2_v1, "Pair2_v1");
     __expect_type(rand() != 0 ? (1, 2) as Pair2_v2 : (1, 2) as Pair2_v2, "Pair2_v2");
+    var hinted_pair: Pair2_v1 = rand() != 0 ? (1, 2) : (3, 4) as Pair2_v1;
 
     // exact duplicates collapsed
     var d1 = (1, 2) as Pair2_v1 | Pair2_v1;
@@ -79,7 +78,7 @@ fun test3(x: MIntN, y: MInt?) {
 }
 
 @method_id(104)
-fun test4(x: MIntN, y: MIntN) {
+fun test4(x: MIntN, y: MIntN): int {
     if (x != null && y != null) {
         __expect_type(x, "MInt");
         __expect_type(x + y, "int");
@@ -88,9 +87,6 @@ fun test4(x: MIntN, y: MIntN) {
     __expect_type(x, "MIntN");
     __expect_type(x!, "MInt");
     __expect_type(rand() != 0 ? x : y, "MIntN");
-    __expect_type(rand() != 0 ? x : 0, "MInt?");
-    __expect_type(rand() != 0 ? 0 : x, "int?");
-    __expect_type(rand() != 0 ? 0 : x!, "int");
     return y!;
 }
 
@@ -248,12 +244,12 @@ fun test13(a: WrapperAlias<int>, b: WrapperAlias<MInt>, c: Wrapper<int>, d: Wrap
     a as WrapperAliasOfMInt;
 
     match (a) { WrapperAlias<int> => {} }
-    match (a) { WrapperAlias<MInt> => {} }
     match (a) { Wrapper<int> => {} }
-    match (a) { Wrapper<MInt> => {} }
+    // match (a) { WrapperAlias<MInt> => {} }    // downward subtype check
+    // match (a) { Wrapper<MInt> => {} }         // downward subtype check
     // match (a) { WrapperOfInt => {} }
     // match (a) { WrapperOfMInt => {} }
-    match (a) { WrapperAliasOfInt => {} }
+    // match (a) { WrapperAliasOfInt => {} }
     // match (a) { WrapperAliasOfMInt => {} }
 
     b as WrapperAlias<int>;
@@ -272,14 +268,14 @@ fun test13(a: WrapperAlias<int>, b: WrapperAlias<MInt>, c: Wrapper<int>, d: Wrap
     // match (b) { WrapperOfInt => {} }
     // match (b) { WrapperOfMInt => {} }
     // match (b) { WrapperAliasOfInt => {} }
-    match (b) { WrapperAliasOfMInt => {} }
+    // match (b) { WrapperAliasOfMInt => {} }
 
     match (e) { WrapperAliasOfInt => {} }
 
     match (f) { WrapperAliasOfMInt => {} }
     match (f) { Wrapper<int> => {} }
     match (f) { Wrapper<MInt> => {} }
-    // match (f) { WrapperAlias<int> => {} }
+    match (f) { WrapperAlias<int> => {} }
     match (f) { WrapperAlias<MInt> => {} }
 
     __expect_type(a, "WrapperAlias<int>");
@@ -311,10 +307,14 @@ fun test14(i: MInt, b: MBool, c: PointAlias2) {
 
 type MInt1 = int
 type MInt2 = MInt1
+type MInt3 = MInt2
+type UserId32 = int32
 
 fun int.plus0(self) { return self + 0 }
 fun MInt1.plus1(self) { return self + 1 }
 fun MInt2.plus2(self) { return self + 2 }
+fun MInt1.nearestAliasMethod(self): int1 { return 1 }
+fun MInt2.nearestAliasMethod(self): int2 { return 2 }
 
 @method_id(115)
 fun test15() {
@@ -329,8 +329,8 @@ fun test15() {
     }
     
     return (
-        i.plus0(), i.plus1(), i.plus2(),
-        m.plus0(), m.plus1(), m.plus2(),
+        i.plus0(),
+        m.plus0(), m.plus1(),
         t.plus0(), t.plus1(), t.plus2(),
     )
 }
@@ -562,15 +562,76 @@ fun test24() {
 @method_id(125)
 fun test25(x: FlagA) {
     return (
-        ((!!x) is FlagB) as int,
-        ((x == true) is FlagB) as int,
-        ((x == false) is FlagB) as int,
-        ((x != false) is FlagB) as int,
-        ((!!x) is FlagA) == ((!!x) is FlagB),
+        (x is bool) as int,
+        ((!!x) is bool) as int,
+        ((x == true) is bool) as int,
+        ((x == false) is bool) as int,
+        ((x != false) is bool) as int,
     );
 }
 
-fun main(x: MInt, y: MInt?) {
+struct (0xAC) AliasSingleMsg {
+    value: uint8
+}
+
+type AllowedSingleMsg = AliasSingleMsg
+
+@method_id(126)
+fun test26() {
+    val c = AliasSingleMsg { value: 7 }.toCell();
+    val m = lazy AllowedSingleMsg.fromCell(c);
+    return match (m) {
+        AliasSingleMsg => m.value as int,
+        else => 100,
+    };
+}
+
+@method_id(127)
+fun test27() {
+    var c: MInt3 = 30;
+    __expect_type(c.nearestAliasMethod(), "int2");
+    return c.nearestAliasMethod();
+}
+
+fun test28(mapOfUserId: map<UserId32, UserId32>, wrapperOfUserId: Wrapper<UserId>) {
+    var m: map<int32, int32> = mapOfUserId;
+    var w: Wrapper<int> = wrapperOfUserId;
+    var wa: WrapperAlias<int> = wrapperOfUserId;
+    m = mapOfUserId;
+    w = wrapperOfUserId;
+    wa = wrapperOfUserId;
+}
+
+type MInt3OrSlice = MInt3 | slice
+
+fun testInferInMatchNarrow() {
+    var v = 5 as MInt3OrSlice;
+    match (v) {
+        MInt2 => { __expect_type(v, "MInt2"); }
+        slice => {}
+    };
+    match (v) {
+        MInt1 => { __expect_type(v, "MInt1"); }
+        slice => {}
+    };
+    match (v) {
+        int => { __expect_type(v, "int"); }
+        slice => {}
+    };
+}
+
+@method_id(129)
+fun test29() {
+    var extensions: dict = createEmptyDict();
+    extensions.iDictSet(32, 8, "12".hexToSlice());
+    assert(extensions != null, 123);
+    __expect_type(extensions, "cell");
+    var (value, found) = extensions.iDictGet(32, 8);
+    return (found as int, value!.preloadUint(8));
+}
+
+
+fun main(x: MInt, y: MInt?): int {
     return y == null ? x : x + y;
 }
 
@@ -580,7 +641,7 @@ fun main(x: MInt, y: MInt?) {
 @testcase | 110 |     | 41
 @testcase | 112 | 0   | [ 1 1 ]
 @testcase | 112 | -1  | [ 2 1 ]
-@testcase | 115 |     | 0 1 2 10 11 12 20 21 22
+@testcase | 115 |     | 0 10 11 20 21 22
 @testcase | 118 |     | 5 0 1
 @testcase | 119 |     | 8 8 9
 @testcase | 120 |     | 16 8 10 10
@@ -589,6 +650,9 @@ fun main(x: MInt, y: MInt?) {
 @testcase | 123 |     | 8 7 16 4660
 @testcase | 124 |     | 8 9 3 -1 7
 @testcase | 125 | 0   | -1 -1 -1 -1 -1
+@testcase | 126 |     | 7
+@testcase | 127 |     | 2
+@testcase | 129 |     | -1 18
 
 @fif_codegen
 """

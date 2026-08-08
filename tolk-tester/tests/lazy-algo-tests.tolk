@@ -1573,7 +1573,7 @@ fun algo316() {
 fun algo317(s: slice): int8 {
     val a = lazy A.fromSlice(s);
     __expect_lazy("[a] load a1 a2 a3");
-    return a.getSecondField();
+    return (a as AOrB).getSecondField();
 }
 
 

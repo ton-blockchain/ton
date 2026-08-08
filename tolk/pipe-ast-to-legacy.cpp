@@ -773,7 +773,7 @@ std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, Ty
     code.add_int_const(origin, ir_result, td::make_refint(types_eq ? -1 : 0));
   } else if (!lhs_union->has_variant_equal_to(cmp_type)) {
     // at runtime, union tags store type_id, and aliases with the same underlying type share it;
-    // keep the lowering aligned with type-level `is`: distinct aliases are distinct variants
+    // type checker fired if `is` was used incorrectly with subtypes, so we safely know "false" here
     code.add_int_const(origin, ir_result, td::make_refint(0));
   } else if (lhs_union->is_primitive_nullable() && cmp_type == TypeDataNullLiteral::create()) {
     // `int?` is `null` for primitive 1-slot nullables, they hold either value of TVM NULL, no extra union tag slot
@@ -1195,11 +1195,7 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
   tolk_assert(ir_cond.size() == 1);
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(ternary)");
 
-  if (v->get_cond()->is_always_true) {
-    code.add_let(v->get_when_true(), rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
-  } else if (v->get_cond()->is_always_false) {
-    code.add_let(v->get_when_false(), rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
-  } else if (v->inferred_type->get_width_on_stack() == 1 && is_ternary_arg_trivial_for_condsel(v->get_when_true()) && is_ternary_arg_trivial_for_condsel(v->get_when_false())) {
+  if (v->inferred_type->get_width_on_stack() == 1 && is_ternary_arg_trivial_for_condsel(v->get_when_true()) && is_ternary_arg_trivial_for_condsel(v->get_when_false())) {
     std::vector ir_true = pre_compile_expr(v->get_when_true(), code, v->inferred_type);
     std::vector ir_false = pre_compile_expr(v->get_when_false(), code, v->inferred_type);
     std::vector condsel_args = { ir_cond[0], ir_true[0], ir_false[0] };

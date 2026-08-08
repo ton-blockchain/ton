@@ -2,7 +2,7 @@ fun main() {
     var (a, b, c, d, e) = (1, beginCell(), beginCell().endCell().beginParse(), [1], true as bool?);
 
     var alwaysInt = a != null ? 1 : null;
-    __expect_type(alwaysInt, "int");
+    __expect_type(alwaysInt, "int?");
 
     if (!(c == null)) {
         if (10 < 3) { assert(b == null, 100); }
