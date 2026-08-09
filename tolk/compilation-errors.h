@@ -43,9 +43,6 @@ public:
   GNU_ATTRIBUTE_NORETURN
   void fire(SrcRange range, FunctionPtr in_function = nullptr) const;
 
-  void warning(AnyV at, FunctionPtr in_function = nullptr) const;
-  void warning(SrcRange range, FunctionPtr in_function = nullptr) const;
-
   void collect(AnyV at, FunctionPtr in_function = nullptr) const;
   void collect(SrcRange range, FunctionPtr in_function = nullptr) const;
 };
@@ -115,10 +112,9 @@ struct ThrownParseError final : std::exception {
   std::string in_function;
   SrcRange range;
   std::string message;
-  bool is_warning = false;
 
-  ThrownParseError(std::string in_function, SrcRange range, std::string message, bool is_warning = false)
-    : in_function(std::move(in_function)), range(range), message(std::move(message)), is_warning(is_warning) {}
+  ThrownParseError(std::string in_function, SrcRange range, std::string message)
+    : in_function(std::move(in_function)), range(range), message(std::move(message)) {}
 
   const char* what() const noexcept override {
     return message.c_str();
@@ -146,7 +142,9 @@ public:
     errors.push_back(std::move(err));
   }
 
-  bool empty() const;
+  bool empty() const {
+    return errors.empty();
+  }
 
   std::vector<ThrownParseError>&& flush() {
     return std::move(errors);

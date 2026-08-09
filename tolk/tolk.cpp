@@ -93,14 +93,6 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
         .marks_json = "",
       };
     }
-    // output warnings to console, if any collected
-    if (!G_settings.show_errors_as_json) {
-      for (const ThrownParseError& err : error_collector.flush()) {
-        if (err.is_warning) {
-          err.output_to_console(std::cerr);
-        }
-      }
-    }
     G.error_collector = nullptr;
 
     // the following pipes can't operate if any previous errors exist

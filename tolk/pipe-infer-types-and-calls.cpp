@@ -1658,13 +1658,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
   }
 
   FlowContext process_block_statement(V<ast_block_statement> v, FlowContext&& flow) {
-    // we'll print a warning if after some statement, control flow became unreachable
-    // (but don't print a warning if it's already unreachable, for example we're inside always-false if)
-    bool initially_unreachable = flow.is_unreachable();
     for (AnyV item : v->get_items()) {
-      if (flow.is_unreachable() && !initially_unreachable && !v->first_unreachable && item->kind != ast_empty_statement) {
-        v->mutate()->assign_first_unreachable(item);    // a warning will be printed later, after type checking
-      }
       flow = process_any_statement(item, std::move(flow));
     }
     return flow;

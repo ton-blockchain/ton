@@ -1209,8 +1209,6 @@ fun main(x: int?): int {
 @testcase | 183 | 0     | 11
 @testcase | 183 | 1     | 34
 
-@stderr warning: expression of type `int` can never be `null`, this condition is always true
-
 @fif_codegen        eq55<int?>() PROC:<{
 @fif_codegen_avoid  eq55<int>() PROC:<{
 

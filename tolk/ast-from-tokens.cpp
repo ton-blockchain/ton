@@ -51,7 +51,6 @@ static bool is_add_or_sub_binary_op(TokenType tok) {
 }
 
 // make an error for a case "flags & 0xFF != 0" (equivalent to "flags & 1", probably unexpected)
-// it would better be a warning, but we decided to make it a strict error
 static Error err_lower_precedence(std::string_view op_lower, std::string_view op_higher) {
   return err("{} has lower precedence than {}"
               ", probably this code won't work as you expected.  "
@@ -2134,7 +2133,7 @@ static AnyV parse_tolk_required_version(Lexer& lex) {
 
   // for simplicity, there is no syntax ">= version" and so on, just strict compare
   if (TOLK_VERSION != semver && TOLK_VERSION != semver + ".0") {    // 0.6 = 0.6.0
-    err("the contract is written in Tolk v{}, but you use Tolk compiler v{}; probably, it will lead to compilation errors or hash changes", semver, TOLK_VERSION).warning(range, nullptr);
+    err("the contract is written in Tolk v{}, but you use Tolk compiler v{}\n""hint: replace this line with `tolk {}`", semver, TOLK_VERSION, TOLK_VERSION).fire(range, nullptr);
   }
 
   return createV<ast_tolk_required_version>(range, std::move(semver));

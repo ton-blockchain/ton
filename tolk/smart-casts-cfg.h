@@ -114,9 +114,9 @@ enum class BoolState {
 // example: after `x = 2;`, x is `int`, sign is Positive, bool is AlwaysTrue
 // example: inside `if (x != null && x > 0)`, x is `int`, sign is Positive (in else, no definite knowledge)
 // remember, that indices/fields are also expressions, `t.1 = 2` or `u.id = 2` also store such facts
-// WARNING! Detecting data-flow facts about sign state and bool state is NOT IMPLEMENTED
+// NOTE: detecting data-flow facts about sign state and bool state is NOT IMPLEMENTED
 // (e.g. `if (x > 0)` / `if (!t.1)` is NOT analysed, therefore not updated, always Unknown now)
-// it's a potential improvement for the future, for example `if (x > 0) { ... if (x < 0)` to warn always false
+// it's a potential improvement for the future, for example `if (x > 0) { ... if (x < 0)` is always false
 // their purpose for now is to show, that data flow is not only about smart casts, but eventually for other facts also
 struct FactsAboutExpr {
   TypePtr expr_type;        // originally declared type or smart cast (Unknown if no info)

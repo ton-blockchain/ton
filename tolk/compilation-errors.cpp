@@ -134,15 +134,6 @@ Error ErrorBuilder::build() const {
   return Error(std::move(replaced));
 }
 
-bool ErrorCollector::empty() const {
-  for (const ThrownParseError& err : errors) {
-    if (!err.is_warning) {
-      return false;
-    }
-  }
-  return true;
-}
-
 
 void Error::fire(AnyV at, FunctionPtr in_function) const {
   throw ThrownParseError(str_in_function(in_function), at->range, message);  
@@ -150,16 +141,6 @@ void Error::fire(AnyV at, FunctionPtr in_function) const {
 
 void Error::fire(SrcRange range, FunctionPtr in_function) const {
   throw ThrownParseError(str_in_function(in_function), range, message);  
-}
-
-void Error::warning(AnyV at, FunctionPtr in_function) const {
-  tolk_assert(G.error_collector);
-  G.error_collector->add(ThrownParseError(str_in_function(in_function), at->range, message, true));
-}
-
-void Error::warning(SrcRange range, FunctionPtr in_function) const {
-  tolk_assert(G.error_collector);
-  G.error_collector->add(ThrownParseError(str_in_function(in_function), range, message, true));
 }
 
 void Error::collect(AnyV at, FunctionPtr in_function) const {
@@ -174,7 +155,7 @@ void Error::collect(SrcRange range, FunctionPtr in_function) const {
 
 void ThrownParseError::output_to_console(std::ostream& os) const {
   std::string loc_text = range.stringify_start_location(true);
-  os << loc_text << ": " << (is_warning ? "warning: " : "error: ");
+  os << loc_text << ": error: ";
 
   if (message.find('\n') == std::string::npos) {
     // just print a single-line message after "error:"
@@ -203,9 +184,6 @@ void ThrownParseError::output_to_console(std::ostream& os) const {
 void ThrownParseError::output_to_json(JsonPrettyOutput& json) const {
   json.start_object();
   json.key_value("message", message);
-  if (is_warning) {
-    json.key_value("is_warning", true);
-  }
   if (!in_function.empty()) {
     json.key_value("in_function", in_function);
   }

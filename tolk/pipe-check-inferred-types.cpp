@@ -25,15 +25,6 @@ namespace tolk {
 
 static bool expect_integer(AnyExprV v_inferred);
 
-static std::string expression_as_string(AnyExprV v) {
-  if (auto v_ref = v->try_as<ast_reference>()) {
-    if (v_ref->sym->try_as<LocalVarPtr>() || v_ref->sym->try_as<GlobalVarPtr>()) {
-      return "variable `" + static_cast<std::string>(v_ref->get_identifier()->name) + "`";
-    }
-  }
-  return "expression";
-}
-
 struct TypePatternVariantMatch {
   int variant_idx;
   bool is_subtype_violated;
@@ -121,15 +112,6 @@ static Error err_not_bool_in_unary_not(AnyExprV unary_expr) {
     return err("can not apply operator `!` to `{}`\n""hint: use not `!someNumber` but `someNumber == 0`", unary_expr->inferred_type);
   }
   return err_cannot_apply_operator("!", unary_expr);
-}
-
-GNU_ATTRIBUTE_NOINLINE
-static void warning_condition_always_true_or_false(FunctionPtr cur_f, SrcRange keyword_range, AnyExprV cond, const char* operator_name) {
-  bool no_warning = cond->kind == ast_bool_const || cond->kind == ast_int_const;
-  if (no_warning) {     // allow `while(true)` without a warning
-    return;
-  }
-  err("condition of {} is always {}", operator_name, cond->is_always_true).warning(keyword_range, cur_f);
 }
 
 // given fun `f` and a call `f(a,b,c)`, check that argument count is expected;
@@ -461,14 +443,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       err("wrong pattern matching: use `{}` instead of `{}`", match.variant_type, rhs_type).collect(v, cur_f);
     }
 
-    if ((v->is_always_true && !v->is_negated) || (v->is_always_false && v->is_negated)) {
-      err("{} is always `{}`, this condition is always {}", expression_as_string(v->get_expr()), rhs_type, v->is_always_true).warning(v, cur_f);
-    }
     if ((v->is_always_false && !v->is_negated) || (v->is_always_true && v->is_negated)) {
       if (v->get_expr()->inferred_type == TypeDataUnknown::create()) {
         err("operator `is` does not work for `unknown`, it works for union types only").collect(v, cur_f);
-      } else {
-        err("{} of type `{}` can never be `{}`, this condition is always {}", expression_as_string(v->get_expr()), v->get_expr()->inferred_type, rhs_type, v->is_always_true).warning(v, cur_f);
       }
     }
   }
@@ -480,7 +457,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       // operator `!` used for always-null (proven by smart casts, for example), it's an error
       err("operator `!` used for always null expression").collect(v, cur_f);
     }
-    // if operator `!` used for non-nullable, probably a warning should be printed
   }
 
   void visit(V<ast_function_call> v) override {
@@ -657,10 +633,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     AnyExprV cond = v->get_cond();
     if (!expect_boolean(cond)) {
       err_not_bool_as_condition("if", cond).collect(cond, cur_f);
-    }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, cond->range, cond, "ternary operator");
     }
   }
 
@@ -877,10 +849,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (!expect_boolean(cond)) {
       err_not_bool_as_condition("if", cond).collect(cond, cur_f);
     }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`if`");
-    }
   }
 
   void visit(V<ast_repeat_statement> v) override {
@@ -899,10 +867,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (!expect_boolean(cond)) {
       err_not_bool_as_condition("while", cond).collect(cond, cur_f);
     }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`while`");
-    }
   }
 
   void visit(V<ast_do_while_statement> v) override {
@@ -911,10 +875,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     AnyExprV cond = v->get_cond();
     if (!expect_boolean(cond)) {
       err_not_bool_as_condition("while", cond).collect(cond, cur_f);
-    }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`do while`");
     }
   }
 
@@ -938,22 +898,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     }
     if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
       err("thrown excNo of `assert` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).collect(v->get_thrown_code(), cur_f);
-    }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`assert`");
-    }
-  }
-
-  void visit(V<ast_block_statement> v) override {
-    parent::visit(v);
-
-    if (v->first_unreachable) {
-      // it's essential to print "unreachable code" warning AFTER type checking
-      // (printing it while inferring might be a false positive if types are incorrect, due to smart casts for example)
-      // a more correct approach would be to access cfg here somehow, but since cfg is now available only while inferring,
-      // a special v->first_unreachable was set specifically for this warning (again, which is correct if types match)
-      err("unreachable code").warning(v->first_unreachable, cur_f);
     }
   }
 

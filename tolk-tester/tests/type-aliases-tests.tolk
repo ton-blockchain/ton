@@ -630,6 +630,16 @@ fun test29() {
     return (found as int, value!.preloadUint(8));
 }
 
+@inline
+fun waitUntilNotOwner(x: UserId?): int {
+    while (!(x is slice)) {
+    }
+}
+
+@method_id(130)
+fun compileInlinedAlwaysTrueLoop(x: UserId?): int {
+    return waitUntilNotOwner(x);
+}
 
 fun main(x: MInt, y: MInt?): int {
     return y == null ? x : x + y;
@@ -663,6 +673,14 @@ fun main(x: MInt, y: MInt?): int {
     }>	    //  b
     DROP	//
     TRUE	//  '5
+  }>
+"""
+
+@fif_codegen
+"""
+  compileInlinedAlwaysTrueLoop() PROC:<{
+    DROP
+    AGAINEND
   }>
 """
 

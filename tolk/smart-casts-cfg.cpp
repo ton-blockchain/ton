@@ -86,8 +86,8 @@
  *      // but `t` still has type `(int?, ...)`, not `(int, ...)`; only `t.0` is refined
  *
  *   In the future, not only smart casts, but other data-flow analysis can be implemented.
- * 1) detect signs: `if (x > 0) { ... if (x < 0)` to warn always false
- * 2) detect always true/false: `if (x) { return; } ... if (!x)` to warn always true
+ * 1) detect signs: `if (x > 0) { ... if (x < 0)` is always false
+ * 2) detect always true/false: `if (x) { return; } ... if (!x)` is always true
  *   These potential improvements are SignState and BoolState. Now they are NOT IMPLEMENTED, though declared.
  * Their purpose is to show, that data flow is not only about smart casts, but eventually for other facts also.
  * (though it's not obvious whether they should be analyzed at AST level or at IR level, like constants now)

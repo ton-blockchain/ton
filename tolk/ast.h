@@ -1103,13 +1103,10 @@ template<>
 // example: function body is a block
 // example: do while body is a block
 struct Vertex<ast_block_statement> final : ASTStatementVararg {
-  AnyV first_unreachable = nullptr;
-
   const std::vector<AnyV>& get_items() const { return children; }
   AnyV get_item(int i) const { return children.at(i); }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_first_unreachable(AnyV first_unreachable);
   void assign_new_children(std::vector<AnyV>&& children);
 
   Vertex(SrcRange range, std::vector<AnyV>&& items)
@@ -1508,7 +1505,7 @@ struct Vertex<ast_enum_declaration> final : ASTOtherVararg {
 template<>
 // ast_tolk_required_version is a preamble fixating compiler's version at the top of the file
 // example: `tolk 0.6`
-// when compiler version mismatches, it means, that another compiler was earlier for that sources, a warning is emitted
+// when compiler version mismatches, it means that another compiler was used for these sources, so compilation fails
 struct Vertex<ast_tolk_required_version> final : ASTOtherLeaf {
   std::string semver;
 
