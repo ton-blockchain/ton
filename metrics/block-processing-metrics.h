@@ -18,6 +18,16 @@ namespace ton::metrics {
 enum class BlockChain : size_t { master, shard };
 enum class BlockResult : size_t { ok, error };
 
+enum class CollationExternalOutcome : size_t { filtered, skipped_backpressure, included, rejected, count };
+
+struct CollationWork {
+  td::uint64 transactions{0};
+  td::uint64 gas{0};
+  td::uint64 block_bytes{0};
+  td::uint64 collated_data_bytes{0};
+  td::uint64 ext_messages_offered{0};
+};
+
 enum class CollationPhase : size_t {
   preinit,
   queue_cleanup,
@@ -32,6 +42,10 @@ enum class CollationPhase : size_t {
   create_block,
   create_collated_data,
   create_block_candidate,
+  dispatch_queue,
+  import_internals,
+  import_externals,
+  process_new_msgs,
   count
 };
 
@@ -93,6 +107,20 @@ class BlockProcessingMetrics {
     overload_[static_cast<size_t>(chain)][overload_index(reason)].inc();
   }
 
+  void add_collation_external(BlockChain chain, BlockResult result, CollationExternalOutcome outcome,
+                              td::uint64 count) {
+    collation_external_[index(chain, result)][static_cast<size_t>(outcome)].inc(count);
+  }
+
+  void add_collation_work(BlockChain chain, const CollationWork &work) {
+    auto index = static_cast<size_t>(chain);
+    collation_transactions_[index].inc(work.transactions);
+    collation_gas_[index].inc(work.gas);
+    collation_block_bytes_[index].inc(work.block_bytes);
+    collation_collated_data_bytes_[index].inc(work.collated_data_bytes);
+    collation_ext_messages_offered_[index].inc(work.ext_messages_offered);
+  }
+
   void collect(Context ctx) const {
     auto block_processing = ctx.with_name("block_processing");
     auto timing = block_processing.with_name("seconds");
@@ -105,6 +133,33 @@ class BlockProcessingMetrics {
     }
 
     auto collation = ctx.with_name("collation");
+    auto external = collation.with_name("ext_messages");
+    external.open_family("counter", "total");
+    for (auto chain : {BlockChain::master, BlockChain::shard}) {
+      for (auto result : {BlockResult::ok, BlockResult::error}) {
+        const auto &cell = collation_external_[index(chain, result)];
+        for (size_t outcome = 0; outcome < cell.size(); ++outcome) {
+          external.with_label("chain", chain_name(chain))
+              .with_label("result", result_name(result))
+              .with_label("outcome", collation_external_outcome_names_[outcome])
+              .push(double(cell[outcome].value()));
+        }
+      }
+    }
+
+    auto collect_work = [&](std::string_view name, const std::array<Counter, 2> &values) {
+      auto family = collation.with_name(name);
+      family.open_family("counter", "total");
+      for (auto chain : {BlockChain::master, BlockChain::shard}) {
+        family.with_label("chain", chain_name(chain)).push(double(values[static_cast<size_t>(chain)].value()));
+      }
+    };
+    collect_work("transactions", collation_transactions_);
+    collect_work("gas", collation_gas_);
+    collect_work("block_bytes", collation_block_bytes_);
+    collect_work("collated_data_bytes", collation_collated_data_bytes_);
+    collect_work("ext_messages_offered", collation_ext_messages_offered_);
+
     auto want_split = collation.with_name("want_split");
     want_split.open_family("counter", "total");
     for (auto chain : {BlockChain::master, BlockChain::shard}) {
@@ -189,6 +244,10 @@ class BlockProcessingMetrics {
       "create_block",
       "create_collated_data",
       "create_block_candidate",
+      "dispatch_queue",
+      "import_internals",
+      "import_externals",
+      "process_new_msgs",
   });
   static_assert(collation_phase_names_.size() == static_cast<size_t>(CollationPhase::count));
 
@@ -217,6 +276,14 @@ class BlockProcessingMetrics {
 
   static constexpr std::array<std::string_view, 5> overload_names_ = {"block_limits", "out_msg_queue", "long_collation",
                                                                       "dispatch_queue", "unknown"};
+
+  static constexpr auto collation_external_outcome_names_ = std::to_array<std::string_view>({
+      "filtered",
+      "skipped_backpressure",
+      "included",
+      "rejected",
+  });
+  static_assert(collation_external_outcome_names_.size() == static_cast<size_t>(CollationExternalOutcome::count));
 
   static constexpr size_t index(BlockChain chain, BlockResult result) {
     return static_cast<size_t>(chain) * 2 + static_cast<size_t>(result);
@@ -273,6 +340,12 @@ class BlockProcessingMetrics {
 
   std::array<CollationCell, 4> collation_;
   std::array<ValidationCell, 4> validation_;
+  std::array<std::array<Counter, static_cast<size_t>(CollationExternalOutcome::count)>, 4> collation_external_;
+  std::array<Counter, 2> collation_transactions_;
+  std::array<Counter, 2> collation_gas_;
+  std::array<Counter, 2> collation_block_bytes_;
+  std::array<Counter, 2> collation_collated_data_bytes_;
+  std::array<Counter, 2> collation_ext_messages_offered_;
   std::array<Counter, 2> want_split_;
   std::array<std::array<Counter, 5>, 2> overload_;
 };

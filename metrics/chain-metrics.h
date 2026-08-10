@@ -29,6 +29,7 @@ struct ChainSnapshot {
   std::optional<td::uint64> masterchain_seqno;
   std::optional<double> masterchain_block_age_seconds;
   std::optional<td::uint64> shardclient_seqno;
+  std::optional<td::uint64> active_shards;
   Blocks collated_blocks;
   Blocks validated_blocks;
   std::optional<Groups> validator_groups;
@@ -55,6 +56,13 @@ struct ChainSnapshot {
       seqno.open_family("gauge");
       if (shardclient_seqno) {
         seqno.push(double(*shardclient_seqno));
+      }
+    }
+    {
+      auto shards = ctx.with_name("active_shards");
+      shards.open_family("gauge");
+      if (active_shards) {
+        shards.push(double(*active_shards));
       }
     }
 

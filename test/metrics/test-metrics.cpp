@@ -774,6 +774,7 @@ TEST(Metrics, ChainSnapshotRendersEachFamily) {
       .masterchain_seqno = 1,
       .masterchain_block_age_seconds = 2.5,
       .shardclient_seqno = 3,
+      .active_shards = 14,
       .collated_blocks = {.master = {.ok = 4, .error = 5}, .shard = {.ok = 6, .error = 7}},
       .validated_blocks = {.master = {.ok = 8, .error = 9}, .shard = {.ok = 10, .error = 11}},
       .validator_groups = ChainSnapshot::Groups{.master = 12, .shard = 13},
@@ -785,6 +786,8 @@ TEST(Metrics, ChainSnapshotRendersEachFamily) {
       "masterchain_block_age_seconds 2.500000\n"
       "# TYPE shardclient_seqno gauge\n"
       "shardclient_seqno 3.000000\n"
+      "# TYPE active_shards gauge\n"
+      "active_shards 14.000000\n"
       "# TYPE collated_blocks counter\n"
       "collated_blocks_total{chain=\"master\",result=\"ok\"} 4.000000\n"
       "collated_blocks_total{chain=\"master\",result=\"error\"} 5.000000\n"
@@ -808,6 +811,9 @@ TEST(Metrics, BlockProcessingMetricsRenderAndClamp) {
   metrics.add_validation(BlockChain::shard, BlockResult::error, 7.0, {.real = 8.0, .cpu = 9.0}, 10.0);
   metrics.add_validation_phase(BlockChain::shard, BlockResult::error, ValidationPhase::check_new_state,
                                {.real = -11.0, .cpu = 12.0});
+  metrics.add_collation_external(BlockChain::master, BlockResult::ok, CollationExternalOutcome::included, 13);
+  metrics.add_collation_external(BlockChain::shard, BlockResult::error, CollationExternalOutcome::rejected, 17);
+  metrics.add_collation_work(BlockChain::shard, {.gas = 21});
   metrics.add_want_split(BlockChain::master);
   metrics.add_overload(BlockChain::master, 1);
   metrics.add_overload(BlockChain::master, 2);
@@ -843,6 +849,38 @@ TEST(Metrics, BlockProcessingMetricsRenderAndClamp) {
       "state\",clock=\"real\"} 0.000000\n"
       "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"check_new_"
       "state\",clock=\"cpu\"} 12.000000\n"
+      "# TYPE collation_ext_messages counter\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"ok\",outcome=\"filtered\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"ok\",outcome=\"skipped_backpressure\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"ok\",outcome=\"included\"} 13.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"ok\",outcome=\"rejected\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"error\",outcome=\"filtered\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"error\",outcome=\"skipped_backpressure\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"error\",outcome=\"included\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"error\",outcome=\"rejected\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"ok\",outcome=\"filtered\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"ok\",outcome=\"skipped_backpressure\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"ok\",outcome=\"included\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"ok\",outcome=\"rejected\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"filtered\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"skipped_backpressure\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"included\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"rejected\"} 17.000000\n"
+      "# TYPE collation_transactions counter\n"
+      "collation_transactions_total{chain=\"master\"} 0.000000\n"
+      "collation_transactions_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_gas counter\n"
+      "collation_gas_total{chain=\"master\"} 0.000000\n"
+      "collation_gas_total{chain=\"shard\"} 21.000000\n"
+      "# TYPE collation_block_bytes counter\n"
+      "collation_block_bytes_total{chain=\"master\"} 0.000000\n"
+      "collation_block_bytes_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_collated_data_bytes counter\n"
+      "collation_collated_data_bytes_total{chain=\"master\"} 0.000000\n"
+      "collation_collated_data_bytes_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_ext_messages_offered counter\n"
+      "collation_ext_messages_offered_total{chain=\"master\"} 0.000000\n"
+      "collation_ext_messages_offered_total{chain=\"shard\"} 0.000000\n"
       "# TYPE collation_want_split counter\n"
       "collation_want_split_total{chain=\"master\"} 1.000000\n"
       "collation_want_split_total{chain=\"shard\"} 0.000000\n"
@@ -875,6 +913,10 @@ TEST(Metrics, BlockProcessingMetricsRenderEveryPhase) {
       "create_block",
       "create_collated_data",
       "create_block_candidate",
+      "dispatch_queue",
+      "import_internals",
+      "import_externals",
+      "process_new_msgs",
   };
   constexpr std::array validation_phases = {
       "unpack_block_candidate",
@@ -911,7 +953,7 @@ TEST(Metrics, BlockProcessingMetricsRenderEveryPhase) {
   }
 
   auto out = render(metrics, "");
-  ASSERT_EQ(30u, count_of(out, "block_processing_seconds_total{operation=\"collate\""));
+  ASSERT_EQ(38u, count_of(out, "block_processing_seconds_total{operation=\"collate\""));
   ASSERT_EQ(43u, count_of(out, "block_processing_seconds_total{operation=\"validate\""));
   for (auto phase : collation_phases) {
     ASSERT_TRUE(has_line(
@@ -929,16 +971,49 @@ TEST(Metrics, BlockProcessingMetricsRenderEveryPhase) {
 TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
   ExtMessagePoolSnapshot snapshot{
       .pending_ext_messages = 3,
+      .oldest_ext_message_age_seconds = 4.5,
       .check_ok = 5,
       .check_error = 7,
+      .applied_master = 41,
+      .applied_shard = 43,
   };
-  auto out = render(snapshot, "mempool");
+  for (size_t i = 0; i < snapshot.admission.size(); ++i) {
+    snapshot.admission[i] = 11 + i;
+  }
+  for (size_t i = 0; i < snapshot.removed.size(); ++i) {
+    snapshot.removed[i] = 31 + i;
+  }
+  auto out = render(snapshot, "");
   EXPECT_EQ(
       "# TYPE mempool_ext_messages gauge\n"
       "mempool_ext_messages 3.000000\n"
+      "# TYPE mempool_oldest_ext_message_age_seconds gauge\n"
+      "mempool_oldest_ext_message_age_seconds 4.500000\n"
       "# TYPE mempool_ext_check counter\n"
       "mempool_ext_check_total{result=\"ok\"} 5.000000\n"
-      "mempool_ext_check_total{result=\"error\"} 7.000000\n",
+      "mempool_ext_check_total{result=\"error\"} 7.000000\n"
+      "# TYPE mempool_ext_admission counter\n"
+      "mempool_ext_admission_total{outcome=\"accepted\"} 11.000000\n"
+      "mempool_ext_admission_total{outcome=\"not_ready\"} 12.000000\n"
+      "mempool_ext_admission_total{outcome=\"too_large\"} 13.000000\n"
+      "mempool_ext_admission_total{outcome=\"backpressure\"} 14.000000\n"
+      "mempool_ext_admission_total{outcome=\"invalid\"} 15.000000\n"
+      "mempool_ext_admission_total{outcome=\"state_unavailable\"} 16.000000\n"
+      "mempool_ext_admission_total{outcome=\"vm_rejected\"} 17.000000\n"
+      "mempool_ext_admission_total{outcome=\"rate_limited\"} 18.000000\n"
+      "mempool_ext_admission_total{outcome=\"pool_full\"} 19.000000\n"
+      "mempool_ext_admission_total{outcome=\"address_full\"} 20.000000\n"
+      "mempool_ext_admission_total{outcome=\"duplicate\"} 21.000000\n"
+      "mempool_ext_admission_total{outcome=\"internal_error\"} 22.000000\n"
+      "# TYPE mempool_ext_removed counter\n"
+      "mempool_ext_removed_total{reason=\"applied\"} 31.000000\n"
+      "mempool_ext_removed_total{reason=\"expired\"} 32.000000\n"
+      "mempool_ext_removed_total{reason=\"rejected_final\"} 33.000000\n"
+      "mempool_ext_removed_total{reason=\"filtered\"} 34.000000\n"
+      "mempool_ext_removed_total{reason=\"pool_pressure\"} 35.000000\n"
+      "# TYPE applied_ext_messages counter\n"
+      "applied_ext_messages_total{chain=\"master\"} 41.000000\n"
+      "applied_ext_messages_total{chain=\"shard\"} 43.000000\n",
       out);
 }
 
