@@ -1709,6 +1709,7 @@ td::Status DelShardQuery::receive(td::BufferSlice data) {
 
 td::Status AddCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
+  TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
@@ -1729,6 +1730,7 @@ td::Status AddCollatorQuery::receive(td::BufferSlice data) {
 
 td::Status DelCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
+  TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
