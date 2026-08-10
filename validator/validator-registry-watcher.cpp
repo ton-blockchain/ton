@@ -126,7 +126,7 @@ Ref<vm::Cell> ValidatorRegistryWatcher::make_entry_cell(Ref<MasterchainState> mc
   }
   auto config = r_config.move_as_ok();
   std::set<adnl::AdnlNodeIdShort> collators;
-  collators.insert(collators_list_->collators.begin(), collators_list_->collators.end());
+  collators.insert(collators_list_->register_collators.begin(), collators_list_->register_collators.end());
   if (collators.size() > config.max_collators_per_validator) {
     LOG(WARNING) << "Make entry cell: too many collators, pruning (max. " << config.max_collators_per_validator
                  << ", found " << collators.size() << ")";
@@ -184,7 +184,7 @@ td::actor::Task<> ValidatorRegistryWatcher::send_external_message(StdSmcAddress 
   co_return {};
 }
 
-CollatorsByValidator ValidatorRegistryWatcher::get_collators_by_validator(Ref<MasterchainState> mc_state) {
+std::set<adnl::AdnlNodeIdShort> ValidatorRegistryWatcher::get_all_collators(Ref<MasterchainState> mc_state) {
   block::ValidatorRegistryConfig config;
   auto r_data = get_contract_data(mc_state, config);
   if (r_data.is_error()) {
@@ -209,7 +209,7 @@ CollatorsByValidator ValidatorRegistryWatcher::get_collators_by_validator(Ref<Ma
     }
   }
 
-  CollatorsByValidator collators_by_validator;
+  std::set<adnl::AdnlNodeIdShort> all_collators;
   std::set<PublicKeyHash> visited;
   for (int next : {-1, 0, 1}) {
     auto val_set = mc_state->get_total_validator_set(next);
@@ -226,15 +226,15 @@ CollatorsByValidator ValidatorRegistryWatcher::get_collators_by_validator(Ref<Ma
           continue;
         }
         auto entry = r_entry.move_as_ok();
-        std::erase_if(entry.collators,
-                      [&](const adnl::AdnlNodeIdShort& id) { return validator_adnl_ids.contains(id); });
-        if (!entry.collators.empty()) {
-          collators_by_validator[key] = std::move(entry.collators);
+        for (const adnl::AdnlNodeIdShort& collator_id : entry.collators) {
+          if (!validator_adnl_ids.contains(collator_id)) {
+            all_collators.insert(collator_id);
+          }
         }
       }
     }
   }
-  return collators_by_validator;
+  return all_collators;
 }
 
 td::Result<Ref<vm::Cell>> ValidatorRegistryWatcher::get_contract_data(Ref<MasterchainState> mc_state,

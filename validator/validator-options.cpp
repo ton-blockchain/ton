@@ -29,8 +29,12 @@ namespace validator {
 
 td::Status CollatorsList::unpack(const ton_api::engine_validator_collatorsList& obj) {
   collators.clear();
+  register_collators.clear();
   for (const auto& collator : obj.collators_) {
     collators.push_back(adnl::AdnlNodeIdShort{collator->adnl_id_});
+  }
+  for (const auto& collator : obj.register_collators_) {
+    register_collators.push_back(adnl::AdnlNodeIdShort{collator->adnl_id_});
   }
   disable_self_collate = obj.disable_self_collate_;
   return td::Status::OK();

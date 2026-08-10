@@ -45,11 +45,9 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     for (const auto& peer : bus.validator_set) {
       broadcast_src_to_peer_[peer.adnl_id.pubkey_hash()] = peer;
       authorized_keys.emplace(peer.adnl_id.pubkey_hash(), max_broadcast_size);
-      if (auto it = bus.collators_by_validator.find(peer.short_id); it != bus.collators_by_validator.end()) {
-        for (const adnl::AdnlNodeIdShort& collator_id : it->second) {
-          authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size);
-        }
-      }
+    }
+    for (const adnl::AdnlNodeIdShort& collator_id : bus.all_collators) {
+      authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size);
     }
 
     td::actor::send_closure(adnl_sender_, &adnl::AdnlSenderEx::add_id, local_adnl_id_);

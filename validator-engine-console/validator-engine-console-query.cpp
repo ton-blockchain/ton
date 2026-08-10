@@ -1898,6 +1898,9 @@ td::Status ShowCollatorsListQuery::receive(td::BufferSlice data) {
   for (const auto &collator : list->collators_) {
     td::TerminalIO::out() << "Collator " << collator->adnl_id_ << "\n";
   }
+  for (const auto &collator : list->register_collators_) {
+    td::TerminalIO::out() << "Register collator " << collator->adnl_id_ << "\n";
+  }
   td::TerminalIO::out() << "Disable self collate = " << list->disable_self_collate_ << "\n";
   return td::Status::OK();
 }
