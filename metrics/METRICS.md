@@ -26,13 +26,14 @@ each nesting level appends a segment joined with `_`:
 - `Counter` renders as `<segments>_total`.
 - `Gauge<T>` renders as `<segments>`, except `std::chrono` types which append `_seconds`.
 - `Labeled<Inner, L...>` adds one label per axis over a **closed** value set — `direction`, `kind`,
-  `reason`, `result`, `state`, `workchain`, `source`. (An `outcome` axis is defined too, but its only holder
-  `TransferStats` is never instantiated, so no family carries it.) **Every cell of a closed axis is
-  emitted on every scrape**, including zero-valued ones, so all such label combinations below are
+  `reason`, `result`, `state`, `trust`, `workchain`, `source`. (An `outcome` axis is defined too, but
+  its only holder `TransferStats` is never instantiated, so no family carries it.) **Every cell of a
+  closed axis is emitted on every scrape**, including zero-valued ones, so all such label combinations below are
   always present in the exposition (which is why the permanently-zero series in Known gaps still
   show up).
-  The three **open** label axes behave differently and emit only values actually observed: `code` on
-  the HTTP responses family, `tl` on the traffic and latency buckets, and `op` on the perf families. The `tl` buckets always
+  The **open** label axes behave differently and emit only values actually observed: `code` on
+  the HTTP responses family, `tl` on the traffic and latency buckets, `op` on the perf families, and
+  `type` / `scheduler` on the actor families. The `tl` buckets always
   emit their `tl="unknown"` cell, populated or not, and a latency bucket always emits both of its
   families even when nothing was ever observed.
 
@@ -75,7 +76,7 @@ process-wide aggregate during the scrape — see the notes in those sections.
 | `ton_exporter_last_collection_duration_seconds` | gauge | — | Duration of the **previous** scrape (it is set after the current one is already serialized). |
 | `ton_exporter_last_collection_timestamp_seconds` | gauge | — | Unix time at which the current scrape started. |
 | `ton_perf_ops_total` | counter | `op` | Executions of a `TD_PERF_COUNTER` site, read straight from the process-global registry on each scrape (its totals are already cumulative, so nothing is mirrored). `op` is the site name (`Ed25519_sign`, `Ed25519_verify_signature`, `cell_load`, `cell_store`, `raptor_solve`, …); a site registers on first execution, so one that has never run emits no series. |
-| `ton_perf_op_ticks_total` | counter | `op` | CPU ticks (`rdtsc`) spent in those executions. Absolute values are machine-specific, but `rate(ton_perf_op_ticks_total) / rate(ton_perf_ops_total)` is a usable average cost per operation, and its trend catches regressions. |
+| `ton_perf_op_ticks_total` | counter | `op` | Raw `rdtsc` ticks elapsed between each instrumented operation's entry and exit. Blocking and descheduling are included, so this is not OS CPU time. Absolute values are machine-specific; divide by `ton_actor_ticks_per_second` per target to obtain elapsed seconds before deriving rates or averages. |
 
 ## HTTP server
 
@@ -87,6 +88,98 @@ Only the exporter's own server is registered, hence the constant `server="export
 | `ton_http_server_connections_total` | counter | `server` | Accepted TCP connections. |
 | `ton_http_server_requests_total` | counter | `server` | HTTP requests received, any path or method. |
 | `ton_http_server_responses_total` | counter | `server`, `code` | Responses by status code. For this server: `200`, `404`, `405`, `500` when the gather behind a `/metrics` scrape failed, and `-1` when the response promise failed. |
+
+## Actors
+
+The actor framework's own view of the scheduler group hosting the exporter, read at scrape time from
+tdactor's per-actor-class stat tables (`ActorTypeStatImpl`) and scheduler state. A group registry
+creates one table lazily for each executing thread and worker kind, then retains it until the group
+is destroyed. This keeps independent groups isolated in tools such as `bench-rldp --both` and
+preserves totals after a worker exits. Nothing is mirrored into the exporter: the collector only
+reads, aggregates and demangles the counters tdactor already keeps. Every binary that runs the
+exporter gets this tier, not just `validator-engine`.
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_actor_busy_ticks_total` | counter | `type` | Raw `rdtsc` ticks attributed to completed message handlers of this actor class. For the synthetic coroutine type, a scrape also includes elapsed time in the current resumption. Signal-only work, gaps between messages and executor finish bookkeeping are not counted. Blocking and descheduling inside a handler are included. This is per-type attribution, not total worker occupancy. Divide by `ton_actor_ticks_per_second` per target before aggregating. |
+| `ton_actor_messages_total` | counter | `type` | Messages executed. |
+| `ton_actor_executions_total` | counter | `type` | Executor batches: one worker's uninterrupted run over an actor's signals and mailbox. `rate(messages) / rate(executions)` is the class's batching ratio — how many messages an average wakeup amortizes its scheduling cost over. A batch can drain **zero** messages (an alarm signal whose timestamp is not due yet, queue-bookkeeping signals), so the ratio reads below 1 for signal-churny classes; a class that genuinely batches reads well above it. |
+| `ton_actor_created_total` | counter | `type` | Actors of this class ever created. |
+| `ton_actor_alive` | gauge | `type` | Actors of this class currently alive (created − destroyed). |
+| `ton_actor_max_message_ticks` | gauge | `type`, `window` | Raw ticks for the longest single message execution seen in the approximate window. |
+| `ton_actor_max_execute_ticks` | gauge | `type`, `window` | Raw ticks for the longest timed executor drain in the approximate window: one worker processing an actor's signals and mailbox before finish-time bookkeeping. Actor teardown runs during `finish()` and is timed as a message after this timer stops, so `max_message_ticks` can exceed this value. |
+| `ton_actor_max_batch_messages` | gauge | `type`, `window` | Most messages drained in one executor batch in the window — the peak of the batching ratio above, and the head-of-line blocking companion to `max_execute_ticks` (a long batch is either a few slow messages or many fast ones; this tells which). |
+| `ton_actor_max_queue_ticks` | gauge | `type`, `window` | Raw ticks for the longest wait between an actor becoming runnable and a worker starting it. This is scheduling latency, not execution. A sample is discarded if the raw counter regresses across workers, rather than wrapping the unsigned duration. |
+| `ton_actor_worker_busy_ticks_total` | counter | `worker=io\|cpu` | Raw ticks in outer dispatch scopes, split by worker kind. The scope covers the entire actor or coroutine dispatch, including signal-only work, gaps between message handlers and finish bookkeeping. A scrape includes elapsed time in the current scope, so the counter remains live during a long dispatch. It excludes idle poll/wait time. `io` is the scheduler's poll thread and `cpu` its worker pool. |
+| `ton_actor_worker_messages_total` | counter | `worker=io\|cpu` | Completed messages and coroutine resumptions, split by the worker that ran them. |
+| `ton_actor_worker_threads` | gauge | `worker=io\|cpu` | How many threads of each kind exist: one `io` per scheduler and `cpu_threads_count` `cpu` per scheduler, summed over the group. The denominator for the per-kind utilisation recipe below. |
+| `ton_actor_scheduler_threads` | gauge | `scheduler` | Threads the scheduler owns: its cpu workers plus its one io worker. |
+| `ton_actor_scheduler_local_queue_length` | gauge | `scheduler` | Runnable entries — actors with mail, and resumable coroutines — sitting in the scheduler's per-cpu-worker work-stealing queues, summed. See *Known gaps* for the two queues this does not see. |
+| `ton_actor_scheduler_workers_active` | gauge | `scheduler` | Workers (io + cpu) that were inside an actor or coroutine dispatch at the instant of the scrape. |
+| `ton_actor_scheduler_current_execute_seconds` | gauge | `scheduler` | Of those, how long the longest-running dispatch had already been executing, in seconds; `0` when none is active. A single point sample, but the only live view of a wedged worker. |
+| `ton_actor_stats_enabled` | gauge | — | 1 if `td::actor::set_debug(true)` has run, 0 otherwise. |
+| `ton_actor_ticks_per_second` | gauge | — | This target's calibrated `rdtsc` frequency. Divide tick counters/gauges by it in PromQL before aggregating targets. |
+
+**The per-type tier is gated.** Unless `td::actor::set_debug(true)` ran, tdactor hands out a null
+stat reference on every execution and no class is registered, so the nine labelled families are
+still emitted but have **no samples at all**. The `worker` message counter combines actor messages
+from the group registry with resumptions recorded by each worker's `Debug`; its busy counter comes
+from those same workers' outer dispatch scopes. Both use the same gate and keep
+emitting their closed `io`/`cpu` cells at zero. `validator-engine` calls `set_debug(true)`
+unconditionally at startup, so on a node this tier is always on. `ton_actor_stats_enabled` is how a
+dashboard tells "off" from "idle" — an
+empty per-type tier with `ton_actor_stats_enabled == 1` really does mean nothing ran. The gate is
+consulted per execution rather than per actor, so it applies process-wide the moment it is set. The
+per-scheduler families do not depend on it, except `workers_active` /
+`current_execute_seconds`, which read `core::Debug` and are gated the same way.
+
+**TSC-derived values stay as raw ticks.** Rescaling a cumulative counter with a newly estimated
+frequency on every scrape can make it decrease, which Prometheus interprets as a reset. The exporter
+therefore emits raw ticks plus `ton_actor_ticks_per_second`, calibrated as elapsed ticks / monotonic
+wall time since exporter construction (with the platform estimate during its first 0.1 s). Divide
+each target before `sum`/`max`, because frequencies may differ:
+
+```promql
+sum by (type) (
+  rate(ton_actor_busy_ticks_total[5m])
+  / on (job, instance) group_left
+    max by (job, instance) (ton_actor_ticks_per_second)
+)
+```
+
+`ton_actor_scheduler_current_execute_seconds` is different: it comes directly from the monotonic
+clock and is already seconds.
+
+**The `type` axis is the demangled C++ class of the actor** (`ton::validator::ValidatorManagerImpl`,
+`td::actor::ActorStats`, …), taken from `typeid` of the running object, so a subclass reports as
+itself. It is **open** but bounded by the binary, not by anything a peer controls. A class appears
+only after one of its actors starts its first execution — the table is populated at runtime, not on
+link — so the installed binary and the workload determine cardinality, and a small utility stays
+small.
+
+**Windowed maxima, not instantaneous gauges** — hence the explicit `window` label, which is `10m`
+today and is a real label so that a shorter window can be added later without renaming anything. The
+underlying counter keeps two 600-second buckets and reports the max over both, so it covers between
+10 and 20 minutes of history depending on where the scrape lands, and drops to 0 once a class has
+been quiet for two full buckets. It cannot miss a spike between scrapes, which is what an
+instantaneous gauge would do; longer horizons are recoverable with `max_over_time`.
+
+**Scheduler-group scoped, but not split by individual scheduler.** The per-type families walk the
+table registry in the exporter actor's scheduler group; the `worker` families combine those tables
+with each worker's `Debug`. Their scope therefore matches `ton_actor_worker_threads`. Within that
+group, actor classes are still merged across its schedulers. Only the four
+`ton_actor_scheduler_*` families carry a `scheduler` label; there is no `type` × `worker` or
+`type` × `scheduler` cross.
+
+**Coroutine resumptions are measured under a synthetic type.** A resumed coroutine continuation
+runs on a cpu worker outside `ActorExecutor` (`CpuWorker::run` calls `h.resume()` directly), so it
+gets its own stat slot: `type="td::actor::core::CoroutineResume"` in the per-type families
+(`busy_ticks`, `messages`, the maxima; `created`/`alive` stay 0 — there is no actor to count), and
+its complete outer dispatch contributes to cpu-worker busy time. Both numbers reuse the same
+`Debug` timestamps and scope — there is no second coroutine timer — so every resumption's ticks are
+also part of the cpu-worker total. That total additionally contains actor dispatches. The gate is
+resolved for every resumption, so enabling or disabling stats while workers are already running
+takes effect immediately.
 
 ---
 
@@ -136,7 +229,11 @@ exception: the socket-read-error site is fed a synthetic message that was never 
 | metric | type | labels | meaning |
 |---|---|---|---|
 | `ton_adnl_query_duration_seconds` | histogram | `tl`, `le` | Dispatch-to-answer time of an inbound query, measured at the ADNL delivery layer (`AdnlLocalId::deliver_query`) — the single choke point every transport funnels through, so this covers queries arriving over ADNL peer pairs, RLDP2, QUIC and the ext server alike. The clock starts before the subscriber callback is invoked and stops when the answer promise is fulfilled; a promise dropped without an answer counts as a failure with its elapsed time. `tl` comes from the same envelope-resolving logic as the app tier, and magics the schema does not know collapse into `tl="unknown"` so the label space stays bounded by the schema. |
-| `ton_adnl_query_failed_total` | counter | `tl` | Of those queries, the ones that answered with an error (or were abandoned). |
+| `ton_adnl_query_failed_total` | counter | `tl` | Of those queries, the ones that answered with an error or dropped their answer promise. |
+
+Validator-engine runs DHT in client mode unless started with `--dht-server`; such nodes deliberately
+reject inbound `dht.*` queries with an explicit error. This is usually noise rather than a node-health
+failure, not a dropped-promise instrumentation artifact.
 
 A query slower than 1 s also gets an `INFO` log line with its `tl` name, the other end's id under
 `peer=` (the source here, the destination for the outbound families below) and the elapsed time — no
@@ -150,8 +247,8 @@ The outbound mirror is **per transport**, measured where the transport accepts t
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_adnl_query_roundtrip_seconds` / `ton_rldp2_…` / `ton_quic_…` | histogram | `tl`, `le` | Transport-accept to answer for queries we send: network + peer processing + transfer time. Errors and timeouts land in the matching `…_query_roundtrip_failed_total{tl}`. |
-| `ton_rldp2_message_delivery_seconds` / `ton_quic_…` | histogram | `tl`, `le` | Transport-accept to the protocol's receipt confirmation for fire-and-forget messages: rldp2 confirms via the transfer's completion (`on_sent`), QUIC via the empty response the receiver answers every message with. Failures (including a connection closing with messages still in flight) land in `…_message_delivery_failed_total{tl}`. |
+| `ton_adnl_query_roundtrip_seconds` / `ton_rldp2_…` / `ton_quic_…` | histogram | `tl`, `le`; QUIC also `trust` | Transport-accept to answer for queries we send: network + peer processing + transfer time. Errors and timeouts land in the matching `…_query_roundtrip_failed_total` with the same non-`le` labels. |
+| `ton_rldp2_message_delivery_seconds` / `ton_quic_…` | histogram | `tl`, `le`; QUIC also `trust` | Transport-accept to the protocol's receipt confirmation for fire-and-forget messages: RLDP2 confirms via the transfer's completion (`on_sent`) and measures only sends carrying a timeout; QUIC uses the empty response the receiver answers every message with. Failures land in the matching `…_message_delivery_failed_total` with the same non-`le` labels. |
 
 Note the asymmetry: inbound `ton_adnl_query_duration_seconds` covers queries from **all** transports
 at the single delivery layer, while roundtrip/delivery are per-transport at the sending layer. Plain
@@ -187,6 +284,7 @@ port) and folds their stats together.
 |---|---|---|---|
 | `ton_quic_transport_connections_total` | counter | `direction` | Connections ever installed, including ones that never completed the handshake. `direction` is who dialled — `in` counts a peer's first datagram to us, `out` counts a connection we opened — so this is the only place inbound *attempts* are visible, whereas `handshakes` sees only the ones that reached a verdict. |
 | `ton_quic_transport_connections_current` | gauge | `direction` | Connections currently installed, by who dialled. A connection is installed on its first datagram, so this **includes** the ones still handshaking, not only the ready ones. |
+| `ton_quic_transport_connections_ready` | gauge | `direction`, `trust` | Authenticated `QuicSender` paths ready for application traffic, counted once per local/peer identity pair rather than per physical connection ID. `trusted` is a local resource class: at least one live permanent-overlay registration exists for the path on that sender (normally a validator peer on validator overlays). Eager-only and unregistered paths are `untrusted`; this is not an authorization decision. Trust is evaluated on every scrape, so registration changes reclassify a live path immediately. Raw `QuicServer` users do not contribute. |
 | `ton_quic_transport_bytes_total` | counter | `direction` | ngtcp2 packet bytes. |
 | `ton_quic_transport_packets_total` | counter | `direction` | ngtcp2 packet count. |
 | `ton_quic_transport_stream_bytes_total` | counter | `direction` | STREAM payload. Inbound at delivery; **outbound at ACK time**, so it trails the app tier by everything in flight or lost. |
@@ -205,9 +303,23 @@ port) and folds their stats together.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_quic_app_bytes_total` | counter | `kind`, `direction`, `tl` | Inner ADNL payload bytes carried over QUIC streams, measured outside the `quic_message`/`quic_query`/`quic_answer` wrapper. |
+| `ton_quic_app_bytes_total` | counter | `trust`, `kind`, `direction`, `tl` | Inner ADNL payload bytes carried over QUIC streams, measured outside the `quic_message`/`quic_query`/`quic_answer` wrapper. Inbound answers are counted when they successfully complete the matching local query, not merely when an answer frame reaches the wire callback. |
 | `ton_quic_app_messages_total` | counter | same | Message count. |
-| `ton_quic_app_dropped_total` | counter | `direction`, `reason` | Fire-and-forget message sends that failed: `out,limited` when the peer's stream-count credit blocked opening a stream (`NGTCP2_ERR_STREAM_ID_BLOCKED`), `out,internal` for any other send failure. Query failures are not counted here — they propagate to the caller. Inbound cells are never incremented. |
+| `ton_quic_app_dropped_total` | counter | `trust`, `direction`, `reason` | Fire-and-forget message sends that failed: `out,limited` when the peer's stream-count credit blocked opening a stream (`NGTCP2_ERR_STREAM_ID_BLOCKED`), `out,internal` for any other send failure. Query failures are not counted here — they propagate to the caller. Inbound cells are never incremented. |
+
+`trust` is the local resource class assigned to the remote local/peer identity path, not an
+authorization result.
+QuicSender snapshots it once when a logical query or message starts and uses that value for the
+request, answer or drop, and latency outcome. A registration change therefore affects new traffic
+only; existing counter history stays in its original class, while `connections_ready` reclassifies
+immediately on the next scrape. The label has two closed values and no peer id, so its cardinality is
+bounded. Socket, pre-auth, and aggregated transport metrics have no `trust` label because peer
+identity is not available at every accounting point.
+
+Adding this label changes the Prometheus series identity once at rollout. Queries that aggregate
+the family continue to work; consumers of raw QUIC app/latency series must select or retain
+`trust`. A matcher such as `{trust=~".*"}` also includes an unlabeled series during a rolling
+upgrade, while selecting `trusted` or `untrusted` intentionally excludes old exporters.
 
 ### Outbound latency
 
@@ -215,10 +327,10 @@ Described in full under ADNL → *Outbound: roundtrips and deliveries*; the QUIC
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_quic_query_roundtrip_seconds` | histogram | `tl`, `le` | Send-accept to answer for queries we send over QUIC. Connection setup is deliberately outside the measured window. |
-| `ton_quic_query_roundtrip_failed_total` | counter | `tl` | Of those, the ones that errored or timed out. |
-| `ton_quic_message_delivery_seconds` | histogram | `tl`, `le` | Send-accept to the empty response the receiver answers every fire-and-forget message with. |
-| `ton_quic_message_delivery_failed_total` | counter | `tl` | Of those, the ones that never got their confirmation (including a connection closing with messages in flight). |
+| `ton_quic_query_roundtrip_seconds` | histogram | `trust`, `tl`, `le` | Send-accept to answer for queries we send over QUIC. Connection setup is deliberately outside the measured window. |
+| `ton_quic_query_roundtrip_failed_total` | counter | `trust`, `tl` | Of those, the ones that errored or timed out. |
+| `ton_quic_message_delivery_seconds` | histogram | `trust`, `tl`, `le` | Send-accept to the empty response the receiver answers every fire-and-forget message with. |
+| `ton_quic_message_delivery_failed_total` | counter | `trust`, `tl` | Of those, the ones that never got their confirmation (including a connection closing with messages in flight). |
 
 ---
 
@@ -295,10 +407,11 @@ delivered", not "received from peers".
 
 ---
 
-## Blocks
+## Validator manager
 
-From `ValidatorManagerImpl`. Note these two sit directly under the root prefix with no subsystem
-segment, unlike every other family.
+From `ValidatorManagerImpl`. All of these sit directly under the root prefix with no subsystem
+segment (except the `ton_mempool_*` families, whose segment is `mempool`), unlike every other family.
+The two block-receive families come first and are unchanged:
 
 | metric | type | labels | meaning |
 |---|---|---|---|
@@ -314,6 +427,102 @@ segment, unlike every other family.
 Cardinality is fixed at 2 × 14 = 28 series per family; `workchain` is a closed two-value domain,
 not a dynamic label. Both families are gated on the manager having started (`started_`), so blocks
 applied during initial sync are not counted at all.
+
+### Sync
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_masterchain_seqno` | gauge | — | Seqno of the last **applied** masterchain block. No samples until the first MC block is applied, so during initial sync the family renders only its `# TYPE` line. |
+| `ton_masterchain_block_age_seconds` | gauge | — | Local system clock minus that block's `unix_time`. This compares two different clocks, so clock skew — ours or the block producer's — shows up here, including as small negative values; sustained growth is the sync-lag signal. Same no-samples-until-applied guard as `seqno`. |
+| `ton_shardclient_seqno` | gauge | — | Seqno of the masterchain block up to which the shard client has processed shards. Read from the handle the shard client already mirrors into the manager, so collection does not wait on the child actor. No sample until that mirror exists. `masterchain_seqno − shardclient_seqno` is the shard-processing lag in blocks. |
+| `ton_active_shards` | gauge | — | Active non-masterchain leaf shards in the latest applied masterchain state. No sample until that state is available. |
+
+Block rate is a property of the selected chain, not a value to sum or normalize by validator count.
+For masterchain, aggregate the replicated head first and then calculate its advance:
+
+```promql
+clamp_min(
+  (max(ton_masterchain_seqno{job=~"$job"})
+    - max(ton_masterchain_seqno{job=~"$job"} offset 1m)) / 60,
+  0
+)
+```
+
+The selected jobs must belong to one blockchain; a maximum cannot reconcile unrelated networks.
+
+Shardchain has no single global seqno. Sum `ton_first_received_total{workchain="0"}` over `source`
+per node, then use a median only to reconcile duplicate observations from healthy nodes. A
+per-active-shard rate should divide each node's one-minute block rate by
+`avg_over_time(ton_active_shards[1m])`, so a split or merge uses the same window in numerator and
+denominator. Chain-level block-rate panels should ignore instance selectors; per-node differences
+belong in sync and propagation diagnostics.
+
+### Validator
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_collated_blocks_total` | counter | `chain=master\|shard`, `result=ok\|error` | Block collations attempted by this node, by outcome. Process-lifetime: resets to 0 on restart. All four cells are always emitted; on a node that does not collate they stay 0. |
+| `ton_validated_blocks_total` | counter | same | Block validations (candidate checks) by this node, same semantics; on a node that does not validate the cells stay 0. |
+| `ton_block_processing_seconds_total` | counter | `operation=collate\|validate`, `chain=master\|shard`, `result=ok\|error`, `phase`, `clock=elapsed\|real\|cpu` | Seconds accumulated in existing per-block timing statistics. `phase="total",clock="elapsed"` is end-to-end time; `real` and `cpu` expose instrumented work phases. Process-lifetime, reset on restart. |
+| `ton_collation_ext_messages_total` | counter | `chain=master\|shard`, `result=ok\|error`, `outcome=filtered\|skipped_backpressure\|included\|rejected` | External messages dequeued by collation attempts. Outcomes partition the messages considered by each attempt; discarded automatic retries use `result="error"`. `included` means execution succeeded in that attempt, not that the message was applied on-chain; use `result="ok"` for completed candidates. Per-collator events: exactly one node emits per attempt, so `sum()` over the fleet is the chain-wide rate. |
+| `ton_collation_transactions_total` | counter | `chain=master\|shard` | Transactions in successfully collated candidates. |
+| `ton_collation_gas_total` | counter | same | Gas used by successfully collated candidates. |
+| `ton_collation_block_bytes_total` | counter | same | Serialized bytes in successfully collated candidates. |
+| `ton_collation_collated_data_bytes_total` | counter | same | Collated-data bytes in successfully collated candidates. |
+| `ton_collation_ext_messages_offered_total` | counter | same | External messages offered to successful final collation attempts. |
+| `ton_collation_want_split_total` | counter | `chain=master\|shard` | Successful final collation attempts whose resulting block set `want_split`. This is the decision from weighted overload history, not necessarily a condition caused by the current block. |
+| `ton_collation_overload_total` | counter | `chain`, `reason=block_limits\|out_msg_queue\|long_collation\|dispatch_queue\|unknown` | Successful final collation attempts whose current block contributed an overload-history bit, by its selected cause. No increment for a block with no current contribution. |
+| `ton_applied_ext_messages_total` | counter | `chain=master\|shard` | Inbound external-message records observed in blocks applied by this node, including catch-up replay. This is the on-chain stage, independent of whether this node produced the candidate. A process-local recent-block cache suppresses duplicate counting; duplicate requests still repeat the idempotent pool cleanup. A fleet sum counts the same chain traffic once per reporting node — aggregate this per-node stream with `avg()`/`max()`, never `sum()`. |
+| `ton_validator_groups` | gauge | `chain` | Validator groups this node currently participates in. Samples only while the node is a validator with a computed network state — a fullnode emits the family with no samples, so absence means "not validating", not 0. |
+
+Most timing samples reuse statistics already collected for validator session logs. Four broad scopes
+cover previously unattributed collation work: `dispatch_queue`, `import_internals`, `import_externals`,
+and `process_new_msgs`. They include nested transaction work, so they overlap `trx_tvm`,
+`trx_storage_stat`, and `trx_other`. Collation exports those 17 work phases plus `wait_externals`;
+validation exports its 19 work phases plus `active` and `waiting`.
+Timing samples for an operation/chain/result tuple appear only after its first attempt; all applicable phase/clock
+samples are emitted thereafter, including zeros. Split and overload cells are emitted from boot, including zeros.
+Only valid phase/clock pairs are emitted: work-time phases have `real` and `cpu`; `total` also has
+end-to-end `elapsed`; `wait_externals`, `active`, and `waiting` are elapsed observations.
+
+These phases are attribution signals, not a partition of elapsed time. Instrumented scopes can nest
+or overlap, and account validation can run in parallel, so phase sums — especially validation real
+or CPU work — may exceed end-to-end elapsed time. Error-phase timings are safe but best-effort: completed
+scopes are recorded, while a scope still active when failure is reported may be omitted. Collation reports
+only the final attempt. Likewise, plot `want_split` separately from overload reasons: `want_split` reflects
+weighted history, while an overload reason identifies only the current block's contribution to that history.
+
+For collation externals, `filtered` failed registration, `skipped_backpressure` was left pending because
+the outbound queue was large, and `rejected` did not make it into that candidate, normally because the
+TVM rejected it (for example, an earlier included copy already advanced the seqno) or because processing
+aborted the attempt. Execution attempts are the sum of `included` and `rejected`.
+Unlike the timing family, external outcomes include discarded intermediate retry attempts. All 16
+chain/result/outcome cells and both applied-message cells are emitted from boot, including zeros.
+
+The five collation-work families count only successful final attempts. Sum them across collators and
+divide by `rate(ton_collated_blocks_total{result="ok"})` for per-block values. Both chain cells in each
+family are emitted from boot.
+
+### Mempool
+
+Read on demand from `ExtMessagePool` as one small value snapshot. Like the ADNL, RLDP2 and overlay
+collectors, the validator-manager collector waits for its child actor before it emits the families.
+Values are therefore current for that scrape rather than cached. If the pool disappears while the
+request is in flight, only the mempool and applied-external families are omitted; the rest of the
+scrape still succeeds.
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_mempool_ext_messages` | gauge | — | External messages currently pending in the mempool, summed over all priority levels. Includes postponed (temporarily inactive) messages and expired ones the periodic cleanup has not swept yet (messages live 600 s, the sweep runs every 250 s). |
+| `ton_mempool_oldest_ext_message_age_seconds` | gauge | — | Age of the oldest current mempool entry, maintained without scanning the pool. Includes postponed and expired-unswept messages; 0 when empty. Reprioritizing a duplicate recreates the entry and resets its age, matching its expiry behavior. |
+| `ton_mempool_ext_admission_total` | counter | `outcome=accepted\|not_ready\|too_large\|backpressure\|invalid\|state_unavailable\|vm_rejected\|rate_limited\|pool_full\|address_full\|duplicate\|internal_error` | One local outcome for every external handed to the validator manager or pool. `accepted` passed validation and, on a node that stores externals, was inserted or reprioritized. `rate_limited` is the final per-address validation cap. `pool_full`, `address_full`, and `duplicate` passed validation but were not inserted locally; they do not change the existing successful network response. Raw errors, addresses, and VM exit codes are never labels. Process-lifetime; all cells are emitted from boot. |
+| `ton_mempool_ext_check_total` | counter | `result=ok\|error` | External-message admission checks that ran, by outcome. `error` is a failed check (parse, account state fetch, VM) or the per-address cap at finalization; requests rejected **before** a check runs — node not ready, oversized payload, admission queue full — are counted in neither cell. Process-lifetime, resets on restart. |
+| `ton_mempool_ext_removed_total` | counter | `reason=applied\|expired\|rejected_final\|filtered\|pool_pressure` | Why an entry left this node's pool. `applied` — seen in an applied block; `expired` — hit the 600 s TTL and was swept; `rejected_final` — exhausted its postpone generations; `pool_pressure` — was evicted instead of postponed while its priority level was at the soft limit; `filtered` — collation could not register it, for example because it was duplicate or for the wrong shard. A non-`applied` removal is a local eviction, not proof the message was lost network-wide. Duplicate reprioritization is not a removal. Process-lifetime; all cells emitted from boot. |
+
+Admission starts at `ValidatorManager`: malformed outer broadcasts, unauthorized custom-overlay senders,
+inactive overlays, and duplicates rejected by the public overlay never reach this boundary. `duplicate` therefore
+means a duplicate that reached the pool. Pool storage outcomes do not change the existing network response: for
+example, an already-known message can still be allowed to propagate while being counted as `duplicate` locally.
 
 ---
 
@@ -357,10 +566,10 @@ aggregating across nodes sum the bucket rates *before* `histogram_quantile` — 
 p95s is not a p95. Quantiles are interpolated within our fixed bucket bounds (1 ms … 30 s,
 log-scale), so read "p95 = 8.3ms" as "p95 is in the 5–10 ms bucket".
 
-**What am I receiving, by type?** Query one transport at a time:
+**What am I receiving, by type and QUIC peer class?** Query one transport at a time:
 
 ```promql
-topk(10, sum by (tl) (rate(ton_quic_app_messages_total{kind="query",direction="in"}[5m])))
+topk(10, sum by (trust, tl) (rate(ton_quic_app_messages_total{kind="query",direction="in"}[5m])))
 ```
 
 Swap `messages`→`bytes` for traffic share; to fold in response volume (answers usually dominate
@@ -368,11 +577,12 @@ bytes) widen to `kind=~"query|answer"` — `kind` is an equality matcher, so a s
 would match nothing rather than add a case.
 
 **Do not reach for `{__name__=~"ton_(adnl|quic|rldp2)_app_bytes_total"}` to do all three at once.**
-`rate()` drops `__name__`, and the app tier carries the *same* label set on every transport, so the
-three series collapse into one another and Prometheus fails the whole query with `vector cannot
-contain metrics with the same labelset`. Nothing after `rate()` can repair it — `label_replace`
-runs too late. If you want a cross-transport total, synthesize the distinguishing label in a
-recording rule, where each `rate()` is evaluated separately:
+`rate()` drops `__name__`; ADNL and RLDP2 then have the same label set and collide, so Prometheus
+fails the whole query with `vector cannot contain metrics with the same labelset`. QUIC's extra
+`trust` label does not repair that collision. Nothing after `rate()` can repair it —
+`label_replace` runs too late. If you want a cross-transport total, synthesize the distinguishing
+label in a recording rule, where each `rate()` is evaluated separately (this example deliberately
+aggregates QUIC trust classes):
 
 ```yaml
 - record: ton:app_bytes:rate5m
@@ -441,8 +651,8 @@ confirm in milliseconds; a peer that silently lost its connection state shows up
 seconds:
 
 ```promql
-sum by (tl) (rate(ton_quic_message_delivery_failed_total[5m]))
-  / sum by (tl) (rate(ton_quic_message_delivery_seconds_count[5m]))
+sum by (trust, tl) (rate(ton_quic_message_delivery_failed_total[5m]))
+  / sum by (trust, tl) (rate(ton_quic_message_delivery_seconds_count[5m]))
 ```
 
 **QUIC stream-credit exhaustion** (the `ngtcp2_conn_open_bidi_stream failed: -206` signature —
@@ -488,6 +698,90 @@ A verification rate far above the signing rate means inbound work — block sign
 overlay traffic — rather than our own block production; a sudden jump with no matching block rate is
 the shape of a signature-flood.
 
+**How busy is the actor framework, and who is making it busy?** The first expression is scheduler
+group occupancy, in busy workers per available actor worker. The second names the classes receiving
+the most message-handler or coroutine-resumption time:
+
+```promql
+sum(
+  rate(ton_actor_worker_busy_ticks_total{worker=~"io|cpu"}[5m])
+  / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second)
+) / sum(ton_actor_worker_threads{worker=~"io|cpu"})
+topk(10, sum by (type) (
+  rate(ton_actor_busy_ticks_total[5m])
+  / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second)
+))
+```
+
+This is worker occupancy, not OS CPU utilisation: blocking and descheduling inside a dispatch are
+included, while work on rocksdb background threads and the collator pool is outside both numerator
+and denominator. The per-type attribution excludes signal-only work and dispatch bookkeeping, so it
+does not sum exactly to the worker total.
+
+**Which kind of worker is saturated?** The combined group ratio above blurs two very different pools:
+each scheduler has exactly one io worker (every polling actor — all the sockets — is pinned to it)
+and a pool of cpu workers. Per-kind utilisation, in busy cores per available thread:
+
+```promql
+sum(rate(ton_actor_worker_busy_ticks_total{worker="io"}[5m])
+  / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+  / sum(ton_actor_worker_threads{worker="io"})
+sum(rate(ton_actor_worker_busy_ticks_total{worker="cpu"}[5m])
+  / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+  / sum(ton_actor_worker_threads{worker="cpu"})
+```
+
+An io ratio approaching 1 is the sharper signal: that single thread cannot be added to, only
+relieved — the io worker is unsplittable, so the fix is moving work off polling actors, not more
+threads. Coroutine resumptions contribute their outer dispatch to the cpu ratio;
+`type="td::actor::core::CoroutineResume"` provides the separate per-type resumption attribution
+(see *Coroutine resumptions* in the Actors section).
+
+**Is an actor class leaking?** Live count, and the classes whose count only ever grows:
+
+```promql
+topk(10, ton_actor_alive)
+topk(10, deriv(ton_actor_alive[1h]) > 0)
+```
+
+`deriv` over an hour is deliberately slack — most classes are legitimately spiky (one actor per
+query, per connection, per download), so a leak is a class whose floor rises across hours, which is
+what a positive derivative over a long window catches and a `> N` threshold does not.
+
+**What blocks a worker?** The longest timed executor drain per class over the last 10–20 minutes.
+It covers signal and mailbox processing but excludes finish-time bookkeeping, so it is a useful
+head-of-line-blocking indicator rather than an exact measurement of the full actor lock hold:
+
+```promql
+topk(10, ton_actor_max_execute_ticks
+  / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+topk(10, ton_actor_max_message_ticks
+  / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+```
+
+**Is the scheduler behind?** Queue depth now, and how long messages have been waiting to start:
+
+```promql
+ton_actor_scheduler_local_queue_length
+topk(10, ton_actor_max_queue_ticks
+  / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+```
+
+A local queue length that is nonzero on most scrapes means the cpu workers are saturated; a large
+converted `max_queue_ticks` with an empty queue means a single long batch (see above) delayed everyone once.
+Both read only the per-worker queues — see *Known gaps*.
+
+**Is a worker stuck right now?** Point sample of the longest in-flight execution per scheduler:
+
+```promql
+ton_actor_scheduler_current_execute_seconds > 5
+```
+
+Alert on it only with a `for:` clause of several scrapes: a legitimately long batch (state
+serialization, a big collation) will trip a single sample. If it stays high while
+`ton_exporter_last_collection_timestamp_seconds` keeps advancing, the wedged worker is on another
+scheduler than the exporter's.
+
 **Is the exporter itself healthy?** Scrape staleness — alerts if collection wedges (there is no
 internal scrape deadline; see Known gaps):
 
@@ -515,8 +809,8 @@ writes itself, so it keeps the `instance` label and stays present, at 0, for a t
 
 - QUIC's per-connection counters (`bytes`, `packets`, `stream_bytes`, the loss and in-flight series,
   `sids_*`, `mean_rtt`) are pooled over all open connections, so they cannot be split by who dialled
-  the way `connections_*` and `handshakes` are. Their `direction` label is the direction of the data,
-  not of the dial.
+  or by peer trust. Their `direction` label is the direction of the data, not of the dial. Wire and
+  pre-auth transport counters likewise cannot carry trust because the peer may not be authenticated.
 Worth knowing before building dashboards or alerts on these.
 
 **Permanently-zero series.** These are emitted on every scrape but nothing increments them:
@@ -529,10 +823,10 @@ Worth knowing before building dashboards or alerts on these.
 `ton_rldp2_transport_dropped_total{direction="out"}` and `{reason="internal"}`;
 four of the six cells of `ton_rldp2_app_dropped_total` and four of the six of
 `ton_adnl_app_dropped_total` (both only ever use `in,limited` and `out,limited`);
-and 18 of the 56 block-stats series — `block_broadcast_public`, `block_broadcast_fast_sync`,
-`block_broadcast_custom` and `candidate_stored` are unreachable in both families (16 series), and
-`ton_received_total{source="unknown"}` cannot fire either (2 series; `ton_first_received_total`'s
-`unknown` cell *can*).
+and six of the 56 block-stats series — `candidate_stored` is unreachable in both families
+(four series), and `ton_received_total{source="unknown"}` cannot fire (two series;
+`ton_first_received_total`'s `unknown` cell *can*). The three block-broadcast sources have live
+callers and are not permanently zero.
 
 **The `tl` label sees through routing envelopes, with two deliberate limits.** The bucket unwraps
 `overlay.query`/`overlay.message` (and their `WithExtra` variants), `tonNode.query`,
@@ -601,6 +895,39 @@ that scrape rather than being missing.
 **A third workchain would abort the node.** The `workchain` label is a closed `{0, -1}` domain whose
 index lookup ends in `UNREACHABLE()`. Not currently reachable from the network, but it is a hard
 abort the day a third workchain exists.
+
+**Actor latencies have no percentiles.** The actor tier exposes approximate 10–20-minute maxima and
+cumulative totals, no histograms, so there is no p50/p95 of message execution or scheduling delay —
+only "the worst one recently" and "the mean, via converted
+`rate(busy_ticks)/rate(messages)`". Adding histograms would put a bucket search on every actor
+message in `ActorExecutor`, which is the hottest loop in the process; deliberately not paid.
+
+**`ton_actor_scheduler_local_queue_length` sees only the per-worker queues.** Each cpu worker's
+work-stealing `LocalQueue` reports its size; the scheduler's shared cpu queue (`MpmcQueue`) and its
+io queue (`MpscPollableQueue`) expose no `size()`, so anything waiting in either is invisible. Work
+an actor generates while running on a cpu worker goes to that worker's local queue and spills into
+the shared one only when it overflows, which is why the gauge moves at all; but everything enqueued
+from the io thread, from another scheduler, or from a non-actor thread bypasses it entirely. Read it
+as a lower bound on the backlog, not the backlog.
+
+**Pending timers are not exposed.** The alarm heap (`KHeap`) is private to each `Scheduler` and may
+only be touched from that scheduler's own io thread, while the exporter is an ordinary actor on a cpu
+worker. So there is no "actors waiting on a timeout" gauge, and a node whose work is all in the
+future looks idle.
+
+**The two worker-liveness gauges are point samples.** `ton_actor_scheduler_workers_active` and
+`ton_actor_scheduler_current_execute_seconds` read `core::Debug`, which is written only while
+`need_debug()` is on (as with the per-type tier), and are sampled once per scrape under a mutex.
+Executions shorter than the scrape interval are simply never seen — these two catch a stall, not a
+duty cycle. The exporter excludes its own collecting worker so a scrape does not manufacture an
+active-worker baseline. Use converted `ton_actor_worker_busy_ticks_total` for the duty cycle. Its
+snapshot includes elapsed time in the current dispatch, so a wedged scope keeps the counter rising
+before it returns. The exporter worker is excluded only from the liveness point sample; its dispatch
+remains ordinary scheduler occupancy in the busy counter.
+
+**The per-type tier has no per-scheduler split inside one group**, as described in *Actors* above: a
+class that runs on two schedulers in the exporter's group reports one merged set of numbers. Separate
+scheduler groups are isolated.
 
 ## Legacy ADNL stats
 
