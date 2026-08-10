@@ -275,8 +275,11 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
-    auto parsed_extra = CO_TRY(parse_broadcast_extra(extra).trace("Precheck failed: Failed to parse broadcast extra"));
     auto& bus = *owning_bus();
+    if (bus.config.enable_block_sync()) {
+      co_return td::Status::Error("Precheck failed: Candidate broadcasts in private overlay are disabled");
+    }
+    auto parsed_extra = CO_TRY(parse_broadcast_extra(extra).trace("Precheck failed: Failed to parse broadcast extra"));
     auto expected_leader = bus.collator_schedule->expected_collator_for(parsed_extra.slot);
     if (parsed_extra.delegation.has_value()) {
       if (parsed_extra.delegation->collator_key.compute_short_id() != src) {
