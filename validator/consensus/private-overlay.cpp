@@ -81,6 +81,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     options.twostep_broadcast_sender_ = adnl_sender_;
     options.send_twostep_broadcast_ = true;
     options.allow_old_broadcasts_ = false;
+    options.twostep_intermediate_nodes_ = bus.all_current_validators;
 
     if (bus.config.observers_in_private_overlay()) {
       overlay_nodes_ = bus.all_overlay_nodes;

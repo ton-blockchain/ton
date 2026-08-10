@@ -44,6 +44,7 @@ struct SessionInfo {
   ValidatorSessionId session_id;
   NewConsensusConfig config;
   std::vector<adnl::AdnlNodeIdShort> overlay_members;
+  std::set<adnl::AdnlNodeIdShort> all_current_validators;
   std::vector<GroupIdentity> identities;
 
   CatchainSeqno cc_seqno() const {
@@ -54,6 +55,7 @@ struct SessionInfo {
 struct OverlayMembers {
   std::vector<adnl::AdnlNodeIdShort> all;
   std::set<adnl::AdnlNodeIdShort> local;
+  std::set<adnl::AdnlNodeIdShort> all_current_validators;
 };
 
 OverlayMembers overlay_members_of(const MasterchainState &state, const ManagerContext &deps,
@@ -71,6 +73,9 @@ OverlayMembers overlay_members_of(const MasterchainState &state, const ManagerCo
       members.all.push_back(adnl_id);
       if (deps.validator_keys.contains(key_hash)) {
         members.local.insert(adnl_id);
+      }
+      if (i == 0) {
+        members.all_current_validators.insert(adnl_id);
       }
     }
   }
@@ -181,6 +186,7 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
       .session_id = session_id_for(ctx, shard, validator_set),
       .config = config,
       .overlay_members = ctx.overlay_members.all,
+      .all_current_validators = ctx.overlay_members.all_current_validators,
       .identities = std::move(identities),
   };
 }
@@ -200,6 +206,7 @@ td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const Sessio
       .adnl_sender = ctx.deps.quic,
       .db_root = ctx.deps.db_root,
       .all_overlay_nodes = info.overlay_members,
+      .all_current_validators = info.all_current_validators,
       .is_collator = identity.is_collator,
       .collators_by_validator = ctx.collators_by_validator,
       .collator_scoreboard = ctx.deps.collator_scoreboard,

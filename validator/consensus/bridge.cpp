@@ -256,6 +256,7 @@ class BridgeImpl final : public IValidatorGroup {
     bus->keyring = params_.keyring;
     bus->validator_opts.store(params_.validator_opts);
     bus->all_overlay_nodes = params_.all_overlay_nodes;
+    bus->all_current_validators = params_.all_current_validators;
     bus->is_collator = params_.is_collator;
     bus->collators_by_validator = params_.collators_by_validator;
     bus->collator_scoreboard = params_.collator_scoreboard;

@@ -64,6 +64,7 @@ class BlockSyncOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     options.twostep_broadcast_sender_ = adnl_sender_;
     options.send_twostep_broadcast_ = true;
     options.allow_old_broadcasts_ = false;
+    options.twostep_intermediate_nodes_ = bus.all_current_validators;
 
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_adnl_id_,
                             std::move(overlay_full_id), bus.all_overlay_nodes, make_callback(),

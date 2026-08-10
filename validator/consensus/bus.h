@@ -226,6 +226,7 @@ class Bus : public td::actor::Bus {
 
   adnl::AdnlNodeIdShort local_adnl_id;
   std::vector<adnl::AdnlNodeIdShort> all_overlay_nodes;
+  std::set<adnl::AdnlNodeIdShort> all_current_validators;
   bool is_collator = false;
   CollatorsByValidator collators_by_validator;
   td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
