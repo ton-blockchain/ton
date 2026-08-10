@@ -278,6 +278,8 @@ class TolkTestFile {
         this.expected_hash = null
         /** @type {Object} */
         this.path_mappings = {}
+        /** @type {Object} */
+        this.wasm_options = {}
         /** @type {boolean} */
         this.enable_tolk_lines_comments = false
         /** @type {number} */
@@ -322,6 +324,15 @@ class TolkTestFile {
             } else if (line.startsWith("@path_mapping")) {
                 let eq_pos = line.indexOf('=')
                 this.path_mappings[line.substring(14, eq_pos)] = line.substring(eq_pos+1).replace('{DIR}', path.dirname(this.tolk_filename)).replace(/[\\\/]+$/, '')
+            } else if (line.startsWith("@cmd_line_option")) {
+                for (const opt of line.substring(16).trim().split(/\s+/).filter(s => s.length > 0)) {
+                    if (opt === "--allow-empty-get-fun")
+                        this.wasm_options.allowEmptyGetFun = true
+                    else if (opt === "--allow-no-entrypoint")
+                        this.wasm_options.allowNoEntrypoint = true
+                    else
+                        throw new ParseInputError(`unknown @cmd_line_option ${opt}`)
+                }
             }
             this.line_idx++
         }
@@ -369,7 +380,7 @@ class TolkTestFile {
 
     async run_and_check() {
         const wasmModule = await compileWasm(TOLKFIFTLIB_MODULE, TOLKFIFTLIB_WASM)
-        let outputStr = compileFile(wasmModule, this.tolk_filename, this.enable_tolk_lines_comments, this.path_mappings)
+        let outputStr = compileFile(wasmModule, this.tolk_filename, this.enable_tolk_lines_comments, this.path_mappings, this.wasm_options)
         /** @var {{status: string, message: string, fiftCode: string, codeBoc: string, codeHashHex: string, abiJson: Object}} */
         let res = JSON.parse(outputStr);
         let exit_code = res.status === 'ok' ? 0 : 1
@@ -521,7 +532,7 @@ function copyFromCString(mod, ptr) {
 }
 
 /** @return string */
-function compileFile(mod, filename, withSrcLineComments, pathMappings) {
+function compileFile(mod, filename, withSrcLineComments, pathMappings, wasmOptions = {}) {
     // see tolk-wasm.cpp: typedef void (*WasmFsReadCallback)(int, char const*, char**, char**)
     const callbackPtr = mod.addFunction((kind, dataPtr, destContents, destError) => {
         switch (kind) {   // enum ReadCallback::Kind in C++
@@ -582,7 +593,8 @@ function compileFile(mod, filename, withSrcLineComments, pathMappings) {
         withStackComments: true,
         withSrcLineComments: withSrcLineComments,
         withSymbolTypes: false,
-        entrypointFileName: filename
+        entrypointFileName: filename,
+        ...wasmOptions
     };
 
     const configPtr = copyToCString(mod, JSON.stringify(config));

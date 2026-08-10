@@ -379,6 +379,9 @@ struct FunctionBodyCode {
   void set_code(CodeBlob* code);
 };
 
+struct FunctionBodyPrototype {
+};
+
 /*
  * 
  *   GENERATE CODE

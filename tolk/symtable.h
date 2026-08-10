@@ -99,6 +99,7 @@ struct LocalVarData final : Symbol {
 
 struct FunctionBodyCode;
 struct FunctionBodyAsm;
+struct FunctionBodyPrototype;
 struct FunctionBodyBuiltinAsmOp;
 struct FunctionBodyBuiltinGenerateOps;
 struct GenericsDeclaration;
@@ -106,6 +107,7 @@ struct GenericsDeclaration;
 typedef std::variant<
   FunctionBodyCode*,
   FunctionBodyAsm*,
+  FunctionBodyPrototype*,
   FunctionBodyBuiltinAsmOp*,
   FunctionBodyBuiltinGenerateOps*
 > FunctionBody;
@@ -199,6 +201,7 @@ struct FunctionData final : Symbol {
 
   bool is_code_function() const { return std::holds_alternative<FunctionBodyCode*>(body); }
   bool is_asm_function() const { return std::holds_alternative<FunctionBodyAsm*>(body); }
+  bool is_prototype_only() const { return std::holds_alternative<FunctionBodyPrototype*>(body); }
   bool is_method() const { return !method_name.empty(); }
   bool is_static_method() const { return is_method() && !does_accept_self(); }
 

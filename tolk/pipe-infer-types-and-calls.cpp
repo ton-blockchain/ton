@@ -976,6 +976,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
         if (fun_ref->is_entrypoint()) {
           err("can not get reference to this function, it's a special entrypoint").fire(v, cur_f);
         }
+        if (fun_ref->is_prototype_only()) {
+          err("can not get reference to this function, it's a get method prototype").fire(v, cur_f);
+        }
         fun_ref->mutate()->assign_is_used_as_noncall();
         get_or_infer_return_type(fun_ref);
         assign_inferred_type(v, fun_ref->inferred_full_type);
@@ -1216,6 +1219,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // prevent calling `onBouncedMessage()` and other special functions directly
     if (fun_ref->is_entrypoint()) {
       err("{} is a special entrypoint, it can not be called as a regular function", fun_ref).fire(v->get_callee(), cur_f);
+    }
+    if (fun_ref->is_prototype_only()) {
+      err("get method `{}` is a prototype and can not be called", fun_ref).fire(v->get_callee(), cur_f);
     }
 
     // so, we have a call `f(args)` or `obj.f(args)`, f is fun_ref (function / method) (code / asm / builtin)
@@ -1803,6 +1809,9 @@ public:
 
   void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
     TypePtr inferred_return_type = fun_ref->declared_return_type;
+    if (fun_ref->is_prototype_only()) {
+      tolk_assert(fun_ref->declared_return_type);   // checked at lexer
+    }
     if (fun_ref->is_code_function()) {
       FlowContext body_start;
       for (const LocalVarData& param : fun_ref->parameters) {

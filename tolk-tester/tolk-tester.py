@@ -307,6 +307,8 @@ class TolkTestFile:
                 self.expected_hash = TolkTestCaseExpectedHash(self.parse_string_value(lines, False)[0])
             elif line.startswith("@path_mapping"):
                 self.more_cmd_line_options += ["--path-mapping", line[14:].replace('{DIR}', os.path.dirname(self.tolk_filename))]
+            elif line.startswith("@cmd_line_option"):
+                self.more_cmd_line_options += line[len("@cmd_line_option"):].strip().split()
             self.line_idx = self.line_idx + 1
 
         if len(self.input_output) == 0 and not self.compilation_should_fail:

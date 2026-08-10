@@ -1777,11 +1777,13 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
     }
   }
   bool is_code_function = lex.tok() == tok_opbrace;
+  // `get fun name(): T` without `{` is an ABI-only prototype (only with `--allow-empty-get-fun`, checked later)
+  bool is_get_prototype_only = is_contract_getter && !is_code_function && lex.tok() != tok_asm && lex.tok() != tok_builtin;
 
   if (is_entrypoint && (is_contract_getter || genericsT_list || n_mutate_params || !is_code_function)) {
     err("invalid declaration of a reserved function").fire(v_ident);
   }
-  if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type || !is_code_function)) {
+  if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type || (!is_code_function && !is_get_prototype_only))) {
     err("invalid declaration of a get method").fire(v_ident);
   }
 
@@ -1797,6 +1799,11 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
       lex.error("asm function must specify return type");
     }
     v_body = parse_asm_func_body(lex, v_ident, v_param_list);
+  } else if (is_get_prototype_only) {
+    if (!ret_type) {
+      err("get method prototype must declare return type").fire(v_ident);
+    }
+    v_body = createV<ast_empty_statement>(lex.cur_range());
   } else {
     lex.unexpected("{ function body }");
   }

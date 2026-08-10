@@ -18,6 +18,7 @@
 #include "src-file.h"
 #include "compilation-errors.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include "generics-helpers.h"
 #include "pack-unpack-serializers.h"
 #include "contract-directive.h"
@@ -265,7 +266,14 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   }
 
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
+  FunctionBody f_body = v->is_code_function()
+    ? static_cast<FunctionBody>(new FunctionBodyCode)
+    : v->is_get_prototype()
+      ? static_cast<FunctionBody>(new FunctionBodyPrototype)
+      : static_cast<FunctionBody>(new FunctionBodyAsm);
+  if (v->is_get_prototype() && !G_settings.allow_empty_get_fun) {
+    err("empty `get fun` is allowed only with --allow-empty-get-fun\n""hint: provide a function body `{ ... }`, or pass this flag for ABI-only prototypes").fire(v_ident);
+  }
   FunctionData* f_sym = new FunctionData(std::move(name), v_ident, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, DocCommentLines(v->doc_lines), f_body, v);
   f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`; for a lambda, a containing function
 

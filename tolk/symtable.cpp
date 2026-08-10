@@ -103,6 +103,10 @@ bool FunctionData::does_need_codegen() const {
   if (!is_really_used()) {
     return false;
   }
+  // it's declared as `get fun smth(): T;` without body, for ABI only
+  if (is_prototype_only()) {
+    return false;
+  }
   // functions with asm body don't need code generation
   // (even if used as non-call: `var a = beginCell;` inserts TVM continuation inline)
   if (is_asm_function() || is_builtin()) {

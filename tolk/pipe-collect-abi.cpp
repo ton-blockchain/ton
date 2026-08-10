@@ -108,7 +108,7 @@ public:
     , collect_thrown_errors(collect_thrown_errors) {}
 
   bool should_visit_function(FunctionPtr fun_ref) override {
-    return fun_ref->is_code_function() && fun_ref->is_really_used();
+    return fun_ref->is_really_used() && (fun_ref->is_code_function() || fun_ref->is_prototype_only());
   }
 
   void on_exit_function(V<ast_function_declaration> v_function) override {

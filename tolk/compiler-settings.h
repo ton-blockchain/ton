@@ -49,6 +49,7 @@ struct CompilerSettings {
   bool show_errors_as_json = false;
   bool check_only_no_output = false;
   bool allow_no_entrypoint = false;
+  bool allow_empty_get_fun = false;
 
   std::string output_filename;  // "out.fif"; other outputs are "out.abi.json", "out.boc64.txt", etc.
   std::string stdlib_folder;    // path to tolk-stdlib/; note: from tolk-js it's empty! tolk-js reads files via js callback

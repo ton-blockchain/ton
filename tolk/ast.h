@@ -1316,13 +1316,13 @@ template<>
 // methods are still global functions, just accepting "self" first parameter
 // example: `fun f() { ... }`
 // functions can be generic, `fun f<T>(params) { ... }`
-// their body is either sequence (regular code function), or `asm`, or `builtin`
+// their body is either sequence (regular code function), `asm`, `builtin`, or a get method prototype
 struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   int get_num_params()  const { return children.at(1)->as<ast_parameter_list>()->size(); }
   auto get_param_list() const { return children.at(1)->as<ast_parameter_list>(); }
   auto get_param(int i) const { return children.at(1)->as<ast_parameter_list>()->get_param(i); }
-  AnyV get_body() const { return children.at(2); }   // ast_block_statement / ast_asm_body
+  AnyV get_body() const { return children.at(2); }   // ast_block_statement / ast_asm_body / ast_empty_statement
 
   FunctionPtr fun_ref = nullptr;          // filled after register
   AnyTypeV receiver_type_node;            // for `fun builder.storeInt`, here is `builder`
@@ -1335,7 +1335,8 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
 
   bool is_asm_function() const { return children.at(2)->kind == ast_asm_body; }
   bool is_code_function() const { return children.at(2)->kind == ast_block_statement; }
-  bool is_builtin_function() const { return children.at(2)->kind == ast_empty_statement; }
+  bool is_get_prototype() const { return children.at(2)->kind == ast_empty_statement && (flags & FunctionData::flagContractGetter) != 0; }
+  bool is_builtin_function() const { return children.at(2)->kind == ast_empty_statement && (flags & FunctionData::flagContractGetter) == 0; }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref);
