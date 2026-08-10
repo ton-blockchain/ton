@@ -69,7 +69,6 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(input_json, td::json_decode(td::MutableSlice(config_json)))
   td::JsonObject& config = input_json.get_object();
 
-  TRY_RESULT(opt_level, config.get_optional_int_field("optimizationLevel", 2));
   TRY_RESULT(stack_comments, config.get_optional_bool_field("withStackComments", false));
   TRY_RESULT(src_line_comments, config.get_optional_bool_field("withSrcLineComments", false));
   TRY_RESULT(emit_symbol_types, config.get_optional_bool_field("withSymbolTypes", true));
@@ -82,7 +81,6 @@ static td::Result<std::string> compile_internal(char *config_json) {
   // note that `pathMappings` are handled on a client-side (in tolk-js) only
 
   G_settings.verbosity = 0;
-  G_settings.optimization_level = std::max(0, opt_level);
   G_settings.stack_layout_comments = stack_comments;
   G_settings.tolk_src_as_line_comments = src_line_comments;
   G_settings.show_errors_as_json = show_errors_as_json;

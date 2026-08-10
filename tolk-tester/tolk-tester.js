@@ -589,7 +589,6 @@ function compileFile(mod, filename, withSrcLineComments, pathMappings, wasmOptio
     }, 'viiiii');
 
     const config = {
-        optimizationLevel: 2,
         withStackComments: true,
         withSrcLineComments: withSrcLineComments,
         withSymbolTypes: false,

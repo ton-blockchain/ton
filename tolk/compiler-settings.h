@@ -39,7 +39,6 @@ struct CompilerSettings {
   using FsReadCallback = std::function<td::Result<std::string>(FsReadCallbackKind, const char*, void* callback_payload)>;
 
   int verbosity = 0;
-  int optimization_level = 2;
   bool stack_layout_comments = true;
   bool tolk_src_as_line_comments = true;
   bool emit_compiled_boc = true;

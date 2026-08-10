@@ -17,7 +17,6 @@
 #include "tolk.h"
 #include "compilation-errors.h"
 #include "compiler-state.h"
-#include "compiler-settings.h"
 #include "type-system.h"
 #include "generics-helpers.h"
 #include "ast.h"
@@ -88,12 +87,6 @@ void FunctionBodyAsm::compile(AsmOpList& dest, AnyV origin) const {
     copy.origin = origin;
     dest << std::move(copy);
   }
-}
-
-// the option `-O2` (turned on by default) enables optimizations (particularly, peephole ones);
-// if so, some asm instructions are generated to be transformed later (they are not valid to Fift as-is)
-static bool will_run_peephole() {
-  return G_settings.optimization_level >= 2;
 }
 
 static std::string op_postfix_N_untuple(std::string cmd, int n_slots) {
@@ -538,7 +531,7 @@ static AsmOp compile_logical_not(std::vector<VarDescr>& res, std::vector<VarDesc
   // but we do insert a fake instruction `BOOLNOT` instead of `NOT` for future peephole optimizations;
   // for instance, `BOOLNOT + N THROWIF` => `N THROWIFNOT`, but for `NOT` (generally) it's incorrect;
   // un-optimized `BOOLNOT` are later replaced with a regular `NOT`
-  return for_int_arg || !will_run_peephole() ? exec_op(origin, "0 EQINT", 1) : exec_op(origin, "BOOLNOT", 1);
+  return for_int_arg ? exec_op(origin, "0 EQINT", 1) : exec_op(origin, "BOOLNOT", 1);
 }
 
 static AsmOp compile_bitwise_and(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
@@ -1001,7 +994,7 @@ static AsmOp compile_cmp_int(std::vector<VarDescr>& res, std::vector<VarDescr>& 
 static AsmOp compile_throw(std::vector<VarDescr>& res, std::vector<VarDescr>& args, AnyV origin) {
   tolk_assert(res.empty() && args.size() == 1);
   VarDescr& x = args[0];
-  if (x.is_int_const() && x.int_const >= 0 && x.int_const < (will_run_peephole() ? 65536 : 2048)) {
+  if (x.is_int_const() && x.int_const >= 0 && x.int_const < 65536) {
     // in Fift assembler, "N THROW" is valid if N < 2048; for big N (particularly, widely used 0xFFFF)
     // we now still generate "N THROW", and later, in optimizer, transform it to "PUSHINT" + "THROWANY"
     x.unused();
@@ -1143,7 +1136,7 @@ static AsmOp compile_store_int(std::vector<VarDescr>& res, std::vector<VarDescr>
   // purpose: to merge consecutive `b.storeUint(0, 1).storeUint(1, 1)` into one "1 PUSHINT + 2 STU",
   // when constant arguments are passed, keep them as a separate (fake) instruction, to be handled by optimizer later
   bool value_and_len_is_const = z.is_int_const() && x.is_int_const();
-  if (value_and_len_is_const && x.int_const >= 0 && z.int_const > 0 && z.int_const <= 256 && will_run_peephole()) {
+  if (value_and_len_is_const && x.int_const >= 0 && z.int_const > 0 && z.int_const <= 256) {
     // don't handle negative numbers or potential overflow, merging them is incorrect
     int len = static_cast<int>(z.int_const->to_long());
     if (x.int_const->fits_bits(len, sgnd)) {
@@ -1184,11 +1177,11 @@ static AsmOp compile_store_bool(std::vector<VarDescr>& res, std::vector<VarDescr
   auto& v = args[1];
   // same purpose as for storeInt/storeUint above
   // (particularly, `b.storeUint(const_int,32).storeBool(const_bool)` will be joined)
-  if (v.is_int_const() && v.int_const == 0 && will_run_peephole()) {
+  if (v.is_int_const() && v.int_const == 0) {
     v.unused();
     return AsmOp::Custom(origin, "MY_store_intU 0 1", 1);
   }
-  if (v.is_int_const() && v.int_const == -1 && will_run_peephole()) {
+  if (v.is_int_const() && v.int_const == -1) {
     v.unused();
     return AsmOp::Custom(origin, "MY_store_intU 1 1", 1);
   }
@@ -1201,7 +1194,7 @@ static AsmOp compile_store_coins(std::vector<VarDescr>& res, std::vector<VarDesc
   auto& v = args[1];
   // same purpose as for storeInt/storeUint above
   // (particularly, `b.storeUint(const_int,32).storeCoins(const_zero)` will be joined)
-  if (v.is_int_const() && v.int_const == 0 && will_run_peephole()) {
+  if (v.is_int_const() && v.int_const == 0) {
     v.unused();
     return AsmOp::Custom(origin, "MY_store_intU 0 4", 1);
   }
@@ -1247,7 +1240,7 @@ static AsmOp compile_skip_bits_in_slice(std::vector<VarDescr>& res, std::vector<
   // same technique as for storeUint:
   // consecutive `s.skipBits(8).skipBits(const_var_16)` will be joined into a single 24
   // to track this, represent it as a separate fake instruction to be detected by optimizer later
-  if (len.is_int_const() && len.int_const >= 0 && len.int_const < 1024 && will_run_peephole()) {
+  if (len.is_int_const() && len.int_const >= 0 && len.int_const < 1024) {
     len.unused();
     return AsmOp::Custom(origin, "MY_skip_bits " + len.int_const->to_dec_string(), 1);
   }

@@ -331,9 +331,7 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
 
   try {
     std::vector<AsmOp> asm_code = code->generate_asm_code(mode);
-    if (G_settings.optimization_level >= 2) {
-      asm_code = optimize_asm_code(std::move(asm_code));
-    }
+    asm_code = optimize_asm_code(std::move(asm_code));
     output_asm_code_for_fun(
       os,
       fun_ref,

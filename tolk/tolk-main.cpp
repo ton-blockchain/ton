@@ -58,7 +58,6 @@ enum LongOnlyOptions {
 
 static struct option long_options[] = {
   {"output", required_argument, nullptr, 'o'},
-  {"opt-level", required_argument, nullptr, 'O'},
   {"path-mapping", required_argument, nullptr, OPT_PATH_MAPPING},
   {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
   {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
@@ -83,8 +82,6 @@ void usage(const char* progname) {
          "-o, --output <fif-filename>\n"
             "\tWrite generated code into specified .fif file instead of stdout\n"
             "\tOther artifacts use the same basename: for 'out.fif', also emit 'out.abi.json', etc.\n"
-         "-O, --opt-level <level>\n"
-            "\tSet optimization level (2 by default)\n"
          "--path-mapping <mapping>\n"
             "\tRegister @name -> path mapping (e.g. @mylib=/path/to/lib)\n"
          "--no-stack-comments\n"
@@ -312,13 +309,10 @@ static void compilation_succeed_after_output_done() {
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt_long(argc, argv, "o:O:evVh", long_options, nullptr)) != -1) {
+  while ((i = getopt_long(argc, argv, "o:evVh", long_options, nullptr)) != -1) {
     switch (i) {
       case 'o':
         G_settings.output_filename = optarg;
-        break;
-      case 'O':
-        G_settings.optimization_level = std::max(0, atoi(optarg));
         break;
       case OPT_PATH_MAPPING:
         if (!G_settings.parse_path_mapping_cmd_arg(optarg)) {
