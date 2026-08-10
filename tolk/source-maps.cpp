@@ -75,15 +75,6 @@ static SrcRange get_function_body_end(FunctionPtr fun_ref) {
   return SrcRange::span_at_end(fun_ref->ast_root->range, 1);
 }
 
-static void to_json(JsonPrettyOutput& json, SrcRange range) {
-  SrcRange::DecodedRange r = range.decode_offsets();
-  json << '['
-      << r.file_id << ',' << ' '
-      << r.start_line_no << ',' << r.start_char_no << ',' << ' '
-      << r.end_line_no << ',' << r.end_char_no
-      << ']';
-}
-
 static void to_json(JsonPrettyOutput& out, const std::vector<var_idx_t>& ir_idx_arr) {
   out << '[';
   bool first = true;

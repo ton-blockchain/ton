@@ -18,6 +18,7 @@
 #include "compilation-errors.h"
 #include "compiler-state.h"
 #include "compiler-settings.h"
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -77,12 +78,25 @@ SrcFile* AllRegisteredSrcFiles::get_next_unparsed_file() {
   return const_cast<SrcFile*>(all_src_files[++last_parsed_file_id]);
 }
 
-void SrcFile::assign_contract_directive(ContractDirective* contract_directive) {
-  this->contract_directive = contract_directive;
+SrcFile::SrcFile(int file_id, bool is_stdlib_file, std::string realpath, std::string&& file_text)
+  : file_id(file_id)
+  , is_stdlib_file(is_stdlib_file)
+  , realpath(std::move(realpath))
+  , text(std::move(file_text))
+  , text_len(static_cast<int>(text.size()))
+  , contract_directive(nullptr) {
+  // build a sorted index of line starts once; `convert_offset` uses upper_bound on it
+  line_offsets.reserve(text_len / 40 + 2);   // rough estimate: ~40 chars per line
+  line_offsets.push_back(0);
+  for (int i = 0; i < text_len; ++i) {
+    if (text[i] == '\n') {
+      line_offsets.push_back(i + 1);
+    }
+  }
 }
 
-bool SrcFile::is_offset_valid(int offset) const {
-  return offset >= 0 && offset <= static_cast<int>(text.size());
+void SrcFile::assign_contract_directive(ContractDirective* contract_directive) {
+  this->contract_directive = contract_directive;
 }
 
 SrcFile::SrcPosition SrcFile::convert_offset(int offset) const {
@@ -90,30 +104,18 @@ SrcFile::SrcPosition SrcFile::convert_offset(int offset) const {
     return SrcPosition{-1, -1, offset, "invalid offset"};
   }
 
-  // currently, converting offset to line number is O(N): just read file contents char by char and detect lines
-  // since original Tolk src lines are now printed into Fift output, this is invoked for every asm instruction
-  // but anyway, it consumes a small amount of time relative to other work of the compiler
-  // in the future, it can be optimized by making lines index aside just std::string_view text
-  int line_idx = 0;
-  int char_idx = 0;
-  int line_offset = 0;
-  for (int i = 0; i < offset; ++i) {
-    char c = text[i];
-    if (c == '\n') {
-      line_idx++;
-      char_idx = 0;
-      line_offset = i + 1;
-    } else {
-      char_idx++;
-    }
-  }
+  // line_offsets[i] = start offset of line i; find the last start <= offset
+  auto it = std::upper_bound(line_offsets.begin(), line_offsets.end(), offset);
+  --it;
+  int line_idx = static_cast<int>(it - line_offsets.begin());
+  int line_offset = *it;
+  int char_idx = offset - line_offset;
 
-  size_t line_len = text.size() - line_offset;
-  for (int i = line_offset; i < static_cast<int>(text.size()); ++i) {
-    if (text[i] == '\n') {
-      line_len = i - line_offset;
-      break;
-    }
+  int line_len;
+  if (line_idx + 1 < static_cast<int>(line_offsets.size())) {
+    line_len = line_offsets[line_idx + 1] - line_offset - 1;   // exclude trailing '\n'
+  } else {
+    line_len = text_len - line_offset;
   }
 
   std::string_view line_str(text.data() + line_offset, line_len);

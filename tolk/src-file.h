@@ -41,21 +41,20 @@ struct SrcFile {
   bool is_stdlib_file;                  // is a part of Tolk distribution, imported via "@stdlib/..."
   std::string realpath;                 // what "realpath" returned to locate (either abs path or what tolk-js returns)
   std::string text;                     // file contents loaded into memory, every Token::str_val points inside it
+  int text_len;                         // length (size) of text
+  std::vector<int> line_offsets;        // offset of each line start in text; built once on load for convert_offset
   AnyV ast = nullptr;                   // when a file has been parsed, its ast_tolk_file is kept here
   std::vector<ImportDirective> imports; // to check strictness (can't use a symbol without importing its file)
   ContractDirective* contract_directive;
 
-  SrcFile(int file_id, bool is_stdlib_file, std::string realpath, std::string&& text)
-    : file_id(file_id)
-    , is_stdlib_file(is_stdlib_file)
-    , realpath(std::move(realpath))
-    , text(std::move(text))
-    , contract_directive(nullptr) { }
+  SrcFile(int file_id, bool is_stdlib_file, std::string realpath, std::string&& file_text);
 
   SrcFile(const SrcFile& other) = delete;
   SrcFile &operator=(const SrcFile&) = delete;
 
-  bool is_offset_valid(int offset) const;
+  bool is_offset_valid(int offset) const {
+    return offset >= 0 && offset <= text_len;
+  }
   SrcPosition convert_offset(int offset) const;
 
   SrcFile* mutate() const { return const_cast<SrcFile*>(this); }

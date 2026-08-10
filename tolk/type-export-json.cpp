@@ -531,6 +531,15 @@ static void to_json(JsonPrettyOutput& json, const CustomPackUnpackF& f) {
   json.end_object();
 }
 
+void to_json(JsonPrettyOutput& json, SrcRange range) {
+  SrcRange::DecodedRange r = range.decode_offsets();
+  json << '['
+       << r.file_id << ',' << ' '
+       << r.start_line_no << ',' << r.start_char_no << ',' << ' '
+       << r.end_line_no << ',' << r.end_char_no
+       << ']';
+}
+
 void to_json(JsonPrettyOutput& json, const JsonTypeExporter::ConstValJson& v) {
   const ConstValExpression& expr = v.value;
   json.start_object();
@@ -616,15 +625,6 @@ static std::string get_type_description(TypePtr ty) {
     return get_abi_description(t_enum->enum_ref->doc_lines);
   }
   return {};
-}
-
-static void to_json(JsonPrettyOutput& json, SrcRange range) {
-  SrcRange::DecodedRange r = range.decode_offsets();
-  json << '['
-       << r.file_id << ',' << ' '
-       << r.start_line_no << ',' << r.start_char_no << ',' << ' '
-       << r.end_line_no << ',' << r.end_char_no
-       << ']';
 }
 
 // Writes all type-related top-level arrays in canonical order: unique_types, generic instantiations, and declarations.
