@@ -287,7 +287,7 @@ fun grams(floatString: string): coins
     builtin
 
 /// Deprecated alias for [grams].
-/// From Tolk v1.5, it will become @deprecated("""use `grams("0.05")` instead of `ton("0.05")`""")
+@deprecated("""use `grams("0.05")` instead of `ton("0.05")`""")
 @pure
 fun ton(floatString: string): coins
     builtin
