@@ -130,6 +130,10 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       if (collator_nodes_.empty()) {
         co_return {};
       }
+      if (current_leader_window_.has_value() && *current_leader_window_ >= start_slot) {
+        LOG(INFO) << "Not delegating window " << start_slot << ": window already started";
+        co_return {};
+      }
       auto collator_nodes = collator_nodes_;
       std::vector<td::actor::StartedTask<ProtocolMessage>> prepare_requests;
       td::Timestamp timeout = td::Timestamp::in(COLLATE_REQUEST_TIMEOUT);
