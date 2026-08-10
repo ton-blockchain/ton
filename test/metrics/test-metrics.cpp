@@ -11,6 +11,7 @@
 #include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api.h"
 #include "metrics/actor-metrics.h"
+#include "metrics/block-processing-metrics.h"
 #include "metrics/chain-metrics.h"
 #include "metrics/collectors.h"
 #include "metrics/ext-message-pool-metrics.h"
@@ -798,6 +799,131 @@ TEST(Metrics, ChainSnapshotRendersEachFamily) {
       "validator_groups{chain=\"master\"} 12.000000\n"
       "validator_groups{chain=\"shard\"} 13.000000\n",
       render(snapshot, ""));
+}
+
+TEST(Metrics, BlockProcessingMetricsRenderAndClamp) {
+  BlockProcessingMetrics metrics;
+  metrics.add_collation(BlockChain::master, BlockResult::ok, -1.0, {.real = 2.0, .cpu = -3.0}, -4.0);
+  metrics.add_collation_phase(BlockChain::master, BlockResult::ok, CollationPhase::preinit, {.real = 5.0, .cpu = -6.0});
+  metrics.add_validation(BlockChain::shard, BlockResult::error, 7.0, {.real = 8.0, .cpu = 9.0}, 10.0);
+  metrics.add_validation_phase(BlockChain::shard, BlockResult::error, ValidationPhase::check_new_state,
+                               {.real = -11.0, .cpu = 12.0});
+  metrics.add_want_split(BlockChain::master);
+  metrics.add_overload(BlockChain::master, 1);
+  metrics.add_overload(BlockChain::master, 2);
+  metrics.add_overload(BlockChain::shard, 3);
+  metrics.add_overload(BlockChain::shard, 4);
+  metrics.add_overload(BlockChain::shard, 99);
+
+  EXPECT_EQ(
+      "# TYPE block_processing_seconds counter\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"total\",clock="
+      "\"elapsed\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"total\",clock="
+      "\"real\"} 2.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"total\",clock="
+      "\"cpu\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"wait_externals\","
+      "clock=\"elapsed\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"preinit\",clock="
+      "\"real\"} 5.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"preinit\",clock="
+      "\"cpu\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"total\",clock="
+      "\"elapsed\"} 7.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"total\",clock="
+      "\"real\"} 8.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"total\",clock="
+      "\"cpu\"} 9.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"active\",clock="
+      "\"elapsed\"} 10.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"waiting\",clock="
+      "\"elapsed\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"check_new_"
+      "state\",clock=\"real\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"check_new_"
+      "state\",clock=\"cpu\"} 12.000000\n"
+      "# TYPE collation_want_split counter\n"
+      "collation_want_split_total{chain=\"master\"} 1.000000\n"
+      "collation_want_split_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_overload counter\n"
+      "collation_overload_total{chain=\"master\",reason=\"block_limits\"} 1.000000\n"
+      "collation_overload_total{chain=\"master\",reason=\"out_msg_queue\"} 1.000000\n"
+      "collation_overload_total{chain=\"master\",reason=\"long_collation\"} 0.000000\n"
+      "collation_overload_total{chain=\"master\",reason=\"dispatch_queue\"} 0.000000\n"
+      "collation_overload_total{chain=\"master\",reason=\"unknown\"} 0.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"block_limits\"} 0.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"out_msg_queue\"} 0.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"long_collation\"} 1.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"dispatch_queue\"} 1.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"unknown\"} 1.000000\n",
+      render(metrics, ""));
+}
+
+TEST(Metrics, BlockProcessingMetricsRenderEveryPhase) {
+  constexpr std::array collation_phases = {
+      "preinit",
+      "queue_cleanup",
+      "prelim_storage_stat",
+      "trx_tvm",
+      "trx_storage_stat",
+      "trx_other",
+      "final_storage_stat",
+      "enqueue_new_messages",
+      "combine_account_transactions",
+      "create_shard_state",
+      "create_block",
+      "create_collated_data",
+      "create_block_candidate",
+  };
+  constexpr std::array validation_phases = {
+      "unpack_block_candidate",
+      "process_mc_state",
+      "trx_tvm",
+      "trx_storage_stat",
+      "trx_other",
+      "check_transactions_other",
+      "unpack_state",
+      "validate_block_tlb",
+      "unpack_block_data",
+      "precheck_account_updates",
+      "precheck_account_transactions",
+      "precheck_msg_queue",
+      "unpack_dispatch_queue",
+      "check_in_msg_descr",
+      "check_out_msg_descr",
+      "check_dispatch_queue",
+      "check_processed_upto",
+      "check_in_queue",
+      "check_new_state",
+  };
+
+  BlockProcessingMetrics metrics;
+  metrics.add_collation(BlockChain::master, BlockResult::ok, 1.0, {.real = 1.0, .cpu = 1.0}, 1.0);
+  for (size_t i = 0; i < collation_phases.size(); ++i) {
+    metrics.add_collation_phase(BlockChain::master, BlockResult::ok, static_cast<CollationPhase>(i),
+                                {.real = 1.0, .cpu = 1.0});
+  }
+  metrics.add_validation(BlockChain::master, BlockResult::ok, 2.0, {.real = 1.0, .cpu = 1.0}, 1.0);
+  for (size_t i = 0; i < validation_phases.size(); ++i) {
+    metrics.add_validation_phase(BlockChain::master, BlockResult::ok, static_cast<ValidationPhase>(i),
+                                 {.real = 1.0, .cpu = 1.0});
+  }
+
+  auto out = render(metrics, "");
+  ASSERT_EQ(30u, count_of(out, "block_processing_seconds_total{operation=\"collate\""));
+  ASSERT_EQ(43u, count_of(out, "block_processing_seconds_total{operation=\"validate\""));
+  for (auto phase : collation_phases) {
+    ASSERT_TRUE(has_line(
+        out, PSTRING() << "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\""
+                       << phase << "\",clock=\"real\"} 1.000000"));
+  }
+  for (auto phase : validation_phases) {
+    ASSERT_TRUE(has_line(
+        out,
+        PSTRING() << "block_processing_seconds_total{operation=\"validate\",chain=\"master\",result=\"ok\",phase=\""
+                  << phase << "\",clock=\"cpu\"} 1.000000"));
+  }
 }
 
 TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {

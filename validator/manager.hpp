@@ -28,6 +28,7 @@
 #include "impl/ext-message-pool.hpp"
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
+#include "metrics/block-processing-metrics.h"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
@@ -782,6 +783,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::uint64 total_validated_blocks_master_ok_{0}, total_validated_blocks_master_error_{0};
   td::uint64 total_collated_blocks_shard_ok_{0}, total_collated_blocks_shard_error_{0};
   td::uint64 total_validated_blocks_shard_ok_{0}, total_validated_blocks_shard_error_{0};
+  metrics::BlockProcessingMetrics block_processing_metrics_;
 
   void log_collate_query_stats(CollationStats stats) override;
   void log_validate_query_stats(ValidationStats stats) override;

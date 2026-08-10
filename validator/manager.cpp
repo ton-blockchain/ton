@@ -3356,8 +3356,35 @@ td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {
-  if (stats.status.is_ok()) {
+  const auto chain = stats.block_id.is_masterchain() ? metrics::BlockChain::master : metrics::BlockChain::shard;
+  const auto result = stats.status.is_ok() ? metrics::BlockResult::ok : metrics::BlockResult::error;
+  block_processing_metrics_.add_collation(chain, result, stats.total_time, stats.work_time.total,
+                                          stats.wait_externals_time);
+  auto add_phase = [&](metrics::CollationPhase phase, const td::RealCpuTimer::Time &time) {
+    block_processing_metrics_.add_collation_phase(chain, result, phase, time);
+  };
+  add_phase(metrics::CollationPhase::preinit, stats.work_time.preinit);
+  add_phase(metrics::CollationPhase::queue_cleanup, stats.work_time.queue_cleanup);
+  add_phase(metrics::CollationPhase::prelim_storage_stat, stats.work_time.prelim_storage_stat);
+  add_phase(metrics::CollationPhase::trx_tvm, stats.work_time.trx_tvm);
+  add_phase(metrics::CollationPhase::trx_storage_stat, stats.work_time.trx_storage_stat);
+  add_phase(metrics::CollationPhase::trx_other, stats.work_time.trx_other);
+  add_phase(metrics::CollationPhase::final_storage_stat, stats.work_time.final_storage_stat);
+  add_phase(metrics::CollationPhase::enqueue_new_messages, stats.work_time.enqueue_new_messages);
+  add_phase(metrics::CollationPhase::combine_account_transactions, stats.work_time.combine_account_transactions);
+  add_phase(metrics::CollationPhase::create_shard_state, stats.work_time.create_shard_state);
+  add_phase(metrics::CollationPhase::create_block, stats.work_time.create_block);
+  add_phase(metrics::CollationPhase::create_collated_data, stats.work_time.create_collated_data);
+  add_phase(metrics::CollationPhase::create_block_candidate, stats.work_time.create_block_candidate);
+
+  if (result == metrics::BlockResult::ok) {
     ++(stats.block_id.is_masterchain() ? total_collated_blocks_master_ok_ : total_collated_blocks_shard_ok_);
+    if (stats.want_split) {
+      block_processing_metrics_.add_want_split(chain);
+    }
+    if (stats.overload_reason != 0) {
+      block_processing_metrics_.add_overload(chain, stats.overload_reason);
+    }
     write_session_stats(stats);
   } else {
     ++(stats.block_id.is_masterchain() ? total_collated_blocks_master_error_ : total_collated_blocks_shard_error_);
@@ -3365,6 +3392,32 @@ void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {
 }
 
 void ValidatorManagerImpl::log_validate_query_stats(ValidationStats stats) {
+  const auto chain = stats.block_id.is_masterchain() ? metrics::BlockChain::master : metrics::BlockChain::shard;
+  const auto result = stats.valid ? metrics::BlockResult::ok : metrics::BlockResult::error;
+  block_processing_metrics_.add_validation(chain, result, stats.total_time, stats.work_time.total, stats.actual_time);
+  auto add_phase = [&](metrics::ValidationPhase phase, const td::RealCpuTimer::Time &time) {
+    block_processing_metrics_.add_validation_phase(chain, result, phase, time);
+  };
+  add_phase(metrics::ValidationPhase::unpack_block_candidate, stats.work_time.unpack_block_candidate);
+  add_phase(metrics::ValidationPhase::process_mc_state, stats.work_time.process_mc_state);
+  add_phase(metrics::ValidationPhase::trx_tvm, stats.work_time.trx_tvm);
+  add_phase(metrics::ValidationPhase::trx_storage_stat, stats.work_time.trx_storage_stat);
+  add_phase(metrics::ValidationPhase::trx_other, stats.work_time.trx_other);
+  add_phase(metrics::ValidationPhase::check_transactions_other, stats.work_time.check_transactions_other);
+  add_phase(metrics::ValidationPhase::unpack_state, stats.work_time.unpack_state);
+  add_phase(metrics::ValidationPhase::validate_block_tlb, stats.work_time.validate_block_tlb);
+  add_phase(metrics::ValidationPhase::unpack_block_data, stats.work_time.unpack_block_data);
+  add_phase(metrics::ValidationPhase::precheck_account_updates, stats.work_time.precheck_account_updates);
+  add_phase(metrics::ValidationPhase::precheck_account_transactions, stats.work_time.precheck_account_transactions);
+  add_phase(metrics::ValidationPhase::precheck_msg_queue, stats.work_time.precheck_msg_queue);
+  add_phase(metrics::ValidationPhase::unpack_dispatch_queue, stats.work_time.unpack_dispatch_queue);
+  add_phase(metrics::ValidationPhase::check_in_msg_descr, stats.work_time.check_in_msg_descr);
+  add_phase(metrics::ValidationPhase::check_out_msg_descr, stats.work_time.check_out_msg_descr);
+  add_phase(metrics::ValidationPhase::check_dispatch_queue, stats.work_time.check_dispatch_queue);
+  add_phase(metrics::ValidationPhase::check_processed_upto, stats.work_time.check_processed_upto);
+  add_phase(metrics::ValidationPhase::check_in_queue, stats.work_time.check_in_queue);
+  add_phase(metrics::ValidationPhase::check_new_state, stats.work_time.check_new_state);
+
   if (stats.valid) {
     ++(stats.block_id.is_masterchain() ? total_validated_blocks_master_ok_ : total_validated_blocks_shard_ok_);
   } else {
@@ -3509,6 +3562,7 @@ void ValidatorManagerImpl::collect_chain_metrics(metrics::Context ctx) {
     snapshot.validator_groups = metrics::ChainSnapshot::Groups{.master = count.masterchain, .shard = count.shard};
   }
   ctx.collect(snapshot);
+  ctx.collect(block_processing_metrics_);
 }
 
 td::actor::Task<> ValidatorManagerImpl::collect_ext_message_pool_metrics(metrics::Context ctx) {
