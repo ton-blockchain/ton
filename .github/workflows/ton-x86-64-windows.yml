@@ -51,12 +51,18 @@ jobs:
           copy assembly\native\build-windows-2022.bat .
           call build-windows-github-2022.bat Enterprise
           if errorlevel 1 exit /b %errorlevel%
+
+      - name: Print ccache stats
+        run: |
           where ccache >nul 2>nul
           if errorlevel 1 (
             echo ccache not found, skipping stats
-          ) else (
-            ccache -sp
-            if errorlevel 1 echo ccache stats failed, ignoring
+            exit /b 0
+          )
+          ccache -sp
+          if errorlevel 1 (
+            echo ccache stats failed, ignoring
+            exit /b 0
           )
 
 #      - name: Run Tests
