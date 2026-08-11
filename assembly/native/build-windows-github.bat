@@ -1,4 +1,11 @@
 call "C:\Program Files\Microsoft Visual Studio\2022\%1\VC\Auxiliary\Build\vcvars64.bat"
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
+IF ERRORLEVEL 1 (
+  echo Can't initialize Visual Studio 2022 environment
+  exit /b 1
+)
+
 call build-windows.bat -t
-IF %errorlevel% NEQ 0 exit /b %errorlevel%
+IF ERRORLEVEL 1 (
+  echo Windows build failed
+  exit /b 1
+)
