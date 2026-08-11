@@ -193,18 +193,16 @@ std::set<adnl::AdnlNodeIdShort> ValidatorRegistryWatcher::get_all_collators(Ref<
   }
   auto contract_data = r_data.move_as_ok();
 
-  std::set<adnl::AdnlNodeIdShort> validator_adnl_ids;
+  std::set<PublicKeyHash> all_validator_keys;
   for (int next : {-1, 0, 1}) {
     auto val_set = mc_state->get_total_validator_set(next);
     if (val_set.not_null()) {
       for (auto& val : val_set->export_vector()) {
-        adnl::AdnlNodeIdShort adnl_id;
-        if (val.addr.is_zero()) {
-          adnl_id = adnl::AdnlNodeIdShort{PublicKey{pubkeys::Ed25519{val.key}}.compute_short_id()};
-        } else {
-          adnl_id = adnl::AdnlNodeIdShort{val.addr};
+        PublicKeyHash key = PublicKey{pubkeys::Ed25519{val.key}}.compute_short_id();
+        all_validator_keys.insert(key);
+        if (!val.addr.is_zero()) {
+          all_validator_keys.emplace(val.addr);
         }
-        validator_adnl_ids.insert(adnl_id);
       }
     }
   }
@@ -227,7 +225,7 @@ std::set<adnl::AdnlNodeIdShort> ValidatorRegistryWatcher::get_all_collators(Ref<
         }
         auto entry = r_entry.move_as_ok();
         for (const adnl::AdnlNodeIdShort& collator_id : entry.collators) {
-          if (!validator_adnl_ids.contains(collator_id)) {
+          if (!all_validator_keys.contains(collator_id.pubkey_hash())) {
             all_collators.insert(collator_id);
           }
         }
