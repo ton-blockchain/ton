@@ -827,8 +827,11 @@ TEST(Metrics, ChainSnapshotDefaultOmitsOptionalSamples) {
 TEST(Metrics, ChainSnapshotDistinguishesAbsentFromZero) {
   ChainSnapshot snapshot{
       .masterchain_seqno = 0,
+      .masterchain_block_age_seconds = std::nullopt,
       .shardclient_seqno = 0,
       .active_shards = 0,
+      .collated_blocks = {},
+      .validated_blocks = {},
       .validator_groups = ChainSnapshot::Groups{},
   };
   EXPECT_EQ(
