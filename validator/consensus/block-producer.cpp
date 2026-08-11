@@ -254,6 +254,9 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
   void update_collators_list() {
     auto& bus = *owning_bus();
+    if (bus.shard.is_masterchain()) {
+      return;
+    }
     auto list = bus.validator_opts.load()->get_collators_list();
     if (list == collators_list_) {
       return;
