@@ -102,7 +102,7 @@ struct Context {
 };
 
 std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<block::ValidatorSet> &val_set,
-                                          const NewConsensusConfig &config) {
+                                          const NewConsensusConfig &config, const ShardIdFull &shard) {
   std::vector<GroupIdentity> identities;
   std::set<adnl::AdnlNodeIdShort> added_adnl_ids;
 
@@ -124,13 +124,15 @@ std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<bloc
     LOG(ERROR) << "Multiple known validator keys are in an active validator set. This is unsupported.";
   }
 
-  for (const auto &collator_id : ctx.all_collators) {
-    if (ctx.deps.local_collator_adnl_ids.contains(collator_id) && added_adnl_ids.insert(collator_id).second) {
-      identities.push_back({
-          .adnl_id = collator_id,
-          .is_collator = true,
-          .suffix_db = !identities.empty() || config.use_new_db_names(),
-      });
+  if (!shard.is_masterchain()) {
+    for (const auto &collator_id : ctx.all_collators) {
+      if (ctx.deps.local_collator_adnl_ids.contains(collator_id) && added_adnl_ids.insert(collator_id).second) {
+        identities.push_back({
+            .adnl_id = collator_id,
+            .is_collator = true,
+            .suffix_db = !identities.empty() || config.use_new_db_names(),
+        });
+      }
     }
   }
 
@@ -167,7 +169,7 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
   auto config = ctx.state.get_new_consensus_config(shard.workchain);
 
   std::vector<GroupIdentity> identities;
-  for (auto &identity : identities_for(ctx, validator_set, config)) {
+  for (auto &identity : identities_for(ctx, validator_set, config, shard)) {
     if (identity.is_validator() || config.enable_block_sync() || config.observers_in_private_overlay()) {
       identities.push_back(identity);
     }
@@ -605,12 +607,12 @@ class NetworkStateImpl final : public NetworkState {
         .overlay_members = overlay_members_of(state, deps, current_collators_),
         .unsafe_rotate_id = rotate_id,
         .should_manage_groups = state.get_seqno() >= start_seqno_,
+        .all_collators = current_collators_,
     };
 
     masterchain_.update(ctx, masterchain_target(state), masterchain_future_shards(state));
     if (state.get_seqno() != 0) {
       // FIXME: We can potentially require zerostates to have ShardHashes populated instead.
-      ctx.all_collators = current_collators_;
       basechain_.update(ctx, basechain_target(state), basechain_future_shards(state));
     }
 

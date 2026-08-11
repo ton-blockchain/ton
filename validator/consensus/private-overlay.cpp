@@ -55,9 +55,11 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       overlay_nodes_tl.push_back(peer.short_id.bits256_value());
       authorized_keys.emplace(peer.short_id, max_broadcast_size);
     }
-    for (const adnl::AdnlNodeIdShort& collator_id : bus.all_collators) {
-      if (authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size).second) {
-        overlay_nodes_.push_back(collator_id);
+    if (!bus.shard.is_masterchain()) {
+      for (const adnl::AdnlNodeIdShort& collator_id : bus.all_collators) {
+        if (authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size).second) {
+          overlay_nodes_.push_back(collator_id);
+        }
       }
     }
     if (bus.is_validator()) {
