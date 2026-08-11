@@ -30,6 +30,7 @@
 
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/StringBuilder.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/common.h"
 #include "td/utils/logging.h"
 #include "td/utils/misc.h"
@@ -595,6 +596,7 @@ Result<Stat> FileFd::stat() const {
 }
 
 Status FileFd::sync() {
+  TD_PERF_COUNTER(fd_sync);
   CHECK(!empty());
 #if TD_PORT_POSIX
 #if TD_DARWIN

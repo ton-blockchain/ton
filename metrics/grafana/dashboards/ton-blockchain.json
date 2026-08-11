@@ -1,0 +1,4165 @@
+{
+  "uid": "ton-blockchain",
+  "title": "TON Blockchain",
+  "tags": [
+    "ton",
+    "blockchain"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 7,
+  "refresh": "10s",
+  "graphTooltip": 1,
+  "fiscalYearStartMonth": 0,
+  "links": [],
+  "liveNow": false,
+  "weekStart": "",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "description": "Prometheus scraping the TON node metrics exporters",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "name": "job",
+        "label": "TON jobs (one chain)",
+        "type": "textbox",
+        "description": "Prometheus scrape job name or regex. Match jobs from exactly one blockchain: chain-level rates reconcile replicas but cannot combine different networks. The textbox remains usable when the whole job is down.",
+        "query": "ton",
+        "current": {
+          "selected": true,
+          "text": "ton",
+          "value": "ton"
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": true,
+            "text": "ton",
+            "value": "ton"
+          }
+        ],
+        "skipUrlSync": false
+      },
+      {
+        "name": "slot_seconds",
+        "label": "Slot (s)",
+        "type": "textbox",
+        "description": "Expected production slot in seconds for the selected blockchain. Used only for target guides and collation-budget ratios; it never changes the measured block rate. Set it from the deployment's chain configuration.",
+        "query": "0.4",
+        "current": {
+          "selected": true,
+          "text": "0.4",
+          "value": "0.4"
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": true,
+            "text": "0.4",
+            "value": "0.4"
+          }
+        ],
+        "skipUrlSync": false
+      },
+      {
+        "name": "instance",
+        "label": "instance",
+        "type": "query",
+        "description": "Targets in the selected TON scrape jobs; based on up so down targets remain selectable.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(up{job=~\"$job\"}, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "definition": "label_values(up{job=~\"$job\"}, instance)",
+        "hide": 0,
+        "options": [],
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1
+      },
+      {
+        "name": "chain",
+        "label": "Chain",
+        "description": "Select exactly one chain family. The value maps masterchain to chain=master/workchain=-1 and shardchain to chain=shard/workchain=0 so the two never share a graph.",
+        "type": "custom",
+        "query": "Masterchain : master|-1, Shardchain : shard|0",
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "Shardchain",
+          "value": "shard|0"
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": false,
+            "text": "Masterchain",
+            "value": "master|-1"
+          },
+          {
+            "selected": true,
+            "text": "Shardchain",
+            "value": "shard|0"
+          }
+        ],
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "panels": [],
+      "title": "Chain state",
+      "type": "row"
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Masterchain block rate",
+      "description": "Canonical masterchain-head advance over the last minute, evaluated now: the highest applied seqno observed across the selected jobs is compared with the highest head one minute earlier. This is one chain-level value, intentionally independent of Instance and validator count. During a mixed-version rollout, it uses this head only when every applied-block reporter also exports it; otherwise it falls back to the median duplicate applied-block stream. The measured rate is objective chain state; Slot (s) supplies only configured target context (target = 1 / slot).",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) and on () (count(max by (job, instance) (ton_masterchain_seqno{job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"-1\",job=~\"$job\"})))) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Masterchain age",
+      "description": "Worst positive age of the last applied masterchain block across nodes (worst node). A synced node tracks block time closely; a climbing value means a stalled or syncing node. Yellow at 30 s and red at 120 s are conservative deployment-neutral guides; tighten them for faster networks. Negative/future clock skew is clamped to zero, so this is a staleness signal rather than a clock-skew alarm.",
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Shard lag",
+      "description": "How many masterchain blocks the shard client trails the masterchain by (ton_masterchain_seqno - ton_shardclient_seqno, worst node). This is basechain processing lag: 0-2 is normal transient; sustained growth means shard blocks are applied slower than masterchain progresses, and basechain state (accounts, liteserver answers) goes stale even while MC block age looks healthy. Shard topology and this node's validator-group membership are exposed separately by ton_active_shards and ton_validator_groups.",
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Shardchain aggregate block rate",
+      "description": "Canonical shard blocks applied over the last minute, aggregated across active shards. There is no single shardchain seqno, so each healthy node supplies the same canonical applied-block stream and the median reconciles those duplicate observations. This chain-level value intentionally ignores Instance and is never summed or normalized by validator count.",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Shard collation budget",
+      "description": "Elapsed collation time per produced shard block over the last minute, evaluated now and divided by the configured Slot (s). Numerator and denominator are fleet sums because exactly one node collates each block. This chain-wide signal follows Job but intentionally ignores Instance because collators rotate. At 100%, collation alone exhausts the configured slot. Excludes wait_externals: time awaiting the external-message queue, including deliberate slot pacing and queue fetches. It is idle wait rather than measured collation work; on a fast build it can dominate elapsed time and fake a full budget. No successful collation in the window renders No data.",
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.75
+              },
+              {
+                "color": "red",
+                "value": 1.0
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"total\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[1m])) - sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"wait_externals\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[1m]))) / (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[1m])) > 0) / ${slot_seconds:raw}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Shard candidates discarded (10m)",
+      "description": "Fleet-wide 10-minute estimate of successfully collated shard candidates that did not become applied blocks. Applied rate is the median across reporting nodes; successful collations are summed across rotating collators. This signal follows the job selector but intentionally ignores the instance selector, because selecting only part of the rotating collator set makes the comparison invalid. No successful collation or incomplete collated-block coverage during a rolling upgrade renders No data, not a false 0%.",
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.15
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(1 - quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[10m]))) / sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])), 0) and on () (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])) > 0) and on () (count(max by (job, instance) (ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"0\",job=~\"$job\"})))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 104,
+      "panels": [],
+      "title": "Chain state history",
+      "type": "row"
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Masterchain block rate \u2014 history",
+      "description": "Canonical masterchain-head advance over a rolling one-minute window: first take the highest applied seqno observed across the selected jobs, then calculate its change. This is one chain-level series, intentionally independent of Instance and validator count. During a mixed-version rollout, it uses this head only when every applied-block reporter also exports it; otherwise it falls back to the median duplicate applied-block stream. The dashed guide is the configured target (1 / Slot (s)); it does not alter the measured rate. The card above shows the same measured value at now.",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "blocks/s",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "configured target"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) and on () (count(max by (job, instance) (ton_masterchain_seqno{job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"-1\",job=~\"$job\"})))) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "chain"
+        },
+        {
+          "refId": "B",
+          "expr": "vector(1 / ${slot_seconds:raw})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "configured target"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Masterchain age \u2014 history",
+      "description": "Positive age of the last applied masterchain block across selected reporting targets: worst (max), p95, average, and minimum at each point. A max-only rise isolates a lagging node; p95/average rising with it points to a fleet-wide stall. Missing targets are excluded, and with a small selection p95 nearly follows max. An offline target disappears; check the Overview offline-target card alongside this panel. Negative/future clock skew is clamped to zero, so minimum is not a clock-skew alarm. Yellow at 30 s and red at 120 s are conservative deployment-neutral guides; tighten them for faster networks. The card above remains the worst value at now.",
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          },
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "age",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "worst (max)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "light-blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "minimum"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "worst (max)"
+        },
+        {
+          "refId": "B",
+          "expr": "quantile(0.95, clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "avg(clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "average"
+        },
+        {
+          "refId": "D",
+          "expr": "min(clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "minimum"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "timeseries",
+      "title": "Shardchain aggregate block rate \u2014 history",
+      "description": "Canonical shard blocks applied over a rolling one-minute window, aggregated across active shards. There is no single shardchain seqno, so the median only reconciles duplicate observations from healthy nodes; it does not average different chains. This chain-level series intentionally ignores Instance and validator count. The card above shows the same value at now.",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "blocks/s",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "chain"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "timeseries",
+      "title": "Shard lag \u2014 history",
+      "description": "Masterchain blocks by which the shard client trails, shown as worst (max), p95, average, and minimum across selected reporting targets at each point. A max-only rise isolates one lagging node; p95/average rising with it means basechain processing is broadly behind. Missing targets and targets lacking either gauge are excluded; with a small selection p95 nearly follows max. An offline target disappears; check the Overview offline-target card alongside this panel. Sustained growth makes basechain state stale even when masterchain age is healthy. The card above remains the worst value at now.",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "MC blocks",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "worst (max)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 3
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "average"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "light-blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "minimum"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "worst (max)"
+        },
+        {
+          "refId": "B",
+          "expr": "quantile(0.95, clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "avg(clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "average"
+        },
+        {
+          "refId": "D",
+          "expr": "min(clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "minimum"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "timeseries",
+      "title": "Shard collation budget \u2014 history",
+      "description": "Elapsed collation time per produced shard block over a rolling one-minute window, divided by the configured Slot (s). Numerator and denominator are fleet sums because exactly one node collates each block. This chain-wide signal follows Job but intentionally ignores Instance because collators rotate. At 100%, collation alone exhausts the configured slot. The card above is the value at now; this panel shows the same signal over the selected dashboard range. Excludes wait_externals: time awaiting the external-message queue, including deliberate slot pacing and queue fetches. It is idle wait rather than measured collation work; on a fast build it can dominate elapsed time and fake a full budget. No successful collation in the window renders No data.",
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.75
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "slot budget",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"total\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[1m])) - sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"wait_externals\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[1m]))) / (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[1m])) > 0) / ${slot_seconds:raw}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "value"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "timeseries",
+      "title": "Shard candidates discarded (10m) \u2014 history",
+      "description": "Fleet-wide 10-minute estimate of successfully collated shard candidates that did not become applied blocks. Applied rate is the median across reporting nodes; successful collations are summed across rotating collators. This signal follows the job selector but intentionally ignores the instance selector, because selecting only part of the rotating collator set makes the comparison invalid. No successful collation or incomplete collated-block coverage during a rolling upgrade renders No data, not a false 0%. The card above is the value at now; this panel shows the same signal over the selected dashboard range.",
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.15
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          },
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "discarded share",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "min",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(1 - quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[10m]))) / sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])), 0) and on () (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])) > 0) and on () (count(max by (job, instance) (ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"0\",job=~\"$job\"})))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "value"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 101,
+      "panels": [],
+      "title": "Block activity",
+      "type": "row"
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Block flow (chain-wide) \u2014 ${chain:text}",
+      "description": "Chain-wide production flow for the selected jobs; this panel intentionally ignores Instance because collators rotate. The node-applied line uses a median only to reconcile duplicate observer streams; unlike the primary masterchain rate above, it can expose local apply timing during lag or catch-up. Collations are summed across rotating collators, and validations are divided by active validators so the line stays comparable when validator count changes. A persistent collated-ok gap above node-applied estimates discarded candidates.",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "blocks/s (events/s for validated)",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "node-applied (replica median)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collated ok"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "validated ok / validator"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collated error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "validated error / validator"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\"}[$__rate_interval])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "node-applied (replica median)"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (result) (rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",job=~\"$job\"}[$__rate_interval]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "collated {{result}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (result) (rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",job=~\"$job\"}[$__rate_interval])) / scalar(clamp_min(count(max by (job, instance) (ton_validator_groups{chain=~\"${chain:raw}\",job=~\"$job\"} > 0)), 1))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "validated {{result}} / validator"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Production problems (% of blocks) \u2014 ${chain:text}",
+      "description": "Problems as a share of blocks \u2014 not durations and not raw event rates. Collation/validation errors are failed shares of attempts. overload: long_collation marks blocks that hit the collator deadline. want_split is a weighted-history decision; overload reasons are only the current block's contribution, not a one-to-one cause. Durations are below. Scope: chain-wide sums across the selected jobs; Instance is intentionally ignored because collators rotate.",
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "events/s",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "max": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collation errors"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "validation errors"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "A",
+          "legendFormat": "collation errors",
+          "expr": "sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"error\",job=~\"$job\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",job=~\"$job\"}[$__rate_interval])) > 0)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "B",
+          "legendFormat": "validation errors",
+          "expr": "sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",result=\"error\",job=~\"$job\"}[$__rate_interval])) / (sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",job=~\"$job\"}[$__rate_interval])) > 0)"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "C",
+          "legendFormat": "overload: {{reason}}",
+          "expr": "sum by (reason) (rate(ton_collation_overload_total{chain=~\"${chain:raw}\",job=~\"$job\"}[$__rate_interval])) / on () group_left () (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\"}[$__rate_interval])) > 0) > 0"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "D",
+          "legendFormat": "want_split",
+          "expr": "sum(rate(ton_collation_want_split_total{chain=~\"${chain:raw}\",job=~\"$job\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\"}[$__rate_interval])) > 0) > 0"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 102,
+      "panels": [],
+      "title": "Block production \u2014 where the time goes",
+      "type": "row"
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Collation time per block vs slot \u2014 ${chain:text}",
+      "description": "Elapsed collation time per produced block. Per-validator series show only windows where that node held the collation slot \u2014 sparse dots during rotation or low load are normal, and gaps after restarts are real. The solid \"any collator (chain)\" line is the continuous chain-wide value over ALL collators \u2014 it deliberately ignores the instance filter (per-validator dots respect it), so a filtered view cannot fake a chain outage; if that line stops while blocks flow, something is actually wrong. Dashed red = the configured Slot (s): any collator above it cannot sustain that target block rate. Excludes wait_externals: time awaiting the external-message queue, including deliberate slot pacing and queue fetches. It is idle wait rather than measured collation work; on a fast build it can dominate elapsed time and fake a full budget.",
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "seconds / block",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "slot budget"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "any collator (chain)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "light-blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by (job, instance) (rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"elapsed\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) - sum by (job, instance) (rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",phase=\"wait_externals\",clock=\"elapsed\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{job}} / {{instance}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "refId": "T",
+          "legendFormat": "any collator (chain)",
+          "expr": "(sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[$__rate_interval])) - sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",phase=\"wait_externals\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[$__rate_interval]))) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\"}[$__rate_interval])) > 0)"
+        },
+        {
+          "refId": "B",
+          "expr": "vector(${slot_seconds:raw})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "slot budget"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Collation pipeline (stacked per block) \u2014 ${chain:text}",
+      "description": "Cumulative end-to-end collation time per successful block. The colored areas are mutually exclusive outer pipeline phases; active other is attributed real work outside those timers, and waiting is elapsed minus real work. The thick total (elapsed) line is the top of the complete stack; total (real) marks the active-work boundary. Nested transaction and preliminary-storage timers are deliberately kept in the neighboring panel so they are not double-counted here. No successful collation in the window renders No data.",
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 18,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "seconds / block",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total (elapsed)"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total (real)"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (phase) (rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|combine_account_transactions|final_storage_stat|create_shard_state|create_block|create_collated_data|create_block_candidate\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / scalar(clamp_min(sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])), 1e-9)) and on () (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{phase}}"
+        },
+        {
+          "refId": "O",
+          "expr": "clamp_min((sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) - sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|combine_account_transactions|final_storage_stat|create_shard_state|create_block|create_collated_data|create_block_candidate\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0), 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "active other"
+        },
+        {
+          "refId": "W",
+          "expr": "clamp_min((sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"elapsed\",result=\"ok\",phase=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) - sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0), 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "waiting"
+        },
+        {
+          "refId": "R",
+          "expr": "sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "total (real)"
+        },
+        {
+          "refId": "T",
+          "expr": "sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"elapsed\",result=\"ok\",phase=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "total (elapsed)"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Validation time per block \u2014 ${chain:text}",
+      "description": "Time per successful validation for the selected chain. 'total (elapsed)' is end-to-end wall time including waiting; 'total (real)' is attributed work time; the other lines are the top real-clock phases. Scopes can nest and work can run in parallel, so compare phases with the totals but do not sum them. No successful validation in the window renders No data.",
+      "gridPos": {
+        "x": 12,
+        "y": 41,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "seconds / validation",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total (elapsed)"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "total (real)"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ton_block_processing_seconds_total{operation=\"validate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"elapsed\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "total (elapsed)"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ton_block_processing_seconds_total{operation=\"validate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"real\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "total (real)"
+        },
+        {
+          "refId": "C",
+          "expr": "(sum by (phase) (rate(ton_block_processing_seconds_total{operation=\"validate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase!=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / scalar(clamp_min(sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])), 1e-9)) and on () (sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (phase) topk(6, sum by (phase) (increase(ton_block_processing_seconds_total{operation=\"validate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase!=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{phase}}"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "type": "timeseries",
+      "title": "Collation nested work (per block) \u2014 ${chain:text}",
+      "description": "Nested collation work that must not be added to the outer pipeline stack. The transaction TVM, storage-stat, and other timers form an additive transaction breakdown; transaction total is its top boundary. Preliminary storage is an independently nested hotspot and is drawn as a dashed line rather than stacked. No successful collation in the window renders No data.",
+      "gridPos": {
+        "x": 12,
+        "y": 50,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 18,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "seconds / block",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "transaction total"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "dark-red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "preliminary storage"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "light-blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (phase) (rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase=~\"trx_tvm|trx_storage_stat|trx_other\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / scalar(clamp_min(sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])), 1e-9)) and on () (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{phase}}"
+        },
+        {
+          "refId": "T",
+          "expr": "sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase=~\"trx_tvm|trx_storage_stat|trx_other\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "transaction total"
+        },
+        {
+          "refId": "P",
+          "expr": "sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase=\"prelim_storage_stat\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "preliminary storage"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Work per block \u2014 ${chain:text}",
+      "description": "Work carried by an average successfully collated block for the selected chain. Transactions and externals offered use the left axis; gas uses the right. Offered means presented to the collator, not necessarily included. Flat work with a falling block rate points to time or coordination rather than block load. No successful collation in the window renders No data.",
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "per block",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "gas / block"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "gas / block"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ton_collation_transactions_total{chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "transactions / block"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ton_collation_ext_messages_offered_total{chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "externals offered / block"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(ton_collation_gas_total{chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "gas / block"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "Bytes per block \u2014 ${chain:text}",
+      "description": "Average serialized block and collated-data size for the selected chain. If collated data grows, correlate it with create_collated_data in the phase panel. No successful collation in the window renders No data.",
+      "gridPos": {
+        "x": 12,
+        "y": 59,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "bytes / block",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ton_collation_block_bytes_total{chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "block bytes"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ton_collation_collated_data_bytes_total{chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_collated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "collated data bytes"
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "type": "timeseries",
+      "title": "Block/state/storage perf load (worst node)",
+      "description": "Worst per-node TD_PERF_COUNTER elapsed load for consensus-signature and low-level block, state, cell, CellDB, RocksDB commit, and file-sync operations relevant to production stalls. One unit means one scope-equivalent continuously elapsed on a node; blocking and descheduling count, so this is not OS CPU load. Up to 17 registered matching operations are shown without top-k truncation; untouched sites have no series. Scopes may be nested and also cover work outside collation/validation, so do not add the lines and correlate them with the phase panels above.",
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "elapsed s/s",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "sortBy": "Max",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (op) (sum by (op, job, instance) (rate(ton_perf_op_ticks_total{op=~\"check_signature_consensus|apply_block_to_state(_fast)?|serialize_state(_to_file)?|transaction_storage_stat_[ab]|cell_(load|store|store_refcnt_diff)|celldb_(store_cell|store_cell_multi|prepare_stats|gc_cell)|rocksdb_commit_(write_batch|transaction)|fd_sync\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{op}}"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 78
+      },
+      "id": 105,
+      "panels": [],
+      "title": "Block propagation \u2014 source races",
+      "type": "row"
+    },
+    {
+      "id": 39,
+      "type": "timeseries",
+      "title": "First-arrival winner / applied blocks (recent) \u2014 ${chain:text}",
+      "description": "Which source reached each selected node first for blocks that later became applied. Each node contributes one winner per applied block; the query uses Grafana's scrape-safe recent rate window and then averages nodes, so changing validator count does not inflate it. The window is normally about 20 seconds for a 5-second scrape and one minute for a 15-second scrape. The legend is sorted by mean: the first source usually won the same-block race. This is not latency in seconds, and candidate receipt can naturally win before finality. Download, local acceptance, and unknown remain visible as fallback paths.",
+      "gridPos": {
+        "x": 0,
+        "y": 79,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "share of applied blocks",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg by (source) (sum by (source, job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / on (job, instance) group_left() (sum by (job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{source}}"
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "timeseries",
+      "title": "Source arrivals / applied blocks (recent) \u2014 ${chain:text}",
+      "description": "How often each distinct source was observed per applied block over Grafana's scrape-safe recent rate window, computed per node and then averaged. The window is normally about 20 seconds for a 5-second scrape and one minute for a 15-second scrape. 100% means a node usually saw that source for every applied block. Sources overlap, so the lines need not sum to 100%. Late arrivals count only while the block remains in the 1000-entry receive-stat LRU, and window boundaries can briefly push a source above 100%. High coverage with a low first-arrival share means the source usually loses the race.",
+      "gridPos": {
+        "x": 0,
+        "y": 89,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "arrivals / applied block",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg by (source) (sum by (source, job, instance) (rate(ton_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / on (job, instance) group_left() (sum by (job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{source}}"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 99
+      },
+      "id": 103,
+      "panels": [],
+      "title": "External messages \u2014 admission, execution, removal",
+      "type": "row"
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Accepted /s (global)",
+      "description": "Accepted external-submission rate over the last minute, evaluated now and averaged across nodes. It combines new pool entries with priority upgrades, preserving the pre-split meaning during a rolling upgrade. Admission has no chain label, so compare it with selected-chain execution only as context.",
+      "gridPos": {
+        "x": 0,
+        "y": 100,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(sum by (job, instance) (rate(ton_mempool_ext_admission_total{outcome=~\"accepted|reprioritized\",job=~\"$job\",instance=~\"$instance\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Applied /s (synced) \u2014 ${chain:text}",
+      "description": "External messages observed in applied blocks for the selected chain over the last minute. The median excludes reporters whose absolute masterchain age is at least 120 seconds; shardchain additionally requires shard lag of at most two blocks. This limits replay spikes from syncing nodes and excludes future-skewed chain clocks. The counter is still a replicated node observation and includes catch-up replay; it is not an objective protocol-wide chain counter.",
+      "gridPos": {
+        "x": 5,
+        "y": 100,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile(0.5, (rate(ton_applied_ext_messages_total{chain=\"master\",chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[1m]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120)) or (rate(ton_applied_ext_messages_total{chain=\"shard\",chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[1m]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120) and on (job, instance) (clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0) <= 2)))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Backlog (worst node)",
+      "description": "External messages pending in the busiest selected mempool. Green below 1k, yellow at 1k, red at 5k; tune thresholds to the deployment. Use the rejection and removal panels below to explain growth.",
+      "gridPos": {
+        "x": 10,
+        "y": 100,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 5000
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "Oldest pending",
+      "description": "Age of the oldest pending external message (worst node). Messages carry a 600s TTL: red (300s and beyond) means messages are about to expire unserved; values past 600s are already-dead entries waiting for the periodic sweep (roughly every 250s), which produces cliff-drops. Reprioritization resets an entry's age.",
+      "gridPos": {
+        "x": 14,
+        "y": 100,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "External work in failed attempts (10m)",
+      "description": "10-minute share of selected-chain external executions that occurred in failed collation attempts. This measures work discarded by automatic retries; successful candidates later rejected by consensus are not included. No external execution in the window renders No data.",
+      "gridPos": {
+        "x": 19,
+        "y": 100,
+        "w": 5,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.15
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ton_collation_ext_messages_total{chain=~\"${chain:raw}\",outcome=\"included\",result=\"error\",job=~\"$job\",instance=~\"$instance\"}[10m])) / (sum(rate(ton_collation_ext_messages_total{chain=~\"${chain:raw}\",outcome=\"included\",job=~\"$job\",instance=~\"$instance\"}[10m])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "External flow /s \u2014 ${chain:text}",
+      "description": "Correlated stages, not a conservation funnel. Accepted is global admission averaged across nodes. Included is selected-chain work in successful candidates; failed-attempt execution is shown next door. Applied is the median replicated observation from reporters whose absolute masterchain age is under 120 seconds; shardchain additionally requires shard lag of at most two blocks. It still includes catch-up replay and is not an objective chain counter. Use backlog and local removals to distinguish waiting from eviction.",
+      "gridPos": {
+        "x": 0,
+        "y": 104,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "messages/s",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "accepted (per node avg)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "included in candidate (ok attempts)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "applied observation (synced median)"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(sum by (job, instance) (rate(ton_mempool_ext_admission_total{outcome=~\"accepted|reprioritized\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "accepted (per node avg)"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ton_collation_ext_messages_total{chain=~\"${chain:raw}\",outcome=\"included\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "included in candidate (ok attempts)"
+        },
+        {
+          "refId": "C",
+          "expr": "quantile(0.5, (rate(ton_applied_ext_messages_total{chain=\"master\",chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120)) or (rate(ton_applied_ext_messages_total{chain=\"shard\",chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120) and on (job, instance) (clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0) <= 2)))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "applied observation (synced median)"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "External admission & collation outcomes /s \u2014 ${chain:text}",
+      "description": "Admission/storage outcomes are global per-node averages and respect Instance; pool_full and address_full passed validation but were not stored locally. Collation outcomes are selected-chain sums across all collators in the selected jobs and intentionally ignore Instance: rejected did not make it into the candidate (normally a TVM rejection or an attempt-aborting processing failure), filtered failed registration, skipped_backpressure stayed pending, and included in failed attempt is discarded execution work. Zero-valued series are hidden.",
+      "gridPos": {
+        "x": 12,
+        "y": 104,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "messages/s",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg by (outcome) (rate(ton_mempool_ext_admission_total{outcome!~\"accepted|duplicate|reprioritized\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "admission/storage: {{outcome}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (outcome) (rate(ton_collation_ext_messages_total{chain=~\"${chain:raw}\",outcome!=\"included\",job=~\"$job\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "collation: {{outcome}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(ton_collation_ext_messages_total{chain=~\"${chain:raw}\",outcome=\"included\",result=\"error\",job=~\"$job\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "collation: included in failed attempt"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Local mempool evictions /s (5m, worst node per reason)",
+      "description": "Why entries left selected pools without an applied cleanup: expired hit the 600s TTL; rejected_final exhausted its ~3 retry postpones; pool_pressure was evicted while its priority level was at the soft limit; filtered could not be registered by collation (for example, duplicate or wrong shard). Averaged over 5m windows because evictions are batch events \u2014 the TTL sweep runs only every 250s per chain, so shorter windows render each sweep as an isolated spike whose height depends on window length, not on the loss rate. Sustained expired means at least one selected pool held messages past TTL without observing them applied; correlate with applied throughput and other nodes before calling it network-wide loss. Scope: worst selected node independently per reason; the lines need not come from one pool.",
+      "gridPos": {
+        "x": 0,
+        "y": 113,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "messages/s",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "expired"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (reason) (rate(ton_mempool_ext_removed_total{reason!=\"applied\",job=~\"$job\",instance=~\"$instance\"}[5m])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "External mempool backlog",
+      "description": "Worst selected node at each point. Backlog is all pending externals; oldest age uses the right axis. The TTL is 600s and cleanup runs periodically, so both lines can cliff-drop after a sweep. Reprioritization resets an entry's age.",
+      "gridPos": {
+        "x": 12,
+        "y": 113,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "messages",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "oldest age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.axisLabel",
+                "value": "age"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "backlog"
+        },
+        {
+          "refId": "B",
+          "expr": "max(ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "oldest age"
+        }
+      ]
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    }
+  ]
+}

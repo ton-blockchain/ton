@@ -4,6 +4,17 @@
 namespace td {
 namespace actor {
 
+namespace detail {
+
+// Shared validity guard for rdtsc-vs-monotonic calibration: returns 0 when the sample is
+// unusable (window too short, or the TSC regressed across threads) and the caller must fall
+// back to the static estimate. Single source so every calibration keeps the same guard set.
+td::uint64 calibration_elapsed_ticks(double elapsed_seconds, td::uint64 begin_ticks, td::uint64 current_ticks);
+
+double actor_stats_inv_ticks_per_second(double elapsed_seconds, td::uint64 begin_ticks, td::uint64 current_ticks);
+
+}  // namespace detail
+
 class ActorStats : public td::actor::Actor {
  public:
   ActorStats() {
@@ -23,7 +34,8 @@ class ActorStats : public td::actor::Actor {
     }
     double get_duration(double inv_ticks_per_second) const {
       if (first_) {
-        return std::max(1.0, static_cast<double>(Clocks::rdtsc() - first_ts_) * inv_ticks_per_second);
+        return std::max(1.0,
+                        static_cast<double>(core::elapsed_ticks(Clocks::rdtsc(), first_ts_)) * inv_ticks_per_second);
       }
       return 1.0;
     }

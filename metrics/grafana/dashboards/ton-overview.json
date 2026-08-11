@@ -1,0 +1,2647 @@
+{
+  "uid": "ton-overview",
+  "title": "TON Overview",
+  "tags": [
+    "ton",
+    "overview"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 11,
+  "refresh": "10s",
+  "graphTooltip": 1,
+  "fiscalYearStartMonth": 0,
+  "links": [],
+  "liveNow": false,
+  "weekStart": "",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "description": "Prometheus scraping the TON node metrics exporters",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "name": "job",
+        "label": "TON jobs (one chain)",
+        "type": "textbox",
+        "description": "Prometheus scrape job name or regex. Match jobs from exactly one blockchain: chain-level rates reconcile replicas but cannot combine different networks. The textbox remains usable when the whole job is down.",
+        "query": "ton",
+        "current": {
+          "selected": true,
+          "text": "ton",
+          "value": "ton"
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": true,
+            "text": "ton",
+            "value": "ton"
+          }
+        ],
+        "skipUrlSync": false
+      },
+      {
+        "name": "slot_seconds",
+        "label": "Slot (s)",
+        "type": "textbox",
+        "description": "Expected production slot in seconds for the selected blockchain. Used only for target context and collation-budget ratios; it never changes the measured block rate. Set it from the deployment's chain configuration.",
+        "query": "0.4",
+        "current": {
+          "selected": true,
+          "text": "0.4",
+          "value": "0.4"
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": true,
+            "text": "0.4",
+            "value": "0.4"
+          }
+        ],
+        "skipUrlSync": false
+      },
+      {
+        "name": "instance",
+        "label": "instance",
+        "type": "query",
+        "description": "Targets in the selected TON scrape jobs; based on up so down targets remain selectable.",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(up{job=~\"$job\"}, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "definition": "label_values(up{job=~\"$job\"}, instance)",
+        "hide": 0,
+        "options": [],
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 200,
+      "panels": [],
+      "title": "Fleet health",
+      "type": "row"
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "MC age",
+      "description": "Worst positive age of the last applied masterchain block across selected nodes (max \u2014 'is any node stale'). A synced node tracks block time by a few seconds; a stalled or syncing node climbs. Negative/future clock skew is clamped to zero, so this is a staleness signal rather than a clock-skew alarm. Yellow at 30 s and red at 120 s are conservative deployment-neutral guides; tighten them for faster networks.",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Shard lag",
+      "description": "How many masterchain blocks the shard client trails the masterchain by (ton_masterchain_seqno - ton_shardclient_seqno, worst node). This is basechain processing lag: 0-2 is normal transient; sustained growth means shard blocks are applied slower than masterchain progresses, and basechain state (accounts, liteserver answers) goes stale even while MC block age looks healthy. Active shard count and validator-group membership live in the Workload row.",
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Actor CPU busy (worst node)",
+      "description": "Outer actor/coroutine dispatch time on cpu workers, including elapsed time in the current dispatch, divided by their thread count \u2014 worst node (max over the fleet; per-node and per-type breakdowns live on TON Actors). Signal-only work, gaps between handlers and finish bookkeeping are included. This is scheduler occupancy, not OS CPU: blocking and descheduling inside actor code are included. Sustained saturation can be relieved with more threads or less actor work.",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(sum by (job, instance) (rate(ton_actor_worker_busy_ticks_total{worker=\"cpu\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) / on (job, instance) clamp_min(sum by (job, instance) (ton_actor_worker_threads{worker=\"cpu\",job=~\"$job\",instance=~\"$instance\"}), 1))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Actor IO busy (worst node)",
+      "description": "Outer actor dispatch time on io workers, including elapsed time in the current dispatch, divided by their thread count \u2014 worst node (max over the fleet). Signal-only work, gaps between handlers and finish bookkeeping are included. This is scheduler occupancy, not OS CPU: blocking and descheduling inside actor code are included. Each scheduler has one io worker, so sustained saturation means moving work off polling actors.",
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(sum by (job, instance) (rate(ton_actor_worker_busy_ticks_total{worker=\"io\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) / on (job, instance) clamp_min(sum by (job, instance) (ton_actor_worker_threads{worker=\"io\",job=~\"$job\",instance=~\"$instance\"}), 1))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Export age",
+      "description": "Worst time since a selected exporter began its latest collection attempt. If this rises while Prometheus is reachable, collection is stale or wedged; a failed gather still advances this timestamp, so use Targets down to detect that failure.",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(clamp_min(time() - ton_exporter_last_collection_timestamp_seconds{job=~\"$job\",instance=~\"$instance\"}, 0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Longest running handler (worst node)",
+      "description": "Longest actor or coroutine dispatch currently in flight on any node (max over the fleet); the collecting worker is excluded. This is a gauge sampled at each scrape, so short wedges between scrapes can be missed. Yellow starts at 1 s and red at 5 s. Treat red as a wedge only when it persists for several scrapes because a short spike can be a legitimate large batch. Per-type attribution lives on TON Actors.",
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_actor_scheduler_current_execute_seconds{job=~\"$job\",instance=~\"$instance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Targets down",
+      "description": "Configured Prometheus targets currently down for jobs matching the TON scrape job variable. Set it to your scrape_config name or regex. Export age covers a responsive but wedged collector; this covers an endpoint that no longer answers. Renders 0 when no matching up series exist at all (job absent from Prometheus), so pair with an absent(up) alert for total-pipeline loss.",
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(up{job=~\"$job\",instance=~\"$instance\"} == 0) or on() vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "UDP RX overflow (worst node)",
+      "description": "Worst-node datagrams/s dropped at socket receive queues across ADNL and QUIC (SO_RXQ_OVFL). Sustained nonzero means ingress outruns that node's readers. Reads 0 structurally on macOS/local nets where SO_RXQ_OVFL is unavailable \u2014 0 there is 'no signal', not 'no drops'.",
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(sum by (job, instance) (label_replace(rate(ton_quic_wire_dropped_total{direction=\"in\",reason=\"limited\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"quic\", \"\", \"\") or label_replace(rate(ton_adnl_wire_dropped_total{direction=\"in\",reason=\"limited\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"adnl\", \"\", \"\")))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "id": 201,
+      "panels": [],
+      "title": "Workload",
+      "type": "row"
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Masterchain block rate",
+      "description": "Canonical masterchain blocks applied per second over the last minute, evaluated now. The rate is derived from advance of the highest applied seqno across the selected jobs; during a mixed-version rollout it uses that head only when every applied-block reporter exports it, otherwise falling back to the median duplicate applied-block stream. This chain-level value intentionally ignores Instance and validator count. It is measured chain state; Slot (s) supplies only configured target context (target = 1 / slot).",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) and on () (count(max by (job, instance) (ton_masterchain_seqno{job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"-1\",job=~\"$job\"})))) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Shard block rate / active shard",
+      "description": "Canonical shard blocks applied per second per active shard over the last minute, evaluated now. Each duplicate node observation is divided by its average active-shard count over the same minute before the median reconciles reporters, so a split or merge does not pair a one-minute numerator with only the latest topology. This chain-level value intentionally ignores Instance and validator count. It is measured chain state; Slot (s) supplies only configured target context.",
+      "gridPos": {
+        "x": 4,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[1m])) / on (job, instance) clamp_min(avg_over_time(ton_active_shards{job=~\"$job\"}[1m]), 1))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Active shards",
+      "description": "Active non-masterchain leaf shards in the latest applied masterchain state. This is chain-level network topology, not the number of validator groups on one node, so the value intentionally ignores Instance.",
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_active_shards{job=~\"$job\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Mempool max",
+      "description": "Pending external messages on the busiest node. A fleet sum scales with fleet size and can hide which node is actually falling behind. Green <1k, yellow >=1k, red >=5k. Growing = input exceeds chain capacity; see TON Blockchain -> External messages.",
+      "gridPos": {
+        "x": 6,
+        "y": 14,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 5000
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Actor messages/s (per node)",
+      "description": "Mean actor messages plus bare coroutine resumptions completed per second per selected node with enabled actor statistics. The value remains comparable when the selected fleet size changes. Shows No data when no selected node has actor statistics enabled.",
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ton_actor_messages_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / clamp_min(count(max by (job, instance) (ton_actor_stats_enabled{job=~\"$job\",instance=~\"$instance\"} == 1)), 1)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "RX/node",
+      "description": "Mean UDP payload bytes/s received per selected reporting node, summed locally across ADNL and QUIC sockets before averaging the fleet.",
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(sum by (job, instance) (label_replace(rate(ton_adnl_wire_bytes_total{direction=\"in\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"adnl\", \"\", \"\") or label_replace(rate(ton_quic_wire_bytes_total{direction=\"in\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"quic\", \"\", \"\")))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "TX/node",
+      "description": "Mean UDP payload bytes/s sent per selected reporting node, summed locally across ADNL and QUIC sockets before averaging the fleet.",
+      "gridPos": {
+        "x": 20,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(sum by (job, instance) (label_replace(rate(ton_adnl_wire_bytes_total{direction=\"out\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"adnl\", \"\", \"\") or label_replace(rate(ton_quic_wire_bytes_total{direction=\"out\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"quic\", \"\", \"\")))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Monitored validators (mc/shard/total)",
+      "description": "Monitored fleet counts, not the protocol-wide validator set: selected targets currently in at least one masterchain group (mc), in at least one shardchain group (shard), and all targets exporting validator-group state (total). The mc/shard counts reflect group membership at this instant and can flap with group rotation on small nets \u2014 that is rotation, not node loss.",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(max by (job, instance) (ton_validator_groups{chain=\"master\",job=~\"$job\",instance=~\"$instance\"} > 0)) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "legendFormat": "mc"
+        },
+        {
+          "refId": "B",
+          "expr": "count(max by (job, instance) (ton_validator_groups{chain=\"shard\",job=~\"$job\",instance=~\"$instance\"} > 0)) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "legendFormat": "shard"
+        },
+        {
+          "refId": "C",
+          "expr": "count(max by (job, instance) (ton_validator_groups{job=~\"$job\",instance=~\"$instance\"})) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true,
+          "legendFormat": "total"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "Applied external TPS (synced)",
+      "description": "External messages observed in applied shardchain blocks per second over the last minute. The median includes only reporters whose absolute masterchain age is under 120 seconds and shard lag is at most two blocks, limiting replay spikes from syncing nodes and excluding future-skewed chain clocks. This counter is still a replicated node observation and includes catch-up replay; it is not an objective protocol-wide chain counter. Global admission is only context: other chains and local removal or expiry can absorb a gap.",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "decimals": 1,
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile(0.5, rate(ton_applied_ext_messages_total{chain=\"shard\",job=~\"$job\",instance=~\"$instance\"}[1m]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120) and on (job, instance) (clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0) <= 2))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Oldest pending external",
+      "description": "Age of the oldest external message still waiting in the pool, worst node (max \u2014 every node holds the same broadcast stream). Messages expire after 600 s, so red (>=300 s) means messages are about to expire unserved: the chain is not keeping up with input. Yellow >=60 s.",
+      "gridPos": {
+        "x": 18,
+        "y": 14,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 202,
+      "panels": [],
+      "title": "Chain & reliability",
+      "type": "row"
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Masterchain activity / s",
+      "description": "Masterchain only, over rolling one-minute windows across the selected jobs; this chain-wide panel intentionally ignores Instance because collators rotate. Block rate is derived from advance of the highest applied masterchain seqno; during a mixed-version rollout it uses that head only when every applied-block reporter exports it, otherwise falling back to the replica-median stream. Collations are summed because one rotating collator produces each candidate, and validations are divided by active masterchain validators so the rate stays comparable when validator count changes. A persistent collated-ok gap above block rate estimates discarded candidates.",
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 6,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "chain block rate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collated ok"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "validated ok / validator"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collated error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "validated error / validator"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) and on () (count(max by (job, instance) (ton_masterchain_seqno{job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"-1\",job=~\"$job\"})))) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "chain block rate"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (result) (rate(ton_collated_blocks_total{chain=\"master\",job=~\"$job\"}[1m]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "collated {{result}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (result) (rate(ton_validated_blocks_total{chain=\"master\",job=~\"$job\"}[1m])) / scalar(clamp_min(count(max by (job, instance) (ton_validator_groups{chain=\"master\",job=~\"$job\"} > 0)), 1))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "validated {{result}} / validator"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Shardchain activity / s",
+      "description": "Shardchain only, across the selected jobs; this chain-wide panel intentionally ignores Instance because collators rotate. The median reconciles duplicate observations of the canonical applied-block stream, collations are summed because one rotating collator produces each candidate, and validations are divided by active shard validators so the rate stays comparable when the validator count changes. A persistent collated-ok gap above block rate estimates discarded candidates.",
+      "gridPos": {
+        "x": 6,
+        "y": 19,
+        "w": 6,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "chain block rate"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collated ok"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "validated ok / validator"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "collated error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "validated error / validator"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[$__rate_interval])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "chain block rate"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (result) (rate(ton_collated_blocks_total{chain=\"shard\",job=~\"$job\"}[$__rate_interval]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "collated {{result}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (result) (rate(ton_validated_blocks_total{chain=\"shard\",job=~\"$job\"}[$__rate_interval])) / scalar(clamp_min(count(max by (job, instance) (ton_validator_groups{chain=\"shard\",job=~\"$job\"} > 0)), 1))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "validated {{result}} / validator"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Collation budget used (5m)",
+      "description": "Elapsed collation wall time per produced shard block over a rolling five-minute window, divided by the configured Slot (s) (chain-wide: fleet sum of collation seconds over fleet sum of ok collations \u2014 one collator per block, so this is the chain truth). This backbone follows Job but intentionally ignores Instance because collators rotate. Above 100% collation alone overruns the configured slot and block rate must fall \u2014 the 'what takes so long' pointer; drill into TON Blockchain -> Block production for the phase breakdown. Yellow >=75%, red >=100%. Excludes wait_externals: time awaiting the external-message queue, including deliberate slot pacing and queue fetches. It is idle wait rather than measured collation work; on a fast build it can dominate elapsed time and fake a full budget. No successful collation in the window renders No data.",
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.75
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line+area"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"total\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[5m])) - sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"wait_externals\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[5m]))) / (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[5m])) > 0) / ${slot_seconds:raw}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "budget used"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Shard production & external issues",
+      "description": "Shardchain collation and validation error shares across the selected jobs; those two chain-wide signals intentionally ignore Instance because collators rotate. External admission/storage issues have no chain label and respect Instance; duplicates are excluded as normal broadcast traffic. A family with no attempts in the window renders No data. Local pool removals are detailed on TON Blockchain.",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"error\",job=~\"$job\"}[5m])) / (sum(rate(ton_collated_blocks_total{chain=\"shard\",job=~\"$job\"}[5m])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "collation errors"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ton_validated_blocks_total{chain=\"shard\",result=\"error\",job=~\"$job\"}[5m])) / (sum(rate(ton_validated_blocks_total{chain=\"shard\",job=~\"$job\"}[5m])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "validation errors"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(ton_mempool_ext_admission_total{outcome!~\"accepted|duplicate|reprioritized\",job=~\"$job\",instance=~\"$instance\"}[5m])) / (sum(rate(ton_mempool_ext_admission_total{outcome!=\"duplicate\",job=~\"$job\",instance=~\"$instance\"}[5m])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "admission/storage issues"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Transport failure ratios",
+      "description": "Delivery ratios cover fire-and-forget messages whose confirmation never came; roundtrip ratios cover queries that errored or timed out. Inbound failures include explicit errors and abandoned answer promises; DHT is excluded because client-mode nodes intentionally reject inbound DHT requests. Every series carries a > 0 guard so flatlined-at-zero series (rldp2 on nets that don't use it, idle transports) don't clutter the legend \u2014 an empty panel means no transport failures at all. Steady small percentages are normal; steps are not.",
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic delivery"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic roundtrip"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "adnl roundtrip"
+        },
+        {
+          "refId": "D",
+          "expr": "sum(rate(ton_adnl_query_failed_total{job=~\"$job\",instance=~\"$instance\",tl!~\"dht\\\\..*\"}[$__rate_interval])) / sum(rate(ton_adnl_query_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",tl!~\"dht\\\\..*\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "inbound queries"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(rate(ton_rldp2_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(ton_rldp2_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "rldp2 delivery"
+        },
+        {
+          "refId": "F",
+          "expr": "sum(rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / sum(rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "rldp2 roundtrip"
+        }
+      ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "id": 203,
+      "panels": [
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Actor handler load (worst node)",
+          "description": "Busiest actor/coroutine types: handler or resumption seconds per second \u2014 the fraction of one core \u2014 on whichever node runs that type hottest (max over nodes). Actor and coroutine samples enter when the handler or resumption returns; live outer-dispatch time remains visible in worker occupancy. Top 5 types are ranked by total busy time over the visible window, so the series set stays stable while you scroll. Blocking and descheduling inside a handler count; signal-only work, gaps and dispatch bookkeeping don't. Values above 100% mean several instances of the type run concurrently on one node. Queues and tail latencies live on TON Actors.",
+          "gridPos": {
+            "x": 0,
+            "y": 37,
+            "w": 24,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "min": 0,
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "fillOpacity": 0,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^ton::(validator::)?",
+                "renamePattern": ""
+              }
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "max by (type) (rate(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(5, max by (type) (increase(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "{{type}}"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Top per-node traffic by type, in",
+          "description": "Busiest selected node for each inbound TL type, with ADNL and QUIC separate; top 5 per transport over the visible window. This does not grow merely because more validators are selected. Per-query detail lives on TON Network.",
+          "gridPos": {
+            "x": 0,
+            "y": 45,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "min": 0,
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^ton::(validator::)?",
+                "renamePattern": ""
+              }
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "max by (tl) (sum by (job, instance, tl) (rate(ton_adnl_app_messages_total{direction=\"in\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) and on (tl) topk(5, max by (tl) (sum by (job, instance, tl) (increase(ton_adnl_app_messages_total{direction=\"in\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{tl}}"
+            },
+            {
+              "refId": "B",
+              "expr": "max by (tl) (sum by (job, instance, tl) (rate(ton_quic_app_messages_total{direction=\"in\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) and on (tl) topk(5, max by (tl) (sum by (job, instance, tl) (increase(ton_quic_app_messages_total{direction=\"in\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{tl}}"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Top per-node traffic by type, out",
+          "description": "Busiest selected node for each outbound TL type, with messages, queries, and answers combined; top 5 per transport over the visible window.",
+          "gridPos": {
+            "x": 12,
+            "y": 45,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "min": 0,
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "transformations": [
+            {
+              "id": "renameByRegex",
+              "options": {
+                "regex": "^ton::(validator::)?",
+                "renamePattern": ""
+              }
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "max by (tl) (sum by (job, instance, tl) (rate(ton_adnl_app_messages_total{direction=\"out\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) and on (tl) topk(5, max by (tl) (sum by (job, instance, tl) (increase(ton_adnl_app_messages_total{direction=\"out\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{tl}}"
+            },
+            {
+              "refId": "B",
+              "expr": "max by (tl) (sum by (job, instance, tl) (rate(ton_quic_app_messages_total{direction=\"out\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) and on (tl) topk(5, max by (tl) (sum by (job, instance, tl) (increase(ton_quic_app_messages_total{direction=\"out\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{tl}}"
+            }
+          ]
+        }
+      ],
+      "title": "Quick attribution",
+      "type": "row"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    }
+  ]
+}

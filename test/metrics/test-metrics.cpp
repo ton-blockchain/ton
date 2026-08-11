@@ -7,9 +7,14 @@
 #include <chrono>
 
 #include "adnl/adnl-peer-table.hpp"
+#include "adnl/adnl-sender-ex.h"
 #include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api.h"
+#include "metrics/actor-metrics.h"
+#include "metrics/block-processing-metrics.h"
+#include "metrics/chain-metrics.h"
 #include "metrics/collectors.h"
+#include "metrics/ext-message-pool-metrics.h"
 #include "metrics/tl-traffic-bucket.h"
 #include "metrics/well-known.h"
 #ifdef TON_TEST_METRICS_QUIC
@@ -17,6 +22,9 @@
 #endif
 #include "rldp2/RldpConnection.h"
 #include "rldp2/rldp-metrics.h"
+#include "td/actor/actor.h"
+#include "td/actor/core/Scheduler.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/as.h"
 #include "td/utils/tests.h"
 #include "tl-utils/lite-utils.hpp"
@@ -50,6 +58,70 @@ TON_METRIC_DEFINE_LABEL(Kind, "kind", KIND_LIST)
   F(internal)
 TON_METRIC_DEFINE_LABEL(Reason, "reason", REASON_LIST)
 #undef REASON_LIST
+
+class TestAdnlSenderEx final : public adnl::AdnlSenderEx {
+ public:
+  void add_id(adnl::AdnlNodeIdShort) override {
+  }
+  void send_message(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, td::BufferSlice) override {
+  }
+  void send_query(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, std::string, td::Promise<td::BufferSlice>,
+                  td::Timestamp, td::BufferSlice) override {
+  }
+  void send_query_ex(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, std::string, td::Promise<td::BufferSlice>,
+                     td::Timestamp, td::BufferSlice, td::uint64) override {
+  }
+  void get_conn_ip_str(adnl::AdnlNodeIdShort, adnl::AdnlNodeIdShort, td::Promise<td::string>) override {
+  }
+
+  adnl::PeerMtu peer_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) {
+    return get_peer_mtu_inner(local_id, peer_id);
+  }
+  td::uint64 accepted_mtu(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id) {
+    return get_peer_mtu(local_id, peer_id);
+  }
+  std::vector<std::pair<adnl::AdnlNodeIdShort, adnl::PeerMtu>> peers_mtu(adnl::AdnlNodeIdShort local_id) {
+    return get_local_id_peers_mtu(local_id);
+  }
+
+ private:
+  void on_mtu_updated(td::optional<adnl::AdnlNodeIdShort>, td::optional<adnl::AdnlNodeIdShort>) override {
+  }
+};
+
+TEST(AdnlSenderEx, AggregatesPeerMtuAndTrustIndependently) {
+  TestAdnlSenderEx sender;
+  adnl::AdnlNodeIdShort local_id{td::Bits256::zero()};
+  adnl::AdnlNodeIdShort peer_id{td::Bits256::ones()};
+
+  sender.set_default_mtu(4'000);
+  sender.set_local_id_mtu(local_id, 5'000);
+  ASSERT_EQ(td::uint64{5'000}, sender.accepted_mtu(local_id, peer_id));
+  ASSERT_EQ(td::uint64{0}, sender.peer_mtu(local_id, peer_id).mtu);
+  ASSERT_TRUE(!sender.peer_mtu(local_id, peer_id).trusted);
+
+  sender.add_peer_mtu(local_id, peer_id, 9'000, false);
+  sender.add_peer_mtu(local_id, peer_id, 7'000, true);
+  sender.add_peer_mtu(local_id, peer_id, 6'000, true);
+  ASSERT_EQ(td::uint64{9'000}, sender.peer_mtu(local_id, peer_id).mtu);
+  ASSERT_TRUE(sender.peer_mtu(local_id, peer_id).trusted);
+
+  auto peers = sender.peers_mtu(local_id);
+  ASSERT_EQ(size_t{1}, peers.size());
+  ASSERT_EQ(peer_id, peers[0].first);
+  ASSERT_EQ(td::uint64{9'000}, peers[0].second.mtu);
+  ASSERT_TRUE(peers[0].second.trusted);
+
+  sender.remove_peer_mtu(local_id, peer_id, 7'000, true);
+  ASSERT_TRUE(sender.peer_mtu(local_id, peer_id).trusted);
+  sender.remove_peer_mtu(local_id, peer_id, 6'000, true);
+  ASSERT_EQ(td::uint64{9'000}, sender.peer_mtu(local_id, peer_id).mtu);
+  ASSERT_TRUE(!sender.peer_mtu(local_id, peer_id).trusted);
+
+  sender.remove_peer_mtu(local_id, peer_id, 9'000, false);
+  ASSERT_EQ(td::uint64{0}, sender.peer_mtu(local_id, peer_id).mtu);
+  ASSERT_TRUE(!sender.peer_mtu(local_id, peer_id).trusted);
+}
 
 TEST(Metrics, LabeledDesignatedInitOneDim) {
   Labeled<Cell, Direction> m{{.in = {.v = 1}, .out = {.v = 2}}};
@@ -586,6 +658,38 @@ TEST(MetricsGolden, Rldp2) {
 }
 
 #ifdef TON_TEST_METRICS_QUIC
+TEST(Metrics, QuicPeerMetricsSplitByTrust) {
+  ::ton::metrics::Labeled<::ton::quic::PeerMetrics, ::ton::quic::Trust> peers;
+  auto &trusted = peers.at(::ton::quic::Trust::trusted);
+  auto &untrusted = peers.at(::ton::quic::Trust::untrusted);
+  constexpr td::int32 unknown_magic = 0x11223344;
+
+  trusted.app.record(::ton::metrics::Kind::query, ::ton::metrics::Direction::out, unknown_magic, 7);
+  trusted.app.record_dropped(::ton::metrics::Direction::out, ::ton::metrics::Reason::internal);
+  trusted.query_roundtrip.observe(unknown_magic, 0.02, false);
+  trusted.message_delivery.observe(unknown_magic, 0.02, true);
+
+  untrusted.app.record(::ton::metrics::Kind::query, ::ton::metrics::Direction::out, unknown_magic, 3);
+  untrusted.app.record_dropped(::ton::metrics::Direction::out, ::ton::metrics::Reason::limited);
+  untrusted.query_roundtrip.observe(unknown_magic, 0.02, true);
+  untrusted.message_delivery.observe(unknown_magic, 0.02, false);
+
+  auto out = render(peers, "quic");
+  ASSERT_TRUE(has_line(
+      out, "quic_app_bytes_total{trust=\"trusted\",kind=\"query\",direction=\"out\",tl=\"unknown\"} 7.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "quic_app_bytes_total{trust=\"untrusted\",kind=\"query\",direction=\"out\",tl=\"unknown\"} "
+                       "3.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "quic_app_dropped_total{trust=\"trusted\",direction=\"out\",reason=\"internal\"} "
+                       "1.000000"));
+  ASSERT_TRUE(has_line(out, "quic_query_roundtrip_failed_total{trust=\"trusted\",tl=\"unknown\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "quic_message_delivery_failed_total{trust=\"untrusted\",tl=\"unknown\"} 1.000000"));
+  ASSERT_EQ(1u, count_of(out, "# TYPE quic_app_bytes counter\n"));
+  ASSERT_EQ(1u, count_of(out, "# TYPE quic_query_roundtrip_seconds histogram\n"));
+  ASSERT_EQ(1u, count_of(out, "# TYPE quic_message_delivery_seconds histogram\n"));
+}
+
 TEST(MetricsGolden, Quic) {
   // QuicSender::collect
   ASSERT_EQ(families({
@@ -609,6 +713,7 @@ TEST(MetricsGolden, Quic) {
                 "ton_quic_transport_mean_rtt_seconds gauge",
                 "ton_quic_transport_dropped counter",
                 "ton_quic_transport_handshakes counter",
+                "ton_quic_transport_connections_ready gauge",
                 "ton_quic_app_bytes counter",
                 "ton_quic_app_messages counter",
                 "ton_quic_app_dropped counter",
@@ -619,17 +724,421 @@ TEST(MetricsGolden, Quic) {
             }),
             emitted_families([](Context ctx) {
               ::ton::quic::ServerStats server;
-              App app;
-              TlLatencyBucket query_roundtrip{"quic query roundtrip", "seconds"},
-                  message_delivery{"quic message delivery", "seconds"};
+              Labeled<Gauge<td::uint64>, Direction, ::ton::quic::Trust> connections_ready;
+              Labeled<::ton::quic::PeerMetrics, ::ton::quic::Trust> peer_metrics;
               auto quic = ctx.with_name("quic");
               quic.collect(server);
-              quic.collect(app, "app");
-              quic.collect(query_roundtrip, "query_roundtrip");
-              quic.collect(message_delivery, "message_delivery");
+              quic.with_name("transport").collect(connections_ready, "connections_ready");
+              quic.collect(peer_metrics);
             }));
 }
 #endif
+
+TEST(MetricsGolden, Actor) {
+  // PrometheusExporter::collect, over metrics::ActorMetrics. No scheduler runs here, so the
+  // worker_threads and per-scheduler families take the null scheduler-group path and emit no
+  // samples.
+  ASSERT_EQ(families({
+                "ton_actor_busy_ticks counter",
+                "ton_actor_messages counter",
+                "ton_actor_executions counter",
+                "ton_actor_created counter",
+                "ton_actor_alive gauge",
+                "ton_actor_max_message_ticks gauge",
+                "ton_actor_max_execute_ticks gauge",
+                "ton_actor_max_batch_messages gauge",
+                "ton_actor_max_queue_ticks gauge",
+                "ton_actor_worker_busy_ticks counter",
+                "ton_actor_worker_messages counter",
+                "ton_actor_worker_threads gauge",
+                "ton_actor_scheduler_threads gauge",
+                "ton_actor_scheduler_local_queue_length gauge",
+                "ton_actor_scheduler_workers_active gauge",
+                "ton_actor_scheduler_current_execute_seconds gauge",
+                "ton_actor_stats_enabled gauge",
+                "ton_actor_ticks_per_second gauge",
+            }),
+            emitted_families([](Context ctx) {
+              ActorMetrics actors;
+              ctx.collect(actors, "actor");
+            }));
+}
+
+TEST(Metrics, ActorTicksPerSecondHandlesCounterRegression) {
+  EXPECT_EQ(::ton::metrics::detail::estimate_ticks_per_second(0.5, 100, 164), 128);
+  EXPECT_EQ(::ton::metrics::detail::estimate_ticks_per_second(0.5, 100, 99), td::Clocks::ticks_per_second());
+}
+
+TEST(Metrics, ChainSnapshotRendersEachFamily) {
+  ChainSnapshot snapshot{
+      .masterchain_seqno = 1,
+      .masterchain_block_age_seconds = 2.5,
+      .shardclient_seqno = 3,
+      .active_shards = 14,
+      .collated_blocks = {.master = {.ok = 4, .error = 5}, .shard = {.ok = 6, .error = 7}},
+      .validated_blocks = {.master = {.ok = 8, .error = 9}, .shard = {.ok = 10, .error = 11}},
+      .validator_groups = ChainSnapshot::Groups{.master = 12, .shard = 13},
+  };
+  EXPECT_EQ(
+      "# TYPE masterchain_seqno gauge\n"
+      "masterchain_seqno 1.000000\n"
+      "# TYPE masterchain_block_age_seconds gauge\n"
+      "masterchain_block_age_seconds 2.500000\n"
+      "# TYPE shardclient_seqno gauge\n"
+      "shardclient_seqno 3.000000\n"
+      "# TYPE active_shards gauge\n"
+      "active_shards 14.000000\n"
+      "# TYPE collated_blocks counter\n"
+      "collated_blocks_total{chain=\"master\",result=\"ok\"} 4.000000\n"
+      "collated_blocks_total{chain=\"master\",result=\"error\"} 5.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"ok\"} 6.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"error\"} 7.000000\n"
+      "# TYPE validated_blocks counter\n"
+      "validated_blocks_total{chain=\"master\",result=\"ok\"} 8.000000\n"
+      "validated_blocks_total{chain=\"master\",result=\"error\"} 9.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"ok\"} 10.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"error\"} 11.000000\n"
+      "# TYPE validator_groups gauge\n"
+      "validator_groups{chain=\"master\"} 12.000000\n"
+      "validator_groups{chain=\"shard\"} 13.000000\n",
+      render(snapshot, ""));
+}
+
+TEST(Metrics, ChainSnapshotDefaultOmitsOptionalSamples) {
+  EXPECT_EQ(
+      "# TYPE masterchain_seqno gauge\n"
+      "# TYPE masterchain_block_age_seconds gauge\n"
+      "# TYPE shardclient_seqno gauge\n"
+      "# TYPE active_shards gauge\n"
+      "# TYPE collated_blocks counter\n"
+      "collated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "# TYPE validated_blocks counter\n"
+      "validated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
+      "validated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "# TYPE validator_groups gauge\n",
+      render(ChainSnapshot{}, ""));
+}
+
+TEST(Metrics, ChainSnapshotDistinguishesAbsentFromZero) {
+  ChainSnapshot snapshot{
+      .masterchain_seqno = 0,
+      .masterchain_block_age_seconds = std::nullopt,
+      .shardclient_seqno = 0,
+      .active_shards = 0,
+      .collated_blocks = {},
+      .validated_blocks = {},
+      .validator_groups = ChainSnapshot::Groups{},
+  };
+  EXPECT_EQ(
+      "# TYPE masterchain_seqno gauge\n"
+      "masterchain_seqno 0.000000\n"
+      "# TYPE masterchain_block_age_seconds gauge\n"
+      "# TYPE shardclient_seqno gauge\n"
+      "shardclient_seqno 0.000000\n"
+      "# TYPE active_shards gauge\n"
+      "active_shards 0.000000\n"
+      "# TYPE collated_blocks counter\n"
+      "collated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "# TYPE validated_blocks counter\n"
+      "validated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
+      "validated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "# TYPE validator_groups gauge\n"
+      "validator_groups{chain=\"master\"} 0.000000\n"
+      "validator_groups{chain=\"shard\"} 0.000000\n",
+      render(snapshot, ""));
+}
+
+TEST(Metrics, BlockProcessingMetricsRenderAndClamp) {
+  BlockProcessingMetrics metrics;
+  metrics.add_collation(BlockChain::master, BlockResult::ok, -1.0, {.real = 2.0, .cpu = -3.0}, -4.0);
+  metrics.add_collation_phase(BlockChain::master, BlockResult::ok, CollationPhase::preinit, {.real = 5.0, .cpu = -6.0});
+  metrics.add_validation(BlockChain::shard, BlockResult::error, 7.0, {.real = 8.0, .cpu = 9.0}, 10.0);
+  metrics.add_validation_phase(BlockChain::shard, BlockResult::error, ValidationPhase::check_new_state,
+                               {.real = -11.0, .cpu = 12.0});
+  metrics.add_collation_external(BlockChain::master, BlockResult::ok, CollationExternalOutcome::included, 13);
+  metrics.add_collation_external(BlockChain::shard, BlockResult::error, CollationExternalOutcome::rejected, 17);
+  metrics.add_collation_work(BlockChain::shard, {.gas = 21});
+  metrics.add_want_split(BlockChain::master);
+  metrics.add_overload(BlockChain::master, 1);
+  metrics.add_overload(BlockChain::master, 2);
+  metrics.add_overload(BlockChain::shard, 3);
+  metrics.add_overload(BlockChain::shard, 4);
+  metrics.add_overload(BlockChain::shard, 99);
+
+  EXPECT_EQ(
+      "# TYPE block_processing_seconds counter\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"total\",clock="
+      "\"elapsed\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"total\",clock="
+      "\"real\"} 2.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"total\",clock="
+      "\"cpu\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"wait_externals\","
+      "clock=\"elapsed\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"preinit\",clock="
+      "\"real\"} 5.000000\n"
+      "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\"preinit\",clock="
+      "\"cpu\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"total\",clock="
+      "\"elapsed\"} 7.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"total\",clock="
+      "\"real\"} 8.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"total\",clock="
+      "\"cpu\"} 9.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"active\",clock="
+      "\"elapsed\"} 10.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"waiting\",clock="
+      "\"elapsed\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"check_new_"
+      "state\",clock=\"real\"} 0.000000\n"
+      "block_processing_seconds_total{operation=\"validate\",chain=\"shard\",result=\"error\",phase=\"check_new_"
+      "state\",clock=\"cpu\"} 12.000000\n"
+      "# TYPE collation_ext_messages counter\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"ok\",outcome=\"filtered\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"ok\",outcome=\"skipped_backpressure\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"ok\",outcome=\"included\"} 13.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"ok\",outcome=\"rejected\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"error\",outcome=\"filtered\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"error\",outcome=\"skipped_backpressure\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"error\",outcome=\"included\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"master\",result=\"error\",outcome=\"rejected\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"ok\",outcome=\"filtered\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"ok\",outcome=\"skipped_backpressure\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"ok\",outcome=\"included\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"ok\",outcome=\"rejected\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"filtered\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"skipped_backpressure\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"included\"} 0.000000\n"
+      "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"rejected\"} 17.000000\n"
+      "# TYPE collation_transactions counter\n"
+      "collation_transactions_total{chain=\"master\"} 0.000000\n"
+      "collation_transactions_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_gas counter\n"
+      "collation_gas_total{chain=\"master\"} 0.000000\n"
+      "collation_gas_total{chain=\"shard\"} 21.000000\n"
+      "# TYPE collation_block_bytes counter\n"
+      "collation_block_bytes_total{chain=\"master\"} 0.000000\n"
+      "collation_block_bytes_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_collated_data_bytes counter\n"
+      "collation_collated_data_bytes_total{chain=\"master\"} 0.000000\n"
+      "collation_collated_data_bytes_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_ext_messages_offered counter\n"
+      "collation_ext_messages_offered_total{chain=\"master\"} 0.000000\n"
+      "collation_ext_messages_offered_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_want_split counter\n"
+      "collation_want_split_total{chain=\"master\"} 1.000000\n"
+      "collation_want_split_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_overload counter\n"
+      "collation_overload_total{chain=\"master\",reason=\"block_limits\"} 1.000000\n"
+      "collation_overload_total{chain=\"master\",reason=\"out_msg_queue\"} 1.000000\n"
+      "collation_overload_total{chain=\"master\",reason=\"long_collation\"} 0.000000\n"
+      "collation_overload_total{chain=\"master\",reason=\"dispatch_queue\"} 0.000000\n"
+      "collation_overload_total{chain=\"master\",reason=\"unknown\"} 0.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"block_limits\"} 0.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"out_msg_queue\"} 0.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"long_collation\"} 1.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"dispatch_queue\"} 1.000000\n"
+      "collation_overload_total{chain=\"shard\",reason=\"unknown\"} 1.000000\n",
+      render(metrics, ""));
+}
+
+TEST(Metrics, BlockProcessingMetricsRenderEveryPhase) {
+  constexpr std::array collation_phases = {
+      "preinit",
+      "queue_cleanup",
+      "prelim_storage_stat",
+      "trx_tvm",
+      "trx_storage_stat",
+      "trx_other",
+      "final_storage_stat",
+      "enqueue_new_messages",
+      "combine_account_transactions",
+      "create_shard_state",
+      "create_block",
+      "create_collated_data",
+      "create_block_candidate",
+      "dispatch_queue",
+      "import_internals",
+      "import_externals",
+      "process_new_msgs",
+  };
+  constexpr std::array validation_phases = {
+      "unpack_block_candidate",
+      "process_mc_state",
+      "trx_tvm",
+      "trx_storage_stat",
+      "trx_other",
+      "check_transactions_other",
+      "unpack_state",
+      "validate_block_tlb",
+      "unpack_block_data",
+      "precheck_account_updates",
+      "precheck_account_transactions",
+      "precheck_msg_queue",
+      "unpack_dispatch_queue",
+      "check_in_msg_descr",
+      "check_out_msg_descr",
+      "check_dispatch_queue",
+      "check_processed_upto",
+      "check_in_queue",
+      "check_new_state",
+  };
+
+  BlockProcessingMetrics metrics;
+  metrics.add_collation(BlockChain::master, BlockResult::ok, 1.0, {.real = 1.0, .cpu = 1.0}, 1.0);
+  for (size_t i = 0; i < collation_phases.size(); ++i) {
+    metrics.add_collation_phase(BlockChain::master, BlockResult::ok, static_cast<CollationPhase>(i),
+                                {.real = 1.0, .cpu = 1.0});
+  }
+  metrics.add_validation(BlockChain::master, BlockResult::ok, 2.0, {.real = 1.0, .cpu = 1.0}, 1.0);
+  for (size_t i = 0; i < validation_phases.size(); ++i) {
+    metrics.add_validation_phase(BlockChain::master, BlockResult::ok, static_cast<ValidationPhase>(i),
+                                 {.real = 1.0, .cpu = 1.0});
+  }
+
+  auto out = render(metrics, "");
+  ASSERT_EQ(38u, count_of(out, "block_processing_seconds_total{operation=\"collate\""));
+  ASSERT_EQ(43u, count_of(out, "block_processing_seconds_total{operation=\"validate\""));
+  for (auto phase : collation_phases) {
+    ASSERT_TRUE(has_line(
+        out, PSTRING() << "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\",phase=\""
+                       << phase << "\",clock=\"real\"} 1.000000"));
+  }
+  for (auto phase : validation_phases) {
+    ASSERT_TRUE(has_line(
+        out,
+        PSTRING() << "block_processing_seconds_total{operation=\"validate\",chain=\"master\",result=\"ok\",phase=\""
+                  << phase << "\",clock=\"cpu\"} 1.000000"));
+  }
+}
+
+TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
+  ExtMessagePoolSnapshot snapshot{
+      .pending_ext_messages = 3,
+      .oldest_ext_message_age_seconds = 4.5,
+      .check_ok = 5,
+      .check_error = 7,
+      .applied_master = 41,
+      .applied_shard = 43,
+  };
+  for (size_t i = 0; i < snapshot.admission.size(); ++i) {
+    snapshot.admission[i] = 11 + i;
+  }
+  for (size_t i = 0; i < snapshot.removed.size(); ++i) {
+    snapshot.removed[i] = 31 + i;
+  }
+  auto out = render(snapshot, "");
+  EXPECT_EQ(
+      "# TYPE mempool_ext_messages gauge\n"
+      "mempool_ext_messages 3.000000\n"
+      "# TYPE mempool_oldest_ext_message_age_seconds gauge\n"
+      "mempool_oldest_ext_message_age_seconds 4.500000\n"
+      "# TYPE mempool_ext_check counter\n"
+      "mempool_ext_check_total{result=\"ok\"} 5.000000\n"
+      "mempool_ext_check_total{result=\"error\"} 7.000000\n"
+      "# TYPE mempool_ext_admission counter\n"
+      "mempool_ext_admission_total{outcome=\"accepted\"} 11.000000\n"
+      "mempool_ext_admission_total{outcome=\"not_ready\"} 12.000000\n"
+      "mempool_ext_admission_total{outcome=\"too_large\"} 13.000000\n"
+      "mempool_ext_admission_total{outcome=\"backpressure\"} 14.000000\n"
+      "mempool_ext_admission_total{outcome=\"invalid\"} 15.000000\n"
+      "mempool_ext_admission_total{outcome=\"state_unavailable\"} 16.000000\n"
+      "mempool_ext_admission_total{outcome=\"vm_rejected\"} 17.000000\n"
+      "mempool_ext_admission_total{outcome=\"rate_limited\"} 18.000000\n"
+      "mempool_ext_admission_total{outcome=\"pool_full\"} 19.000000\n"
+      "mempool_ext_admission_total{outcome=\"address_full\"} 20.000000\n"
+      "mempool_ext_admission_total{outcome=\"duplicate\"} 21.000000\n"
+      "mempool_ext_admission_total{outcome=\"internal_error\"} 22.000000\n"
+      "mempool_ext_admission_total{outcome=\"reprioritized\"} 23.000000\n"
+      "# TYPE mempool_ext_removed counter\n"
+      "mempool_ext_removed_total{reason=\"applied\"} 31.000000\n"
+      "mempool_ext_removed_total{reason=\"expired\"} 32.000000\n"
+      "mempool_ext_removed_total{reason=\"rejected_final\"} 33.000000\n"
+      "mempool_ext_removed_total{reason=\"filtered\"} 34.000000\n"
+      "mempool_ext_removed_total{reason=\"pool_pressure\"} 35.000000\n"
+      "# TYPE applied_ext_messages counter\n"
+      "applied_ext_messages_total{chain=\"master\"} 41.000000\n"
+      "applied_ext_messages_total{chain=\"shard\"} 43.000000\n",
+      out);
+}
+
+TEST(Metrics, ActorCollectorIncludesLiveBusyTimeAndOmitsOwnLiveness) {
+  namespace actor_core = td::actor::core;
+  class MetricsActor final : public td::actor::Actor {};
+
+  auto was_debug_enabled = actor_core::need_debug();
+  actor_core::set_debug(true);
+  SCOPE_EXIT {
+    actor_core::set_debug(was_debug_enabled);
+  };
+  auto group = std::make_shared<actor_core::SchedulerGroupInfo>(1);
+  actor_core::Scheduler scheduler{group, actor_core::SchedulerId{0}, 1};
+  scheduler.start();
+
+  ActorMetrics actors;
+  std::string during;
+  std::string after;
+  scheduler.run_in_context([&] {
+    MetricsActor actor;
+    auto stat = actor_core::ActorTypeStatManager::get_actor_type_stat(
+        actor_core::ActorTypeStatImpl::get_unique_id<MetricsActor>(), &actor);
+    stat.created();
+    stat.start_execute();
+    {
+      auto message = stat.create_message_timer();
+    }
+    stat.finish_execute();
+    stat.destroyed();
+
+    {
+      // Simulate collection inside the exporter actor. Busy time includes the live scope, while
+      // liveness omits the collector itself.
+      auto exporter_execution = actor_core::SchedulerContext::get().get_debug().start("metrics-exporter");
+      Sink sink;
+      Context(sink).collect(actors, "ton_actor");
+      during = std::move(sink).build().render();
+    }
+    Sink sink;
+    Context(sink).collect(actors, "ton_actor");
+    after = std::move(sink).build().render();
+  });
+
+  ASSERT_TRUE(has_line(during, "ton_actor_scheduler_workers_active{scheduler=\"0\"} 0.000000"));
+  ASSERT_TRUE(has_line(during, "ton_actor_scheduler_current_execute_seconds{scheduler=\"0\"} 0.000000"));
+  ASSERT_TRUE(during.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} 0.000000\n") == std::string::npos);
+  ASSERT_TRUE(during.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} ") != std::string::npos);
+  ASSERT_TRUE(after.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} 0.000000\n") == std::string::npos);
+  ASSERT_TRUE(after.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} ") != std::string::npos);
+  auto type = actor_core::ActorTypeStatManager::get_class_name(typeid(MetricsActor).name());
+  ASSERT_TRUE(has_line(after, PSTRING() << "ton_actor_messages_total{type=\"" << type << "\"} 1.000000"));
+  ASSERT_TRUE(has_line(after, PSTRING() << "ton_actor_executions_total{type=\"" << type << "\"} 1.000000"));
+  ASSERT_TRUE(after.find(PSTRING() << "ton_actor_max_message_ticks{type=\"" << type << "\",window=\"recent\"} ") !=
+              std::string::npos);
+  ASSERT_TRUE(after.find("window=\"10m\"") == std::string::npos);
+  ASSERT_TRUE(has_line(after, "ton_actor_worker_messages_total{worker=\"io\"} 1.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_worker_messages_total{worker=\"cpu\"} 0.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_worker_threads{worker=\"io\"} 1.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_worker_threads{worker=\"cpu\"} 1.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_scheduler_threads{scheduler=\"0\"} 2.000000"));
+  ASSERT_TRUE(has_line(after, "ton_actor_scheduler_local_queue_length{scheduler=\"0\"} 0.000000"));
+  ASSERT_TRUE(after.find("worker=\"other\"") == std::string::npos);
+  ASSERT_EQ(1u, count_of(during, "ton_actor_scheduler_workers_active{scheduler=\"0\"}"));
+  ASSERT_EQ(1u, count_of(during, "ton_actor_scheduler_current_execute_seconds{scheduler=\"0\"}"));
+
+  scheduler.stop();
+  ASSERT_TRUE(!scheduler.run(0));
+  actor_core::Scheduler::close_scheduler_group(*group);
+}
 
 TEST(MetricsGolden, Overlay) {
   // OverlayManager::collect, over OverlayManager::broadcasts_ (overlay/overlay-manager.h).

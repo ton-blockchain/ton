@@ -51,6 +51,7 @@
 #include "td/utils/format.h"
 #include "td/utils/logging.h"
 #include "td/utils/optional.h"
+#include "td/utils/port/Clocks.h"
 #include "td/utils/port/Poll.h"
 #include "td/utils/port/detail/Iocp.h"
 #include "td/utils/port/thread.h"
@@ -79,12 +80,28 @@ bool need_debug();
 
 struct Debug {
  public:
+  enum class Work { Actor, Coroutine };
+  struct Stats {
+    td::uint64 busy_ticks;
+    ActorTypeStat coroutine;
+  };
+
   bool is_on() const {
     return need_debug();
   }
   struct Destructor {
     void operator()(Debug *debug) {
       std::lock_guard<std::mutex> lock(debug->info_mutex_);
+      if (!debug->info_.is_active) {
+        return;
+      }
+      auto finished_at = Clocks::rdtsc();
+      auto duration = elapsed_ticks(finished_at, debug->started_at_);
+      debug->busy_ticks_ += duration;
+      if (debug->work_ == Work::Coroutine) {
+        debug->coroutine_.add(finished_at, duration);
+      }
+      debug->started_at_ = 0;
       debug->info_.is_active = false;
     }
   };
@@ -94,12 +111,17 @@ struct Debug {
     info = info_;
   }
 
-  std::unique_ptr<Debug, Destructor> start(td::Slice name) {
+  std::unique_ptr<Debug, Destructor> start(td::Slice name, Work work = Work::Actor) {
     if (!is_on()) {
       return {};
     }
     {
       std::lock_guard<std::mutex> lock(info_mutex_);
+      if (info_.is_active) {
+        return {};
+      }
+      started_at_ = Clocks::rdtsc();
+      work_ = work;
       info_.is_active = true;
       info_.start_at = Time::now();
       info_.set_name(name);
@@ -107,16 +129,28 @@ struct Debug {
     return std::unique_ptr<Debug, Destructor>(this);
   }
 
+  Stats stats(double inv_ticks_per_second) const {
+    std::lock_guard<std::mutex> lock(info_mutex_);
+    auto now = Clocks::rdtsc();
+    auto active_since = info_.is_active && work_ == Work::Coroutine ? started_at_ : 0;
+    auto busy_ticks = busy_ticks_ + (info_.is_active ? elapsed_ticks(now, started_at_) : 0);
+    return {.busy_ticks = busy_ticks, .coroutine = coroutine_.to_stat(now, inv_ticks_per_second, active_since)};
+  }
+
  private:
-  std::mutex info_mutex_;
+  mutable std::mutex info_mutex_;
   DebugInfo info_;
+  td::uint64 started_at_{0};
+  td::uint64 busy_ticks_{0};
+  Work work_{Work::Actor};
+  CoroutineStat coroutine_;
 };
 
 struct WorkerInfo {
-  enum class Type { Io, Cpu } type{Type::Io};
+  WorkerKind kind{WorkerKind::Io};
   WorkerInfo() = default;
-  explicit WorkerInfo(Type type, bool allow_shared, CpuWorkerId cpu_worker_id)
-      : type(type), actor_info_creator(allow_shared), cpu_worker_id(cpu_worker_id) {
+  explicit WorkerInfo(WorkerKind kind, bool allow_shared, CpuWorkerId cpu_worker_id)
+      : kind(kind), actor_info_creator(allow_shared), cpu_worker_id(cpu_worker_id) {
   }
   ActorInfoCreator actor_info_creator;
   CpuWorkerId cpu_worker_id;
@@ -171,6 +205,7 @@ struct SchedulerGroupInfo {
   int active_scheduler_count{0};
   std::mutex active_scheduler_count_mutex;
   std::condition_variable active_scheduler_count_condition_variable;
+  ActorTypeStatRegistry actor_type_stats;
 
 #if TD_PORT_WINDOWS
   td::detail::Iocp iocp;
@@ -236,6 +271,7 @@ class Scheduler {
     KHeap<Timestamp> &get_heap() override;
 
     Debug &get_debug() override;
+    ActorTypeStatTable *actor_type_stats() override;
 
     void set_alarm_timestamp(const ActorInfoPtr &actor_info_ptr) override;
 
@@ -256,6 +292,7 @@ class Scheduler {
     KHeap<Timestamp> *heap_;
 
     Debug *debug_;
+    ActorTypeStatTable *actor_type_stats_{nullptr};
   };
 
   template <class F>
@@ -263,7 +300,7 @@ class Scheduler {
 #if TD_PORT_WINDOWS
     td::detail::Iocp::Guard iocp_guard(&scheduler_group_info_->iocp);
 #endif
-    bool is_io_worker = worker_info.type == WorkerInfo::Type::Io;
+    bool is_io_worker = worker_info.kind == WorkerKind::Io;
     ContextImpl context(&worker_info.actor_info_creator, info_->id, worker_info.cpu_worker_id,
                         scheduler_group_info_.get(), is_io_worker ? &poll_ : nullptr, is_io_worker ? &heap_ : nullptr,
                         &worker_info.debug);

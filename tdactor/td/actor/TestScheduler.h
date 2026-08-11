@@ -1,8 +1,10 @@
 #pragma once
 
+#include <array>
 #include <coroutine>
 #include <deque>
 #include <limits>
+#include <utility>
 
 #include "td/actor/actor.h"
 #include "td/actor/core/ActorExecutor.h"
@@ -91,9 +93,34 @@ class TestScheduler {
 
   KHeap<Timestamp> heap_;
   Poll poll_;
-  core::Debug debug_;
+  std::array<core::Debug, core::WORKER_KIND_COUNT> debug_;
+  std::array<core::ActorTypeStatTable, core::WORKER_KIND_COUNT> actor_type_stats_;
   core::ActorInfoCreator creator_{true};
   std::coroutine_handle<> control_continuation_;
+  core::WorkerKind worker_kind_{core::WorkerKind::Cpu};
+
+  size_t worker_index() const {
+    return static_cast<size_t>(worker_kind_);
+  }
+
+  core::Debug &debug() {
+    return debug_[worker_index()];
+  }
+
+  class WorkerKindGuard {
+   public:
+    WorkerKindGuard(TestScheduler *scheduler, core::WorkerKind kind)
+        : scheduler_(scheduler), previous_(std::exchange(scheduler_->worker_kind_, kind)) {
+    }
+
+    ~WorkerKindGuard() {
+      scheduler_->worker_kind_ = previous_;
+    }
+
+   private:
+    TestScheduler *scheduler_;
+    core::WorkerKind previous_;
+  };
 
   class ContextImpl : public core::SchedulerContext {
    public:
@@ -145,7 +172,19 @@ class TestScheduler {
     }
 
     core::Debug &get_debug() override {
-      return sched_->debug_;
+      return sched_->debug();
+    }
+
+    core::ActorTypeStatTable *actor_type_stats() override {
+      return &sched_->actor_type_stats_[sched_->worker_index()];
+    }
+
+    void append_actor_type_stats(core::ActorTypeStats &result, double inv_ticks_per_second) override {
+      for (size_t i = 0; i < core::WORKER_KIND_COUNT; ++i) {
+        auto kind = static_cast<core::WorkerKind>(i);
+        core::ActorTypeStatManager::append_thread_stats(result, &sched_->actor_type_stats_[i], sched_->debug_[i], kind,
+                                                        inv_ticks_per_second);
+      }
     }
 
     core::SchedulerGroupInfo *scheduler_group() const override {
@@ -176,6 +215,7 @@ class TestScheduler {
   };
 
   void process_cpu_queue() {
+    WorkerKindGuard worker_kind(this, core::WorkerKind::Cpu);
     auto &dispatcher = core::SchedulerContext::get();
     while (!cpu_queue_.empty()) {
       auto token = cpu_queue_.front();
@@ -187,17 +227,18 @@ class TestScheduler {
       if ((encoded & 1u) == 0u) {
         auto *raw = reinterpret_cast<core::SchedulerMessage::Raw *>(token);
         core::SchedulerMessage message(core::SchedulerMessage::acquire_t{}, raw);
-        auto lock = debug_.start(message->get_name());
+        auto lock = debug().start(message->get_name());
         core::ActorExecutor executor(*message, dispatcher, core::ActorExecutor::Options().with_from_queue());
       } else {
         auto h = std::coroutine_handle<>::from_address(reinterpret_cast<void *>(encoded & ~uintptr_t(1)));
-        auto lock = debug_.start("coro");
+        auto lock = debug().start("coro", core::Debug::Work::Coroutine);
         h.resume();
       }
     }
   }
 
   void process_io_queue() {
+    WorkerKindGuard worker_kind(this, core::WorkerKind::Io);
     auto &dispatcher = core::SchedulerContext::get();
     while (!io_queue_.empty()) {
       auto actor_info_ptr = std::move(io_queue_.front());
@@ -208,7 +249,7 @@ class TestScheduler {
       if (actor_info_ptr->state().get_flags_unsafe().is_shared()) {
         dispatcher.set_alarm_timestamp(actor_info_ptr);
       } else {
-        auto lock = debug_.start(actor_info_ptr->get_name());
+        auto lock = debug().start(actor_info_ptr->get_name());
         core::ActorExecutor executor(*actor_info_ptr, dispatcher,
                                      core::ActorExecutor::Options().with_from_queue().with_has_poll(true));
       }
@@ -216,11 +257,12 @@ class TestScheduler {
   }
 
   void process_single_alarm() {
+    WorkerKindGuard worker_kind(this, core::WorkerKind::Io);
     auto &dispatcher = core::SchedulerContext::get();
     auto *heap_node = heap_.pop();
     auto *actor_info = core::ActorInfo::from_heap_node(heap_node);
     actor_info->unpin();
-    auto lock = debug_.start(actor_info->get_name());
+    auto lock = debug().start(actor_info->get_name());
     core::ActorExecutor executor(*actor_info, dispatcher, core::ActorExecutor::Options().with_has_poll(true));
     if (executor.can_send_immediate()) {
       executor.send_immediate(core::ActorSignals::one(core::ActorSignals::Alarm));

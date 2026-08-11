@@ -52,10 +52,17 @@ class ExtMessageChecker : public td::actor::Actor {
     StageTimings timings;
   };
 
+  enum class Failure : size_t { none, invalid, state_unavailable, vm_rejected };
+
+  struct CheckOutcome {
+    td::Result<CheckedExtMsg> result;
+    Failure failure;
+  };
+
   // Runs every admission check that does not touch pool state. The pool finalizes the result
   // (counters, mempool insertion) atomically on its own actor.
-  td::actor::Task<CheckedExtMsg> check(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
-                                       td::Ref<MasterchainState> mc_state);
+  td::actor::Task<CheckOutcome> check(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
+                                      td::Ref<MasterchainState> mc_state);
 
   void alarm() override;
 
@@ -75,6 +82,12 @@ class ExtMessageChecker : public td::actor::Actor {
     std::unique_ptr<ExtMessageQ::ExecutionConfig> nolog, log;
   };
   std::map<std::pair<WorkchainId, UnixTime>, ExecConfigPair> exec_configs_;
+
+  // The plain-CO_TRY body of check(): before each fallible stage it records that stage in
+  // `failure`, so the error propagated through the task pairs with the last recorded stage.
+  // `failure` must stay a per-call local of check(): concurrent checks interleave at co_awaits.
+  td::actor::Task<CheckedExtMsg> check_inner(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
+                                             td::Ref<MasterchainState> mc_state, Failure &failure);
 
   // Runs the message without VM logging; on rejection, re-runs a freshly rebuilt account with
   // logging to reconstruct the same detailed error message as before (the VM is deterministic).

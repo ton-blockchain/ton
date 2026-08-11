@@ -21,6 +21,28 @@ namespace ton::quic {
 TON_METRIC_DEFINE_LABEL(HandshakeResult, "result", QUIC_HANDSHAKE_RESULT_LIST)
 #undef QUIC_HANDSHAKE_RESULT_LIST
 
+// Local resource class assigned to a remote peer path. Permanent overlay members are trusted; all
+// other peers are untrusted. This is not an authorization decision.
+#define QUIC_TRUST_LIST(F) \
+  F(trusted)               \
+  F(untrusted)
+TON_METRIC_DEFINE_LABEL(Trust, "trust", QUIC_TRUST_LIST)
+#undef QUIC_TRUST_LIST
+
+// Metrics whose remote peer is known. Trust is attached outside this node, so one snapshot labels
+// the request, its answer, and its eventual latency outcome consistently.
+struct PeerMetrics {
+  metrics::App app;
+  metrics::TlLatencyBucket query_roundtrip{"quic query roundtrip", "seconds"};
+  metrics::TlLatencyBucket message_delivery{"quic message delivery", "seconds"};
+
+  void collect(metrics::Context ctx) const {
+    ctx.collect(app, "app");
+    ctx.collect(query_roundtrip, "query_roundtrip");
+    ctx.collect(message_delivery, "message_delivery");
+  }
+};
+
 // Per-connection ngtcp2 counters (metrics::ConnectionStats is a different, shared aggregate).
 struct QuicConnectionMetrics {
   metrics::Labeled<metrics::Counter, metrics::Direction> bytes;

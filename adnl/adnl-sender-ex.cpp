@@ -32,12 +32,14 @@ void AdnlSenderEx::set_local_id_mtu(AdnlNodeIdShort local_id, td::uint64 mtu) {
   on_mtu_updated(local_id, {});
 }
 
-void AdnlSenderEx::add_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::uint64 mtu) {
-  mtu_local_ids_[local_id].mtu_peers[peer_id].insert(mtu);
+void AdnlSenderEx::add_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::uint64 mtu, bool trusted) {
+  auto& entry = mtu_local_ids_[local_id].mtu_peers[peer_id];
+  entry.mtus.insert(mtu);
+  entry.trusted_count += trusted;
   on_mtu_updated(local_id, peer_id);
 }
 
-void AdnlSenderEx::remove_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::uint64 mtu) {
+void AdnlSenderEx::remove_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id, td::uint64 mtu, bool trusted) {
   auto it = mtu_local_ids_.find(local_id);
   if (it == mtu_local_ids_.end()) {
     LOG(WARNING) << "Removing nonexistent peer mtu " << local_id << " " << peer_id << " " << mtu;
@@ -48,13 +50,17 @@ void AdnlSenderEx::remove_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort pee
     LOG(WARNING) << "Removing nonexistent peer mtu " << local_id << " " << peer_id << " " << mtu;
     return;
   }
-  auto it3 = it2->second.find(mtu);
-  if (it3 == it2->second.end()) {
+  auto& entry = it2->second;
+  auto it3 = entry.mtus.find(mtu);
+  if (it3 == entry.mtus.end()) {
     LOG(WARNING) << "Removing nonexistent peer mtu " << local_id << " " << peer_id << " " << mtu;
     return;
   }
-  it2->second.erase(it3);
-  if (it2->second.empty()) {
+  entry.mtus.erase(it3);
+  if (trusted && entry.trusted_count > 0) {
+    entry.trusted_count--;
+  }
+  if (entry.mtus.empty()) {
     it->second.mtu_peers.erase(it2);
     if (it->second.mtu_peers.empty() && it->second.mtu == 0) {
       mtu_local_ids_.erase(it);
@@ -70,28 +76,31 @@ td::uint64 AdnlSenderEx::get_peer_mtu(AdnlNodeIdShort local_id, AdnlNodeIdShort 
     mtu = std::max(mtu, it->second.mtu);
     auto it2 = it->second.mtu_peers.find(peer_id);
     if (it2 != it->second.mtu_peers.end()) {
-      mtu = std::max(mtu, *it2->second.rbegin());
+      mtu = std::max(mtu, *it2->second.mtus.rbegin());
     }
   }
   return mtu;
 }
 
-td::uint64 AdnlSenderEx::get_peer_mtu_inner(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id) {
+PeerMtu AdnlSenderEx::get_peer_mtu_inner(AdnlNodeIdShort local_id, AdnlNodeIdShort peer_id) {
   auto it = mtu_local_ids_.find(local_id);
   if (it == mtu_local_ids_.end()) {
-    return 0;
+    return {};
   }
   auto it2 = it->second.mtu_peers.find(peer_id);
-  return it2 == it->second.mtu_peers.end() ? 0 : *it2->second.rbegin();
+  if (it2 == it->second.mtu_peers.end()) {
+    return {};
+  }
+  return {*it2->second.mtus.rbegin(), it2->second.trusted_count > 0};
 }
 
-std::vector<std::pair<AdnlNodeIdShort, td::uint64>> AdnlSenderEx::get_local_id_peers_mtu(AdnlNodeIdShort local_id) {
-  std::vector<std::pair<AdnlNodeIdShort, td::uint64>> result;
+std::vector<std::pair<AdnlNodeIdShort, PeerMtu>> AdnlSenderEx::get_local_id_peers_mtu(AdnlNodeIdShort local_id) {
+  std::vector<std::pair<AdnlNodeIdShort, PeerMtu>> result;
   auto it = mtu_local_ids_.find(local_id);
   if (it != mtu_local_ids_.end()) {
     result.reserve(it->second.mtu_peers.size());
-    for (auto& [peer_id, mtu] : it->second.mtu_peers) {
-      result.emplace_back(peer_id, *mtu.rbegin());
+    for (auto& [peer_id, entry] : it->second.mtu_peers) {
+      result.emplace_back(peer_id, PeerMtu{*entry.mtus.rbegin(), entry.trusted_count > 0});
     }
   }
   return result;

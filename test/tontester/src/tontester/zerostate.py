@@ -150,6 +150,7 @@ class SimplexConsensusConfig:
     target_block_rate_ms: int = 400
     slots_per_leader_window: int = 4
     first_block_timeout_ms: int = 700
+    min_block_interval_ms: int = 300
     use_quic: bool = True
     protocol_version: int = 2
 
@@ -667,6 +668,7 @@ def _build_config_params(
             noncritical_params={
                 0: config.target_block_rate_ms,
                 1: config.first_block_timeout_ms,
+                13: config.min_block_interval_ms,
             },
         )
 

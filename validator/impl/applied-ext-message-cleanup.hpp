@@ -18,6 +18,7 @@
 
 #include "interfaces/validator-manager.h"
 #include "td/actor/actor.h"
+#include "td/utils/LRUCache.h"
 
 #include "ext-message-pool.hpp"
 
@@ -36,6 +37,7 @@ class AppliedExtMessageCleanupActor : public td::actor::Actor {
  private:
   td::actor::ActorId<ExtMessagePool> ext_message_pool_;
   td::actor::ActorId<ValidatorManager> manager_;
+  td::LRUCache<BlockIdExt, td::Unit> processed_blocks_{4096};
 };
 
 }  // namespace ton::validator

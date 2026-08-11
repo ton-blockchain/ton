@@ -1,14 +1,9 @@
-#include <map>
-#include <mutex>
-#include <optional>
-#include <set>
-#include <typeindex>
-#include <typeinfo>
+#include <cstdlib>
+#include <unordered_map>
 
 #include "td/actor/core/Actor.h"
 #include "td/actor/core/ActorTypeStat.h"
 #include "td/actor/core/Scheduler.h"
-#include "td/utils/port/thread_local.h"
 
 #ifdef __has_include
 #if __has_include(<cxxabi.h>)
@@ -25,72 +20,115 @@ namespace td {
 namespace actor {
 namespace core {
 
-class ActorTypeStatRef;
-struct ActorTypeStatsTlsEntry {
-  struct Entry {
-    std::unique_ptr<ActorTypeStatImpl> stat;
-    std::optional<std::type_index> o_type_index;
-  };
-  std::vector<Entry> by_id;
-  std::mutex mutex;
+void CoroutineStat::add(td::uint64 finished_at, td::uint64 elapsed_ticks) {
+  count_++;
+  total_ticks_ += elapsed_ticks;
+  last_finished_at_ = finished_at;
+  max_ticks_.update(finished_at, elapsed_ticks);
+}
 
-  template <class F>
-  void foreach_entry(F &&f) {
-    std::lock_guard<std::mutex> guard(mutex);
-    for (auto &entry : by_id) {
-      f(entry);
+ActorTypeStat CoroutineStat::to_stat(td::uint64 now, double inv_ticks_per_second, td::uint64 active_since) const {
+  auto max_ticks = max_ticks_.get(now);
+  auto seconds = [inv_ticks_per_second](td::uint64 ticks) { return double(ticks) * inv_ticks_per_second; };
+  ActorTypeStat::MaxStatGroup<double> max_seconds{.value_forever = seconds(max_ticks.value_forever),
+                                                  .value_10s = seconds(max_ticks.value_10s),
+                                                  .value_10m = seconds(max_ticks.value_10m)};
+  ActorTypeStat::MaxStatGroup<td::uint32> max_messages{.value_forever = count_ == 0 ? 0u : 1u,
+                                                       .value_10s = has_recent_completion<10>(now) ? 1u : 0u,
+                                                       .value_10m = has_recent_completion<10 * 60>(now) ? 1u : 0u};
+  // Completed resumes only, matching ActorTypeStatImpl: a live resume is visible through
+  // executing/executing_start, never as growing seconds.
+  auto is_active = active_since != 0;
+  return ActorTypeStat{.executions = double(count_),
+                       .messages = double(count_),
+                       .seconds = seconds(total_ticks_),
+                       .executing = is_active ? 1 : 0,
+                       .executing_start = is_active ? seconds(std::min(now, active_since)) : 1e20,
+                       .max_execute_messages = max_messages,
+                       .max_message_seconds = max_seconds,
+                       .max_execute_seconds = max_seconds,
+                       .max_delay_seconds = {}};
+}
+
+ActorTypeStatRef ActorTypeStatTable::get(td::uint32 id, Actor &actor) {
+  if (id >= by_id_.size()) {
+    std::lock_guard<std::mutex> guard(mutex_);
+    by_id_.resize(id + 1);
+  }
+  auto &entry = by_id_[id];
+  if (!entry.type) {
+    std::lock_guard<std::mutex> guard(mutex_);
+    entry.type = std::type_index(typeid(actor));
+    entry.stat = std::make_unique<ActorTypeStatImpl>();
+  }
+  return ActorTypeStatRef{entry.stat.get()};
+}
+
+void ActorTypeStatTable::append_to(ActorTypeStats &result, double inv_ticks_per_second, WorkerKind kind) const {
+  auto &worker = result.by_worker[static_cast<size_t>(kind)];
+  std::lock_guard<std::mutex> guard(mutex_);
+  for (const auto &entry : by_id_) {
+    if (entry.type) {
+      auto stat = entry.stat->to_stat(inv_ticks_per_second);
+      worker.messages += stat.messages;
+      result.stats[*entry.type] += stat;
     }
   }
-  ActorTypeStatRef get_actor_type_stat(td::uint32 id, Actor &actor) {
-    if (id >= by_id.size()) {
-      std::lock_guard<std::mutex> guard(mutex);
-      by_id.resize(id + 1);
+}
+
+ActorTypeStatTable &ActorTypeStatRegistry::thread_table(WorkerKind kind) {
+  using Tables = std::array<std::weak_ptr<ThreadTable>, WORKER_KIND_COUNT>;
+  static thread_local std::unordered_map<const ActorTypeStatRegistry *, Tables> cache;
+  auto it = cache.find(this);
+  if (it == cache.end()) {
+    for (auto cached = cache.begin(); cached != cache.end();) {
+      if (std::all_of(cached->second.begin(), cached->second.end(),
+                      [](const auto &table) { return table.expired(); })) {
+        cached = cache.erase(cached);
+      } else {
+        ++cached;
+      }
     }
-    auto &entry = by_id.at(id);
-    if (!entry.o_type_index) {
-      std::lock_guard<std::mutex> guard(mutex);
-      entry.o_type_index = std::type_index(typeid(actor));
-      entry.stat = std::make_unique<ActorTypeStatImpl>();
+    it = cache.emplace(this, Tables{}).first;
+  }
+
+  auto &cached = it->second[static_cast<size_t>(kind)];
+  auto table = cached.lock();
+  if (!table) {
+    table = std::make_shared<ThreadTable>(kind);
+    {
+      std::lock_guard<std::mutex> guard(mutex_);
+      tables_.push_back(table);
     }
-    return ActorTypeStatRef{entry.stat.get()};
+    cached = table;
   }
-};
+  return table->table;
+}
 
-struct ActorTypeStatsRegistry {
-  std::mutex mutex;
-  std::vector<std::shared_ptr<ActorTypeStatsTlsEntry>> entries;
-  void registry_entry(std::shared_ptr<ActorTypeStatsTlsEntry> entry) {
-    std::lock_guard<std::mutex> guard(mutex);
-    entries.push_back(std::move(entry));
+void ActorTypeStatRegistry::append_to(ActorTypeStats &result, double inv_ticks_per_second) const {
+  std::vector<std::shared_ptr<ThreadTable>> tables;
+  {
+    std::lock_guard<std::mutex> guard(mutex_);
+    tables = tables_;
   }
-  template <class F>
-  void foreach_entry(F &&f) {
-    std::lock_guard<std::mutex> guard(mutex);
-    for (auto &entry : entries) {
-      f(*entry);
-    }
+  for (const auto &table : tables) {
+    table->table.append_to(result, inv_ticks_per_second, table->kind);
   }
-};
-
-ActorTypeStatsRegistry registry;
-
-struct ActorTypeStatsTlsEntryRef {
-  ActorTypeStatsTlsEntryRef() {
-    entry_ = std::make_shared<ActorTypeStatsTlsEntry>();
-    registry.registry_entry(entry_);
-  }
-  std::shared_ptr<ActorTypeStatsTlsEntry> entry_;
-};
-
-static TD_THREAD_LOCAL ActorTypeStatsTlsEntryRef *actor_type_stats_tls_entry = nullptr;
+}
 
 ActorTypeStatRef ActorTypeStatManager::get_actor_type_stat(td::uint32 id, Actor *actor) {
   if (!actor || !need_debug()) {
     return ActorTypeStatRef{nullptr};
   }
-  td::init_thread_local<ActorTypeStatsTlsEntryRef>(actor_type_stats_tls_entry);
-  ActorTypeStatsTlsEntry &tls_entry = *actor_type_stats_tls_entry->entry_;
-  return tls_entry.get_actor_type_stat(id, *actor);
+  auto *context = SchedulerContext::get_ptr();
+  if (!context) {
+    return ActorTypeStatRef{nullptr};
+  }
+  auto *table = context->actor_type_stats();
+  if (!table) {
+    return ActorTypeStatRef{nullptr};
+  }
+  return table->get(id, *actor);
 }
 
 std::string ActorTypeStatManager::get_class_name(const char *name) {
@@ -109,16 +147,57 @@ std::string ActorTypeStatManager::get_class_name(const char *name) {
 #endif
 }
 
+namespace {
+void append_worker_stats(ActorTypeStats &result, const Debug &debug, WorkerKind kind, double inv_ticks_per_second) {
+  auto stats = debug.stats(inv_ticks_per_second);
+  auto &worker = result.by_worker[static_cast<size_t>(kind)];
+  worker.seconds += double(stats.busy_ticks) * inv_ticks_per_second;
+  if (stats.coroutine.messages != 0 || stats.coroutine.executing != 0) {
+    worker.messages += stats.coroutine.messages;
+    result.stats[typeid(CoroutineResume)] += stats.coroutine;
+  }
+}
+}  // namespace
+
+void ActorTypeStatManager::append_thread_stats(ActorTypeStats &result, const ActorTypeStatTable *table,
+                                               const Debug &debug, WorkerKind kind, double inv_ticks_per_second) {
+  if (table) {
+    table->append_to(result, inv_ticks_per_second, kind);
+  }
+  append_worker_stats(result, debug, kind, inv_ticks_per_second);
+}
+
+void SchedulerContext::append_actor_type_stats(ActorTypeStats &result, double inv_ticks_per_second) {
+  auto kind = has_poll() ? WorkerKind::Io : WorkerKind::Cpu;
+  ActorTypeStatManager::append_thread_stats(result, actor_type_stats(), get_debug(), kind, inv_ticks_per_second);
+}
+
 ActorTypeStats ActorTypeStatManager::get_stats(double inv_ticks_per_second) {
-  std::map<std::type_index, ActorTypeStat> stats;
-  registry.foreach_entry([&](ActorTypeStatsTlsEntry &tls_entry) {
-    tls_entry.foreach_entry([&](ActorTypeStatsTlsEntry::Entry &entry) {
-      if (entry.o_type_index) {
-        stats[entry.o_type_index.value()] += entry.stat->to_stat(inv_ticks_per_second);
-      }
-    });
-  });
-  return ActorTypeStats{.stats = std::move(stats)};
+  auto *context = SchedulerContext::get_ptr();
+  if (!context) {
+    return {};
+  }
+  if (auto *group = context->scheduler_group()) {
+    return get_stats(*group, inv_ticks_per_second);
+  }
+
+  ActorTypeStats result;
+  context->append_actor_type_stats(result, inv_ticks_per_second);
+  return result;
+}
+
+ActorTypeStats ActorTypeStatManager::get_stats(const SchedulerGroupInfo &group, double inv_ticks_per_second) {
+  ActorTypeStats result;
+  group.actor_type_stats.append_to(result, inv_ticks_per_second);
+  for (const auto &scheduler : group.schedulers) {
+    if (scheduler.io_worker) {
+      append_worker_stats(result, scheduler.io_worker->debug, scheduler.io_worker->kind, inv_ticks_per_second);
+    }
+    for (const auto &worker : scheduler.cpu_workers) {
+      append_worker_stats(result, worker->debug, worker->kind, inv_ticks_per_second);
+    }
+  }
+  return result;
 }
 }  // namespace core
 }  // namespace actor
