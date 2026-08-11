@@ -3261,7 +3261,7 @@
       "id": 25,
       "type": "stat",
       "title": "Accepted /s (global)",
-      "description": "Accepted external-submission rate over the last minute, evaluated now and averaged across nodes. Admission has no chain label, so compare it with selected-chain execution only as context.",
+      "description": "Accepted external-submission rate over the last minute, evaluated now and averaged across nodes. It combines new pool entries with priority upgrades, preserving the pre-split meaning during a rolling upgrade. Admission has no chain label, so compare it with selected-chain execution only as context.",
       "gridPos": {
         "x": 0,
         "y": 100,
@@ -3314,7 +3314,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg(rate(ton_mempool_ext_admission_total{outcome=\"accepted\",job=~\"$job\",instance=~\"$instance\"}[1m]))",
+          "expr": "avg(sum by (job, instance) (rate(ton_mempool_ext_admission_total{outcome=~\"accepted|reprioritized\",job=~\"$job\",instance=~\"$instance\"}[1m])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3751,7 +3751,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg(rate(ton_mempool_ext_admission_total{outcome=\"accepted\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "avg(sum by (job, instance) (rate(ton_mempool_ext_admission_total{outcome=~\"accepted|reprioritized\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3871,7 +3871,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg by (outcome) (rate(ton_mempool_ext_admission_total{outcome!~\"accepted|duplicate\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "expr": "avg by (outcome) (rate(ton_mempool_ext_admission_total{outcome!~\"accepted|duplicate|reprioritized\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"

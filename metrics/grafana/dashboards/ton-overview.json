@@ -2096,7 +2096,7 @@
         },
         {
           "refId": "C",
-          "expr": "sum(rate(ton_mempool_ext_admission_total{outcome!~\"accepted|duplicate\",job=~\"$job\",instance=~\"$instance\"}[5m])) / (sum(rate(ton_mempool_ext_admission_total{outcome!=\"duplicate\",job=~\"$job\",instance=~\"$instance\"}[5m])) > 0)",
+          "expr": "sum(rate(ton_mempool_ext_admission_total{outcome!~\"accepted|duplicate|reprioritized\",job=~\"$job\",instance=~\"$instance\"}[5m])) / (sum(rate(ton_mempool_ext_admission_total{outcome!=\"duplicate\",job=~\"$job\",instance=~\"$instance\"}[5m])) > 0)",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2278,7 +2278,7 @@
           "id": 11,
           "type": "timeseries",
           "title": "Actor handler load (worst node)",
-          "description": "Busiest actor/coroutine types: handler or resumption seconds per second \u2014 the fraction of one core \u2014 on whichever node runs that type hottest (max over nodes). Coroutine samples include elapsed time in a current resumption; actor-class samples enter when a handler returns. Top 5 types are ranked by total busy time over the visible window, so the series set stays stable while you scroll. Blocking and descheduling inside a handler count; signal-only work, gaps and dispatch bookkeeping don't. Values above 100% mean several instances of the type run concurrently on one node. Queues and tail latencies live on TON Actors.",
+          "description": "Busiest actor/coroutine types: handler or resumption seconds per second \u2014 the fraction of one core \u2014 on whichever node runs that type hottest (max over nodes). Actor and coroutine samples enter when the handler or resumption returns; live outer-dispatch time remains visible in worker occupancy. Top 5 types are ranked by total busy time over the visible window, so the series set stays stable while you scroll. Blocking and descheduling inside a handler count; signal-only work, gaps and dispatch bookkeeping don't. Values above 100% mean several instances of the type run concurrently on one node. Queues and tail latencies live on TON Actors.",
           "gridPos": {
             "x": 0,
             "y": 37,

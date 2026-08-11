@@ -1056,6 +1056,7 @@ TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
       "mempool_ext_admission_total{outcome=\"address_full\"} 20.000000\n"
       "mempool_ext_admission_total{outcome=\"duplicate\"} 21.000000\n"
       "mempool_ext_admission_total{outcome=\"internal_error\"} 22.000000\n"
+      "mempool_ext_admission_total{outcome=\"reprioritized\"} 23.000000\n"
       "# TYPE mempool_ext_removed counter\n"
       "mempool_ext_removed_total{reason=\"applied\"} 31.000000\n"
       "mempool_ext_removed_total{reason=\"expired\"} 32.000000\n"

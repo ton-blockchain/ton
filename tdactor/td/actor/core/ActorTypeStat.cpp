@@ -36,11 +36,12 @@ ActorTypeStat CoroutineStat::to_stat(td::uint64 now, double inv_ticks_per_second
   ActorTypeStat::MaxStatGroup<td::uint32> max_messages{.value_forever = count_ == 0 ? 0u : 1u,
                                                        .value_10s = has_recent_completion<10>(now) ? 1u : 0u,
                                                        .value_10m = has_recent_completion<10 * 60>(now) ? 1u : 0u};
+  // Completed resumes only, matching ActorTypeStatImpl: a live resume is visible through
+  // executing/executing_start, never as growing seconds.
   auto is_active = active_since != 0;
-  auto total_ticks = total_ticks_ + (is_active ? elapsed_ticks(now, active_since) : 0);
   return ActorTypeStat{.executions = double(count_),
                        .messages = double(count_),
-                       .seconds = seconds(total_ticks),
+                       .seconds = seconds(total_ticks_),
                        .executing = is_active ? 1 : 0,
                        .executing_start = is_active ? seconds(std::min(now, active_since)) : 1e20,
                        .max_execute_messages = max_messages,

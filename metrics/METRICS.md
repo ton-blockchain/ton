@@ -101,7 +101,7 @@ exporter gets this tier, not just `validator-engine`.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_actor_busy_ticks_total` | counter | `type` | Raw `rdtsc` ticks attributed to completed message handlers of this actor class. For the synthetic coroutine type, a scrape also includes elapsed time in the current resumption. Signal-only work, gaps between messages and executor finish bookkeeping are not counted. Blocking and descheduling inside a handler are included. This is per-type attribution, not total worker occupancy. Divide by `ton_actor_ticks_per_second` per target before aggregating. |
+| `ton_actor_busy_ticks_total` | counter | `type` | Raw `rdtsc` ticks attributed to completed message handlers of this actor class or completed resumptions of the synthetic coroutine type. Signal-only work, gaps between messages and executor finish bookkeeping are not counted. Blocking and descheduling inside a handler are included. This is per-type attribution, not total worker occupancy. Divide by `ton_actor_ticks_per_second` per target before aggregating. |
 | `ton_actor_messages_total` | counter | `type` | Messages executed. |
 | `ton_actor_executions_total` | counter | `type` | Executor batches: one worker's uninterrupted run over an actor's signals and mailbox. `rate(messages) / rate(executions)` is the class's batching ratio — how many messages an average wakeup amortizes its scheduling cost over. A batch can drain **zero** messages (an alarm signal whose timestamp is not due yet, queue-bookkeeping signals), so the ratio reads below 1 for signal-churny classes; a class that genuinely batches reads well above it. |
 | `ton_actor_created_total` | counter | `type` | Actors of this class ever created. |
@@ -173,12 +173,12 @@ group, actor classes are still merged across its schedulers. Only the four
 **Coroutine resumptions are measured under a synthetic type.** A resumed coroutine continuation
 runs on a cpu worker outside `ActorExecutor` (`CpuWorker::run` calls `h.resume()` directly), so it
 gets its own stat slot: `type="td::actor::core::CoroutineResume"` in the per-type families
-(`busy_ticks`, `messages`, the maxima; `created`/`alive` stay 0 — there is no actor to count), and
-its complete outer dispatch contributes to cpu-worker busy time. Both numbers reuse the same
-`Debug` timestamps and scope — there is no second coroutine timer — so every resumption's ticks are
-also part of the cpu-worker total. That total additionally contains actor dispatches. The gate is
-resolved for every resumption, so enabling or disabling stats while workers are already running
-takes effect immediately.
+(`busy_ticks`, `messages`, the maxima; `created`/`alive` stay 0 — there is no actor to count). Once a
+resumption returns, its complete outer dispatch is added to both the synthetic type and cpu-worker
+totals using the same `Debug` timestamps; there is no second coroutine timer. While it is running,
+only the worker snapshot includes its elapsed time. The worker total additionally contains actor
+dispatches. The gate is resolved for every resumption, so enabling or disabling stats while workers
+are already running takes effect immediately.
 
 ---
 
@@ -524,9 +524,9 @@ scrape still succeeds.
 |---|---|---|---|
 | `ton_mempool_ext_messages` | gauge | — | External messages currently pending in the mempool, summed over all priority levels. Includes postponed (temporarily inactive) messages and expired ones the periodic cleanup has not swept yet (messages live 600 s, the sweep runs every 250 s). |
 | `ton_mempool_oldest_ext_message_age_seconds` | gauge | — | Age of the oldest current mempool entry, maintained without scanning the pool. Includes postponed and expired-unswept messages; 0 when empty. Reprioritizing a duplicate recreates the entry and resets its age, matching its expiry behavior. |
-| `ton_mempool_ext_admission_total` | counter | `outcome=accepted\|not_ready\|too_large\|backpressure\|invalid\|state_unavailable\|vm_rejected\|rate_limited\|pool_full\|address_full\|duplicate\|internal_error` | One local outcome for every external handed to the validator manager or pool. `accepted` passed validation and, on a node that stores externals, was inserted or reprioritized. `rate_limited` is the final per-address validation cap. `pool_full`, `address_full`, and `duplicate` passed validation but were not inserted locally; they do not change the existing successful network response. Raw errors, addresses, and VM exit codes are never labels. Process-lifetime; all cells are emitted from boot. |
+| `ton_mempool_ext_admission_total` | counter | `outcome=accepted\|not_ready\|too_large\|backpressure\|invalid\|state_unavailable\|vm_rejected\|rate_limited\|pool_full\|address_full\|duplicate\|internal_error\|reprioritized` | One local outcome for every external handed to the validator manager or pool. `accepted` passed validation and, on a node that stores externals, was inserted as a new pool entry. `reprioritized` passed validation and replaced its own lower-priority entry. On nodes that store externals, `accepted` minus removals tracks the pending gauge; `reprioritized` changes neither side. `rate_limited` is the final per-address validation cap. `pool_full`, `address_full`, and `duplicate` passed validation but were not inserted locally; they do not change the existing successful network response. Raw errors, addresses, and VM exit codes are never labels. Process-lifetime; all cells are emitted from boot. |
 | `ton_mempool_ext_check_total` | counter | `result=ok\|error` | External-message admission checks that ran, by outcome. `error` is a failed check (parse, account state fetch, VM) or the per-address cap at finalization; requests rejected **before** a check runs — node not ready, oversized payload, admission queue full — are counted in neither cell. Process-lifetime, resets on restart. |
-| `ton_mempool_ext_removed_total` | counter | `reason=applied\|expired\|rejected_final\|filtered\|pool_pressure` | Why an entry left this node's pool. `applied` — seen in an applied block; `expired` — hit the 600 s TTL and was swept; `rejected_final` — exhausted its postpone generations; `pool_pressure` — was evicted instead of postponed while its priority level was at the soft limit; `filtered` — collation could not register it, for example because it was duplicate or for the wrong shard. A non-`applied` removal is a local eviction, not proof the message was lost network-wide. Duplicate reprioritization is not a removal. Process-lifetime; all cells emitted from boot. |
+| `ton_mempool_ext_removed_total` | counter | `reason=applied\|expired\|rejected_final\|filtered\|pool_pressure` | Why an entry left this node's pool. `applied` — seen in an applied block; `expired` — hit the 600 s TTL and was swept; `rejected_final` — exhausted its postpone generations; `pool_pressure` — was evicted instead of postponed while its priority level was at the soft limit; `filtered` — collation could not register it, for example because it was duplicate or for the wrong shard. A non-`applied` removal is a local eviction, not proof the message was lost network-wide. Reprioritization is not a removal; it is admission outcome `reprioritized`. Process-lifetime; all cells emitted from boot. |
 
 Admission starts at `ValidatorManager`: malformed outer broadcasts, unauthorized custom-overlay senders,
 inactive overlays, and duplicates rejected by the public overlay never reach this boundary. `duplicate` therefore

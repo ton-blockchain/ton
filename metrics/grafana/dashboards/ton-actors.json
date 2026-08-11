@@ -1210,7 +1210,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "▾ Handler or coroutine-resumption seconds per second for each class, computed per node and then collapsed with Node aggregation. Coroutine samples include elapsed time in a current resumption; actor-class samples enter when a handler returns. Nodes without that class are absent rather than zero. Blocking and descheduling are included, but signal-only work, gaps and dispatch bookkeeping are not, so this does not sum to worker occupancy. Top 8 classes by total busy time over the visible range."
+      "description": "▾ Handler or coroutine-resumption seconds per second for each class, computed per node and then collapsed with Node aggregation. Actor and coroutine samples enter when the handler or resumption returns; live outer-dispatch time remains visible in the worker panels. Nodes without that class are absent rather than zero. Blocking and descheduling are included, but signal-only work, gaps and dispatch bookkeeping are not, so this does not sum to worker occupancy. Top 8 classes by total busy time over the visible range."
     },
     {
       "id": 11,

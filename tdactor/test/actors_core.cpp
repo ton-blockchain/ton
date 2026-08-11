@@ -203,7 +203,8 @@ TEST(ActorTypeStat, CoroutineStatUsesCoarseRecentWindows) {
   current = stat.to_stat(now, 1, active_since);
   CHECK(current.messages == 3);
   CHECK(current.executions == 3);
-  CHECK(current.seconds == 17);
+  // Completed resumes only: the live resume shows up in executing/executing_start, not seconds.
+  CHECK(current.seconds == 15);
   CHECK(current.executing == 1);
   CHECK(current.executing_start == static_cast<double>(active_since));
 

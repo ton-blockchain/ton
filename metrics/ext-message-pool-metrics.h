@@ -26,6 +26,7 @@ enum class ExtMessageAdmissionOutcome : size_t {
   address_full,
   duplicate,
   internal_error,
+  reprioritized,
   count
 };
 
@@ -88,6 +89,7 @@ struct ExtMessagePoolSnapshot {
       "address_full",
       "duplicate",
       "internal_error",
+      "reprioritized",
   });
   static_assert(admission_outcome_names_.size() == static_cast<size_t>(ExtMessageAdmissionOutcome::count));
 

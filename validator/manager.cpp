@@ -3364,23 +3364,9 @@ void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {
   auto add_phase = [&](metrics::CollationPhase phase, const td::RealCpuTimer::Time &time) {
     block_processing_metrics_.add_collation_phase(chain, result, phase, time);
   };
-  add_phase(metrics::CollationPhase::preinit, stats.work_time.preinit);
-  add_phase(metrics::CollationPhase::queue_cleanup, stats.work_time.queue_cleanup);
-  add_phase(metrics::CollationPhase::prelim_storage_stat, stats.work_time.prelim_storage_stat);
-  add_phase(metrics::CollationPhase::trx_tvm, stats.work_time.trx_tvm);
-  add_phase(metrics::CollationPhase::trx_storage_stat, stats.work_time.trx_storage_stat);
-  add_phase(metrics::CollationPhase::trx_other, stats.work_time.trx_other);
-  add_phase(metrics::CollationPhase::final_storage_stat, stats.work_time.final_storage_stat);
-  add_phase(metrics::CollationPhase::enqueue_new_messages, stats.work_time.enqueue_new_messages);
-  add_phase(metrics::CollationPhase::combine_account_transactions, stats.work_time.combine_account_transactions);
-  add_phase(metrics::CollationPhase::create_shard_state, stats.work_time.create_shard_state);
-  add_phase(metrics::CollationPhase::create_block, stats.work_time.create_block);
-  add_phase(metrics::CollationPhase::create_collated_data, stats.work_time.create_collated_data);
-  add_phase(metrics::CollationPhase::create_block_candidate, stats.work_time.create_block_candidate);
-  add_phase(metrics::CollationPhase::dispatch_queue, stats.work_time.dispatch_queue);
-  add_phase(metrics::CollationPhase::import_internals, stats.work_time.import_internals);
-  add_phase(metrics::CollationPhase::import_externals, stats.work_time.import_externals);
-  add_phase(metrics::CollationPhase::process_new_msgs, stats.work_time.process_new_msgs);
+#define TON_ADD_PHASE_(name) add_phase(metrics::CollationPhase::name, stats.work_time.name);
+  TON_COLLATION_PHASE_LIST(TON_ADD_PHASE_)
+#undef TON_ADD_PHASE_
 
   add_collation_external_metrics(chain, result, stats.external_messages());
 
@@ -3427,25 +3413,9 @@ void ValidatorManagerImpl::log_validate_query_stats(ValidationStats stats) {
   auto add_phase = [&](metrics::ValidationPhase phase, const td::RealCpuTimer::Time &time) {
     block_processing_metrics_.add_validation_phase(chain, result, phase, time);
   };
-  add_phase(metrics::ValidationPhase::unpack_block_candidate, stats.work_time.unpack_block_candidate);
-  add_phase(metrics::ValidationPhase::process_mc_state, stats.work_time.process_mc_state);
-  add_phase(metrics::ValidationPhase::trx_tvm, stats.work_time.trx_tvm);
-  add_phase(metrics::ValidationPhase::trx_storage_stat, stats.work_time.trx_storage_stat);
-  add_phase(metrics::ValidationPhase::trx_other, stats.work_time.trx_other);
-  add_phase(metrics::ValidationPhase::check_transactions_other, stats.work_time.check_transactions_other);
-  add_phase(metrics::ValidationPhase::unpack_state, stats.work_time.unpack_state);
-  add_phase(metrics::ValidationPhase::validate_block_tlb, stats.work_time.validate_block_tlb);
-  add_phase(metrics::ValidationPhase::unpack_block_data, stats.work_time.unpack_block_data);
-  add_phase(metrics::ValidationPhase::precheck_account_updates, stats.work_time.precheck_account_updates);
-  add_phase(metrics::ValidationPhase::precheck_account_transactions, stats.work_time.precheck_account_transactions);
-  add_phase(metrics::ValidationPhase::precheck_msg_queue, stats.work_time.precheck_msg_queue);
-  add_phase(metrics::ValidationPhase::unpack_dispatch_queue, stats.work_time.unpack_dispatch_queue);
-  add_phase(metrics::ValidationPhase::check_in_msg_descr, stats.work_time.check_in_msg_descr);
-  add_phase(metrics::ValidationPhase::check_out_msg_descr, stats.work_time.check_out_msg_descr);
-  add_phase(metrics::ValidationPhase::check_dispatch_queue, stats.work_time.check_dispatch_queue);
-  add_phase(metrics::ValidationPhase::check_processed_upto, stats.work_time.check_processed_upto);
-  add_phase(metrics::ValidationPhase::check_in_queue, stats.work_time.check_in_queue);
-  add_phase(metrics::ValidationPhase::check_new_state, stats.work_time.check_new_state);
+#define TON_ADD_PHASE_(name) add_phase(metrics::ValidationPhase::name, stats.work_time.name);
+  TON_VALIDATION_PHASE_LIST(TON_ADD_PHASE_)
+#undef TON_ADD_PHASE_
 
   if (stats.valid) {
     ++(stats.block_id.is_masterchain() ? total_validated_blocks_master_ok_ : total_validated_blocks_shard_ok_);

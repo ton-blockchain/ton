@@ -4,10 +4,15 @@
 namespace td {
 namespace actor {
 
+td::uint64 detail::calibration_elapsed_ticks(double elapsed_seconds, td::uint64 begin_ticks, td::uint64 current_ticks) {
+  auto elapsed_ticks = core::elapsed_ticks(current_ticks, begin_ticks);
+  return elapsed_seconds <= 0.1 ? 0 : elapsed_ticks;
+}
+
 double detail::actor_stats_inv_ticks_per_second(double elapsed_seconds, td::uint64 begin_ticks,
                                                 td::uint64 current_ticks) {
-  auto elapsed_ticks = core::elapsed_ticks(current_ticks, begin_ticks);
-  if (elapsed_seconds <= 0.1 || elapsed_ticks == 0) {
+  auto elapsed_ticks = calibration_elapsed_ticks(elapsed_seconds, begin_ticks, current_ticks);
+  if (elapsed_ticks == 0) {
     return Clocks::inv_ticks_per_second();
   }
   return elapsed_seconds / static_cast<double>(elapsed_ticks);

@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "td/actor/ActorStats.h"
 #include "td/actor/common.h"
 #include "td/utils/port/Clocks.h"
 
@@ -141,10 +142,11 @@ void collect_workers(Context ctx, const td::actor::ActorTypeStats &raw, core::Sc
 }  // namespace
 
 double detail::estimate_ticks_per_second(double elapsed_seconds, td::uint64 begin_ticks, td::uint64 current_ticks) {
-  if (elapsed_seconds <= 0.1 || current_ticks < begin_ticks) {
+  auto elapsed_ticks = td::actor::detail::calibration_elapsed_ticks(elapsed_seconds, begin_ticks, current_ticks);
+  if (elapsed_ticks == 0) {
     return td::Clocks::ticks_per_second();
   }
-  return double(current_ticks - begin_ticks) / elapsed_seconds;
+  return double(elapsed_ticks) / elapsed_seconds;
 }
 
 ActorMetrics::ActorMetrics() : begin_ts_(td::Timestamp::now()), begin_ticks_(td::Clocks::rdtsc()) {

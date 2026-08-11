@@ -28,13 +28,20 @@ namespace ton::validator {
 td::actor::Task<ExtMessageChecker::CheckOutcome> ExtMessageChecker::check(td::BufferSlice data,
                                                                           block::SizeLimitsConfig::ExtMsgLimits limits,
                                                                           td::Ref<MasterchainState> mc_state) {
+  auto failure = Failure::invalid;
+  auto r_checked = co_await check_inner(std::move(data), limits, std::move(mc_state), failure).wrap();
+  if (r_checked.is_error()) {
+    co_return CheckOutcome{r_checked.move_as_error(), failure};
+  }
+  co_return CheckOutcome{r_checked.move_as_ok(), Failure::none};
+}
+
+td::actor::Task<ExtMessageChecker::CheckedExtMsg> ExtMessageChecker::check_inner(
+    td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits, td::Ref<MasterchainState> mc_state,
+    Failure &failure) {
   CheckedExtMsg result;
   td::Timer timer;
-  auto r_message = create_ext_message(std::move(data), limits);
-  if (r_message.is_error()) {
-    co_return CheckOutcome{r_message.move_as_error(), Failure::invalid};
-  }
-  auto message = r_message.move_as_ok();
+  auto message = CO_TRY(create_ext_message(std::move(data), limits));
   result.message = message;
   result.timings.parse = timer.elapsed();
 
@@ -45,11 +52,8 @@ td::actor::Task<ExtMessageChecker::CheckOutcome> ExtMessageChecker::check(td::Bu
   // pool-mailbox latency per message and idles the workers).
 
   timer = td::Timer();
-  auto r_state = co_await resolve_state(mc_state, message->shard()).wrap();
-  if (r_state.is_error()) {
-    co_return CheckOutcome{r_state.move_as_error(), Failure::state_unavailable};
-  }
-  auto state = r_state.move_as_ok();
+  failure = Failure::state_unavailable;
+  auto state = co_await resolve_state(mc_state, message->shard());
   result.timings.fetch_state = timer.elapsed();
 
   timer = td::Timer();
@@ -67,40 +71,29 @@ td::actor::Task<ExtMessageChecker::CheckOutcome> ExtMessageChecker::check(td::Bu
     a.block_lt = lt;
     return std::move(a);
   };
-  auto r_acc = unpack_account();
-  if (r_acc.is_error()) {
-    co_return CheckOutcome{r_acc.move_as_error(), Failure::state_unavailable};
-  }
-  auto acc = r_acc.move_as_ok();
+  auto acc = CO_TRY(unpack_account());
 
   // NOTE: exec_config stays valid below because nothing in between actually suspends
-  // (CO_TRY unwrap ready td::Result values); only this worker's tasks mutate exec_configs_.
+  // (CO_TRY unwraps ready td::Result values); only this worker's tasks mutate exec_configs_.
   auto &exec_config = exec_configs_[{wc, state.utime}];
   alarm_timestamp().relax(td::Timestamp::in(60.0));
   if (exec_config.nolog == nullptr) {
-    auto r_nolog = ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, false);
-    if (r_nolog.is_error()) {
-      co_return CheckOutcome{r_nolog.move_as_error(), Failure::state_unavailable};
-    }
-    auto r_log = ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, true);
-    if (r_log.is_error()) {
-      co_return CheckOutcome{r_log.move_as_error(), Failure::state_unavailable};
-    }
-    exec_config.nolog = r_nolog.move_as_ok();
-    exec_config.log = r_log.move_as_ok();
+    // Create both configs before publishing either: a half-initialized entry would be reused
+    // as complete on the next message for this (wc, utime).
+    auto nolog = CO_TRY(ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, false));
+    auto log = CO_TRY(ExtMessageQ::ExecutionConfig::create(*config_, wc, state.utime, true));
+    exec_config.nolog = std::move(nolog);
+    exec_config.log = std::move(log);
     if (exec_configs_.size() > 16) {
       std::erase_if(exec_configs_,
                     [&](const auto &kv) { return kv.second.nolog == nullptr || kv.first.second + 60 < state.utime; });
     }
   }
 
-  auto status =
-      run_message(wc, std::move(acc), unpack_account, state.utime, state.lt + 1, message->root_cell(), exec_config);
-  if (status.is_error()) {
-    co_return CheckOutcome{std::move(status), Failure::vm_rejected};
-  }
+  failure = Failure::vm_rejected;
+  CO_TRY(run_message(wc, std::move(acc), unpack_account, state.utime, state.lt + 1, message->root_cell(), exec_config));
   result.timings.vm = timer.elapsed();
-  co_return CheckOutcome{std::move(result), Failure::none};
+  co_return result;
 }
 
 td::Status ExtMessageChecker::run_message(WorkchainId wc, block::Account acc,

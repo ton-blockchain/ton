@@ -6,6 +6,11 @@ namespace actor {
 
 namespace detail {
 
+// Shared validity guard for rdtsc-vs-monotonic calibration: returns 0 when the sample is
+// unusable (window too short, or the TSC regressed across threads) and the caller must fall
+// back to the static estimate. Single source so every calibration keeps the same guard set.
+td::uint64 calibration_elapsed_ticks(double elapsed_seconds, td::uint64 begin_ticks, td::uint64 current_ticks);
+
 double actor_stats_inv_ticks_per_second(double elapsed_seconds, td::uint64 begin_ticks, td::uint64 current_ticks);
 
 }  // namespace detail

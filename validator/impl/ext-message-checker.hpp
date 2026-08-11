@@ -83,6 +83,12 @@ class ExtMessageChecker : public td::actor::Actor {
   };
   std::map<std::pair<WorkchainId, UnixTime>, ExecConfigPair> exec_configs_;
 
+  // The plain-CO_TRY body of check(): before each fallible stage it records that stage in
+  // `failure`, so the error propagated through the task pairs with the last recorded stage.
+  // `failure` must stay a per-call local of check(): concurrent checks interleave at co_awaits.
+  td::actor::Task<CheckedExtMsg> check_inner(td::BufferSlice data, block::SizeLimitsConfig::ExtMsgLimits limits,
+                                             td::Ref<MasterchainState> mc_state, Failure &failure);
+
   // Runs the message without VM logging; on rejection, re-runs a freshly rebuilt account with
   // logging to reconstruct the same detailed error message as before (the VM is deterministic).
   td::Status run_message(WorkchainId wc, block::Account acc,

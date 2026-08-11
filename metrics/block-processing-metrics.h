@@ -28,49 +28,52 @@ struct CollationWork {
   td::uint64 ext_messages_offered{0};
 };
 
-enum class CollationPhase : size_t {
-  preinit,
-  queue_cleanup,
-  prelim_storage_stat,
-  trx_tvm,
-  trx_storage_stat,
-  trx_other,
-  final_storage_stat,
-  enqueue_new_messages,
-  combine_account_transactions,
-  create_shard_state,
-  create_block,
-  create_collated_data,
-  create_block_candidate,
-  dispatch_queue,
-  import_internals,
-  import_externals,
-  process_new_msgs,
-  count
-};
+// Each F-list is the single source for a phase family: it generates the enum and the exported
+// name here, and the work_time member read in ValidatorManagerImpl::log_*_query_stats. The
+// enumerator must equal the WorkTimeStats field name; adding a phase is one line here plus the
+// field itself.
+#define TON_COLLATION_PHASE_LIST(F) \
+  F(preinit)                        \
+  F(queue_cleanup)                  \
+  F(prelim_storage_stat)            \
+  F(trx_tvm)                        \
+  F(trx_storage_stat)               \
+  F(trx_other)                      \
+  F(final_storage_stat)             \
+  F(enqueue_new_messages)           \
+  F(combine_account_transactions)   \
+  F(create_shard_state)             \
+  F(create_block)                   \
+  F(create_collated_data)           \
+  F(create_block_candidate)         \
+  F(dispatch_queue)                 \
+  F(import_internals)               \
+  F(import_externals)               \
+  F(process_new_msgs)
 
-enum class ValidationPhase : size_t {
-  unpack_block_candidate,
-  process_mc_state,
-  trx_tvm,
-  trx_storage_stat,
-  trx_other,
-  check_transactions_other,
-  unpack_state,
-  validate_block_tlb,
-  unpack_block_data,
-  precheck_account_updates,
-  precheck_account_transactions,
-  precheck_msg_queue,
-  unpack_dispatch_queue,
-  check_in_msg_descr,
-  check_out_msg_descr,
-  check_dispatch_queue,
-  check_processed_upto,
-  check_in_queue,
-  check_new_state,
-  count
-};
+#define TON_VALIDATION_PHASE_LIST(F) \
+  F(unpack_block_candidate)          \
+  F(process_mc_state)                \
+  F(trx_tvm)                         \
+  F(trx_storage_stat)                \
+  F(trx_other)                       \
+  F(check_transactions_other)        \
+  F(unpack_state)                    \
+  F(validate_block_tlb)              \
+  F(unpack_block_data)               \
+  F(precheck_account_updates)        \
+  F(precheck_account_transactions)   \
+  F(precheck_msg_queue)              \
+  F(unpack_dispatch_queue)           \
+  F(check_in_msg_descr)              \
+  F(check_out_msg_descr)             \
+  F(check_dispatch_queue)            \
+  F(check_processed_upto)            \
+  F(check_in_queue)                  \
+  F(check_new_state)
+
+enum class CollationPhase : size_t { TON_COLLATION_PHASE_LIST(TON_METRIC_LABEL_ENUMERATOR_) count };
+enum class ValidationPhase : size_t { TON_VALIDATION_PHASE_LIST(TON_METRIC_LABEL_ENUMERATOR_) count };
 
 class BlockProcessingMetrics {
  public:
@@ -230,49 +233,10 @@ class BlockProcessingMetrics {
     std::array<RealCpu, static_cast<size_t>(ValidationPhase::count)> phases;
   };
 
-  static constexpr auto collation_phase_names_ = std::to_array<std::string_view>({
-      "preinit",
-      "queue_cleanup",
-      "prelim_storage_stat",
-      "trx_tvm",
-      "trx_storage_stat",
-      "trx_other",
-      "final_storage_stat",
-      "enqueue_new_messages",
-      "combine_account_transactions",
-      "create_shard_state",
-      "create_block",
-      "create_collated_data",
-      "create_block_candidate",
-      "dispatch_queue",
-      "import_internals",
-      "import_externals",
-      "process_new_msgs",
-  });
-  static_assert(collation_phase_names_.size() == static_cast<size_t>(CollationPhase::count));
-
-  static constexpr auto validation_phase_names_ = std::to_array<std::string_view>({
-      "unpack_block_candidate",
-      "process_mc_state",
-      "trx_tvm",
-      "trx_storage_stat",
-      "trx_other",
-      "check_transactions_other",
-      "unpack_state",
-      "validate_block_tlb",
-      "unpack_block_data",
-      "precheck_account_updates",
-      "precheck_account_transactions",
-      "precheck_msg_queue",
-      "unpack_dispatch_queue",
-      "check_in_msg_descr",
-      "check_out_msg_descr",
-      "check_dispatch_queue",
-      "check_processed_upto",
-      "check_in_queue",
-      "check_new_state",
-  });
-  static_assert(validation_phase_names_.size() == static_cast<size_t>(ValidationPhase::count));
+  static constexpr auto collation_phase_names_ =
+      std::to_array<std::string_view>({TON_COLLATION_PHASE_LIST(TON_METRIC_LABEL_NAME_)});
+  static constexpr auto validation_phase_names_ =
+      std::to_array<std::string_view>({TON_VALIDATION_PHASE_LIST(TON_METRIC_LABEL_NAME_)});
 
   static constexpr std::array<std::string_view, 5> overload_names_ = {"block_limits", "out_msg_queue", "long_collation",
                                                                       "dispatch_queue", "unknown"};

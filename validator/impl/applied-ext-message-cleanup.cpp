@@ -122,8 +122,7 @@ void AppliedExtMessageCleanupActor::cleanup_applied_block(BlockHandle handle, td
   auto block_id = block->block_id();
   auto r_applied = get_applied_external_messages(block);
   if (r_applied.is_error()) {
-    LOG(WARNING) << "failed to cleanup applied externals for block "
-                 << (block.is_null() ? "(null)" : block->block_id().to_str()) << " : " << r_applied.move_as_error();
+    LOG(WARNING) << "failed to cleanup applied externals for block " << block_id << " : " << r_applied.move_as_error();
     return;
   }
   auto applied = r_applied.move_as_ok();
