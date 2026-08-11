@@ -39,10 +39,7 @@
   "templating": {
     "list": [
       {
-        "current": {
-          "text": "TON devnet status",
-          "value": "prom-devnet"
-        },
+        "current": {},
         "description": "Prometheus scraping the TON node metrics exporters",
         "hide": 0,
         "includeAll": false,

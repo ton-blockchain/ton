@@ -75,7 +75,7 @@ them.
 One small health-first dashboard spanning the fleet. The first screen shows worst-node chain lag,
 actor scheduler occupancy, live execution age, exporter reachability/freshness, and worst-node
 kernel receive overflow. Throughput and the busiest-node mempool backlog are a separate context row,
-alongside applied shard blocks/s per active shard averaged across nodes and active shard count. Deep
+alongside chain-level masterchain blocks/s, shard blocks/s per active shard, and active shard count. Deep
 actor throughput is normalized per reporting node, and one card shows reporting masterchain
 validators, shardchain validators, and unique validator targets in the selected fleet. Masterchain
 and shardchain activity use separate panels. A collapsed quick-attribution row provides incident
@@ -85,15 +85,20 @@ Overview keeps only their incident-entry signals. The durable TON job-regex text
 scopes every query. The `instance` selector scopes node-local views and reachability; chain-wide
 activity, production, and collation signals deliberately ignore it so rotating collators remain
 complete. Its choices come from Prometheus's `up` inventory so down targets remain visible. Actor
-panels need builds that expose the `ton_actor_*` metric families.
+panels need builds that expose the `ton_actor_*` metric families. Set **Slot (s)** from the selected
+network's chain configuration; it supplies target context and the denominator for collation-budget
+ratios, but never changes the measured block-rate series.
 
 ## ton-blockchain.json — "TON Blockchain"
 
 The blockchain drill-down starts with separate masterchain and shardchain rates, chain age/lag,
 shard collation budget, and discarded-candidate estimate. A single-value **Chain** selector controls
 the detailed activity, production, and external-execution panels, so masterchain and shardchain never
-share a graph. Applied rates are averaged across nodes; collation is summed across rotating collators;
-validation rates are divided by active validators. Production panels expose time per attempt, an
+share a graph. Masterchain rate is derived from advance of the highest applied head observed across
+the selected jobs. Shardchain has no global seqno, so its rate uses the median only to reconcile
+duplicate canonical applied-block streams from healthy nodes. Both rates intentionally ignore the
+instance selector and validator count. Collation is summed across rotating collators, and validation
+rates are divided by active validators. Production panels expose time per attempt, an
 additive outer collation pipeline with elapsed/real totals, nested transaction/storage work,
 `want_split`, overload reasons, block work, and size. The external section separates global
 admission from selected-chain execution and shows rejection and local-removal reasons,
@@ -102,12 +107,14 @@ cards are compact, instant summaries: gauges show the latest scrape, current flo
 one-minute window, and deliberately smoothed ratios carry their window in the title (for example,
 10m). The six chain-state cards are repeated immediately below as normal time series with a visible
 Y-axis and Last/Min/Max values for diagnosis. Replicated age and lag histories combine worst, p95,
-average, and minimum; replicated block-rate histories use worst/minimum, p05, average, and maximum
-because low throughput is the bad tail. This separates an isolated reporter from fleet-wide
-degradation. The discarded-candidate estimate is fleet-wide within the selected jobs and
-intentionally ignores the instance selector because collators rotate. A curated block/state perf
-panel keeps the relevant consensus-signature, cell, CellDB, state-application, serialization, and
-transaction-storage counters visible without top-k truncation.
+average, and minimum because their node spread is diagnostic. Block-rate histories instead show one
+chain-level series; selecting an individual reporter cannot redefine the blockchain. The
+discarded-candidate estimate is fleet-wide within the selected jobs and
+intentionally ignores the instance selector because collators rotate. A curated block/state/storage
+perf panel keeps the relevant consensus-signature, cell, CellDB, state-application, serialization,
+transaction-storage, RocksDB commit, and file-sync counters visible without top-k truncation. **Slot (s)** is an explicit
+deployment input used by target guides and budget ratios; block rate itself always comes from chain
+state and is never normalized by that input.
 
 The block-propagation row compares each semantic source with the applied-block rate. First-arrival
 share identifies the source that usually wins the same-block race; source coverage shows which
@@ -148,6 +155,7 @@ for dashboard in metrics/grafana/dashboards/*.json; do
     (.templating.list[0].name == "datasource") and
     (.templating.list[0].type == "datasource") and
     (.templating.list[0].query == "prometheus") and
+    (.templating.list[0].current == {}) and
     ([.. | objects | .datasource?
       | select(type == "object" and .type == "prometheus")
       | .uid] as $uids

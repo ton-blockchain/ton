@@ -8,7 +8,7 @@
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
-  "version": 10,
+  "version": 11,
   "refresh": "10s",
   "graphTooltip": 1,
   "fiscalYearStartMonth": 0,
@@ -54,9 +54,9 @@
       },
       {
         "name": "job",
-        "label": "TON job regex",
+        "label": "TON jobs (one chain)",
         "type": "textbox",
-        "description": "Prometheus scrape job name or regex. It scopes every panel and remains usable when the whole job is down.",
+        "description": "Prometheus scrape job name or regex. Match jobs from exactly one blockchain: chain-level rates reconcile replicas but cannot combine different networks. The textbox remains usable when the whole job is down.",
         "query": "ton",
         "current": {
           "selected": true,
@@ -69,6 +69,27 @@
             "selected": true,
             "text": "ton",
             "value": "ton"
+          }
+        ],
+        "skipUrlSync": false
+      },
+      {
+        "name": "slot_seconds",
+        "label": "Slot (s)",
+        "type": "textbox",
+        "description": "Expected production slot in seconds for the selected blockchain. Used only for target context and collation-budget ratios; it never changes the measured block rate. Set it from the deployment's chain configuration.",
+        "query": "0.4",
+        "current": {
+          "selected": true,
+          "text": "0.4",
+          "value": "0.4"
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": true,
+            "text": "0.4",
+            "value": "0.4"
           }
         ],
         "skipUrlSync": false
@@ -125,7 +146,7 @@
       "id": 8,
       "type": "stat",
       "title": "MC age",
-      "description": "Worst positive age of the last applied masterchain block across selected nodes (max \u2014 'is any node stale'). A synced node tracks block time by a few seconds; a stalled or syncing node climbs. Negative/future clock skew is clamped to zero, so this is a staleness signal rather than a clock-skew alarm. Thresholds fit a 400 ms-slot local net (5/30 s); mainnet-scale thresholds would be 30/120 s.",
+      "description": "Worst positive age of the last applied masterchain block across selected nodes (max \u2014 'is any node stale'). A synced node tracks block time by a few seconds; a stalled or syncing node climbs. Negative/future clock skew is clamped to zero, so this is a staleness signal rather than a clock-skew alarm. Yellow at 30 s and red at 120 s are conservative deployment-neutral guides; tighten them for faster networks.",
       "gridPos": {
         "x": 0,
         "y": 1,
@@ -154,11 +175,11 @@
               },
               {
                 "color": "yellow",
-                "value": 5
+                "value": 30
               },
               {
                 "color": "red",
-                "value": 30
+                "value": 120
               }
             ]
           },
@@ -738,10 +759,10 @@
       "type": "row"
     },
     {
-      "id": 20,
+      "id": 23,
       "type": "stat",
-      "title": "Shard blocks/s/shard",
-      "description": "Shardchain blocks/s per active shard over the last minute, evaluated now and averaged across nodes. Normalizing by active shards keeps the number comparable when shard count changes.",
+      "title": "Masterchain block rate",
+      "description": "Canonical masterchain blocks applied per second over the last minute, evaluated now. The rate is derived from advance of the highest applied seqno across the selected jobs; older exporters fall back to the median of duplicate applied-block streams. This chain-level value intentionally ignores Instance and validator count. It is measured chain state; Slot (s) supplies only configured target context (target = 1 / slot).",
       "gridPos": {
         "x": 0,
         "y": 10,
@@ -759,22 +780,15 @@
           "unit": "ops",
           "mappings": [],
           "color": {
-            "mode": "thresholds"
+            "mode": "fixed",
+            "fixedColor": "blue"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1.2
-              },
-              {
-                "color": "green",
-                "value": 2
               }
             ]
           },
@@ -802,7 +816,76 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg(sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\",instance=~\"$instance\"}[1m])) / on (job, instance) clamp_min(max by (job, instance) (ton_active_shards{job=~\"$job\",instance=~\"$instance\"}), 1))",
+          "expr": "clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Shard block rate / active shard",
+      "description": "Canonical shard blocks applied per second per active shard over the last minute, evaluated now. Each duplicate node observation is divided by its average active-shard count over the same minute before the median reconciles reporters, so a split or merge does not pair a one-minute numerator with only the latest topology. This chain-level value intentionally ignores Instance and validator count. It is measured chain state; Slot (s) supplies only configured target context.",
+      "gridPos": {
+        "x": 4,
+        "y": 10,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "mappings": [],
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[1m])) / on (job, instance) clamp_min(avg_over_time(ton_active_shards{job=~\"$job\"}[1m]), 1))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -817,9 +900,9 @@
       "id": 21,
       "type": "stat",
       "title": "Active shards",
-      "description": "Active non-masterchain leaf shards in the latest applied masterchain state. This is network topology, not the number of validator groups on this node.",
+      "description": "Active non-masterchain leaf shards in the latest applied masterchain state. This is chain-level network topology, not the number of validator groups on one node, so the value intentionally ignores Instance.",
       "gridPos": {
-        "x": 4,
+        "x": 8,
         "y": 10,
         "w": 4,
         "h": 4
@@ -870,7 +953,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(ton_active_shards{job=~\"$job\",instance=~\"$instance\"})",
+          "expr": "max(ton_active_shards{job=~\"$job\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -887,9 +970,9 @@
       "title": "Mempool max",
       "description": "Pending external messages on the busiest node. A fleet sum scales with fleet size and can hide which node is actually falling behind. Green <1k, yellow >=1k, red >=5k. Growing = input exceeds chain capacity; see TON Blockchain -> External messages.",
       "gridPos": {
-        "x": 8,
-        "y": 10,
-        "w": 4,
+        "x": 6,
+        "y": 14,
+        "w": 6,
         "h": 4
       },
       "datasource": {
@@ -1167,7 +1250,7 @@
       "gridPos": {
         "x": 0,
         "y": 14,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "datasource": {
@@ -1258,9 +1341,9 @@
       "title": "External TPS on chain",
       "description": "Unique external messages applied to shardchain blocks per second over the last minute, evaluated now and averaged across nodes. This is chain-truth external TPS, but global admission is only context: other chains and local removal or expiry can absorb a gap. Use backlog and removal reasons on TON Blockchain to decide whether input is accumulating.",
       "gridPos": {
-        "x": 8,
+        "x": 12,
         "y": 14,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "datasource": {
@@ -1326,9 +1409,9 @@
       "title": "Oldest pending external",
       "description": "Age of the oldest external message still waiting in the pool, worst node (max \u2014 every node holds the same broadcast stream). Messages expire after 600 s, so red (>=300 s) means messages are about to expire unserved: the chain is not keeping up with input. Yellow >=60 s.",
       "gridPos": {
-        "x": 16,
+        "x": 18,
         "y": 14,
-        "w": 8,
+        "w": 6,
         "h": 4
       },
       "datasource": {
@@ -1413,7 +1496,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "Masterchain activity / s",
-      "description": "Masterchain only, across the selected jobs; this chain-wide panel intentionally ignores Instance because collators rotate. Applied blocks are averaged across reporting targets, collations are summed because one rotating collator produces each candidate, and validations are divided by active masterchain validators so the rate stays comparable when the validator count changes. A persistent collated-ok gap above applied estimates discarded candidates.",
+      "description": "Masterchain only, over rolling one-minute windows across the selected jobs; this chain-wide panel intentionally ignores Instance because collators rotate. Block rate is derived from advance of the highest applied masterchain seqno; if no selected reporter supplies usable head samples one minute apart, it falls back to the replica-median applied-block stream. Collations are summed because one rotating collator produces each candidate, and validations are divided by active masterchain validators so the rate stays comparable when the validator count changes. A persistent collated-ok gap above block rate estimates discarded candidates.",
       "gridPos": {
         "x": 0,
         "y": 19,
@@ -1480,7 +1563,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "applied (per node)"
+              "options": "chain block rate"
             },
             "properties": [
               {
@@ -1510,7 +1593,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "validated ok"
+              "options": "validated ok / validator"
             },
             "properties": [
               {
@@ -1540,7 +1623,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "validated error"
+              "options": "validated error / validator"
             },
             "properties": [
               {
@@ -1569,7 +1652,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg(sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[$__rate_interval])))",
+          "expr": "clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1577,11 +1660,11 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
-          "legendFormat": "applied (per node)"
+          "legendFormat": "chain block rate"
         },
         {
           "refId": "B",
-          "expr": "sum by (result) (rate(ton_collated_blocks_total{chain=\"master\",job=~\"$job\"}[$__rate_interval]))",
+          "expr": "sum by (result) (rate(ton_collated_blocks_total{chain=\"master\",job=~\"$job\"}[1m]))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1593,7 +1676,7 @@
         },
         {
           "refId": "C",
-          "expr": "sum by (result) (rate(ton_validated_blocks_total{chain=\"master\",job=~\"$job\"}[$__rate_interval])) / scalar(clamp_min(count(max by (job, instance) (ton_validator_groups{chain=\"master\",job=~\"$job\"} > 0)), 1))",
+          "expr": "sum by (result) (rate(ton_validated_blocks_total{chain=\"master\",job=~\"$job\"}[1m])) / scalar(clamp_min(count(max by (job, instance) (ton_validator_groups{chain=\"master\",job=~\"$job\"} > 0)), 1))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1601,7 +1684,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
-          "legendFormat": "validated {{result}}"
+          "legendFormat": "validated {{result}} / validator"
         }
       ]
     },
@@ -1609,7 +1692,7 @@
       "id": 25,
       "type": "timeseries",
       "title": "Shardchain activity / s",
-      "description": "Shardchain only, across the selected jobs; this chain-wide panel intentionally ignores Instance because collators rotate. Applied blocks are averaged across reporting targets, collations are summed because one rotating collator produces each candidate, and validations are divided by active shard validators so the rate stays comparable when the validator count changes. A persistent collated-ok gap above applied estimates discarded candidates.",
+      "description": "Shardchain only, across the selected jobs; this chain-wide panel intentionally ignores Instance because collators rotate. The median reconciles duplicate observations of the canonical applied-block stream, collations are summed because one rotating collator produces each candidate, and validations are divided by active shard validators so the rate stays comparable when the validator count changes. A persistent collated-ok gap above block rate estimates discarded candidates.",
       "gridPos": {
         "x": 6,
         "y": 19,
@@ -1676,7 +1759,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "applied (per node)"
+              "options": "chain block rate"
             },
             "properties": [
               {
@@ -1706,7 +1789,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "validated ok"
+              "options": "validated ok / validator"
             },
             "properties": [
               {
@@ -1736,7 +1819,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "validated error"
+              "options": "validated error / validator"
             },
             "properties": [
               {
@@ -1765,7 +1848,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg(sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[$__rate_interval])))",
+          "expr": "quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[$__rate_interval])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1773,7 +1856,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
-          "legendFormat": "applied (per node)"
+          "legendFormat": "chain block rate"
         },
         {
           "refId": "B",
@@ -1797,7 +1880,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
-          "legendFormat": "validated {{result}}"
+          "legendFormat": "validated {{result}} / validator"
         }
       ]
     },
@@ -1805,7 +1888,7 @@
       "id": 30,
       "type": "timeseries",
       "title": "Collation budget used (5m)",
-      "description": "Elapsed collation wall time per produced shard block over a rolling five-minute window, relative to the 400 ms slot (chain-wide: fleet sum of collation seconds over fleet sum of ok collations \u2014 one collator per block, so this is the chain truth). This backbone follows Job but intentionally ignores Instance because collators rotate. Above 100% collation alone overruns the slot and block rate must fall \u2014 the 'what takes so long' pointer; drill into TON Blockchain -> Block production for the phase breakdown. Yellow >=75%, red >=100%. 0.4 s is the local-net slot; adjust the constant for other nets. Excludes wait_externals: time awaiting the external-message queue, including deliberate slot pacing and queue fetches. It is idle wait rather than measured collation work; on a fast build it can dominate elapsed time and fake a full budget. No successful collation in the window renders No data.",
+      "description": "Elapsed collation wall time per produced shard block over a rolling five-minute window, divided by the configured Slot (s) (chain-wide: fleet sum of collation seconds over fleet sum of ok collations \u2014 one collator per block, so this is the chain truth). This backbone follows Job but intentionally ignores Instance because collators rotate. Above 100% collation alone overruns the configured slot and block rate must fall \u2014 the 'what takes so long' pointer; drill into TON Blockchain -> Block production for the phase breakdown. Yellow >=75%, red >=100%. Excludes wait_externals: time awaiting the external-message queue, including deliberate slot pacing and queue fetches. It is idle wait rather than measured collation work; on a fast build it can dominate elapsed time and fake a full budget. No successful collation in the window renders No data.",
       "gridPos": {
         "x": 12,
         "y": 19,
@@ -1893,7 +1976,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"total\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[5m])) - sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"wait_externals\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[5m]))) / (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[5m])) > 0) / 0.4",
+          "expr": "(sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"total\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[5m])) - sum(rate(ton_block_processing_seconds_total{operation=\"collate\",chain=\"shard\",phase=\"wait_externals\",clock=\"elapsed\",result=\"ok\",job=~\"$job\"}[5m]))) / (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[5m])) > 0) / ${slot_seconds:raw}",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
