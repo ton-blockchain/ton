@@ -59,18 +59,14 @@ ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonli
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator ^
 proxy-liteserver dht-ping-servers dht-resolve all-tests
-IF %errorlevel% NEQ 0 (
-  echo Can't compile TON
-  exit /b %errorlevel%
-)
 ) else (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id dht-ping-servers dht-resolve ^
 json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator proxy-liteserver
+)
 IF %errorlevel% NEQ 0 (
   echo Can't compile TON
   exit /b %errorlevel%
-)
 )
 
 copy validator-engine\validator-engine.exe test
@@ -109,9 +105,26 @@ for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
   build\utils\json2tlo.exe ^
   build\utils\proxy-liteserver.exe ^
   build\emulator\emulator.dll) do (
-    echo strip -s %%I & copy %%I artifacts\
-    strip -s %%I & copy %%I artifacts\
+    echo strip -s %%I
+    strip -s %%I
+    IF ERRORLEVEL 1 (
+      echo Failed to strip %%I
+      exit /b 1
+    )
+    copy %%I artifacts\
+    IF ERRORLEVEL 1 (
+      echo Failed to copy %%I
+      exit /b 1
+    )
 )
 
 xcopy /e /k /h /i crypto\smartcont artifacts\smartcont
+IF %errorlevel% NEQ 0 (
+  echo Can't copy smartcont artifacts
+  exit /b %errorlevel%
+)
 xcopy /e /k /h /i crypto\fift\lib artifacts\lib
+IF %errorlevel% NEQ 0 (
+  echo Can't copy fift lib artifacts
+  exit /b %errorlevel%
+)
