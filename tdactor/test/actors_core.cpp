@@ -147,6 +147,19 @@ TEST(ActorTypeStat, MaxCounterExpiresValuesAcrossSkippedSegments) {
   CHECK(counter.get_max(Access::at_segment(8)) == 5);
 }
 
+TEST(ActorTypeStat, MaxCounterResetsAfterClockRegression) {
+  using Access = td::actor::core::ActorTypeStatMaxCounterTestAccess;
+  Access::Counter counter;
+
+  counter.update(Access::at_segment(8), 29);
+  CHECK(counter.get_max(Access::at_segment(7)) == 0);
+
+  counter.update(Access::at_segment(7), 13);
+  CHECK(counter.get_max(Access::at_segment(7)) == 13);
+  CHECK(counter.get_max(Access::at_segment(8)) == 13);
+  CHECK(counter.get_max(Access::at_segment(9)) == 0);
+}
+
 TEST(ActorTypeStat, CoroutineStatUsesCoarseRecentWindows) {
   using td::actor::core::CoroutineStat;
 
@@ -192,7 +205,7 @@ TEST(ActorTypeStat, CoroutineStatUsesCoarseRecentWindows) {
   CHECK(current.executions == 3);
   CHECK(current.seconds == 17);
   CHECK(current.executing == 1);
-  CHECK(current.executing_start == active_since);
+  CHECK(current.executing_start == static_cast<double>(active_since));
 
   CoroutineStat zero_duration;
   zero_duration.add(ticks_per_second, 0);
@@ -201,6 +214,23 @@ TEST(ActorTypeStat, CoroutineStatUsesCoarseRecentWindows) {
   CHECK(current.max_execute_messages.value_forever == 1);
   CHECK(current.max_execute_messages.value_10s == 1);
   CHECK(current.max_execute_messages.value_10m == 1);
+}
+
+TEST(ActorTypeStat, CoroutineStatRecentWindowsIgnoreClockRegression) {
+  using td::actor::core::CoroutineStat;
+
+  auto ticks_per_second = td::Clocks::rdtsc_frequency();
+  CoroutineStat stat;
+  stat.add(80 * ticks_per_second, 7);
+
+  auto current = stat.to_stat(70 * ticks_per_second, 1);
+  CHECK(current.max_message_seconds.value_10s == 0);
+  CHECK(current.max_execute_messages.value_10s == 0);
+
+  stat.add(70 * ticks_per_second, 5);
+  current = stat.to_stat(70 * ticks_per_second, 1);
+  CHECK(current.max_message_seconds.value_10s == 5);
+  CHECK(current.max_execute_messages.value_10s == 1);
 }
 
 TEST(ActorTypeStat, DebugTracksCoroutineResume) {
@@ -220,7 +250,7 @@ TEST(ActorTypeStat, DebugTracksCoroutineResume) {
   CHECK(completed.coroutine.executing == 0);
   CHECK(completed.coroutine.messages == 1);
   CHECK(completed.coroutine.executions == 1);
-  CHECK(completed.busy_ticks == completed.coroutine.seconds);
+  CHECK(static_cast<double>(completed.busy_ticks) == completed.coroutine.seconds);
   set_debug(was_debug_enabled);
 }
 

@@ -152,7 +152,7 @@ class TestScheduler {
     }
 
     bool has_poll() override {
-      return sched_->worker_kind_ == core::WorkerKind::Io;
+      return true;
     }
     Poll &get_poll() override {
       return sched_->poll_;

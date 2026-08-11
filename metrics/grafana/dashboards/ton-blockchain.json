@@ -176,7 +176,7 @@
       "id": 1,
       "type": "stat",
       "title": "Masterchain block rate",
-      "description": "Canonical masterchain-head advance over the last minute, evaluated now: the highest applied seqno observed across the selected jobs is compared with the highest head one minute earlier. This is one chain-level value, intentionally independent of Instance and validator count. If no selected reporter supplies usable head samples one minute apart, the panel falls back to the median of duplicate applied-block streams. The measured rate is objective chain state; Slot (s) supplies only the configured target context (target = 1 / slot).",
+      "description": "Canonical masterchain-head advance over the last minute, evaluated now: the highest applied seqno observed across the selected jobs is compared with the highest head one minute earlier. This is one chain-level value, intentionally independent of Instance and validator count. During a mixed-version rollout, it uses this head only when every applied-block reporter also exports it; otherwise it falls back to the median duplicate applied-block stream. The measured rate is objective chain state; Slot (s) supplies only configured target context (target = 1 / slot).",
       "gridPos": {
         "x": 0,
         "y": 1,
@@ -230,7 +230,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
+          "expr": "(clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) and on () (count(max by (job, instance) (ton_masterchain_seqno{job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"-1\",job=~\"$job\"})))) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -321,7 +321,7 @@
       "id": 4,
       "type": "stat",
       "title": "Shard lag",
-      "description": "How many masterchain blocks the shard client trails the masterchain by (ton_masterchain_seqno - ton_shardclient_seqno, worst node). This is basechain processing lag: 0-2 is normal transient; sustained growth means shard blocks are applied slower than masterchain progresses, and basechain state (accounts, liteserver answers) goes stale even while MC block age looks healthy. Shard topology context lives in ton_active_shards (1 on this net) and ton_validator_groups (a single-member shard group that rotates between nodes) if you need it ad hoc.",
+      "description": "How many masterchain blocks the shard client trails the masterchain by (ton_masterchain_seqno - ton_shardclient_seqno, worst node). This is basechain processing lag: 0-2 is normal transient; sustained growth means shard blocks are applied slower than masterchain progresses, and basechain state (accounts, liteserver answers) goes stale even while MC block age looks healthy. Shard topology and this node's validator-group membership are exposed separately by ton_active_shards and ton_validator_groups.",
       "gridPos": {
         "x": 8,
         "y": 1,
@@ -541,7 +541,7 @@
       "id": 22,
       "type": "stat",
       "title": "Shard candidates discarded (10m)",
-      "description": "Fleet-wide 10-minute estimate of successfully collated shard candidates that did not become applied blocks. Applied rate is the median across reporting nodes; successful collations are summed across rotating collators. This signal follows the job selector but intentionally ignores the instance selector, because selecting only part of the rotating collator set makes the comparison invalid. No successful collation in the window renders No data, not 0%.",
+      "description": "Fleet-wide 10-minute estimate of successfully collated shard candidates that did not become applied blocks. Applied rate is the median across reporting nodes; successful collations are summed across rotating collators. This signal follows the job selector but intentionally ignores the instance selector, because selecting only part of the rotating collator set makes the comparison invalid. No successful collation or incomplete collated-block coverage during a rolling upgrade renders No data, not a false 0%.",
       "gridPos": {
         "x": 20,
         "y": 1,
@@ -602,7 +602,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "clamp_min(1 - quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[10m]))) / sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])), 0) and on () (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])) > 0)",
+          "expr": "clamp_min(1 - quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[10m]))) / sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])), 0) and on () (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])) > 0) and on () (count(max by (job, instance) (ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"0\",job=~\"$job\"})))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -630,7 +630,7 @@
       "id": 31,
       "type": "timeseries",
       "title": "Masterchain block rate \u2014 history",
-      "description": "Canonical masterchain-head advance over a rolling one-minute window: first take the highest applied seqno observed across the selected jobs, then calculate its change. This is one chain-level series, intentionally independent of Instance and validator count. If no selected reporter supplies usable head samples one minute apart, the panel falls back to the median of duplicate applied-block streams. The dashed guide is the configured target (1 / Slot (s)); it does not alter the measured rate. The card above shows the same measured value at now.",
+      "description": "Canonical masterchain-head advance over a rolling one-minute window: first take the highest applied seqno observed across the selected jobs, then calculate its change. This is one chain-level series, intentionally independent of Instance and validator count. During a mixed-version rollout, it uses this head only when every applied-block reporter also exports it; otherwise it falls back to the median duplicate applied-block stream. The dashed guide is the configured target (1 / Slot (s)); it does not alter the measured rate. The card above shows the same measured value at now.",
       "gridPos": {
         "x": 0,
         "y": 6,
@@ -750,7 +750,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
+          "expr": "(clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) and on () (count(max by (job, instance) (ton_masterchain_seqno{job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"-1\",job=~\"$job\"})))) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1448,7 +1448,7 @@
       "id": 36,
       "type": "timeseries",
       "title": "Shard candidates discarded (10m) \u2014 history",
-      "description": "Fleet-wide 10-minute estimate of successfully collated shard candidates that did not become applied blocks. Applied rate is the median across reporting nodes; successful collations are summed across rotating collators. This signal follows the job selector but intentionally ignores the instance selector, because selecting only part of the rotating collator set makes the comparison invalid. No successful collation in the window renders No data, not 0%. The card above is the value at now; this panel shows the same signal over the selected dashboard range.",
+      "description": "Fleet-wide 10-minute estimate of successfully collated shard candidates that did not become applied blocks. Applied rate is the median across reporting nodes; successful collations are summed across rotating collators. This signal follows the job selector but intentionally ignores the instance selector, because selecting only part of the rotating collator set makes the comparison invalid. No successful collation or incomplete collated-block coverage during a rolling upgrade renders No data, not a false 0%. The card above is the value at now; this panel shows the same signal over the selected dashboard range.",
       "gridPos": {
         "x": 12,
         "y": 22,
@@ -1542,7 +1542,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "clamp_min(1 - quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[10m]))) / sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])), 0) and on () (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])) > 0)",
+          "expr": "clamp_min(1 - quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"0\",job=~\"$job\"}[10m]))) / sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])), 0) and on () (sum(rate(ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"}[10m])) > 0) and on () (count(max by (job, instance) (ton_collated_blocks_total{chain=\"shard\",result=\"ok\",job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"0\",job=~\"$job\"})))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2475,7 +2475,7 @@
         },
         {
           "refId": "C",
-          "expr": "(sum by (phase) (rate(ton_block_processing_seconds_total{operation=\"validate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase!=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / scalar(clamp_min(sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])), 1e-9)) and on () (sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (phase) topk(6, sum by (phase) (increase(ton_block_processing_seconds_total{operation=\"validate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase!=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__range])))",
+          "expr": "(sum by (phase) (rate(ton_block_processing_seconds_total{operation=\"validate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase!=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / scalar(clamp_min(sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])), 1e-9)) and on () (sum(rate(ton_validated_blocks_total{chain=~\"${chain:raw}\",result=\"ok\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (phase) topk(6, sum by (phase) (increase(ton_block_processing_seconds_total{operation=\"validate\",chain=~\"${chain:raw}\",clock=\"real\",result=\"ok\",phase!=\"total\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3040,8 +3040,8 @@
     {
       "id": 39,
       "type": "timeseries",
-      "title": "First-arrival winner / applied blocks (30s) \u2014 ${chain:text}",
-      "description": "Which source reached each selected node first for blocks that later became applied. Each node contributes one winner per applied block; the query computes a 30-second share per node and then averages nodes, so changing validator count does not inflate it. The legend is sorted by mean: the first source usually won the same-block race. This is not latency in seconds, and candidate receipt can naturally win before finality. Download, local acceptance, and unknown remain visible as fallback paths.",
+      "title": "First-arrival winner / applied blocks (recent) \u2014 ${chain:text}",
+      "description": "Which source reached each selected node first for blocks that later became applied. Each node contributes one winner per applied block; the query uses Grafana's scrape-safe recent rate window and then averages nodes, so changing validator count does not inflate it. The window is normally about 20 seconds for a 5-second scrape and one minute for a 15-second scrape. The legend is sorted by mean: the first source usually won the same-block race. This is not latency in seconds, and candidate receipt can naturally win before finality. Download, local acceptance, and unknown remain visible as fallback paths.",
       "gridPos": {
         "x": 0,
         "y": 79,
@@ -3129,7 +3129,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg by (source) (sum by (source, job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[30s])) / on (job, instance) group_left() (sum by (job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[30s])) > 0))",
+          "expr": "avg by (source) (sum by (source, job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / on (job, instance) group_left() (sum by (job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3144,8 +3144,8 @@
     {
       "id": 40,
       "type": "timeseries",
-      "title": "Source arrivals / applied blocks (30s) \u2014 ${chain:text}",
-      "description": "How often each distinct source was observed per applied block over 30 seconds, computed per node and then averaged. 100% means a node usually saw that source for every applied block. Sources overlap, so the lines need not sum to 100%. Late arrivals count only while the block remains in the 1000-entry receive-stat LRU, and window boundaries can briefly push a source above 100%. High coverage with a low first-arrival share means the source usually loses the race.",
+      "title": "Source arrivals / applied blocks (recent) \u2014 ${chain:text}",
+      "description": "How often each distinct source was observed per applied block over Grafana's scrape-safe recent rate window, computed per node and then averaged. The window is normally about 20 seconds for a 5-second scrape and one minute for a 15-second scrape. 100% means a node usually saw that source for every applied block. Sources overlap, so the lines need not sum to 100%. Late arrivals count only while the block remains in the 1000-entry receive-stat LRU, and window boundaries can briefly push a source above 100%. High coverage with a low first-arrival share means the source usually loses the race.",
       "gridPos": {
         "x": 0,
         "y": 89,
@@ -3232,7 +3232,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg by (source) (sum by (source, job, instance) (rate(ton_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[30s])) / on (job, instance) group_left() (sum by (job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[30s])) > 0))",
+          "expr": "avg by (source) (sum by (source, job, instance) (rate(ton_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / on (job, instance) group_left() (sum by (job, instance) (rate(ton_first_received_total{workchain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3328,8 +3328,8 @@
     {
       "id": 26,
       "type": "stat",
-      "title": "On chain /s \u2014 ${chain:text}",
-      "description": "Applied external-message rate for the selected chain over the last minute, evaluated now and averaged across nodes. Global admission also feeds other chains and messages can leave the pool for other reasons.",
+      "title": "Applied /s (synced) \u2014 ${chain:text}",
+      "description": "External messages observed in applied blocks for the selected chain over the last minute. The median excludes reporters whose absolute masterchain age is at least 120 seconds; shardchain additionally requires shard lag of at most two blocks. This limits replay spikes from syncing nodes and excludes future-skewed chain clocks. The counter is still a replicated node observation and includes catch-up replay; it is not an objective protocol-wide chain counter.",
       "gridPos": {
         "x": 5,
         "y": 100,
@@ -3382,7 +3382,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg(rate(ton_applied_ext_messages_total{chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[1m]))",
+          "expr": "quantile(0.5, (rate(ton_applied_ext_messages_total{chain=\"master\",chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[1m]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120)) or (rate(ton_applied_ext_messages_total{chain=\"shard\",chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[1m]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120) and on (job, instance) (clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0) <= 2)))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3625,7 +3625,7 @@
       "id": 10,
       "type": "timeseries",
       "title": "External flow /s \u2014 ${chain:text}",
-      "description": "Correlated stages, not a conservation funnel. Accepted is global admission averaged across nodes. Included is selected-chain work in successful candidates; failed-attempt execution is shown next door. Applied is selected-chain throughput averaged across nodes. Use backlog and local removals to distinguish waiting from eviction.",
+      "description": "Correlated stages, not a conservation funnel. Accepted is global admission averaged across nodes. Included is selected-chain work in successful candidates; failed-attempt execution is shown next door. Applied is the median replicated observation from reporters whose absolute masterchain age is under 120 seconds; shardchain additionally requires shard lag of at most two blocks. It still includes catch-up replay and is not an objective chain counter. Use backlog and local removals to distinguish waiting from eviction.",
       "gridPos": {
         "x": 0,
         "y": 104,
@@ -3722,7 +3722,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "applied on chain (per node avg)"
+              "options": "applied observation (synced median)"
             },
             "properties": [
               {
@@ -3775,7 +3775,7 @@
         },
         {
           "refId": "C",
-          "expr": "avg(rate(ton_applied_ext_messages_total{chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "quantile(0.5, (rate(ton_applied_ext_messages_total{chain=\"master\",chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120)) or (rate(ton_applied_ext_messages_total{chain=\"shard\",chain=~\"${chain:raw}\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120) and on (job, instance) (clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0) <= 2)))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3783,7 +3783,7 @@
           "editorMode": "code",
           "range": true,
           "instant": false,
-          "legendFormat": "applied on chain (per node avg)"
+          "legendFormat": "applied observation (synced median)"
         }
       ]
     },

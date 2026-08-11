@@ -804,6 +804,57 @@ TEST(Metrics, ChainSnapshotRendersEachFamily) {
       render(snapshot, ""));
 }
 
+TEST(Metrics, ChainSnapshotDefaultOmitsOptionalSamples) {
+  EXPECT_EQ(
+      "# TYPE masterchain_seqno gauge\n"
+      "# TYPE masterchain_block_age_seconds gauge\n"
+      "# TYPE shardclient_seqno gauge\n"
+      "# TYPE active_shards gauge\n"
+      "# TYPE collated_blocks counter\n"
+      "collated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "# TYPE validated_blocks counter\n"
+      "validated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
+      "validated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "# TYPE validator_groups gauge\n",
+      render(ChainSnapshot{}, ""));
+}
+
+TEST(Metrics, ChainSnapshotDistinguishesAbsentFromZero) {
+  ChainSnapshot snapshot{
+      .masterchain_seqno = 0,
+      .shardclient_seqno = 0,
+      .active_shards = 0,
+      .validator_groups = ChainSnapshot::Groups{},
+  };
+  EXPECT_EQ(
+      "# TYPE masterchain_seqno gauge\n"
+      "masterchain_seqno 0.000000\n"
+      "# TYPE masterchain_block_age_seconds gauge\n"
+      "# TYPE shardclient_seqno gauge\n"
+      "shardclient_seqno 0.000000\n"
+      "# TYPE active_shards gauge\n"
+      "active_shards 0.000000\n"
+      "# TYPE collated_blocks counter\n"
+      "collated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "# TYPE validated_blocks counter\n"
+      "validated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
+      "validated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "validated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "# TYPE validator_groups gauge\n"
+      "validator_groups{chain=\"master\"} 0.000000\n"
+      "validator_groups{chain=\"shard\"} 0.000000\n",
+      render(snapshot, ""));
+}
+
 TEST(Metrics, BlockProcessingMetricsRenderAndClamp) {
   BlockProcessingMetrics metrics;
   metrics.add_collation(BlockChain::master, BlockResult::ok, -1.0, {.real = 2.0, .cpu = -3.0}, -4.0);
@@ -1067,6 +1118,9 @@ TEST(Metrics, ActorCollectorIncludesLiveBusyTimeAndOmitsOwnLiveness) {
   auto type = actor_core::ActorTypeStatManager::get_class_name(typeid(MetricsActor).name());
   ASSERT_TRUE(has_line(after, PSTRING() << "ton_actor_messages_total{type=\"" << type << "\"} 1.000000"));
   ASSERT_TRUE(has_line(after, PSTRING() << "ton_actor_executions_total{type=\"" << type << "\"} 1.000000"));
+  ASSERT_TRUE(after.find(PSTRING() << "ton_actor_max_message_ticks{type=\"" << type << "\",window=\"recent\"} ") !=
+              std::string::npos);
+  ASSERT_TRUE(after.find("window=\"10m\"") == std::string::npos);
   ASSERT_TRUE(has_line(after, "ton_actor_worker_messages_total{worker=\"io\"} 1.000000"));
   ASSERT_TRUE(has_line(after, "ton_actor_worker_messages_total{worker=\"cpu\"} 0.000000"));
   ASSERT_TRUE(has_line(after, "ton_actor_worker_threads{worker=\"io\"} 1.000000"));

@@ -69,6 +69,7 @@
         "definition": "label_values(ton_exporter_collections_total, ton_scope)",
         "refresh": 2,
         "includeAll": true,
+        "allValue": ".*",
         "multi": true,
         "current": {
           "text": [

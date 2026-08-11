@@ -157,12 +157,11 @@ only after one of its actors starts its first execution — the table is populat
 link — so the installed binary and the workload determine cardinality, and a small utility stays
 small.
 
-**Windowed maxima, not instantaneous gauges** — hence the explicit `window` label, which is `10m`
-today and is a real label so that a shorter window can be added later without renaming anything. The
-underlying counter keeps two 600-second buckets and reports the max over both, so it covers between
-10 and 20 minutes of history depending on where the scrape lands, and drops to 0 once a class has
-been quiet for two full buckets. It cannot miss a spike between scrapes, which is what an
-instantaneous gauge would do; longer horizons are recoverable with `max_over_time`.
+**Windowed maxima, not instantaneous gauges** — hence the explicit `window="recent"` label. The
+underlying counter keeps two nominal 600-second TSC buckets and reports the max over both. Exact wall
+duration is platform-dependent where the TSC frequency is approximate; no wall-clock call is added
+to the actor hot path. A recent maximum falls to zero after two full buckets without an update. The
+counter cannot miss a spike between scrapes; longer horizons are recoverable with `max_over_time`.
 
 **Scheduler-group scoped, but not split by individual scheduler.** The per-type families walk the
 table registry in the exporter actor's scheduler group; the `worker` families combine those tables
@@ -449,6 +448,9 @@ clamp_min(
 ```
 
 The selected jobs must belong to one blockchain; a maximum cannot reconcile unrelated networks.
+The canonical dashboards use this head only when every reporter of the older applied-block stream
+also exports `ton_masterchain_seqno`. During a rolling upgrade they fall back to the reporter median
+instead of letting one new but stalled target suppress legacy observations.
 
 Shardchain has no single global seqno. Sum `ton_first_received_total{workchain="0"}` over `source`
 per node, then use a median only to reconcile duplicate observations from healthy nodes. A
@@ -456,6 +458,13 @@ per-active-shard rate should divide each node's one-minute block rate by
 `avg_over_time(ton_active_shards[1m])`, so a split or merge uses the same window in numerator and
 denominator. Chain-level block-rate panels should ignore instance selectors; per-node differences
 belong in sync and propagation diagnostics.
+
+`ton_applied_ext_messages_total` is different from these block-rate signals: it includes replay
+while a node catches up. Dashboard external-flow panels take a median only across reporters whose
+absolute masterchain age is below 120 seconds; shardchain observations additionally require
+shard-client lag of at most two blocks. This rejects the usual catch-up path and future-skewed chain
+clocks, and limits a single reporter's spike, but it does not turn the counter into protocol-wide
+chain truth.
 
 ### Validator
 
@@ -472,7 +481,7 @@ belong in sync and propagation diagnostics.
 | `ton_collation_ext_messages_offered_total` | counter | same | External messages offered to successful final collation attempts. |
 | `ton_collation_want_split_total` | counter | `chain=master\|shard` | Successful final collation attempts whose resulting block set `want_split`. This is the decision from weighted overload history, not necessarily a condition caused by the current block. |
 | `ton_collation_overload_total` | counter | `chain`, `reason=block_limits\|out_msg_queue\|long_collation\|dispatch_queue\|unknown` | Successful final collation attempts whose current block contributed an overload-history bit, by its selected cause. No increment for a block with no current contribution. |
-| `ton_applied_ext_messages_total` | counter | `chain=master\|shard` | Inbound external-message records observed in blocks applied by this node, including catch-up replay. This is the on-chain stage, independent of whether this node produced the candidate. A process-local recent-block cache suppresses duplicate counting; duplicate requests still repeat the idempotent pool cleanup. A fleet sum counts the same chain traffic once per reporting node — aggregate this per-node stream with `avg()`/`max()`, never `sum()`. |
+| `ton_applied_ext_messages_total` | counter | `chain=master\|shard` | Inbound external-message records observed in blocks applied by this node, including catch-up replay. This is the on-chain stage, independent of whether this node produced the candidate. A process-local recent-block cache suppresses duplicate counting; duplicate requests still repeat the idempotent pool cleanup. A fleet sum counts the same chain traffic once per reporter. Reconcile synchronized reporters with a median, never a sum; even then, a brief post-catch-up burst can remain in the rate window, so this is a replicated observation rather than an objective chain counter. |
 | `ton_validator_groups` | gauge | `chain` | Validator groups this node currently participates in. Samples only while the node is a validator with a computed network state — a fullnode emits the family with no samples, so absence means "not validating", not 0. |
 
 Most timing samples reuse statistics already collected for validator session logs. Four broad scopes
@@ -748,7 +757,7 @@ topk(10, deriv(ton_actor_alive[1h]) > 0)
 query, per connection, per download), so a leak is a class whose floor rises across hours, which is
 what a positive derivative over a long window catches and a `> N` threshold does not.
 
-**What blocks a worker?** The longest timed executor drain per class over the last 10–20 minutes.
+**What blocks a worker?** The longest timed executor drain per class over the two recent TSC buckets.
 It covers signal and mailbox processing but excludes finish-time bookkeeping, so it is a useful
 head-of-line-blocking indicator rather than an exact measurement of the full actor lock hold:
 
@@ -896,7 +905,7 @@ that scrape rather than being missing.
 index lookup ends in `UNREACHABLE()`. Not currently reachable from the network, but it is a hard
 abort the day a third workchain exists.
 
-**Actor latencies have no percentiles.** The actor tier exposes approximate 10–20-minute maxima and
+**Actor latencies have no percentiles.** The actor tier exposes recent two-bucket maxima and
 cumulative totals, no histograms, so there is no p50/p95 of message execution or scheduling delay —
 only "the worst one recently" and "the mean, via converted
 `rate(busy_ticks)/rate(messages)`". Adding histograms would put a bucket search on every actor

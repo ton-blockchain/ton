@@ -47,7 +47,7 @@ void collect_actor_types(Context ctx, const td::actor::ActorTypeStats &raw) {
   auto max_by_type = [&](Context family, auto value) {
     family.open_family("gauge");
     for (const auto &[name, stat] : stats) {
-      family.with_label("type", name).with_label("window", "10m").push(value(stat));
+      family.with_label("type", name).with_label("window", "recent").push(value(stat));
     }
   };
 

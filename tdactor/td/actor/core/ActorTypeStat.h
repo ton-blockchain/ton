@@ -103,7 +103,7 @@ template <class ValueT, int Interval>
 class RecentMaxCounter {
  public:
   void update(td::uint64 now, ValueT value) {
-    if (unlikely(next_segment_at_ == 0 || now >= next_segment_at_)) {
+    if (unlikely(next_segment_at_ == 0 || now < segment_started_at_ || now >= next_segment_at_)) {
       update_segment(now);
     }
     auto &current = values_[current_segment_ & 1];
@@ -116,7 +116,10 @@ class RecentMaxCounter {
   ValueT get_max(td::uint64 now) const {
     auto current_segment = now / interval_ticks();
     auto last_segment = last_segment_.load(std::memory_order_acquire);
-    if (current_segment <= last_segment) {
+    if (current_segment < last_segment) {
+      return 0;
+    }
+    if (current_segment == last_segment) {
       return std::max(load(values_[0]), load(values_[1]));
     }
     if (current_segment - last_segment == 1) {
@@ -143,6 +146,7 @@ class RecentMaxCounter {
       values_[segment & 1].store(0, std::memory_order_relaxed);
     }
     current_segment_ = segment;
+    segment_started_at_ = segment * ticks;
     next_segment_at_ = (segment + 1) * ticks;
     last_segment_.store(segment, std::memory_order_release);
   }
@@ -150,6 +154,7 @@ class RecentMaxCounter {
   alignas(64) std::atomic<ValueT> values_[2] = {0};
   std::atomic<td::uint64> last_segment_{0};
   td::uint64 current_segment_{0};
+  td::uint64 segment_started_at_{0};
   td::uint64 next_segment_at_{0};
 };
 
@@ -186,6 +191,9 @@ class CoroutineStat {
   template <int Interval>
   bool has_recent_completion(td::uint64 now) const {
     if (count_ == 0) {
+      return false;
+    }
+    if (now < last_finished_at_) {
       return false;
     }
     auto interval_ticks = Clocks::rdtsc_frequency() * Interval;
@@ -454,7 +462,7 @@ class ActorTypeStatTable {
     std::optional<std::type_index> type;
   };
 
-  ActorTypeStatRef get(td::uint32 id, const std::type_info &type);
+  ActorTypeStatRef get(td::uint32 id, Actor &actor);
   void append_to(ActorTypeStats &result, double inv_ticks_per_second, WorkerKind kind) const;
 
   mutable std::mutex mutex_;

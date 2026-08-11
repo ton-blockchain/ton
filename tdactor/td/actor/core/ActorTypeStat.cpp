@@ -49,7 +49,7 @@ ActorTypeStat CoroutineStat::to_stat(td::uint64 now, double inv_ticks_per_second
                        .max_delay_seconds = {}};
 }
 
-ActorTypeStatRef ActorTypeStatTable::get(td::uint32 id, const std::type_info &type) {
+ActorTypeStatRef ActorTypeStatTable::get(td::uint32 id, Actor &actor) {
   if (id >= by_id_.size()) {
     std::lock_guard<std::mutex> guard(mutex_);
     by_id_.resize(id + 1);
@@ -57,7 +57,7 @@ ActorTypeStatRef ActorTypeStatTable::get(td::uint32 id, const std::type_info &ty
   auto &entry = by_id_[id];
   if (!entry.type) {
     std::lock_guard<std::mutex> guard(mutex_);
-    entry.type = std::type_index(type);
+    entry.type = std::type_index(typeid(actor));
     entry.stat = std::make_unique<ActorTypeStatImpl>();
   }
   return ActorTypeStatRef{entry.stat.get()};
@@ -127,7 +127,7 @@ ActorTypeStatRef ActorTypeStatManager::get_actor_type_stat(td::uint32 id, Actor 
   if (!table) {
     return ActorTypeStatRef{nullptr};
   }
-  return table->get(id, typeid(*actor));
+  return table->get(id, *actor);
 }
 
 std::string ActorTypeStatManager::get_class_name(const char *name) {

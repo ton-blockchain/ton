@@ -546,7 +546,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(ton_actor_max_queue_ticks{job=~\"$job\",instance=~\"$instance\",window=\"10m\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))",
+          "expr": "max(ton_actor_max_queue_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -558,7 +558,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Worst scheduling delay retained by two 10-minute max buckets, converted from each target's raw ticks before taking the fleet maximum. A spike is held for roughly 10–20 minutes and then cliff-drops when both buckets expire; that cliff is a window artifact, not necessarily an instantaneous recovery. Yellow starts at 100 ms and red at 1 s as diagnostic guides, not SLOs."
+      "description": "Worst scheduling delay retained by two recent max buckets, converted from each target's raw ticks before taking the fleet maximum. The buckets are nominally 10 minutes at the assumed TSC rate; exact wall duration is platform-dependent. A spike cliff-drops when both buckets expire, which is a window artifact rather than necessarily an instantaneous recovery. Yellow starts at 100 ms and red at 1 s as diagnostic guides, not SLOs."
     },
     {
       "id": 21,
@@ -622,7 +622,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(ton_actor_max_execute_ticks{job=~\"$job\",instance=~\"$instance\",window=\"10m\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))",
+          "expr": "max(ton_actor_max_execute_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -634,7 +634,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Worst timed executor drain retained by two 10-minute max buckets. It covers signal/mailbox processing but excludes finish-time bookkeeping. A spike is held for roughly 10–20 minutes and then cliff-drops when both buckets expire; that cliff is a window artifact. Yellow starts at 100 ms and red at 1 s as diagnostic guides, not SLOs."
+      "description": "Worst timed executor drain retained by two recent max buckets. It covers signal/mailbox processing but excludes finish-time bookkeeping. The buckets are nominally 10 minutes at the assumed TSC rate; exact wall duration is platform-dependent. A spike cliff-drops when both buckets expire, which is a window artifact. Yellow starts at 100 ms and red at 1 s as diagnostic guides, not SLOs."
     },
     {
       "id": 2,
@@ -1197,7 +1197,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "quantile by (type) (${agg}, sum by (type, job, instance) (rate(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) and on (type) topk(8, sum by (type) (increase(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"} @ end())))",
+          "expr": "quantile by (type) (${agg}, sum by (type, job, instance) (rate(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) and on (type) topk(8, sum by (type) (increase(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
@@ -1508,7 +1508,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "quantile by (type) (${agg}, (sum by (type, job, instance) (rate(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) / (sum by (type, job, instance) (rate(ton_actor_messages_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (type) topk(8, sum by (type) (increase(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"} @ end())))",
+          "expr": "quantile by (type) (${agg}, (sum by (type, job, instance) (rate(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) / (sum by (type, job, instance) (rate(ton_actor_messages_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (type) topk(8, sum by (type) (increase(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
@@ -1539,7 +1539,7 @@
     {
       "id": 12,
       "type": "timeseries",
-      "title": "Max single message, worst node (10–20m)",
+      "title": "Max single message, worst node (recent)",
       "gridPos": {
         "x": 0,
         "y": 44,
@@ -1633,7 +1633,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (type) (ton_actor_max_message_ticks{job=~\"$job\",instance=~\"$instance\",window=\"10m\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_message_ticks{job=~\"$job\",instance=~\"$instance\",window=\"10m\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"} @ end())))",
+          "expr": "max by (type) (ton_actor_max_message_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_message_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
@@ -1646,12 +1646,12 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Worst single message execution retained by two 10-minute max buckets, so a spike survives at least 10 min and at most 20. Raw ticks are divided by each target's calibrated tick frequency before nodes are aggregated. Elapsed time includes blocking and descheduling; no percentiles are collected on the actor hot path. Diagnostic guides (not SLOs) are yellow at 100 ms and red at 1 s; the color marks a retained spike, not necessarily a problem still live."
+      "description": "Worst single message execution retained by two recent max buckets. Their nominal length is 10 minutes at the assumed TSC rate; exact wall duration is platform-dependent. Raw ticks are divided by each target's calibrated tick frequency before nodes are aggregated. Elapsed time includes blocking and descheduling; no percentiles are collected on the actor hot path. Diagnostic guides (not SLOs) are yellow at 100 ms and red at 1 s; the color marks a retained spike, not necessarily a problem still live."
     },
     {
       "id": 14,
       "type": "timeseries",
-      "title": "Max queue delay, worst node (10–20m)",
+      "title": "Max queue delay, worst node (recent)",
       "gridPos": {
         "x": 12,
         "y": 44,
@@ -1745,7 +1745,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (type) (ton_actor_max_queue_ticks{job=~\"$job\",instance=~\"$instance\",window=\"10m\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_queue_ticks{job=~\"$job\",instance=~\"$instance\",window=\"10m\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"} @ end())))",
+          "expr": "max by (type) (ton_actor_max_queue_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_queue_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
@@ -1758,12 +1758,12 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Worst wait between an actor becoming runnable (pushed onto a scheduler queue) and a worker starting to execute it — pure scheduling latency, before any execution. Large values with an empty run-queue mean one retained long drain delayed everyone once; compare Max executor drain and Max batch messages. Large values with a queue nonzero on most scrapes support sustained saturation. Values are retained by two 10-minute max buckets and can cliff-drop when they expire. Diagnostic guides (not SLOs) are yellow at 100 ms and red at 1 s; the color marks a retained spike, not necessarily a problem still live."
+      "description": "Worst wait between an actor becoming runnable (pushed onto a scheduler queue) and a worker starting to execute it — pure scheduling latency, before any execution. Large values with an empty run-queue mean one retained long drain delayed everyone once; compare Max executor drain and Max batch messages. Large values with a queue nonzero on most scrapes support sustained saturation. Values are retained by two recent TSC buckets and can cliff-drop when they expire; exact wall duration is platform-dependent. Diagnostic guides (not SLOs) are yellow at 100 ms and red at 1 s; the color marks a retained spike, not necessarily a problem still live."
     },
     {
       "id": 13,
       "type": "timeseries",
-      "title": "Max executor drain, worst node (10–20m)",
+      "title": "Max executor drain, worst node (recent)",
       "gridPos": {
         "x": 0,
         "y": 52,
@@ -1857,7 +1857,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (type) (ton_actor_max_execute_ticks{job=~\"$job\",instance=~\"$instance\",window=\"10m\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_execute_ticks{job=~\"$job\",instance=~\"$instance\",window=\"10m\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"} @ end())))",
+          "expr": "max by (type) (ton_actor_max_execute_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_execute_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
@@ -1870,12 +1870,12 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Longest timed executor drain for one actor: signals and mailbox messages processed before finish-time bookkeeping. Actor teardown is timed as a message after this timer stops, so max single message can be higher. Use this as a head-of-line-blocking indicator, not an exact full lock-hold duration. Values are retained by two 10-minute max buckets and can cliff-drop when they expire. Diagnostic guides (not SLOs) are yellow at 100 ms and red at 1 s; the color marks a retained spike, not necessarily a problem still live."
+      "description": "Longest timed executor drain for one actor: signals and mailbox messages processed before finish-time bookkeeping. Actor teardown is timed as a message after this timer stops, so max single message can be higher. Use this as a head-of-line-blocking indicator, not an exact full lock-hold duration. Values are retained by two recent TSC buckets and can cliff-drop when they expire; exact wall duration is platform-dependent. Diagnostic guides (not SLOs) are yellow at 100 ms and red at 1 s; the color marks a retained spike, not necessarily a problem still live."
     },
     {
       "id": 15,
       "type": "timeseries",
-      "title": "Max batch messages, worst node (10–20m)",
+      "title": "Max batch messages, worst node (recent)",
       "gridPos": {
         "x": 12,
         "y": 52,
@@ -1961,7 +1961,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (type) (ton_actor_max_batch_messages{job=~\"$job\",instance=~\"$instance\",window=\"10m\"}) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_batch_messages{job=~\"$job\",instance=~\"$instance\",window=\"10m\"}[$__range] @ end())))",
+          "expr": "max by (type) (ton_actor_max_batch_messages{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_batch_messages{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}[$__range] @ end())))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
@@ -1974,7 +1974,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Largest number of messages drained in one executor batch for each class in the approximate 10–20-minute window. Use with Max executor drain: a high count with a short drain can be efficient amortization, while a high count with a long drain is head-of-line risk. There is no universal bad batch count, so this contextual panel deliberately has no alarm threshold."
+      "description": "Largest number of messages drained in one executor batch for each class across the two recent TSC buckets; exact wall duration is platform-dependent. Use with Max executor drain: a high count with a short drain can be efficient amortization, while a high count with a long drain is head-of-line risk. There is no universal bad batch count, so this contextual panel deliberately has no alarm threshold."
     },
     {
       "collapsed": false,
@@ -2077,7 +2077,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "quantile by (op) (${agg}, sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) and on (op) topk(${perf_top:raw}, sum by (op) (increase(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"} @ end())))",
+          "expr": "quantile by (op) (${agg}, sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) and on (op) topk(${perf_top:raw}, sum by (op) (increase(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
           "legendFormat": "{{op}}",
           "datasource": {
             "type": "prometheus",
@@ -2277,7 +2277,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "quantile by (op) (${agg}, (sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) / (sum by (op, job, instance) (rate(ton_perf_ops_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (op) topk(${perf_top:raw}, sum by (op) (increase(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"} @ end())))",
+          "expr": "quantile by (op) (${agg}, (sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) / (sum by (op, job, instance) (rate(ton_perf_ops_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (op) topk(${perf_top:raw}, sum by (op) (increase(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
           "legendFormat": "{{op}}",
           "datasource": {
             "type": "prometheus",

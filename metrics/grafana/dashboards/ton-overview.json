@@ -762,7 +762,7 @@
       "id": 23,
       "type": "stat",
       "title": "Masterchain block rate",
-      "description": "Canonical masterchain blocks applied per second over the last minute, evaluated now. The rate is derived from advance of the highest applied seqno across the selected jobs; older exporters fall back to the median of duplicate applied-block streams. This chain-level value intentionally ignores Instance and validator count. It is measured chain state; Slot (s) supplies only configured target context (target = 1 / slot).",
+      "description": "Canonical masterchain blocks applied per second over the last minute, evaluated now. The rate is derived from advance of the highest applied seqno across the selected jobs; during a mixed-version rollout it uses that head only when every applied-block reporter exports it, otherwise falling back to the median duplicate applied-block stream. This chain-level value intentionally ignores Instance and validator count. It is measured chain state; Slot (s) supplies only configured target context (target = 1 / slot).",
       "gridPos": {
         "x": 0,
         "y": 10,
@@ -816,7 +816,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
+          "expr": "(clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) and on () (count(max by (job, instance) (ton_masterchain_seqno{job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"-1\",job=~\"$job\"})))) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1338,8 +1338,8 @@
     {
       "id": 28,
       "type": "stat",
-      "title": "External TPS on chain",
-      "description": "Unique external messages applied to shardchain blocks per second over the last minute, evaluated now and averaged across nodes. This is chain-truth external TPS, but global admission is only context: other chains and local removal or expiry can absorb a gap. Use backlog and removal reasons on TON Blockchain to decide whether input is accumulating.",
+      "title": "Applied external TPS (synced)",
+      "description": "External messages observed in applied shardchain blocks per second over the last minute. The median includes only reporters whose absolute masterchain age is under 120 seconds and shard lag is at most two blocks, limiting replay spikes from syncing nodes and excluding future-skewed chain clocks. This counter is still a replicated node observation and includes catch-up replay; it is not an objective protocol-wide chain counter. Global admission is only context: other chains and local removal or expiry can absorb a gap.",
       "gridPos": {
         "x": 12,
         "y": 14,
@@ -1392,7 +1392,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg(rate(ton_applied_ext_messages_total{chain=\"shard\",job=~\"$job\",instance=~\"$instance\"}[1m]))",
+          "expr": "quantile(0.5, rate(ton_applied_ext_messages_total{chain=\"shard\",job=~\"$job\",instance=~\"$instance\"}[1m]) and on (job, instance) (abs(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}) < 120) and on (job, instance) (clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0) <= 2))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1496,7 +1496,7 @@
       "id": 16,
       "type": "timeseries",
       "title": "Masterchain activity / s",
-      "description": "Masterchain only, over rolling one-minute windows across the selected jobs; this chain-wide panel intentionally ignores Instance because collators rotate. Block rate is derived from advance of the highest applied masterchain seqno; if no selected reporter supplies usable head samples one minute apart, it falls back to the replica-median applied-block stream. Collations are summed because one rotating collator produces each candidate, and validations are divided by active masterchain validators so the rate stays comparable when the validator count changes. A persistent collated-ok gap above block rate estimates discarded candidates.",
+      "description": "Masterchain only, over rolling one-minute windows across the selected jobs; this chain-wide panel intentionally ignores Instance because collators rotate. Block rate is derived from advance of the highest applied masterchain seqno; during a mixed-version rollout it uses that head only when every applied-block reporter exports it, otherwise falling back to the replica-median stream. Collations are summed because one rotating collator produces each candidate, and validations are divided by active masterchain validators so the rate stays comparable when validator count changes. A persistent collated-ok gap above block rate estimates discarded candidates.",
       "gridPos": {
         "x": 0,
         "y": 19,
@@ -1652,7 +1652,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
+          "expr": "(clamp_min((max(ton_masterchain_seqno{job=~\"$job\"}) - max(ton_masterchain_seqno{job=~\"$job\"} offset 1m)) / 60, 0) and on () (count(max by (job, instance) (ton_masterchain_seqno{job=~\"$job\"})) == count(max by (job, instance) (ton_first_received_total{workchain=\"-1\",job=~\"$job\"})))) or quantile(0.5, sum by (job, instance) (rate(ton_first_received_total{workchain=\"-1\",job=~\"$job\"}[1m])))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2371,7 +2371,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "max by (type) (rate(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(5, max by (type) (increase(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"} @ end())))",
+              "expr": "max by (type) (rate(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(5, max by (type) (increase(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"

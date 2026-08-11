@@ -33,6 +33,7 @@
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
 #include "td/utils/StringBuilder.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/Time.h"
 #include "td/utils/as.h"
 #include "td/utils/base64.h"
@@ -61,6 +62,17 @@
 #endif
 
 using namespace td;
+
+TEST(Misc, PerfCounterIgnoresClockRegression) {
+  NamedPerfCounter counters;
+  auto counter = counters.get_counter("clock_regression");
+  {
+    NamedPerfCounter::ScopedPerfCounterRef scope{.perf_counter = counter,
+                                                 .started_at_ticks = std::numeric_limits<uint64>::max()};
+  }
+  CHECK(counter.count.sum() == 1);
+  CHECK(counter.duration.sum() == 0);
+}
 
 #if TD_LINUX || TD_DARWIN
 TEST(Misc, update_atime_saves_mtime) {

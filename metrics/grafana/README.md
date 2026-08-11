@@ -53,7 +53,8 @@ are now the single `ton-network` dashboard. A manually imported legacy dashboard
 Works against any Prometheus scraping nodes that run the metrics branch (the `ton_quic_*`,
 `ton_adnl_*`, and `ton_rldp2_*` families). The `scope` variable keys off a `ton_scope` target label
 (mainnet/testnet/devnet). Without that label the selector has only **All**, and the panels still
-match the unlabeled series.
+match the unlabeled series because **All** expands to `.*`. The same expansion preserves unlabeled
+targets during a mixed labeled/unlabeled rollout.
 
 The default view is incident-oriented: outbound query/delivery health and path/packet health stay
 expanded. Connection inventory, traffic efficiency, type composition, and noisy per-type failure
@@ -95,14 +96,20 @@ The blockchain drill-down starts with separate masterchain and shardchain rates,
 shard collation budget, and discarded-candidate estimate. A single-value **Chain** selector controls
 the detailed activity, production, and external-execution panels, so masterchain and shardchain never
 share a graph. Masterchain rate is derived from advance of the highest applied head observed across
-the selected jobs. Shardchain has no global seqno, so its rate uses the median only to reconcile
+the selected jobs. During a rolling upgrade that head is used only when every applied-block
+reporter exports it; otherwise the dashboard falls back to the older reporter-median stream.
+Shardchain has no global seqno, so its rate uses the median only to reconcile
 duplicate canonical applied-block streams from healthy nodes. Both rates intentionally ignore the
 instance selector and validator count. Collation is summed across rotating collators, and validation
 rates are divided by active validators. Production panels expose time per attempt, an
 additive outer collation pipeline with elapsed/real totals, nested transaction/storage work,
 `want_split`, overload reasons, block work, and size. The external section separates global
 admission from selected-chain execution and shows rejection and local-removal reasons,
-backlog, and oldest-entry age. Its stages are correlated signals, not a conservation funnel. Stat
+backlog, and oldest-entry age. Its stages are correlated signals, not a conservation funnel.
+Applied-external rates are medians of reporters whose absolute masterchain age is under 120 seconds;
+shardchain observations additionally require shard-client lag of at most two blocks. This rejects
+normal catch-up and future-skewed chain clocks, but the underlying counter still includes replay and
+is not protocol-wide chain truth. Stat
 cards are compact, instant summaries: gauges show the latest scrape, current flow rates use a fixed
 one-minute window, and deliberately smoothed ratios carry their window in the title (for example,
 10m). The six chain-state cards are repeated immediately below as normal time series with a visible
@@ -110,7 +117,8 @@ Y-axis and Last/Min/Max values for diagnosis. Replicated age and lag histories c
 average, and minimum because their node spread is diagnostic. Block-rate histories instead show one
 chain-level series; selecting an individual reporter cannot redefine the blockchain. The
 discarded-candidate estimate is fleet-wide within the selected jobs and
-intentionally ignores the instance selector because collators rotate. A curated block/state/storage
+intentionally ignores the instance selector because collators rotate. It renders no data during a
+partial metrics rollout rather than combining incompatible reporter populations. A curated block/state/storage
 perf panel keeps the relevant consensus-signature, cell, CellDB, state-application, serialization,
 transaction-storage, RocksDB commit, and file-sync counters visible without top-k truncation. **Slot (s)** is an explicit
 deployment input used by target guides and budget ratios; block rate itself always comes from chain
@@ -119,7 +127,8 @@ state and is never normalized by that input.
 The block-propagation row compares each semantic source with the applied-block rate. First-arrival
 share identifies the source that usually wins the same-block race; source coverage shows which
 other paths arrive for those blocks. Both ratios are calculated per node and then averaged, so the
-result is stable when the validator count changes. They do not distinguish Plumtree from two-step,
+result is stable when the validator count changes. They use Grafana's scrape-safe recent rate
+window (normally about 20 seconds at a 5-second scrape and one minute at a 15-second scrape). They do not distinguish Plumtree from two-step,
 FEC from simple broadcasts, or QUIC from ADNL: that method identity is not present in these metric
 families. Raw overlay broadcast count and byte rates by TL type remain in `ton-network.json`.
 
@@ -137,8 +146,9 @@ perf-counter panels between worst, p95, median, and best across nodes exposing e
 and tail panels keep their fixed worst-node semantics; low-action inventory cards are collapsed by
 default, while performance counters stay expanded. The full-width perf panels show up to 50
 registered operations by default; the `Perf series` selector can reduce the view when a narrower
-comparison is useful. The 30-minute default range shows a full 10–20-minute retained-maximum
-lifetime and its bucket-expiry cliff.
+comparison is useful. The 30-minute default range normally shows a complete two-bucket retained
+maximum and its expiry cliff; exact wall duration is platform-dependent because the hot path uses
+TSC buckets rather than a wall-clock call.
 
 Panel semantics live in each panel's description (the (i) icon), sourced from
 `metrics/METRICS.md`.
