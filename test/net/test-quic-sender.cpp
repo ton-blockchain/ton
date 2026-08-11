@@ -758,6 +758,8 @@ TEST(QuicSender, ReadyMetricsByDirectionAndTrust) {
   run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
     auto a = co_await t.create_node("metrics-a", next_port());
     auto b = co_await t.create_node("metrics-b", next_port());
+    // QuicSender::add_id completes asynchronously.
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
     t.add_peer(a, b);
     t.add_peer(b, a);
 
@@ -842,6 +844,8 @@ TEST(QuicSender, QueryMetricsKeepStartingTrust) {
     t.add_peer(a, b);
     t.add_peer(b, a);
     t.set_slow_echo(b, 0.05);
+    // QuicSender::add_id and Adnl::subscribe complete asynchronously.
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
 
     constexpr td::uint64 mtu = 4'096;
     co_await td::actor::ask(a.quic_sender, &ton::adnl::AdnlSenderEx::add_peer_mtu, a.id, b.id, mtu, true);
