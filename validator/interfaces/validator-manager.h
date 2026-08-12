@@ -81,6 +81,14 @@ struct StorageStatCacheStats {
 };
 
 struct CollationStats {
+  struct ExternalMessages {
+    td::uint32 total;
+    td::uint32 filtered;
+    td::uint32 accepted;
+    td::uint32 skipped_backpressure;
+  };
+
+  ShardIdFull shard{workchainInvalid, 0};
   BlockIdExt block_id{workchainInvalid, 0, 0, RootHash::zero(), FileHash::zero()};
   td::Status status = td::Status::OK();
 
@@ -109,6 +117,11 @@ struct CollationStats {
   td::uint32 ext_msgs_filtered = 0;
   td::uint32 ext_msgs_accepted = 0;
   td::uint32 ext_msgs_rejected = 0;
+  td::uint32 ext_msgs_skipped_backpressure = 0;
+
+  ExternalMessages external_messages() const {
+    return {ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted, ext_msgs_skipped_backpressure};
+  }
 
   td::uint64 old_out_msg_queue_size = 0;
   td::uint64 new_out_msg_queue_size = 0;
@@ -151,6 +164,10 @@ struct CollationStats {
     td::RealCpuTimer::Time create_block;
     td::RealCpuTimer::Time create_collated_data;
     td::RealCpuTimer::Time create_block_candidate;
+    td::RealCpuTimer::Time dispatch_queue;
+    td::RealCpuTimer::Time import_internals;
+    td::RealCpuTimer::Time import_externals;
+    td::RealCpuTimer::Time process_new_msgs;
 
     std::string to_str(bool is_cpu) const {
       return PSTRING() << "total=" << total.get(is_cpu) << " preinit=" << preinit.get(is_cpu)
@@ -164,7 +181,11 @@ struct CollationStats {
                        << " create_shard_state=" << create_shard_state.get(is_cpu)
                        << " create_block=" << create_block.get(is_cpu)
                        << " create_collated_data=" << create_collated_data.get(is_cpu)
-                       << " create_block_candidate=" << create_block_candidate.get(is_cpu);
+                       << " create_block_candidate=" << create_block_candidate.get(is_cpu)
+                       << " dispatch_queue=" << dispatch_queue.get(is_cpu)
+                       << " import_internals=" << import_internals.get(is_cpu)
+                       << " import_externals=" << import_externals.get(is_cpu)
+                       << " process_new_msgs=" << process_new_msgs.get(is_cpu);
     }
   };
   WorkTimeStats work_time;
@@ -426,6 +447,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   }
 
   virtual void log_collate_query_stats(CollationStats stats) {
+  }
+  virtual void log_collation_external_stats(ShardIdFull shard, CollationStats::ExternalMessages stats) {
   }
   virtual void log_validate_query_stats(ValidationStats stats) {
   }

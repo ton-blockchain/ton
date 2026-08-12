@@ -3,6 +3,21 @@
 #include "ActorStats.h"
 namespace td {
 namespace actor {
+
+td::uint64 detail::calibration_elapsed_ticks(double elapsed_seconds, td::uint64 begin_ticks, td::uint64 current_ticks) {
+  auto elapsed_ticks = core::elapsed_ticks(current_ticks, begin_ticks);
+  return elapsed_seconds <= 0.1 ? 0 : elapsed_ticks;
+}
+
+double detail::actor_stats_inv_ticks_per_second(double elapsed_seconds, td::uint64 begin_ticks,
+                                                td::uint64 current_ticks) {
+  auto elapsed_ticks = calibration_elapsed_ticks(elapsed_seconds, begin_ticks, current_ticks);
+  if (elapsed_ticks == 0) {
+    return Clocks::inv_ticks_per_second();
+  }
+  return elapsed_seconds / static_cast<double>(elapsed_ticks);
+}
+
 void td::actor::ActorStats::start_up() {
   auto now = td::Time::now();
   for (std::size_t i = 0; i < SIZE; i++) {
@@ -17,10 +32,7 @@ double ActorStats::estimate_inv_ticks_per_second() {
   auto now = td::Timestamp::now();
   auto elapsed_seconds = now.at() - begin_ts_.at();
   auto now_ticks = td::Clocks::rdtsc();
-  auto elapsed_ticks = now_ticks - begin_ticks_;
-  auto estimated_inv_ticks_per_second =
-      elapsed_seconds > 0.1 ? elapsed_seconds / double(elapsed_ticks) : Clocks::inv_ticks_per_second();
-  return estimated_inv_ticks_per_second;
+  return detail::actor_stats_inv_ticks_per_second(elapsed_seconds, begin_ticks_, now_ticks);
 }
 
 std::string ActorStats::prepare_stats() {
@@ -29,6 +41,8 @@ std::string ActorStats::prepare_stats() {
   auto current_stats = td::actor::ActorTypeStatManager::get_stats(estimated_inv_ticks_per_second);
   auto now = td::Timestamp::now();
   auto now_ticks = Clocks::rdtsc();
+  auto lifetime_seconds =
+      static_cast<double>(core::elapsed_ticks(now_ticks, begin_ticks_)) * estimated_inv_ticks_per_second;
 
   update(now);
 
@@ -45,7 +59,7 @@ std::string ActorStats::prepare_stats() {
   };
   auto stats_10s = load_stats(stat_[0]);
   auto stats_10m = load_stats(stat_[1]);
-  current_stats /= double(now_ticks - begin_ticks_) * estimated_inv_ticks_per_second;
+  current_stats /= lifetime_seconds;
   auto stats_forever = current_stats.stats;
 
   std::map<std::string, double> current_perf_map;
@@ -77,11 +91,10 @@ std::string ActorStats::prepare_stats() {
     perf_map_10s[name] = load_perf_stats(perf_stat.perf_stat_[0], perf_map_10s);
     perf_map_10m[name] = load_perf_stats(perf_stat.perf_stat_[1], perf_map_10m);
 
-    auto current_duration = (double(now_ticks - begin_ticks_) * estimated_inv_ticks_per_second);
     if (td::ends_with(name, ".duration")) {
       value *= estimated_inv_ticks_per_second;
     }
-    current_perf_map[name] = double(value) / current_duration;
+    current_perf_map[name] = lifetime_seconds > 1e-2 ? double(value) / lifetime_seconds : 0;
     // current_perf_map[name + ".raw"] = double(value);
     // current_perf_map[name + ".range"] = double(now_ticks - begin_ticks_) * estimated_inv_ticks_per_second;
   };
@@ -140,10 +153,10 @@ std::string ActorStats::prepare_stats() {
     sb() << "created_per_second:\t" << stat_10s.created << " " << stat_10m.created << " " << stat_forever.created
          << "\n";
 
-    auto executing_for =
-        stat_forever.executing_start > 1e15
-            ? 0
-            : double(td::Clocks::rdtsc()) * estimated_inv_ticks_per_second - stat_forever.executing_start;
+    auto executing_for = stat_forever.executing_start > 1e15
+                             ? 0
+                             : std::max(0.0, double(td::Clocks::rdtsc()) * estimated_inv_ticks_per_second -
+                                                 stat_forever.executing_start);
     sb() << "max_delay:\t" << stat_forever.max_delay_seconds.value_10s << "s "
          << stat_forever.max_delay_seconds.value_10m << "s " << stat_forever.max_delay_seconds.value_forever << "s\n";
     sb() << ""
@@ -192,7 +205,7 @@ std::string ActorStats::prepare_stats() {
     if (x.second.executing_start > 1e15) {
       return 0.0;
     }
-    return rdtsc_seconds - x.second.executing_start;
+    return std::max(0.0, rdtsc_seconds - x.second.executing_start);
   });
   top_k_by(stats_forever, 10, "max_execute_messages_10m",
            [](Entry &x) { return cutoff(x.second.max_execute_messages.value_10m, 10u); });
@@ -208,8 +221,9 @@ std::string ActorStats::prepare_stats() {
   };
   std::sort(stats.begin(), stats.end(),
             [&](auto &left, auto &right) { return main_key(left.first) > main_key(right.first); });
-  auto debug = Debug(SchedulerContext::get().scheduler_group());
-  debug.dump(sb);
+  if (auto *group = SchedulerContext::get().scheduler_group()) {
+    Debug(group).dump(sb);
+  }
   sb << "All actors:\n";
   for (auto &it : stats) {
     sb << "\t" << ActorTypeStatManager::get_class_name(it.first.name()) << "\n";

@@ -746,6 +746,12 @@ int main(int argc, char* argv[]) {
     std::_Exit(1);
   }
 
+  // Actor and worker accounting adds hot-path work, so it rides --prometheus rather than being on
+  // by default. A plain benchmark run keeps that accounting disabled.
+  if (config.prometheus) {
+    td::actor::set_debug(true);
+  }
+
   // Set default addresses
   if (config.mode == Mode::server && !config.local_addr.is_valid()) {
     config.local_addr.init_host_port("127.0.0.1:19200").ensure();

@@ -558,7 +558,7 @@ void OverlayImpl::update_peers_mtu() {
         peers.push_back(peer_id);
       }
     });
-    peers_mtu_guard_ = adnl::PeersMtuGuard{sender, local_id_, std::move(peers), mtu};
+    peers_mtu_guard_ = adnl::PeersMtuGuard{sender, local_id_, std::move(peers), mtu, true};
   }
 }
 

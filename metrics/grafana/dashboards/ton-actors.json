@@ -1,0 +1,2479 @@
+{
+  "uid": "ton-actors",
+  "title": "TON Actor Framework",
+  "tags": [
+    "ton",
+    "actors"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "description": "Prometheus scraping the TON node metrics exporters",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "name": "job",
+        "label": "job (role)",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(ton_exporter_collectors, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "definition": "label_values(ton_exporter_collectors, job)",
+        "hide": 0,
+        "options": [],
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1
+      },
+      {
+        "name": "instance",
+        "label": "instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(ton_exporter_collectors{job=~\"$job\"}, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "definition": "label_values(ton_exporter_collectors{job=~\"$job\"}, instance)",
+        "hide": 0,
+        "options": [],
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1
+      },
+      {
+        "name": "agg",
+        "label": "Node aggregation",
+        "type": "custom",
+        "query": "worst : 1, p95 : 0.95, median : 0.5, best : 0",
+        "options": [
+          {
+            "text": "worst",
+            "value": "1",
+            "selected": true
+          },
+          {
+            "text": "p95",
+            "value": "0.95",
+            "selected": false
+          },
+          {
+            "text": "median",
+            "value": "0.5",
+            "selected": false
+          },
+          {
+            "text": "best",
+            "value": "0",
+            "selected": false
+          }
+        ],
+        "current": {
+          "text": "worst",
+          "value": "1"
+        },
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "description": "How per-class and per-operation panels collapse selected nodes that expose the series: worst = maximum, p95 = the 95th percentile, median = the typical node, and best = minimum. Time-per-item panels include only nodes with traffic, where the ratio is defined. Health and tail panels keep their fixed aggregation. A ▾ in the title marks panels controlled by this selector."
+      },
+      {
+        "name": "perf_top",
+        "label": "Perf series",
+        "type": "custom",
+        "query": "8,12,20,50",
+        "options": [
+          {
+            "text": "8",
+            "value": "8",
+            "selected": false
+          },
+          {
+            "text": "12",
+            "value": "12",
+            "selected": false
+          },
+          {
+            "text": "20",
+            "value": "20",
+            "selected": false
+          },
+          {
+            "text": "50",
+            "value": "50",
+            "selected": true
+          }
+        ],
+        "current": {
+          "text": "50",
+          "value": "50"
+        },
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "description": "Number of TD_PERF_COUNTER operations shown in each perf chart. Use 50 to include up to 50 registered operations."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 200,
+      "panels": [],
+      "title": "Actor health",
+      "type": "row"
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Worst CPU occupancy",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(sum by (job, instance) (rate(ton_actor_worker_busy_ticks_total{job=~\"$job\",instance=~\"$instance\",worker=\"cpu\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) / on (job, instance) clamp_min(sum by (job, instance) (ton_actor_worker_threads{job=~\"$job\",instance=~\"$instance\",worker=\"cpu\"}), 1))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Worst selected node's CPU-worker occupancy from actor and coroutine dispatches, including elapsed time in the current dispatch. The outer dispatch scope includes signal-only work, gaps between handlers and finish bookkeeping. This is elapsed scheduler occupancy, not OS CPU; blocking inside actor code is included."
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Worst IO occupancy",
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(sum by (job, instance) (rate(ton_actor_worker_busy_ticks_total{job=~\"$job\",instance=~\"$instance\",worker=\"io\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) / on (job, instance) clamp_min(sum by (job, instance) (ton_actor_worker_threads{job=~\"$job\",instance=~\"$instance\",worker=\"io\"}), 1))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Worst selected node's IO-worker occupancy from actor dispatches, including elapsed time in the current dispatch. The outer dispatch scope includes signal-only work, gaps between handlers and finish bookkeeping. Each scheduler has one IO worker, so sustained pressure means moving work off polling actors rather than adding CPU workers."
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Worst local queue",
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(sum by (job, instance) (ton_actor_scheduler_local_queue_length{job=~\"$job\",instance=~\"$instance\"}))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Largest selected target's visible runnable backlog, summed over its scheduler-local CPU queues. This is a lower bound because shared CPU and IO queues are not exposed. Nonzero on most scrapes indicates sustained CPU-worker saturation; an isolated sample can be transient."
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Longest live execution",
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_actor_scheduler_current_execute_seconds{job=~\"$job\",instance=~\"$instance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Point sample of the longest actor or coroutine dispatch currently in flight on any selected scheduler; the collecting worker is excluded. Yellow starts at 1 s and red at 5 s. The colors are diagnostic guides; treat red as a wedge only when it persists for several scrapes because a short spike can be a legitimate large actor batch or coroutine resumption."
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Max queue delay",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_actor_max_queue_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Worst scheduling delay retained by two recent max buckets, converted from each target's raw ticks before taking the fleet maximum. The buckets are nominally 10 minutes at the assumed TSC rate; exact wall duration is platform-dependent. A spike cliff-drops when both buckets expire, which is a window artifact rather than necessarily an instantaneous recovery. Yellow starts at 100 ms and red at 1 s as diagnostic guides, not SLOs."
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Max executor drain",
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ton_actor_max_execute_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Worst timed executor drain retained by two recent max buckets. It covers signal/mailbox processing but excludes finish-time bookkeeping. The buckets are nominally 10 minutes at the assumed TSC rate; exact wall duration is platform-dependent. A spike cliff-drops when both buckets expire, which is a window artifact. Yellow starts at 100 ms and red at 1 s as diagnostic guides, not SLOs."
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Peak messages/s",
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(sum by (job, instance) (rate(ton_actor_messages_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Actor-message and bare-coroutine throughput on the busiest selected target. Fleet sums scale with node count; this card highlights a hot node instead."
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Nodes without actor stats",
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(count(up{job=~\"$job\",instance=~\"$instance\"} == 1) or vector(0)) - (count(ton_actor_stats_enabled{job=~\"$job\",instance=~\"$instance\"} == 1) or vector(0))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Selected, scraped-up targets that do not export enabled actor statistics. This includes an explicit disabled gate and older builds without the actor tier. Zero is healthy. A down target drops out of both terms; use TON Overview for target reachability."
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "id": 201,
+      "panels": [],
+      "title": "Scheduler pressure",
+      "type": "row"
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Worker occupancy by node/kind",
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (job, instance, worker) ((sum by (job, instance, worker) (rate(ton_actor_worker_busy_ticks_total{job=~\"$job\",instance=~\"$instance\",worker=~\"cpu|io\"}[$__rate_interval])) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) / on (job, instance, worker) clamp_min(max by (job, instance, worker) (ton_actor_worker_threads{job=~\"$job\",instance=~\"$instance\",worker=~\"cpu|io\"}), 1))",
+          "legendFormat": "{{job}} {{instance}} {{worker}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Per-target CPU/IO worker utilization: outer actor/coroutine dispatch time divided by available threads of that kind, then the worst target for each node/kind. 1.0 is 100% pool occupancy. IO near 1 is the sharper alarm because each scheduler has one unsplittable poll thread. This is scheduler-group occupancy, not OS CPU; one saturated scheduler can be diluted by idle siblings. Blocking, signal-only work, gaps between handlers and finish bookkeeping are included. The counter includes elapsed time in the current dispatch; Longest in-flight execution is the companion wedge signal. Values can briefly exceed 1 after a thread-count change because the numerator is windowed and the denominator is instantaneous."
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Local run-queue by node",
+      "gridPos": {
+        "x": 12,
+        "y": 10,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (job, instance) (ton_actor_scheduler_local_queue_length{job=~\"$job\",instance=~\"$instance\"})",
+          "legendFormat": "{{job}} {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Runnable entries (actors with mail + resumable coroutines) in the per-cpu-worker work-stealing queues, summed per node. Lower bound on the backlog: the shared MPMC queue and the io queue expose no size, so work waiting there is invisible. Nonzero on most scrapes = cpu workers saturated."
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Longest in-flight execution by node",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 7
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (job, instance) (ton_actor_scheduler_current_execute_seconds{job=~\"$job\",instance=~\"$instance\"})",
+          "legendFormat": "{{job}} {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Point sample at scrape: of the other workers currently inside an actor or coroutine dispatch, how long the longest-running one has been at it. Dispatches shorter than the scrape interval are never seen — this catches a wedged or very long turn, not a duty cycle. The collecting worker is excluded."
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 202,
+      "panels": [],
+      "title": "Actor workload",
+      "type": "row"
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Actor handler load (${agg:text} node ▾)",
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "/^(?:ton::(?:validator::)?)?(?:consensus::\\(anonymous namespace\\)::)?(.*)$/",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile by (type) (${agg}, sum by (type, job, instance) (rate(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) and on (type) topk(8, sum by (type) (increase(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+          "legendFormat": "{{type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "▾ Handler or coroutine-resumption seconds per second for each class, computed per node and then collapsed with Node aggregation. Actor and coroutine samples enter when the handler or resumption returns; live outer-dispatch time remains visible in the worker panels. Nodes without that class are absent rather than zero. Blocking and descheduling are included, but signal-only work, gaps and dispatch bookkeeping are not, so this does not sum to worker occupancy. Top 8 classes by total busy time over the visible range."
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Actor messages/s (${agg:text} node ▾)",
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "/^(?:ton::(?:validator::)?)?(?:consensus::\\(anonymous namespace\\)::)?(.*)$/",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile by (type) (${agg}, sum by (type, job, instance) (rate(ton_actor_messages_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) and on (type) topk(8, sum by (type) (increase(ton_actor_messages_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+          "legendFormat": "{{type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "▾ Actor-message or coroutine-resumption throughput for each class, computed per node and then collapsed with Node aggregation. Nodes without that class are absent rather than zero. Compare with handler load: high throughput plus low load means cheap, frequent work. Top 8 classes by total messages over the visible range."
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Messages/s by node/kind",
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (job, instance, worker) (rate(ton_actor_worker_messages_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{job}} {{instance}} {{worker}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Actor messages plus bare coroutine resumptions per second, split by node and io/cpu worker kind."
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Handler time/message (${agg:text} node ▾)",
+      "gridPos": {
+        "x": 12,
+        "y": 35,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "/^(?:ton::(?:validator::)?)?(?:consensus::\\(anonymous namespace\\)::)?(.*)$/",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile by (type) (${agg}, (sum by (type, job, instance) (rate(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) / (sum by (type, job, instance) (rate(ton_actor_messages_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (type) topk(8, sum by (type) (increase(ton_actor_busy_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+          "legendFormat": "{{type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "▾ Handler seconds per message for each class, computed per node with traffic and then collapsed with Node aggregation. It includes blocking and descheduling but excludes signal-only work and outer dispatch bookkeeping, so it is not full worker cost. Top 8 classes by total busy time over the visible range; noisy for classes with few messages."
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "id": 203,
+      "panels": [],
+      "title": "Tail & batching",
+      "type": "row"
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Max single message, worst node (recent)",
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "/^(?:ton::(?:validator::)?)?(?:consensus::\\(anonymous namespace\\)::)?(.*)$/",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (type) (ton_actor_max_message_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_message_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+          "legendFormat": "{{type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Worst single message execution retained by two recent max buckets. Their nominal length is 10 minutes at the assumed TSC rate; exact wall duration is platform-dependent. Raw ticks are divided by each target's calibrated tick frequency before nodes are aggregated. Elapsed time includes blocking and descheduling; no percentiles are collected on the actor hot path. Diagnostic guides (not SLOs) are yellow at 100 ms and red at 1 s; the color marks a retained spike, not necessarily a problem still live."
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Max queue delay, worst node (recent)",
+      "gridPos": {
+        "x": 12,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "/^(?:ton::(?:validator::)?)?(?:consensus::\\(anonymous namespace\\)::)?(.*)$/",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (type) (ton_actor_max_queue_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_queue_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+          "legendFormat": "{{type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Worst wait between an actor becoming runnable (pushed onto a scheduler queue) and a worker starting to execute it — pure scheduling latency, before any execution. Large values with an empty run-queue mean one retained long drain delayed everyone once; compare Max executor drain and Max batch messages. Large values with a queue nonzero on most scrapes support sustained saturation. Values are retained by two recent TSC buckets and can cliff-drop when they expire; exact wall duration is platform-dependent. Diagnostic guides (not SLOs) are yellow at 100 ms and red at 1 s; the color marks a retained spike, not necessarily a problem still live."
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Max executor drain, worst node (recent)",
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "/^(?:ton::(?:validator::)?)?(?:consensus::\\(anonymous namespace\\)::)?(.*)$/",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (type) (ton_actor_max_execute_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"} / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_execute_ticks{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+          "legendFormat": "{{type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Longest timed executor drain for one actor: signals and mailbox messages processed before finish-time bookkeeping. Actor teardown is timed as a message after this timer stops, so max single message can be higher. Use this as a head-of-line-blocking indicator, not an exact full lock-hold duration. Values are retained by two recent TSC buckets and can cliff-drop when they expire; exact wall duration is platform-dependent. Diagnostic guides (not SLOs) are yellow at 100 ms and red at 1 s; the color marks a retained spike, not necessarily a problem still live."
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Max batch messages, worst node (recent)",
+      "gridPos": {
+        "x": 12,
+        "y": 52,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "transformations": [
+        {
+          "id": "renameByRegex",
+          "options": {
+            "regex": "/^(?:ton::(?:validator::)?)?(?:consensus::\\(anonymous namespace\\)::)?(.*)$/",
+            "renamePattern": "$1"
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (type) (ton_actor_max_batch_messages{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}) and on (type) topk(8, max by (type) (max_over_time(ton_actor_max_batch_messages{job=~\"$job\",instance=~\"$instance\",window=\"recent\"}[$__range] @ end())))",
+          "legendFormat": "{{type}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "Largest number of messages drained in one executor batch for each class across the two recent TSC buckets; exact wall duration is platform-dependent. Use with Max executor drain: a high count with a short drain can be efficient amortization, while a high count with a long drain is head-of-line risk. There is no universal bad batch count, so this contextual panel deliberately has no alarm threshold."
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
+      "id": 204,
+      "panels": [],
+      "title": "Perf counters",
+      "type": "row"
+    },
+    {
+      "id": 100,
+      "type": "timeseries",
+      "title": "Perf elapsed load — top ${perf_top:text} (${agg:text} node ▾)",
+      "description": "▾ TD_PERF_COUNTER elapsed load per operation, converted from ticks per node and then collapsed with Node aggregation. Nodes without that operation are absent rather than zero. 1.0 means one scope-equivalent continuously elapsed on a node, including blocking and descheduling; this is not OS CPU load. Perf series controls how many operations are ranked by total elapsed time over the visible range; choose 50 to show up to 50 registered counters.",
+      "gridPos": {
+        "x": 0,
+        "y": 61,
+        "w": 24,
+        "h": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile by (op) (${agg}, sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) and on (op) topk(${perf_top:raw}, sum by (op) (increase(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+          "legendFormat": "{{op}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "type": "timeseries",
+      "title": "Perf ops/s — top ${perf_top:text} (${agg:text} node ▾)",
+      "description": "▾ TD_PERF_COUNTER executions per second for each operation, computed per node and then collapsed with Node aggregation. Nodes without that operation are absent rather than zero. Perf series controls how many operations are ranked by total executions over the visible range; choose 50 to show up to 50 registered counters.",
+      "gridPos": {
+        "x": 0,
+        "y": 74,
+        "w": 24,
+        "h": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile by (op) (${agg}, sum by (op, job, instance) (rate(ton_perf_ops_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) and on (op) topk(${perf_top:raw}, sum by (op) (increase(ton_perf_ops_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+          "legendFormat": "{{op}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 116,
+      "type": "timeseries",
+      "title": "Perf time/op — top ${perf_top:text} (${agg:text} node ▾)",
+      "description": "▾ Elapsed seconds per TD_PERF_COUNTER execution, computed per node with traffic and then collapsed with Node aggregation. Blocking and descheduling are included, so this is not OS CPU time. Tick calibration makes values comparable across machines. Perf series controls how many operations are ranked by total elapsed time over the visible range; choose 50 to show up to 50 registered counters.",
+      "gridPos": {
+        "x": 0,
+        "y": 87,
+        "w": 24,
+        "h": 13
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile by (op) (${agg}, (sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) / (sum by (op, job, instance) (rate(ton_perf_ops_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)) and on (op) topk(${perf_top:raw}, sum by (op) (increase(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()) / on (job, instance) group_left max by (job, instance) (last_over_time(ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}[$__range] @ end()))))",
+          "legendFormat": "{{op}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 100
+      },
+      "id": 205,
+      "panels": [
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Alive actors (worst node)",
+          "gridPos": {
+            "x": 6,
+            "y": 101,
+            "w": 6,
+            "h": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [],
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "max(sum by (job, instance) (ton_actor_alive{job=~\"$job\",instance=~\"$instance\"}))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "description": "Highest actor count on any selected node. A rising floor over hours is a leak signal; using the worst node avoids diluting a one-node leak as the selected fleet grows."
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Weighted batch",
+          "gridPos": {
+            "x": 12,
+            "y": 101,
+            "w": 6,
+            "h": 4
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "decimals": 2,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [],
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+          "expr": "sum(rate(ton_actor_messages_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_actor_executions_total{job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": false,
+              "instant": true
+            }
+          ],
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "description": "Total completed work items divided by total executions across selected nodes: an execution-weighted batching ratio. Values above 1 mean scheduling was amortized over multiple messages; signal-only turns can make it fall below 1. No executions in the window renders No data."
+        }
+      ],
+      "title": "Inventory & batching",
+      "type": "row"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "weekStart": "",
+  "version": 13,
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    }
+  ]
+}

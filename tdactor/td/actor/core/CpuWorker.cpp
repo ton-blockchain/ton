@@ -48,9 +48,9 @@ void CpuWorker::run() {
         auto lock = debug.start(message->get_name());
         ActorExecutor executor(*message, dispatcher, ActorExecutor::Options().with_from_queue());
       } else {
-        // Coroutine continuation
+        // Coroutine continuations run outside ActorExecutor.
         auto h = std::coroutine_handle<>::from_address(reinterpret_cast<void *>(encoded & ~uintptr_t(1)));
-        auto lock = debug.start("coro");
+        auto lock = debug.start("coro", Debug::Work::Coroutine);
         h.resume();
       }
     } else {

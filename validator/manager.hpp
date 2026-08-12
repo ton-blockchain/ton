@@ -28,6 +28,7 @@
 #include "impl/ext-message-pool.hpp"
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
+#include "metrics/block-processing-metrics.h"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
@@ -303,6 +304,9 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::actor::ActorOwn<ExtMessagePool> ext_message_pool_;
   td::actor::ActorOwn<AppliedExtMessageCleanupActor> applied_ext_message_cleanup_actor_;
+
+  void collect_chain_metrics(metrics::Context ctx);
+  td::actor::Task<> collect_ext_message_pool_metrics(metrics::Context ctx);
 
  private:
   // VALIDATOR GROUPS
@@ -779,9 +783,14 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::uint64 total_validated_blocks_master_ok_{0}, total_validated_blocks_master_error_{0};
   td::uint64 total_collated_blocks_shard_ok_{0}, total_collated_blocks_shard_error_{0};
   td::uint64 total_validated_blocks_shard_ok_{0}, total_validated_blocks_shard_error_{0};
+  td::uint64 ext_message_not_ready_{0};
+  metrics::BlockProcessingMetrics block_processing_metrics_;
 
   void log_collate_query_stats(CollationStats stats) override;
+  void log_collation_external_stats(ShardIdFull shard, CollationStats::ExternalMessages stats) override;
   void log_validate_query_stats(ValidationStats stats) override;
+  void add_collation_external_metrics(metrics::BlockChain chain, metrics::BlockResult result,
+                                      CollationStats::ExternalMessages stats);
 
   void register_stats_provider(
       td::uint64 idx, std::string prefix,

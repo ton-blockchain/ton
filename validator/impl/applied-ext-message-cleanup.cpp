@@ -31,9 +31,14 @@ using td::Ref;
 
 namespace {
 
-td::Result<std::vector<ExtMessage::Hash>> get_applied_external_messages_hashes(td::Ref<BlockData> block) {
+struct AppliedExternalMessages {
+  td::uint64 count{0};
+  std::vector<ExtMessage::Hash> hashes;
+};
+
+td::Result<AppliedExternalMessages> get_applied_external_messages(td::Ref<BlockData> block) {
   if (block.is_null()) {
-    return std::vector<ExtMessage::Hash>{};
+    return AppliedExternalMessages{};
   }
   try {
     block::gen::Block::Record blk;
@@ -45,7 +50,7 @@ td::Result<std::vector<ExtMessage::Hash>> get_applied_external_messages_hashes(t
 
     vm::AugmentedDictionary in_msg_dict{vm::load_cell_slice_ref(extra.in_msg_descr), 256,
                                         block::tlb::aug_InMsgDescrDefault};
-    std::vector<ExtMessage::Hash> hashes;
+    AppliedExternalMessages result;
     td::Status error;
     if (!in_msg_dict.check_for_each_extra(
             [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr, int key_len) {
@@ -63,12 +68,13 @@ td::Result<std::vector<ExtMessage::Hash>> get_applied_external_messages_hashes(t
                 error = td::Status::Error("cannot unpack msg_import_ext");
                 return false;
               }
+              ++result.count;
               auto hash = get_ext_in_msg_hash_norm(msg);
               if (hash.is_error()) {
                 error = hash.move_as_error_prefix("cannot normalize applied external message: ");
                 return false;
               }
-              hashes.push_back(hash.move_as_ok());
+              result.hashes.push_back(hash.move_as_ok());
               return true;
             })) {
       if (error.is_error()) {
@@ -77,9 +83,9 @@ td::Result<std::vector<ExtMessage::Hash>> get_applied_external_messages_hashes(t
       return td::Status::Error("failed to iterate applied block InMsgDescr");
     }
 
-    std::sort(hashes.begin(), hashes.end());
-    hashes.erase(std::unique(hashes.begin(), hashes.end()), hashes.end());
-    return hashes;
+    std::sort(result.hashes.begin(), result.hashes.end());
+    result.hashes.erase(std::unique(result.hashes.begin(), result.hashes.end()), result.hashes.end());
+    return result;
   } catch (vm::VmError &err) {
     return td::Status::Error(PSTRING() << "error while parsing applied block " << block->block_id() << ": "
                                        << err.get_msg());
@@ -113,18 +119,22 @@ void AppliedExtMessageCleanupActor::cleanup_applied_block(BlockHandle handle, td
     return;
   }
 
-  auto hashes = get_applied_external_messages_hashes(block);
-  if (hashes.is_error()) {
-    LOG(WARNING) << "failed to cleanup applied externals for block "
-                 << (block.is_null() ? "(null)" : block->block_id().to_str()) << " : " << hashes.move_as_error();
+  auto block_id = block->block_id();
+  auto r_applied = get_applied_external_messages(block);
+  if (r_applied.is_error()) {
+    LOG(WARNING) << "failed to cleanup applied externals for block " << block_id << " : " << r_applied.move_as_error();
     return;
   }
-  auto values = hashes.move_as_ok();
-  if (values.empty()) {
+  auto applied = r_applied.move_as_ok();
+  if (applied.count == 0) {
     return;
   }
-  LOG(INFO) << "cleanup applied externals for block " << block->block_id() << " : normalized_hashes=" << values.size();
-  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::erase_external_messages, std::move(values));
+  LOG(INFO) << "cleanup applied externals for block " << block_id << " : count=" << applied.count
+            << " normalized_hashes=" << applied.hashes.size();
+  // Count a block once, but repeat idempotent cleanup in case an applied message was re-admitted.
+  auto count = processed_blocks_.put(block_id, td::Unit{}) ? applied.count : 0;
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::erase_external_messages, block_id, count,
+                          std::move(applied.hashes));
 }
 
 }  // namespace ton::validator

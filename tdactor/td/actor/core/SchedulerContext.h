@@ -42,6 +42,8 @@ class SchedulerDispatcher {
 };
 
 struct Debug;
+class ActorTypeStatTable;
+struct ActorTypeStats;
 struct SchedulerGroupInfo;
 class SchedulerContext : public Context<SchedulerContext>, public SchedulerDispatcher {
  public:
@@ -64,6 +66,10 @@ class SchedulerContext : public Context<SchedulerContext>, public SchedulerDispa
 
   // Debug
   virtual Debug &get_debug() = 0;
+  virtual ActorTypeStatTable *actor_type_stats() {
+    return nullptr;
+  }
+  virtual void append_actor_type_stats(ActorTypeStats &result, double inv_ticks_per_second);
   virtual SchedulerGroupInfo *scheduler_group() const = 0;
 };
 }  // namespace core
