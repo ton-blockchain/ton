@@ -23,7 +23,7 @@ IF %errorlevel% NEQ 0 (
 choco feature enable -n allowEmptyChecksums
 
 echo Installing tools...
-choco install -y pkgconfiglite ninja nasm
+choco install -y ninja nasm
 IF %errorlevel% NEQ 0 (
   echo Can't install tools
   exit /b %errorlevel%
