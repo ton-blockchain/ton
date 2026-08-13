@@ -1893,7 +1893,6 @@ td::Status ShowCollatorsListQuery::receive(td::BufferSlice data) {
   td::TerminalIO::out() << "Collators list:\n";
   if (list->collators_.empty() && list->register_collators_.empty()) {
     td::TerminalIO::out() << "List is empty\n";
-    return td::Status::OK();
   }
   for (const auto &collator : list->collators_) {
     td::TerminalIO::out() << "Collator " << collator->adnl_id_ << "\n";
