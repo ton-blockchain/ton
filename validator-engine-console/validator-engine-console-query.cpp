@@ -1891,7 +1891,7 @@ td::Status ShowCollatorsListQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(list, ton::fetch_tl_object<ton::ton_api::engine_validator_collatorsList>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "Collators list:\n";
-  if (list->collators_.empty()) {
+  if (list->collators_.empty() && list->register_collators_.empty()) {
     td::TerminalIO::out() << "List is empty\n";
     return td::Status::OK();
   }
