@@ -313,7 +313,8 @@ struct OverlayOptions {
 
   td::actor::ActorId<adnl::AdnlSenderEx> twostep_broadcast_sender_ = {};
   bool send_twostep_broadcast_ = false;
-  bool allow_old_broadcasts_ = true;  // non-twostep broadcasts
+  bool allow_old_broadcasts_ = true;                                 // non-twostep broadcasts
+  std::set<adnl::AdnlNodeIdShort> twostep_intermediate_nodes_ = {};  // if empty - all permanent nodes
 
   struct PlumtreeFecOptions {
     td::uint32 k_ = 30;

@@ -54,12 +54,11 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
       overlay_nodes_.push_back(peer.adnl_id);
       overlay_nodes_tl.push_back(peer.short_id.bits256_value());
       authorized_keys.emplace(peer.short_id, max_broadcast_size);
-
-      if (auto it = bus.collators_by_validator.find(peer.short_id); it != bus.collators_by_validator.end()) {
-        for (const adnl::AdnlNodeIdShort& collator_id : it->second) {
-          if (authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size).second) {
-            overlay_nodes_.push_back(collator_id);
-          }
+    }
+    if (!bus.shard.is_masterchain()) {
+      for (const adnl::AdnlNodeIdShort& collator_id : bus.all_collators) {
+        if (authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size).second) {
+          overlay_nodes_.push_back(collator_id);
         }
       }
     }
@@ -81,6 +80,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     options.twostep_broadcast_sender_ = adnl_sender_;
     options.send_twostep_broadcast_ = true;
     options.allow_old_broadcasts_ = false;
+    options.twostep_intermediate_nodes_ = bus.all_current_validators;
 
     if (bus.config.observers_in_private_overlay()) {
       overlay_nodes_ = bus.all_overlay_nodes;
@@ -274,8 +274,11 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
-    auto parsed_extra = CO_TRY(parse_broadcast_extra(extra).trace("Precheck failed: Failed to parse broadcast extra"));
     auto& bus = *owning_bus();
+    if (bus.config.enable_block_sync()) {
+      co_return td::Status::Error("Precheck failed: Candidate broadcasts in private overlay are disabled");
+    }
+    auto parsed_extra = CO_TRY(parse_broadcast_extra(extra).trace("Precheck failed: Failed to parse broadcast extra"));
     auto expected_leader = bus.collator_schedule->expected_collator_for(parsed_extra.slot);
     if (parsed_extra.delegation.has_value()) {
       if (parsed_extra.delegation->collator_key.compute_short_id() != src) {

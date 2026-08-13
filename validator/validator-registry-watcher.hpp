@@ -12,8 +12,6 @@ namespace ton::validator {
 
 using td::Ref;
 
-using CollatorsByValidator = std::map<PublicKeyHash, std::vector<adnl::AdnlNodeIdShort>>;
-
 class ValidatorRegistryWatcher : public td::actor::Actor {
  public:
   explicit ValidatorRegistryWatcher(PublicKeyHash key_hash, td::actor::ActorId<ValidatorManager> manager,
@@ -23,7 +21,7 @@ class ValidatorRegistryWatcher : public td::actor::Actor {
 
   void update(Ref<MasterchainState> mc_state, Ref<ValidatorManagerOptions> opts);
 
-  static CollatorsByValidator get_collators_by_validator(Ref<MasterchainState> mc_state);
+  static std::set<adnl::AdnlNodeIdShort> get_all_collators(Ref<MasterchainState> mc_state);
 
  private:
   PublicKeyHash key_hash_;

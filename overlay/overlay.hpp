@@ -352,6 +352,7 @@ class OverlayImpl : public Overlay {
 
   bool check_src_peer(const adnl::AdnlNodeIdShort &id, const ton_api::overlay_MemberCertificate *certificate);
   bool is_persistent_node(const adnl::AdnlNodeIdShort &id);
+  bool is_twostep_intermediate_node(const adnl::AdnlNodeIdShort &id);
   size_t persistent_node_count();
   void iterate_all_peers(std::function<void(const adnl::AdnlNodeIdShort &key, OverlayPeer &peer)> cb);
 

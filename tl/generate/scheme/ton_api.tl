@@ -634,7 +634,8 @@ engine.validator.collatorOptions
   force_full_collated_data:Bool ignore_collated_data_limits:Bool = engine.validator.CollatorOptions;
 
 engine.validator.collatorsList.collator adnl_id:int256 = engine.validator.collatorsList.Collator;
-engine.validator.collatorsList collators:(vector engine.validator.collatorsList.collator) disable_self_collate:Bool = engine.validator.CollatorsList;
+engine.validator.collatorsList collators:(vector engine.validator.collatorsList.collator) disable_self_collate:Bool
+  register_collators:(vector engine.validator.collatorsList.collator) = engine.validator.CollatorsList;
 
 engine.validator.shardBlockVerifierConfig.shard shard_id:(tonNode.shardId) trusted_nodes:(vector int256)
     required_confirms:int = engine.validator.shardBlockVerifierConfig.Shard;

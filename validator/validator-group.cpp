@@ -44,6 +44,7 @@ struct SessionInfo {
   ValidatorSessionId session_id;
   NewConsensusConfig config;
   std::vector<adnl::AdnlNodeIdShort> overlay_members;
+  std::set<adnl::AdnlNodeIdShort> all_current_validators;
   std::vector<GroupIdentity> identities;
 
   CatchainSeqno cc_seqno() const {
@@ -54,10 +55,11 @@ struct SessionInfo {
 struct OverlayMembers {
   std::vector<adnl::AdnlNodeIdShort> all;
   std::set<adnl::AdnlNodeIdShort> local;
+  std::set<adnl::AdnlNodeIdShort> all_current_validators;
 };
 
 OverlayMembers overlay_members_of(const MasterchainState &state, const ManagerContext &deps,
-                                  const CollatorsByValidator &collators_by_validator) {
+                                  const std::set<adnl::AdnlNodeIdShort> &current_collators) {
   OverlayMembers members;
 
   for (int i = -1; i <= 1; ++i) {
@@ -72,14 +74,15 @@ OverlayMembers overlay_members_of(const MasterchainState &state, const ManagerCo
       if (deps.validator_keys.contains(key_hash)) {
         members.local.insert(adnl_id);
       }
+      if (i == 0) {
+        members.all_current_validators.insert(adnl_id);
+      }
     }
   }
-  for (const auto &[_, collators] : collators_by_validator) {
-    for (const auto &collator_id : collators) {
-      members.all.push_back(collator_id);
-      if (deps.local_collator_adnl_ids.contains(collator_id)) {
-        members.local.insert(collator_id);
-      }
+  for (const auto &collator_id : current_collators) {
+    members.all.push_back(collator_id);
+    if (deps.local_collator_adnl_ids.contains(collator_id)) {
+      members.local.insert(collator_id);
     }
   }
 
@@ -95,11 +98,11 @@ struct Context {
   OverlayMembers overlay_members;
   td::uint32 unsafe_rotate_id = 0;
   bool should_manage_groups = false;
-  CollatorsByValidator collators_by_validator = {};
+  std::set<adnl::AdnlNodeIdShort> all_collators = {};
 };
 
 std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<block::ValidatorSet> &val_set,
-                                          const NewConsensusConfig &config) {
+                                          const NewConsensusConfig &config, const ShardIdFull &shard) {
   std::vector<GroupIdentity> identities;
   std::set<adnl::AdnlNodeIdShort> added_adnl_ids;
 
@@ -121,17 +124,14 @@ std::vector<GroupIdentity> identities_for(const Context &ctx, const td::Ref<bloc
     LOG(ERROR) << "Multiple known validator keys are in an active validator set. This is unsupported.";
   }
 
-  for (const auto &validator : val_set->export_vector()) {
-    PublicKeyHash key = PublicKey{pubkeys::Ed25519{validator.key}}.compute_short_id();
-    if (auto it = ctx.collators_by_validator.find(key); it != ctx.collators_by_validator.end()) {
-      for (const auto &collator_id : it->second) {
-        if (ctx.deps.local_collator_adnl_ids.contains(collator_id) && added_adnl_ids.insert(collator_id).second) {
-          identities.push_back({
-              .adnl_id = collator_id,
-              .is_collator = true,
-              .suffix_db = !identities.empty() || config.use_new_db_names(),
-          });
-        }
+  if (!shard.is_masterchain()) {
+    for (const auto &collator_id : ctx.all_collators) {
+      if (ctx.deps.local_collator_adnl_ids.contains(collator_id) && added_adnl_ids.insert(collator_id).second) {
+        identities.push_back({
+            .adnl_id = collator_id,
+            .is_collator = true,
+            .suffix_db = !identities.empty() || config.use_new_db_names(),
+        });
       }
     }
   }
@@ -169,7 +169,7 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
   auto config = ctx.state.get_new_consensus_config(shard.workchain);
 
   std::vector<GroupIdentity> identities;
-  for (auto &identity : identities_for(ctx, validator_set, config)) {
+  for (auto &identity : identities_for(ctx, validator_set, config, shard)) {
     if (identity.is_validator() || config.enable_block_sync() || config.observers_in_private_overlay()) {
       identities.push_back(identity);
     }
@@ -181,6 +181,7 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
       .session_id = session_id_for(ctx, shard, validator_set),
       .config = config,
       .overlay_members = ctx.overlay_members.all,
+      .all_current_validators = ctx.overlay_members.all_current_validators,
       .identities = std::move(identities),
   };
 }
@@ -200,8 +201,9 @@ td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const Sessio
       .adnl_sender = ctx.deps.quic,
       .db_root = ctx.deps.db_root,
       .all_overlay_nodes = info.overlay_members,
+      .all_current_validators = info.all_current_validators,
       .is_collator = identity.is_collator,
-      .collators_by_validator = ctx.collators_by_validator,
+      .all_collators = ctx.all_collators,
       .collator_scoreboard = ctx.deps.collator_scoreboard,
   };
   return IValidatorGroup::create_bridge(PSTRING() << "valgroup" << info.shard, params);
@@ -579,15 +581,15 @@ class NetworkStateImpl final : public NetworkState {
  public:
   explicit NetworkStateImpl(BlockSeqno start_seqno, td::Ref<MasterchainState> previous_rotation)
       : start_seqno_(start_seqno), masterchain_(masterchainId), basechain_(basechainId) {
-    current_collators_ = ValidatorRegistryWatcher::get_collators_by_validator(previous_rotation);
+    current_collators_ = ValidatorRegistryWatcher::get_all_collators(previous_rotation);
   }
 
   void update(Ref<MasterchainState> state_ref, ManagerContext deps) override {
     const MasterchainState &state = *state_ref;
-    CollatorsByValidator next_collators;
+    std::set<adnl::AdnlNodeIdShort> next_collators;
     if (state.rotated_all_shards()) {
       genesis_known_ = true;
-      next_collators = ValidatorRegistryWatcher::get_collators_by_validator(state_ref);
+      next_collators = ValidatorRegistryWatcher::get_all_collators(state_ref);
     }
     if (state.is_key_state()) {
       CHECK(state.rotated_all_shards());
@@ -605,12 +607,12 @@ class NetworkStateImpl final : public NetworkState {
         .overlay_members = overlay_members_of(state, deps, current_collators_),
         .unsafe_rotate_id = rotate_id,
         .should_manage_groups = state.get_seqno() >= start_seqno_,
+        .all_collators = current_collators_,
     };
 
     masterchain_.update(ctx, masterchain_target(state), masterchain_future_shards(state));
     if (state.get_seqno() != 0) {
       // FIXME: We can potentially require zerostates to have ShardHashes populated instead.
-      ctx.collators_by_validator = current_collators_;
       basechain_.update(ctx, basechain_target(state), basechain_future_shards(state));
     }
 
@@ -635,7 +637,7 @@ class NetworkStateImpl final : public NetworkState {
   BlockSeqno start_seqno_;
   bool genesis_known_ = false;
 
-  CollatorsByValidator current_collators_;
+  std::set<adnl::AdnlNodeIdShort> current_collators_;
 
   WorkchainState masterchain_;
   WorkchainState basechain_;

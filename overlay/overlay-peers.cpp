@@ -692,6 +692,13 @@ bool OverlayImpl::is_persistent_node(const adnl::AdnlNodeIdShort &id) {
   return P->is_permanent_member();
 }
 
+bool OverlayImpl::is_twostep_intermediate_node(const adnl::AdnlNodeIdShort &id) {
+  if (opts_.twostep_intermediate_nodes_.empty()) {
+    return is_persistent_node(id);
+  }
+  return opts_.twostep_intermediate_nodes_.contains(id);
+}
+
 size_t OverlayImpl::persistent_node_count() {
   return peer_list_.persistent_node_count_;
 }

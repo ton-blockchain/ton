@@ -1709,6 +1709,7 @@ td::Status DelShardQuery::receive(td::BufferSlice data) {
 
 td::Status AddCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
+  TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
@@ -1729,6 +1730,7 @@ td::Status AddCollatorQuery::receive(td::BufferSlice data) {
 
 td::Status DelCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
+  TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
@@ -1889,12 +1891,15 @@ td::Status ShowCollatorsListQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(list, ton::fetch_tl_object<ton::ton_api::engine_validator_collatorsList>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "Collators list:\n";
-  if (list->collators_.empty()) {
+  if (list->collators_.empty() && list->register_collators_.empty()) {
     td::TerminalIO::out() << "List is empty\n";
     return td::Status::OK();
   }
   for (const auto &collator : list->collators_) {
     td::TerminalIO::out() << "Collator " << collator->adnl_id_ << "\n";
+  }
+  for (const auto &collator : list->register_collators_) {
+    td::TerminalIO::out() << "Register collator " << collator->adnl_id_ << "\n";
   }
   td::TerminalIO::out() << "Disable self collate = " << list->disable_self_collate_ << "\n";
   return td::Status::OK();

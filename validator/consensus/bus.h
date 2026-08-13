@@ -171,6 +171,10 @@ struct NoncriticalParamsUpdated {
   std::string contents_to_string() const;
 };
 
+struct ValidatorOptionsUpdated {
+  std::string contents_to_string() const;
+};
+
 struct PrecheckCandidateBroadcast {
   using ReturnType = td::Unit;
 
@@ -199,7 +203,7 @@ class Bus : public td::actor::Bus {
                               CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
                               OutgoingProtocolMessage, IncomingCandidateRequest, IncomingCollatorRequest,
                               OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent,
-                              NoncriticalParamsUpdated, PrecheckCandidateBroadcast>;
+                              NoncriticalParamsUpdated, ValidatorOptionsUpdated, PrecheckCandidateBroadcast>;
 
   Bus() = default;
   ~Bus() override {
@@ -226,8 +230,9 @@ class Bus : public td::actor::Bus {
 
   adnl::AdnlNodeIdShort local_adnl_id;
   std::vector<adnl::AdnlNodeIdShort> all_overlay_nodes;
+  std::set<adnl::AdnlNodeIdShort> all_current_validators;
   bool is_collator = false;
-  CollatorsByValidator collators_by_validator;
+  std::set<adnl::AdnlNodeIdShort> all_collators;
   td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
 
   NewConsensusConfig config;

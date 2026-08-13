@@ -81,6 +81,7 @@ struct CollatorOptions : public td::CntObject {
 
 struct CollatorsList : public td::CntObject {
   std::vector<adnl::AdnlNodeIdShort> collators;
+  std::vector<adnl::AdnlNodeIdShort> register_collators;
   bool disable_self_collate = false;
 
   td::Status unpack(const ton_api::engine_validator_collatorsList& obj);
