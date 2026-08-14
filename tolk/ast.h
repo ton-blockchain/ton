@@ -547,7 +547,6 @@ struct Vertex<ast_braced_yield_result> final : ASTExprUnary {
 template<>
 // ast_artificial_aux_vertex is a compiler-inserted vertex that can't occur in source code
 // example: implicitly inserted loads after `lazy` operator
-// example: `msg.isBounced` / `msg.xxx` in onInternalMessage are handled specially
 struct Vertex<ast_artificial_aux_vertex> final : ASTExprUnary {
   const ASTAuxData* aux_data;     // custom payload, see ast-aux-data.h
 

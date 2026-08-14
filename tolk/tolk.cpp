@@ -106,7 +106,7 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
 
     // the following pipes can't operate if any previous errors exist
     pipeline_lazy_load_insertions();
-    pipeline_transform_onInternalMessage();
+    pipeline_check_onInternalMessage();
 
     // for IDE in background: all checks passed, skip codegen
     if (G_settings.check_only_no_output) {

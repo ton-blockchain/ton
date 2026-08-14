@@ -26,7 +26,7 @@
  *   In Tolk:
  *   > fun onInternalMessage(in: InMessage)
  *   And to use `in.senderAddress`, `in.body`, `in.originalForwardFee`, etc. in the function.
- * Under the hood, `in.senderAddress` is transformed into `INMSG_SRC`, and so on.
+ * Under the hood, `in.senderAddress` is lowered into `INMSG_SRC`, and so on.
  *
  *   Also, if `onBouncedMessage` exists, it's embedded directly, like
  *   > if (INMSG_BOUNCED) { onBouncedMessage(in.body); return; }
@@ -38,14 +38,14 @@ namespace tolk {
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
 
-// check for "modern" `fun onInternalMessage(in: InMessage)`,
-// because a "FunC-style" (msgCell: cell, msgBody: slice) also works;
-// after transformation `in.xxx` to TVM aux vertices, the last parameter is named `in.body`
-static bool is_modern_onInternalMessage(FunctionPtr f_onInternalMessage) {
-  return f_onInternalMessage->get_num_params() == 1 && f_onInternalMessage->get_param(0).name == "in.body";
-}
+std::vector<var_idx_t> generate_get_InMessage_field(CodeBlob& code, AnyV origin, std::string_view field_name, LocalVarPtr param_in_body) {
+  // `in.body` and `in.bouncedBody` are actually `slice` from a stack;
+  // beforehand, `onInternalMessage` was transformed from `in:InMessage` to `in.body:slice`
+  if (field_name == "body" || field_name == "bouncedBody") {
+    tolk_assert(param_in_body->ir_idx.size() == 1);
+    return param_in_body->ir_idx;
+  }
 
-std::vector<var_idx_t> AuxData_OnInternalMessage_getField::generate_get_InMessage_field(CodeBlob& code, AnyV origin) const {
   int idx = -1;
   if      (field_name == "isBounced")          idx = 1;
   else if (field_name == "senderAddress")      idx = 2;
@@ -54,7 +54,7 @@ std::vector<var_idx_t> AuxData_OnInternalMessage_getField::generate_get_InMessag
   else if (field_name == "createdAt")          idx = 5;
   else if (field_name == "valueCoins")         idx = 7;
   else if (field_name == "valueExtra")         idx = 8;
-  tolk_assert(idx != -1);     // `in.body` and `in.bouncedBody` are regular parameters, not aux vertices
+  tolk_assert(idx != -1);
 
   std::vector ir_msgparam = code.create_tmp_var(TypeDataInt::create(), origin, "(inmsg-field)");
   code.add_call(origin, ir_msgparam, {code.create_int(origin, idx, "(param-idx)")}, lookup_function("__InMessage.getInMsgParam"));
@@ -66,11 +66,10 @@ std::vector<var_idx_t> AuxData_OnInternalMessage_getField::generate_get_InMessag
   return ir_msgparam;
 }
 
-void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, const std::vector<var_idx_t>& rvect_params, CodeBlob& code, AnyV origin) {
-  // ignore FunC-style `onInternalMessage(msgCell, msgBody)`
-  if (!is_modern_onInternalMessage(f_onInternalMessage)) {
-    return;
-  }
+void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, const std::vector<var_idx_t>& ir_body_slice, CodeBlob& code, AnyV origin) {
+  // parameter `in:InMessage` was transformed to `in.body:slice`
+  tolk_assert(f_onInternalMessage->is_onInternalMessage() && ir_body_slice.size() == 1);
+
   // ignore `@on_bounced_policy("manual")`, don't insert "if (isBounced) return"
   if (f_onInternalMessage->is_manual_on_bounce()) {
     return;
@@ -79,8 +78,7 @@ void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, con
   const Symbol* sym = lookup_global_symbol("onBouncedMessage");
   FunctionPtr f_onBouncedMessage = sym ? sym->try_as<FunctionPtr>() : nullptr;
 
-  AuxData_OnInternalMessage_getField get_isBounced(f_onInternalMessage, "isBounced");
-  std::vector ir_isBounced = get_isBounced.generate_get_InMessage_field(code, origin);
+  std::vector ir_isBounced = generate_get_InMessage_field(code, origin, "isBounced", nullptr);
 
   if (f_onBouncedMessage) {
     // generate: `if (isBounced) { onBouncedMessage(); return; }
@@ -88,11 +86,10 @@ void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, con
     Op& if_isBounced = code.add_if_else(origin, ir_isBounced);
     {
       code.push_set_cur(if_isBounced.block0);
-      std::vector ir_bodySlice(rvect_params.end() - 1, rvect_params.end());
       if (f_onBouncedMessage->is_inlined_in_place()) {
-        gen_inline_fun_call_in_place(code, TypeDataVoid::create(), origin, f_onBouncedMessage, nullptr, true, {ir_bodySlice});
+        gen_inline_fun_call_in_place(code, TypeDataVoid::create(), origin, f_onBouncedMessage, nullptr, true, {ir_body_slice});
       } else {
-        code.add_call(origin, {}, ir_bodySlice, f_onBouncedMessage);
+        code.add_call(origin, {}, ir_body_slice, f_onBouncedMessage);
       }
       code.add_return(origin, {}, f_onInternalMessage);
       code.close_pop_cur(origin);

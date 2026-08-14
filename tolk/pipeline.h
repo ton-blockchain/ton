@@ -48,7 +48,7 @@ void pipeline_optimize_boolean_expressions();
 void pipeline_detect_inline_in_place();
 void pipeline_check_serialized_fields();
 void pipeline_lazy_load_insertions();
-void pipeline_transform_onInternalMessage();
+void pipeline_check_onInternalMessage();
 void pipeline_convert_ast_to_legacy_Expr_Op();
 
 void pipeline_find_unused_symbols();

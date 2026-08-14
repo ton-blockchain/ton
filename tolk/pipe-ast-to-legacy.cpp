@@ -1370,6 +1370,15 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
     // `user.id`; internally, a struct (an object) is a tensor
     if (const TypeDataStruct* t_struct = obj_type->try_as<TypeDataStruct>()) {
       StructFieldPtr field_ref = std::get<StructFieldPtr>(v->target);
+      // `in.senderAddress` / `in.body` in onInternalMessage: logical InMessage is one slice on the stack
+      if (code.fun_ref->is_entrypoint() && code.fun_ref->get_num_params() == 1) {
+        if (auto obj_ref = v->get_obj()->try_as<ast_reference>()) {
+          if (obj_ref->sym == &code.fun_ref->parameters[0] && (code.fun_ref->is_onInternalMessage() || code.fun_ref->is_onBouncedMessage())) {
+            std::vector rvect = generate_get_InMessage_field(code, v, v->get_field_name(), &code.fun_ref->parameters[0]);
+            return transition_to_target_type(std::move(rvect), code, target_type, v);
+          }
+        }
+      }
       // handle `lazyPoint.x`, assert that slot for "x" is loaded (ensure lazy-loading correctness);
       // same for `val msg = lazy MyMsgUnion; match(...) msg.field` inside a specific variant (struct_ref)
       if (const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(v->get_obj())) {
@@ -1913,11 +1922,6 @@ static std::vector<var_idx_t> process_artificial_aux_vertex(V<ast_artificial_aux
     return transition_to_target_type({}, code, target_type, wrapped);
   }
 
-  if (const auto* data = dynamic_cast<const AuxData_OnInternalMessage_getField*>(v->aux_data)) {
-    std::vector rvect = data->generate_get_InMessage_field(code, wrapped);
-    return transition_to_target_type(std::move(rvect), code, target_type, wrapped);
-  }
-
   tolk_assert(false);
 }
 
@@ -2295,7 +2299,7 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
     });
   }
 
-  if (fun_ref->name == "onInternalMessage") {
+  if (fun_ref->is_entrypoint() && fun_ref->is_onInternalMessage()) {
     handle_onInternalMessage_codegen_start(fun_ref, rvect_import, *blob, fun_ref->ident_anchor);
   }
 

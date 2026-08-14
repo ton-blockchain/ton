@@ -16,13 +16,12 @@
 */
 #pragma once
 
-#include "ast-aux-data.h"
 #include "fwd-declarations.h"
 #include "tolk.h"
 
 namespace tolk {
 
-void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, const std::vector<var_idx_t>& rvect_params, CodeBlob& code, AnyV origin);
-std::vector<var_idx_t> generate_get_requested_field_parsing_on_demand(const AuxData_OnInternalMessage_getField* aux_data, CodeBlob& code, AnyV origin);
+void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, const std::vector<var_idx_t>& ir_body_slice, CodeBlob& code, AnyV origin);
+std::vector<var_idx_t> generate_get_InMessage_field(CodeBlob& code, AnyV origin, std::string_view field_name, LocalVarPtr param_in_body);
 
 } // namespace tolk

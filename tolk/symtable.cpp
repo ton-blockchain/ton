@@ -70,6 +70,34 @@ LocalVarPtr FunctionData::find_param(std::string_view name) const {
   return nullptr;
 }
 
+// detect `fun onInternalMessage(in: InMessage)`
+// we allow also FunC-style `onInternalMessage(msgCell: cell, msgBody: slice)`, then return false
+bool FunctionData::is_onInternalMessage() const {
+  if (get_num_params() == 1 && name == "onInternalMessage") {
+    const TypeDataStruct* t_param = parameters[0].declared_type->try_as<TypeDataStruct>();
+    if (t_param && t_param->struct_ref->name == "InMessage") {
+      return true;
+    }
+    // after transformation, `in:InMessage` becomes `in.body:slice`
+    if (parameters[0].declared_type == TypeDataSlice::create() && parameters[0].name == "in.body") {
+      return true;
+    }
+  }
+  // otherwise, we will output onInternalMessage without any transformations, `in.senderAddress` etc. are disallowed
+  return false;
+}
+
+// detect `fun onExternalMessage()` (may accept `slice` parameter, may not)
+bool FunctionData::is_onExternalMessage() const {
+  return name == "onExternalMessage";
+}
+
+// detect `fun onBouncedMessage(in: InMessageBounced)`
+bool FunctionData::is_onBouncedMessage() const {
+  return name == "onBouncedMessage";
+  // don't check signature, because unlike onInternalMessage, onBouncedMessage must be declared the only way
+}
+
 bool FunctionData::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
   if (!is_really_used()) {

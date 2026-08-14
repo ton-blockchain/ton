@@ -32,7 +32,7 @@ set(TOLK_SOURCE
         pipe-detect-inline-in-place.cpp
         pipe-check-serialized-fields.cpp
         pipe-lazy-load-insertions.cpp
-        pipe-transform-on-message.cpp
+        pipe-check-on-message.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-collect-symbol-types.cpp

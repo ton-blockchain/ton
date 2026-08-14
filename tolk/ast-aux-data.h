@@ -26,8 +26,6 @@
 
 namespace tolk {
 
-struct CodeBlob;
-
 // AuxData_LazyObjectLoadFields is a special auto-inserted vertex to load fields of a lazy struct;
 // example: `var p = lazy Point.fromSlice(s); aux "load x"; return p.x`
 struct AuxData_LazyObjectLoadFields final : ASTAuxData {
@@ -39,18 +37,6 @@ struct AuxData_LazyObjectLoadFields final : ASTAuxData {
   AuxData_LazyObjectLoadFields(LocalVarPtr var_ref, TypePtr union_variant, StructFieldPtr field_ref, LazyStructLoadInfo load_info)
     : var_ref(var_ref), union_variant(union_variant), field_ref(field_ref), load_info(std::move(load_info)) {
   }
-};
-
-struct AuxData_OnInternalMessage_getField final : ASTAuxData {
-  FunctionPtr f_onInternalMessage;
-  const std::string_view field_name;
-
-  AuxData_OnInternalMessage_getField(FunctionPtr f_onInternalMessage, std::string_view field_name)
-    : f_onInternalMessage(f_onInternalMessage)
-    , field_name(field_name) {
-  }
-
-  std::vector<var_idx_t> generate_get_InMessage_field(CodeBlob& code, AnyV origin) const;
 };
 
 } // namespace tolk

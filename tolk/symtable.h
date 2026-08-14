@@ -227,6 +227,10 @@ struct FunctionData final : Symbol {
   bool is_variadic_width_T_allowed() const { return flags & flagAllowAnyWidthT; }
   bool is_manual_on_bounce() const { return flags & flagManualOnBounce; }
 
+  bool is_onInternalMessage() const;
+  bool is_onExternalMessage() const;
+  bool is_onBouncedMessage() const;
+
   bool does_need_codegen() const;
 
   FunctionData* mutate() const { return const_cast<FunctionData*>(this); }
