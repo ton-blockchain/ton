@@ -289,7 +289,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   };
   ConsensusState<SlotState, td::Unit> state_{td::Unit{}};
 
-  static constexpr td::uint32 MAX_FUTURE_WINDOW = 20;
+  static constexpr td::uint32 MAX_FUTURE_WINDOW = 4;
   static constexpr double MAX_SYNC_DELAY = 10.0;
 };
 
