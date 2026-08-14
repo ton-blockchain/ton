@@ -60,25 +60,29 @@ constexpr int AWAIT_TIMEOUT_CODE = 6520;
 template <typename T>
 Task<T> await_with_timeout(StartedTask<T> task, Timestamp timeout) {
   auto [task_result, promise] = StartedTask<T>::make_bridge();
-  auto promise_ptr = std::make_shared<std::pair<Promise<T>, std::atomic_flag>>(std::move(promise), false);
+  struct Data {
+    Promise<T> promise;
+    std::atomic_flag resolved;
+    explicit Data(Promise<T> promise) : promise(std::move(promise)) {
+    }
+  };
+  auto promise_ptr = std::make_shared<Data>(std::move(promise));
   if (timeout) {
-    auto worker_timeout = [](Timestamp timeout,
-                             std::shared_ptr<std::pair<Promise<T>, std::atomic_flag>> promise_ptr) -> Task<> {
+    auto worker_timeout = [](Timestamp timeout, std::shared_ptr<Data> promise_ptr) -> Task<> {
       co_await detach_from_actor();
       co_await coro_sleep(timeout);
-      if (!promise_ptr->second.test_and_set()) {
-        promise_ptr->first.set_error(Status::Error(AWAIT_TIMEOUT_CODE, "await timeout"));
+      if (!promise_ptr->resolved.test_and_set()) {
+        promise_ptr->promise.set_error(Status::Error(AWAIT_TIMEOUT_CODE, "await timeout"));
       }
       co_return {};
     };
     worker_timeout(timeout, promise_ptr).start().detach_silent();
   }
-  auto worker_wait = [](StartedTask<T> task,
-                        std::shared_ptr<std::pair<Promise<T>, std::atomic_flag>> promise_ptr) -> Task<> {
+  auto worker_wait = [](StartedTask<T> task, std::shared_ptr<Data> promise_ptr) -> Task<> {
     co_await detach_from_actor();
     auto result = co_await std::move(task).wrap();
-    if (!promise_ptr->second.test_and_set()) {
-      promise_ptr->first.set_result(std::move(result));
+    if (!promise_ptr->resolved.test_and_set()) {
+      promise_ptr->promise.set_result(std::move(result));
     }
     co_return {};
   };
