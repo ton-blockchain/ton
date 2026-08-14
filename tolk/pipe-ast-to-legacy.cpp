@@ -1222,16 +1222,54 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
 }
 
 static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type) {
-  TypePtr subject_type = v->get_subject()->inferred_type;
-
   int n_arms = v->get_arms_count();
   std::vector ir_subj = pre_compile_expr(v->get_subject(), code, nullptr);
-  std::vector ir_result = code.create_tmp_var(v->inferred_type, v, "(match-expression)");
+  TypePtr match_expr_type = v->inferred_type;
+  TypePtr subject_type = v->get_subject()->inferred_type;
+  std::vector ir_match_result = code.create_tmp_var(match_expr_type, v, "(match-expression)");
   AnyExprV match_origin = v;    // all "IF UTag==type_id" share this location: "step over" jumps into actual branch immediately
 
-  if (!n_arms) {    // `match (subject) {}`
-    tolk_assert(v->is_statement());
-    return {};
+  // `match(lazyUnion)` / `match(obj.lastUnionField)`
+  if (v->is_lazy_match) {
+    LocalVarPtr var_ref = extract_sink_expression_from_vertex(v->get_subject()).var_ref;
+    const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(var_ref);
+    tolk_assert(lazy_variable);
+
+    std::vector<LazyMatchOptions::MatchBlock> match_blocks;
+    match_blocks.reserve(n_arms);
+    for (int i = 0; i < n_arms; ++i) {
+      auto v_arm = v->get_arm(i);
+      TypePtr arm_variant = nullptr;
+      if (v_arm->pattern_kind == MatchArmKind::exact_type) {
+        arm_variant = v_arm->pattern_type_node->resolved_type;
+      } else {
+        tolk_assert(v_arm->pattern_kind == MatchArmKind::else_branch);   // `else` allowed in a lazy match
+      }
+      match_blocks.emplace_back(LazyMatchOptions::MatchBlock{arm_variant, v_arm});
+    }
+
+    LazyMatchOptions options = {
+      .match_blocks = std::move(match_blocks),
+      .lazy_var_ref = var_ref,
+      .lower_match_arm = [v, match_expr_type, &ir_match_result](AnyV v_arm_untyped, CodeBlob& code) {
+        auto v_arm = v_arm_untyped->as<ast_match_arm>();
+        if (v->is_statement()) {
+          process_any_statement(v_arm->get_body()->get_block_statement(), code);
+          if (v == stmt_before_immediate_return) {
+            code.add_return(v_arm, {}, code.fun_ref);
+          }
+        } else {
+          // if it's `match` expression (not statement), then every arm has a result, assigned to a whole `match` result
+          std::vector ir_ith_arm = pre_compile_expr(v_arm->get_body(), code);
+          ir_ith_arm = transition_to_target_type(std::move(ir_ith_arm), code, v_arm->get_body()->inferred_type, match_expr_type, v);
+          code.add_let(v, ir_match_result, std::move(ir_ith_arm));
+        }
+      }
+    };
+
+    // it will generate match by a slice prefix, and for each arm, invoke lower_match_arm above, updating ir_match_result
+    generate_lazy_match_for_union(code, v, subject_type, lazy_variable, options);
+    return transition_to_target_type(std::move(ir_match_result), code, target_type, v);
   }
 
   bool has_type_arm = false;    // it's either `match` by type (all arms are types covering all cases)
@@ -1245,8 +1283,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   }
 
   // `else` is not allowed in `match` by type; this was not fired at type checking,
-  // because it might have turned out to be a lazy match, where `else` is allowed;
-  // if we are here, it's not a lazy match, it's a regular one (the lazy one is handled specially, in aux vertex)
+  // because it might have turned out to be a lazy match, where `else` is allowed (handled above)
   if (has_type_arm && has_else_arm) {
     err("`else` is not allowed in `match` by type; you should cover all possible types").fire(v->get_arm(n_arms - 1)->get_pattern_expr());
   }
@@ -1299,8 +1336,8 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
         code.add_return(v_ith_arm, {}, code.fun_ref);
       }
     } else {
-      std::vector arm_ir_idx = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
-      code.add_let(v, ir_result, std::move(arm_ir_idx));
+      std::vector ir_ith_arm = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
+      code.add_let(v, ir_match_result, std::move(ir_ith_arm));
     }
 
     if (!inside_last_branch) {
@@ -1322,7 +1359,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     code.close_pop_cur(v);
   }
 
-  return transition_to_target_type(std::move(ir_result), code, target_type, v);
+  return transition_to_target_type(std::move(ir_match_result), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
@@ -1627,6 +1664,10 @@ static std::vector<var_idx_t> process_braced_expression(V<ast_braced_expression>
   return transition_to_target_type(std::move(implicit_rvect), code, target_type, v);
 }
 
+static std::vector<var_idx_t> process_braced_yield_result(V<ast_braced_yield_result> v, CodeBlob& code, TypePtr target_type) {
+  return pre_compile_expr(v->get_expr(), code, target_type);
+}
+
 static std::vector<var_idx_t> process_tensor(V<ast_tensor> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   // tensor is compiled "as is", for example `(1, null)` occupies 2 slots
   // and if assigned/passed to something other, like `(int, (int,int)?)`, a whole tensor is transitioned, it works
@@ -1872,42 +1913,6 @@ static std::vector<var_idx_t> process_artificial_aux_vertex(V<ast_artificial_aux
     return transition_to_target_type({}, code, target_type, wrapped);
   }
 
-  // aux "match(lazyUnion)" / aux "match(obj.lastUnionField)"
-  if (const auto* data = dynamic_cast<const AuxData_LazyMatchForUnion*>(v->aux_data)) {
-    V<ast_match_expression> v_match = wrapped->as<ast_match_expression>();
-    pre_compile_expr(v_match->get_subject(), code, nullptr);
-
-    const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(data->var_ref);
-    tolk_assert(lazy_variable);
-    TypePtr t_union = data->field_ref ? data->field_ref->declared_type : data->var_ref->declared_type;
-
-    std::vector<LazyMatchOptions::MatchBlock> match_blocks;
-    match_blocks.reserve(v_match->get_arms_count());
-    for (int i = 0; i < v_match->get_arms_count(); ++i) {
-      auto v_arm = v_match->get_arm(i);
-      TypePtr arm_variant = nullptr;
-      if (v_arm->pattern_kind == MatchArmKind::exact_type) {
-        arm_variant = v_arm->pattern_type_node->resolved_type;
-      } else {
-        tolk_assert(v_arm->pattern_kind == MatchArmKind::else_branch);   // `else` allowed in a lazy match
-      }
-      match_blocks.emplace_back(LazyMatchOptions::MatchBlock{arm_variant, v_arm->get_body(), v_arm->get_body()->inferred_type});
-    }
-
-    LazyMatchOptions options = {
-      .match_expr_type = v->inferred_type,
-      .is_statement = v_match->is_statement(),
-      .add_return_to_all_arms = v == stmt_before_immediate_return,
-      .match_blocks = std::move(match_blocks),
-      .lazy_var_ref = data->var_ref,
-    };
-
-    // it will generate match by a slice prefix, and for each `match` arm, invoke pre_compile_expr(),
-    // which contains "aux load" particularly
-    std::vector ir_match = generate_lazy_match_for_union(code, v_match, t_union, lazy_variable, options);
-    return transition_to_target_type(std::move(ir_match), code, target_type, wrapped);
-  }
-
   if (const auto* data = dynamic_cast<const AuxData_OnInternalMessage_getField*>(v->aux_data)) {
     std::vector rvect = data->generate_get_InMessage_field(code, wrapped);
     return transition_to_target_type(std::move(rvect), code, target_type, wrapped);
@@ -1948,6 +1953,8 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_function_call(v->as<ast_function_call>(), code, target_type, lval_ctx);
     case ast_braced_expression:
       return process_braced_expression(v->as<ast_braced_expression>(), code, target_type);
+    case ast_braced_yield_result:
+      return process_braced_yield_result(v->as<ast_braced_yield_result>(), code, target_type);
     case ast_tensor:
       return process_tensor(v->as<ast_tensor>(), code, target_type, lval_ctx);
     case ast_square_brackets:

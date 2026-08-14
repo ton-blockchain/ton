@@ -18,6 +18,7 @@
 
 #include "fwd-declarations.h"
 #include "tolk.h"
+#include <functional>
 
 namespace tolk {
 
@@ -102,18 +103,14 @@ enum class PrefixReadMode {
 struct LazyMatchOptions {
   struct MatchBlock {
     TypePtr arm_variant;          // left of `V => ...`; nullptr for `else => ...`
-    AnyExprV v_body;              // right of `V => ...`
-    TypePtr block_expr_type;      // for match expression, if `V => expr`, it's expr's inferred_type
+    AnyV v_arm;                   // ast_match_arm `V => ...`
   };
 
-  TypePtr match_expr_type;        // type of `match` expression, `void` for statement
-  bool is_statement;              // it's `match` statement, not expression, so it does not return any result
-  bool add_return_to_all_arms;    // it's the last statement in a function, add "return" to its cases for better Fift code
   std::vector<MatchBlock> match_blocks;
   LocalVarPtr lazy_var_ref = nullptr; // for emitting MARK_SMART_CAST at the start of each arm
+  std::function<void(AnyV v_arm, CodeBlob& code)> lower_match_arm;
 
   const MatchBlock* find_match_block(TypePtr variant) const;
-  void save_match_result_on_arm_end(CodeBlob& code, AnyV origin, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const;
 };
 
 class UnpackContext {
@@ -150,7 +147,7 @@ public:
 
   std::vector<var_idx_t> generate_unpack_any(TypePtr any_type, PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck) const;
   void generate_skip_any(TypePtr any_type, PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck) const;
-  std::vector<var_idx_t> generate_lazy_match_any(TypePtr any_type, const LazyMatchOptions& options) const;
+  void generate_lazy_match_any(TypePtr any_type, const LazyMatchOptions& options) const;
 };
 
 

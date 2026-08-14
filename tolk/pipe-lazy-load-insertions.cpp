@@ -695,7 +695,7 @@ class CollectUsagesInStatementVisitor final : public ASTVisitorFunctionBody {
         if (receiver_type_matches_lazy_expr && can_method_be_inlined_preserving_lazy(fun_ref)) {
           auto v_body_block = fun_ref->ast_root->try_as<ast_function_declaration>()->get_body()->try_as<ast_block_statement>();
           ExprUsagesWhileCollecting inner_usages = collect_expr_usages_in_block(lazy_expr->name_str + "(=self)", SinkExpression(&fun_ref->parameters[0]), lazy_expr->expr_type, v_body_block);
-          inner_usages.treat_match_like_read();   // nested lazy match in inlined functions doesn't work, it's not wrapped into aux vertex
+          inner_usages.treat_match_like_read();   // nested lazy match in inlined functions doesn't work
           lazy_expr->merge_with_sub_block(inner_usages);
           if (dot_obj->kind == ast_assign) {
             parent::visit(v->get_callee());
@@ -975,20 +975,11 @@ class LazyLoadInsertionsReplacer final : public ASTReplacerInFunctionBody {
     return v;
   }
 
-  // `match (lazy_obj)` / `match (lazy_obj.field)` -> wrap with aux
+  // `match (lazy_obj)` / `match (lazy_obj.field)` -> mark as lazy match
   AnyExprV replace(V<ast_match_expression> v) override {
     for (const LazyVarInFunction& lazy_var : functions_with_lazy_vars[cur_f]) {
-      bool is_lazy_match_for_union = lazy_var.v_lazy_match_var_itself == v;
-      if (is_lazy_match_for_union) {
-        ASTAuxData* aux_data = new AuxData_LazyMatchForUnion(lazy_var.var_ref, nullptr);
-        return createV<ast_artificial_aux_vertex>(parent::replace(v), aux_data, v->inferred_type);
-      }
-
-      bool is_lazy_match_for_last_field = lazy_var.v_lazy_match_last_field == v;
-      if (is_lazy_match_for_last_field) {
-        StructPtr struct_ref = lazy_var.var_ref->declared_type->unwrap_alias()->try_as<TypeDataStruct>()->struct_ref;
-        ASTAuxData* aux_data = new AuxData_LazyMatchForUnion(lazy_var.var_ref, struct_ref->fields.back());
-        return createV<ast_artificial_aux_vertex>(parent::replace(v), aux_data, v->inferred_type);
+      if (lazy_var.v_lazy_match_var_itself == v || lazy_var.v_lazy_match_last_field == v) {
+        v->mutate()->assign_is_lazy_match();
       }
     }
 
@@ -1051,9 +1042,10 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
             if (const auto* aux_load = dynamic_cast<const AuxData_LazyObjectLoadFields*>(next_aux->aux_data)) {
               actual = stringify_lazy_load_above_stmt(aux_load);
             }
-            if (const auto* aux_match = dynamic_cast<const AuxData_LazyMatchForUnion*>(next_aux->aux_data)) {
-              actual = "[" + aux_match->var_ref->name + "] " + "lazy match";
-            }
+          }
+          if (const auto* lazy_match = next_stmt->try_as<ast_match_expression>(); lazy_match && lazy_match->is_lazy_match) {
+            SinkExpression s_expr = extract_sink_expression_from_vertex(lazy_match->get_subject());
+            actual = "[" + s_expr.var_ref->name + "] " + "lazy match";
           }
 
           if (actual != v_expected_str->str_val) {

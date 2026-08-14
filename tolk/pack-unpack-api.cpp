@@ -517,15 +517,14 @@ std::vector<var_idx_t> generate_lazy_struct_to_cell(CodeBlob& code, AnyV origin,
   return rvect_cell;
 }
 
-std::vector<var_idx_t> generate_lazy_match_for_union(CodeBlob& code, AnyV origin, TypePtr union_type, const LazyVariableLoadedState* lazy_variable, const LazyMatchOptions& options) {
+void generate_lazy_match_for_union(CodeBlob& code, AnyV origin, TypePtr union_type, const LazyVariableLoadedState* lazy_variable, const LazyMatchOptions& options) {
   tolk_assert(lazy_variable->ir_options.size() == 2);
   if (options.match_blocks.empty()) {   // empty `match` statement, no arms
-    return {};
+    return;
   }
   UnpackContext ctx(code, origin, lazy_variable->ir_slice, lazy_variable->ir_options);
-  std::vector rvect_match = ctx.generate_lazy_match_any(union_type, options);
-
-  return rvect_match;
+  ctx.generate_lazy_match_any(union_type, options);
+  // return void: lazy match generator called a callback which updated ir_match_result of ast_match_expression
 }
 
 std::vector<var_idx_t> generate_lazy_object_finish_loading(CodeBlob& code, AnyV origin, const LazyVariableLoadedState* lazy_variable, std::vector<var_idx_t>&& ir_obj) {

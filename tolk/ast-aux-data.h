@@ -41,16 +41,6 @@ struct AuxData_LazyObjectLoadFields final : ASTAuxData {
   }
 };
 
-// AuxData_LazyMatchForUnion wraps `match(lazy_var)` or its field
-struct AuxData_LazyMatchForUnion final : ASTAuxData {
-  LocalVarPtr var_ref;              // comes from `lazy`
-  StructFieldPtr field_ref;         // not `match(o)`, but `match(o.field)`
-
-  AuxData_LazyMatchForUnion(LocalVarPtr var_ref, StructFieldPtr field_ref)
-    : var_ref(var_ref), field_ref(field_ref) {
-  }
-};
-
 struct AuxData_OnInternalMessage_getField final : ASTAuxData {
   FunctionPtr f_onInternalMessage;
   const std::string_view field_name;

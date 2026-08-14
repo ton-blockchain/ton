@@ -161,6 +161,10 @@ void Vertex<ast_match_expression>::assign_is_exhaustive(bool is_exhaustive) {
   this->is_exhaustive = is_exhaustive;
 }
 
+void Vertex<ast_match_expression>::assign_is_lazy_match() {
+  this->is_lazy_match = true;
+}
+
 void Vertex<ast_match_arm>::assign_resolved_pattern(MatchArmKind pattern_kind, AnyExprV pattern_expr) {
   this->pattern_type_node = nullptr;
   this->pattern_kind = pattern_kind;

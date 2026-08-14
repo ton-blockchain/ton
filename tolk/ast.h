@@ -960,6 +960,7 @@ template<>
 // example: `match (var c = getIntOrSlice()) { int => return 0, slice => throw 123 }`
 struct Vertex<ast_match_expression> final : ASTExprVararg {
   bool is_exhaustive = false;   // if it has `else` or covers all cases without `else`; can be used as expression
+  bool is_lazy_match = false;   // if it's `match (lazyVar)`, lowered as SDBEGINSQ without constructing union on a stack
 
   AnyExprV get_subject() const { return child(0); }
   int get_arms_count() const { return size() - 1; }
@@ -971,6 +972,7 @@ struct Vertex<ast_match_expression> final : ASTExprVararg {
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_is_exhaustive(bool is_exhaustive);
+  void assign_is_lazy_match();
 
   Vertex(SrcRange range, std::vector<AnyExprV>&& subject_and_arms)
     : ASTExprVararg(ast_match_expression, range, std::move(subject_and_arms)) {}
