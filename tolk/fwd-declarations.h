@@ -55,6 +55,7 @@ class TypeData;
 using TypePtr = const TypeData*;
 
 struct GenericsSubstitutions;
+struct LazyLoadPlan;
 
 struct SrcFile;
 

@@ -154,6 +154,7 @@ struct FunctionData final : Symbol {
   FunctionPtr base_fun_ref = nullptr;             // for `f<int>`, here is `f<T>`; for a lambda, a containing function
   FunctionBody body;
   AnyV ast_root;                                  // V<ast_function_declaration> for user-defined (not builtin)
+  const LazyLoadPlan* lazy_load_plan = nullptr;   // when has `lazy` vars; see pipe-lazy-load-insertions.cpp
 
   FunctionData(std::string name, AnyV ident_anchor, std::string method_name, AnyTypeV receiver_type_node, AnyTypeV return_type_node, std::vector<LocalVarData> parameters, int initial_flags, FunctionInlineMode inline_mode, const GenericsDeclaration* genericTs, const GenericsSubstitutions* substitutedTs, DocCommentLines doc_lines, FunctionBody body, AnyV ast_root)
     : Symbol(std::move(name), ident_anchor)
@@ -247,6 +248,7 @@ struct FunctionData final : Symbol {
   void assign_is_really_used();
   void assign_inline_mode_in_place();
   void assign_arg_order(std::vector<int>&& arg_order);
+  void assign_lazy_load_plan(const LazyLoadPlan* lazy_load_plan);
 };
 
 struct GlobalVarData final : Symbol {

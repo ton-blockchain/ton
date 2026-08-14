@@ -176,6 +176,10 @@ void FunctionData::assign_arg_order(std::vector<int>&& arg_order) {
   this->arg_order = std::move(arg_order);
 }
 
+void FunctionData::assign_lazy_load_plan(const LazyLoadPlan* lazy_load_plan) {
+  this->lazy_load_plan = lazy_load_plan;
+}
+
 void GlobalVarData::assign_resolved_type(TypePtr declared_type) {
   this->declared_type = declared_type;
 }

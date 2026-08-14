@@ -203,10 +203,6 @@ void Vertex<ast_binary_operator>::assign_fun_ref(FunctionPtr fun_ref) {
   this->fun_ref = fun_ref;
 }
 
-void Vertex<ast_block_statement>::assign_new_children(std::vector<AnyV>&& children) {
-  this->children = std::move(children);
-}
-
 void Vertex<ast_dot_access>::assign_target(const DotTarget& target) {
   this->target = target;
 }

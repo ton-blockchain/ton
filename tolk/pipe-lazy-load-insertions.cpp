@@ -16,9 +16,7 @@
 */
 #include "lazy-helpers.h"
 #include "ast.h"
-#include "ast-aux-data.h"
 #include "ast-visitor.h"
-#include "ast-replacer.h"
 #include "compilation-errors.h"
 #include "type-system.h"
 #include "smart-casts-cfg.h"
@@ -27,7 +25,7 @@
 namespace tolk {
 
 /*
- *   This pipe finds `lazy` operators and inserts loading points to load only required fields just before being used.
+ *   This pipe finds `lazy` operators and builds a LazyLoadPlan: which fields to load just before which statement.
  *   It happens after type inferring/checking. While inferring, `lazy expr` was inferred just as expr.
  * There is no dedicated `Lazy<T>` type in the type system. All the magic of laziness is calculated here.
  *
@@ -117,7 +115,7 @@ namespace tolk {
  *
  *   Some highlights and considerations:
  *   - `lazy A.fromSlice(s)` does NOT read from slice immediately; instead, it saves the slice pointer and reads on demand
- *     (at "loading points" inserted by the compiler in the current pipe).
+ *     (at "loading points" recorded in LazyLoadPlan by the current pipe).
  *   - Options can be passed: `lazy A.fromSlice(s, {...})`, but `assertEndAfterReading` is ignored, it doesn't make sense
  *     (because fields are read later, only required ones, and the last is preloaded rather than loaded).
  *     There is a special method `a.forceLoadLazyObject()`, can be used inside `match` to load the variant fully.
@@ -526,13 +524,13 @@ struct ExprUsagesWhileCollecting {
 };
 
 // After collecting all vars/fields/variants usages, we should store, where exactly (in AST) which fields to load.
-// Every insertion point is represented as this class, it's transformed to an AST auxiliary vertex by a replacer.
+// Every insertion point is finalized into LazyLoadPlan by a top-down walk (first candidate wins).
 struct OneLoadingInsertionPoint {
   std::vector<AnyV> all_stmts_where_used;
   TypePtr union_variant;
   StructFieldPtr field_ref;
   LazyStructLoadInfo load_info;
-  mutable bool was_inserted_to_ast = false;
+  mutable bool was_added_to_plan = false;
 
   OneLoadingInsertionPoint(std::vector<AnyV>&& all_stmts_where_used, TypePtr union_variant, StructFieldPtr field_ref, LazyStructLoadInfo&& load_info)
     : all_stmts_where_used(std::move(all_stmts_where_used))
@@ -540,8 +538,8 @@ struct OneLoadingInsertionPoint {
     , field_ref(field_ref)
     , load_info(std::move(load_info)) {}
 
-  void mark_inserted_to_ast() const {
-    was_inserted_to_ast = true;
+  void mark_added_to_plan() const {
+    was_added_to_plan = true;
   }
 
   bool is_mentioned_in_stmt(AnyV stmt) const {
@@ -556,7 +554,7 @@ struct LazyVarInFunction {
   V<ast_lazy_operator> created_by_lazy_op;
   V<ast_match_expression> v_lazy_match_var_itself = nullptr;  // lazy `match` for the variable itself
   V<ast_match_expression> v_lazy_match_last_field = nullptr;  // lazy `match` for the last field of a struct
-  std::vector<OneLoadingInsertionPoint> load_points;          // a set of points where AST should be updated
+  std::vector<OneLoadingInsertionPoint> load_points;          // candidate statements; later one anchor is chosen per point
 
   // convert already calculated usages of "st" variable and all its fields to a final immutable representation
   LazyVarInFunction(FunctionPtr cur_f, LocalVarPtr var_ref, V<ast_lazy_operator> created_by_lazy_op, ExprUsagesWhileCollecting&& var_usages)
@@ -574,6 +572,7 @@ struct LazyVarInFunction {
         err("`lazy` will not work here, because variable `{}` is used both for lazy matching and in a non-lazy manner", var_ref).fire(created_by_lazy_op->keyword_range(), cur_f);
       }
       v_lazy_match_var_itself = var_usages.used_as_match_subj.front();
+      v_lazy_match_var_itself->mutate()->assign_is_lazy_match();
       load_points.reserve(var_usages.variants.size());
       for (ExprUsagesWhileCollecting& variant_usages : var_usages.variants) {
         LazyStructLoadInfo load_info = variant_usages.calculate_hidden_struct(true);
@@ -604,7 +603,8 @@ struct LazyVarInFunction {
       StructFieldPtr field_ref = t_struct->struct_ref->fields.back();
       const ExprUsagesWhileCollecting& last_field_usages = var_usages.fields.back();
       v_lazy_match_last_field = last_field_usages.used_as_match_subj.front();
-      // inside `match` over a field, loading locations were not detected: insert "load all fields" into every arm
+      v_lazy_match_last_field->mutate()->assign_is_lazy_match();
+      // inside `match` over a field, loading locations were not detected: schedule "load all fields" into every arm
       for (int i = 0; i < v_lazy_match_last_field->get_arms_count(); ++i) {
         if (auto v_arm = v_lazy_match_last_field->get_arm(i); v_arm->pattern_kind == MatchArmKind::exact_type) {
           TypePtr union_variant = v_arm->pattern_type_node->resolved_type;
@@ -789,7 +789,7 @@ public:
 // It takes care of nested try/catch, etc.
 // Ideally, it should calculate the only "lca" AST vertex of all usages, but it's not as easy as it seems.
 // Instead, `lazy_expr->needed_above_stmt` contains all statements where expr is "mentioned" (and needs to be loaded before).
-// And later, traversing top-down, the first occurrence is taken, inserting an AST aux vertex right before it.
+// And later, traversing top-down, the first occurrence is taken as the anchor statement in LazyLoadPlan.
 class CollectUsagesInBlockBottomUp {
   ExprUsagesWhileCollecting* lazy_expr;
   SinkExpression s_expr;
@@ -908,6 +908,7 @@ class CollectAllLazyObjectsAndFieldsVisitor final : public ASTVisitorFunctionBod
               var_ref, var_ref->declared_type, rhs_lazy->inferred_type).fire(rhs_lazy->keyword_range(), cur_f);
         }
         ExprUsagesWhileCollecting var_usages = collect_expr_usages_in_block(var_ref->name, SinkExpression(var_ref), var_ref->declared_type, parent_block);
+        rhs_lazy->mutate()->assign_dest_var_ref(var_ref);
         LazyVarInFunction lazy_var(cur_f, var_ref, rhs_lazy, std::move(var_usages));
         functions_with_lazy_vars[cur_f].emplace_back(std::move(lazy_var));
       }
@@ -948,54 +949,41 @@ public:
 };
 
 // Step 2:
-// After visiting all functions and finding all lazy variables, this replacer updates AST,
-// inserting (already calculated) load vertices. They are auxiliary vertices holding special data.
-// They are handled later when transforming AST to Ops.
-class LazyLoadInsertionsReplacer final : public ASTReplacerInFunctionBody {
+// After visiting all functions and finding all lazy variables, walk AST top-down and record
+// the first suitable statement for each load point. AST structure is not modified.
+class BuildLazyLoadPlanVisitor final : public ASTVisitorFunctionBody {
+  LazyLoadPlan* plan = nullptr;
 
-  // `var st = lazy expr` -> save "st" (it will be used in codegen to assert "st.x" that "x" is loaded)
-  AnyExprV replace(V<ast_lazy_operator> v) override {
+  void add_loads_before_to_plan(AnyV stmt) const {
     for (const LazyVarInFunction& lazy_var : functions_with_lazy_vars[cur_f]) {
-      if (lazy_var.created_by_lazy_op == v) {
-        v->mutate()->assign_dest_var_ref(lazy_var.var_ref);
-        return parent::replace(v);
-      }
-    }
-
-    tolk_assert(false);     // all `lazy` operators where detected and handled
-  }
-
-  // `{ ... }` -> `{ ... load ... }`
-  AnyV replace(V<ast_block_statement> v) override {
-    std::vector<AnyV> new_children;       // since we don't have "parent_node" and "next_child" in AST,
-    new_children.reserve(v->size());   // traverse every block statement and insert "load" in the middle
-
-    for (AnyV stmt : v->get_items()) {
-      for (const LazyVarInFunction& lazy_var : functions_with_lazy_vars[cur_f]) {
-        for (const OneLoadingInsertionPoint& ins : lazy_var.load_points) {
-          if (!ins.was_inserted_to_ast && ins.is_mentioned_in_stmt(stmt)) {
-            ASTAuxData* aux_data = new AuxData_LazyObjectLoadFields(lazy_var.var_ref, ins.union_variant, ins.field_ref, ins.load_info);
-            new_children.push_back(createV<ast_artificial_aux_vertex>(createV<ast_empty_expression>(stmt->range), aux_data, TypeDataVoid::create()));
-            ins.mark_inserted_to_ast();
-          }
+      for (const OneLoadingInsertionPoint& ins : lazy_var.load_points) {
+        if (!ins.was_added_to_plan && ins.is_mentioned_in_stmt(stmt)) {
+          plan->loads_before_statement[stmt].emplace_back(lazy_var.var_ref, ins.union_variant, ins.field_ref, ins.load_info);
+          ins.mark_added_to_plan();
         }
       }
-      new_children.push_back(parent::replace(stmt));
     }
-
-    v->mutate()->assign_new_children(std::move(new_children));
-    return v;
   }
 
-  // `match (lazy_obj)` / `match (lazy_obj.field)` -> mark as lazy match
-  AnyExprV replace(V<ast_match_expression> v) override {
+  void visit(V<ast_block_statement> v) override {
+    for (AnyV stmt : v->get_items()) {
+      add_loads_before_to_plan(stmt);
+      parent::visit(stmt);
+    }
+  }
+
+  void on_enter_function(V<ast_function_declaration>) override {
+    plan = new LazyLoadPlan();
+  }
+
+  void on_exit_function(V<ast_function_declaration>) override {
     for (const LazyVarInFunction& lazy_var : functions_with_lazy_vars[cur_f]) {
-      if (lazy_var.v_lazy_match_var_itself == v || lazy_var.v_lazy_match_last_field == v) {
-        v->mutate()->assign_is_lazy_match();
+      for (const OneLoadingInsertionPoint& ins : lazy_var.load_points) {
+        tolk_assert(ins.all_stmts_where_used.empty() || ins.was_added_to_plan);
       }
     }
-
-    return parent::replace(v);
+    cur_f->mutate()->assign_lazy_load_plan(plan);
+    plan = nullptr;
   }
 
 public:
@@ -1005,18 +993,18 @@ public:
 };
 
 // Step 3:
-// After modifying AST (inserting loads, lazy match, etc.),
+// After the plan is built (and dest_var_ref / is_lazy_match decorations are set),
 // check __expect_lazy() calls, used in compiler tests as assertions.
 class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
 
-  static std::string stringify_lazy_load_above_stmt(const AuxData_LazyObjectLoadFields* aux_load) {
+  static std::string stringify_lazy_load_action(const LazyLoadAction& action) {
     static const char* action_to_str[] = {"load", "skip", "lazy match", "save immutable"};
 
-    const LazyStructLoadInfo& load_info = aux_load->load_info;
+    const LazyStructLoadInfo& load_info = action.load_info;
     StructPtr struct_ref = load_info.hidden_struct;
     std::string_view last_action;
 
-    std::string result = "[" + aux_load->var_ref->name + "] ";
+    std::string result = "[" + action.var_ref->name + "] ";
     for (int i = 0; i < struct_ref->get_num_fields(); ++i) {
       std::string field_name = struct_ref->get_field(i)->name;
       if (field_name == "`gap`") {
@@ -1025,13 +1013,13 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
       if (field_name == "`tail`") {
         field_name = "(tail)";
       }
-      std::string_view action = action_to_str[load_info.ith_field_action[i]];
-      if (action != last_action) {
+      std::string_view action_str = action_to_str[load_info.ith_field_action[i]];
+      if (action_str != last_action) {
         if (result[result.size() - 2] != ']') {
           result += ", ";
         }
-        result += action;
-        last_action = action;
+        result += action_str;
+        last_action = action_str;
       }
       result += " ";
       result += field_name;
@@ -1050,14 +1038,14 @@ class CheckExpectLazyAssertionsVisitor final : public ASTVisitorFunctionBody {
           tolk_assert(i + 1 < v->size() && v_expected_str && "invalid __expect_lazy");
           AnyV next_stmt = v->get_item(i + 1);
           std::string actual;
-          if (auto next_aux = next_stmt->try_as<ast_artificial_aux_vertex>()) {
-            if (const auto* aux_load = dynamic_cast<const AuxData_LazyObjectLoadFields*>(next_aux->aux_data)) {
-              actual = stringify_lazy_load_above_stmt(aux_load);
-            }
+          for (const LazyLoadAction& action : cur_f->lazy_load_plan->loads_before(next_stmt)) {
+            actual += stringify_lazy_load_action(action);
           }
-          if (const auto* lazy_match = next_stmt->try_as<ast_match_expression>(); lazy_match && lazy_match->is_lazy_match) {
-            SinkExpression s_expr = extract_sink_expression_from_vertex(lazy_match->get_subject());
-            actual = "[" + s_expr.var_ref->name + "] " + "lazy match";
+          if (actual.empty()) {
+            if (const auto* lazy_match = next_stmt->try_as<ast_match_expression>(); lazy_match && lazy_match->is_lazy_match) {
+              SinkExpression s_expr = extract_sink_expression_from_vertex(lazy_match->get_subject());
+              actual = "[" + s_expr.var_ref->name + "] " + "lazy match";
+            }
           }
 
           if (actual != v_expected_str->str_val) {
@@ -1079,8 +1067,8 @@ void pipeline_lazy_load_insertions() {
   functions_with_lazy_vars.clear();
   CollectAllLazyObjectsAndFieldsVisitor collector;
   visit_ast_of_all_functions(collector);
-  LazyLoadInsertionsReplacer replacer;
-  replace_ast_of_all_functions(replacer);
+  BuildLazyLoadPlanVisitor planner;
+  visit_ast_of_all_functions(planner);
   CheckExpectLazyAssertionsVisitor checker;
   visit_ast_of_all_functions(checker);
   functions_with_lazy_vars.clear();

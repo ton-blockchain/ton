@@ -77,7 +77,6 @@ enum ASTNodeKind {
   ast_empty_expression,
   ast_braced_expression,
   ast_braced_yield_result,
-  ast_artificial_aux_vertex,
   ast_tensor,
   ast_square_brackets,
   ast_reference,
@@ -160,10 +159,6 @@ enum class MatchArmKind {    // for `match` expression, each of arms `pattern =>
   const_expression,          // `-1 => body` / `SOME_CONST + grams("0.05") => body` (any expr at parsing, resulting in const)
   exact_type,                // `int => body` / `User | slice => body`
   else_branch,               // `else => body`
-};
-
-struct ASTAuxData {          // base class for data in ast_artificial_aux_vertex, see ast-aux-data.h
-  virtual ~ASTAuxData() = default;
 };
 
 template<ASTNodeKind node_kind>
@@ -542,21 +537,6 @@ struct Vertex<ast_braced_yield_result> final : ASTExprUnary {
 
   Vertex(SrcRange range, AnyExprV expr)
     : ASTExprUnary(ast_braced_yield_result, range, expr) {}
-};
-
-template<>
-// ast_artificial_aux_vertex is a compiler-inserted vertex that can't occur in source code
-// example: implicitly inserted loads after `lazy` operator
-struct Vertex<ast_artificial_aux_vertex> final : ASTExprUnary {
-  const ASTAuxData* aux_data;     // custom payload, see ast-aux-data.h
-
-  AnyExprV get_wrapped_expr() const { return child; }
-
-  Vertex(AnyExprV wrapped_expr, const ASTAuxData* aux_data, TypePtr inferred_type)
-    : ASTExprUnary(ast_artificial_aux_vertex, wrapped_expr->range, wrapped_expr)
-    , aux_data(aux_data) {
-    assign_inferred_type(inferred_type);
-  }
 };
 
 template<>
@@ -1105,9 +1085,6 @@ template<>
 struct Vertex<ast_block_statement> final : ASTStatementVararg {
   const std::vector<AnyV>& get_items() const { return children; }
   AnyV get_item(int i) const { return children.at(i); }
-
-  Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_new_children(std::vector<AnyV>&& children);
 
   Vertex(SrcRange range, std::vector<AnyV>&& items)
     : ASTStatementVararg(ast_block_statement, range, std::move(items)) {}

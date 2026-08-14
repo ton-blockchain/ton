@@ -16,8 +16,8 @@
 */
 #include "tolk.h"
 #include "ast.h"
-#include "ast-aux-data.h"
 #include "ast-visitor.h"
+#include "lazy-helpers.h"
 #include "compilation-errors.h"
 #include "constant-evaluator.h"
 #include "type-system.h"
@@ -130,6 +130,33 @@ static int calc_offset_on_stack(StructPtr struct_ref, int field_idx) {
   return stack_offset;
 }
 
+// Every function with `lazy` vars has LazyLoadPlan: "which fields to load before which statement".
+static void emit_lazy_loads_before(AnyV stmt, CodeBlob& code) {
+  for (const LazyLoadAction& action : code.fun_ref->lazy_load_plan->loads_before(stmt)) {
+    const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(action.var_ref);
+    tolk_assert(lazy_variable);
+
+    std::vector ir_obj = action.var_ref->ir_idx;   // loading will update these stack slots
+    TypePtr t_orig = action.var_ref->declared_type;
+
+    if (action.field_ref) {        // extract a field from a whole lazy variable
+      tolk_assert(lazy_variable->is_struct());
+      int stack_offset = calc_offset_on_stack(lazy_variable->loaded_state.original_struct, action.field_ref->field_idx);
+      int stack_width = action.field_ref->declared_type->get_width_on_stack();
+      ir_obj = std::vector(ir_obj.begin() + stack_offset, ir_obj.begin() + stack_offset + stack_width);
+      t_orig = action.field_ref->declared_type;
+    }
+
+    if (action.union_variant) {    // extract a variant from a union (a union variable or a union field of a struct)
+      ir_obj = transition_rvect_to_runtime_type(std::move(ir_obj), code, t_orig, action.union_variant, stmt);
+    }
+
+    // `load_info` contains instructions to skip, load, save tail, etc.;
+    // it generates LETs to ir_obj, so stack slots of lazy_variable will contain loaded data
+    generate_lazy_struct_from_slice(code, stmt, lazy_variable, action.load_info, ir_obj);
+  }
+}
+
 
 // The only point of modifying `stmt_before_immediate_return`. Purpose:
 // > fun demo() {
@@ -205,6 +232,10 @@ static void process_tail(const FallthroughTail* tail, CodeBlob& code) {
       for (size_t i = tail->next_idx; i < statements.size(); ++i) {
         AnyV stmt = statements[i];
         immediate_return.calc_and_set(statements, i, tail->is_toplevel_block);
+
+        if (code.fun_ref->lazy_load_plan) {
+          emit_lazy_loads_before(stmt, code);
+        }
 
         if (stmt->kind == ast_return_statement) {
           process_any_statement(stmt, code);
@@ -1282,7 +1313,7 @@ static std::vector<var_idx_t> process_not_null_operator(V<ast_not_null_operator>
 
 static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, CodeBlob& code, TypePtr target_type) {
   // `lazy Storage.fromSlice(s)` does not load anything here, it only saves a slice for future loads;
-  // "future loads" are special auxiliary AST vertices "load x" that were inserted in pipe-lazy-load-insertions.cpp
+  // "future loads" are prelude actions from LazyLoadPlan, built in pipe-lazy-load-insertions.cpp
   auto v_call = v->get_expr()->try_as<ast_function_call>();
   tolk_assert(v_call && v_call->fun_maybe);
 
@@ -1326,7 +1357,7 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   code.lazy_variables.emplace_back(v->dest_var_ref, lazy_variable);
 
   // initially, all contents of `p` is filled by nulls, but before `p.x` or any other field usages,
-  // they will be loaded by separate AST aux vertices;
+  // they will be loaded by LazyLoadPlan prelude actions;
   // same for unions: `val msg = lazy MyMsgUnion`, msg is N+1 nulls, but next lazy `match` will transition slots,
   // which will be filled by loads
   std::vector ir_null = code.create_tmp_var(TypeDataNullLiteral::create(), v, "(init-null)");
@@ -1777,6 +1808,9 @@ static std::vector<var_idx_t> process_braced_expression(V<ast_braced_expression>
   // unless it's a special vertex "braced expression" (currently, only `match` arms)
   std::vector<var_idx_t> implicit_rvect;
   for (AnyV item : v->get_block_statement()->get_items()) {
+    if (code.fun_ref->lazy_load_plan) {
+      emit_lazy_loads_before(item, code);
+    }
     if (auto v_return = item->try_as<ast_braced_yield_result>()) {
       tolk_assert(implicit_rvect.empty());
       implicit_rvect = pre_compile_expr(v_return->get_expr(), code);
@@ -2007,38 +2041,6 @@ static std::vector<var_idx_t> process_empty_expression(V<ast_empty_expression> v
   return transition_to_target_type(std::move(empty_rvect), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_artificial_aux_vertex(V<ast_artificial_aux_vertex> v, CodeBlob& code, TypePtr target_type) {
-  AnyExprV wrapped = v->get_wrapped_expr();
-
-  // aux "load x"; example: `var p = lazy Point.fromSlice(s); aux "load x"; return p.x`
-  if (const auto* data = dynamic_cast<const AuxData_LazyObjectLoadFields*>(v->aux_data)) {
-    const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(data->var_ref);
-    tolk_assert(lazy_variable);
-
-    std::vector ir_obj = data->var_ref->ir_idx;   // loading will update stack slots of `p`
-    TypePtr t_orig = data->var_ref->declared_type;
-
-    if (data->field_ref) {        // extract a field from a whole lazy variable
-      tolk_assert(lazy_variable->is_struct());
-      int stack_offset = calc_offset_on_stack(lazy_variable->loaded_state.original_struct, data->field_ref->field_idx);
-      int stack_width = data->field_ref->declared_type->get_width_on_stack();
-      ir_obj = std::vector(ir_obj.begin() + stack_offset, ir_obj.begin() + stack_offset + stack_width);
-      t_orig = data->field_ref->declared_type;
-    }
-
-    if (data->union_variant) {    // extract a variant from a union (a union variable or a union field of a struct)
-      ir_obj = transition_to_target_type(std::move(ir_obj), code, t_orig, data->union_variant, wrapped);
-    }
-
-    // `load_info` contains instructions to skip, load, save tail, etc.;
-    // it generates LETs to ir_obj, so stack slots of lazy_variable will contain loaded data
-    generate_lazy_struct_from_slice(code, wrapped, lazy_variable, data->load_info, ir_obj);
-    return transition_to_target_type({}, code, target_type, wrapped);
-  }
-
-  tolk_assert(false);
-}
-
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   switch (v->kind) {
     case ast_reference:
@@ -2097,8 +2099,6 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_underscore(v->as<ast_underscore>(), code);
     case ast_empty_expression:
       return process_empty_expression(v->as<ast_empty_expression>(), code, target_type);
-    case ast_artificial_aux_vertex:
-      return process_artificial_aux_vertex(v->as<ast_artificial_aux_vertex>(), code, target_type);
     default:
       throw UnexpectedASTNodeKind(v, "pre_compile_expr");
   }
