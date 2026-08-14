@@ -1813,14 +1813,14 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
   }
 
   int tvm_method_id = FunctionData::EMPTY_TVM_METHOD_ID;
-  FunctionInlineMode inline_mode = FunctionInlineMode::notCalculated;
+  FunctionInlineMode inline_mode = FunctionInlineMode::notAnnotated;
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
       case AnnotationKind::inline_simple:
         if (v_body->kind == ast_asm_body) {
           err("inline annotations are not applicable to asm functions").fire(v_annotation);
         }
-        inline_mode = FunctionInlineMode::inlineViaFif;   // maybe will be replaced by inlineInPlace later
+        inline_mode = FunctionInlineMode::inlineInPlace;   // will be checked in detect-inline-in-place.cpp
         break;
       case AnnotationKind::inline_ref:
         if (v_body->kind == ast_asm_body) {

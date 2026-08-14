@@ -59,11 +59,10 @@ struct GenericsSubstitutions;
 struct SrcFile;
 
 enum class FunctionInlineMode {
-  notCalculated,
-  inlineViaFif,
-  inlineRef,
-  inlineInPlace,
-  noInline,
+  notAnnotated,
+  inlineRef,            // has `@inline_ref` annotation
+  inlineInPlace,        // has `@inline` annotation or auto-detected to be inlined
+  noInline,             // has `@noinline` annotation
 };
 
 typedef int var_idx_t;

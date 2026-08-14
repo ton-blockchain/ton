@@ -216,9 +216,18 @@ fun T.id(self): self {
 fun int.asmSelfId(self): self
     asm "NOP"
 
+fun int.asmKeepSelfAndBump(self, mutate n: int): self
+    asm "INC" "SWAP"
+
 @method_id(112)
-fun test112() {
-    return (1.asmSelfId(), 2.asmSelfId().asmSelfId());
+fun test112(x: int) {
+    var n = 0;
+    return (
+        1.asmSelfId(),
+        x.asmSelfId().asmSelfId().asmSelfId(),
+        x.asmKeepSelfAndBump(mutate n).asmKeepSelfAndBump(mutate n).asmKeepSelfAndBump(mutate n),
+        n
+    );
 }
 
 type PairShape = [int, int];
@@ -264,7 +273,7 @@ fun main() { }
 @testcase | 109 | 102 | 102 2 1 2
 @testcase | 110 | 0   | 24 [ 2 13 ]
 @testcase | 111 |     | 10 3 [ 1 2 3 ]
-@testcase | 112 |     | 1 2
+@testcase | 112 | 7   | 1 7 7 3
 @testcase | 113 |     | 3 3 3 6
 
 @fif_codegen
@@ -295,9 +304,13 @@ fun main() { }
 
 @fif_codegen
 """
-  test112() PROC:<{             //
-    1 PUSHINT                   //  '1
-    2 PUSHINT                   //  '1 '4
+  test112() PROC:<{             //  x
+    0 PUSHINT                   //  x n=0
+    1 PUSHINT                   //  x n=0 '4
+    s2 s1 s2 XCPUXC             //  '4 '7 x n=0
+    INC                         //  '4 '7 '9 n
+    INC                         //  '4 '7 '11 n
+    INC                         //  '4 '7 '13 n
   }>
 """
 

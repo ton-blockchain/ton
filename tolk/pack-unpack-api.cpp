@@ -64,17 +64,11 @@ class PackUnpackAvailabilityChecker {
   static std::optional<CantSerializeBecause> check_custom_pack_unpack(TypePtr receiver_type, CustomPackUnpackF f, bool is_pack) {
     std::string receiver_name = receiver_type->as_human_readable();
     if (f.f_pack) {
-      if (!f.f_pack->is_inlined_in_place()) {
-        return CantSerializeBecause("because `" + receiver_name + ".packToBuilder()` can't be inlined; probably, it contains `return` in the middle");
-      }
       if (!is_pack && !f.f_unpack) {
         return CantSerializeBecause("because type `" + receiver_name + "` defines a custom pack function, but does not define unpack\n""hint: declare unpacker like this:\n> fun " + receiver_name + ".unpackFromSlice(mutate s: slice): " + receiver_name);
       }
     }
     if (f.f_unpack) {
-      if (!f.f_unpack->is_inlined_in_place()) {
-        return CantSerializeBecause("because `" + receiver_name + ".unpackFromSlice()` can't be inlined; probably, it contains `return` in the middle");
-      }
       if (is_pack && !f.f_pack) {
         return CantSerializeBecause("because type `" + receiver_name + "` defines a custom unpack function, but does not define pack\n""hint: declare packer like this:\n> fun " + receiver_name + ".packToBuilder(self, mutate b: builder)");
       }

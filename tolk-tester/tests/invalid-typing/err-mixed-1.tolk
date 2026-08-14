@@ -135,3 +135,17 @@ fun invalidMapKeyInsideCasts() {
 fun tooFewArguments() {
     add1();
 }
+
+// @stderr function `badInlineBothBranchesGuard` can't be inlined
+// @stderr `@inline` is impossible, because `if/else` has complicated `return` and multiple exit points
+@inline
+fun badInlineBothBranchesGuard(x: int): int {
+    if (x > 0) {
+        if (x == 1) { return 1; }
+        x += 1;
+    } else {
+        if (x == -1) { return 2; }
+        x -= 1;
+    }
+    return x;
+}

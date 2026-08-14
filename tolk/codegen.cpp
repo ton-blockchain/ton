@@ -317,7 +317,7 @@ void Stack::apply_wrappers_if_retalt(AnyV origin, int callxargs_count) {
     o.insert(pos0, NULL_ORIGIN, "SAMEALTSAVE");
     o.insert(pos0, NULL_ORIGIN, "c2 SAVE");
   }
-  if (callxargs_count != -1 || ((mode & _InlineFunc) && o.retalt_)) {
+  if (callxargs_count != -1) {
     o.insert(pos0, origin, "CONT:<{");
     o << AsmOp::Custom(NULL_ORIGIN, "}>");
     if (callxargs_count != -1) {
@@ -626,7 +626,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
           }
         }
       } else {
-        if (f_sym->inline_mode == FunctionInlineMode::inlineViaFif || f_sym->inline_mode == FunctionInlineMode::inlineRef) {
+        if (f_sym->inline_mode == FunctionInlineMode::inlineRef) {
           stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " INLINECALLDICT", (int)right.size(), (int)left.size());
         } else if (f_sym->is_code_function() && std::get<FunctionBodyCode*>(f_sym->body)->code->require_callxargs) {
           stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " PREPAREDICT", 0, 2);
@@ -713,24 +713,6 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       stack.rearrange_top(x, var_info[x] && var_info[x]->is_last());
       tolk_assert(stack.get(0).var_idx == x);
       stack.s.pop_back();
-      if ((stack.mode & Stack::_InlineFunc) && (block0.is_noreturn() || block1.is_noreturn())) {
-        bool is0 = block0.is_noreturn();
-        OpList& blk_noreturn = is0 ? block0 : block1;
-        OpList& blk_other = is0 ? block1 : block0;
-        stack.mode &= ~Stack::_InlineFunc;
-        stack.o << AsmOp::Custom(origin, is0 ? "IF:<{" : "IFNOT:<{");
-        Stack stack_copy{stack};
-        stack_copy.mode |= (blk_other.is_noreturn() || next_op.noreturn()) ? 0 : Stack::_NeedRetAlt;
-        blk_noreturn.generate_code_all(stack_copy);
-        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>ELSE<{");
-        stack.save_stack_comment();
-        blk_other.generate_code_all(stack);
-        if (!blk_other.is_noreturn()) {
-          parent_ops.generate_code_all(stack, self_idx + 1);
-        }
-        stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
-        return false;
-      }
       if (block1.is_empty_block() || block0.is_empty_block()) {
         bool is0 = block1.is_empty_block();
         OpList& blk = is0 ? block0 : block1;
@@ -739,7 +721,6 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         if (blk.is_noreturn()) {
           stack.o << AsmOp::Custom(origin, is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
           Stack stack_copy{stack};
-          stack_copy.mode &= ~Stack::_InlineFunc;
           stack_copy.mode |= next_op.noreturn() ? 0 : Stack::_NeedRetAlt;
           blk.generate_code_all(stack_copy);
           stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
@@ -749,7 +730,6 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         Stack stack_copy{stack}, stack_target{stack};
         stack_target.disable_output();
         stack_target.drop_vars_except(next_op.var_info);
-        stack_copy.mode &= ~Stack::_InlineFunc;
         blk.generate_code_all(stack_copy);
         stack_copy.drop_vars_except(var_info);
         if ((is0 && stack_copy.s == stack.s) || (!is0 && stack_copy.vars() == stack.vars())) {
@@ -777,7 +757,6 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         OpList& blk_other = is0 ? block1 : block0;
         stack.o << AsmOp::Custom(origin, is0 ? "IFJMP:<{" : "IFNOTJMP:<{");
         Stack stack_copy{stack};
-        stack_copy.mode &= ~Stack::_InlineFunc;
         stack_copy.mode |= (blk_other.is_noreturn() || next_op.noreturn()) ? 0 : Stack::_NeedRetAlt;
         blk_noreturn.generate_code_all(stack_copy);
         stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
@@ -786,12 +765,10 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       }
       stack.o << AsmOp::Custom(origin, "IF:<{");
       Stack stack_copy{stack};
-      stack_copy.mode &= ~Stack::_InlineFunc;
       block0.generate_code_all(stack_copy);
       stack_copy.drop_vars_except(next_op.var_info);
       stack.o << AsmOp::Custom(NULL_ORIGIN, "}>ELSE<{");
       stack.save_stack_comment();
-      stack.mode &= ~Stack::_InlineFunc;
       block1.generate_code_all(stack);
       stack.merge_state(stack_copy);
       stack.o << AsmOp::Custom(NULL_ORIGIN, "}>");
@@ -811,12 +788,10 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         if (block0.is_noreturn()) {
           Stack stack_copy{stack};
           StackLayoutVars layout1 = stack.vars();
-          stack_copy.mode &= ~Stack::_InlineFunc;
           stack_copy.mode |= Stack::_NeedRetAlt;
           block0.generate_code_all(stack_copy);
         } else {
           StackLayoutVars layout1 = stack.vars();
-          stack.mode &= ~Stack::_InlineFunc;
           stack.mode |= Stack::_NeedRetAlt;
           block0.generate_code_all(stack);
           stack.enforce_state(layout1);
@@ -839,11 +814,10 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       if (block0.is_noreturn()) {
         stack.o.retalt_ = true;
       }
-      if (!next_is_terminal_nop || (stack.mode & Stack::_InlineFunc)) {
+      if (!next_is_terminal_nop) {
         stack.o << AsmOp::Custom(origin, "AGAIN:<{");
         stack.forget_const();
         StackLayoutVars layout1 = stack.vars();
-        stack.mode &= ~Stack::_InlineFunc;
         stack.mode |= Stack::_NeedRetAlt;
         block0.generate_code_all(stack);
         stack.enforce_state(layout1);
@@ -873,7 +847,6 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
         stack.o << AsmOp::Custom(origin, "UNTIL:<{");
         stack.forget_const();
         auto layout1 = stack.vars();
-        stack.mode &= ~Stack::_InlineFunc;
         stack.mode |= Stack::_NeedRetAlt;
         block0.generate_code_all(stack);
         layout1.push_back(left[0]);
@@ -902,7 +875,6 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       }
       stack.o << AsmOp::Custom(origin, "WHILE:<{");
       stack.forget_const();
-      stack.mode &= ~Stack::_InlineFunc;
       stack.mode |= Stack::_NeedRetAlt;
       block0.generate_code_all(stack);
       stack.rearrange_top(x, !next_op.var_info[x] && !block1.entry_var_info()[x]);
@@ -982,7 +954,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       stack.o << AsmOp::Custom(origin, "COMPOSALT");
       stack.o << AsmOp::Custom(origin, "SWAP");
       stack.o << AsmOp::Custom(origin, "TRY");
-      return true;
+      return !(block0.is_noreturn() && block1.is_noreturn());
     }
     default:
       err("unknown operation in generate_code()").fire(origin);
@@ -1034,7 +1006,7 @@ std::vector<AsmOp> CodeBlob::generate_asm_code(int mode) const {
     stack.push_new_var(x);
   }
   ops.generate_code_all(stack);
-  stack.apply_wrappers_if_retalt(fun_ref->ident_anchor, require_callxargs && (mode & Stack::_InlineAny) ? n_import_width : -1);
+  stack.apply_wrappers_if_retalt(fun_ref->ident_anchor, require_callxargs && (mode & Stack::_InlineRef) ? n_import_width : -1);
   return std::move(out_list.list_);
 }
 

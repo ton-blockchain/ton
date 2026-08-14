@@ -32,6 +32,7 @@
 
 namespace tolk {
 
+struct InlineReturnPlan;
 
 /*
  * 
@@ -856,7 +857,7 @@ struct Stack {
   AsmOpList& o;
   std::vector<td::RefInt256>& unique_constants;
   const std::vector<TmpVar>& named_vars;
-  enum { _DisableOut = 128, _InsideLet = 256, _InlineFunc = 512, _InlineAny = 1024, _NeedRetAlt = 2048 };
+  enum { _DisableOut = 128, _InsideLet = 256, _InlineRef = 1024, _NeedRetAlt = 2048 };
   int mode;
   Stack(AsmOpList& _o, std::vector<td::RefInt256>& constants, const std::vector<TmpVar>& named_vars, int _mode)
     : o(_o), unique_constants(constants), named_vars(named_vars), mode(_mode) {
@@ -955,15 +956,23 @@ struct LazyVarRefAtCodegen {
     : var_ref(var_ref), var_state(var_state) {}
 };
 
+// a function being inlined right now; nullptr while lowering a real function body
+struct InliningFrameLowering {
+  FunctionPtr f_inlined;              // which function is being inlined
+  AnyV call_origin;                   // the call site it was expanded at
+  const InlineReturnPlan* plan;       // branching at if/else/match to carry FallthroughTail
+  std::vector<var_idx_t> rvect_out;   // `return x` writes here
+  bool call_is_last_in_caller;        // => branches may end with RETURN (generate IFJMP, not IFELSE)
+};
+
 struct CodeBlob {
   int var_cnt, in_var_cnt;
   FunctionPtr fun_ref;
   std::vector<TmpVar> vars;
   std::vector<LazyVarRefAtCodegen> lazy_variables;
   std::vector<LocalVarPtr> ever_smart_casted;
-  std::vector<var_idx_t>* inline_rvect_out = nullptr;
-  AnyV inline_return_stmt_out = nullptr;
-  bool inlining_before_immediate_return = false;
+  const InliningFrameLowering* inlining = nullptr;
+  AnyV stmt_before_immediate_return = nullptr;
   OpList ops;
   OpList* cur_ops;
   std::stack<OpList*> cur_ops_stack;

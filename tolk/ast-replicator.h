@@ -402,7 +402,7 @@ public:
       DocCommentLines{},
       FunctionData::EMPTY_TVM_METHOD_ID,
       FunctionData::flagIsLambda,
-      FunctionInlineMode::notCalculated
+      FunctionInlineMode::notAnnotated
     );
   }
 };

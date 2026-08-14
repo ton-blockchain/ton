@@ -39,7 +39,6 @@ fun elseif(cond: int) {
     }
 }
 
-@inline
 @method_id(104)
 fun test4(x: int): int {
     if (x==1) {
@@ -74,6 +73,7 @@ fun test7() {
     // here we test that no "missing return" error
 }
 
+@noinline
 fun withNoElse(op: int): int {
     if (op == 123) { return 100 }
     if (op == 234) { return 200 }
@@ -81,6 +81,7 @@ fun withNoElse(op: int): int {
     throw 0xFF
 }
 
+@noinline
 fun withElse(op: int): int {
     if (op == 123) { return 100 }
     else if (op == 234) { return 200 }
@@ -88,6 +89,7 @@ fun withElse(op: int): int {
     return 0xFF
 }
 
+@noinline
 fun withMatch(op: int): int {
     match (op) {
         123 => return 100,
@@ -207,7 +209,7 @@ fun demo12_3(x: int) {
 }
 
 fun demo12_4(x: int) {
-    __expect_inline(false);
+    __expect_inline(true);
     if (x != -100) {
         if (x > 0) { t.push(123); }
         return;

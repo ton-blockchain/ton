@@ -15,6 +15,7 @@ type MyMessage =
     | CounterReset;
 
 fun fakeParseMessage(mode: int): MyMessage {
+    __expect_inline(true);
     if (mode == 1) {
         return CounterIncrement1 {};
     } else if (mode > 0) {
@@ -44,6 +45,22 @@ fun onInternalMessage(curCounter: int, mode: int) {
 @fif_codegen
 """
   onInternalMessage() PROC:<{ 	//  curCounter mode
-    fakeParseMessage() CALLDICT	//  curCounter m.USlot1 m.UTag
+    DUP
+    1 EQINT
+    IF:<{
+      DROP
+      PUSHNULL
+      129 PUSHINT
+    }>ELSE<{
+      DUP
+      0 GTINT
+      IF:<{
+        130 PUSHINT
+      }>ELSE<{
+        DROP
+        0 PUSHINT
+        131 PUSHINT
+      }>
+    }>
 """
  */

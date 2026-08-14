@@ -1459,16 +1459,29 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
     CustomPackUnpackF f = get_custom_pack_unpack_function(receiver_type);
     tolk_assert(f.f_pack && f.f_pack->does_accept_self() && f.f_pack->inferred_return_type->get_width_on_stack() == 0);
-    std::vector vars_per_arg = { std::move(rvect), ctx->ir_builder };
-    std::vector ir_mutated_builder = gen_inline_fun_call_in_place(code, TypeDataBuilder::create(), origin, f.f_pack, nullptr, false, vars_per_arg);
-    code.add_let(origin, ctx->ir_builder, std::move(ir_mutated_builder));
+    // call `fun receiver.packToBuilder(self, mutate b: builder): void`, rvect is self
+    if (f.f_pack->is_inlined_in_place()) {
+      std::vector vars_per_arg = { std::move(rvect), ctx->ir_builder };
+      std::vector ir_mutated_builder = gen_inline_fun_call_in_place(code, TypeDataBuilder::create(), origin, f.f_pack, nullptr, false, vars_per_arg);
+      code.add_let(origin, ctx->ir_builder, std::move(ir_mutated_builder));
+    } else {
+      rvect.push_back(ctx->ir_builder0);
+      code.add_call(origin, ctx->ir_builder, rvect, f.f_pack);
+    }
   }
 
   std::vector<var_idx_t> unpack(const UnpackContext* ctx, CodeBlob& code, AnyV origin) override {
     CustomPackUnpackF f = get_custom_pack_unpack_function(receiver_type);
     tolk_assert(f.f_unpack && f.f_unpack->inferred_return_type->get_width_on_stack() == receiver_type->get_width_on_stack());
+    // call `fun receiver.unpackFromSlice(mutate s: slice): receiver`
     TypePtr ret_type = TypeDataTensor::create({TypeDataSlice::create(), receiver_type});
-    std::vector ir_slice_and_res = gen_inline_fun_call_in_place(code, ret_type, origin, f.f_unpack, nullptr, false, {ctx->ir_slice});
+    std::vector<var_idx_t> ir_slice_and_res;
+    if (f.f_unpack->is_inlined_in_place()) {
+      ir_slice_and_res = gen_inline_fun_call_in_place(code, ret_type, origin, f.f_unpack, nullptr, false, {ctx->ir_slice});
+    } else {
+      ir_slice_and_res = code.create_tmp_var(ret_type, origin, "(slice-and-res)");
+      code.add_call(origin, ir_slice_and_res, ctx->ir_slice, f.f_unpack);
+    }
     code.add_let(origin, ctx->ir_slice, {ir_slice_and_res.front()});
     return std::vector(ir_slice_and_res.begin() + 1, ir_slice_and_res.end());
   }

@@ -19,6 +19,10 @@ fun Custom8.packToBuilder(self, mutate b: builder) {
 }
 
 fun Custom8.unpackFromSlice(mutate s: slice) {
+    __expect_inline(true);  // even though multiple returns, the flow is trivial
+    if (s.remainingBitsCount() == 0) {
+        return 0;
+    }
     return s.loadUint(8)
 }
 
@@ -377,6 +381,36 @@ fun test15(): int {
     return w.toCell().beginParse().loadUint(16);
 }
 
+type MyIntNoinline = int
+
+fun MyIntNoinline.packToBuilder(self, mutate b: builder) {
+    __expect_inline(false);  // too hard to be inlined, that's why called as CALLDICT
+    var sum_eq_self = 0;
+    repeat (self) {
+        if (sum_eq_self >= 128) {
+            return;
+        }
+        sum_eq_self += 1;
+    }
+    b.storeUint(self, 8);
+}
+
+fun MyIntNoinline.unpackFromSlice(mutate s: slice): MyIntNoinline {
+    __expect_inline(false);
+    var num = s.loadUint(8);
+    repeat (num) {
+        if (num >= 128) {
+            return 128;
+        }
+    }
+    return num;
+}
+
+@method_id(116)
+fun test16() {
+    return (5 as MyIntNoinline).toCell().load();
+}
+
 
 fun main() {
     __expect_type(createEmptySlice() as TelegramString, "TelegramString");
@@ -401,12 +435,20 @@ fun main() {
 @testcase | 113 |     | -1 -1 0 100 100
 @testcase | 114 |     | 8 0
 @testcase | 115 |     | 258
+@testcase | 116 |     | 5
 
 @fif_codegen
 """
   test3() PROC:<{
     x{0102} PUSHSLICE
-    8 LDU
+    DUP
+    SBITS
+    IF:<{
+      8 LDU
+    }>ELSE<{
+      0 PUSHINT
+      SWAP
+    }>
     8 LDI
     ENDS
   }>

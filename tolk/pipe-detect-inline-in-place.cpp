@@ -17,11 +17,12 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
+#include "inline-return-analysis.h"
 #include <functional>
 #include <unordered_set>
 
 /*
- *   This pipe detects whether each function can be inlined in-place or not.
+ *   This pipe detects whether each function should be inlined in-place or not.
  * Outcome: call `fun_ref->assign_inline_mode_in_place()` for "lightweight" or "called only once" functions,
  * and they will be inlined in-place while converting AST to IR (to Ops), and won't be generated to Fift.
  *
@@ -31,16 +32,17 @@
  *   - if a function is tiny, inline it always
  *   - if a function is called only once, inline it (only there, obviously)
  *   - if a function is marked `@inline` (intended by the user), inline it in place (if possible)
- *   - see `should_auto_inline_if_not_prevented()`
+ *   - see `should_auto_inline_if_not_annotated()`
  *
- *   What can prevent a function from inlining? Several reasons:
+ *   What can prevent a function from inlining? For example:
  *   - it's recursive
  *   - it's used as non-call (a reference to it is taken)
- *   - see `is_inlining_prevented_even_if_annotated()`
+ *   - it has non-primitive control flow with return statements (e.g. `return` from a loop)
+ *   - all reasons are in `build_inlining_plan_for_function()`, both this pipe and lowering ask it
  *
- *   About `@inline` annotation. It means "user intention", so the compiler tries to inline it in-place
- * without considering AST metrics. But anyway, something may prevent inlining (middle returns, for example).
- * In this case, the desired flag is just not set; inline_mode remains inlineViaFif, we'll generate `PROCINLINE`.
+ *   The `@inline` annotation means "user intention", so the compiler tries to inline it in-place
+ * without considering AST metrics. If any reason prevents inlining, an error is shown.
+ * So, `@inline` is either inlined or fired, it's not silently skipped if impossible.
  *
  *   Besides inline detection, this pipe populates `fun_ref->n_times_called` (while building call graph).
  * It's used in Fift output inside comments.
@@ -48,23 +50,9 @@
 
 namespace tolk {
 
-static bool is_called_implicitly_by_compiler(FunctionPtr f) {
-  if (f->name == "onBouncedMessage") {
-    return true;
-  }
-  if (f->is_packToBuilder()) {
-    return f->does_accept_self() && !f->does_mutate_self() && f->get_num_params() == 2 && f->has_mutate_params();
-  }
-  if (f->is_unpackFromSlice()) {
-    return !f->does_accept_self() && f->get_num_params() == 1 && f->has_mutate_params();
-  }
-  return false;
-}
-
 // when traversing a function, collect some AST metrics used to detect whether it's lightweight
 struct StateWhileTraversingFunction {
   FunctionPtr fun_ref;
-  bool has_returns_in_the_middle = false;
   int n_statements = 0;
   int n_function_calls = 0;
   int n_binary_operators = 0;
@@ -80,14 +68,22 @@ struct StateWhileTraversingFunction {
          + n_control_flow * 10 + n_globals * 5 + (max_block_depth - 1) * 10;
   }
 
-  bool is_inlining_prevented_even_if_annotated() const {
-    // even if user specified `@inline`, we can't do anything about recursions, for example;
-    // in this case, in-place inlining won't happen, we'll generate `PROCINLINE` to Fift
-    bool is_inside_recursion = fun_ref->n_times_called >= 9999;
-    return has_returns_in_the_middle || is_inside_recursion || fun_ref->is_used_as_noncall() || !fun_ref->is_code_function();
+  // if a user specified `@inline`, check that it's possible
+  const char* why_cannot_be_inlined_if_annotated() const {
+    InlineReturnPlan inlining_plan = build_inlining_plan_for_function(fun_ref);
+    if (!inlining_plan.ok()) {
+      return inlining_plan.cant_inline_because;
+    }
+    return nullptr;
   }
 
-  bool should_auto_inline_if_not_prevented() const {
+  // if no annotation specified, detect whether to auto-inline a function
+  bool should_auto_inline_if_not_annotated() const {
+    // a function can not be inlined (for example, it's recursive or contains `return` in a loop)
+    if (!build_inlining_plan_for_function(fun_ref).ok()) {
+      return false;
+    }
+
     // if a function is called only once, inline it regardless of its size
     // (to prevent this, `@inline_ref` can be used, for example)
     if (fun_ref->n_times_called == 1) {
@@ -182,29 +178,24 @@ class DetectIfToInlineFunctionInPlaceVisitor final : public ASTVisitorFunctionBo
     parent::visit(v);
   }
 
-  void visit(V<ast_return_statement> v) override {
-    // detect if `return` the last return statement in a function's body
-    // (currently in-place inlining for functions with returns in the middle is not supported)
-    auto body_block = cur_state.fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_block_statement>();
-    bool is_last_statement = body_block->get_item(body_block->size() - 1) == v;
-    cur_state.has_returns_in_the_middle |= !is_last_statement;
-    parent::visit(v);
-  }
-
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
-    // unsupported or no-sense cases
-    if (fun_ref->is_builtin() || fun_ref->is_asm_function() || fun_ref->is_generic_function() ||
-        fun_ref->has_tvm_method_id() || !fun_ref->arg_order.empty() || !fun_ref->ret_order.empty() ||
-        fun_ref->is_used_as_noncall()) {
+    if (!fun_ref->is_code_function() || fun_ref->is_generic_function()) {
       return false;
     }
-    // disabled by the user
-    if (fun_ref->inline_mode == FunctionInlineMode::noInline || fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
+    // has `@inline` annotation: we should check it can be inlined actually
+    if (fun_ref->inline_mode == FunctionInlineMode::inlineInPlace) {
+      return true;
+    }
+    // has other annotations, e.g. `@inline_ref` or `@noinline`
+    if (fun_ref->inline_mode != FunctionInlineMode::notAnnotated) {
       return false;
     }
-    // okay, start auto-detection;
-    // for functions marked `@inline` (inlineViaFif), probably we'll change to inlineInPlace
+    // okay, we need to auto-detect whether to inline this function; filter out obviously false
+    if (fun_ref->has_tvm_method_id() || fun_ref->is_used_as_noncall() || fun_ref->is_lambda()) {
+      return false;
+    }
+    // start auto-detection
     return true;
   }
 
@@ -213,20 +204,11 @@ public:
   }
 
   void on_exit_function(V<ast_function_declaration> v_function) override {
-    bool prevented_anyway = cur_state.is_inlining_prevented_even_if_annotated();
-    bool will_inline = false;
-    if (cur_f->inline_mode == FunctionInlineMode::inlineViaFif) {
-      // if a function is marked `@inline`, so the user requested in to be inlined;
-      // if it's possible, do it; otherwise, leave it as `PROCINLINE` to Fift
-      will_inline = !prevented_anyway;
-    } else {
-      // a function is not marked `@inline` / `@inline_ref` / etc., so automatically decide
-      will_inline = !prevented_anyway && cur_state.should_auto_inline_if_not_prevented();
-    }
-
-    // okay, this function will be inlined, mark the flag
-    bool is_called = cur_f->n_times_called || is_called_implicitly_by_compiler(cur_f);
-    if (will_inline && is_called) {
+    if (cur_f->inline_mode == FunctionInlineMode::inlineInPlace) {
+      if (const char* why = cur_state.why_cannot_be_inlined_if_annotated()) {
+        err("function `{}` can't be inlined\n""hint: `@inline` is impossible, {}", cur_f, why).collect(cur_f->ident_anchor);
+      }
+    } else if (cur_state.should_auto_inline_if_not_annotated()) {
       cur_f->mutate()->assign_inline_mode_in_place();
     }
   }

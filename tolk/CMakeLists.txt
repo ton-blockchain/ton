@@ -15,6 +15,7 @@ set(TOLK_SOURCE
         pack-unpack-serializers.cpp
         send-message-api.cpp
         maps-kv-api.cpp
+        inline-return-analysis.cpp
         pipe-discover-parse-sources.cpp
         pipe-register-symbols.cpp
         pipe-resolve-identifiers.cpp

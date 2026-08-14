@@ -78,8 +78,9 @@ fun Point.getX(self) {
     return self.x;
 }
 
+@noinline
 fun Point.getXNoInline(self) {
-    __expect_inline(false);    // due to returns in the middle
+    __expect_inline(false);
     if (10>3) {
         return self.x;
     }

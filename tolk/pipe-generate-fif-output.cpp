@@ -183,9 +183,7 @@ static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::
   const std::vector<TmpVar>& var_names = std::get<FunctionBodyCode*>(fun_ref->body)->code->vars;
 
   const char* modifier = "PROC";
-  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif) {
-    modifier = "PROCINLINE";
-  } else if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
     modifier = "PROCREF";
   }
   if (print_line_comments) {
@@ -315,11 +313,9 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
     std::cerr << "\n---------- resulting code for " << fun_ref->name << " -------------\n";
   }
   int mode = 0;
-  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif && code->ops.is_noreturn()) {
-    mode |= Stack::_InlineFunc;
-  }
-  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif || fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
-    mode |= Stack::_InlineAny;
+  tolk_assert(fun_ref->inline_mode != FunctionInlineMode::inlineInPlace);
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
+    mode |= Stack::_InlineRef;
   }
 
   try {
@@ -409,7 +405,7 @@ void pipeline_generate_fif_output(std::ostream& os) {
   if (n_inlined_in_place) {
     os << "  // " << n_inlined_in_place << " functions inlined in-place:" << "\n";
     for (FunctionPtr fun_ref : G.all_functions) {
-      if (fun_ref->is_inlined_in_place()) {
+      if (fun_ref->is_inlined_in_place() && fun_ref->is_really_used()) {
         os << "  // - " << fun_ref->name << " (" << fun_ref->n_times_called << (fun_ref->n_times_called == 1 ? " call" : " calls") << ")\n";
       }
     }

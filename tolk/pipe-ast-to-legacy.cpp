@@ -25,6 +25,7 @@
 #include "smart-casts-cfg.h"
 #include "pack-unpack-api.h"
 #include "gen-entrypoints.h"
+#include "inline-return-analysis.h"
 
 /*
  *   This pipe is the last one operating AST: it transforms AST to IR.
@@ -55,7 +56,11 @@ std::vector<var_idx_t> pre_compile_symbol(const Symbol* sym, CodeBlob& code, Any
 void process_any_statement(AnyV v, CodeBlob& code);
 std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr from_type, TypePtr dest_type, AnyV origin);
 
-static thread_local AnyV stmt_before_immediate_return = nullptr;
+struct FallthroughTail;
+static void gen_return_from_cur_fun(CodeBlob& code, AnyV origin, std::vector<var_idx_t> return_vars);
+static void process_block_statement(V<ast_block_statement> v, CodeBlob& code, const FallthroughTail* outer = nullptr);
+static void process_if_statement(V<ast_if_statement> v, CodeBlob& code, const FallthroughTail* tail = nullptr);
+static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type, const FallthroughTail* tail = nullptr);
 
 DebugMarkInfo CodeBlob::create_mark_leave_fun(FunctionPtr fun_ref, AnyV origin, std::vector<var_idx_t> ir_return) {
   // it's the location of `return` statement, or `}` for void functions
@@ -125,6 +130,118 @@ static int calc_offset_on_stack(StructPtr struct_ref, int field_idx) {
   return stack_offset;
 }
 
+
+// The only point of modifying `stmt_before_immediate_return`. Purpose:
+// > fun demo() {
+// >   if (cond) { then_block }
+// >   else { else_block }
+// > }
+// Since `ast_if_statement` is the last, branches are lowered as `then_block; return` and `else_block; return`,
+// resulting in IFJMP instead of IFELSE.
+// This also works for `match` branches, also works inside inlined functions.
+class ImmediateReturnGuard {
+  CodeBlob& code;
+  AnyV backup;
+
+  // detect `... stmt; return;` or `fun f() { ... stmt }` of a void function
+  static bool may_end_branches_with_return(const std::vector<AnyV>& statements, size_t idx, bool is_toplevel_block, CodeBlob& code) {
+    FunctionPtr cur_f = code.fun_ref;
+    if (cur_f->inferred_return_type != TypeDataVoid::create() || cur_f->does_return_self() || cur_f->has_mutate_params()) {
+      return false;
+    }
+    if (code.inlining && !code.inlining->call_is_last_in_caller) {
+      return false;
+    }
+    if (code.inlining && code.inlining->plan->has_early_returns) {
+      return false;
+    }
+    if (idx + 1 == statements.size()) {
+      return is_toplevel_block;
+    }
+    AnyV next = statements[idx + 1];
+    return next->kind == ast_return_statement && !next->as<ast_return_statement>()->has_return_value();
+  }
+
+public:
+  explicit ImmediateReturnGuard(CodeBlob& code)
+    : code(code), backup(code.stmt_before_immediate_return) {
+  }
+  ~ImmediateReturnGuard() {
+    code.stmt_before_immediate_return = backup;
+  }
+
+  void calc_and_set(const std::vector<AnyV>& statements, size_t idx, bool is_toplevel_block) const {
+    bool is_last = may_end_branches_with_return(statements, idx, is_toplevel_block, code);
+    code.stmt_before_immediate_return = is_last ? statements[idx] : nullptr;
+  }
+};
+
+// FallthroughTail is a tail when inlining a function with multiple returns. Example:
+// > fun demo() {
+// >   if (cond) { return false }
+// >   else { xxx }
+// >   yyy
+// > }
+// Then `yyy` is a tail when compiling `else` block, resulting in approx
+// >   if (cond) { return false }
+// >   else { xxx; yyy }
+struct FallthroughTail {
+  const FallthroughTail* outer = nullptr;           // multiple if/else/match branching
+  const std::vector<AnyV>* statements = nullptr;    // all statements of some block (in demo: [ast_if_statement, yyy])
+  size_t next_idx = 0;                              // tail is `statements[next_idx..]` (in demo: 1, tail = yyy)
+  bool is_toplevel_block = false;                   // statements come from function's root body
+  bool emit_scope_end = false;                      // need to insert DebugMarkScopeEnd (a block's `}`) after them
+  bool emit_leave_fun = false;                      // need to insert implicit `return` (DebugMarkLeaveFunction + mutated vars)
+};
+
+static void process_tail(const FallthroughTail* tail, CodeBlob& code) {
+  for (; tail; tail = tail->outer) {
+    bool ended_with_return = false;
+
+    if (tail->statements) {
+      const std::vector<AnyV>& statements = *tail->statements;
+      ImmediateReturnGuard immediate_return(code);
+
+      for (size_t i = tail->next_idx; i < statements.size(); ++i) {
+        AnyV stmt = statements[i];
+        immediate_return.calc_and_set(statements, i, tail->is_toplevel_block);
+
+        if (stmt->kind == ast_return_statement) {
+          process_any_statement(stmt, code);
+          ended_with_return = true;
+          break;
+        }
+
+        if (code.inlining && code.inlining->plan->find_branching(stmt)) {
+          FallthroughTail rest = *tail;            // copies emit_scope_end / emit_leave_fun
+          rest.next_idx = i + 1;
+
+          if (auto v_if = stmt->try_as<ast_if_statement>()) {
+            process_if_statement(v_if, code, &rest);
+          } else if (auto v_match = stmt->try_as<ast_match_expression>()) {
+            process_match_expression(v_match, code, nullptr, &rest);
+          } else {
+            tolk_assert(false);
+          }
+          return;  // lowering of if/match consumed `rest` and every outer tail
+        }
+
+        process_any_statement(stmt, code);
+      }
+    }
+
+    if (tail->emit_scope_end) {
+      code.add_debug_mark(DebugMarkScopeEnd{});    // `}` closes the scope even after `return`
+    }
+    if (ended_with_return) {
+      return;
+    }
+    if (tail->emit_leave_fun) {     // no manual `return` (reached the end of a void function),
+      tolk_assert(code.inlining);   // so place DebugMarkLeaveFunction and assign mutated_vars to rvect_out
+      gen_return_from_cur_fun(code, code.inlining->call_origin, {});
+    }
+  }
+}
 
 // The main goal of LValContext is to handle non-primitive lvalues. At IR level, a usual local variable
 // exists, but on its change, something non-trivial should happen.
@@ -731,6 +848,9 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {
   static thread_local std::vector<FunctionPtr> called_stack;
   if (std::find(called_stack.begin(), called_stack.end(), f_inlined) != called_stack.end()) {
+    // a recursion that was not caught at normal analysis, very tricky, like
+    // > fun MyInt.packToBuilder(self, mutate b: builder) {
+    // >   b.storeAny(S{x: self})     // during lowering, expanded to packToBuilder again
     std::string_view postfix = f_inlined->is_packToBuilder() || f_inlined->is_unpackFromSlice() ? " and leads to infinite serialization" : "";
     err("function `{}` is recursive{}", f_inlined, postfix).fire(f_inlined->ident_anchor, f_inlined);
   }
@@ -752,15 +872,23 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
     ir_params.insert(ir_params.end(), param_i.ir_idx.begin(), param_i.ir_idx.end());
   }
 
-  std::vector rvect_call = code.create_tmp_var(ret_type, origin, "(inlined-return)");
-  std::vector<var_idx_t>* backup_outer_inline = code.inline_rvect_out;
-  AnyV backup_outer_return_stmt = code.inline_return_stmt_out;
+  InlineReturnPlan inlining_plan = build_inlining_plan_for_function(f_inlined);
+  tolk_assert(inlining_plan.ok());
+
+  InliningFrameLowering inlining{
+    .f_inlined = f_inlined,
+    .call_origin = origin,
+    .plan = &inlining_plan,
+    .rvect_out = code.create_tmp_var(ret_type, origin, "(inlined-return)"),
+    .call_is_last_in_caller = is_before_immediate_return,
+  };
+
+  const InliningFrameLowering* backup_outer_inline = code.inlining;
   FunctionPtr backup_cur_fun = code.fun_ref;
-  bool backup_inline_before_return = code.inlining_before_immediate_return;
   auto backup_lazy_variables = code.lazy_variables;
-  code.inline_rvect_out = &rvect_call;
-  code.inlining_before_immediate_return = is_before_immediate_return;
+
   code.fun_ref = f_inlined;
+  code.inlining = &inlining;
   called_stack.push_back(f_inlined);
   // specially handle `point.getX()` if point is a lazy var: to make `self.toCell()` work and `self.x` asserted;
   // (only methods preserve lazy, `getXOf(point)` does not, though theoretically can be done)
@@ -789,34 +917,17 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
 
   auto v_ast_root = f_inlined->ast_root->as<ast_function_declaration>();
   auto v_block = v_ast_root->get_body()->as<ast_block_statement>();
-  process_any_statement(v_block, code);
-
-  if (f_inlined->has_mutate_params() && f_inlined->inferred_return_type == TypeDataVoid::create()) {
-    std::vector<var_idx_t> mutated_vars;
-    for (const LocalVarData& p_sym: f_inlined->parameters) {
-      if (p_sym.is_mutate_parameter()) {
-        mutated_vars.insert(mutated_vars.end(), p_sym.ir_idx.begin(), p_sym.ir_idx.end());
-      }
-    }
-    code.add_let(origin, rvect_call, std::move(mutated_vars));
-  }
-
-  code.add_debug_mark(DebugMarkLeaveFunction{
-    .fun_ref = f_inlined,
-    .ir_return = *code.inline_rvect_out,
-    .range = code.inline_return_stmt_out ? code.inline_return_stmt_out->range : SrcRange::span_at_end(f_inlined->ast_root->range, 1),
-  });
+  FallthroughTail tail_leave_fun{.emit_leave_fun = true};
+  process_block_statement(v_block, code, &tail_leave_fun);
 
   ClearStateAfterInlineInPlace visitor;
   visitor.start_visiting_function(f_inlined, v_ast_root);
 
   called_stack.pop_back();
   code.fun_ref = backup_cur_fun;
-  code.inline_rvect_out = backup_outer_inline;
-  code.inline_return_stmt_out = backup_outer_return_stmt;
-  code.inlining_before_immediate_return = backup_inline_before_return;
+  code.inlining = backup_outer_inline;
   code.lazy_variables = std::move(backup_lazy_variables);
-  return rvect_call;
+  return inlining.rvect_out;
 }
 
 // convert a constant value (calculated by a "constant-evaluator") to IR vars;
@@ -1221,13 +1332,16 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   return transition_to_target_type(std::move(ir_initial_nulls), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type) {
+static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type, const FallthroughTail* tail) {
   int n_arms = v->get_arms_count();
   std::vector ir_subj = pre_compile_expr(v->get_subject(), code, nullptr);
   TypePtr match_expr_type = v->inferred_type;
   TypePtr subject_type = v->get_subject()->inferred_type;
   std::vector ir_match_result = code.create_tmp_var(match_expr_type, v, "(match-expression)");
   AnyExprV match_origin = v;    // all "IF UTag==type_id" share this location: "step over" jumps into actual branch immediately
+
+  const InlineReturnBranchNode* node_plan = tail ? code.inlining->plan->find_branching(v) : nullptr;
+  tolk_assert(!tail || node_plan);
 
   // `match(lazyUnion)` / `match(obj.lastUnionField)`
   if (v->is_lazy_match) {
@@ -1251,11 +1365,15 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     LazyMatchOptions options = {
       .match_blocks = std::move(match_blocks),
       .lazy_var_ref = var_ref,
-      .lower_match_arm = [v, match_expr_type, &ir_match_result](AnyV v_arm_untyped, CodeBlob& code) {
+      .lower_match_arm = [v, tail, node_plan, match_expr_type, &ir_match_result](AnyV v_arm_untyped, CodeBlob& code) {
         auto v_arm = v_arm_untyped->as<ast_match_arm>();
         if (v->is_statement()) {
-          process_any_statement(v_arm->get_body()->get_block_statement(), code);
-          if (v == stmt_before_immediate_return) {
+          FallthroughTail arm{
+            .outer = tail && node_plan->goes_to == v_arm ? tail : nullptr,
+            .statements = &v_arm->get_body()->get_block_statement()->get_items(),
+          };
+          process_tail(&arm, code);
+          if (v == code.stmt_before_immediate_return) {
             code.add_return(v_arm, {}, code.fun_ref);
           }
         } else {
@@ -1331,8 +1449,12 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     code.add_extra_mark_location(v_ith_arm->range);
 
     if (v->is_statement()) {
-      pre_compile_expr(v_ith_arm->get_body(), code);
-      if (v == stmt_before_immediate_return) {
+      FallthroughTail arm{
+        .outer = tail && node_plan->goes_to == v_ith_arm ? tail : nullptr,
+        .statements = &v_ith_arm->get_body()->get_block_statement()->get_items(),
+      };
+      process_tail(&arm, code);
+      if (v == code.stmt_before_immediate_return) {
         code.add_return(v_ith_arm, {}, code.fun_ref);
       }
     } else {
@@ -1351,6 +1473,8 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   // if it's auto-generated "unreachable", insert "N THROW"
   if (implicit_else_unreachable_throw) {
     code.add_call(v, {}, {code.create_int(v, implicit_else_unreachable_throw, "(throw-else)")}, lookup_function("__throw"));
+  } else if (tail && node_plan->goes_to == nullptr) {   // tail goes to implicit `else`
+    process_tail(tail, code);
   }
 
   // close all outer IFs
@@ -1571,11 +1695,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   // detect what a function really returns from the stack perspective;
   // for instance, `fun f(mutate x: int): slice` puts `(int, slice)` onto a stack
-  bool returns_self_from_asm_stack = fun_ref->does_return_self() && !fun_ref->does_mutate_self() && fun_ref->is_asm_function();
   TypePtr op_call_type = v->inferred_type;
-  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self() && !returns_self_from_asm_stack) {
-    op_call_type = TypeDataVoid::create();    // `return self` actually puts nothing onto a stack
-  }
   if (fun_ref->has_mutate_params()) {
     std::vector<TypePtr> types_list;
     for (int i = 0; i < delta_self + v->get_num_args(); ++i) {
@@ -1583,9 +1703,9 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
         types_list.push_back(fun_ref->parameters[i].declared_type);
       }
     }
-    bool self_already_added = fun_ref->does_return_self() && !returns_self_from_asm_stack;
-    if (!self_already_added) {
-      types_list.push_back(v->inferred_type);
+    bool already_returned_self = fun_ref->does_return_self() && fun_ref->does_mutate_self();
+    if (!already_returned_self) {               // if not `return self` from a mutate-self function
+      types_list.push_back(v->inferred_type);   // real return value goes after mutate parameters
     }
     op_call_type = TypeDataTensor::create(std::move(types_list));
   }
@@ -1598,7 +1718,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
   if (fun_ref->is_compile_time_special_gen()) {
     rvect = gen_compile_time_code_instead_of_fun_call(code, v, vars_per_arg);
   } else if (fun_ref->is_inlined_in_place() && fun_ref->is_code_function()) {
-    rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, self_obj, v == stmt_before_immediate_return, vars_per_arg);
+    rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, self_obj, v == code.stmt_before_immediate_return, vars_per_arg);
   } else {
     rvect = code.create_tmp_var(op_call_type, v, "(fun-call)");
     code.add_call(call_origin, rvect, std::move(args_vars), fun_ref, arg_order_already_equals_asm);
@@ -1611,14 +1731,6 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     tolk_assert(is_valid_mutation_path(obj_leftmost));
     int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
     vars_per_arg[orig_self_i] = pre_compile_expr(obj_leftmost, code, fun_ref->parameters[0].declared_type, &self_lval);
-  }
-
-  std::vector<var_idx_t> return_self_snapshot;
-  // preserve by-value `self` before separate `mutate` parameters are written back to caller lvalues
-  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self() && !returns_self_from_asm_stack && fun_ref->has_mutate_params()) {
-    int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
-    return_self_snapshot = code.create_tmp_var(fun_ref->parameters[0].declared_type, call_origin, "(return-self)");
-    code.add_let(call_origin, return_self_snapshot, vars_per_arg[orig_self_i]);
   }
 
   // `f(mutate x: int): slice` had put `(int, slice)` onto a stack, leave only `slice` (an actual return)
@@ -1640,16 +1752,14 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   // `beginCell().storeUint()` / `sb.append()` / etc. — dot call for methods returning `self`
   TypePtr rvect_type = v->inferred_type;
-  if (fun_ref->does_return_self() && !returns_self_from_asm_stack) {
+  if (fun_ref->does_return_self() && fun_ref->does_mutate_self()) {
     int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
-    rvect = return_self_snapshot.empty() ? vars_per_arg[orig_self_i] : std::move(return_self_snapshot);
-    if (fun_ref->does_mutate_self()) {
-      if (obj_leftmost == nullptr && self_obj && is_valid_mutation_path(self_obj)) {
-        obj_leftmost = self_obj;
-      }
-      if (lval_ctx && obj_leftmost) {
-        lval_ctx->set_mutated_self_obj(obj_leftmost);
-      }
+    rvect = vars_per_arg[orig_self_i];
+    if (obj_leftmost == nullptr && self_obj && is_valid_mutation_path(self_obj)) {
+      obj_leftmost = self_obj;
+    }
+    if (lval_ctx && obj_leftmost) {
+      lval_ctx->set_mutated_self_obj(obj_leftmost);
     }
     rvect_type = fun_ref->parameters[0].declared_type;
   }
@@ -1990,42 +2100,23 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
   }
 }
 
-
-static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
+static void process_block_statement(V<ast_block_statement> v, CodeBlob& code, const FallthroughTail* outer) {
   if (v->empty()) {
-    return;
+    return process_tail(outer, code);
   }
-
-  FunctionPtr cur_f = code.fun_ref;
-  bool does_f_return_nothing = cur_f->inferred_return_type == TypeDataVoid::create() && !cur_f->does_return_self() && !cur_f->has_mutate_params();
-  bool is_toplevel_block = v == cur_f->ast_root->as<ast_function_declaration>()->get_body();
-  bool inlining_doesnt_prevent = code.inline_rvect_out == nullptr || code.inlining_before_immediate_return;
-
-  // function body scope is tracked by enter_fun/leave_fun, sub-blocks need explicit scope marks
+  bool is_toplevel_block = v == code.fun_ref->ast_root->as<ast_function_declaration>()->get_body();
   if (!is_toplevel_block) {
+    // function body scope is tracked by enter_fun/leave_fun, sub-blocks need explicit scope marks
     code.add_debug_mark(DebugMarkScopeStart{.range = v->range});
   }
 
-  // we want to optimize `match` and `if/else`: if it's the last statement, implicitly add "return" to every branch
-  // (to generate IFJMP instead of nested IF ELSE);
-  // a competent way is to do it at the IR level (building CST, etc.), it's impossible to tweak Ops for now;
-  // so, for every `f() { here }` of `... here; return;`, save it into a global, and handle within match/if
-  AnyV backup = stmt_before_immediate_return;
-  for (int i = 0; i < v->size() - 1; ++i) {
-    AnyV stmt = v->get_item(i);
-    AnyV next_stmt = v->get_item(i + 1);
-    bool next_is_empty_return = next_stmt->kind == ast_return_statement && !next_stmt->as<ast_return_statement>()->has_return_value();
-    stmt_before_immediate_return = next_is_empty_return && does_f_return_nothing && inlining_doesnt_prevent ? stmt : nullptr;
-    process_any_statement(stmt, code);
-  }
-  AnyV last_stmt = v->get_item(v->size() - 1);
-  stmt_before_immediate_return = is_toplevel_block && does_f_return_nothing && inlining_doesnt_prevent ? last_stmt : nullptr;
-  process_any_statement(last_stmt, code);
-  stmt_before_immediate_return = backup;
-
-  if (!is_toplevel_block) {
-    code.add_debug_mark(DebugMarkScopeEnd{});
-  }
+  FallthroughTail body{
+    .outer = outer,
+    .statements = &v->get_items(),
+    .is_toplevel_block = is_toplevel_block,
+    .emit_scope_end = !is_toplevel_block,
+  };
+  process_tail(&body, code);
 }
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
@@ -2110,32 +2201,40 @@ static void process_repeat_statement(V<ast_repeat_statement> v, CodeBlob& code) 
   code.close_pop_cur(v->get_body());
 }
 
-static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
+static void process_if_statement(V<ast_if_statement> v, CodeBlob& code, const FallthroughTail* tail) {
   code.add_extra_mark_location(v->keyword_range());
   // generate the condition as-is; redundant `(... != 0)` / `(... == 0)` are stripped in `optimize_conditional_branches`
   // (the same below for loops, ternary, and assert)
   std::vector ir_cond = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(ir_cond.size() == 1);
 
+  const InlineReturnBranchNode* node_plan = tail ? code.inlining->plan->find_branching(v) : nullptr;
+  tolk_assert(!tail || node_plan);
+  AnyV goes_to = node_plan ? node_plan->goes_to : nullptr;
+  const FallthroughTail* if_tail = goes_to == v->get_if_body() ? tail : nullptr;
+  const FallthroughTail* else_tail = goes_to == v->get_else_body() ? tail : nullptr;
+
   if (v->get_cond()->is_always_true) {
-    process_any_statement(v->is_ifnot ? v->get_else_body() : v->get_if_body(), code);
+    const FallthroughTail* live_tail = v->is_ifnot ? else_tail : if_tail;
+    process_block_statement(v->is_ifnot ? v->get_else_body() : v->get_if_body(), code, live_tail);
     return;
   }
   if (v->get_cond()->is_always_false) {
-    process_any_statement(v->is_ifnot ? v->get_if_body() : v->get_else_body(), code);
+    const FallthroughTail* live_tail = v->is_ifnot ? if_tail : else_tail;
+    process_block_statement(v->is_ifnot ? v->get_if_body() : v->get_else_body(), code, live_tail);
     return;
   }
 
   Op& if_op = code.add_if_else(v, std::move(ir_cond));
   code.push_set_cur(if_op.block0);
-  process_any_statement(v->get_if_body(), code);
-  if (v == stmt_before_immediate_return) {
+  process_block_statement(v->get_if_body(), code, if_tail);
+  if (v == code.stmt_before_immediate_return) {
     code.add_return(v->get_if_body(), {}, code.fun_ref);
   }
   code.close_pop_cur(v->get_if_body());
   code.push_set_cur(if_op.block1);
-  process_any_statement(v->get_else_body(), code);
-  if (v == stmt_before_immediate_return) {
+  process_block_statement(v->get_else_body(), code, else_tail);
+  if (v == code.stmt_before_immediate_return) {
     code.add_return(v->get_else_body(), {}, code.fun_ref);
   }
   code.close_pop_cur(v->get_else_body());
@@ -2187,19 +2286,13 @@ static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
   }
 }
 
-static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) {
-  // it's a function we're traversing AST of;
-  // probably, it's called and inlined into another (outer) function, we handle this below
+// the only place a function returns from: an explicit `return`, or reaching the end of a body;
+// `return_vars` are from `return xxx` (for void it's empty), mutated params are prepended here
+static void gen_return_from_cur_fun(CodeBlob& code, AnyV origin, std::vector<var_idx_t> return_vars) {
   FunctionPtr fun_ref = code.fun_ref;
 
-  TypePtr child_target_type = fun_ref->inferred_return_type;
-  if (fun_ref->does_return_self()) {
-    child_target_type = fun_ref->parameters[0].declared_type;
-  }
-  std::vector return_vars = pre_compile_expr(v->get_return_value(), code, child_target_type);
-
-  if (fun_ref->does_return_self()) {
-    return_vars = {};
+  if (fun_ref->does_return_self() && fun_ref->does_mutate_self()) {
+    return_vars = {};             // `return self` from `mutate self` will put `self` in mutated_vars below
   }
   if (fun_ref->has_mutate_params()) {
     std::vector<var_idx_t> mutated_vars;
@@ -2211,29 +2304,26 @@ static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) 
     return_vars.insert(return_vars.begin(), mutated_vars.begin(), mutated_vars.end());
   }
 
-  // if fun_ref is called and inlined into a parent, assign a result instead of generating a return statement
-  if (code.inline_rvect_out) {
-    code.inline_return_stmt_out = v;
-    code.add_let(v, *code.inline_rvect_out, std::move(return_vars));
+  // `return xxx` when inlining function is actually assigning `rvect_out = ir_vars_xxx`
+  if (code.inlining) {
+    // sizes differ when falling off the end of a non-void function (this is unreachable point then)
+    if (!return_vars.empty() && return_vars.size() == code.inlining->rvect_out.size()) {
+      code.add_let(origin, code.inlining->rvect_out, std::move(return_vars));
+    }
+    code.add_debug_mark(CodeBlob::create_mark_leave_fun(fun_ref, origin, code.inlining->rvect_out));
   } else {
-    code.add_return(v, std::move(return_vars), code.fun_ref);
+    code.add_return(origin, std::move(return_vars), fun_ref);
   }
 }
 
-// append "return" (void) to the end of the function
-// if it's not reachable, it will be dropped
-// (IR cfg reachability may differ from FlowContext in case of "never" types, so there may be situations,
-//  when IR will consider this "return" reachable and leave it, but actually execution will never reach it)
-static void append_implicit_return_statement(CodeBlob& code) {
-  std::vector<var_idx_t> mutated_vars;
-  if (code.fun_ref->has_mutate_params()) {
-    for (const LocalVarData& p_sym: code.fun_ref->parameters) {
-      if (p_sym.is_mutate_parameter()) {
-        mutated_vars.insert(mutated_vars.end(), p_sym.ir_idx.begin(), p_sym.ir_idx.end());
-      }
-    }
-  }
-  code.add_return(code.fun_ref->ident_anchor, std::move(mutated_vars), code.fun_ref);
+static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) {
+  FunctionPtr fun_ref = code.fun_ref;
+  TypePtr child_target_type = fun_ref->does_return_self()
+    ? fun_ref->parameters[0].declared_type
+    : fun_ref->inferred_return_type;
+
+  std::vector ir_return_vars = pre_compile_expr(v->get_return_value(), code, child_target_type);
+  gen_return_from_cur_fun(code, v, std::move(ir_return_vars));
 }
 
 
@@ -2304,7 +2394,10 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
   }
 
   process_block_statement(v_body, *blob);
-  append_implicit_return_statement(*blob);
+  // append empty "return" to the end of the function; if it's not reachable, it will be dropped
+  // (IR cfg reachability may differ from FlowContext in case of "never" types, so there may be situations,
+  //  when IR will consider this "return" reachable and leave it, but actually execution will never reach it)
+  gen_return_from_cur_fun(*blob, fun_ref->ident_anchor, {});
 
   blob->close_blk(v_body);
   code_body->set_code(blob);

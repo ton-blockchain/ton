@@ -9,7 +9,7 @@ fun foo(x: int): int {
   }
 }
 
-@inline
+// it was @inline earlier (when inlining was deferred to Fift), but now it's not inlined due to try/catch
 fun foo_inline(x: int): int {
   try {
     assert(!(x == 7)) throw 44;
@@ -47,7 +47,6 @@ fun test_inlineref(x: int, y: int, z: int): int {
   return x * 100 + y * 10 + z;
 }
 
-@inline
 fun foo_inline_big(
         x1: int, x2: int, x3: int, x4: int, x5: int, x6: int, x7: int, x8: int, x9: int, x10: int,
         x11: int, x12: int, x13: int, x14: int, x15: int, x16: int, x17: int, x18: int, x19: int, x20: int
@@ -192,6 +191,7 @@ fun testCodegen1(x: int) {
   return 0;
 }
 
+@noinline
 fun testCodegen2(x: int) {
   if (x > 10) {
     alwaysThrow123();
@@ -356,9 +356,8 @@ fun testAssertWithTooBigThrow(x: int) {
   return true;
 }
 
-@inline
+// it was @inline earlier (when inlining was deferred to Fift), but now it's not inlined due to try/catch
 fun chooseInlineReturnInsideTry(flag: int): int {
-  __expect_inline(false);   // inlining deferred to Fift due to returns in the middle
   try {
     if (flag == 1) {
       return 10;
@@ -377,6 +376,76 @@ fun testInlineReturnInsideTry(flag: int): int {
   return chooseInlineReturnInsideTry(flag);
 }
 
+@inline
+fun returnThenThrowingTryCatch(x: int): int {
+  if (x == 0) {
+    return 10;
+  }
+  try {
+    throw 5;
+  } catch {
+    throw 20;
+  }
+}
+
+@inline
+fun returnOrThrowingTryCatch(b: bool): int {
+  if (b) {
+    return 1;
+  } else {
+    try {
+      throw 2;
+    } catch (e) {
+      throw e;
+    }
+  }
+  return 3;
+}
+
+@inline
+fun returnThenThrowingTryCatchWithDeadTail(cond: bool): int {
+  if (cond) {
+    return 1;
+  }
+  try {
+    throw 42;
+  } catch {
+    throw 2;
+  }
+  return 3;
+}
+
+@method_id(122)
+fun testReturnPath(): int {
+  return returnThenThrowingTryCatch(0);
+}
+
+@method_id(123)
+fun testThrowingTail(): int {
+  try {
+    return returnThenThrowingTryCatch(1);
+  } catch (e) {
+    return e;
+  }
+}
+
+@method_id(124)
+fun testThrowingElse(b: bool): int {
+  try {
+    return returnOrThrowingTryCatch(b);
+  } catch (e) {
+    return e;
+  }
+}
+
+@method_id(125)
+fun testThrowingTailWithDeadReturn(cond: bool): int {
+  try {
+    return returnThenThrowingTryCatchWithDeadTail(cond);
+  } catch (e) {
+    return e;
+  }
+}
 
 
 fun main() {
@@ -425,8 +494,14 @@ fun main() {
 @testcase | 121 | 1     | 10
 @testcase | 121 | 2     | 20
 @testcase | 121 | 3     | 30
+@testcase | 122 |       | 10
+@testcase | 123 |       | 20
+@testcase | 124 | 1     | 1
+@testcase | 124 | 0     | 2
+@testcase | 125 | 1     | 1
+@testcase | 125 | 0     | 2
 
-@code_hash 17473387520586690375058520669959417766875699647034456359443028989383748791753
+@code_hash 100972165149709488228766661935704173403965718467413358376964043874212092640401
 
 @fif_codegen
 """
@@ -489,7 +564,7 @@ CONT:<{
 
 @fif_codegen
 """
-  chooseInlineReturnInsideTry() PROCINLINE:<{
+  chooseInlineReturnInsideTry() PROC:<{
     ...
           10 PUSHINT
           RETALT
@@ -501,8 +576,7 @@ CONT:<{
 
 @fif_codegen
 """
-foo_inline() PROCINLINE:<{
-  CONT:<{
+  foo_inline() PROC:<{
     c2 SAVE
     SAMEALTSAVE
 """
