@@ -865,6 +865,18 @@ bool Collator::unpack_last_mc_state() {
     return fatal_error(limits.move_as_error());
   }
   block_limits_ = limits.move_as_ok();
+  if (params_.collator_opts->block_limits_bytes) {
+    block_limits_->bytes = *params_.collator_opts->block_limits_bytes;
+  }
+  if (params_.collator_opts->block_limits_gas) {
+    block_limits_->gas = *params_.collator_opts->block_limits_gas;
+  }
+  if (params_.collator_opts->block_limits_lt_delta) {
+    block_limits_->lt_delta = *params_.collator_opts->block_limits_lt_delta;
+  }
+  if (params_.collator_opts->block_limits_collated_data) {
+    block_limits_->collated_data = *params_.collator_opts->block_limits_collated_data;
+  }
   if (params_.attempt_idx == 3) {
     LOG(INFO) << "Attempt #3: bytes, gas limits /= 2";
     block_limits_->bytes.multiply_by(0.5);

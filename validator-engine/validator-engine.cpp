@@ -3413,6 +3413,34 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
   opts.force_full_collated_data = f.force_full_collated_data_;
   opts.ignore_collated_data_limits = f.ignore_collated_data_limits_;
 
+  static auto parse_param_limits =
+      [](const ton::tl_object_ptr<ton::ton_api::engine_validator_collatorOptions_paramLimits> &l)
+      -> td::Result<std::optional<block::ParamLimits>> {
+    if (!l) {
+      return std::nullopt;
+    }
+    if (l->underload_ < 0) {
+      return td::Status::Error("invalid underload value");
+    }
+    if (l->soft_limit_ < 0) {
+      return td::Status::Error("invalid soft_limit value");
+    }
+    if (l->hard_limit_ < 0) {
+      return td::Status::Error("invalid hard_limit value");
+    }
+    if (l->underload_ > l->soft_limit_) {
+      return td::Status::Error("underload should not be greater than soft_limit");
+    }
+    if (l->soft_limit_ > l->hard_limit_) {
+      return td::Status::Error("soft_limit should not be greater than hard_limit");
+    }
+    return block::ParamLimits(l->underload_, l->soft_limit_, l->hard_limit_);
+  };
+  TRY_RESULT_ASSIGN(opts.block_limits_bytes, parse_param_limits(f.block_limits_bytes_));
+  TRY_RESULT_ASSIGN(opts.block_limits_gas, parse_param_limits(f.block_limits_gas_));
+  TRY_RESULT_ASSIGN(opts.block_limits_lt_delta, parse_param_limits(f.block_limits_lt_delta_));
+  TRY_RESULT_ASSIGN(opts.block_limits_collated_data, parse_param_limits(f.block_limits_collated_data_));
+
   return ref;
 }
 

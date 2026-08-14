@@ -77,6 +77,12 @@ struct CollatorOptions : public td::CntObject {
   bool force_full_collated_data = false;
   // Ignore collated data size limits from block limits and catchain config
   bool ignore_collated_data_limits = false;
+
+  // Override limits from config
+  std::optional<block::ParamLimits> block_limits_bytes;
+  std::optional<block::ParamLimits> block_limits_gas;
+  std::optional<block::ParamLimits> block_limits_lt_delta;
+  std::optional<block::ParamLimits> block_limits_collated_data;
 };
 
 struct CollatorsList : public td::CntObject {
