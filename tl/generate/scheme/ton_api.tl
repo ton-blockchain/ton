@@ -1188,6 +1188,8 @@ consensus.simplex.noncriticalParams
     no_empty_blocks_on_error_timeout_ms:flags.14?int
     certificate_gossip_neighbors:flags.15?int
     standstill_min_egress_bytes_per_s:flags.16?int
+    collator_max_future_window:flags.17?int
+    collator_max_sync_delay_ms:flags.18?int
     = consensus.NoncriticalParams;
 
 consensus.noncriticalParamsOverride

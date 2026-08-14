@@ -21,6 +21,8 @@ using db_delegationSignature = ton_api::consensus_simplex_db_delegationSignature
 
 namespace {
 
+using namespace std::chrono_literals;
+
 class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
@@ -31,10 +33,8 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
 
   void start_up() override {
     auto& bus = *owning_bus();
-    target_rate_ = bus.config.noncritical_params.target_rate;
-    no_empty_blocks_on_error_timeout_ = bus.config.noncritical_params.no_empty_blocks_on_error_timeout;
+    params_ = bus.config.noncritical_params;
     slots_per_leader_window_ = bus.config.slots_per_leader_window;
-    max_leader_window_desync_ = bus.config.noncritical_params.max_leader_window_desync;
     own_key_ = td::actor::ask(bus.keyring, &keyring::Keyring::get_public_key, bus.local_adnl_id.pubkey_hash());
 
     auto signatures = bus.db->get_by_prefix(tl::db_key_delegationSignature::ID);
@@ -47,9 +47,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
 
   template <>
   void handle(BusHandle, std::shared_ptr<const NoncriticalParamsUpdated> event) {
-    target_rate_ = event->params.target_rate;
-    no_empty_blocks_on_error_timeout_ = event->params.no_empty_blocks_on_error_timeout;
-    max_leader_window_desync_ = event->params.max_leader_window_desync;
+    params_ = event->params;
   }
 
   template <>
@@ -85,7 +83,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   void handle(BusHandle, std::shared_ptr<const CandidateReceived> event) {
     td::uint32 slot_idx = event->candidate->id.slot;
     td::uint32 current_window = last_window_ ? last_window_->start_slot / slots_per_leader_window_ : 0;
-    td::uint32 first_too_new_slot = (current_window + max_leader_window_desync_ + 1) * slots_per_leader_window_;
+    td::uint32 first_too_new_slot = (current_window + params_.max_leader_window_desync + 1) * slots_per_leader_window_;
     if (slot_idx >= first_too_new_slot) {
       LOG(WARNING) << "Dropping too new candidate from " << event->candidate->leader << " : slot=" << slot_idx
                    << ", current_window=" << current_window * slots_per_leader_window_;
@@ -158,12 +156,12 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
         co_return td::Status::Error("Validator is not whitelisted");
       }
       td::uint32 first_too_new_slot =
-          (last_window_ ? last_window_->start_slot : 0) + MAX_FUTURE_WINDOW * slots_per_leader_window_;
+          (last_window_ ? last_window_->start_slot : 0) + params_.collator_max_future_window * slots_per_leader_window_;
       if (window_start >= first_too_new_slot) {
         co_return td::Status::Error(PSTRING() << "Too new slot " << window_start << " > " << first_too_new_slot);
       }
       double sync_delay = co_await td::actor::ask(bus.manager, &ManagerFacade::get_sync_delay);
-      if (sync_delay > MAX_SYNC_DELAY) {
+      if (sync_delay > params_.collator_max_sync_delay / 1.0s) {
         co_return td::Status::Error(PSTRING() << "Node is out-of-sync (" << sync_delay << " s");
       }
       prepared_delegations_.insert(window_start);
@@ -232,8 +230,8 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     auto parent = co_await owning_bus().publish<ResolveState>(base);
     td::Timestamp start_time = td::Timestamp::now();
     if (parent.gen_utime_exact.has_value()) {
-      start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact) + target_rate_);
-      start_time = std::min(start_time, td::Timestamp::in(target_rate_));
+      start_time = std::max(start_time, td::Timestamp::at_unix(*parent.gen_utime_exact) + params_.target_rate);
+      start_time = std::min(start_time, td::Timestamp::in(params_.target_rate));
     }
 
     if (producing_window_start_slot_ != window_start) {
@@ -250,7 +248,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
         .signing_key = bus.local_adnl_id.pubkey_hash(),
         .delegation = std::move(delegation),
         .collator_node_id = bus.local_adnl_id,
-        .target_rate = target_rate_,
+        .target_rate = params_.target_rate,
         .cancellation_token = cancellation_source_.get_cancellation_token(),
         .is_superseded = [&, window_start] { return producing_window_start_slot_ != window_start; },
         .should_generate_empty_block =
@@ -258,7 +256,9 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
               return empty_block_policy_.should_generate_empty_block(owning_bus()->shard.is_masterchain(), state);
             },
         .allow_empty_on_generation_failure =
-            [&] { return empty_block_policy_.allow_empty_on_generation_failure(no_empty_blocks_on_error_timeout_); },
+            [&] {
+              return empty_block_policy_.allow_empty_on_generation_failure(params_.no_empty_blocks_on_error_timeout);
+            },
     };
     co_await produce_window(owning_bus(), std::move(ctx));
 
@@ -269,9 +269,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   }
 
   td::uint32 slots_per_leader_window_;
-  std::chrono::milliseconds target_rate_;
-  std::chrono::milliseconds no_empty_blocks_on_error_timeout_;
-  td::uint32 max_leader_window_desync_;
+  NewConsensusConfig::NoncriticalParams params_;
 
   td::actor::SharedFuture<PublicKey> own_key_;
   std::set<td::uint32> prepared_delegations_;
@@ -288,9 +286,6 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
     std::optional<CandidateRef> received_block;
   };
   ConsensusState<SlotState, td::Unit> state_{td::Unit{}};
-
-  static constexpr td::uint32 MAX_FUTURE_WINDOW = 4;
-  static constexpr double MAX_SYNC_DELAY = 10.0;
 };
 
 }  // namespace
