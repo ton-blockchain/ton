@@ -2865,6 +2865,15 @@ void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<Bloc
   }
 }
 
+void ValidatorManagerImpl::get_sync_delay(td::Promise<double> promise) {
+  if (!last_masterchain_block_handle_ || !shard_client_handle_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "not inited"));
+    return;
+  }
+  promise.set_value(td::Clocks::system() -
+                    (double)std::min(last_masterchain_block_handle_->unix_time(), shard_client_handle_->unix_time()));
+}
+
 void ValidatorManagerImpl::update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) {
   td::actor::send_closure(db_, &Db::update_async_serializer_state, std::move(state), std::move(promise));
 }

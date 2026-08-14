@@ -97,6 +97,10 @@ class ManagerFacadeImpl : public ManagerFacade {
     opts_ = std::move(opts);
   }
 
+  td::actor::Task<double> get_sync_delay() override {
+    co_return co_await td::actor::ask(manager_, &ValidatorManager::get_sync_delay);
+  }
+
  private:
   td::actor::ActorId<ValidatorManager> manager_;
   td::Ref<block::ValidatorSet> validator_set_;

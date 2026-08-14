@@ -162,6 +162,10 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
       if (window_start >= first_too_new_slot) {
         co_return td::Status::Error(PSTRING() << "Too new slot " << window_start << " > " << first_too_new_slot);
       }
+      double sync_delay = co_await td::actor::ask(bus.manager, &ManagerFacade::get_sync_delay);
+      if (sync_delay > MAX_SYNC_DELAY) {
+        co_return td::Status::Error(PSTRING() << "Node is out-of-sync (" << sync_delay << " s");
+      }
       prepared_delegations_.insert(window_start);
     }
     if (is_prepare || delegation_signatures_.contains(window_start)) {
@@ -286,6 +290,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
   ConsensusState<SlotState, td::Unit> state_{td::Unit{}};
 
   static constexpr td::uint32 MAX_FUTURE_WINDOW = 20;
+  static constexpr double MAX_SYNC_DELAY = 10.0;
 };
 
 }  // namespace
