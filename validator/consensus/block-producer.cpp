@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "td/actor/SharedFuture.h"
 #include "td/actor/coro_task.h"
 #include "td/utils/CancellationToken.h"
 #include "validator/collator-scoreboard.hpp"
@@ -79,6 +80,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   void handle(BusHandle, std::shared_ptr<const OurLeaderWindowStarted> event) {
     CHECK(current_leader_window_ < event->start_slot);
 
+    last_our_leader_window_ = event->start_slot;
     current_leader_window_ = event->start_slot;
     if (delegated_windows_.contains(event->start_slot)) {
       LOG(INFO) << "Window " << event->start_slot << " is delegated to "
@@ -130,19 +132,15 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       if (collator_nodes_.empty()) {
         co_return {};
       }
-      if (current_leader_window_.has_value() && *current_leader_window_ >= start_slot) {
+      if (last_our_leader_window_.has_value() && *last_our_leader_window_ >= start_slot) {
         LOG(INFO) << "Not delegating window " << start_slot << ": window already started";
         co_return {};
       }
       auto collator_nodes = collator_nodes_;
-      std::vector<td::actor::StartedTask<ProtocolMessage>> prepare_requests;
+      std::vector<td::actor::StartedTask<>> prepare_requests;
       td::Timestamp timeout = td::Timestamp::in(COLLATE_REQUEST_TIMEOUT);
       for (const adnl::AdnlNodeIdShort& collator_id : collator_nodes) {
-        prepare_requests.push_back(
-            owning_bus()
-                .publish(std::make_shared<OutgoingOverlayRequest>(
-                    collator_id, timeout, create_serialize_tl_object<tl::pleaseCollatePrepare>(start_slot), 1024))
-                .start());
+        prepare_requests.push_back(send_please_collate_prepare(collator_id, start_slot, timeout).start());
       }
       auto prepare_responses = co_await td::actor::all_wrap(std::move(prepare_requests));
       std::vector<adnl::AdnlNodeIdShort> alive_collator_nodes;
@@ -164,7 +162,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
         co_await td::actor::coro_sleep(timeout);
         continue;
       }
-      if (current_leader_window_.has_value() && *current_leader_window_ >= start_slot) {
+      if (last_our_leader_window_.has_value() && *last_our_leader_window_ >= start_slot) {
         LOG(INFO) << "Not delegating window " << start_slot << ": window already started";
         co_return {};
       }
@@ -179,7 +177,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     auto signature = co_await td::actor::ask(bus.keyring, &keyring::Keyring::sign_message, bus.local_id->short_id,
                                              std::move(to_sign));
 
-    if (current_leader_window_.has_value() && *current_leader_window_ >= start_slot) {
+    if (last_our_leader_window_.has_value() && *last_our_leader_window_ >= start_slot) {
       LOG(INFO) << "Not delegating window " << start_slot << ": window already started";
       co_return {};
     }
@@ -196,6 +194,16 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       LOG(WARNING) << "Delegating window " << start_slot << " to " << selected_collator << " : "
                    << response.move_as_error();
     }
+    co_return {};
+  }
+
+  td::actor::Task<> send_please_collate_prepare(adnl::AdnlNodeIdShort collator_id, td::uint32 start_slot,
+                                                td::Timestamp timeout) {
+    auto task = owning_bus()
+                    .publish(std::make_shared<OutgoingOverlayRequest>(
+                        collator_id, timeout, create_serialize_tl_object<tl::pleaseCollatePrepare>(start_slot), 1024))
+                    .start();
+    co_await td::actor::await_with_timeout(std::move(task), timeout);
     co_return {};
   }
 
@@ -283,6 +291,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   };
 
   std::optional<td::uint32> current_leader_window_;
+  std::optional<td::uint32> last_our_leader_window_;
   td::CancellationTokenSource cancellation_source_;
 
   std::vector<adnl::AdnlNodeIdShort> collator_nodes_;
