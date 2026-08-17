@@ -424,6 +424,8 @@ class Collator final : public td::actor::Actor {
 
  private:
   CollationStats stats_;
+  td::ScopedRealCpuTimer work_timer_total_;
+  td::ScopedRealCpuTimer work_timer_;
 
   void finalize_stats();
 
