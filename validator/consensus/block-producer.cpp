@@ -183,16 +183,24 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     }
 
     delegated_windows_[start_slot] = DelegatedWindow{selected_collator, false};
-    auto response = co_await owning_bus()
-                        .publish(std::make_shared<OutgoingOverlayRequest>(
-                            selected_collator, td::Timestamp::in(COLLATE_REQUEST_TIMEOUT),
-                            create_serialize_tl_object<tl::pleaseCollate>(start_slot, std::move(signature)), 1024))
-                        .wrap();
-    if (response.is_ok()) {
-      LOG(INFO) << "Delegating window " << start_slot << " to " << selected_collator << " : success";
-    } else {
+    while (true) {
+      auto timeout = td::Timestamp::in(COLLATE_REQUEST_TIMEOUT);
+      auto response = co_await owning_bus()
+                          .publish(std::make_shared<OutgoingOverlayRequest>(
+                              selected_collator, timeout,
+                              create_serialize_tl_object<tl::pleaseCollate>(start_slot, signature.clone()), 1024))
+                          .wrap();
+      if (response.is_ok()) {
+        LOG(INFO) << "Delegating window " << start_slot << " to " << selected_collator << " : success";
+        break;
+      }
       LOG(WARNING) << "Delegating window " << start_slot << " to " << selected_collator << " : "
                    << response.move_as_error();
+      co_await td::actor::coro_sleep(timeout);
+      if (last_our_leader_window_.has_value() && *last_our_leader_window_ >= start_slot) {
+        LOG(INFO) << "Not delegating window " << start_slot << ": window already started";
+        co_return {};
+      }
     }
     co_return {};
   }
