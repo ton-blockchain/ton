@@ -2527,8 +2527,9 @@ void ValidatorManagerImpl::update_shards() {
     td::actor::send_closure(db_, &Db::update_init_masterchain_block, last_masterchain_block_id_, std::move(P));
   }
   if (!serializer_.empty()) {
-    td::actor::send_closure(serializer_, &AsyncStateSerializer::auto_disable_serializer,
-                            is_validator() && last_masterchain_state_->get_global_id() == -239);  // mainnet only
+    td::actor::send_closure(
+        serializer_, &AsyncStateSerializer::auto_disable_serializer,
+        (is_validator() || is_collator()) && last_masterchain_state_->get_global_id() == -239);  // mainnet only
   }
   adnl::AdnlNodeIdShort mc_validator_adnl_id = adnl::AdnlNodeIdShort::zero();
   auto mc_val_set = last_masterchain_state_->get_validator_set(ShardIdFull{masterchainId});
