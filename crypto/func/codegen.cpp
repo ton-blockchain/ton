@@ -374,10 +374,13 @@ bool Op::generate_code_step(Stack& stack) {
       int i = 0;
       std::vector<bool> active;
       active.reserve(left.size());
+	  int unused = 0;
       for (std::size_t k = 0; k < left.size(); k++) {
         var_idx_t y = left[k];  // "y" = "x"
         auto p = next->var_info[y];
         active.push_back(p && !p->is_unused());
+		if (p && p->is_unused() && !p->is_replaced())
+          ++unused;
       }
       for (std::size_t k = 0; k < left.size(); k++) {
         if (!active[k]) {
@@ -405,6 +408,16 @@ bool Op::generate_code_step(Stack& stack) {
         if (active[k]) {
           stack.assign_var(left[k], --i);
         }
+      }
+      if (funC::warn_unused >= 1 && unused > 0) {
+        where.show(std::cerr);
+        if (left.size() != 1) {
+          std::cerr << "\tWarning: unused " << unused
+            << " out of " << left.size() << " assigned variables" << std::endl;
+        } else {
+          std::cerr << "\tWarning: unused variable assignment" << std::endl;
+        }
+        where.show_context(std::cerr);
       }
       return true;
     }
@@ -437,6 +450,16 @@ bool Op::generate_code_step(Stack& stack) {
     case _Call:
     case _CallInd: {
       if (disabled()) {
+        if (funC::warn_unused >= 2 && !replaced()) {
+          where.show(std::cerr); 
+          std::cerr << "\tWarning: unused ";
+          if (cl == _Call)
+            std::cerr << "call";
+          else
+            std::cerr << "indirect call";
+          std::cerr << " to " << fun_ref->name() << "\n";
+          where.show_context(std::cerr);
+        }
         return true;
       }
       SymValFunc* func = (fun_ref ? dynamic_cast<SymValFunc*>(fun_ref->value) : nullptr);
