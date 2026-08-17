@@ -363,7 +363,20 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   td::actor::Task<> resolve_state_and_start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) {
-    auto state = co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id);
+    Ref<ChainState> state;
+    while (true) {
+      auto r_state =
+          co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id).wrap();
+      if (!bus_) {
+        co_return td::Status::Error("validator group already destroyed");
+      }
+      if (r_state.is_error() && r_state.error().code() == ErrorCode::timeout) {
+        LOG(WARNING) << "Failed to resolve chain state: timeout, retrying";
+        continue;
+      }
+      state = CO_TRY(std::move(r_state));
+      break;
+    }
     start_event_ = std::make_shared<Start>(state);
     bus_.publish(start_event_);
     co_return {};
