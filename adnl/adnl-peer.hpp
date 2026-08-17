@@ -43,10 +43,10 @@ using AdnlConnectionIdShort = AdnlAddressImpl::Hash;
 class AdnlPeerPairImpl : public AdnlPeerPair {
  public:
   static constexpr td::uint32 packet_header_max_size() {
-    return 272;
+    return 276;
   }
   static constexpr td::uint32 channel_packet_header_max_size() {
-    return 128;
+    return 132;
   }
   static constexpr td::uint32 addr_list_max_size() {
     return 128;
