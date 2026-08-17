@@ -421,7 +421,7 @@ class ValidatorManagerInterface : public td::actor::Actor {
   }
 
   virtual td::actor::Task<> collect(metrics::Context ctx) {
-    co_return {};
+    co_return td::Unit{};
   }
 };
 

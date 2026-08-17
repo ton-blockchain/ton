@@ -52,7 +52,7 @@ void AdnlLocalId::receive(td::IPAddress addr, td::BufferSlice data) {
     if (R.is_error()) {
       VLOG(adnl, INFO) << self << ": dropping IN message from " << addr << ": " << R.move_as_error();
     }
-    co_return {};
+    co_return td::Unit{};
   }(this, std::move(addr), std::move(data))
                                                                          .start()
                                                                          .detach();
@@ -94,7 +94,7 @@ td::actor::Task<> AdnlLocalId::receive_coro(td::IPAddress addr, td::BufferSlice 
 
   td::actor::send_closure(peer_table_, &AdnlPeerTable::receive_decrypted_packet, short_id_, std::move(packet),
                           data_size);
-  co_return {};
+  co_return td::Unit{};
 }
 
 void AdnlLocalId::deliver(AdnlNodeIdShort src, td::BufferSlice data) {
