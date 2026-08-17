@@ -39,6 +39,7 @@ void pipeline_calculate_rvalue_lvalue();
 void pipeline_infer_types_and_calls_and_fields();
 void pipeline_check_inferred_types();
 void pipeline_refine_lvalue_for_mutate_arguments();
+void pipeline_check_loop_break_continue();
 void pipeline_check_rvalue_lvalue();
 void pipeline_check_private_fields_usage();
 void pipeline_check_constant_expressions();

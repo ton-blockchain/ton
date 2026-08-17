@@ -74,6 +74,7 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_infer_types_and_calls_and_fields();
     pipeline_check_inferred_types();
     pipeline_refine_lvalue_for_mutate_arguments();
+    pipeline_check_loop_break_continue();
     pipeline_check_rvalue_lvalue();
     pipeline_check_private_fields_usage();
     pipeline_check_constant_expressions();

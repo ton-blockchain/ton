@@ -230,6 +230,54 @@ fun test15(i: IntAlias1, j: IntAlias2) {
     return (i is IntAlias1, i is int, match (i) { int => i.method() })
 }
 
+fun test16() {
+    var x: int? = 1;
+    while (true) {
+        if (x == null) {
+            __expect_type(x, "null");
+            break;
+        }
+        __expect_type(x, "int");
+        x = null;
+    }
+    __expect_type(x, "null");
+}
+
+fun test17(x: int?, y: int?) {
+    while (x != null) {
+        __expect_type(x, "int");
+        if (y == null) {
+            __expect_type(y, "null");
+            continue;
+        }
+        __expect_type(y, "int");
+        if (x > 0) {
+            break;
+        }
+        x = y;
+        y = null;
+    }
+    __expect_type(x, "int?");
+    __expect_type(y, "int?");
+}
+
+fun test18(x: int | slice | null) {
+    do {
+        if (x is int) {
+            __expect_type(x, "int");
+            break;
+        }
+        if (x is slice) {
+            __expect_type(x, "slice");
+            x = 0;
+            continue;
+        }
+        __expect_type(x, "null");
+        x = 1;
+    } while (true);
+    __expect_type(x, "int");
+}
+
 
 fun main() {
     return 0;

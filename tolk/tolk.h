@@ -33,6 +33,7 @@
 namespace tolk {
 
 struct InlineReturnPlan;
+struct LoopContinuePlan;
 
 /*
  * 
@@ -271,6 +272,7 @@ struct OpList {
   VarDescrList fwd_analyze(VarDescrList values) const;
   bool mark_noreturn();
   bool prune_unreachable();
+  bool has_reachable_direct_break() const;
   bool optimize_conditional_branches();
   void mark_function_used_dfs() const;
   void show(std::ostream& os, const std::vector<TmpVar>& vars, const std::string& indent, int mode = 0) const;
@@ -295,6 +297,7 @@ struct Op {
     _Until,
     _Repeat,
     _Again,
+    _BreakFromLoop,
     _TryCatch,
     _SliceConst,
     _SnakeStringConst,
@@ -904,6 +907,8 @@ struct Stack {
   void assign_var(var_idx_t new_idx, var_idx_t old_idx);
   void do_copy_var(var_idx_t new_idx, var_idx_t old_idx);
   void enforce_state(const StackLayoutVars& req_stack);
+  void assume_state(const StackLayoutVars& req_stack);
+  void assume_state(Stack&& other);
   void rearrange_top(const StackLayoutVars& top, std::vector<bool> last);
   void rearrange_top(var_idx_t top_var_idx, bool last);
   void merge_const(const Stack& req_stack);
@@ -968,6 +973,12 @@ struct InliningFrameLowering {
   bool call_is_last_in_caller;        // => branches may end with RETURN (generate IFJMP, not IFELSE)
 };
 
+// a loop being lowered right now; nullptr outside any loop
+struct LoopFrameLowering {
+  const LoopContinuePlan* plan;       // branching at if/else/match to carry FallthroughTail
+  AnyV body;                          // loop body block; its range is the MARK_SCOPE_END target
+};
+
 struct CodeBlob {
   int var_cnt, in_var_cnt;
   FunctionPtr fun_ref;
@@ -975,6 +986,7 @@ struct CodeBlob {
   std::vector<LazyVarRefAtCodegen> lazy_variables;
   std::vector<LocalVarPtr> ever_smart_casted;
   const InliningFrameLowering* inlining = nullptr;
+  const LoopFrameLowering* current_loop = nullptr;
   AnyV stmt_before_immediate_return = nullptr;
   OpList ops;
   OpList* cur_ops;
@@ -1067,6 +1079,9 @@ struct CodeBlob {
   }
   Op& add_repeat_loop(AnyV origin, std::vector<var_idx_t> count) {
     return cur_ops->push_back(std::make_unique<Op>(origin, Op::_Repeat, std::move(count)));
+  }
+  void add_break_from_loop(AnyV origin) {
+    cur_ops->push_back(std::make_unique<Op>(origin, Op::_BreakFromLoop));
   }
   Op& add_try_catch(AnyV origin) {
     return cur_ops->push_back(std::make_unique<Op>(origin, Op::_TryCatch));

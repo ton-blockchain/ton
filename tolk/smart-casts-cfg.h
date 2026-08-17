@@ -86,6 +86,8 @@ enum class UnreachableKind {
   ThrowStatement,
   ReturnStatement,
   CallNeverReturnFunction,
+  BreakStatement,
+  ContinueStatement,
 };
 
 // SignState is "definitely positive", etc.

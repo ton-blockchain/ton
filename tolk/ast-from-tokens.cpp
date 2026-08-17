@@ -1488,6 +1488,20 @@ AnyExprV parse_expr(Lexer& lex) {
   return parse_expr10(lex);
 }
 
+static AnyV parse_break_statement(Lexer& lex) {
+  lex.check(tok_break, "`break`");
+  SrcRange range = lex.cur_range();
+  lex.next();
+  return createV<ast_break_statement>(range);
+}
+
+static AnyV parse_continue_statement(Lexer& lex) {
+  lex.check(tok_continue, "`continue`");
+  SrcRange range = lex.cur_range();
+  lex.next();
+  return createV<ast_continue_statement>(range);
+}
+
 static AnyV parse_return_statement(Lexer& lex) {
   lex.check(tok_return, "`return`");
   SrcRange range = lex.cur_range();
@@ -1663,8 +1677,9 @@ AnyV parse_statement(Lexer& lex) {
     case tok_semicolon:
       return createV<ast_empty_statement>(lex.cur_range());
     case tok_break:
+      return parse_break_statement(lex);
     case tok_continue:
-      lex.error("break/continue from loops are not supported yet");
+      return parse_continue_statement(lex);
     default:
       return parse_expr(lex);
   }

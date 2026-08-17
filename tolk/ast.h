@@ -115,6 +115,8 @@ enum ASTNodeKind {
   ast_repeat_statement,
   ast_while_statement,
   ast_do_while_statement,
+  ast_break_statement,
+  ast_continue_statement,
   ast_throw_statement,
   ast_assert_statement,
   ast_try_catch_statement,
@@ -1155,6 +1157,20 @@ struct Vertex<ast_do_while_statement> final : ASTStatementVararg {
 
   Vertex(SrcRange range, V<ast_block_statement> body, AnyExprV cond)
     : ASTStatementVararg(ast_do_while_statement, range, {body, cond}) {}
+};
+
+template<>
+// ast_break_statement is `break;` — exit the nearest enclosing loop
+struct Vertex<ast_break_statement> final : ASTStatementVararg {
+  explicit Vertex(SrcRange range)
+    : ASTStatementVararg(ast_break_statement, range, {}) {}
+};
+
+template<>
+// ast_continue_statement is `continue;` — skip to the next iteration of the nearest enclosing loop
+struct Vertex<ast_continue_statement> final : ASTStatementVararg {
+  explicit Vertex(SrcRange range)
+    : ASTStatementVararg(ast_continue_statement, range, {}) {}
 };
 
 template<>

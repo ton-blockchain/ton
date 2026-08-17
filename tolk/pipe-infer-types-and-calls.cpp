@@ -265,6 +265,18 @@ static void check_no_unexpected_type_arguments(FunctionPtr cur_f, V<ast_instanti
   }
 }
 
+struct LoopFlowFrame {
+  FlowContext break_flow;
+  FlowContext continue_flow;
+
+  void reset_in_fixpoint(const FlowContext& loop_entry_facts) {
+    break_flow = loop_entry_facts.clone();
+    break_flow.mark_unreachable(UnreachableKind::BreakStatement);   // no break paths yet
+    continue_flow = loop_entry_facts.clone();
+    continue_flow.mark_unreachable(UnreachableKind::ContinueStatement);
+  }
+};
+
 /*
  * This class handles all types of AST vertices and traverses them, filling all AnyExprV::inferred_type.
  * Note, that it isn't derived from ASTVisitor, it has manual `switch` over all existing vertex types.
@@ -275,6 +287,7 @@ static void check_no_unexpected_type_arguments(FunctionPtr cur_f, V<ast_instanti
 class InferTypesAndCallsAndFieldsVisitor final {
   FunctionPtr cur_f = nullptr;
   std::vector<AnyExprV> return_statements;
+  std::vector<LoopFlowFrame> loop_stack;
 
   GNU_ATTRIBUTE_ALWAYS_INLINE
   static void assign_inferred_type(AnyExprV dst, AnyExprV src) {
@@ -321,6 +334,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
         return process_while_statement(v->as<ast_while_statement>(), std::move(flow));
       case ast_do_while_statement:
         return process_do_while_statement(v->as<ast_do_while_statement>(), std::move(flow));
+      case ast_break_statement:
+        return process_break_statement(v->as<ast_break_statement>(), std::move(flow));
+      case ast_continue_statement:
+        return process_continue_statement(v->as<ast_continue_statement>(), std::move(flow));
       case ast_throw_statement:
         return process_throw_statement(v->as<ast_throw_statement>(), std::move(flow));
       case ast_assert_statement:
@@ -1703,12 +1720,17 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // in `repeat` (as opposed to `while`), a condition is not boolean, it's a number
     flow = infer_any_expr(v->get_cond(), std::move(flow), false).out_flow;
     FlowContext loop_entry_facts = flow.clone();
+    loop_stack.emplace_back();
     // infer until loop-entry facts reach a fixed point
     while (true) {
+      loop_stack.back().reset_in_fixpoint(loop_entry_facts);
       FlowContext body_out = process_any_statement(v->get_body(), flow.clone());
-      FlowContext next_flow = FlowContext::merge_flow(loop_entry_facts.clone(), std::move(body_out));
+      FlowContext back_edge = FlowContext::merge_flow(std::move(body_out), loop_stack.back().continue_flow.clone());
+      FlowContext next_flow = FlowContext::merge_flow(loop_entry_facts.clone(), std::move(back_edge));
       if (next_flow.equivalent_to(flow)) {
-        return next_flow;
+        FlowContext exit_flow = FlowContext::merge_flow(std::move(next_flow), std::move(loop_stack.back().break_flow));
+        loop_stack.pop_back();
+        return exit_flow;
       }
       flow = std::move(next_flow);
     }
@@ -1716,15 +1738,19 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
   FlowContext process_while_statement(V<ast_while_statement> v, FlowContext&& flow) {
     // infer until loop-entry facts reach a fixed point
-    // also remember, we don't have a `break` statement, that's why when loop exits, condition became false
     FlowContext loop_entry_facts = flow.clone();
+    loop_stack.emplace_back();
     while (true) {
+      loop_stack.back().reset_in_fixpoint(loop_entry_facts);
       ExprFlow after_cond = infer_any_expr(v->get_cond(), flow.clone(), true);
       FlowContext body_out = process_any_statement(v->get_body(), std::move(after_cond.true_flow));
-      FlowContext next_flow = FlowContext::merge_flow(loop_entry_facts.clone(), std::move(body_out));
+      FlowContext back_edge = FlowContext::merge_flow(std::move(body_out), loop_stack.back().continue_flow.clone());
+      FlowContext next_flow = FlowContext::merge_flow(loop_entry_facts.clone(), std::move(back_edge));
       if (next_flow.equivalent_to(flow)) {
         v->get_cond()->mutate()->assign_always_true_or_false(after_cond.get_always_true_false_state());
-        return std::move(after_cond.false_flow);
+        FlowContext exit_flow = FlowContext::merge_flow(std::move(after_cond.false_flow), std::move(loop_stack.back().break_flow));
+        loop_stack.pop_back();
+        return exit_flow;
       }
       flow = std::move(next_flow);
     }
@@ -1733,16 +1759,41 @@ class InferTypesAndCallsAndFieldsVisitor final {
   FlowContext process_do_while_statement(V<ast_do_while_statement> v, FlowContext&& flow) {
     // infer until loop-entry facts reach a fixed point
     FlowContext loop_entry_facts = flow.clone();
+    loop_stack.emplace_back();
     while (true) {
+      loop_stack.back().reset_in_fixpoint(loop_entry_facts);
       FlowContext body_out = process_any_statement(v->get_body(), flow.clone());
-      ExprFlow after_cond = infer_any_expr(v->get_cond(), std::move(body_out), true);
+      FlowContext cond_input = FlowContext::merge_flow(std::move(body_out), loop_stack.back().continue_flow.clone());
+      ExprFlow after_cond = infer_any_expr(v->get_cond(), std::move(cond_input), true);
       FlowContext next_flow = FlowContext::merge_flow(loop_entry_facts.clone(), std::move(after_cond.true_flow));
       if (next_flow.equivalent_to(flow)) {
         v->get_cond()->mutate()->assign_always_true_or_false(after_cond.get_always_true_false_state());
-        return std::move(after_cond.false_flow);
+        FlowContext exit_flow = FlowContext::merge_flow(std::move(after_cond.false_flow), std::move(loop_stack.back().break_flow));
+        loop_stack.pop_back();
+        return exit_flow;
       }
       flow = std::move(next_flow);
     }
+  }
+
+  FlowContext process_break_statement(V<ast_break_statement>, FlowContext&& flow) {
+    if (!loop_stack.empty()) {
+      // when empty, a later loop checker pipe will fire "break used outside a loop"
+      LoopFlowFrame& loop = loop_stack.back();
+      loop.break_flow = FlowContext::merge_flow(std::move(loop.break_flow), flow.clone());
+    }
+    flow.mark_unreachable(UnreachableKind::BreakStatement);
+    return flow;
+  }
+
+  FlowContext process_continue_statement(V<ast_continue_statement>, FlowContext&& flow) {
+    if (!loop_stack.empty()) {
+      // when empty, a later loop checker pipe will fire "continue used outside a loop"
+      LoopFlowFrame& loop = loop_stack.back();
+      loop.continue_flow = FlowContext::merge_flow(std::move(loop.continue_flow), flow.clone());
+    }
+    flow.mark_unreachable(UnreachableKind::ContinueStatement);
+    return flow;
   }
 
   FlowContext process_throw_statement(V<ast_throw_statement> v, FlowContext&& flow) {

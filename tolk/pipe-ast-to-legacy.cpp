@@ -26,6 +26,7 @@
 #include "pack-unpack-api.h"
 #include "gen-entrypoints.h"
 #include "inline-return-analysis.h"
+#include "loop-control-analysis.h"
 
 /*
  *   This pipe is the last one operating AST: it transforms AST to IR.
@@ -203,7 +204,8 @@ public:
   }
 };
 
-// FallthroughTail is a tail when inlining a function with multiple returns. Example:
+// FallthroughTail is a suffix routed into a single live if/match branch.
+// Used independently for inline returns and for structural `continue` in loops.
 // > fun demo() {
 // >   if (cond) { return false }
 // >   else { xxx }
@@ -216,15 +218,46 @@ struct FallthroughTail {
   const FallthroughTail* outer = nullptr;           // multiple if/else/match branching
   const std::vector<AnyV>* statements = nullptr;    // all statements of some block (in demo: [ast_if_statement, yyy])
   size_t next_idx = 0;                              // tail is `statements[next_idx..]` (in demo: 1, tail = yyy)
+  V<ast_block_statement> scope_block = nullptr;     // insert DebugMarkScopeEnd{.range} in the end
   bool is_toplevel_block = false;                   // statements come from function's root body
-  bool emit_scope_end = false;                      // need to insert DebugMarkScopeEnd (a block's `}`) after them
   bool emit_leave_fun = false;                      // need to insert implicit `return` (DebugMarkLeaveFunction + mutated vars)
 };
 
+// Installs `code.current_loop` for the duration of lowering a loop body, same backup as `code.inlining`.
+struct LoopLoweringGuard {
+  CodeBlob& code;
+  const LoopFrameLowering* backup_outer_loop;
+  LoopContinuePlan plan;
+  LoopFrameLowering frame;
+
+  LoopLoweringGuard(CodeBlob& code, V<ast_block_statement> loop_body)
+    : code(code)
+    , backup_outer_loop(code.current_loop)
+    , plan(build_continue_plan_for_loop(loop_body))
+    , frame{.plan = &plan, .body = loop_body} {
+    tolk_assert(plan.ok());
+    code.current_loop = &frame;
+  }
+
+  ~LoopLoweringGuard() {
+    code.current_loop = backup_outer_loop;
+  }
+};
+
+static const TailRoutingNode* find_routed_branch(AnyV pivot, CodeBlob& code) {
+  if (code.current_loop) {
+    if (const TailRoutingNode* route = code.current_loop->plan->find_branching(pivot)) {
+      return route;
+    }
+  }
+  if (code.inlining) {
+    return code.inlining->plan->find_branching(pivot);
+  }
+  return nullptr;
+}
+
 static void process_tail(const FallthroughTail* tail, CodeBlob& code) {
   for (; tail; tail = tail->outer) {
-    bool ended_with_return = false;
-
     if (tail->statements) {
       const std::vector<AnyV>& statements = *tail->statements;
       ImmediateReturnGuard immediate_return(code);
@@ -239,12 +272,23 @@ static void process_tail(const FallthroughTail* tail, CodeBlob& code) {
 
         if (stmt->kind == ast_return_statement) {
           process_any_statement(stmt, code);
-          ended_with_return = true;
-          break;
+          if (tail->scope_block) {
+            code.add_debug_mark(DebugMarkScopeEnd{.range = tail->scope_block->range});
+          }
+          return;
+        }
+        if (stmt->kind == ast_continue_statement) {
+          tolk_assert(code.current_loop);
+          code.add_debug_mark(DebugMarkScopeEnd{.range = code.current_loop->body->range});
+          return;  // remaining tails must not run
+        }
+        if (stmt->kind == ast_break_statement) {
+          process_any_statement(stmt, code);
+          return;  // remaining tails must not run
         }
 
-        if (code.inlining && code.inlining->plan->find_branching(stmt)) {
-          FallthroughTail rest = *tail;            // copies emit_scope_end / emit_leave_fun
+        if (find_routed_branch(stmt, code)) {
+          FallthroughTail rest = *tail;            // copies scope_block / emit_leave_fun
           rest.next_idx = i + 1;
 
           if (auto v_if = stmt->try_as<ast_if_statement>()) {
@@ -261,11 +305,9 @@ static void process_tail(const FallthroughTail* tail, CodeBlob& code) {
       }
     }
 
-    if (tail->emit_scope_end) {
-      code.add_debug_mark(DebugMarkScopeEnd{});    // `}` closes the scope even after `return`
-    }
-    if (ended_with_return) {
-      return;
+    if (tail->scope_block) {
+      // same range as the block's START; already-closed range is a no-op for the replayer
+      code.add_debug_mark(DebugMarkScopeEnd{.range = tail->scope_block->range});
     }
     if (tail->emit_leave_fun) {     // no manual `return` (reached the end of a void function),
       tolk_assert(code.inlining);   // so place DebugMarkLeaveFunction and assign mutated_vars to rvect_out
@@ -1374,8 +1416,8 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   std::vector ir_match_result = code.create_tmp_var(match_expr_type, v, "(match-expression)");
   AnyExprV match_origin = v;    // all "IF UTag==type_id" share this location: "step over" jumps into actual branch immediately
 
-  const InlineReturnBranchNode* node_plan = tail ? code.inlining->plan->find_branching(v) : nullptr;
-  tolk_assert(!tail || node_plan);
+  const TailRoutingNode* route = find_routed_branch(v, code);
+  tolk_assert(!tail || route);
 
   // `match(lazyUnion)` / `match(obj.lastUnionField)`
   if (v->is_lazy_match) {
@@ -1399,11 +1441,11 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     LazyMatchOptions options = {
       .match_blocks = std::move(match_blocks),
       .lazy_var_ref = var_ref,
-      .lower_match_arm = [v, tail, node_plan, match_expr_type, &ir_match_result](AnyV v_arm_untyped, CodeBlob& code) {
+      .lower_match_arm = [v, tail, route, match_expr_type, &ir_match_result](AnyV v_arm_untyped, CodeBlob& code) {
         auto v_arm = v_arm_untyped->as<ast_match_arm>();
         if (v->is_statement()) {
           FallthroughTail arm{
-            .outer = tail && node_plan->goes_to == v_arm ? tail : nullptr,
+            .outer = tail && route->goes_to == v_arm ? tail : nullptr,
             .statements = &v_arm->get_body()->get_block_statement()->get_items(),
           };
           process_tail(&arm, code);
@@ -1484,7 +1526,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
 
     if (v->is_statement()) {
       FallthroughTail arm{
-        .outer = tail && node_plan->goes_to == v_ith_arm ? tail : nullptr,
+        .outer = tail && route->goes_to == v_ith_arm ? tail : nullptr,
         .statements = &v_ith_arm->get_body()->get_block_statement()->get_items(),
       };
       process_tail(&arm, code);
@@ -1507,7 +1549,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   // if it's auto-generated "unreachable", insert "N THROW"
   if (implicit_else_unreachable_throw) {
     code.add_call(v, {}, {code.create_int(v, implicit_else_unreachable_throw, "(throw-else)")}, lookup_function("__throw"));
-  } else if (tail && node_plan->goes_to == nullptr) {   // tail goes to implicit `else`
+  } else if (tail && route->goes_to == nullptr) {   // tail goes to implicit `else`
     process_tail(tail, code);
   }
 
@@ -2117,8 +2159,8 @@ static void process_block_statement(V<ast_block_statement> v, CodeBlob& code, co
   FallthroughTail body{
     .outer = outer,
     .statements = &v->get_items(),
+    .scope_block = is_toplevel_block ? nullptr : v,
     .is_toplevel_block = is_toplevel_block,
-    .emit_scope_end = !is_toplevel_block,
   };
   process_tail(&body, code);
 }
@@ -2192,7 +2234,7 @@ static void process_try_catch_statement(V<ast_try_catch_statement> v, CodeBlob& 
   process_catch_variable(catch_vars[1], code);
   try_catch_op.left = pre_compile_tensor(code, {catch_vars[1], catch_vars[0]});
   process_block_statement(catch_body, code);
-  code.add_debug_mark(DebugMarkScopeEnd{});
+  code.add_debug_mark(DebugMarkScopeEnd{.range = catch_body->range});
   code.close_pop_cur(catch_body);
 }
 
@@ -2200,6 +2242,7 @@ static void process_repeat_statement(V<ast_repeat_statement> v, CodeBlob& code) 
   code.add_extra_mark_location(v->keyword_range());
   std::vector tmp_vars = pre_compile_expr(v->get_cond(), code, nullptr);
   Op& repeat_op = code.add_repeat_loop(v, tmp_vars);
+  LoopLoweringGuard guard(code, v->get_body());
   code.push_set_cur(repeat_op.block0);
   process_any_statement(v->get_body(), code);
   code.close_pop_cur(v->get_body());
@@ -2212,11 +2255,10 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code, const Fa
   std::vector ir_cond = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(ir_cond.size() == 1);
 
-  const InlineReturnBranchNode* node_plan = tail ? code.inlining->plan->find_branching(v) : nullptr;
-  tolk_assert(!tail || node_plan);
-  AnyV goes_to = node_plan ? node_plan->goes_to : nullptr;
-  const FallthroughTail* if_tail = goes_to == v->get_if_body() ? tail : nullptr;
-  const FallthroughTail* else_tail = goes_to == v->get_else_body() ? tail : nullptr;
+  const TailRoutingNode* route = find_routed_branch(v, code);
+  tolk_assert(!tail || route);
+  const FallthroughTail* if_tail = tail && route->goes_to == v->get_if_body() ? tail : nullptr;
+  const FallthroughTail* else_tail = tail && route->goes_to == v->get_else_body() ? tail : nullptr;
 
   if (v->get_cond()->is_always_true) {
     const FallthroughTail* live_tail = v->is_ifnot ? else_tail : if_tail;
@@ -2250,6 +2292,7 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code, const Fa
 static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& code) {
   code.add_extra_mark_location(v->keyword_range());
   Op& until_op = code.add_until_loop(v);
+  LoopLoweringGuard guard(code, v->get_body());
   code.push_set_cur(until_op.block0);
   process_any_statement(v->get_body(), code);
 
@@ -2269,6 +2312,7 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
 static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
   code.add_extra_mark_location(v->keyword_range());
   Op& while_op = code.add_while_loop(v);
+  LoopLoweringGuard guard(code, v->get_body());
   code.push_set_cur(while_op.block0);
   while_op.left = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(while_op.left.size() == 1);
@@ -2320,6 +2364,16 @@ static void gen_return_from_cur_fun(CodeBlob& code, AnyV origin, std::vector<var
   }
 }
 
+static void process_break_statement(V<ast_break_statement> v, CodeBlob& code) {
+  tolk_assert(code.current_loop);
+  code.add_debug_mark(DebugMarkScopeEnd{.range = code.current_loop->body->range});
+  code.add_break_from_loop(v);
+}
+
+static void process_continue_statement(V<ast_continue_statement>, CodeBlob&) {
+  tolk_assert(false && "continue must be absorbed by process_tail");
+}
+
 static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) {
   FunctionPtr fun_ref = code.fun_ref;
   TypePtr child_target_type = fun_ref->does_return_self()
@@ -2345,6 +2399,10 @@ void process_any_statement(AnyV v, CodeBlob& code) {
       return process_do_while_statement(v->as<ast_do_while_statement>(), code);
     case ast_while_statement:
       return process_while_statement(v->as<ast_while_statement>(), code);
+    case ast_break_statement:
+      return process_break_statement(v->as<ast_break_statement>(), code);
+    case ast_continue_statement:
+      return process_continue_statement(v->as<ast_continue_statement>(), code);
     case ast_throw_statement:
       return process_throw_statement(v->as<ast_throw_statement>(), code);
     case ast_assert_statement:

@@ -332,6 +332,9 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       block0.show(os, vars, indent, mode);
       os << std::endl;
       break;
+    case _BreakFromLoop:
+      os << indent << dis << "BREAK" << std::endl;
+      break;
     case _TryCatch:
       os << indent << dis << "TRYCATCH ";
       show_var_list(os, left, vars);

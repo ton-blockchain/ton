@@ -1164,6 +1164,20 @@ fun testNestedAssignmentAfterEarlyReturns(holder: DictTensorHolder) {
     __expect_type(holder.pair.0, "dict");
 }
 
+@method_id(184)
+fun test84(x: int?, stopAt: int): int {
+    while (x != null) {
+        __expect_type(x, "int");
+        if (x == stopAt) {
+            break;
+        }
+        x = x > 1 ? x - 1 : null;
+    }
+    // without `break`, x would be `null` here; the break path keeps `int`
+    __expect_type(x, "int?");
+    return x == null ? -1 : x;
+}
+
 fun main(x: int?): int {
     // mark used to codegen them
     test55;
@@ -1208,6 +1222,10 @@ fun main(x: int?): int {
 @testcase | 182 | 0     | 8
 @testcase | 183 | 0     | 11
 @testcase | 183 | 1     | 34
+@testcase | 184 | 5 3   | 3
+@testcase | 184 | 5 0   | -1
+@testcase | 184 | null 1 | -1
+@testcase | 184 | 2 2   | 2
 
 @fif_codegen        eq55<int?>() PROC:<{
 @fif_codegen_avoid  eq55<int>() PROC:<{

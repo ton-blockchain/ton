@@ -135,6 +135,8 @@ protected:
   virtual AnyV replace(V<ast_repeat_statement> v)              { return replace_children(v); }
   virtual AnyV replace(V<ast_while_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_do_while_statement> v)            { return replace_children(v); }
+  virtual AnyV replace(V<ast_break_statement> v)               { return replace_children(v); }
+  virtual AnyV replace(V<ast_continue_statement> v)            { return replace_children(v); }
   virtual AnyV replace(V<ast_throw_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_assert_statement> v)              { return replace_children(v); }
   virtual AnyV replace(V<ast_try_catch_statement> v)           { return replace_children(v); }
@@ -188,6 +190,8 @@ protected:
       case ast_repeat_statement:                return replace(v->as<ast_repeat_statement>());
       case ast_while_statement:                 return replace(v->as<ast_while_statement>());
       case ast_do_while_statement:              return replace(v->as<ast_do_while_statement>());
+      case ast_break_statement:                 return replace(v->as<ast_break_statement>());
+      case ast_continue_statement:              return replace(v->as<ast_continue_statement>());
       case ast_throw_statement:                 return replace(v->as<ast_throw_statement>());
       case ast_assert_statement:                return replace(v->as<ast_assert_statement>());
       case ast_try_catch_statement:             return replace(v->as<ast_try_catch_statement>());

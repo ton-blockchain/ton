@@ -220,7 +220,7 @@ class InlineReturnPlanBuilder {
     }
     // one branch leaves, tail goes to the other
     if (c.n_fall_through + c.n_goes_to_branch == 1) {
-      plan.nodes.emplace_back(InlineReturnBranchNode{v, c.last_alive});
+      plan.nodes.emplace_back(TailRoutingNode{v, c.last_alive});
       return InlineStmtFlow::goesToBranch;
     }
 
@@ -252,12 +252,12 @@ class InlineReturnPlanBuilder {
     }
     // all arms leave, tail goes to implicit `else`
     if (c.n_fall_through == 0 && c.n_goes_to_branch == 0) {
-      plan.nodes.emplace_back(InlineReturnBranchNode{v, nullptr});
+      plan.nodes.emplace_back(TailRoutingNode{v, nullptr});
       return InlineStmtFlow::goesToBranch;
     }
     // all but one arms leave, tail goes to that arm
     if (c.n_fall_through + c.n_goes_to_branch == 1 && v->is_exhaustive) {
-      plan.nodes.emplace_back(InlineReturnBranchNode{v, c.last_alive});
+      plan.nodes.emplace_back(TailRoutingNode{v, c.last_alive});
       return InlineStmtFlow::goesToBranch;
     }
 

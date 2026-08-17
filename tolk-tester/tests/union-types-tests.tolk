@@ -998,6 +998,15 @@ fun test75(case: int) {
     };
 }
 
+@method_id(176)
+fun test76(v: int | slice) {
+    while (v is int) {
+        break;
+    }
+    var w = v;
+    return 0;
+}
+
 
 fun main() {
     return 0;
@@ -1096,6 +1105,7 @@ fun main() {
 @testcase | 174 | 1         | 42
 @testcase | 175 | 0         | 8
 @testcase | 175 | 1         | 37
+@testcase | 176 | 0 1       | 0
 
 
 @fif_codegen

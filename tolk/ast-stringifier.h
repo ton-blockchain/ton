@@ -85,6 +85,8 @@ class ASTStringifier final : public ASTVisitor {
     {ast_repeat_statement, "ast_repeat_statement"},
     {ast_while_statement, "ast_while_statement"},
     {ast_do_while_statement, "ast_do_while_statement"},
+    {ast_break_statement, "ast_break_statement"},
+    {ast_continue_statement, "ast_continue_statement"},
     {ast_throw_statement, "ast_throw_statement"},
     {ast_assert_statement, "ast_assert_statement"},
     {ast_try_catch_statement, "ast_try_catch_statement"},
@@ -360,6 +362,8 @@ public:
       case ast_repeat_statement:              return handle_vertex(v->as<ast_repeat_statement>());
       case ast_while_statement:               return handle_vertex(v->as<ast_while_statement>());
       case ast_do_while_statement:            return handle_vertex(v->as<ast_do_while_statement>());
+      case ast_break_statement:               return handle_vertex(v->as<ast_break_statement>());
+      case ast_continue_statement:            return handle_vertex(v->as<ast_continue_statement>());
       case ast_throw_statement:               return handle_vertex(v->as<ast_throw_statement>());
       case ast_assert_statement:              return handle_vertex(v->as<ast_assert_statement>());
       case ast_try_catch_statement:           return handle_vertex(v->as<ast_try_catch_statement>());

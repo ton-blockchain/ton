@@ -22,15 +22,14 @@
 
 namespace tolk {
 
-// Per-function plan for every inlined function (auto-detected or marked as `@inline`).
-// Note that `continue` in loops (LoopContinuePlan) is almost the same algorithm as returns in the middle.
-struct InlineReturnPlan {
-  const char* cant_inline_because = nullptr;
-  bool has_early_returns = false;
+// Per-loop plan for structural `continue`; analogous to InlineReturnPlan.
+// See the cpp file for comments.
+struct LoopContinuePlan {
+  const char* cant_continue_because = nullptr;
   std::vector<TailRoutingNode> nodes;
 
   bool ok() const {
-    return cant_inline_because == nullptr;
+    return cant_continue_because == nullptr;
   }
 
   const TailRoutingNode* find_branching(AnyV stmt_pivot) const {
@@ -43,6 +42,6 @@ struct InlineReturnPlan {
   }
 };
 
-InlineReturnPlan build_inlining_plan_for_function(FunctionPtr fun_ref);
+LoopContinuePlan build_continue_plan_for_loop(AnyV loop_body_block);
 
 } // namespace tolk

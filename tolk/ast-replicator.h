@@ -197,6 +197,12 @@ class ASTReplicator final {
   static V<ast_do_while_statement> clone(V<ast_do_while_statement> v) {
     return createV<ast_do_while_statement>(v->range, clone(v->get_body()), clone(v->get_cond()));
   }
+  static V<ast_break_statement> clone(V<ast_break_statement> v) {
+    return createV<ast_break_statement>(v->range);
+  }
+  static V<ast_continue_statement> clone(V<ast_continue_statement> v) {
+    return createV<ast_continue_statement>(v->range);
+  }
   static V<ast_throw_statement> clone(V<ast_throw_statement> v) {
     return createV<ast_throw_statement>(v->range, clone(v->get_thrown_code()), clone(v->get_thrown_arg()));
   }
@@ -250,6 +256,8 @@ class ASTReplicator final {
       case ast_repeat_statement:                return clone(v->as<ast_repeat_statement>());
       case ast_while_statement:                 return clone(v->as<ast_while_statement>());
       case ast_do_while_statement:              return clone(v->as<ast_do_while_statement>());
+      case ast_break_statement:                 return clone(v->as<ast_break_statement>());
+      case ast_continue_statement:              return clone(v->as<ast_continue_statement>());
       case ast_throw_statement:                 return clone(v->as<ast_throw_statement>());
       case ast_assert_statement:                return clone(v->as<ast_assert_statement>());
       case ast_try_catch_statement:             return clone(v->as<ast_try_catch_statement>());

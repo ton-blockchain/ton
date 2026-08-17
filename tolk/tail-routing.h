@@ -17,32 +17,14 @@
 #pragma once
 
 #include "fwd-declarations.h"
-#include "tail-routing.h"
-#include <vector>
 
 namespace tolk {
 
-// Per-function plan for every inlined function (auto-detected or marked as `@inline`).
-// Note that `continue` in loops (LoopContinuePlan) is almost the same algorithm as returns in the middle.
-struct InlineReturnPlan {
-  const char* cant_inline_because = nullptr;
-  bool has_early_returns = false;
-  std::vector<TailRoutingNode> nodes;
-
-  bool ok() const {
-    return cant_inline_because == nullptr;
-  }
-
-  const TailRoutingNode* find_branching(AnyV stmt_pivot) const {
-    for (const TailRoutingNode& node : nodes) {
-      if (node.pivot == stmt_pivot) {
-        return &node;
-      }
-    }
-    return nullptr;
-  }
+// Where a FallthroughTail is routed inside an `if`/`match`.
+// Shared by LoopContinuePlan and InlineReturnPlan; the plans themselves stay separate.
+struct TailRoutingNode {
+  AnyV pivot = nullptr;     // the `if` or `match` statement itself
+  AnyV goes_to = nullptr;   // its branch: a block of `if`, or an arm of `match`; nullptr = implicit `else` of `match`
 };
-
-InlineReturnPlan build_inlining_plan_for_function(FunctionPtr fun_ref);
 
 } // namespace tolk

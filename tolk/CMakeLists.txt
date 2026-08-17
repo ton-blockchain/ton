@@ -16,6 +16,7 @@ set(TOLK_SOURCE
         send-message-api.cpp
         maps-kv-api.cpp
         inline-return-analysis.cpp
+        loop-control-analysis.cpp
         pipe-discover-parse-sources.cpp
         pipe-register-symbols.cpp
         pipe-resolve-identifiers.cpp
@@ -24,6 +25,7 @@ set(TOLK_SOURCE
         pipe-infer-types-and-calls.cpp
         pipe-check-inferred-types.cpp
         pipe-refine-lvalue-for-mutate.cpp
+        pipe-loop-break-continue.cpp
         pipe-check-rvalue-lvalue.cpp
         pipe-check-private-fields.cpp
         pipe-check-const-expr.cpp
