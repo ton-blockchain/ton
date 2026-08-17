@@ -282,8 +282,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     LOG(INFO) << "Allow self collate = " << allow_self_collate_;
     collator_nodes_.clear();
     for (const adnl::AdnlNodeIdShort& collator_id : list->collators) {
-      if (std::find(bus.all_overlay_nodes.begin(), bus.all_overlay_nodes.end(), collator_id) !=
-          bus.all_overlay_nodes.end()) {
+      if (bus.all_collators.contains(collator_id)) {
         collator_nodes_.push_back(collator_id);
         LOG(INFO) << "Configured collator node " << collator_id << " : OK";
       } else {
