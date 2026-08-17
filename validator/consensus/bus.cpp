@@ -66,8 +66,12 @@ static td::StringBuilder& operator<<(td::StringBuilder& sb, const OutgoingProtoc
   auto broadcast_to_random_fn = [&](const OutgoingProtocolMessage::BroadcastToRandom& r) {
     sb << "BroadcastToRandom{count=" << r.count << "}";
   };
+  auto send_to_peer_fn = [&](const OutgoingProtocolMessage::SendToPeer& p) {
+    sb << "SendToPeer{peer=" << p.peer << "}";
+  };
 
-  std::visit(td::overloaded(broadcast_to_all_fn, broadcast_to_validators_fn, broadcast_to_random_fn), recipient);
+  std::visit(td::overloaded(broadcast_to_all_fn, broadcast_to_validators_fn, broadcast_to_random_fn, send_to_peer_fn),
+             recipient);
   return sb;
 }
 
@@ -85,9 +89,12 @@ std::string OurLeaderWindowStarted::contents_to_string() const {
                    << ", end_slot=" << end_slot << ", start_time=" << start_time.at_unix() << "}";
 }
 
+std::string OurLeaderWindowUpcoming::contents_to_string() const {
+  return PSTRING() << "{start_slot=" << start_slot << "}";
+}
+
 std::string CandidateGenerated::contents_to_string() const {
-  return PSTRING() << "{candidate=" << candidate_to_string(candidate)
-                   << ", collator_id=" << (collator_id.has_value() ? (PSTRING() << *collator_id) : "none") << "}";
+  return PSTRING() << "{candidate=" << candidate_to_string(candidate) << "}";
 }
 
 std::string CandidateReceived::contents_to_string() const {
@@ -117,17 +124,26 @@ std::string OutgoingProtocolMessage::contents_to_string() const {
   return PSTRING() << "{recipient=" << recipient << ", message=" << message_to_string(message) << "}";
 }
 
-std::string IncomingOverlayRequest::contents_to_string() const {
+std::string IncomingCandidateRequest::contents_to_string() const {
   return PSTRING() << "{source=" << source << ", request=" << message_to_string(request) << "}";
 }
 
-std::string IncomingOverlayRequest::response_to_string(const ReturnType& response) {
+std::string IncomingCandidateRequest::response_to_string(const ReturnType& response) {
+  return PSTRING() << message_to_string(response);
+}
+
+std::string IncomingCollatorRequest::contents_to_string() const {
+  return PSTRING() << "{source=" << source << ", request=" << message_to_string(request) << "}";
+}
+
+std::string IncomingCollatorRequest::response_to_string(const ReturnType& response) {
   return PSTRING() << message_to_string(response);
 }
 
 std::string OutgoingOverlayRequest::contents_to_string() const {
   return PSTRING() << "{destination=" << destination << ", timeout=" << timeout.in()
-                   << " remaining, request=" << message_to_string(request) << "}";
+                   << " remaining, request=" << message_to_string(request) << ", max_answer_size=" << max_answer_size
+                   << "}";
 }
 
 std::string OutgoingOverlayRequest::response_to_string(const ReturnType& response) {
@@ -154,6 +170,10 @@ std::string NoncriticalParamsUpdated::contents_to_string() const {
 #undef APPEND_PARAM
 #undef APPEND_DURATION
   return PSTRING() << "{params={" << td::Slice{sb.as_cslice()}.remove_suffix(2) << "}}";
+}
+
+std::string ValidatorOptionsUpdated::contents_to_string() const {
+  return "{}";
 }
 
 std::string PrecheckCandidateBroadcast::contents_to_string() const {

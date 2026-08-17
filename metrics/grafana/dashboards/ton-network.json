@@ -1,0 +1,4231 @@
+{
+  "uid": "ton-network",
+  "title": "TON Network",
+  "tags": [
+    "ton",
+    "quic",
+    "network"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "schemaVersion": 39,
+  "version": 11,
+  "refresh": "30s",
+  "graphTooltip": 1,
+  "fiscalYearStartMonth": 0,
+  "links": [],
+  "liveNow": false,
+  "weekStart": "",
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "description": "Prometheus scraping the TON node metrics exporters",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "datasource",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "name": "scope",
+        "label": "scope",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(ton_exporter_collections_total, ton_scope)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(ton_exporter_collections_total, ton_scope)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0,
+        "options": [],
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1
+      },
+      {
+        "name": "job",
+        "label": "job (role)",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(ton_exporter_collections_total{ton_scope=~\"$scope\"}, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(ton_exporter_collections_total{ton_scope=~\"$scope\"}, job)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0,
+        "options": [],
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1
+      },
+      {
+        "name": "instance",
+        "label": "instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": {
+          "qryType": 1,
+          "query": "label_values(ton_exporter_collections_total{ton_scope=~\"$scope\",job=~\"$job\"}, instance)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "definition": "label_values(ton_exporter_collections_total{ton_scope=~\"$scope\",job=~\"$job\"}, instance)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0,
+        "options": [],
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1
+      },
+      {
+        "name": "trust",
+        "label": "QUIC peer class",
+        "description": "Filters peer-attributable QUIC app, query, delivery, and ready-connection metrics. The wire/app overhead ratio remains all-peers so its app denominator matches the unsplit wire numerator. Socket/pre-auth QUIC and all ADNL, RLDP2, and overlay series also remain all-peers. Pre-trust builds expose no trust label: their QUIC series appear under All, but not under trusted or untrusted.",
+        "type": "custom",
+        "query": "trusted,untrusted",
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "hide": 0,
+        "options": [
+          {
+            "selected": true,
+            "text": "All",
+            "value": "$__all"
+          },
+          {
+            "selected": false,
+            "text": "trusted",
+            "value": "trusted"
+          },
+          {
+            "selected": false,
+            "text": "untrusted",
+            "value": "untrusted"
+          }
+        ],
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "UDP in (fleet)",
+      "description": "UDP payload bytes/s the sockets received, summed over ADNL and QUIC for all selected nodes. RLDP2 rides inside ADNL and is already counted there. Informational; no health threshold.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(label_replace(rate(ton_adnl_wire_bytes_total{direction=\"in\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"adnl\", \"\", \"\") or label_replace(rate(ton_quic_wire_bytes_total{direction=\"in\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"quic\", \"\", \"\"))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "UDP out (fleet)",
+      "description": "UDP payload bytes/s the kernel accepted for sending, summed over ADNL and QUIC for all selected nodes. Refused sends are drops, not wire traffic. Informational; no health threshold.",
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(label_replace(rate(ton_adnl_wire_bytes_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"adnl\", \"\", \"\") or label_replace(rate(ton_quic_wire_bytes_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"quic\", \"\", \"\"))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "QUIC query RTT p95",
+      "description": "Outbound QUIC query roundtrip p95 for the selected peer class, computed from histogram buckets summed across the fleet. Includes network path, peer processing, and transfer time. Yellow at 0.5 s; red at 2 s.",
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ton_quic_query_roundtrip_seconds_bucket{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "QUIC query fail %",
+      "description": "Outbound QUIC query failures divided by measured roundtrips for the selected peer class across the fleet. Green below 1%, yellow at 1%, red at 5%. No data means no completed QUIC queries in the interval; it is not presented as a healthy 0%.",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ton_quic_query_roundtrip_failed_total{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_quic_query_roundtrip_seconds_count{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "QUIC packet loss %",
+      "description": "QUIC packets declared lost divided by outbound packets across the fleet. Most loss is recovered, but it costs bandwidth and tail latency. Yellow at 1%; red at 5%. No outbound packets in the current interval renders No data, not 0%.",
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ton_quic_transport_packets_lost_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_quic_transport_packets_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Kernel RX overflow",
+      "description": "ADNL + QUIC datagrams/s dropped because a socket receive buffer was full (SO_RXQ_OVFL). Sustained nonzero means ingress outruns the reader; raise SO_RCVBUF or add read capacity, then inspect the by-node panel. Linux-only: macOS/local nets report structural zero, meaning no signal rather than proof of no drops.",
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps",
+          "mappings": [],
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(label_replace(rate(ton_quic_wire_dropped_total{direction=\"in\",reason=\"limited\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"quic\", \"\", \"\") or label_replace(rate(ton_adnl_wire_dropped_total{direction=\"in\",reason=\"limited\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"adnl\", \"\", \"\"))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 40,
+      "panels": [],
+      "title": "Service health",
+      "type": "row"
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Outbound query RTT p95 by transport",
+      "description": "Transport-accept to answer for queries we send: network + peer processing + transfer time. QUIC is split by peer class; ADNL remains all-peers. p95 comes from fleet-summed histogram buckets. RLDP2 bulk-transfer latency is separate below because it is not comparable with low-latency ADNL/QUIC.",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (trust, le) (rate(ton_quic_query_roundtrip_seconds_bucket{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic {{trust}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ton_adnl_query_roundtrip_seconds_bucket{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "adnl"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Inbound query processing p95 by type",
+      "description": "Time this node spends answering inbound queries, excluding network transfer. All transports funnel through this ADNL delivery-layer timer. Histogram buckets are summed across the fleet; the top 8 types are ranked by call volume over the visible range.",
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (tl, le) (rate(ton_adnl_query_duration_seconds_bucket{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) and on (tl) topk(8, sum by (tl) (increase(ton_adnl_query_duration_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{tl}}"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Message delivery p95",
+      "description": "QUIC fire-and-forget delivery p95 to the receiver's empty acknowledgement, split by peer class and computed from fleet-summed histogram buckets. Plain ADNL has no acknowledgement. RLDP2 transfer delivery is separate below because bulk-transfer latency is not comparable.",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (trust, le) (rate(ton_quic_message_delivery_seconds_bucket{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic {{trust}}"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Failure & loss ratios",
+      "description": "Failures divided by measured deliveries, roundtrips, or packets across the fleet. Idle series disappear rather than presenting 0/0 as healthy. QUIC app outcomes are split by peer class; packet loss, ADNL, and RLDP2 remain all-peers. Persistent values above 1% deserve investigation.",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (trust) (rate(ton_quic_message_delivery_failed_total{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (trust) (rate(ton_quic_message_delivery_seconds_count{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic {{trust}} delivery"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (trust) (rate(ton_quic_query_roundtrip_failed_total{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (trust) (rate(ton_quic_query_roundtrip_seconds_count{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic {{trust}} roundtrip"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(ton_rldp2_query_roundtrip_failed_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_rldp2_query_roundtrip_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "rldp2 roundtrip"
+        },
+        {
+          "refId": "D",
+          "expr": "sum(rate(ton_quic_transport_packets_lost_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_quic_transport_packets_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic packet loss"
+        },
+        {
+          "refId": "E",
+          "expr": "sum(rate(ton_adnl_query_roundtrip_failed_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_adnl_query_roundtrip_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "adnl roundtrip"
+        },
+        {
+          "refId": "F",
+          "expr": "sum(rate(ton_rldp2_message_delivery_failed_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum(rate(ton_rldp2_message_delivery_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "rldp2 delivery"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 41,
+      "panels": [],
+      "title": "Path & packet health",
+      "type": "row"
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Network drops by tier and reason",
+      "description": "Nonzero drop rates by tier, direction, and reason across the fleet. The peer-class filter applies only to QUIC app drops; wire, pre-auth transport, ADNL, and RLDP2 remain all-peers. QUIC app out/limited indicates stream-credit exhaustion.",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (direction, reason) (rate(ton_quic_wire_dropped_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic wire {{direction}} {{reason}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (direction, reason) (rate(ton_quic_transport_dropped_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic transport {{direction}} {{reason}}"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (trust, direction, reason) (rate(ton_quic_app_dropped_total{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic app {{trust}} {{direction}} {{reason}}"
+        },
+        {
+          "refId": "D",
+          "expr": "sum by (direction, reason) (rate(ton_adnl_transport_dropped_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "adnl transport {{direction}} {{reason}}"
+        },
+        {
+          "refId": "E",
+          "expr": "sum by (direction, reason) (rate(ton_adnl_wire_dropped_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "adnl wire {{direction}} {{reason}}"
+        },
+        {
+          "refId": "F",
+          "expr": "sum by (direction, reason) (rate(ton_adnl_app_dropped_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "adnl app {{direction}} {{reason}}"
+        },
+        {
+          "refId": "G",
+          "expr": "sum by (direction, reason) (rate(ton_rldp2_transport_dropped_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "rldp2 transport {{direction}} {{reason}}"
+        },
+        {
+          "refId": "H",
+          "expr": "sum by (direction, reason) (rate(ton_rldp2_app_dropped_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "rldp2 app {{direction}} {{reason}}"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "QUIC RTT across nodes (p50 / p95 / max)",
+      "description": "Distribution over nodes of ton_quic_transport_mean_rtt_seconds \u2014 each node contributes one value: the connection-weighted mean smoothed RTT (ngtcp2 SRTT) over its open connections. p50 = the typical node, max = the worst node. This is network path RTT; peer processing time is excluded (compare the roundtrip row, which includes it).",
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile(0.5, ton_quic_transport_mean_rtt_seconds{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"} > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "p50 node"
+        },
+        {
+          "refId": "B",
+          "expr": "quantile(0.95, ton_quic_transport_mean_rtt_seconds{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"} > 0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "p95 node"
+        },
+        {
+          "refId": "C",
+          "expr": "max(ton_quic_transport_mean_rtt_seconds{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "max node"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Kernel RX overflow by node/transport",
+      "description": "SO_RXQ_OVFL by node and transport: datagrams dropped before userspace could read them. Only nonzero series render. Sustained drops call for more receive-buffer or reader capacity. Linux-only: macOS/local nets report structural zero, meaning no signal rather than proof of no drops.",
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (ton_scope, job, instance) (rate(ton_quic_wire_dropped_total{direction=\"in\",reason=\"limited\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic {{ton_scope}} / {{job}} / {{instance}}"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (ton_scope, job, instance) (rate(ton_adnl_wire_dropped_total{direction=\"in\",reason=\"limited\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "adnl {{ton_scope}} / {{job}} / {{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Mean RTT by node",
+      "description": "Each node's connection-weighted mean smoothed RTT. A node whose line sits far above the rest peers across a long path or has a saturated uplink; a sudden step usually means its peer set changed.",
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "barAlignment": 0,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "mappings": [],
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ton_quic_transport_mean_rtt_seconds{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"} > 0",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{ton_scope}} / {{job}} / {{instance}}"
+        }
+      ]
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "id": 42,
+      "panels": [
+        {
+          "id": 32,
+          "type": "timeseries",
+          "title": "Inbound query failure ratio by type",
+          "description": "Inbound query failure share by type at the common delivery layer: explicit errors and dropped answer promises over completed-query observations. All transports funnel through this layer; types below 0.1 q/s fleet-wide are hidden. High dht.* failure is usually expected client-mode rejection unless --dht-server is enabled.",
+          "gridPos": {
+            "x": 0,
+            "y": 40,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "failure share",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (tl) (rate(ton_adnl_query_failed_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (tl) (rate(ton_adnl_query_duration_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0.1)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "{{tl}}"
+            }
+          ]
+        },
+        {
+          "id": 33,
+          "type": "timeseries",
+          "title": "Outbound roundtrip failure ratio by type",
+          "description": "Outbound query failure share by type and transport across the fleet; series below 0.1 q/s are hidden. QUIC is split by peer class; ADNL and RLDP2 remain all-peers.",
+          "gridPos": {
+            "x": 12,
+            "y": 40,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "failure share",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (trust, tl) (rate(ton_quic_query_roundtrip_failed_total{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (trust, tl) (rate(ton_quic_query_roundtrip_seconds_count{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0.1)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{trust}} {{tl}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (tl) (rate(ton_adnl_query_roundtrip_failed_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (tl) (rate(ton_adnl_query_roundtrip_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0.1)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{tl}}"
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (tl) (rate(ton_rldp2_query_roundtrip_failed_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (tl) (rate(ton_rldp2_query_roundtrip_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0.1)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "rldp2 {{tl}}"
+            }
+          ]
+        }
+      ],
+      "title": "Failure drill-down",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 43,
+      "panels": [
+        {
+          "id": 34,
+          "type": "timeseries",
+          "title": "Open and ready QUIC connections",
+          "description": "Installed QUIC connections include handshakes and remain all-peers; ready paths are authenticated and split by direction and peer class. Installed and ready overlap and must not be added. Fleet sum across selected nodes.",
+          "gridPos": {
+            "x": 0,
+            "y": 41,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^installed "
+                },
+                "properties": [
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        10,
+                        10
+                      ],
+                      "fill": "dash"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (direction) (ton_quic_transport_connections_current{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"})",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "installed {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (direction, trust) (ton_quic_transport_connections_ready{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"})",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "ready {{trust}} {{direction}}"
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "New QUIC connections: attempts vs completions",
+          "description": "Connection installs versus completed/rejected QUIC handshakes, summed across selected nodes. The gap is handshakes that died without a verdict, usually idle timeouts dialing peers that never answered.",
+          "gridPos": {
+            "x": 12,
+            "y": 41,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (direction) (rate(ton_quic_transport_connections_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "attempts {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (direction) (rate(ton_quic_transport_handshakes_total{result=\"completed\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "completed {{direction}}"
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (direction) (rate(ton_quic_transport_handshakes_total{result=\"rejected\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "rejected {{direction}}"
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "Handshake completion / attempt",
+          "description": "Completion event rate divided by connection-attempt event rate, by dial direction over 15m. This is a laggy proxy, not a cohort success percentage, and can transiently exceed 100%. Abandoned handshakes have no terminal outcome; no attempts in the window renders No data.",
+          "gridPos": {
+            "x": 0,
+            "y": 49,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum(rate(ton_quic_transport_handshakes_total{direction=\"out\",result=\"completed\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[15m])) / (sum(rate(ton_quic_transport_connections_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[15m])) > 0)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "out"
+            },
+            {
+              "refId": "B",
+              "expr": "sum(rate(ton_quic_transport_handshakes_total{direction=\"in\",result=\"completed\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[15m])) / (sum(rate(ton_quic_transport_connections_total{direction=\"in\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[15m])) > 0)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "in"
+            }
+          ]
+        },
+        {
+          "id": 23,
+          "type": "timeseries",
+          "title": "Open QUIC streams by node",
+          "description": "Currently open streams per node, both directions of initiation (each side capped at 4096 per connection). A plateau near the cap while sends start failing with app dropped{out,limited} is the stream-credit exhaustion signature.",
+          "gridPos": {
+            "x": 12,
+            "y": 49,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "ton_quic_transport_sids_current{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "{{ton_scope}} / {{job}} / {{instance}}"
+            }
+          ]
+        }
+      ],
+      "title": "Connections & capacity",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "id": 44,
+      "panels": [
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Wire throughput by transport",
+          "description": "UDP payload bytes/s from each transport's socket accounting, summed across selected nodes. ADNL and QUIC own sockets; RLDP2 rides inside ADNL and is already present in its socket total.",
+          "gridPos": {
+            "x": 0,
+            "y": 42,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (direction) (rate(ton_adnl_wire_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (direction) (rate(ton_quic_wire_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{direction}}"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "App payload by transport",
+          "description": "Application payload bytes/s after protocol framing, summed across selected nodes. QUIC is split by peer class; ADNL and RLDP2 remain all-peers. ADNL includes RLDP2 datagrams, so ADNL + RLDP2 double-counts.",
+          "gridPos": {
+            "x": 12,
+            "y": 42,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (direction) (rate(ton_adnl_app_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (trust, direction) (rate(ton_quic_app_bytes_total{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{trust}} {{direction}}"
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (direction) (rate(ton_rldp2_app_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "rldp2 {{direction}}"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Nodes by wire throughput (adnl+quic)",
+          "description": "Busiest nodes by available ADNL+QUIC UDP bytes (in+out). A target remains visible when either collector family is absent.",
+          "gridPos": {
+            "x": 0,
+            "y": 50,
+            "w": 24,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (ton_scope, job, instance) (label_replace(rate(ton_adnl_wire_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"adnl\", \"\", \"\") or label_replace(rate(ton_quic_wire_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"transport\", \"quic\", \"\", \"\"))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "{{ton_scope}} / {{job}} / {{instance}}"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Datagrams per syscall",
+          "description": "Wire packets per UDP send/receive syscall across the fleet. 1.0 means no batching; higher is cheaper per packet. A direction disappears when it has no syscalls instead of producing an undefined ratio.",
+          "gridPos": {
+            "x": 0,
+            "y": 58,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (direction) (rate(ton_quic_wire_packets_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (direction) (rate(ton_quic_wire_syscalls_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (direction) (rate(ton_adnl_wire_packets_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (direction) (rate(ton_adnl_wire_syscalls_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{direction}}"
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Wire / app bytes (overhead factor, log scale)",
+          "description": "Wire bytes per delivered payload byte across the fleet. QUIC compares its own tiers; ADNL stack replaces rldp2.messagePart transfer data with RLDP2-delivered payload; RLDP2 alone exposes FEC, retransmission, and failed-transfer overhead. Idle transports disappear. The peer-class filter does not apply because wire counters are all-peers. Log scale.",
+          "gridPos": {
+            "x": 12,
+            "y": 58,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "log",
+                  "log": 10
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (direction) (rate(ton_quic_wire_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (direction) (rate(ton_quic_app_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (direction) (rate(ton_adnl_wire_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (direction) (label_replace(rate(ton_adnl_app_bytes_total{tl!=\"rldp2.messagePart\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"layer\", \"adnl\", \"\", \"\") or label_replace(rate(ton_rldp2_app_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]), \"layer\", \"rldp2\", \"\", \"\")) > 0)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl stack {{direction}}"
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (direction) (rate(ton_rldp2_wire_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / (sum by (direction) (rate(ton_rldp2_app_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "rldp2 over adnl {{direction}}"
+            }
+          ]
+        }
+      ],
+      "title": "Traffic & efficiency",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "id": 45,
+      "panels": [
+        {
+          "id": 28,
+          "type": "timeseries",
+          "title": "App traffic by kind, count",
+          "description": "Messages, queries, and answers/s at each transport's app boundary, summed across selected nodes. QUIC is split by peer class; ADNL and RLDP2 remain all-peers. Query and answer rates should track; a growing gap means unanswered queries.",
+          "gridPos": {
+            "x": 0,
+            "y": 43,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (kind, direction) (rate(ton_adnl_app_messages_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{kind}} {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (trust, kind, direction) (rate(ton_quic_app_messages_total{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{trust}} {{kind}} {{direction}}"
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (kind, direction) (rate(ton_rldp2_app_messages_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "rldp2 {{kind}} {{direction}}"
+            }
+          ]
+        },
+        {
+          "id": 29,
+          "type": "timeseries",
+          "title": "App traffic by kind, bytes",
+          "description": "App payload bytes/s for the same events, summed across selected nodes. QUIC is split by peer class. Compare with counts for size per item: answers usually dominate bytes while queries dominate count on serving nodes.",
+          "gridPos": {
+            "x": 12,
+            "y": 43,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (kind, direction) (rate(ton_adnl_app_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{kind}} {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (trust, kind, direction) (rate(ton_quic_app_bytes_total{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{trust}} {{kind}} {{direction}}"
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (kind, direction) (rate(ton_rldp2_app_bytes_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "rldp2 {{kind}} {{direction}}"
+            }
+          ]
+        },
+        {
+          "id": 24,
+          "type": "timeseries",
+          "title": "Top payload types, inbound",
+          "description": "Inbound app payload bytes/s by resolved TL constructor. QUIC is split by peer class; ADNL remains all-peers. Routing envelopes are unwrapped. Fleet sum; rank-stable top 6 per transport.",
+          "gridPos": {
+            "x": 0,
+            "y": 52,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (trust, tl) (rate(ton_quic_app_bytes_total{direction=\"in\",trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(6, sum by (tl) (increase(ton_quic_app_bytes_total{direction=\"in\",trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{trust}} {{tl}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (tl) (rate(ton_adnl_app_bytes_total{direction=\"in\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(6, sum by (tl) (increase(ton_adnl_app_bytes_total{direction=\"in\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{tl}}"
+            }
+          ]
+        },
+        {
+          "id": 25,
+          "type": "timeseries",
+          "title": "Top payload types, outbound",
+          "description": "Outbound app payload bytes/s by resolved TL constructor. QUIC is split by peer class; ADNL remains all-peers. Broadcast FEC parts stay labeled as FEC constructors. Fleet sum; rank-stable top 6 per transport.",
+          "gridPos": {
+            "x": 12,
+            "y": 52,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (trust, tl) (rate(ton_quic_app_bytes_total{direction=\"out\",trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(6, sum by (tl) (increase(ton_quic_app_bytes_total{direction=\"out\",trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{trust}} {{tl}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (tl) (rate(ton_adnl_app_bytes_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(6, sum by (tl) (increase(ton_adnl_app_bytes_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{tl}}"
+            }
+          ]
+        },
+        {
+          "id": 26,
+          "type": "timeseries",
+          "title": "Top inbound QUIC queries by count",
+          "description": "Inbound QUIC queries/s by peer class and resolved TL constructor. The all-transport processing and failure panels remain above. Fleet sum; rank-stable top 10.",
+          "gridPos": {
+            "x": 0,
+            "y": 61,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (trust, tl) (rate(ton_quic_app_messages_total{kind=\"query\",direction=\"in\",trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(10, sum by (tl) (increase(ton_quic_app_messages_total{kind=\"query\",direction=\"in\",trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{trust}} {{tl}}"
+            }
+          ]
+        },
+        {
+          "id": 27,
+          "type": "timeseries",
+          "title": "Top outbound queries by count",
+          "description": "Outbound queries/s by type and transport, derived from roundtrip histogram counts. QUIC is split by peer class; ADNL and RLDP2 remain all-peers. Fleet sum; rank-stable top 5 per transport.",
+          "gridPos": {
+            "x": 12,
+            "y": 61,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (trust, tl) (rate(ton_quic_query_roundtrip_seconds_count{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(5, sum by (tl) (increase(ton_quic_query_roundtrip_seconds_count{trust=~\"$trust\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{trust}} {{tl}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (tl) (rate(ton_adnl_query_roundtrip_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(5, sum by (tl) (increase(ton_adnl_query_roundtrip_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{tl}}"
+            },
+            {
+              "refId": "C",
+              "expr": "sum by (tl) (rate(ton_rldp2_query_roundtrip_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(5, sum by (tl) (increase(ton_rldp2_query_roundtrip_seconds_count{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "rldp2 {{tl}}"
+            }
+          ]
+        },
+        {
+          "id": 30,
+          "type": "timeseries",
+          "title": "Broadcast content by type, count",
+          "description": "Overlay broadcast content after FEC reassembly, summed across selected nodes and ranked as a stable top 6 per direction. Inbound includes a node's own broadcasts; outbound is counted pre-FEC at send entry points.",
+          "gridPos": {
+            "x": 0,
+            "y": 70,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ops",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (tl) (rate(ton_overlay_broadcast_messages_total{direction=\"in\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(6, sum by (tl) (increase(ton_overlay_broadcast_messages_total{direction=\"in\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "in {{tl}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (tl) (rate(ton_overlay_broadcast_messages_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(6, sum by (tl) (increase(ton_overlay_broadcast_messages_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "out {{tl}}"
+            }
+          ]
+        },
+        {
+          "id": 31,
+          "type": "timeseries",
+          "title": "Broadcast content by type, bytes",
+          "description": "Broadcast content bytes/s, not wire bytes. Transport FEC-part bytes minus this signal the redundancy and duplicate-reception tax. Fleet sum; rank-stable top 6 per direction; inbound includes a node's own broadcasts.",
+          "gridPos": {
+            "x": 12,
+            "y": 70,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (tl) (rate(ton_overlay_broadcast_bytes_total{direction=\"in\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(6, sum by (tl) (increase(ton_overlay_broadcast_bytes_total{direction=\"in\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "in {{tl}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (tl) (rate(ton_overlay_broadcast_bytes_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) and on (tl) topk(6, sum by (tl) (increase(ton_overlay_broadcast_bytes_total{direction=\"out\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__range] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "out {{tl}}"
+            }
+          ]
+        }
+      ],
+      "title": "Workload composition",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "id": 46,
+      "panels": [
+        {
+          "id": 50,
+          "type": "timeseries",
+          "title": "RLDP2 latency p95",
+          "description": "Outbound RLDP2 query roundtrip and message-delivery p95 from fleet-summed histogram buckets. RLDP2 carries bulk transfers, so compare it separately from low-latency ADNL/QUIC. No data is normal when RLDP2 is idle. Delivery covers only sends carrying a timeout.",
+          "gridPos": {
+            "x": 0,
+            "y": 44,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(ton_rldp2_query_roundtrip_seconds_bucket{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "query roundtrip p95"
+            },
+            {
+              "refId": "B",
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(ton_rldp2_message_delivery_seconds_bucket{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "message delivery p95"
+            }
+          ]
+        },
+        {
+          "id": 51,
+          "type": "timeseries",
+          "title": "RLDP2 wire activity",
+          "description": "RLDP2 datagrams/s exchanged with ADNL across the fleet. A flat zero proves the metric is present while bulk transfer is idle. Transfer outcomes use their own panel and scale above.",
+          "gridPos": {
+            "x": 0,
+            "y": 52,
+            "w": 24,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "pps",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (direction) (rate(ton_rldp2_wire_packets_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "wire packets {{direction}}"
+            }
+          ]
+        },
+        {
+          "id": 52,
+          "type": "timeseries",
+          "title": "RLDP2 transfer failures",
+          "description": "Failed and timed-out whole RLDP2 transfers as a share of all terminal outcomes, split by direction. Completed transfers/s stays visible on the right axis as activity context without flattening the failure signal. Yellow at 1%; red at 5%.",
+          "gridPos": {
+            "x": 12,
+            "y": 44,
+            "w": 12,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "barAlignment": 0,
+                "axisPlacement": "auto",
+                "axisLabel": "failure share",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "line"
+                },
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 0.01
+                  },
+                  {
+                    "color": "red",
+                    "value": 0.05
+                  }
+                ]
+              },
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^completed "
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ops"
+                  },
+                  {
+                    "id": "custom.axisPlacement",
+                    "value": "right"
+                  },
+                  {
+                    "id": "custom.axisLabel",
+                    "value": "completed/s"
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 1
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.thresholdsStyle",
+                    "value": {
+                      "mode": "off"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ],
+              "sortBy": "Max",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "(sum by (direction, state) (rate(ton_rldp2_transport_transfers_total{state=~\"failed|timeout\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) / on (direction) group_left sum by (direction) (rate(ton_rldp2_transport_transfers_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))) and on (direction) (sum by (direction) (rate(ton_rldp2_transport_transfers_total{ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval])) > 0)",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "{{direction}} {{state}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (direction) (rate(ton_rldp2_transport_transfers_total{state=\"completed\",ton_scope=~\"$scope\",job=~\"$job\",instance=~\"$instance\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "completed {{direction}}"
+            }
+          ]
+        }
+      ],
+      "title": "RLDP2 bulk transfers",
+      "type": "row"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    }
+  ]
+}

@@ -13,6 +13,7 @@
 #include "td/actor/common.h"
 #include "td/actor/coro_utils.h"
 
+#include "actor-metrics.h"
 #include "collectors.h"
 
 namespace ton {
@@ -38,6 +39,7 @@ class PrometheusExporter final : public td::actor::Actor {
   td::actor::Task<> collect(metrics::Context ctx) {
     ctx.collect(stats_, "exporter");
     ctx.collect(perf_, "perf");
+    ctx.collect(actors_, "actor");
     {
       auto server_ctx = ctx.with_label("server", "exporter");
       co_await td::actor::ask(http_.get(), &http::HttpServer::collect, server_ctx);
@@ -93,6 +95,7 @@ class PrometheusExporter final : public td::actor::Actor {
     void collect(metrics::Context ctx) const;
   };
   PerfCounters perf_;
+  metrics::ActorMetrics actors_;
   std::vector<std::function<td::actor::Task<>(metrics::Context)>> collectors_;
 
   // A full gather fans out over every peer pair, connection and overlay, so concurrent or retrying

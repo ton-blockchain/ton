@@ -6,15 +6,18 @@
 
 #pragma once
 
+#include "common/AtomicRef.h"
 #include "consensus/misbehavior.h"
 #include "keyring/keyring.h"
 #include "overlay/overlays.h"
 #include "td/actor/BusRuntime.h"
 #include "ton/ton-types.h"
+#include "validator/collator-scoreboard.hpp"
 
 #include "chain-state.h"
 #include "manager-facade.h"
 #include "types.h"
+#include "validator-registry-watcher.hpp"
 
 namespace ton::validator::consensus {
 
@@ -47,9 +50,14 @@ struct OurLeaderWindowStarted {
   std::string contents_to_string() const;
 };
 
+struct OurLeaderWindowUpcoming {
+  td::uint32 start_slot;
+
+  std::string contents_to_string() const;
+};
+
 struct CandidateGenerated {
   CandidateRef candidate;
-  std::optional<adnl::AdnlNodeIdShort> collator_id;
 
   std::string contents_to_string() const;
 };
@@ -89,8 +97,11 @@ struct OutgoingProtocolMessage {
   struct BroadcastToRandom {
     size_t count;
   };
+  struct SendToPeer {
+    adnl::AdnlNodeIdShort peer;
+  };
 
-  using Recipient = std::variant<BroadcastToAll, BroadcastToValidators, BroadcastToRandom>;
+  using Recipient = std::variant<BroadcastToAll, BroadcastToValidators, BroadcastToRandom, SendToPeer>;
 
   Recipient recipient;
   ProtocolMessage message;
@@ -98,7 +109,19 @@ struct OutgoingProtocolMessage {
   std::string contents_to_string() const;
 };
 
-struct IncomingOverlayRequest {
+struct IncomingCandidateRequest {
+  using LogToDebug = std::true_type;
+  using ReturnType = ProtocolMessage;
+
+  std::optional<PeerValidatorId> source_validator;
+  adnl::AdnlNodeIdShort source;
+  ProtocolMessage request;
+
+  std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
+};
+
+struct IncomingCollatorRequest {
   using LogToDebug = std::true_type;
   using ReturnType = ProtocolMessage;
 
@@ -117,6 +140,7 @@ struct OutgoingOverlayRequest {
   std::optional<adnl::AdnlNodeIdShort> destination;
   td::Timestamp timeout;
   ProtocolMessage request;
+  td::uint64 max_answer_size;
 
   std::string contents_to_string() const;
   static std::string response_to_string(const ReturnType&);
@@ -147,6 +171,10 @@ struct NoncriticalParamsUpdated {
   std::string contents_to_string() const;
 };
 
+struct ValidatorOptionsUpdated {
+  std::string contents_to_string() const;
+};
+
 struct PrecheckCandidateBroadcast {
   using ReturnType = td::Unit;
 
@@ -171,10 +199,11 @@ class Db {
 
 class Bus : public td::actor::Bus {
  public:
-  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, CandidateGenerated,
-                              CandidateReceived, ValidationRequest, IncomingProtocolMessage, OutgoingProtocolMessage,
-                              IncomingOverlayRequest, OutgoingOverlayRequest, BlockFinalizedInMasterchain,
-                              MisbehaviorReport, TraceEvent, NoncriticalParamsUpdated, PrecheckCandidateBroadcast>;
+  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowUpcoming,
+                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
+                              OutgoingProtocolMessage, IncomingCandidateRequest, IncomingCollatorRequest,
+                              OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent,
+                              NoncriticalParamsUpdated, ValidatorOptionsUpdated, PrecheckCandidateBroadcast>;
 
   Bus() = default;
   ~Bus() override {
@@ -191,7 +220,7 @@ class Bus : public td::actor::Bus {
   ShardIdFull shard;
   td::actor::ActorId<ManagerFacade> manager;
   td::actor::ActorId<keyring::Keyring> keyring;
-  td::Ref<ValidatorManagerOptions> validator_opts;
+  mutable td::AtomicRef<ValidatorManagerOptions> validator_opts;
 
   std::vector<PeerValidator> validator_set;
   ValidatorWeight total_weight;
@@ -200,7 +229,11 @@ class Bus : public td::actor::Bus {
   std::optional<PeerValidator> local_id;
 
   adnl::AdnlNodeIdShort local_adnl_id;
-  std::vector<adnl::AdnlNodeIdShort> all_validators;
+  std::vector<adnl::AdnlNodeIdShort> all_overlay_nodes;
+  std::set<adnl::AdnlNodeIdShort> all_current_validators;
+  bool is_collator = false;
+  std::set<adnl::AdnlNodeIdShort> all_collators;
+  td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
 
   NewConsensusConfig config;
 

@@ -70,6 +70,8 @@ set(VALIDATOR_HEADERS
   validate-broadcast.hpp
   validator-group.hpp
   validator-options.hpp
+  collator-scoreboard.hpp
+  validator-registry-watcher.hpp
   validator.h
 )
 set(VALIDATOR_SOURCE
@@ -84,6 +86,8 @@ set(VALIDATOR_SOURCE
   storage-stat-cache.cpp
   shard-block-verifier.cpp
   shard-block-retainer.cpp
+  collator-scoreboard.cpp
+  validator-registry-watcher.cpp
   impl/applied-ext-message-cleanup.cpp
 
   manager.cpp
@@ -92,6 +96,7 @@ set(VALIDATOR_SOURCE
   consensus/simplex/bus.cpp
   consensus/simplex/candidate-resolver.cpp
   consensus/simplex/certificate.cpp
+  consensus/simplex/collator-producer.cpp
   consensus/simplex/collator-schedule.cpp
   consensus/simplex/consensus.cpp
   consensus/simplex/db.cpp
@@ -112,6 +117,7 @@ set(VALIDATOR_SOURCE
   consensus/stats.cpp
   consensus/types.cpp
   consensus/utils.cpp
+  consensus/window-producer.cpp
 
   ${VALIDATOR_HEADERS}
 )

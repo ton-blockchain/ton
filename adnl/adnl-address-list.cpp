@@ -117,7 +117,10 @@ class AdnlNetworkConnectionTunnel : public AdnlNetworkConnection {
 
 void AdnlNetworkConnectionUdp::send(AdnlNodeIdShort src, AdnlNodeIdShort dst, td::uint32 priority,
                                     td::BufferSlice message) {
-  LOG_CHECK(message.size() <= AdnlNetworkManager::get_mtu()) << "dst=" << addr_ << " size=" << message.size();
+  if (message.size() > AdnlNetworkManager::get_mtu()) {
+    VLOG(adnl, ERROR) << "Dropping too big outbound packet dst=" << addr_ << " size=" << message.size();
+    return;
+  }
   td::actor::send_closure(network_manager_, &AdnlNetworkManager::send_udp_packet, src, dst, addr_, priority,
                           std::move(message));
 }

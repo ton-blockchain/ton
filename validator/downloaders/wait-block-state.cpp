@@ -96,14 +96,14 @@ void WaitBlockState::start() {
   }();
   if (tontester_mode && handle_->id().id.seqno == 0 && !checked_celldb_) {
     checked_celldb_ = true;
-    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<std::shared_ptr<vm::CellDbReader>> R) {
+    auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<vm::DataCell>> R) {
       if (R.is_error()) {
         td::actor::send_closure(SelfId, &WaitBlockState::start);
       } else {
-        td::actor::send_closure(SelfId, &WaitBlockState::try_load_zero_state_from_celldb, R.move_as_ok());
+        td::actor::send_closure(SelfId, &WaitBlockState::loaded_zero_state_from_celldb, R.move_as_ok());
       }
     });
-    td::actor::send_closure(manager_, &ValidatorManager::get_cell_db_reader, std::move(P));
+    td::actor::send_closure(manager_, &ValidatorManager::get_cell_from_cell_db, handle_->id().root_hash, std::move(P));
     return;
   }
   if (handle_->id().id.seqno == 0 && next_static_file_attempt_.is_in_past()) {
@@ -352,17 +352,11 @@ void WaitBlockState::got_state_from_db(td::Ref<ShardState> state, bool force_rea
   }
 }
 
-void WaitBlockState::try_load_zero_state_from_celldb(std::shared_ptr<vm::CellDbReader> reader) {
+void WaitBlockState::loaded_zero_state_from_celldb(td::Ref<vm::DataCell> cell) {
   if (force_reading_from_db_) {
     return;
   }
-  auto r_cell = reader->load_cell(handle_->id().root_hash.as_slice());
-  if (r_cell.is_error()) {
-    // zero state is not in celldb, fall through to static file / network
-    start();
-    return;
-  }
-  auto r_state = create_shard_state(handle_->id(), r_cell.move_as_ok());
+  auto r_state = create_shard_state(handle_->id(), cell);
   if (r_state.is_error()) {
     LOG(WARNING) << "failed to create zero state from celldb root: " << r_state.move_as_error();
     start();

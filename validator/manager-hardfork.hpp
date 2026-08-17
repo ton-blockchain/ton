@@ -184,6 +184,9 @@ class ValidatorManagerImpl : public ValidatorManager {
     UNREACHABLE();
   }
   void get_cell_db_reader(td::Promise<std::shared_ptr<vm::CellDbReader>> promise) override;
+  void get_cell_from_cell_db(td::Bits256 hash, td::Promise<td::Ref<vm::DataCell>> promise) override {
+    td::actor::send_closure(db_, &Db::get_cell_from_cell_db, hash, std::move(promise));
+  }
   void store_persistent_state_file(BlockIdExt block_id, BlockIdExt masterchain_block_id, PersistentStateType type,
                                    td::BufferSlice state, td::Promise<td::Unit> promise) override {
     UNREACHABLE();
@@ -469,18 +472,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     opts_ = std::move(opts);
   }
   void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) override {
-  }
-
-  void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
-    UNREACHABLE();
-  }
-  void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) override {
-    UNREACHABLE();
-  }
-
-  void get_collation_manager_stats(
-      td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) override {
-    UNREACHABLE();
   }
 
  private:

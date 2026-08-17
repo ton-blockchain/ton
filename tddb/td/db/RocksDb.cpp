@@ -30,6 +30,7 @@
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/write_batch.h"
 #include "td/db/RocksDb.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/misc.h"
 
 namespace td {
@@ -360,6 +361,7 @@ Status RocksDb::begin_transaction() {
 }
 
 Status RocksDb::commit_write_batch() {
+  TD_PERF_COUNTER(rocksdb_commit_write_batch);
   CHECK(write_batch_);
   auto write_batch = std::move(write_batch_);
   rocksdb::WriteOptions options;
@@ -368,6 +370,7 @@ Status RocksDb::commit_write_batch() {
 }
 
 Status RocksDb::commit_transaction() {
+  TD_PERF_COUNTER(rocksdb_commit_transaction);
   CHECK(transaction_);
   auto transaction = std::move(transaction_);
   return from_rocksdb(transaction->Commit());

@@ -23,7 +23,7 @@ IF %errorlevel% NEQ 0 (
 choco feature enable -n allowEmptyChecksums
 
 echo Installing tools...
-choco install -y pkgconfiglite ninja nasm
+choco install -y ninja nasm
 IF %errorlevel% NEQ 0 (
   echo Can't install tools
   exit /b %errorlevel%
@@ -58,17 +58,17 @@ ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonli
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator ^
 proxy-liteserver all-tests
-IF %errorlevel% NEQ 0 (
+IF ERRORLEVEL 1 (
   echo Can't compile TON
-  exit /b %errorlevel%
+  exit /b 1
 )
 ) else (
 ninja storage-daemon storage-daemon-cli blockchain-explorer fift func tolk tonlib tonlibjson  ^
 tonlib-cli validator-engine lite-client validator-engine-console generate-random-id ^
 json2tlo dht-server http-proxy rldp-http-proxy create-state create-hardfork emulator proxy-liteserver
-IF %errorlevel% NEQ 0 (
+IF ERRORLEVEL 1 (
   echo Can't compile TON
-  exit /b %errorlevel%
+  exit /b 1
 )
 )
 
@@ -82,6 +82,10 @@ echo Strip and copy artifacts
 cd ..
 echo where strip
 where strip
+IF ERRORLEVEL 1 (
+  echo strip not found
+  exit /b 1
+)
 mkdir artifacts
 mkdir artifacts\smartcont
 mkdir artifacts\lib
@@ -106,9 +110,30 @@ for %%I in (build\storage\storage-daemon\storage-daemon.exe ^
   build\utils\json2tlo.exe ^
   build\utils\proxy-liteserver.exe ^
   build\emulator\emulator.dll) do (
-    echo strip -s %%I & copy %%I artifacts\
-    strip -s %%I & copy %%I artifacts\
+    IF NOT EXIST "%%I" (
+      echo Missing artifact %%I
+      exit /b 1
+    )
+    echo strip -s %%I
+    strip -s "%%I"
+    IF ERRORLEVEL 1 (
+      echo Can't strip %%I
+      exit /b 1
+    )
+    copy "%%I" artifacts\
+    IF ERRORLEVEL 1 (
+      echo Can't copy %%I
+      exit /b 1
+    )
 )
 
 xcopy /e /k /h /i crypto\smartcont artifacts\smartcont
+IF ERRORLEVEL 1 (
+  echo Can't copy smartcont artifacts
+  exit /b 1
+)
 xcopy /e /k /h /i crypto\fift\lib artifacts\lib
+IF ERRORLEVEL 1 (
+  echo Can't copy fift lib artifacts
+  exit /b 1
+)

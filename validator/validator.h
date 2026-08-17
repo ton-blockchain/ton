@@ -80,15 +80,9 @@ struct CollatorOptions : public td::CntObject {
 };
 
 struct CollatorsList : public td::CntObject {
-  enum SelectMode { mode_random, mode_ordered, mode_round_robin };
-  struct Shard {
-    ShardIdFull shard_id;
-    SelectMode select_mode = mode_random;
-    std::vector<adnl::AdnlNodeIdShort> collators;
-    bool self_collate = false;
-  };
-  std::vector<Shard> shards;
-  bool self_collate = false;
+  std::vector<adnl::AdnlNodeIdShort> collators;
+  std::vector<adnl::AdnlNodeIdShort> register_collators;
+  bool disable_self_collate = false;
 
   td::Status unpack(const ton_api::engine_validator_collatorsList& obj);
   static CollatorsList default_list();
@@ -413,15 +407,14 @@ class ValidatorManagerInterface : public td::actor::Actor {
   virtual void unregister_stats_provider(td::uint64 idx) {
   }
 
-  virtual void add_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
-  virtual void del_collator(adnl::AdnlNodeIdShort id, ShardIdFull shard) = 0;
+  virtual void add_collator(adnl::AdnlNodeIdShort id) {
+  }
+  virtual void del_collator(adnl::AdnlNodeIdShort id) {
+  }
 
   virtual void add_out_msg_queue_proof(ShardIdFull dst_shard, td::Ref<OutMsgQueueProof> proof) {
     LOG(ERROR) << "Unimplemented add_out_msg_queu_proof - ignore broadcast";
   }
-
-  virtual void get_collation_manager_stats(
-      td::Promise<tl_object_ptr<ton_api::engine_validator_collationManagerStats>> promise) = 0;
 
   virtual void add_shard_block_retainer(adnl::AdnlNodeIdShort id) {
     LOG(ERROR) << "Unimplemented add_shard_block_retainer";

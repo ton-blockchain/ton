@@ -23,15 +23,19 @@
 
 #include "interfaces/validator-manager.h"
 
+#include "validator-registry-watcher.hpp"
+
 namespace ton {
 
 namespace validator {
 
+class CollatorScoreboard;
 class ValidatorManager;
 
 struct GroupIdentity {
   adnl::AdnlNodeIdShort adnl_id;
-  std::optional<PublicKeyHash> short_id;
+  std::optional<PublicKeyHash> short_id = std::nullopt;
+  bool is_collator = false;
   bool suffix_db = true;
 
   std::strong_ordering operator<=>(const GroupIdentity&) const = default;
@@ -57,7 +61,11 @@ struct GroupParams {
   td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender;
   std::string db_root;
 
-  std::vector<adnl::AdnlNodeIdShort> all_validators;
+  std::vector<adnl::AdnlNodeIdShort> all_overlay_nodes;
+  std::set<adnl::AdnlNodeIdShort> all_current_validators;
+  bool is_collator = false;
+  std::set<adnl::AdnlNodeIdShort> all_collators;
+  td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
 };
 
 class IValidatorGroup : public td::actor::Actor {
@@ -82,6 +90,8 @@ struct ManagerContext {
   std::string db_root;
 
   std::set<PublicKeyHash> validator_keys;
+  std::set<adnl::AdnlNodeIdShort> local_collator_adnl_ids;
+  td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
 };
 
 struct ValidatorGroupCount {
@@ -93,9 +103,9 @@ class NetworkState {
  public:
   virtual ~NetworkState() = default;
 
-  static std::unique_ptr<NetworkState> create(BlockSeqno start_seqno);
+  static std::unique_ptr<NetworkState> create(BlockSeqno start_seqno, td::Ref<MasterchainState> previous_rotation);
 
-  virtual void update(const MasterchainState& state, ManagerContext ctx) = 0;
+  virtual void update(Ref<MasterchainState> state_ref, ManagerContext ctx) = 0;
   virtual void update_options(td::Ref<ValidatorManagerOptions> opts) = 0;
 
   virtual ValidatorGroupCount validator_group_count() const = 0;

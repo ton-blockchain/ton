@@ -1709,13 +1709,12 @@ td::Status DelShardQuery::receive(td::BufferSlice data) {
 
 td::Status AddCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
-  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<ton::ShardIdFull>());
+  TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
 td::Status AddCollatorQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addCollator>(adnl_id_.tl(),
-                                                                                       ton::create_tl_shard_id(shard_));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_addCollator>(adnl_id_.tl());
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1723,7 +1722,7 @@ td::Status AddCollatorQuery::send() {
 td::Status AddCollatorQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
-  td::TerminalIO::out() << "successfully added collator for shard " << shard_.to_str() << "\n";
+  td::TerminalIO::out() << "successfully added collator\n";
   td::TerminalIO::out() << "ADNL ID = " << adnl_id_.bits256_value().to_hex() << " (" << adnl_id_.bits256_value()
                         << ")\n";
   return td::Status::OK();
@@ -1731,13 +1730,12 @@ td::Status AddCollatorQuery::receive(td::BufferSlice data) {
 
 td::Status DelCollatorQuery::run() {
   TRY_RESULT_ASSIGN(adnl_id_, tokenizer_.get_token<ton::PublicKeyHash>());
-  TRY_RESULT_ASSIGN(shard_, tokenizer_.get_token<ton::ShardIdFull>());
+  TRY_STATUS(tokenizer_.check_endl());
   return td::Status::OK();
 }
 
 td::Status DelCollatorQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delCollator>(adnl_id_.tl(),
-                                                                                       ton::create_tl_shard_id(shard_));
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_delCollator>(adnl_id_.tl());
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
   return td::Status::OK();
 }
@@ -1745,7 +1743,7 @@ td::Status DelCollatorQuery::send() {
 td::Status DelCollatorQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
                     "received incorrect answer: ");
-  td::TerminalIO::out() << "successfully removed collator for shard " << shard_.to_str() << "\n";
+  td::TerminalIO::out() << "successfully removed collator\n";
   td::TerminalIO::out() << "ADNL ID = " << adnl_id_.bits256_value().to_hex() << " (" << adnl_id_.bits256_value()
                         << ")\n";
   return td::Status::OK();
@@ -1893,82 +1891,16 @@ td::Status ShowCollatorsListQuery::receive(td::BufferSlice data) {
   TRY_RESULT_PREFIX(list, ton::fetch_tl_object<ton::ton_api::engine_validator_collatorsList>(data.as_slice(), true),
                     "received incorrect answer: ");
   td::TerminalIO::out() << "Collators list:\n";
-  if (list->shards_.empty()) {
-    td::TerminalIO::out() << "Shard list is empty\n";
-    return td::Status::OK();
+  if (list->collators_.empty() && list->register_collators_.empty()) {
+    td::TerminalIO::out() << "List is empty\n";
   }
-  for (const auto &shard : list->shards_) {
-    td::TerminalIO::out() << "Shard " << create_shard_id(shard->shard_id_).to_str() << "\n";
-    td::TerminalIO::out() << "  Self collate = " << shard->self_collate_ << "\n";
-    td::TerminalIO::out() << "  Select mode = " << shard->select_mode_ << "\n";
-    for (const auto &collator : shard->collators_) {
-      td::TerminalIO::out() << "  Collator " << collator->adnl_id_ << "\n";
-    }
+  for (const auto &collator : list->collators_) {
+    td::TerminalIO::out() << "Collator " << collator->adnl_id_ << "\n";
   }
-  return td::Status::OK();
-}
-
-td::Status GetCollationManagerStatsQuery::run() {
-  TRY_STATUS(tokenizer_.check_endl());
-  return td::Status::OK();
-}
-
-td::Status GetCollationManagerStatsQuery::send() {
-  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_getCollationManagerStats>();
-  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
-  return td::Status::OK();
-}
-
-td::Status GetCollationManagerStatsQuery::receive(td::BufferSlice data) {
-  TRY_RESULT_PREFIX(list,
-                    ton::fetch_tl_object<ton::ton_api::engine_validator_collationManagerStats>(data.as_slice(), true),
-                    "received incorrect answer: ");
-  if (list->local_ids_.empty()) {
-    td::TerminalIO::out() << "No stats\n";
-    return td::Status::OK();
-    ;
+  for (const auto &collator : list->register_collators_) {
+    td::TerminalIO::out() << "Register collator " << collator->adnl_id_ << "\n";
   }
-  for (auto &stats : list->local_ids_) {
-    td::TerminalIO::out() << "VALIDATOR ADNL ID = " << stats->adnl_id_ << "\n";
-    std::map<td::Bits256, ton::ton_api::engine_validator_collationManagerStats_collator *> collators;
-    for (auto &collator : stats->collators_) {
-      collators[collator->adnl_id_] = collator.get();
-    }
-    for (auto &shard : stats->shards_) {
-      td::TerminalIO::out() << "  Shard " << create_shard_id(shard->shard_id_).to_str() << "\n";
-      td::TerminalIO::out() << "    Self collate = " << shard->self_collate_ << "\n";
-      td::TerminalIO::out() << "    Select mode = " << shard->select_mode_ << "\n";
-      td::TerminalIO::out() << "    Active = " << shard->active_ << "\n";
-      td::TerminalIO::out() << "    Collators: " << shard->collators_.size() << "\n";
-      for (auto &id : shard->collators_) {
-        auto collator = collators[id];
-        if (collator == nullptr) {
-          return td::Status::Error("collator not found");
-        }
-        td::StringBuilder sb;
-        sb << "      " << id << "\n";
-        sb << "        alive=" << (int)collator->alive_;
-        if (collator->active_) {
-          sb << " ping_in=" << td::StringBuilder::FixedDouble(std::max(collator->ping_in_, 0.0), 3);
-        }
-        sb << " last_ping_ago=";
-        if (collator->last_ping_ago_ < 0.0) {
-          sb << "never";
-        } else {
-          std::string status = collator->last_ping_status_;
-          std::erase_if(status, [](char c) { return c < (char)32; });
-          if (status.size() > 128) {
-            status.resize(128);
-          }
-          sb << td::StringBuilder::FixedDouble(collator->last_ping_ago_, 3) << ": " << status;
-        }
-        if (collator->banned_for_ > 0.0) {
-          sb << " banned_for=" << td::StringBuilder::FixedDouble(std::max(collator->banned_for_, 0.0), 3);
-        }
-        td::TerminalIO::out() << sb.as_cslice() << "\n";
-      }
-    }
-  }
+  td::TerminalIO::out() << "Disable self collate = " << list->disable_self_collate_ << "\n";
   return td::Status::OK();
 }
 

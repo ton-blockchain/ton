@@ -215,7 +215,10 @@ struct NamedPerfCounter {
 
     ~ScopedPerfCounterRef() {
       perf_counter.count.add(1);
-      perf_counter.duration.add(td::Clocks::rdtsc() - started_at_ticks);
+      auto finished_at_ticks = td::Clocks::rdtsc();
+      if (likely(finished_at_ticks >= started_at_ticks)) {
+        perf_counter.duration.add(finished_at_ticks - started_at_ticks);
+      }
     }
   };
 

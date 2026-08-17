@@ -1,3 +1,4 @@
+#include "td/actor/ActorStats.h"
 #include "td/actor/TestScheduler.h"
 #include "td/actor/coro_utils.h"
 #include "td/utils/tests.h"
@@ -411,6 +412,39 @@ TEST(TestScheduler, CpuBeforeAlarms) {
     co_return {};
   });
   EXPECT_EQ(events, (std::vector<int>{0, 1, 2, 3}));
+}
+
+TEST(TestScheduler, ActorStatsWorksWithoutSchedulerGroup) {
+  struct IoActor final : Actor {
+    void start_up() override {
+      stop();
+    }
+  };
+
+  auto was_debug_enabled = core::need_debug();
+  core::set_debug(true);
+
+  TestScheduler scheduler;
+  scheduler.run([&]() -> Task<> {
+    auto stats = create_actor<ActorStats>("actor stats");
+    create_actor<IoActor>(ActorOptions().with_name("io actor").with_poll()).release();
+    co_await scheduler.wait_sync_work();
+    auto text = co_await ask(stats, &ActorStats::prepare_stats);
+    EXPECT(text.find("ACTORS STATS") != std::string::npos);
+    EXPECT(text.find("ActorStats") != std::string::npos);
+    auto raw = core::ActorTypeStatManager::get_stats(1);
+    auto coroutine = raw.stats.find(typeid(core::CoroutineResume));
+    EXPECT(coroutine != raw.stats.end());
+    if (coroutine != raw.stats.end()) {
+      EXPECT_EQ(coroutine->second.executing, 1);
+    }
+    EXPECT(raw.stats.contains(typeid(IoActor)));
+    EXPECT(raw.by_worker[static_cast<size_t>(core::WorkerKind::Io)].messages > 0);
+    EXPECT(raw.by_worker[static_cast<size_t>(core::WorkerKind::Cpu)].messages > 0);
+    co_return {};
+  });
+
+  core::set_debug(was_debug_enabled);
 }
 
 }  // namespace

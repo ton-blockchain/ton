@@ -43,21 +43,28 @@ class QuicSender : public adnl::AdnlSenderEx {
 
  private:
   struct Connection {
+    struct PendingQuery {
+      td::Promise<td::BufferSlice> promise;
+      Trust trust;
+    };
+
     // An outbound message awaiting the empty response the peer answers it with.
     struct PendingMessage {
       td::int32 magic;
       td::Timer timer;
+      Trust trust;
     };
 
     bool init_started = false;
     bool is_ready = false;
     bool is_outbound = false;
+    Trust trust = Trust::untrusted;
     QuicConnectionId cid{};
     AdnlPath path{};
     td::actor::ActorId<QuicServer> server;
     std::vector<td::Promise<td::Unit>> waiting_ready{};
     std::optional<td::Status> init_error{};
-    std::unordered_map<QuicStreamID, td::Promise<td::BufferSlice>> responses{};
+    std::unordered_map<QuicStreamID, PendingQuery> responses{};
     std::unordered_map<QuicStreamID, PendingMessage> messages{};
 
     ~Connection();
@@ -71,9 +78,7 @@ class QuicSender : public adnl::AdnlSenderEx {
   td::actor::ActorId<keyring::Keyring> keyring_;
   QuicServer::Options server_options_;
 
-  metrics::App app_;
-  metrics::TlLatencyBucket query_roundtrip_{"quic query roundtrip", "seconds"};
-  metrics::TlLatencyBucket message_delivery_{"quic message delivery", "seconds"};
+  metrics::Labeled<PeerMetrics, Trust> peer_metrics_;
 
   std::map<AdnlPath, std::shared_ptr<Connection>> outbound_;
   std::map<AdnlPath, std::shared_ptr<Connection>> inbound_;
@@ -88,18 +93,19 @@ class QuicSender : public adnl::AdnlSenderEx {
 
   td::actor::Task<td::Unit> send_message_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                               td::BufferSlice data);
-  td::actor::Task<td::Unit> send_message_coro_inner(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
-                                                    td::BufferSlice data, td::int32 magic);
+  td::actor::Task<td::Unit> send_message_coro_inner(std::shared_ptr<Connection> connection, td::BufferSlice data,
+                                                    td::int32 magic, Trust trust);
   td::actor::Task<td::BufferSlice> send_query_coro(adnl::AdnlNodeIdShort src, adnl::AdnlNodeIdShort dst,
                                                    std::string name, td::Timestamp timeout, td::BufferSlice data,
                                                    std::optional<td::uint64> limit);
   // Takes a ready connection: the round-trip timer is already running by the time it is entered.
   td::actor::Task<td::BufferSlice> send_query_coro_inner(std::shared_ptr<Connection> conn, StreamOptions options,
-                                                         td::BufferSlice data);
+                                                         td::BufferSlice data, Trust trust);
   td::actor::Task<std::string> get_conn_ip_str_coro(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id);
   td::actor::Task<> add_local_id_coro(adnl::AdnlNodeIdShort local_id);
 
-  td::actor::Task<std::shared_ptr<Connection>> find_or_create_connection(AdnlPath path);
+  std::shared_ptr<Connection> get_or_create_connection(AdnlPath path);
+  td::actor::Task<std::shared_ptr<Connection>> wait_connection_ready(std::shared_ptr<Connection> connection);
   td::actor::Task<td::Unit> init_connection(AdnlPath path, std::shared_ptr<Connection> connection);
   td::actor::Task<td::Unit> init_connection_inner(AdnlPath path, std::shared_ptr<Connection> conn);
   void finish_connection_init(const std::shared_ptr<Connection>& connection, td::Result<td::Unit> result);
@@ -124,6 +130,8 @@ class QuicSender : public adnl::AdnlSenderEx {
   void on_answer(Connection& connection, QuicStreamID stream_id, ton_api::quic_answer& answer);
   // Closes an outbound message's delivery entry, if the stream carried one.
   void record_message_delivery(Connection& connection, QuicStreamID stream_id, bool ok);
+
+  Trust peer_trust(const AdnlPath& path);
 
   static td::Result<td::IPAddress> get_ip_address(const adnl::AdnlNode& node);
 };

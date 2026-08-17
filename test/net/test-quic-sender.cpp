@@ -366,6 +366,13 @@ class TestRunner : public td::actor::Actor {
     td::actor::send_closure(from.quic_sender, &ton::quic::QuicSender::send_message, from.id, to.id, std::move(msg));
   }
 
+  td::actor::Task<std::string> collect_quic_metrics(TestNode& node) {
+    ton::metrics::Sink sink;
+    auto ctx = ton::metrics::Context{sink}.with_name("ton");
+    co_await td::actor::ask(node.quic_sender, &ton::quic::QuicSender::collect, ctx);
+    co_return std::move(sink).build().render();
+  }
+
   template <class Predicate>
   td::actor::Task<td::Unit> wait_until(Predicate&& predicate, double timeout) {
     auto deadline = td::Timestamp::in(timeout);
@@ -712,6 +719,21 @@ void jump_time_by(double dt) {
   jump_time_to(td::Time::now() + dt);
 }
 
+void assert_ready_connections(const std::string& metrics, td::Slice direction, td::Slice trust, td::uint64 value) {
+  auto line = PSTRING() << "ton_quic_transport_connections_ready{direction=\"" << direction << "\",trust=\"" << trust
+                        << "\"} " << static_cast<double>(value) << '\n';
+  ASSERT_TRUE(metrics.find(line) != std::string::npos);
+}
+
+bool has_metric(const std::string& metrics, td::Slice sample, td::uint64 value) {
+  auto line = PSTRING() << sample << ' ' << static_cast<double>(value) << '\n';
+  return metrics.find(line) != std::string::npos;
+}
+
+void assert_metric(const std::string& metrics, td::Slice sample, td::uint64 value) {
+  ASSERT_TRUE(has_metric(metrics, sample, value));
+}
+
 }  // namespace
 
 TEST(QuicSender, BasicQuery) {
@@ -728,6 +750,123 @@ TEST(QuicSender, BasicQuery) {
     auto resp2 = co_await t.send_query(b, a, "b-to-a");
     ASSERT_EQ(resp2.as_slice(), td::Slice("Qb-to-a"));
 
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, ReadyMetricsByDirectionAndTrust) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("metrics-a", next_port());
+    auto b = co_await t.create_node("metrics-b", next_port());
+    // QuicSender::add_id completes asynchronously.
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+
+    co_await t.send_query(a, b, "outbound");
+    co_await t.send_query(b, a, "inbound");
+    t.send_message(a, b, "outbound");
+    t.send_message(b, a, "inbound");
+    co_await t.wait_until([&] { return a.received_messages->size() == 1 && b.received_messages->size() == 1; }, 2.0);
+
+    auto metrics = co_await t.collect_quic_metrics(a);
+    assert_ready_connections(metrics, "in", "trusted", 0);
+    assert_ready_connections(metrics, "in", "untrusted", 1);
+    assert_ready_connections(metrics, "out", "trusted", 0);
+    assert_ready_connections(metrics, "out", "untrusted", 1);
+
+    constexpr td::uint64 mtu = 4'096;
+    co_await td::actor::ask(a.quic_sender, &ton::adnl::AdnlSenderEx::add_peer_mtu, a.id, b.id, mtu, true);
+    co_await t.send_query(a, b, "trusted-outbound");
+    co_await t.send_query(b, a, "trusted-inbound");
+    t.send_message(a, b, "trusted-outbound");
+    t.send_message(b, a, "trusted-inbound");
+    co_await t.wait_until([&] { return a.received_messages->size() == 2 && b.received_messages->size() == 2; }, 2.0);
+    auto deadline = td::Timestamp::in(2.0);
+    while (true) {
+      metrics = co_await t.collect_quic_metrics(a);
+      if (has_metric(metrics, "ton_quic_message_delivery_seconds_count{trust=\"trusted\",tl=\"unknown\"}", 1) &&
+          has_metric(metrics, "ton_quic_message_delivery_seconds_count{trust=\"untrusted\",tl=\"unknown\"}", 1)) {
+        break;
+      }
+      ASSERT_TRUE(!deadline.is_in_past());
+      co_await td::actor::yield_on_current();
+    }
+    assert_ready_connections(metrics, "in", "trusted", 1);
+    assert_ready_connections(metrics, "in", "untrusted", 0);
+    assert_ready_connections(metrics, "out", "trusted", 1);
+    assert_ready_connections(metrics, "out", "untrusted", 0);
+    for (auto trust : {td::Slice("trusted"), td::Slice("untrusted")}) {
+      assert_metric(metrics,
+                    PSTRING() << "ton_quic_app_messages_total{trust=\"" << trust
+                              << "\",kind=\"query\",direction=\"out\",tl=\"unknown\"}",
+                    1);
+      assert_metric(metrics,
+                    PSTRING() << "ton_quic_app_messages_total{trust=\"" << trust
+                              << "\",kind=\"query\",direction=\"in\",tl=\"unknown\"}",
+                    1);
+      assert_metric(metrics,
+                    PSTRING() << "ton_quic_app_messages_total{trust=\"" << trust
+                              << "\",kind=\"answer\",direction=\"out\",tl=\"unknown\"}",
+                    1);
+      assert_metric(metrics,
+                    PSTRING() << "ton_quic_app_messages_total{trust=\"" << trust
+                              << "\",kind=\"answer\",direction=\"in\",tl=\"unknown\"}",
+                    1);
+      assert_metric(metrics,
+                    PSTRING() << "ton_quic_query_roundtrip_seconds_count{trust=\"" << trust << "\",tl=\"unknown\"}", 1);
+      assert_metric(metrics,
+                    PSTRING() << "ton_quic_app_messages_total{trust=\"" << trust
+                              << "\",kind=\"message\",direction=\"out\",tl=\"unknown\"}",
+                    1);
+      assert_metric(metrics,
+                    PSTRING() << "ton_quic_app_messages_total{trust=\"" << trust
+                              << "\",kind=\"message\",direction=\"in\",tl=\"unknown\"}",
+                    1);
+      assert_metric(
+          metrics, PSTRING() << "ton_quic_message_delivery_seconds_count{trust=\"" << trust << "\",tl=\"unknown\"}", 1);
+    }
+
+    co_await td::actor::ask(a.quic_sender, &ton::adnl::AdnlSenderEx::remove_peer_mtu, a.id, b.id, mtu, true);
+    metrics = co_await t.collect_quic_metrics(a);
+    assert_ready_connections(metrics, "in", "trusted", 0);
+    assert_ready_connections(metrics, "in", "untrusted", 1);
+    assert_ready_connections(metrics, "out", "trusted", 0);
+    assert_ready_connections(metrics, "out", "untrusted", 1);
+    co_return td::Unit{};
+  });
+}
+
+TEST(QuicSender, QueryMetricsKeepStartingTrust) {
+  run_test([](TestRunner& t) -> td::actor::Task<td::Unit> {
+    auto a = co_await t.create_node("snapshot-a", next_port());
+    auto b = co_await t.create_node("snapshot-b", next_port());
+    t.add_peer(a, b);
+    t.add_peer(b, a);
+    t.set_slow_echo(b, 0.05);
+    // QuicSender::add_id and Adnl::subscribe complete asynchronously.
+    co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
+
+    constexpr td::uint64 mtu = 4'096;
+    co_await td::actor::ask(a.quic_sender, &ton::adnl::AdnlSenderEx::add_peer_mtu, a.id, b.id, mtu, true);
+    auto pending = t.send_slow_query_ex(a, b, "snapshot", 2.0, 1 << 20).start_immediate();
+    co_await td::actor::ask(a.quic_sender, &ton::adnl::AdnlSenderEx::remove_peer_mtu, a.id, b.id, mtu, true);
+
+    auto response = co_await std::move(pending);
+    ASSERT_EQ(response.as_slice(), td::Slice("Ssnapshot"));
+    auto metrics = co_await t.collect_quic_metrics(a);
+    assert_metric(metrics,
+                  "ton_quic_app_messages_total{trust=\"trusted\",kind=\"query\",direction=\"out\",tl=\"unknown\"}", 1);
+    assert_metric(metrics,
+                  "ton_quic_app_messages_total{trust=\"trusted\",kind=\"answer\",direction=\"in\",tl=\"unknown\"}", 1);
+    assert_metric(metrics, "ton_quic_query_roundtrip_seconds_count{trust=\"trusted\",tl=\"unknown\"}", 1);
+    assert_metric(
+        metrics, "ton_quic_app_messages_total{trust=\"untrusted\",kind=\"query\",direction=\"out\",tl=\"unknown\"}", 0);
+    assert_metric(
+        metrics, "ton_quic_app_messages_total{trust=\"untrusted\",kind=\"answer\",direction=\"in\",tl=\"unknown\"}", 0);
+    assert_metric(metrics, "ton_quic_query_roundtrip_seconds_count{trust=\"untrusted\",tl=\"unknown\"}", 0);
+    assert_ready_connections(metrics, "out", "trusted", 0);
+    assert_ready_connections(metrics, "out", "untrusted", 1);
     co_return td::Unit{};
   });
 }

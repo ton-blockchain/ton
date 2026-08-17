@@ -109,7 +109,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   static bool should_be_spawned(const Bus &bus) {
-    return bus.is_validator() || bus.config.observers_in_private_overlay();
+    return bus.is_validator() || bus.is_collator || bus.config.observers_in_private_overlay();
   }
 
   void start_up() override {
@@ -142,7 +142,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   }
 
   template <>
-  td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingOverlayRequest> event) {
+  td::actor::Task<ProtocolMessage> process(BusHandle, std::shared_ptr<IncomingCandidateRequest> event) {
     auto request = co_await fetch_tl_object<tl::requestCandidate>(event->request.data, true);
     auto id = CandidateId::from_tl(request->id_);
 
@@ -318,7 +318,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
 
     co_await try_load_candidate_data_from_db(id, state);
 
-    if (bus.all_validators.size() == 1) {
+    if (bus.all_overlay_nodes.size() == 1) {
       CHECK(state.candidate_and_cert.is_complete());
       co_return {};
     }
@@ -332,8 +332,11 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       ProtocolMessage request{serialize_tl_object(request_tl, true)};
 
       auto timeout_ts = td::Timestamp::in(std::chrono::round<std::chrono::nanoseconds>(timeout));
-      auto maybe_response =
-          co_await owning_bus().publish<OutgoingOverlayRequest>(std::nullopt, timeout_ts, std::move(request)).wrap();
+      auto maybe_response = co_await owning_bus()
+                                .publish<OutgoingOverlayRequest>(
+                                    std::nullopt, timeout_ts, std::move(request),
+                                    bus.config.max_block_size + bus.config.max_collated_data_size + (1 << 20))
+                                .wrap();
 
       if (maybe_response.is_ok()) {
         auto response = maybe_response.move_as_ok();

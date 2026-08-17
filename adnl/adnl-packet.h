@@ -43,12 +43,12 @@ namespace adnl {
 
 // total packet length:
 //   for full packet:
-//     32 (dst) + 64 (encryption overhead) + 4 (magic) + 36 (pubkey) + 4 + M (sum of messages) +
+//     32 (dst) + 64 (encryption overhead) + 4 (magic) + 4 (flags) + 36 (pubkey) + 4 + M (sum of messages) +
 //              + A1 + A2 + 8 + 8 + 4 + 4 + 4 + 4 + 68 (signature) + 16 (r1) + 16 (r2) =
-//              = 272 + M + A1 + A2
+//              = 276 + M + A1 + A2
 //   for channel:
-//     32 (channel id) + 32 (encryption overhead) + 4 (magic) + 4 + M (sum of messages) +
-//              + A1 + A2 + 8 + 8 + 4 + 4 + 16(r1) + 16(r2) = 128 + M + A1 + A2
+//     32 (channel id) + 32 (encryption overhead) + 4 (magic) + 4 (flags) + 4 + M (sum of messages) +
+//              + A1 + A2 + 8 + 8 + 4 + 4 + 16(r1) + 16(r2) = 132 + M + A1 + A2
 
 class AdnlPacket {
  private:

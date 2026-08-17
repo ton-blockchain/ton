@@ -92,6 +92,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
         }
       }
     }
+
+    if (bus.first_nonannounced_window == 0 && bus.collator_schedule->is_expected_collator(bus.local_id->idx, 0)) {
+      owning_bus().publish<OurLeaderWindowUpcoming>(0);
+    }
   }
 
   template <>
@@ -134,6 +138,11 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       if (bus.collator_schedule->is_expected_collator(bus.local_id->idx, event->start_slot)) {
         start_generation(event->base, event->start_slot).start().detach();
       }
+    }
+
+    td::uint32 next_window_start = (new_window + 1) * slots_per_leader_window_;
+    if (bus.collator_schedule->is_expected_collator(bus.local_id->idx, next_window_start)) {
+      owning_bus().publish<OurLeaderWindowUpcoming>(next_window_start);
     }
 
     if (timeout_slot_ <= event->start_slot) {

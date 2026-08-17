@@ -118,15 +118,6 @@ jobs:
           branch: master
           skip_unpack: true
 
-      - name: Download Android Tonlib artifacts
-        uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
-        with:
-          workflow: build-ton-linux-android-tonlib.yml
-          path: artifacts
-          workflow_conclusion: success
-          branch: master
-          skip_unpack: true
-
       - name: Show all artifacts
         run: |
           tree artifacts
@@ -670,12 +661,4 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: artifacts/ton-wasm.zip
           asset_name: ton-wasm.zip
-          tag: ${{ inputs.tag }}
-
-      - name: Upload Android Tonlib artifacts
-        uses: svenstaro/upload-release-action@29e53e917877a24fad85510ded594ab3c9ca12de # v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: artifacts/ton-android-tonlib.zip
-          asset_name: ton-android-tonlib.zip
           tag: ${{ inputs.tag }}
