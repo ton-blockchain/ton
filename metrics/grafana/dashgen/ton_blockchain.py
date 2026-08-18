@@ -19,6 +19,7 @@ from .lib import (
     gauge,
     histogram_quantile,
     line,
+    mempool,
     nav_link,
     plain_stat,
     rate,
@@ -83,7 +84,7 @@ VALIDATION_ORDER = ("unpack_block_candidate", "process_mc_state", "validate_bloc
                     "check_new_state")
 VALIDATION = "~" + "|".join(VALIDATION_ORDER)
 TRANSACTIONS = "~trx_tvm|trx_storage_stat|trx_other"
-REJECTED = "!~accepted|duplicate|reprioritized"
+REJECTED = "!~accepted|validated_only|duplicate|reprioritized"
 STORAGE_OPS = ("~check_signature_consensus|apply_block_to_state(_fast)?"
                "|serialize_state(_to_file)?|transaction_storage_stat_[ab]"
                "|cell_(load|store|store_refcnt_diff)"
@@ -262,14 +263,13 @@ def error_share(kind, by=None):
 
 
 def rejections():
-    """Admissions the mempool refused, by reason."""
+    """Admissions the node refused, excluding every successful or stock-neutral outcome."""
     return f"rate(ton_mempool_ext_admission_total{sel(**NODE, outcome=REJECTED)}[{RATE}])"
 
 
-def evictions():
-    """Externals dropped from one node's mempool without being applied, by reason."""
-    removed = rate("ton_mempool_ext_removed_total", "reason, job, instance", over="5m",
-                   reason="!applied")
+def removals():
+    """Externals removed from one node's mempool, by reason."""
+    removed = rate("ton_mempool_ext_removed_total", "reason, job, instance", over="5m")
     return f"{removed} > 0"
 
 
@@ -347,8 +347,8 @@ def synced_applied(over):
 
 
 def accepted(over):
-    """Externals the mempool took in, averaged per node so fleet size does not inflate it."""
-    admissions = sel(**NODE, outcome="~accepted|reprioritized")
+    """Successfully validated externals, averaged per node so fleet size does not inflate it."""
+    admissions = sel(**NODE, outcome="~accepted|reprioritized|validated_only")
     return summed(None, summed("job, instance",
                                f"rate(ton_mempool_ext_admission_total{admissions}[{over}])"),
                   agg="avg")
@@ -543,7 +543,7 @@ def external_message_rows(panels):
     """Separate end-to-end message flow from node-local mempool health."""
     specs = (
         ("External message flow", 103, (25, 26, 29, 10, 11)),
-        ("Mempool diagnostics", 110, (27, 28, 30, 12)),
+        ("Mempool diagnostics", 110, (27, 28, 30, 12, 71)),
     )
     by_id = {panel["id"]: panel for panel in panels}
     expected = {panel_id for _, _, ids in specs for panel_id in ids}
@@ -1350,14 +1350,18 @@ ROWS = [
     ]),
     *external_message_rows([
         plain_stat(
-            "Accepted /s (global)", accepted("1m"),
+            "Validated/admitted /s (global)", accepted("1m"),
             id=25, scope="all selected nodes", unit="ops", decimals=1, w=8,
             thresholds=thresholds(base="blue"),
             description=(
-                "Accepted external-submission rate over the last minute, evaluated now and "
-                "averaged across nodes. It combines new pool entries with priority upgrades, "
-                "preserving the pre-split meaning during a rolling upgrade. Admission has no chain "
-                "label, so compare it with selected-chain execution only as context."
+                "Successful external-validation rate over the last minute, evaluated now and "
+                "averaged across nodes. On storing nodes it combines new accepted pool entries with "
+                "stock-neutral priority upgrades; on non-storing nodes validated_only keeps the "
+                "successful observation visible. Legacy accepted counters included the non-storing "
+                "case while reprioritized was already separate, so this three-outcome sum preserves "
+                "the historical successful-check meaning during a rolling upgrade. "
+                "Admission has no chain label, so compare it with selected-chain execution only as "
+                "context."
             ),
         ),
         plain_stat(
@@ -1375,26 +1379,35 @@ ROWS = [
             ),
         ),
         worst_node_stat(
-            "Mempool backlog",
-            summed("job, instance", f"ton_mempool_ext_messages{SEL}", agg="max"),
-            id=27, drill=SELF, unit="short", w=4,
+            "Eligible mempool backlog",
+            mempool.eligible(),
+            id=27, drill=SELF, unit="locale", w=4,
             thresholds=thresholds(("yellow", 1000), ("red", 5000)),
             description=(
-                "External messages pending in the busiest selected mempool. Green below 1k, yellow "
-                "at 1k, red at 5k; tune thresholds to the deployment. Use the rejection and "
-                "removal panels below to explain growth."
+                "External messages counted as eligible in the busiest selected node-local pool: "
+                "stored entries whose active flag is true, across every destination chain and "
+                "priority. This does not promise that the current collator can select every entry. "
+                "Green below 1k, "
+                "yellow at 1k, red at 5k; tune thresholds to the deployment. Stateful exporters "
+                "exclude postponed storage, which can remain inactive past its retry deadline until "
+                "a collator snapshot revisits it; legacy unlabeled history falls back "
+                "to the old all-stored count. Use the state, reconciliation, and removal panels "
+                "below to explain growth."
             ),
         ),
         worst_node_stat(
             "Oldest pending external",
-            summed("job, instance", f"ton_mempool_oldest_ext_message_age_seconds{SEL}", agg="max"),
+            mempool.oldest_age(),
             id=28, drill=SELF, unit="s", decimals=0, w=5,
             thresholds=thresholds(("yellow", 60), ("red", 300)),
             description=(
-                "Age of the oldest pending external message (worst node). Messages carry a 600s "
+                "Age of the oldest stored external message on the worst selected node, across all "
+                "destination chains, priorities, and active/postponed states. Messages carry a 600s "
                 "TTL: red (300s and beyond) means messages are about to expire unserved; values "
-                "past 600s are already-dead entries waiting for the periodic sweep (roughly every "
-                "250s), which produces cliff-drops. Reprioritization resets an entry's age."
+                "at or past 600s mean atomic deadline-driven expiry processing is late and appear "
+                "as expiry-handler lag below. Reprioritization resets an entry's age and expiry "
+                "deadline. Only stateful exporters are shown; legacy nodes are omitted because "
+                "their periodic expiry semantics are not comparable."
             ),
         ),
         plain_stat(
@@ -1413,19 +1426,21 @@ ROWS = [
         ),
         chain_timeseries(
             "External flow /s — ${chain:text}",
-            line("accepted (per node avg)", accepted(RATE)),
+            line("validated/admitted (per node avg)", accepted(RATE)),
             line("included in candidate (ok attempts)",
                  summed(None, collated_externals(outcome="included", result="ok"))),
             line("applied observation (synced median)", synced_applied(RATE)),
             scope="the mempool and collators of every selected node", unit="ops", id=10, h=9,
             query_scope="mixed",
             axis_label="messages/s",
-            styles=[series_style("accepted (per node avg)", color="blue"),
+            styles=[series_style("validated/admitted (per node avg)", color="blue"),
                     series_style("included in candidate (ok attempts)", color="yellow"),
                     series_style("applied observation (synced median)", color="green")],
             description=(
-                "Correlated stages, not a conservation funnel. Accepted is global admission "
-                "averaged across nodes. Included is selected-chain work in successful candidates; "
+                "Correlated stages, not a conservation funnel. Validated/admitted is the global "
+                "successful-validation rate averaged across nodes: storing nodes count new entries "
+                "and priority upgrades, while non-storing nodes report validated_only. Included is "
+                "selected-chain work in successful candidates; "
                 "failed-attempt execution is shown next door. Applied is the median replicated "
                 "observation from reporters whose absolute masterchain age is under 120 seconds; "
                 "shardchain additionally requires shard lag of at most two blocks. It still "
@@ -1445,7 +1460,9 @@ ROWS = [
             query_scope="mixed",
             description=(
                 "Admission/storage outcomes are global per-node averages and respect Instance; "
-                "pool_full and address_full passed validation but were not stored locally. "
+                "accepted and validated_only successes, plus stock-neutral reprioritized and "
+                "duplicate outcomes, are excluded here. pool_full and address_full passed "
+                "validation but were not stored locally. "
                 "Collation outcomes are selected-chain sums across all collators in the selected "
                 "jobs and intentionally ignore Instance: rejected did not make it into the "
                 "candidate (normally a TVM rejection or an attempt-aborting processing failure), "
@@ -1454,38 +1471,90 @@ ROWS = [
             ),
         ),
         agg_timeseries(
-            "Local mempool evictions /s (5m, per reason)",
-            agg_line(evictions(), key="reason", name="{{reason}}"),
+            "Local mempool removals /s (5m, per reason)",
+            agg_line(removals(), key="reason", name="{{reason}}"),
             unit="ops", id=30, h=9,
-            axis_label="messages/s", styles=[series_style("expired", color="red")],
+            axis_label="messages/s",
+            styles=[
+                series_style("applied", color="green"),
+                series_style("expired", color="red"),
+            ],
             description=(
-                "Why entries left selected pools without an applied cleanup: expired hit the 600s "
-                "TTL; rejected_final exhausted its ~3 retry postpones; pool_pressure was evicted "
-                "while its priority level was at the soft limit; filtered could not be registered "
-                "by collation (for example, duplicate or wrong shard). Averaged over 5m windows "
-                "because evictions are batch events — the TTL sweep runs only every 250s per "
-                "chain, so shorter windows render each sweep as an isolated spike whose height "
-                "depends on window length, not on the loss rate. Sustained expired means at least "
-                "one selected pool held messages past TTL without observing them applied; "
+                "Why entries left selected pools. Applied is normal cleanup after observing the "
+                "message on chain; every other reason is a local eviction: expired hit the 600s "
+                "TTL, rejected_final exhausted its ~3 retry postpones, pool_pressure was evicted "
+                "while its priority level was at the soft limit, and filtered could not be "
+                "registered by collation (for example, duplicate or wrong shard). Five-minute "
+                "rates smooth bursty arrivals and removals without turning individual deadline "
+                "expiries into misleading scrape-sized spikes. Sustained expired means at least "
+                "one selected pool failed to observe messages applied before their TTL; "
                 "correlate with applied throughput and other nodes before calling it network-wide "
-                "loss. Scope: worst selected node independently per reason; the lines need not "
-                "come from one pool."
+                "loss. The Node aggregation switch chooses the pointwise worst, p95, median, or "
+                "best selected node independently per reason; the lines need not come from one "
+                "pool."
             ),
         ),
         agg_timeseries(
-            "External mempool backlog",
-            agg_line(gauge("ton_mempool_ext_messages", "job, instance", agg="max"),
-                     name="backlog"),
-            agg_line(gauge("ton_mempool_oldest_ext_message_age_seconds",
-                           "job, instance", agg="max"),
-                     name="oldest age"),
-            unit="short", id=12, h=9,
+            "External mempool state",
+            agg_line(mempool.eligible(), name="eligible backlog"),
+            agg_line(mempool.total(), name="total stored"),
+            agg_line(mempool.expiry_handler_lag(), name="expiry handler lag"),
+            unit="locale", id=12, h=9,
             axis_label="messages",
-            styles=[series_style("oldest age", unit="s", axis="right", axis_label="age")],
+            styles=[
+                series_style("eligible backlog", color="blue", width=3),
+                series_style("total stored", color="purple", dash=(6, 4), fill=0),
+                series_style(r"^expiry handler lag(?: ⇒ .*)?$", regex=True,
+                             unit="s", axis="right",
+                             axis_label="expiry lag", color="red", fill=0),
+            ],
             description=(
-                "Worst selected node at each point. Backlog is all pending externals; oldest age "
-                "uses the right axis. The TTL is 600s and cleanup runs periodically, so both lines "
-                "can cliff-drop after a sweep. Reprioritization resets an entry's age."
+                "The Node aggregation switch chooses the pointwise worst, p95, median, or best "
+                "selected node independently per series. Every value is one node's pool across all "
+                "destination chains and priorities, never a fleet sum. Eligible means a stored entry "
+                "whose active flag is true, not a guarantee that the current collator can select it. "
+                "Total stored also includes postponed entries whose active flag is false, so its gap "
+                "above eligible is exactly postponed storage. A postponed entry can remain in that "
+                "state after its retry deadline until a collator snapshot revisits and reactivates "
+                "it. Expiry is removed atomically at its 600-second deadline; the right-axis expiry "
+                "handler lag is max(oldest age - 600s, 0) and should be zero. It is limited to "
+                "stateful exporters so legacy expiry semantics cannot win the Node aggregation. "
+                "Legacy unlabeled history appears as both eligible fallback and total because the "
+                "split is unknown."
+            ),
+        ),
+        agg_timeseries(
+            "Mempool stock / accounted flow (5m change)",
+            agg_line(mempool.stock_delta(), name="measured stock delta"),
+            agg_line(mempool.accounted_delta(), name="accepted - removed"),
+            agg_line(mempool.unexplained_delta(), name="unexplained |delta|"),
+            unit="locale", id=71, h=9, min=None,
+            axis_label="messages / 5m",
+            styles=[
+                series_style("measured stock delta", color="blue", width=3),
+                series_style("accepted - removed", color="green", dash=(6, 4), fill=0),
+                series_style("unexplained |delta|", color="red", fill=0),
+            ],
+            description=(
+                "Five-minute per-node reconciliation across all destination chains and priorities. "
+                "All lines are message counts over the same five-minute endpoints: measured is the "
+                "sum of delta(total state buckets); accounted is increase(new accepted insertions) "
+                "minus the sum of increase(every removal reason); unexplained |delta| is their "
+                "per-node absolute difference before node aggregation. Delta and increase both "
+                "extrapolate range endpoints, so it should stay near zero apart from scrape "
+                "alignment and restart or schema-rollout transients. "
+                "Reprioritized admissions are "
+                "deliberately excluded because moving an existing entry between priorities is "
+                "stock-neutral. Only stateful exporters render: legacy accepted counters also "
+                "counted successful validation on nodes that did not store the message, so showing "
+                "old history here would invent growth. "
+                "The Node aggregation switch chooses the pointwise worst, p95, median, or best "
+                "selected node independently per line; worst therefore finds the largest residual "
+                "regardless of its original sign. The underlying accepted-minus-removals "
+                "identity is exact from process start on every upgraded process: it is informative "
+                "on validators and collators that store messages and trivially 0 = 0 on relay-only "
+                "nodes. These plotted window deltas remain estimates. A sustained residual means a "
+                "missing transition counter or gauge-accounting bug."
             ),
         ),
     ]),

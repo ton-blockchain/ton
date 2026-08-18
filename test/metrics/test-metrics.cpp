@@ -1501,13 +1501,13 @@ TEST(MetricsGolden, Consensus) {
 
 TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
   ExtMessagePoolSnapshot snapshot{
-      .pending_ext_messages = 3,
       .oldest_ext_message_age_seconds = 4.5,
       .check_ok = 5,
       .check_error = 7,
       .applied_master = 41,
       .applied_shard = 43,
   };
+  snapshot.ext_messages.insert(ExtMessageState::eligible, 3);
   for (size_t i = 0; i < snapshot.admission.size(); ++i) {
     snapshot.admission[i] = 11 + i;
   }
@@ -1517,7 +1517,8 @@ TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
   auto out = render(snapshot, "");
   EXPECT_EQ(
       "# TYPE mempool_ext_messages gauge\n"
-      "mempool_ext_messages 3.000000\n"
+      "mempool_ext_messages{state=\"eligible\"} 3.000000\n"
+      "mempool_ext_messages{state=\"postponed\"} 0.000000\n"
       "# TYPE mempool_oldest_ext_message_age_seconds gauge\n"
       "mempool_oldest_ext_message_age_seconds 4.500000\n"
       "# TYPE mempool_ext_check counter\n"
@@ -1525,18 +1526,19 @@ TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
       "mempool_ext_check_total{result=\"error\"} 7.000000\n"
       "# TYPE mempool_ext_admission counter\n"
       "mempool_ext_admission_total{outcome=\"accepted\"} 11.000000\n"
-      "mempool_ext_admission_total{outcome=\"not_ready\"} 12.000000\n"
-      "mempool_ext_admission_total{outcome=\"too_large\"} 13.000000\n"
-      "mempool_ext_admission_total{outcome=\"backpressure\"} 14.000000\n"
-      "mempool_ext_admission_total{outcome=\"invalid\"} 15.000000\n"
-      "mempool_ext_admission_total{outcome=\"state_unavailable\"} 16.000000\n"
-      "mempool_ext_admission_total{outcome=\"vm_rejected\"} 17.000000\n"
-      "mempool_ext_admission_total{outcome=\"rate_limited\"} 18.000000\n"
-      "mempool_ext_admission_total{outcome=\"pool_full\"} 19.000000\n"
-      "mempool_ext_admission_total{outcome=\"address_full\"} 20.000000\n"
-      "mempool_ext_admission_total{outcome=\"duplicate\"} 21.000000\n"
-      "mempool_ext_admission_total{outcome=\"internal_error\"} 22.000000\n"
-      "mempool_ext_admission_total{outcome=\"reprioritized\"} 23.000000\n"
+      "mempool_ext_admission_total{outcome=\"validated_only\"} 12.000000\n"
+      "mempool_ext_admission_total{outcome=\"not_ready\"} 13.000000\n"
+      "mempool_ext_admission_total{outcome=\"too_large\"} 14.000000\n"
+      "mempool_ext_admission_total{outcome=\"backpressure\"} 15.000000\n"
+      "mempool_ext_admission_total{outcome=\"invalid\"} 16.000000\n"
+      "mempool_ext_admission_total{outcome=\"state_unavailable\"} 17.000000\n"
+      "mempool_ext_admission_total{outcome=\"vm_rejected\"} 18.000000\n"
+      "mempool_ext_admission_total{outcome=\"rate_limited\"} 19.000000\n"
+      "mempool_ext_admission_total{outcome=\"pool_full\"} 20.000000\n"
+      "mempool_ext_admission_total{outcome=\"address_full\"} 21.000000\n"
+      "mempool_ext_admission_total{outcome=\"duplicate\"} 22.000000\n"
+      "mempool_ext_admission_total{outcome=\"internal_error\"} 23.000000\n"
+      "mempool_ext_admission_total{outcome=\"reprioritized\"} 24.000000\n"
       "# TYPE mempool_ext_removed counter\n"
       "mempool_ext_removed_total{reason=\"applied\"} 31.000000\n"
       "mempool_ext_removed_total{reason=\"expired\"} 32.000000\n"
@@ -1547,6 +1549,33 @@ TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
       "applied_ext_messages_total{chain=\"master\"} 41.000000\n"
       "applied_ext_messages_total{chain=\"shard\"} 43.000000\n",
       out);
+}
+
+TEST(Metrics, ExtMessageStateCountsPreserveTheStoredStockIdentity) {
+  ExtMessagePoolSnapshot snapshot;
+  auto &states = snapshot.ext_messages;
+
+  states.insert();
+  ++snapshot.admission[static_cast<size_t>(ExtMessageAdmissionOutcome::accepted)];
+  states.insert();
+  ++snapshot.admission[static_cast<size_t>(ExtMessageAdmissionOutcome::accepted)];
+  states.insert();
+  ++snapshot.admission[static_cast<size_t>(ExtMessageAdmissionOutcome::accepted)];
+  states.transition(ExtMessageState::eligible, ExtMessageState::postponed);
+  states.transition(ExtMessageState::postponed, ExtMessageState::eligible);
+  states.transition(ExtMessageState::eligible, ExtMessageState::postponed);
+  states.erase(ExtMessageState::postponed);
+  ++snapshot.removed[static_cast<size_t>(ExtMessageRemovalReason::expired)];
+  snapshot.admission[static_cast<size_t>(ExtMessageAdmissionOutcome::validated_only)] = 5;
+  snapshot.admission[static_cast<size_t>(ExtMessageAdmissionOutcome::reprioritized)] = 7;
+
+  EXPECT_EQ(2u, states.value(ExtMessageState::eligible));
+  EXPECT_EQ(0u, states.value(ExtMessageState::postponed));
+  td::uint64 removed = 0;
+  for (auto count : snapshot.removed) {
+    removed += count;
+  }
+  EXPECT_EQ(snapshot.admission[static_cast<size_t>(ExtMessageAdmissionOutcome::accepted)] - removed, states.total());
 }
 
 TEST(Metrics, ActorCollectorIncludesLiveBusyTimeAndOmitsOwnLiveness) {

@@ -52,7 +52,7 @@ BLOCKCHAIN_DIAGNOSTIC_PANELS = {
     106: [43, 41, 55, 42],
     105: [39, 40],
     103: [25, 26, 29, 10, 11],
-    110: [27, 28, 30, 12],
+    110: [27, 28, 30, 12, 71],
 }
 BLOCKCHAIN_REMOVED_PANELS = {1, 2, 4, 7, 9, 20, 21, 22, 46, 57}
 
@@ -115,6 +115,102 @@ class DashboardGenerationTest(unittest.TestCase):
 
         self.assertNotIn(100, ids)
         self.assertTrue(BLOCKCHAIN_REMOVED_PANELS.isdisjoint(ids))
+
+    def test_mempool_surfaces_use_stateful_stock_and_honest_flow_accounting(self):
+        overview = {panel["id"]: panel for panel in panels(ton_overview.build())}
+        blockchain = {panel["id"]: panel for panel in panels(ton_blockchain.build())}
+
+        for panel in (overview[9], blockchain[27]):
+            with self.subTest(panel=panel["title"]):
+                query_text = expressions(panel)
+                self.assertIn('state="eligible"', query_text)
+                self.assertIn('state=""', query_text)
+                self.assertIn("sum by (job, instance)", query_text)
+                self.assertEqual(panel["fieldConfig"]["defaults"]["unit"], "locale")
+                self.assertIn("all", panel["description"].lower())
+                self.assertIn("priorit", panel["description"].lower())
+
+        state = blockchain[12]
+        drawn = [query for query in state["targets"]
+                 if not query["refId"].startswith("ATTR")]
+        self.assertEqual(
+            [query["legendFormat"] for query in drawn],
+            ["eligible backlog", "total stored", "expiry handler lag"],
+        )
+        self.assertIn('state=~"eligible|postponed"', drawn[1]["expr"])
+        self.assertIn("sum by (job, instance)", drawn[1]["expr"])
+        self.assertNotIn("max by (job, instance)", drawn[1]["expr"])
+        self.assertIn("clamp_min(ton_mempool_oldest_ext_message_age_seconds", drawn[2]["expr"])
+        self.assertIn(" - 600, 0)", drawn[2]["expr"])
+        self.assertIn("and on (job, instance)", drawn[2]["expr"])
+        self.assertIn('state="eligible"', drawn[2]["expr"])
+        self.assertEqual(state["fieldConfig"]["defaults"]["unit"], "locale")
+        expiry_style = next(
+            override for override in state["fieldConfig"]["overrides"]
+            if override["matcher"] == {
+                "id": "byRegexp",
+                "options": r"^expiry handler lag(?: ⇒ .*)?$",
+            }
+        )
+        expiry_properties = {item["id"]: item["value"]
+                             for item in expiry_style["properties"]}
+        self.assertEqual(expiry_properties["unit"], "s")
+        self.assertEqual(expiry_properties["custom.axisPlacement"], "right")
+        self.assertIn("Node aggregation switch", state["description"])
+        self.assertIn("active flag is true", state["description"])
+        self.assertIn("retry deadline", state["description"])
+        self.assertIn("legacy expiry semantics", state["description"])
+        self.assertNotIn("Worst selected node at each point", state["description"])
+
+        for oldest in (overview[29], blockchain[28]):
+            with self.subTest(panel=oldest["title"]):
+                query_text = expressions(oldest)
+                self.assertIn("and on (job, instance)", query_text)
+                self.assertIn('state="eligible"', query_text)
+                self.assertIn("legacy nodes are omitted", oldest["description"].lower())
+
+        reconciliation = blockchain[71]
+        query_text = expressions(reconciliation)
+        self.assertIn("delta(ton_mempool_ext_messages", query_text)
+        self.assertIn("increase(ton_mempool_ext_admission_total", query_text)
+        self.assertIn("increase(ton_mempool_ext_removed_total", query_text)
+        self.assertNotIn("deriv(", query_text)
+        self.assertNotIn("rate(", query_text)
+        self.assertIn("abs(", query_text)
+        self.assertIn('outcome="accepted"', query_text)
+        self.assertIn("ton_mempool_ext_removed_total", query_text)
+        self.assertNotIn('outcome=~"accepted|reprioritized"', query_text)
+        self.assertNotIn('state=""', query_text)
+        accounted = next(query for query in reconciliation["targets"]
+                         if query.get("legendFormat") == "accepted - removed")
+        self.assertIn("and on (job, instance)", accounted["expr"])
+        self.assertIn('state="eligible"', accounted["expr"])
+        self.assertIn("reprioritized", reconciliation["description"].lower())
+        self.assertIn("stateful exporters", reconciliation["description"].lower())
+        self.assertIn("unexplained |delta|", legends(reconciliation))
+        self.assertEqual(reconciliation["fieldConfig"]["defaults"]["unit"], "locale")
+        self.assertEqual(reconciliation["fieldConfig"]["defaults"]["custom"]["axisLabel"],
+                         "messages / 5m")
+        self.assertNotIn("min", reconciliation["fieldConfig"]["defaults"])
+
+        successful = blockchain[25]
+        self.assertIn('outcome=~"accepted|reprioritized|validated_only"', expressions(successful))
+        outcomes = blockchain[11]
+        self.assertIn('outcome!~"accepted|validated_only|duplicate|reprioritized"',
+                      expressions(outcomes))
+        overview_issues = overview[17]
+        self.assertIn('outcome!~"accepted|validated_only|duplicate|reprioritized"',
+                      expressions(overview_issues))
+        self.assertIn('outcome!="duplicate"', expressions(overview_issues))
+
+        removals = blockchain[30]
+        self.assertEqual(removals["title"],
+                         "Local mempool removals /s (5m, per reason) (${agg:text} node ▾)")
+        self.assertIn("ton_mempool_ext_removed_total", expressions(removals))
+        self.assertNotIn('reason!="applied"', expressions(removals))
+        self.assertIn("Applied is normal cleanup", removals["description"])
+        self.assertIn("Node aggregation switch", removals["description"])
+        self.assertNotIn("Scope: worst selected node", removals["description"])
 
     def test_blockchain_collapsed_diagnostics_open_directly_below_their_row(self):
         dashboard = ton_blockchain.build()

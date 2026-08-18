@@ -8218,7 +8218,7 @@
         {
           "id": 25,
           "type": "stat",
-          "title": "Accepted /s (global)",
+          "title": "Validated/admitted /s (global)",
           "gridPos": {
             "x": 0,
             "y": 46,
@@ -8269,7 +8269,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "avg(sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=~\"accepted|reprioritized\"}[1m])))",
+              "expr": "avg(sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=~\"accepted|reprioritized|validated_only\"}[1m])))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -8281,7 +8281,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Accepted external-submission rate over the last minute, evaluated now and averaged across nodes. It combines new pool entries with priority upgrades, preserving the pre-split meaning during a rolling upgrade. Admission has no chain label, so compare it with selected-chain execution only as context."
+          "description": "Successful external-validation rate over the last minute, evaluated now and averaged across nodes. On storing nodes it combines new accepted pool entries with stock-neutral priority upgrades; on non-storing nodes validated_only keeps the successful observation visible. Legacy accepted counters included the non-storing case while reprioritized was already separate, so this three-outcome sum preserves the historical successful-check meaning during a rolling upgrade. Admission has no chain label, so compare it with selected-chain execution only as context."
         },
         {
           "id": 26,
@@ -8495,7 +8495,7 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "accepted (per node avg)"
+                  "options": "validated/admitted (per node avg)"
                 },
                 "properties": [
                   {
@@ -8554,7 +8554,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "avg(sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=~\"accepted|reprioritized\"}[$__rate_interval])))",
+              "expr": "avg(sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=~\"accepted|reprioritized|validated_only\"}[$__rate_interval])))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -8562,7 +8562,7 @@
               "editorMode": "code",
               "range": true,
               "instant": false,
-              "legendFormat": "accepted (per node avg)"
+              "legendFormat": "validated/admitted (per node avg)"
             },
             {
               "refId": "B",
@@ -8591,7 +8591,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Correlated stages, not a conservation funnel. Accepted is global admission averaged across nodes. Included is selected-chain work in successful candidates; failed-attempt execution is shown next door. Applied is the median replicated observation from reporters whose absolute masterchain age is under 120 seconds; shardchain additionally requires shard lag of at most two blocks. It still includes catch-up replay and is not an objective chain counter. Use backlog and local removals to distinguish waiting from eviction."
+          "description": "Correlated stages, not a conservation funnel. Validated/admitted is the global successful-validation rate averaged across nodes: storing nodes count new entries and priority upgrades, while non-storing nodes report validated_only. Included is selected-chain work in successful candidates; failed-attempt execution is shown next door. Applied is the median replicated observation from reporters whose absolute masterchain age is under 120 seconds; shardchain additionally requires shard lag of at most two blocks. It still includes catch-up replay and is not an objective chain counter. Use backlog and local removals to distinguish waiting from eviction."
         },
         {
           "id": 11,
@@ -8674,7 +8674,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "avg by (outcome) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!~\"accepted|duplicate|reprioritized\"}[$__rate_interval])) > 0",
+              "expr": "avg by (outcome) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!~\"accepted|validated_only|duplicate|reprioritized\"}[$__rate_interval])) > 0",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -8711,7 +8711,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Admission/storage outcomes are global per-node averages and respect Instance; pool_full and address_full passed validation but were not stored locally. Collation outcomes are selected-chain sums across all collators in the selected jobs and intentionally ignore Instance: rejected did not make it into the candidate (normally a TVM rejection or an attempt-aborting processing failure), filtered failed registration, skipped_backpressure stayed pending, and included in failed attempt is discarded execution work. Zero-valued series are hidden."
+          "description": "Admission/storage outcomes are global per-node averages and respect Instance; accepted and validated_only successes, plus stock-neutral reprioritized and duplicate outcomes, are excluded here. pool_full and address_full passed validation but were not stored locally. Collation outcomes are selected-chain sums across all collators in the selected jobs and intentionally ignore Instance: rejected did not make it into the candidate (normally a TVM rejection or an attempt-aborting processing failure), filtered failed registration, skipped_backpressure stayed pending, and included in failed attempt is discarded execution work. Zero-valued series are hidden."
         }
       ],
       "title": "External message flow",
@@ -8730,7 +8730,7 @@
         {
           "id": 27,
           "type": "stat",
-          "title": "Mempool backlog (worst node)",
+          "title": "Eligible mempool backlog (worst node)",
           "gridPos": {
             "x": 0,
             "y": 47,
@@ -8743,7 +8743,7 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "short",
+              "unit": "locale",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -8795,7 +8795,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "topk(1, max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"}))",
+              "expr": "topk(1, (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"})))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -8808,7 +8808,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "External messages pending in the busiest selected mempool. Green below 1k, yellow at 1k, red at 5k; tune thresholds to the deployment. Use the rejection and removal panels below to explain growth."
+          "description": "External messages counted as eligible in the busiest selected node-local pool: stored entries whose active flag is true, across every destination chain and priority. This does not promise that the current collator can select every entry. Green below 1k, yellow at 1k, red at 5k; tune thresholds to the deployment. Stateful exporters exclude postponed storage, which can remain inactive past its retry deadline until a collator snapshot revisits it; legacy unlabeled history falls back to the old all-stored count. Use the state, reconciliation, and removal panels below to explain growth."
         },
         {
           "id": 28,
@@ -8879,7 +8879,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "topk(1, max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"}))",
+              "expr": "topk(1, (max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -8892,12 +8892,12 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Age of the oldest pending external message (worst node). Messages carry a 600s TTL: red (300s and beyond) means messages are about to expire unserved; values past 600s are already-dead entries waiting for the periodic sweep (roughly every 250s), which produces cliff-drops. Reprioritization resets an entry's age."
+          "description": "Age of the oldest stored external message on the worst selected node, across all destination chains, priorities, and active/postponed states. Messages carry a 600s TTL: red (300s and beyond) means messages are about to expire unserved; values at or past 600s mean atomic deadline-driven expiry processing is late and appear as expiry-handler lag below. Reprioritization resets an entry's age and expiry deadline. Only stateful exporters are shown; legacy nodes are omitted because their periodic expiry semantics are not comparable."
         },
         {
           "id": 30,
           "type": "timeseries",
-          "title": "Local mempool evictions /s (5m, per reason) (${agg:text} node \u25be)",
+          "title": "Local mempool removals /s (5m, per reason) (${agg:text} node \u25be)",
           "gridPos": {
             "x": 9,
             "y": 47,
@@ -8959,6 +8959,21 @@
               "min": 0
             },
             "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "applied"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "green",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
               {
                 "matcher": {
                   "id": "byName",
@@ -9041,7 +9056,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "quantile by (reason) (${agg}, sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\",reason!=\"applied\"}[5m])) > 0)",
+              "expr": "quantile by (reason) (${agg}, sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])) > 0)",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -9053,7 +9068,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "(sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\",reason!=\"applied\"}[5m])) > 0) and on (reason, job, instance) (bottomk by (reason)(1, avg_over_time((abs((sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\",reason!=\"applied\"}[5m])) > 0) - on (reason) group_left() (quantile by (reason) (${agg}, sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\",reason!=\"applied\"}[5m])) > 0))))[$__range:] @ end())))",
+              "expr": "(sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])) > 0) and on (reason, job, instance) (bottomk by (reason)(1, avg_over_time((abs((sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])) > 0) - on (reason) group_left() (quantile by (reason) (${agg}, sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])) > 0))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -9063,12 +9078,12 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Why entries left selected pools without an applied cleanup: expired hit the 600s TTL; rejected_final exhausted its ~3 retry postpones; pool_pressure was evicted while its priority level was at the soft limit; filtered could not be registered by collation (for example, duplicate or wrong shard). Averaged over 5m windows because evictions are batch events \u2014 the TTL sweep runs only every 250s per chain, so shorter windows render each sweep as an isolated spike whose height depends on window length, not on the loss rate. Sustained expired means at least one selected pool held messages past TTL without observing them applied; correlate with applied throughput and other nodes before calling it network-wide loss. Scope: worst selected node independently per reason; the lines need not come from one pool. Hover attribution: the tooltip lists \"reason \u21d2 node\" rows (hidden from the chart) answering, per reason, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+          "description": "\u25be Why entries left selected pools. Applied is normal cleanup after observing the message on chain; every other reason is a local eviction: expired hit the 600s TTL, rejected_final exhausted its ~3 retry postpones, pool_pressure was evicted while its priority level was at the soft limit, and filtered could not be registered by collation (for example, duplicate or wrong shard). Five-minute rates smooth bursty arrivals and removals without turning individual deadline expiries into misleading scrape-sized spikes. Sustained expired means at least one selected pool failed to observe messages applied before their TTL; correlate with applied throughput and other nodes before calling it network-wide loss. The Node aggregation switch chooses the pointwise worst, p95, median, or best selected node independently per reason; the lines need not come from one pool. Hover attribution: the tooltip lists \"reason \u21d2 node\" rows (hidden from the chart) answering, per reason, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 12,
           "type": "timeseries",
-          "title": "External mempool backlog (${agg:text} node \u25be)",
+          "title": "External mempool state (${agg:text} node \u25be)",
           "gridPos": {
             "x": 0,
             "y": 56,
@@ -9081,7 +9096,7 @@
           },
           "fieldConfig": {
             "defaults": {
-              "unit": "short",
+              "unit": "locale",
               "custom": {
                 "lineWidth": 2,
                 "fillOpacity": 6,
@@ -9133,7 +9148,55 @@
               {
                 "matcher": {
                   "id": "byName",
-                  "options": "oldest age"
+                  "options": "eligible backlog"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "blue",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "total stored"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "purple",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        6,
+                        4
+                      ],
+                      "fill": "dash"
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": "^expiry handler lag(?: \u21d2 .*)?$"
                 },
                 "properties": [
                   {
@@ -9146,7 +9209,18 @@
                   },
                   {
                     "id": "custom.axisLabel",
-                    "value": "age"
+                    "value": "expiry lag"
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "red",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
                   }
                 ]
               },
@@ -9239,6 +9313,51 @@
                     }
                   }
                 ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "ATTR3"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.spanNulls",
+                    "value": false
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8E8E8E",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
               }
             ]
           },
@@ -9262,7 +9381,7 @@
           "targets": [
             {
               "refId": "A",
-              "expr": "quantile(${agg}, max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"}))",
+              "expr": "quantile(${agg}, (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"})))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -9270,11 +9389,11 @@
               "editorMode": "code",
               "range": true,
               "instant": false,
-              "legendFormat": "backlog"
+              "legendFormat": "eligible backlog"
             },
             {
               "refId": "B",
-              "expr": "quantile(${agg}, max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"}))",
+              "expr": "quantile(${agg}, (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"})))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -9282,30 +9401,405 @@
               "editorMode": "code",
               "range": true,
               "instant": false,
-              "legendFormat": "oldest age"
+              "legendFormat": "total stored"
+            },
+            {
+              "refId": "C",
+              "expr": "quantile(${agg}, (max by (job, instance) (clamp_min(ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"} - 600, 0))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "expiry handler lag"
             },
             {
               "refId": "ATTR",
-              "expr": "(max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})) and on (job, instance) (bottomk(1, avg_over_time((abs((max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})) - on () group_left() (quantile(${agg}, max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})))))[$__range:] @ end())))",
+              "expr": "((sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"}))) and on (job, instance) (bottomk(1, avg_over_time((abs(((sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"}))) - on () group_left() (quantile(${agg}, (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"}))))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "legendFormat": "backlog \u21d2 {{instance}}"
+              "legendFormat": "eligible backlog \u21d2 {{instance}}"
             },
             {
               "refId": "ATTR2",
-              "expr": "(max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})) and on (job, instance) (bottomk(1, avg_over_time((abs((max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})) - on () group_left() (quantile(${agg}, max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})))))[$__range:] @ end())))",
+              "expr": "((sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"}))) and on (job, instance) (bottomk(1, avg_over_time((abs(((sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"}))) - on () group_left() (quantile(${agg}, (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"}))))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "legendFormat": "oldest age \u21d2 {{instance}}"
+              "legendFormat": "total stored \u21d2 {{instance}}"
+            },
+            {
+              "refId": "ATTR3",
+              "expr": "((max by (job, instance) (clamp_min(ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"} - 600, 0))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0)) and on (job, instance) (bottomk(1, avg_over_time((abs(((max by (job, instance) (clamp_min(ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"} - 600, 0))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0)) - on () group_left() (quantile(${agg}, (max by (job, instance) (clamp_min(ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"} - 600, 0))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0)))))[$__range:] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "legendFormat": "expiry handler lag \u21d2 {{instance}}"
             }
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Worst selected node at each point. Backlog is all pending externals; oldest age uses the right axis. The TTL is 600s and cleanup runs periodically, so both lines can cliff-drop after a sweep. Reprioritization resets an entry's age. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+          "description": "\u25be The Node aggregation switch chooses the pointwise worst, p95, median, or best selected node independently per series. Every value is one node's pool across all destination chains and priorities, never a fleet sum. Eligible means a stored entry whose active flag is true, not a guarantee that the current collator can select it. Total stored also includes postponed entries whose active flag is false, so its gap above eligible is exactly postponed storage. A postponed entry can remain in that state after its retry deadline until a collator snapshot revisits and reactivates it. Expiry is removed atomically at its 600-second deadline; the right-axis expiry handler lag is max(oldest age - 600s, 0) and should be zero. It is limited to stateful exporters so legacy expiry semantics cannot win the Node aggregation. Legacy unlabeled history appears as both eligible fallback and total because the split is unknown. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+        },
+        {
+          "id": 71,
+          "type": "timeseries",
+          "title": "Mempool stock / accounted flow (5m change) (${agg:text} node \u25be)",
+          "gridPos": {
+            "x": 12,
+            "y": 56,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "locale",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "messages / 5m",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": []
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "measured stock delta"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "blue",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 3
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "accepted - removed"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "green",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "dash": [
+                        6,
+                        4
+                      ],
+                      "fill": "dash"
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "unexplained |delta|"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "red",
+                      "mode": "fixed"
+                    }
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "ATTR"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.spanNulls",
+                    "value": false
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8E8E8E",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "ATTR2"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.spanNulls",
+                    "value": false
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8E8E8E",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "ATTR3"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.spanNulls",
+                    "value": false
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8E8E8E",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc",
+              "hoverProximity": 10
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "quantile(${agg}, sum by (job, instance) (delta(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"}[5m])))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "measured stock delta"
+            },
+            {
+              "refId": "B",
+              "expr": "quantile(${agg}, ((sum by (job, instance) (increase(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=\"accepted\"}[5m]))) - (sum by (job, instance) (increase(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "accepted - removed"
+            },
+            {
+              "refId": "C",
+              "expr": "quantile(${agg}, abs((sum by (job, instance) (delta(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"}[5m]))) - (((sum by (job, instance) (increase(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=\"accepted\"}[5m]))) - (sum by (job, instance) (increase(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0))))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "unexplained |delta|"
+            },
+            {
+              "refId": "ATTR",
+              "expr": "(sum by (job, instance) (delta(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"}[5m]))) and on (job, instance) (bottomk(1, avg_over_time((abs((sum by (job, instance) (delta(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"}[5m]))) - on () group_left() (quantile(${agg}, sum by (job, instance) (delta(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"}[5m]))))))[$__range:] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "legendFormat": "measured stock delta \u21d2 {{instance}}"
+            },
+            {
+              "refId": "ATTR2",
+              "expr": "(((sum by (job, instance) (increase(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=\"accepted\"}[5m]))) - (sum by (job, instance) (increase(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0)) and on (job, instance) (bottomk(1, avg_over_time((abs((((sum by (job, instance) (increase(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=\"accepted\"}[5m]))) - (sum by (job, instance) (increase(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0)) - on () group_left() (quantile(${agg}, ((sum by (job, instance) (increase(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=\"accepted\"}[5m]))) - (sum by (job, instance) (increase(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0)))))[$__range:] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "legendFormat": "accepted - removed \u21d2 {{instance}}"
+            },
+            {
+              "refId": "ATTR3",
+              "expr": "(abs((sum by (job, instance) (delta(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"}[5m]))) - (((sum by (job, instance) (increase(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=\"accepted\"}[5m]))) - (sum by (job, instance) (increase(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0)))) and on (job, instance) (bottomk(1, avg_over_time((abs((abs((sum by (job, instance) (delta(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"}[5m]))) - (((sum by (job, instance) (increase(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=\"accepted\"}[5m]))) - (sum by (job, instance) (increase(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0)))) - on () group_left() (quantile(${agg}, abs((sum by (job, instance) (delta(ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=~\"eligible|postponed\"}[5m]))) - (((sum by (job, instance) (increase(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome=\"accepted\"}[5m]))) - (sum by (job, instance) (increase(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0)))))))[$__range:] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "legendFormat": "unexplained |delta| \u21d2 {{instance}}"
+            }
+          ],
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "description": "\u25be Five-minute per-node reconciliation across all destination chains and priorities. All lines are message counts over the same five-minute endpoints: measured is the sum of delta(total state buckets); accounted is increase(new accepted insertions) minus the sum of increase(every removal reason); unexplained |delta| is their per-node absolute difference before node aggregation. Delta and increase both extrapolate range endpoints, so it should stay near zero apart from scrape alignment and restart or schema-rollout transients. Reprioritized admissions are deliberately excluded because moving an existing entry between priorities is stock-neutral. Only stateful exporters render: legacy accepted counters also counted successful validation on nodes that did not store the message, so showing old history here would invent growth. The Node aggregation switch chooses the pointwise worst, p95, median, or best selected node independently per line; worst therefore finds the largest residual regardless of its original sign. The underlying accepted-minus-removals identity is exact from process start on every upgraded process: it is informative on validators and collators that store messages and trivially 0 = 0 on relay-only nodes. These plotted window deltas remain estimates. A sustained residual means a missing transition counter or gauge-accounting bug. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         }
       ],
       "title": "Mempool diagnostics",

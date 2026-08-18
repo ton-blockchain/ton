@@ -744,16 +744,32 @@ scrape still succeeds.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_mempool_ext_messages` | gauge | — | External messages currently pending in the mempool, summed over all priority levels. Includes postponed (temporarily inactive) messages and expired ones the periodic cleanup has not swept yet (messages live 600 s, the sweep runs every 250 s). |
-| `ton_mempool_oldest_ext_message_age_seconds` | gauge | — | Age of the oldest current mempool entry, maintained without scanning the pool. Includes postponed and expired-unswept messages; 0 when empty. Reprioritizing a duplicate recreates the entry and resets its age, matching its expiry behavior. |
-| `ton_mempool_ext_admission_total` | counter | `outcome=accepted\|not_ready\|too_large\|backpressure\|invalid\|state_unavailable\|vm_rejected\|rate_limited\|pool_full\|address_full\|duplicate\|internal_error\|reprioritized` | One local outcome for every external handed to the validator manager or pool. `accepted` passed validation and, on a node that stores externals, was inserted as a new pool entry. `reprioritized` passed validation and replaced its own lower-priority entry. On nodes that store externals, `accepted` minus removals tracks the pending gauge; `reprioritized` changes neither side. `rate_limited` is the final per-address validation cap. `pool_full`, `address_full`, and `duplicate` passed validation but were not inserted locally; they do not change the existing successful network response. Raw errors, addresses, and VM exit codes are never labels. Process-lifetime; all cells are emitted from boot. |
+| `ton_mempool_ext_messages` | gauge | `state=eligible\|postponed` | External messages currently stored in the mempool, summed over all priority levels. The cells mirror the stored `active` flag: `eligible` is active and `postponed` is inactive. A postponed entry whose `reactivate_at` has passed remains `postponed` until a collator snapshot revisits it and performs the membership-checked lazy reactivation. Both bounded cells are emitted, including zeroes, and their sum is the former unlabeled gauge. State is maintained at pool mutation sites; a scrape only copies the counters and never scans the pool or advances lazy state. |
+| `ton_mempool_oldest_ext_message_age_seconds` | gauge | — | Age of the oldest stored mempool entry, maintained from the expiry-ordered list head without scanning; 0 when empty. Reprioritizing a duplicate recreates and re-appends the entry, resetting its age and expiry. With the ordering invariant intact, the value is bounded by the 600 s TTL except while the pool actor owes a due expiry alarm: `max(age - 600, 0)` is then the exact expiry-handler lag at scrape time. A sustained value above 600 s means either that handler is delayed or the expiry-order invariant was broken. |
+| `ton_mempool_ext_admission_total` | counter | `outcome=accepted\|validated_only\|not_ready\|too_large\|backpressure\|invalid\|state_unavailable\|vm_rejected\|rate_limited\|pool_full\|address_full\|duplicate\|internal_error\|reprioritized` | One local outcome for every external handed to the validator manager or pool. `accepted` passed validation and was inserted as a new local pool entry. `validated_only` passed validation on a node with `add_to_mempool=false`, so it changed no local stock. `reprioritized` passed validation and replaced its own lower-priority entry. `accepted` minus removals tracks the stored gauge; `validated_only` and `reprioritized` change neither side. `rate_limited` is the final per-address validation cap. `pool_full`, `address_full`, and `duplicate` passed validation but were not inserted locally; they do not change the existing successful network response. Raw errors, addresses, and VM exit codes are never labels. Process-lifetime; all cells are emitted from boot. |
 | `ton_mempool_ext_check_total` | counter | `result=ok\|error` | External-message admission checks that ran, by outcome. `error` is a failed check (parse, account state fetch, VM) or the per-address cap at finalization; requests rejected **before** a check runs — node not ready, oversized payload, admission queue full — are counted in neither cell. Process-lifetime, resets on restart. |
-| `ton_mempool_ext_removed_total` | counter | `reason=applied\|expired\|rejected_final\|filtered\|pool_pressure` | Why an entry left this node's pool. `applied` — seen in an applied block; `expired` — hit the 600 s TTL and was swept; `rejected_final` — exhausted its postpone generations; `pool_pressure` — was evicted instead of postponed while its priority level was at the soft limit; `filtered` — collation could not register it, for example because it was duplicate or for the wrong shard. A non-`applied` removal is a local eviction, not proof the message was lost network-wide. Reprioritization is not a removal; it is admission outcome `reprioritized`. Process-lifetime; all cells emitted from boot. |
+| `ton_mempool_ext_removed_total` | counter | `reason=applied\|expired\|rejected_final\|filtered\|pool_pressure` | Why an entry left this node's pool. `applied` — seen in an applied block; `expired` — removed by the deadline handler at the 600 s TTL; `rejected_final` — exhausted its postpone generations; `pool_pressure` — was evicted instead of postponed while its priority level was at the soft limit; `filtered` — collation could not register it, for example because it was duplicate or for the wrong shard. A non-`applied` removal is a local eviction, not proof the message was lost network-wide. Reprioritization is not a removal; it is admission outcome `reprioritized`. Process-lifetime; all cells emitted from boot. |
 
 Admission starts at `ValidatorManager`: malformed outer broadcasts, unauthorized custom-overlay senders,
 inactive overlays, and duplicates rejected by the public overlay never reach this boundary. `duplicate` therefore
 means a duplicate that reached the pool. Pool storage outcomes do not change the existing network response: for
 example, an already-known message can still be allowed to propagate while being counted as `duplicate` locally.
+
+The process-lifetime stock identity at one scrape is exact:
+
+```promql
+sum without (state) (ton_mempool_ext_messages)
+  == sum without (outcome) (ton_mempool_ext_admission_total{outcome="accepted"})
+     - sum without (reason) (ton_mempool_ext_removed_total)
+```
+
+`validated_only` and `reprioritized` deliberately appear on neither side: validation without storage changes no
+local stock, and replacing an entry changes its state and TTL but not the stored total. Rates or range-vector
+deltas only approximate this scrape-time identity because Prometheus extrapolates them to the range boundaries.
+
+Adding the bounded `state` label starts new Prometheus series. Total-stock queries retain numeric continuity by
+aggregating the label away as above; `state="eligible"` has no history before the upgraded exporter, and selectors
+for one state omit old-version nodes during a mixed rollout.
 
 ---
 

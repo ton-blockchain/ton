@@ -24,10 +24,13 @@
 #include "td/actor/coro_utils.h"
 #include "td/utils/PersistentTreap.h"
 
+#include "expiry-ordered-list.hpp"
 #include "ext-message-checker.hpp"
 #include "external-message.hpp"
 
 namespace ton::validator {
+
+struct ExtMessagePoolTestPeer;
 
 class ExtMessagePool : public td::actor::Actor {
  public:
@@ -41,7 +44,6 @@ class ExtMessagePool : public td::actor::Actor {
   };
   td::actor::Task<CheckResult> check_add_external_message(td::BufferSlice data, int priority, bool add_to_mempool);
   void install_collator_queue(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback);
-  void cleanup_external_messages(ShardIdFull shard);
   void complete_external_messages(std::vector<ExtMessage::Hash> to_delay, std::vector<ExtMessage::Hash> to_delete);
   void erase_external_messages(BlockIdExt block_id, td::uint64 applied_count, std::vector<ExtMessage::Hash> to_delete);
 
@@ -63,6 +65,8 @@ class ExtMessagePool : public td::actor::Actor {
   }
 
  private:
+  friend struct ExtMessagePoolTestPeer;
+
   struct MessageId {
     AccountIdPrefixFull dst;
     ExtMessage::Hash hash;
@@ -90,16 +94,22 @@ class ExtMessagePool : public td::actor::Actor {
     td::uint32 generation = 0;
     bool active = true;
     td::Timestamp reactivate_at;
-    td::Timestamp delete_at;
+    const td::Timestamp delete_at;
 
     auto address() const {
       return std::make_pair(message->wc(), message->addr());
     }
-    bool is_active() {
+    bool is_active(bool *reactivated = nullptr) {
+      if (reactivated != nullptr) {
+        *reactivated = false;
+      }
       if (!active) {
         if (reactivate_at.is_in_past()) {
           active = true;
           generation++;
+          if (reactivated != nullptr) {
+            *reactivated = true;
+          }
         }
       }
       return active;
@@ -107,18 +117,19 @@ class ExtMessagePool : public td::actor::Actor {
     bool can_postpone() const {
       return generation <= 2;
     }
-    void postpone() {
+    bool postpone() {
       if (!active) {
-        return;
+        return false;
       }
       active = false;
       reactivate_at = td::Timestamp::in(generation * 5.0);
+      return true;
     }
     bool expired() const {
       return delete_at.is_in_past();
     }
-    explicit MempoolMsg(td::Ref<ExtMessage> msg) : message(std::move(msg)), hash_norm(message->hash_norm()) {
-      delete_at = td::Timestamp::in(TTL);
+    explicit MempoolMsg(td::Ref<ExtMessage> msg)
+        : message(std::move(msg)), hash_norm(message->hash_norm()), delete_at(td::Timestamp::in(TTL)) {
     }
   };
 
@@ -158,13 +169,16 @@ class ExtMessagePool : public td::actor::Actor {
   std::array<td::uint64, static_cast<size_t>(metrics::ExtMessageAdmissionOutcome::count)> admission_outcomes_{};
   std::array<td::uint64, static_cast<size_t>(metrics::ExtMessageRemovalReason::count)> removal_reasons_{};
   td::uint64 applied_ext_messages_master_{0}, applied_ext_messages_shard_{0};
-  MempoolMsg *oldest_ext_message_{nullptr};
-  MempoolMsg *newest_ext_message_{nullptr};
+  metrics::ExtMessageStateCounts ext_message_states_;
+  detail::ExpiryOrderedList<MempoolMsg> expiry_order_;
 
-  td::Timestamp cleanup_mempool_at_ = td::Timestamp::now();
-
-  metrics::ExtMessageAdmissionOutcome add_message_to_mempool(td::Ref<ExtMessage> message, int priority);
+  metrics::ExtMessageAdmissionOutcome add_message_to_mempool(td::Ref<ExtMessage> message, int priority,
+                                                             td::Timestamp &alarm);
+  metrics::ExtMessageAdmissionOutcome finalize_admission(td::Ref<ExtMessage> message, int priority, bool add_to_mempool,
+                                                         td::Timestamp &alarm);
   bool erase_message(int priority, MessageId id);
+  size_t cleanup_expired_messages(td::Timestamp now = td::Timestamp::now());
+  bool prepare_message_for_collation(MempoolMsg *message);
   void link_message(MempoolMsg *message);
   void unlink_message(MempoolMsg *message);
   void record_admission(metrics::ExtMessageAdmissionOutcome outcome);

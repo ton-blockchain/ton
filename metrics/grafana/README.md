@@ -104,7 +104,7 @@ them.
 
 One small health-first dashboard spanning the fleet. The first screen shows worst-node chain lag,
 actor scheduler occupancy, live execution age, exporter reachability, and worst-node
-kernel receive overflow. Throughput and the busiest-node mempool backlog are a separate context row,
+kernel receive overflow. Throughput and the busiest-node eligible mempool backlog are a separate context row,
 alongside chain-level masterchain blocks/s, shard blocks/s per active shard, and active shard count. Deep
 actor throughput is normalized per reporting node, and one card shows reporting masterchain
 validators, shardchain validators, and unique validator targets in the selected fleet. Masterchain
@@ -163,7 +163,24 @@ between success and failed/retry attempts with node attribution, per-node CPU s/
 outer collation work decomposition, nested transaction/storage work,
 `want_split`, overload reasons, block work, and size. The external section separates global
 admission from selected-chain execution and shows rejection and local-removal reasons,
-backlog, and oldest-entry age. Its stages are correlated signals, not a conservation funnel.
+eligible backlog, total storage, expiry-handler lag, oldest-entry age, and a five-minute
+stock/flow reconciliation. Its stages are correlated signals, not a conservation funnel. Mempool
+stock is node-local across all destination chains and priorities: it is never summed across the
+fleet, and the **Chain** selector does not filter it. The primary backlog is stored `active=true`
+entries; it does not claim every entry is selectable by the current collator. Total storage adds
+postponed `active=false` entries, which can remain postponed after their retry deadline until a
+collator snapshot revisits and reactivates them. Stateful exporters compare the five-minute delta
+of total storage with the increase in new `accepted` insertions minus the increase in every removal
+reason, keeping `reprioritized` correctly net-zero. The underlying identity is exact from process
+start on every upgraded process—informative on storing nodes and trivially zero on relay-only
+nodes—although the plotted range-function estimates can differ transiently at scrape, restart, or
+rollout boundaries. Legacy `accepted` also counted successful validation on non-storing nodes;
+legacy unlabeled stock therefore
+remains visible as both the eligible fallback and total during rollout/history, but split-only
+reconciliation stays absent rather than presenting invented values. Expiry removes entries atomically
+at the 600-second TTL; `max(oldest age - 600s, 0)` is shown as expiry-handler lag and should stay zero.
+Oldest-age and expiry-lag signals omit legacy exporters because their periodic expiry semantics are
+not comparable and could otherwise dominate the worst-node view during a rolling upgrade.
 Applied-external rates are medians of reporters whose absolute masterchain age is under 120 seconds;
 shardchain observations additionally require shard-client lag of at most two blocks. This rejects
 normal catch-up and future-skewed chain clocks, but the underlying counter still includes replay and
