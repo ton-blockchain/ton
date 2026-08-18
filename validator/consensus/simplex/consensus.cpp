@@ -208,6 +208,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     }
 
     slot->state->pending_block = candidate;
+    // Trace every candidate this node did not itself collate. A delegated one qualifies: its
+    // leader is this node, but the window ran on the collator's bus, so without the event here
+    // the validator would have no trace for the round at all — no validation wait, and an empty
+    // delegated round counted by nobody.
     if (candidate->collated_by(*owning_bus()) != owning_bus()->local_adnl_id) {
       owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
     }

@@ -93,6 +93,10 @@ class ManagerFacadeImpl : public ManagerFacade {
                             std::move(data), mode);
   }
 
+  void report_consensus_metrics(metrics::ConsensusMetrics metrics) override {
+    td::actor::send_closure(manager_, &ValidatorManager::add_consensus_metrics, std::move(metrics));
+  }
+
   void update_collator_options(td::Ref<ValidatorManagerOptions> opts) {
     opts_ = std::move(opts);
   }
@@ -330,6 +334,7 @@ class BridgeImpl final : public IValidatorGroup {
     simplex::CollatorProducer::register_in(runtime);
     simplex::Consensus::register_in(runtime);
     simplex::Db::register_in(runtime);
+    simplex::MetricReporter::register_in(runtime);
     simplex::Pool::register_in(runtime);
     simplex::StateResolver::register_in(runtime);
 

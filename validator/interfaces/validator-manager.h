@@ -24,6 +24,7 @@
 #include "block/signature-set.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "impl/out-msg-queue-proof.hpp"
+#include "metrics/consensus-metrics.h"
 #include "td/actor/BackpressureQueue.h"
 #include "td/utils/logging.h"
 #include "validator/validator.h"
@@ -454,6 +455,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void log_collate_query_stats(CollationStats stats) {
   }
   virtual void log_validate_query_stats(ValidationStats stats) {
+  }
+  virtual void add_consensus_metrics(metrics::ConsensusMetrics metrics) {
   }
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;

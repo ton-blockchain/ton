@@ -65,7 +65,11 @@ class Id : public Event {
 
 class CollateStarted : public CollectibleEvent<MetricCollector> {
  public:
-  static std::unique_ptr<CollateStarted> create(td::uint32 slot);
+  // slot_start identifies when the target slot begins. Only its steady-clock value is retained for
+  // in-process metrics; the existing trace event and text remain unchanged. For a shard it is the
+  // collation's wait-for-externals deadline; on the masterchain there is none, so it is the moment
+  // collation is launched (window-producer.cpp uses start_collate_before = 0 there).
+  static std::unique_ptr<CollateStarted> create(td::uint32 slot, td::Timestamp slot_start);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
@@ -74,16 +78,58 @@ class CollateStarted : public CollectibleEvent<MetricCollector> {
   td::uint32 target_slot() const {
     return target_slot_;
   }
+  double slot_start_monotonic() const {
+    return slot_start_monotonic_;
+  }
 
  private:
-  CollateStarted(td::uint32 target_slot);
+  CollateStarted(td::uint32 target_slot, double slot_start_monotonic);
 
   td::uint32 target_slot_;
+  double slot_start_monotonic_;
 };
 
 class CollateFinished : public CollectibleEvent<MetricCollector> {
  public:
-  static std::unique_ptr<CollateFinished> create(td::uint32 slot, CandidateId id);
+  // target_slot is local-only launch-slot telemetry; id.slot and slot_start identify the slot to
+  // which the completed candidate was actually assigned. They differ when a slow future survives
+  // one or more empty slots. to_tl() keeps the legacy assigned-slot value in the existing
+  // target_slot field. The monotonic finish is the collator's actual completion timestamp, not the
+  // later moment window-producer happens to consume the future.
+  static std::unique_ptr<CollateFinished> create(td::uint32 target_slot, td::Timestamp slot_start, CandidateId id,
+                                                 double finished_at_monotonic);
+
+  tl::EventRef to_tl() const override;
+  std::string to_string() const override;
+  void collect_to(MetricCollector& collector) const override;
+
+  td::uint32 target_slot() const {
+    return target_slot_;
+  }
+  double slot_start_monotonic() const {
+    return slot_start_monotonic_;
+  }
+  double finished_at_monotonic() const {
+    return finished_at_monotonic_;
+  }
+  CandidateId id() const {
+    return id_;
+  }
+
+ private:
+  CollateFinished(td::uint32 target_slot, double slot_start_monotonic, CandidateId id, double finished_at_monotonic);
+
+  td::uint32 target_slot_;
+  double slot_start_monotonic_;
+  double finished_at_monotonic_;
+  CandidateId id_;
+};
+
+class CollatedEmpty : public CollectibleEvent<MetricCollector> {
+ public:
+  // target_slot identifies the still-running collation future that forced this empty slot. It is
+  // local telemetry only; to_tl() intentionally keeps the legacy on-disk constructor unchanged.
+  static std::unique_ptr<CollatedEmpty> create(td::uint32 target_slot, CandidateId id);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
@@ -97,26 +143,9 @@ class CollateFinished : public CollectibleEvent<MetricCollector> {
   }
 
  private:
-  CollateFinished(td::uint32 target_slot, CandidateId id);
+  CollatedEmpty(td::uint32 target_slot, CandidateId id);
 
   td::uint32 target_slot_;
-  CandidateId id_;
-};
-
-class CollatedEmpty : public Event {
- public:
-  static std::unique_ptr<CollatedEmpty> create(CandidateId id);
-
-  tl::EventRef to_tl() const override;
-  std::string to_string() const override;
-
-  CandidateId id() const {
-    return id_;
-  }
-
- private:
-  CollatedEmpty(CandidateId id);
-
   CandidateId id_;
 };
 
@@ -173,15 +202,6 @@ class CandidateReceived : public CollectibleEvent<MetricCollector> {
 
   CandidateId id() const {
     return id_;
-  }
-  ParentId parent() const {
-    return parent_;
-  }
-  std::optional<BlockIdExt> block_id() const {
-    return block_;
-  }
-  bool is_collator() const {
-    return is_collator_;
   }
 
  private:
@@ -257,6 +277,7 @@ class MetricCollector {
 
   virtual void collect_collate_started(const CollateStarted& event) = 0;
   virtual void collect_collate_finished(const CollateFinished& event) = 0;
+  virtual void collect_collated_empty(const CollatedEmpty& event) = 0;
   virtual void collect_candidate_received(const CandidateReceived& event) = 0;
   virtual void collect_validation_started(const ValidationStarted& event) = 0;
   virtual void collect_validation_finished(const ValidationFinished& event) = 0;

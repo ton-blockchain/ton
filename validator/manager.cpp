@@ -3592,6 +3592,7 @@ void ValidatorManagerImpl::collect_chain_metrics(metrics::Context ctx) {
   }
   ctx.collect(snapshot);
   ctx.collect(block_processing_metrics_);
+  ctx.collect(consensus_metrics_);
 }
 
 td::actor::Task<> ValidatorManagerImpl::collect_ext_message_pool_metrics(metrics::Context ctx) {

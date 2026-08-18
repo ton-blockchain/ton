@@ -311,7 +311,7 @@ adnl::AdnlNodeIdShort Candidate::collated_by(const Bus& bus) const {
   return leader.get_using(bus).adnl_id;
 }
 
-stats::Event::Event() : ts_(td::Clocks::system()) {
+stats::Event::Event() : ts_(td::Clocks::system()), monotonic_ts_(td::Timestamp::now().at()) {
 }
 
 }  // namespace ton::validator::consensus
