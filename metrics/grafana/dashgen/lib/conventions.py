@@ -210,24 +210,41 @@ def hover_note(keys):
     nouns = {KEY_NOUNS.get(key, "series") for key in keys}
     noun = nouns.pop() if len(nouns) == 1 else "series"
     return (f' Hover attribution: the tooltip lists "{noun} ⇒ node" rows (hidden from the chart) '
-            f"naming, per {noun}, the node that dominated the visible range — its maximum over the "
-            "whole range, or its minimum where low is the bad direction. That is deliberately one "
-            "stable owner for the range rather than a name flickering sample by sample, so under a "
-            "median or p95 node aggregation the plotted value is that aggregate while the name "
-            "stays the range-dominant node.")
+            f"answering, per {noun}, whose number the drawn line is. Each row names one stable "
+            "node for the visible range — on a Node-switch panel the node whose series stays "
+            "nearest the drawn quantile (the dominant node under worst, the node the median "
+            "follows under median), elsewhere the node that dominated the range — and always "
+            "carries that node's own value, so where the row hugs the drawn line, the line is "
+            "that node.")
 
 
 def _drawn(item):
     return item.shown or summed(item.key, item.inner, agg=item.pick)
 
 
-def _overlay(item, transplant):
-    """The join that carries the range-dominant node's labels onto the drawn value."""
+def _overlay(item):
+    """One node's own series, chosen to explain the drawn line: whose number is on screen.
+
+    Mirroring the drawn aggregate here was wrong by any interpretation — a fleet median wearing
+    one node's name asserts a load that node never had. Where the Node switch draws a fleet
+    quantile, that quantile is in effect one node's number, so the row is the per-node inner
+    filtered to the node whose series stayed nearest the drawn line over the visible range: the
+    dominant node under worst, the node the median follows under median. Elsewhere the drawn
+    line is a fleet figure no single node is, and the row names the range-dominant node — its
+    maximum over the range, or minimum where low is the bad direction.
+    """
+    on = f"{item.key}, job, instance" if item.key else "job, instance"
+    drawn = _drawn(item)
+    if "${agg}" in drawn:
+        by = f" by ({item.key})" if item.key else ""
+        join = f"on ({item.key}) group_left()" if item.key else "on () group_left()"
+        miss = f"avg_over_time((abs(({item.inner}) - {join} ({drawn})))[$__range:] @ end())"
+        return f"({item.inner}) and on ({on}) (bottomk{by}(1, {miss}))"
     picker, over = (("topk", "max_over_time") if item.pick == "max"
                     else ("bottomk", "min_over_time"))
     rank = f"{picker} by ({item.key}) (1, " if item.key else f"{picker}(1, "
-    return (f" * on ({item.key or ''}) group_left({', '.join(transplant)})"
-            f" ({rank}{over}(({item.inner})[$__range:] @ end())) ^ 0)")
+    return (f"({item.inner}) and on ({on})"
+            f" ({rank}{over}(({item.inner})[$__range:] @ end())))")
 
 
 LIST_LEGEND = {"displayMode": "list", "placement": "bottom", "showLegend": True, "calcs": []}
@@ -293,7 +310,7 @@ def _attributed_targets(items, transplant):
             continue
         ref = ATTR if not overlays else f"{ATTR}{len(overlays) + 1}"
         name = item.name or ("worst" if item.pick == "max" else "best")
-        overlays.append(target(_drawn(item) + _overlay(item, transplant) + item.top,
+        overlays.append(target(_overlay(item) + item.top,
                                ref_id=ref, bare=True, legend=f"{name} ⇒ {{{{instance}}}}"))
         overrides.append(_frame(ref, copy.deepcopy(ATTR_PROPS)))
     return drawn + overlays, overrides

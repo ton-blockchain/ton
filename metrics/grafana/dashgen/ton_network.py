@@ -190,10 +190,10 @@ def handshakes(result):
                      result=result)
 
 
-def wire_throughput(transport):
-    """Bytes one transport put on the wire, per direction."""
+def wire_rate(transport, counter):
+    """One transport's wire activity by direction: bytes or packets."""
     return line(f"{transport} {{{{direction}}}}",
-                net_rate(f"ton_{transport}_wire_bytes_total", "direction"))
+                net_rate(f"ton_{transport}_wire_{counter}_total", "direction"))
 
 
 def datagrams_per_syscall(transport):
@@ -304,41 +304,33 @@ ROWS = [
         ),
     ),
     row("Service health", id=40, panels=[
-        chain_timeseries(
+        net_agg_timeseries(
             "Outbound query RTT p95 by transport",
-            line("quic {{trust}}",
-                 quantile("ton_quic_query_roundtrip_seconds", by="trust", trusted=True)),
-            line("adnl", quantile("ton_adnl_query_roundtrip_seconds")),
-            scope="every selected node", unit="s", id=19, h=9, thresholds=RTT_BANDS,
+            agg_line(quantile("ton_quic_query_roundtrip_seconds",
+                              by=f"trust, {NODE_KEYS}", trusted=True),
+                     key="trust", name="quic {{trust}}"),
+            agg_line(quantile("ton_adnl_query_roundtrip_seconds", by=NODE_KEYS), name="adnl"),
+            unit="s", id=19, w=8, h=9, thresholds=RTT_BANDS,
             description=(
                 "Transport-accept to answer for queries we send: network + peer processing + "
-                "transfer time. QUIC is split by peer class; ADNL remains all-peers. p95 comes "
-                "from fleet-summed histogram buckets. RLDP2 bulk-transfer latency is separate "
-                "below because it is not comparable with low-latency ADNL/QUIC."
+                "transfer time. The p95 is each node's own; the Node switch collapses across "
+                "nodes, so worst asks 'is RTT bad everywhere or on one node' and the hover row "
+                "names it. QUIC is split by peer class; ADNL remains all-peers. RLDP2 "
+                "bulk-transfer latency is separate below because it is not comparable with "
+                "low-latency ADNL/QUIC."
             ),
         ),
-        chain_timeseries(
-            "Inbound query processing p95 by type",
-            line("{{tl}}", quantile("ton_adnl_query_duration_seconds", by="tl")
-                 + top_total("tl", "ton_adnl_query_duration_seconds_count", selector=sel(**NET))),
-            scope="every selected node", unit="s", id=20, h=9, legend=table_legend("lastNotNull"),
-            description=(
-                "Time this node spends answering inbound queries, excluding network transfer. All "
-                "transports funnel through this ADNL delivery-layer timer. Histogram buckets are "
-                "summed across the fleet; the top 8 types are ranked by call volume over the "
-                "visible range."
-            ),
-        ),
-        chain_timeseries(
+        net_agg_timeseries(
             "Message delivery p95",
-            line("quic {{trust}}",
-                 quantile("ton_quic_message_delivery_seconds", by="trust", trusted=True)),
-            scope="every selected node", unit="s", id=21,
+            agg_line(quantile("ton_quic_message_delivery_seconds",
+                              by=f"trust, {NODE_KEYS}", trusted=True),
+                     key="trust", name="quic {{trust}}"),
+            unit="s", id=21, w=8, h=9,
             description=(
                 "QUIC fire-and-forget delivery p95 to the receiver's empty acknowledgement, split "
-                "by peer class and computed from fleet-summed histogram buckets. Plain ADNL has no "
-                "acknowledgement. RLDP2 transfer delivery is separate below because bulk-transfer "
-                "latency is not comparable."
+                "by peer class; each node's own p95, collapsed across nodes by the Node switch. "
+                "Plain ADNL has no acknowledgement. RLDP2 transfer delivery is separate below "
+                "because bulk-transfer latency is not comparable."
             ),
         ),
         net_agg_timeseries(
@@ -356,7 +348,7 @@ ROWS = [
                        "ton_adnl_query_roundtrip_seconds_count"),
             node_share("rldp2 delivery", "ton_rldp2_message_delivery_failed_total",
                        "ton_rldp2_message_delivery_seconds_count"),
-            unit="percentunit", id=22, thresholds=failure_bands(),
+            unit="percentunit", id=22, w=8, h=9, thresholds=failure_bands(),
             description=(
                 "Failures divided by measured deliveries, roundtrips, or packets, computed per "
                 "node and then collapsed by the Node aggregation switch rather than fleet-wide, so "
@@ -365,6 +357,36 @@ ROWS = [
                 "presenting 0/0 as healthy. QUIC app outcomes are split by peer class; packet "
                 "loss, ADNL, and RLDP2 remain all-peers. Persistent values above 1% deserve "
                 "investigation."
+            ),
+        ),
+        net_agg_timeseries(
+            "Outbound query RTT p95 by type",
+            agg_line(quantile("ton_adnl_query_roundtrip_seconds", by=f"tl, {NODE_KEYS}"),
+                     key="tl", name="adnl {{tl}}",
+                     top=busiest("ton_adnl_query_roundtrip_seconds_count", n=8)),
+            agg_line(quantile("ton_quic_query_roundtrip_seconds",
+                              by=f"tl, {NODE_KEYS}", trusted=True),
+                     key="tl", name="quic {{tl}}",
+                     top=busiest("ton_quic_query_roundtrip_seconds_count", n=8, trusted=True)),
+            unit="s", id=53, h=9, thresholds=RTT_BANDS, legend=table_legend("lastNotNull"),
+            description=(
+                "The transport RTT panel split by TL constructor: which query type is responsible "
+                "for a p95 shift. Same measurement and same per-node p95 the Node switch "
+                "collapses, with ADNL and QUIC each showing their top 8 types by call volume over "
+                "the visible range. The peer-class filter applies to the QUIC lines only; ADNL "
+                "remains all-peers. RLDP2 stays on its bulk-transfer panels."
+            ),
+        ),
+        net_agg_timeseries(
+            "Inbound query processing p95 by type",
+            agg_line(quantile("ton_adnl_query_duration_seconds", by=f"tl, {NODE_KEYS}"),
+                     key="tl", top=busiest("ton_adnl_query_duration_seconds_count", n=8)),
+            unit="s", id=20, h=9, legend=table_legend("lastNotNull"),
+            description=(
+                "Time a node spends answering inbound queries, excluding network transfer. All "
+                "transports funnel through this ADNL delivery-layer timer. The p95 is each "
+                "node's own, collapsed across nodes by the Node switch; the top 8 types are "
+                "ranked by call volume over the visible range."
             ),
         ),
     ]),
@@ -520,12 +542,46 @@ ROWS = [
     row("Traffic & efficiency", id=44, collapsed=True, panels=[
         chain_timeseries(
             "Wire throughput by transport",
-            wire_throughput("adnl"), wire_throughput("quic"),
-            scope="every selected node", unit="Bps", id=7,
+            wire_rate("adnl", "bytes"), wire_rate("quic", "bytes"),
+            scope="every selected node", unit="Bps", id=7, w=8,
             description=(
                 "UDP payload bytes/s from each transport's socket accounting, summed across "
                 "selected nodes. ADNL and QUIC own sockets; RLDP2 rides inside ADNL and is already "
                 "present in its socket total."
+            ),
+        ),
+        chain_timeseries(
+            "Wire packet rate by transport",
+            wire_rate("adnl", "packets"), wire_rate("quic", "packets"),
+            scope="every selected node", unit="pps", id=54, w=8,
+            description=(
+                "UDP datagrams/s from each transport's socket accounting, summed across selected "
+                "nodes — the packet-count view of the throughput panel, exposing the small-packet "
+                "load and syscall pressure that bytes/s hides. ADNL and QUIC own sockets; RLDP2 "
+                "rides inside ADNL and is already present in its socket total."
+            ),
+        ),
+        net_agg_timeseries(
+            "Datagrams per syscall",
+            datagrams_per_syscall("quic"), datagrams_per_syscall("adnl"),
+            unit="short", id=10, w=8, h=8,
+            description=(
+                "Wire packets per UDP send/receive syscall, per node and then collapsed by the "
+                "Node aggregation switch; higher is cheaper, so the switch runs the other way — "
+                "worst is the fleet minimum, and the hover rows name the node batching worst. "
+                "Outbound 1.0 means no batching: one sendmsg per datagram. Inbound counts the "
+                "drain loop's closing empty read — every poll wakeup ends with one EAGAIN probe — "
+                "so a lightly loaded receiver sits below 1 and approaches 0.5 as each datagram "
+                "gets its own wakeup. A direction disappears when it has no syscalls instead of "
+                "producing an undefined ratio."
+            ),
+        ),
+        per_node_timeseries(
+            "Nodes by wire throughput (adnl+quic)", line(BY_NODE, tagged_wire(NODE_KEYS)),
+            unit="Bps", id=8, w=24, fill=6, legend=table_legend("lastNotNull"),
+            description=(
+                "Busiest nodes by available ADNL+QUIC UDP bytes (in+out). A target remains visible "
+                "when either collector family is absent."
             ),
         ),
         net_agg_timeseries(
@@ -541,27 +597,6 @@ ROWS = [
                 "with the selection; at the default worst each line is its busiest node and the "
                 "hover rows name it. QUIC is split by peer class; ADNL and RLDP2 remain "
                 "all-peers. ADNL includes RLDP2 datagrams, so ADNL + RLDP2 double-counts."
-            ),
-        ),
-        per_node_timeseries(
-            "Nodes by wire throughput (adnl+quic)", line(BY_NODE, tagged_wire(NODE_KEYS)),
-            unit="Bps", id=8, w=24, fill=6, legend=table_legend("lastNotNull"),
-            description=(
-                "Busiest nodes by available ADNL+QUIC UDP bytes (in+out). A target remains visible "
-                "when either collector family is absent."
-            ),
-        ),
-        net_agg_timeseries(
-            "Datagrams per syscall",
-            datagrams_per_syscall("quic"), datagrams_per_syscall("adnl"),
-            unit="short", id=10,
-            description=(
-                "Wire packets per UDP send/receive syscall, per node and then collapsed by the "
-                "Node aggregation switch: 1.0 means no batching and higher is cheaper, so the "
-                "switch runs the other way — worst is the fleet minimum, and the hover rows name "
-                "the node batching worst. A direction disappears when it has no syscalls instead "
-                "of producing "
-                "an undefined ratio."
             ),
         ),
         net_agg_timeseries(
