@@ -39,6 +39,7 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
           .min_masterchain_block_id = state->min_mc_block_id(),
           .prev = state->block_ids(),
           .creator = Ed25519_PublicKey{ctx.leader.key.ed25519_value().raw()},
+          .first_in_window = slot == ctx.start_slot,
           .utime = slot_start.at_unix(),
           .hard_timeout = slot_start + hard_timeout,
           .prev_block_data = state->block_data(),

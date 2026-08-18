@@ -29,6 +29,7 @@
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
 #include "metrics/block-processing-metrics.h"
+#include "metrics/chain-metrics.h"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
 #include "rldp2/rldp.h"
@@ -780,18 +781,17 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   UnixTime started_at_ = (UnixTime)td::Clocks::system();
   std::map<int, td::uint64> total_ls_queries_ok_, total_ls_queries_error_;  // lite_api ID -> count, 0 for unknown
-  td::uint64 total_collated_blocks_master_ok_{0}, total_collated_blocks_master_error_{0};
-  td::uint64 total_validated_blocks_master_ok_{0}, total_validated_blocks_master_error_{0};
-  td::uint64 total_collated_blocks_shard_ok_{0}, total_collated_blocks_shard_error_{0};
-  td::uint64 total_validated_blocks_shard_ok_{0}, total_validated_blocks_shard_error_{0};
+  metrics::ChainSnapshot::CollatedBlocks total_collated_blocks_;
+  metrics::ChainSnapshot::Blocks total_validated_blocks_;
   td::uint64 ext_message_not_ready_{0};
   metrics::BlockProcessingMetrics block_processing_metrics_;
 
   void log_collate_query_stats(CollationStats stats) override;
-  void log_collation_external_stats(ShardIdFull shard, CollationStats::ExternalMessages stats) override;
   void log_validate_query_stats(ValidationStats stats) override;
   void add_collation_external_metrics(metrics::BlockChain chain, metrics::BlockResult result,
                                       CollationStats::ExternalMessages stats);
+  void add_collation_queue_metrics(metrics::BlockChain chain, const CollationStats &stats);
+  void add_collation_storage_cache_metrics(metrics::BlockChain chain, const StorageStatCacheStats &cache);
 
   void register_stats_provider(
       td::uint64 idx, std::string prefix,

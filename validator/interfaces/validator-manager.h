@@ -97,6 +97,8 @@ struct CollationStats {
   double collated_at = -1.0;
   td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
   int attempt = 0;
+  // First slot of the producer's leader window; false for collations that cannot know their slot.
+  bool first_in_window = false;
   PublicKeyHash self = PublicKeyHash::zero();
   bool is_validator = false;
   td::uint32 estimated_bytes = 0, gas = 0, lt_delta = 0, estimated_collated_data_bytes = 0;
@@ -450,8 +452,6 @@ class ValidatorManager : public ValidatorManagerInterface {
   }
 
   virtual void log_collate_query_stats(CollationStats stats) {
-  }
-  virtual void log_collation_external_stats(ShardIdFull shard, CollationStats::ExternalMessages stats) {
   }
   virtual void log_validate_query_stats(ValidationStats stats) {
   }

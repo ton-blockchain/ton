@@ -5,6 +5,10 @@
  */
 
 #include <chrono>
+#include <functional>
+#include <limits>
+#include <memory>
+#include <string_view>
 
 #include "adnl/adnl-peer-table.hpp"
 #include "adnl/adnl-sender-ex.h"
@@ -25,6 +29,7 @@
 #include "td/actor/actor.h"
 #include "td/actor/core/Scheduler.h"
 #include "td/utils/ScopeGuard.h"
+#include "td/utils/Time.h"
 #include "td/utils/as.h"
 #include "td/utils/tests.h"
 #include "tl-utils/lite-utils.hpp"
@@ -223,6 +228,27 @@ size_t count_of(const std::string &out, const std::string &needle) {
   return n;
 }
 
+std::string without_family(const std::string &out, std::string_view family) {
+  std::string type_prefix = "# TYPE ";
+  type_prefix.append(family);
+  type_prefix += ' ';
+  std::string result;
+  for (size_t begin = 0; begin < out.size();) {
+    auto end = out.find('\n', begin);
+    auto size = (end == std::string::npos ? out.size() : end) - begin;
+    std::string_view line{out.data() + begin, size};
+    if (!line.starts_with(type_prefix) && !line.starts_with(family)) {
+      result.append(line);
+      result += '\n';
+    }
+    if (end == std::string::npos) {
+      break;
+    }
+    begin = end + 1;
+  }
+  return result;
+}
+
 TEST(Metrics, HistogramEmptyRendersEveryBucket) {
   auto out = render(Histogram<kDurationBuckets>{}, "x");
   EXPECT_EQ(
@@ -299,6 +325,46 @@ TEST(Metrics, HistogramMerges) {
   ASSERT_TRUE(has_line(out, "x_bucket{le=\"0.005\"} 2.000000"));
   ASSERT_TRUE(has_line(out, "x_bucket{le=\"5\"} 3.000000"));
   ASSERT_TRUE(has_line(out, "x_bucket{le=\"+Inf\"} 3.000000"));
+}
+
+TEST(Metrics, RecentMaxRetainsTwoBucketsAndMergesByGeneration) {
+  RecentMax<10> left, right;
+  left.observe_at(11.0, 2.0);   // generation 1
+  left.observe_at(19.0, 3.0);   // same generation
+  right.observe_at(21.0, 5.0);  // generation 2
+  left += right;
+
+  ASSERT_EQ(5.0, left.value_at(21.0));
+  ASSERT_EQ(5.0, left.value_at(30.0));  // generations 2 and 3 are still visible
+  ASSERT_EQ(0.0, left.value_at(40.0));  // both retained generations expired
+
+  left.observe_at(9.0, 99.0);  // clock regression cannot displace newer same-parity data
+  ASSERT_EQ(5.0, left.value_at(21.0));
+}
+
+TEST(Metrics, RecentMaxRejectsUnsafeClockAndInvalidSamples) {
+  RecentMax<10> value;
+  value.observe_at(std::numeric_limits<double>::max(), 100.0);
+  value.observe_at(1.0, std::numeric_limits<double>::infinity());
+  value.observe_at(1.0, std::numeric_limits<double>::quiet_NaN());
+  value.observe_at(1.0, -1.0);
+  ASSERT_EQ(0.0, value.value_at(1.0));
+  ASSERT_EQ(0.0, value.value_at(std::numeric_limits<double>::max()));
+
+  value.observe_at(11.0, 7.0);
+  ASSERT_EQ(7.0, value.value_at(11.0));
+}
+
+TEST(Metrics, RecentMaxOmitsAbsentAndExpiredSamples) {
+  RecentMax<10> value;
+  EXPECT_EQ("# TYPE recent gauge\n", render(value, "recent"));
+
+  value.observe_at(11.0, 7.0);
+  // collect() uses the real monotonic clock, so exercise the optional state directly at a
+  // deterministic time: absence is distinct from a legitimate retained zero.
+  ASSERT_TRUE(value.recent_value_at(11.0).has_value());
+  ASSERT_EQ(7.0, *value.recent_value_at(11.0));
+  ASSERT_TRUE(!value.recent_value_at(40.0).has_value());
 }
 
 // ===== TlTrafficBucket =====
@@ -775,7 +841,8 @@ TEST(Metrics, ChainSnapshotRendersEachFamily) {
       .masterchain_block_age_seconds = 2.5,
       .shardclient_seqno = 3,
       .active_shards = 14,
-      .collated_blocks = {.master = {.ok = 4, .error = 5}, .shard = {.ok = 6, .error = 7}},
+      .collated_blocks = {.later = {.master = {.ok = 4, .error = 5}, .shard = {.ok = 6, .error = 7}},
+                          .first = {.master = {.ok = 14, .error = 15}, .shard = {.ok = 16, .error = 17}}},
       .validated_blocks = {.master = {.ok = 8, .error = 9}, .shard = {.ok = 10, .error = 11}},
       .validator_groups = ChainSnapshot::Groups{.master = 12, .shard = 13},
   };
@@ -789,10 +856,14 @@ TEST(Metrics, ChainSnapshotRendersEachFamily) {
       "# TYPE active_shards gauge\n"
       "active_shards 14.000000\n"
       "# TYPE collated_blocks counter\n"
-      "collated_blocks_total{chain=\"master\",result=\"ok\"} 4.000000\n"
-      "collated_blocks_total{chain=\"master\",result=\"error\"} 5.000000\n"
-      "collated_blocks_total{chain=\"shard\",result=\"ok\"} 6.000000\n"
-      "collated_blocks_total{chain=\"shard\",result=\"error\"} 7.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"master\",result=\"ok\"} 4.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"master\",result=\"error\"} 5.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"shard\",result=\"ok\"} 6.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"shard\",result=\"error\"} 7.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"master\",result=\"ok\"} 14.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"master\",result=\"error\"} 15.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"shard\",result=\"ok\"} 16.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"shard\",result=\"error\"} 17.000000\n"
       "# TYPE validated_blocks counter\n"
       "validated_blocks_total{chain=\"master\",result=\"ok\"} 8.000000\n"
       "validated_blocks_total{chain=\"master\",result=\"error\"} 9.000000\n"
@@ -811,10 +882,14 @@ TEST(Metrics, ChainSnapshotDefaultOmitsOptionalSamples) {
       "# TYPE shardclient_seqno gauge\n"
       "# TYPE active_shards gauge\n"
       "# TYPE collated_blocks counter\n"
-      "collated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
-      "collated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
-      "collated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
-      "collated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"master\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"master\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"shard\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"master\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"master\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"shard\",result=\"error\"} 0.000000\n"
       "# TYPE validated_blocks counter\n"
       "validated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
       "validated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
@@ -843,10 +918,14 @@ TEST(Metrics, ChainSnapshotDistinguishesAbsentFromZero) {
       "# TYPE active_shards gauge\n"
       "active_shards 0.000000\n"
       "# TYPE collated_blocks counter\n"
-      "collated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
-      "collated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
-      "collated_blocks_total{chain=\"shard\",result=\"ok\"} 0.000000\n"
-      "collated_blocks_total{chain=\"shard\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"master\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"master\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{first=\"0\",chain=\"shard\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"master\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"master\",result=\"error\"} 0.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"shard\",result=\"ok\"} 0.000000\n"
+      "collated_blocks_total{first=\"1\",chain=\"shard\",result=\"error\"} 0.000000\n"
       "# TYPE validated_blocks counter\n"
       "validated_blocks_total{chain=\"master\",result=\"ok\"} 0.000000\n"
       "validated_blocks_total{chain=\"master\",result=\"error\"} 0.000000\n"
@@ -860,14 +939,18 @@ TEST(Metrics, ChainSnapshotDistinguishesAbsentFromZero) {
 
 TEST(Metrics, BlockProcessingMetricsRenderAndClamp) {
   BlockProcessingMetrics metrics;
-  metrics.add_collation(BlockChain::master, BlockResult::ok, -1.0, {.real = 2.0, .cpu = -3.0}, -4.0);
+  metrics.add_collation(BlockChain::master, BlockResult::ok, FirstInWindow::no, -1.0, {.real = 2.0, .cpu = -3.0}, -4.0);
   metrics.add_collation_phase(BlockChain::master, BlockResult::ok, CollationPhase::preinit, {.real = 5.0, .cpu = -6.0});
   metrics.add_validation(BlockChain::shard, BlockResult::error, 7.0, {.real = 8.0, .cpu = 9.0}, 10.0);
   metrics.add_validation_phase(BlockChain::shard, BlockResult::error, ValidationPhase::check_new_state,
                                {.real = -11.0, .cpu = 12.0});
   metrics.add_collation_external(BlockChain::master, BlockResult::ok, CollationExternalOutcome::included, 13);
   metrics.add_collation_external(BlockChain::shard, BlockResult::error, CollationExternalOutcome::rejected, 17);
-  metrics.add_collation_work(BlockChain::shard, {.gas = 21});
+  metrics.add_collation_work(BlockChain::shard, FirstInWindow::no, {.gas = 21});
+  metrics.add_collation_work(BlockChain::master, FirstInWindow::yes, {.transactions = 3});
+  metrics.add_collation_out_queue(BlockChain::shard, {.size = 4096, .cleaned = 12, .processed = 34, .skipped = 5});
+  metrics.add_collation_storage_cache(BlockChain::shard, StorageCacheOutcome::hit, 7, 700);
+  metrics.add_collation_storage_cache(BlockChain::master, StorageCacheOutcome::small, 1, 2);
   metrics.add_want_split(BlockChain::master);
   metrics.add_overload(BlockChain::master, 1);
   metrics.add_overload(BlockChain::master, 2);
@@ -920,9 +1003,16 @@ TEST(Metrics, BlockProcessingMetricsRenderAndClamp) {
       "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"skipped_backpressure\"} 0.000000\n"
       "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"included\"} 0.000000\n"
       "collation_ext_messages_total{chain=\"shard\",result=\"error\",outcome=\"rejected\"} 17.000000\n"
+      "# TYPE collation_elapsed_seconds counter\n"
+      "collation_elapsed_seconds_total{chain=\"master\",first=\"0\"} 0.000000\n"
+      "collation_elapsed_seconds_total{chain=\"master\",first=\"1\"} 0.000000\n"
+      "collation_elapsed_seconds_total{chain=\"shard\",first=\"0\"} 0.000000\n"
+      "collation_elapsed_seconds_total{chain=\"shard\",first=\"1\"} 0.000000\n"
       "# TYPE collation_transactions counter\n"
-      "collation_transactions_total{chain=\"master\"} 0.000000\n"
-      "collation_transactions_total{chain=\"shard\"} 0.000000\n"
+      "collation_transactions_total{chain=\"master\",first=\"0\"} 0.000000\n"
+      "collation_transactions_total{chain=\"master\",first=\"1\"} 3.000000\n"
+      "collation_transactions_total{chain=\"shard\",first=\"0\"} 0.000000\n"
+      "collation_transactions_total{chain=\"shard\",first=\"1\"} 0.000000\n"
       "# TYPE collation_gas counter\n"
       "collation_gas_total{chain=\"master\"} 0.000000\n"
       "collation_gas_total{chain=\"shard\"} 21.000000\n"
@@ -935,6 +1025,32 @@ TEST(Metrics, BlockProcessingMetricsRenderAndClamp) {
       "# TYPE collation_ext_messages_offered counter\n"
       "collation_ext_messages_offered_total{chain=\"master\"} 0.000000\n"
       "collation_ext_messages_offered_total{chain=\"shard\"} 0.000000\n"
+      "# TYPE collation_out_queue_size gauge\n"
+      "collation_out_queue_size{chain=\"master\"} 0.000000\n"
+      "collation_out_queue_size{chain=\"shard\"} 4096.000000\n"
+      "# TYPE collation_out_queue_cleaned counter\n"
+      "collation_out_queue_cleaned_total{chain=\"master\"} 0.000000\n"
+      "collation_out_queue_cleaned_total{chain=\"shard\"} 12.000000\n"
+      "# TYPE collation_out_queue_processed counter\n"
+      "collation_out_queue_processed_total{chain=\"master\"} 0.000000\n"
+      "collation_out_queue_processed_total{chain=\"shard\"} 34.000000\n"
+      "# TYPE collation_out_queue_skipped counter\n"
+      "collation_out_queue_skipped_total{chain=\"master\"} 0.000000\n"
+      "collation_out_queue_skipped_total{chain=\"shard\"} 5.000000\n"
+      "# TYPE collation_storage_cache_lookups counter\n"
+      "collation_storage_cache_lookups_total{chain=\"master\",outcome=\"hit\"} 0.000000\n"
+      "collation_storage_cache_lookups_total{chain=\"master\",outcome=\"miss\"} 0.000000\n"
+      "collation_storage_cache_lookups_total{chain=\"master\",outcome=\"small\"} 1.000000\n"
+      "collation_storage_cache_lookups_total{chain=\"shard\",outcome=\"hit\"} 7.000000\n"
+      "collation_storage_cache_lookups_total{chain=\"shard\",outcome=\"miss\"} 0.000000\n"
+      "collation_storage_cache_lookups_total{chain=\"shard\",outcome=\"small\"} 0.000000\n"
+      "# TYPE collation_storage_cache_cells counter\n"
+      "collation_storage_cache_cells_total{chain=\"master\",outcome=\"hit\"} 0.000000\n"
+      "collation_storage_cache_cells_total{chain=\"master\",outcome=\"miss\"} 0.000000\n"
+      "collation_storage_cache_cells_total{chain=\"master\",outcome=\"small\"} 2.000000\n"
+      "collation_storage_cache_cells_total{chain=\"shard\",outcome=\"hit\"} 700.000000\n"
+      "collation_storage_cache_cells_total{chain=\"shard\",outcome=\"miss\"} 0.000000\n"
+      "collation_storage_cache_cells_total{chain=\"shard\",outcome=\"small\"} 0.000000\n"
       "# TYPE collation_want_split counter\n"
       "collation_want_split_total{chain=\"master\"} 1.000000\n"
       "collation_want_split_total{chain=\"shard\"} 0.000000\n"
@@ -949,7 +1065,9 @@ TEST(Metrics, BlockProcessingMetricsRenderAndClamp) {
       "collation_overload_total{chain=\"shard\",reason=\"long_collation\"} 1.000000\n"
       "collation_overload_total{chain=\"shard\",reason=\"dispatch_queue\"} 1.000000\n"
       "collation_overload_total{chain=\"shard\",reason=\"unknown\"} 1.000000\n",
-      render(metrics, ""));
+      without_family(without_family(without_family(render(metrics, ""), "block_processing_duration_seconds"),
+                                    "block_processing_duration_recent_max_seconds"),
+                     "block_processing_phase_recent_max_seconds"));
 }
 
 TEST(Metrics, BlockProcessingMetricsRenderEveryPhase) {
@@ -995,7 +1113,7 @@ TEST(Metrics, BlockProcessingMetricsRenderEveryPhase) {
   };
 
   BlockProcessingMetrics metrics;
-  metrics.add_collation(BlockChain::master, BlockResult::ok, 1.0, {.real = 1.0, .cpu = 1.0}, 1.0);
+  metrics.add_collation(BlockChain::master, BlockResult::ok, FirstInWindow::no, 1.0, {.real = 1.0, .cpu = 1.0}, 1.0);
   for (size_t i = 0; i < collation_phases.size(); ++i) {
     metrics.add_collation_phase(BlockChain::master, BlockResult::ok, static_cast<CollationPhase>(i),
                                 {.real = 1.0, .cpu = 1.0});
@@ -1114,7 +1232,7 @@ TEST(Metrics, ActorCollectorIncludesLiveBusyTimeAndOmitsOwnLiveness) {
   });
 
   ASSERT_TRUE(has_line(during, "ton_actor_scheduler_workers_active{scheduler=\"0\"} 0.000000"));
-  ASSERT_TRUE(has_line(during, "ton_actor_scheduler_current_execute_seconds{scheduler=\"0\"} 0.000000"));
+  ASSERT_TRUE(has_line(during, "ton_actor_scheduler_current_execute_seconds{scheduler=\"0\",actor=\"\"} 0.000000"));
   ASSERT_TRUE(during.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} 0.000000\n") == std::string::npos);
   ASSERT_TRUE(during.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} ") != std::string::npos);
   ASSERT_TRUE(after.find("ton_actor_worker_busy_ticks_total{worker=\"io\"} 0.000000\n") == std::string::npos);
@@ -1133,7 +1251,7 @@ TEST(Metrics, ActorCollectorIncludesLiveBusyTimeAndOmitsOwnLiveness) {
   ASSERT_TRUE(has_line(after, "ton_actor_scheduler_local_queue_length{scheduler=\"0\"} 0.000000"));
   ASSERT_TRUE(after.find("worker=\"other\"") == std::string::npos);
   ASSERT_EQ(1u, count_of(during, "ton_actor_scheduler_workers_active{scheduler=\"0\"}"));
-  ASSERT_EQ(1u, count_of(during, "ton_actor_scheduler_current_execute_seconds{scheduler=\"0\"}"));
+  ASSERT_EQ(1u, count_of(during, "ton_actor_scheduler_current_execute_seconds{scheduler=\"0\""));
 
   scheduler.stop();
   ASSERT_TRUE(!scheduler.run(0));

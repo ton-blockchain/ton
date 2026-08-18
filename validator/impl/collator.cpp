@@ -357,22 +357,16 @@ bool Collator::fatal_error(td::Status error) {
   error.ensure_error();
   LOG(ERROR) << "cannot generate block candidate for " << show_shard(shard_) << " : " << error.to_string();
   if (busy_) {
+    failed_with_ = error.clone();
     if (allow_repeat_collation_ && error.code() != ErrorCode::cancelled && params_.attempt_idx + 1 < MAX_ATTEMPTS &&
         !params_.is_hardfork && !timeout_.is_in_past()) {
       CollateParams new_params = params_;
       ++new_params.attempt_idx;
       LOG(WARNING) << "Repeating collation (attempt #" << new_params.attempt_idx << ")";
-      if (stats_.ext_msgs_total != 0) {
-        td::actor::send_closure(manager, &ValidatorManager::log_collation_external_stats, shard_,
-                                stats_.external_messages());
-      }
       run_collate_query(std::move(new_params), manager, std::move(cancellation_token_), std::move(main_promise));
     } else {
       LOG(INFO) << "collation failed in " << perf_timer_.elapsed() << " s " << error;
       LOG(INFO) << perf_log_;
-      finalize_stats();
-      stats_.status = error.clone();
-      td::actor::send_closure(manager, &ValidatorManager::log_collate_query_stats, std::move(stats_));
       main_promise.set_error(std::move(error));
     }
     busy_ = false;
@@ -403,6 +397,28 @@ bool Collator::fatal_error(int err_code, std::string err_msg) {
  */
 bool Collator::fatal_error(std::string err_msg, int err_code) {
   return fatal_error(td::Status::Error(err_code, err_msg));
+}
+
+/**
+ * Releases external message resources and reports a failed attempt, if there was one.
+ *
+ * A failed attempt is reported from here rather than from fatal_error() because fatal_error() is
+ * frequently called from inside ScopedRealCpuTimer scopes, which only fold into stats_ once they
+ * unwind; by tear_down() time the whole handler stack is gone, so the failing phase is included.
+ * A retry is a complete failed attempt for observability purposes, and reporting the whole query
+ * preserves its elapsed/real/CPU time, detailed phases and external-message outcomes -- the older
+ * external-only retry report discarded exactly the expensive attempt operators need to diagnose
+ * overload. log_collate_query_stats owns external accounting too, so there is no separate report.
+ */
+void Collator::tear_down() {
+  ext_msg_cancellation_.cancel();
+  ext_msg_queue_.close();
+  if (!failed_with_) {
+    return;
+  }
+  finalize_stats();
+  stats_.status = failed_with_->clone();
+  td::actor::send_closure(manager, &ValidatorManager::log_collate_query_stats, std::move(stats_));
 }
 
 /**
@@ -6645,6 +6661,7 @@ void Collator::finalize_stats() {
   stats_.cc_seqno = params_.validator_set.not_null() ? params_.validator_set->get_catchain_seqno() : 0;
   stats_.collated_at = td::Clocks::system();
   stats_.attempt = params_.attempt_idx;
+  stats_.first_in_window = params_.first_in_window;
   stats_.is_validator = params_.collator_node_id.is_zero();
   stats_.self = stats_.is_validator ? PublicKey(pubkeys::Ed25519(params_.creator)).compute_short_id()
                                     : params_.collator_node_id.pubkey_hash();

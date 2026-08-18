@@ -123,10 +123,7 @@ class Collator final : public td::actor::Actor {
   void load_prev_states_blocks();
   void alarm() override;
 
-  void tear_down() override {
-    ext_msg_cancellation_.cancel();
-    ext_msg_queue_.close();
-  }
+  void tear_down() override;
 
   int verbosity{3 * 0};
   bool full_collated_data_ = false;
@@ -426,6 +423,9 @@ class Collator final : public td::actor::Actor {
   CollationStats stats_;
   td::ScopedRealCpuTimer work_timer_total_;
   td::ScopedRealCpuTimer work_timer_;
+  // Set by fatal_error(); tear_down() reports the failed attempt from it, so the stats emission
+  // does not have to happen inside the error path itself.
+  std::optional<td::Status> failed_with_;
 
   void finalize_stats();
 
