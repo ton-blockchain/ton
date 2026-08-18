@@ -2336,6 +2336,12 @@ void ValidatorEngine::start_validator() {
     }
   }
 
+  // The last collector any configuration registers is the one above: start_adnl -> ... ->
+  // start_validator runs unconditionally in one turn, and the start-up steps after it register
+  // none. They can also wait on the full node coming up, so sealing at the end of the chain would
+  // keep /metrics answering 503 for the whole database warm-up instead of just for start-up.
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::ready);
+
   started_validator();
 }
 
