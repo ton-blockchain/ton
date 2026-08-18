@@ -18,6 +18,7 @@
 #include "metrics/block-processing-metrics.h"
 #include "metrics/chain-metrics.h"
 #include "metrics/collectors.h"
+#include "metrics/consensus-metrics.h"
 #include "metrics/ext-message-pool-metrics.h"
 #include "metrics/tl-traffic-bucket.h"
 #include "metrics/well-known.h"
@@ -1138,6 +1139,356 @@ TEST(Metrics, BlockProcessingMetricsRenderEveryPhase) {
         PSTRING() << "block_processing_seconds_total{operation=\"validate\",chain=\"master\",result=\"ok\",phase=\""
                   << phase << "\",clock=\"cpu\"} 1.000000"));
   }
+}
+
+TEST(Metrics, BlockProcessingDurationHistogramMergesAndBoundsCardinality) {
+  BlockProcessingMetrics total, delta;
+  total.add_collation(BlockChain::master, BlockResult::ok, FirstInWindow::no, 0.003, {.real = 0.02, .cpu = 0.001}, 0.0);
+  // Detailed phases remain cumulative counters and must not add distribution observations.
+  total.add_collation_phase(BlockChain::master, BlockResult::ok, CollationPhase::preinit, {.real = 0.01, .cpu = 0.005});
+  delta.add_collation(BlockChain::master, BlockResult::ok, FirstInWindow::no, 0.7, {.real = 1.2, .cpu = 0.4}, 0.0);
+  delta.add_validation(BlockChain::shard, BlockResult::error, 130.0, {.real = 60.0, .cpu = -1.0}, 130.0);
+  total += delta;
+
+  auto out = render(total, "");
+  ASSERT_EQ(1u, count_of(out, "# TYPE block_processing_duration_seconds histogram\n"));
+  // Fixed cardinality: operation * chain * result * clock = 2 * 2 * 2 * 3 cells. There is no phase
+  // and no window-slot axis on this family, so neither new detailed timers nor the first-in-window
+  // split multiplies histogram series.
+  ASSERT_EQ(24u, count_of(out, "block_processing_duration_seconds_count{"));
+  ASSERT_EQ(24u * 17u, count_of(out, "block_processing_duration_seconds_bucket{"));
+  ASSERT_EQ(12u, count_of(out, "block_processing_duration_seconds_count{operation=\"collate\""));
+  ASSERT_EQ(12u, count_of(out, "block_processing_duration_seconds_count{operation=\"validate\""));
+
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_count{operation=\"collate\",chain=\"master\",result=\"ok\","
+                       "clock=\"elapsed\"} 2.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_sum{operation=\"collate\",chain=\"master\",result=\"ok\","
+                       "clock=\"elapsed\"} 0.703000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_bucket{operation=\"collate\",chain=\"master\",result=\"ok\","
+                       "clock=\"elapsed\",le=\"0.005\"} 1.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_bucket{operation=\"collate\",chain=\"master\",result=\"ok\","
+                       "clock=\"elapsed\",le=\"1\"} 2.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_sum{operation=\"collate\",chain=\"master\",result=\"ok\","
+                       "clock=\"real\"} 1.220000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_sum{operation=\"collate\",chain=\"master\",result=\"ok\","
+                       "clock=\"cpu\"} 0.401000"));
+  ASSERT_TRUE(
+      has_line(out,
+               "block_processing_duration_recent_max_seconds{operation=\"collate\",chain=\"master\",result=\"ok\","
+               "clock=\"elapsed\"} 0.700000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_phase_recent_max_seconds{operation=\"collate\",chain=\"master\",result=\"ok\","
+                       "phase=\"preinit\",clock=\"real\"} 0.010000"));
+
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_bucket{operation=\"validate\",chain=\"shard\","
+                       "result=\"error\",clock=\"elapsed\",le=\"120\"} 0.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_bucket{operation=\"validate\",chain=\"shard\","
+                       "result=\"error\",clock=\"elapsed\",le=\"+Inf\"} 1.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_bucket{operation=\"validate\",chain=\"shard\","
+                       "result=\"error\",clock=\"real\",le=\"60\"} 1.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_sum{operation=\"validate\",chain=\"shard\",result=\"error\","
+                       "clock=\"cpu\"} 0.000000"));
+
+  // The pre-existing cumulative family is merged alongside the distributions.
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_seconds_total{operation=\"collate\",chain=\"master\",result=\"ok\","
+                       "phase=\"total\",clock=\"elapsed\"} 0.703000"));
+}
+
+TEST(Metrics, BlockProcessingDropsNonFiniteTimerSamplesIndependently) {
+  BlockProcessingMetrics metrics;
+  metrics.add_collation(BlockChain::shard, BlockResult::ok, FirstInWindow::yes,
+                        std::numeric_limits<double>::quiet_NaN(),
+                        {.real = std::numeric_limits<double>::infinity(), .cpu = 0.25}, 0.0);
+
+  auto out = render(metrics, "");
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_count{operation=\"collate\",chain=\"shard\",result=\"ok\","
+                       "clock=\"elapsed\"} 0.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_count{operation=\"collate\",chain=\"shard\",result=\"ok\","
+                       "clock=\"real\"} 0.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_duration_seconds_count{operation=\"collate\",chain=\"shard\",result=\"ok\","
+                       "clock=\"cpu\"} 1.000000"));
+  ASSERT_TRUE(out.find("block_processing_seconds_total{operation=\"collate\",chain=\"shard\",result=\"ok\","
+                       "phase=\"total\",clock=\"elapsed\"") == std::string::npos);
+  ASSERT_TRUE(out.find("block_processing_seconds_total{operation=\"collate\",chain=\"shard\",result=\"ok\","
+                       "phase=\"total\",clock=\"real\"") == std::string::npos);
+  ASSERT_TRUE(has_line(out,
+                       "block_processing_seconds_total{operation=\"collate\",chain=\"shard\",result=\"ok\","
+                       "phase=\"total\",clock=\"cpu\"} 0.250000"));
+  ASSERT_TRUE(has_line(out, "collation_elapsed_seconds_total{chain=\"shard\",first=\"1\"} 0.000000"));
+}
+
+TEST(Metrics, BlockProcessingSplitsFirstInWindowCountersOnly) {
+  BlockProcessingMetrics metrics;
+  metrics.add_collation(BlockChain::shard, BlockResult::ok, FirstInWindow::yes, 0.4, {.real = 0.4, .cpu = 0.2}, 0.0);
+  metrics.add_collation(BlockChain::shard, BlockResult::ok, FirstInWindow::no, 0.02, {.real = 0.02, .cpu = 0.01}, 0.0);
+  metrics.add_collation(BlockChain::shard, BlockResult::error, FirstInWindow::no, 0.3, {.real = 0.3, .cpu = 0.1}, 0.0);
+  metrics.add_collation_work(BlockChain::shard, FirstInWindow::yes, {.transactions = 90, .gas = 900});
+  metrics.add_collation_work(BlockChain::shard, FirstInWindow::no, {.transactions = 10, .gas = 100});
+  metrics.add_validation(BlockChain::shard, BlockResult::ok, 0.05, {.real = 0.05, .cpu = 0.03}, 0.05);
+
+  auto out = render(metrics, "ton");
+  // The window-slot panel divides these two families by the collated-block counter, cell by cell.
+  // Only successful attempts accumulate, so the failed 0.3 s collation stays out of the mean.
+  ASSERT_TRUE(has_line(out, "ton_collation_elapsed_seconds_total{chain=\"shard\",first=\"1\"} 0.400000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_elapsed_seconds_total{chain=\"shard\",first=\"0\"} 0.020000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_transactions_total{chain=\"shard\",first=\"1\"} 90.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_transactions_total{chain=\"shard\",first=\"0\"} 10.000000"));
+  // Everything else keeps the unsplit label set: the remaining workload counters sum both slots,
+  // and the duration histogram and its recent-max twin pool them.
+  ASSERT_TRUE(has_line(out, "ton_collation_gas_total{chain=\"shard\"} 1000.000000"));
+  ASSERT_TRUE(
+      has_line(out,
+               "ton_block_processing_duration_seconds_count{operation=\"collate\",chain=\"shard\",result=\"ok\","
+               "clock=\"elapsed\"} 2.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_block_processing_duration_recent_max_seconds{operation=\"collate\",chain=\"shard\","
+                       "result=\"ok\",clock=\"elapsed\"} 0.400000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_block_processing_duration_seconds_count{operation=\"validate\",chain=\"shard\","
+                       "result=\"ok\",clock=\"elapsed\"} 1.000000"));
+  // Two families, four cells each: nothing else in this exposition carries the axis.
+  ASSERT_EQ(8u, count_of(out, "first=\""));
+}
+
+TEST(Metrics, BlockProcessingOutQueueKeepsDepthAndSumsProgress) {
+  BlockProcessingMetrics total, delta;
+  total.add_collation_out_queue(BlockChain::shard, {.size = 900, .cleaned = 3, .processed = 40, .skipped = 1});
+  total.add_collation_out_queue(BlockChain::shard, {.size = 700, .cleaned = 5, .processed = 60, .skipped = 2});
+  delta.add_collation_out_queue(BlockChain::shard, {.size = 1500, .cleaned = 1, .processed = 10, .skipped = 0});
+  delta.add_collation_out_queue(BlockChain::master, {.size = 4, .cleaned = 0, .processed = 0, .skipped = 0});
+  total += delta;
+
+  auto out = render(total, "ton");
+  // The depth is the last observation per chain, and merging keeps the worst of the two snapshots.
+  ASSERT_TRUE(has_line(out, "ton_collation_out_queue_size{chain=\"shard\"} 1500.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_out_queue_size{chain=\"master\"} 4.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_out_queue_cleaned_total{chain=\"shard\"} 9.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_out_queue_processed_total{chain=\"shard\"} 110.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_out_queue_skipped_total{chain=\"shard\"} 3.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_out_queue_cleaned_total{chain=\"master\"} 0.000000"));
+}
+
+TEST(Metrics, BlockProcessingStorageCacheCountsLookupsAndCells) {
+  BlockProcessingMetrics total, delta;
+  total.add_collation_storage_cache(BlockChain::shard, StorageCacheOutcome::hit, 4, 4000);
+  total.add_collation_storage_cache(BlockChain::shard, StorageCacheOutcome::miss, 1, 900);
+  total.add_collation_storage_cache(BlockChain::shard, StorageCacheOutcome::small, 6, 30);
+  delta.add_collation_storage_cache(BlockChain::shard, StorageCacheOutcome::hit, 2, 2000);
+  delta.add_collation_storage_cache(BlockChain::master, StorageCacheOutcome::miss, 3, 300);
+  total += delta;
+
+  auto out = render(total, "ton");
+  ASSERT_TRUE(has_line(out, "ton_collation_storage_cache_lookups_total{chain=\"shard\",outcome=\"hit\"} 6.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_storage_cache_lookups_total{chain=\"shard\",outcome=\"miss\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_storage_cache_lookups_total{chain=\"shard\",outcome=\"small\"} 6.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_storage_cache_cells_total{chain=\"shard\",outcome=\"hit\"} 6000.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_storage_cache_cells_total{chain=\"shard\",outcome=\"miss\"} 900.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_storage_cache_cells_total{chain=\"master\",outcome=\"miss\"} 300.000000"));
+  ASSERT_TRUE(has_line(out, "ton_collation_storage_cache_lookups_total{chain=\"master\",outcome=\"hit\"} 0.000000"));
+}
+
+TEST(MetricsGolden, BlockProcessing) {
+  ASSERT_EQ(families({
+                "ton_block_processing_seconds counter",
+                "ton_block_processing_duration_seconds histogram",
+                "ton_block_processing_duration_recent_max_seconds gauge",
+                "ton_block_processing_phase_recent_max_seconds gauge",
+                "ton_collation_ext_messages counter",
+                "ton_collation_elapsed_seconds counter",
+                "ton_collation_transactions counter",
+                "ton_collation_gas counter",
+                "ton_collation_block_bytes counter",
+                "ton_collation_collated_data_bytes counter",
+                "ton_collation_ext_messages_offered counter",
+                "ton_collation_out_queue_size gauge",
+                "ton_collation_out_queue_cleaned counter",
+                "ton_collation_out_queue_processed counter",
+                "ton_collation_out_queue_skipped counter",
+                "ton_collation_storage_cache_lookups counter",
+                "ton_collation_storage_cache_cells counter",
+                "ton_collation_want_split counter",
+                "ton_collation_overload counter",
+            }),
+            emitted_families([](Context ctx) { ctx.collect(BlockProcessingMetrics{}); }));
+}
+
+TEST(Metrics, ConsensusRoundFoldsConsecutiveMarks) {
+  ConsensusMetrics metrics;
+  // collate 0.02, publish 0.003, validate_wait 0.001, validate 0.04, notarize_vote 0.002,
+  // notarize_cert 0.03, finalize_vote 0.002, finalize_cert 0.03, apply 0.01
+  metrics.observe_round(BlockChain::shard, {1.000, 1.020, 1.023, 1.024, 1.064, 1.066, 1.096, 1.098, 1.128, 1.138});
+
+  auto out = render(metrics, "ton");
+  ASSERT_TRUE(
+      has_line(out, "ton_consensus_stage_seconds_bucket{chain=\"shard\",stage=\"collate\",le=\"0.025\"} 1.000000"));
+  ASSERT_TRUE(
+      has_line(out, "ton_consensus_stage_seconds_bucket{chain=\"shard\",stage=\"collate\",le=\"0.005\"} 0.000000"));
+  ASSERT_TRUE(
+      has_line(out, "ton_consensus_stage_seconds_bucket{chain=\"shard\",stage=\"validate\",le=\"0.1\"} 1.000000"));
+  ASSERT_TRUE(
+      has_line(out, "ton_consensus_stage_seconds_bucket{chain=\"shard\",stage=\"validate\",le=\"0.025\"} 0.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_stage_seconds_sum{chain=\"shard\",stage=\"apply\"} 0.010000"));
+  // Every stage of a complete round is observed exactly once, and only on its own chain.
+  ASSERT_EQ(9u, count_of(out, "ton_consensus_stage_seconds_count{chain=\"shard\",stage=\""));
+  ASSERT_EQ(9u, count_of(out, "ton_consensus_stage_seconds_count{chain=\"master\",stage=\""));
+  ASSERT_EQ(0u, count_of(out, "ton_consensus_stage_seconds_count{chain=\"master\",stage=\"collate\"} 1.000000"));
+}
+
+TEST(Metrics, ConsensusRoundSkipsStagesWithoutBothMarks) {
+  ConsensusMetrics metrics;
+  // A validator that did not collate has no collate marks; this one also never voted to finalize.
+  metrics.observe_round(BlockChain::master,
+                        {std::nullopt, std::nullopt, 2.0, 2.001, 2.05, 2.051, 2.08, std::nullopt, std::nullopt, 2.2});
+
+  auto out = render(metrics, "ton");
+  ASSERT_TRUE(has_line(out, "ton_consensus_stage_seconds_count{chain=\"master\",stage=\"collate\"} 0.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_stage_seconds_count{chain=\"master\",stage=\"publish\"} 0.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_stage_seconds_count{chain=\"master\",stage=\"validate\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_stage_seconds_count{chain=\"master\",stage=\"notarize_cert\"} 1.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_stage_seconds_count{chain=\"master\",stage=\"finalize_vote\"} 0.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_stage_seconds_count{chain=\"master\",stage=\"apply\"} 0.000000"));
+}
+
+TEST(Metrics, ConsensusMetricsClampAndMerge) {
+  ConsensusMetrics reported, total;
+  reported.observe_stage(BlockChain::shard, ConsensusStage::notarize_cert, -0.5);  // cert seen before our own vote
+  reported.observe_stage(BlockChain::shard, ConsensusStage::apply, 1e9);           // corrupt/outlier duration input
+  reported.observe_slot_gap(BlockChain::shard, 1e9);
+  reported.observe_slot_gap(BlockChain::shard, 0.3);
+  reported.observe_slot_lead(BlockChain::shard, -0.2);  // corrupt negative duration input
+  reported.observe_slot_mark(BlockChain::shard, ConsensusMark::collate_finish,
+                             -0.8);  // finished before the slot began
+  reported.add_round(BlockChain::shard, ConsensusRoundOutcome::empty);
+  total += reported;
+  total += reported;
+
+  auto out = render(total, "ton");
+  ASSERT_TRUE(has_line(out, "ton_consensus_stage_seconds_sum{chain=\"shard\",stage=\"notarize_cert\"} 0.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_stage_seconds_sum{chain=\"shard\",stage=\"apply\"} 7200.000000"));
+  ASSERT_TRUE(has_line(
+      out, "ton_consensus_stage_seconds_bucket{chain=\"shard\",stage=\"notarize_cert\",le=\"0.001\"} 2.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_gap_seconds_bucket{chain=\"shard\",le=\"0.5\"} 2.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_gap_seconds_sum{chain=\"shard\"} 7200.600000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_lead_seconds_sum{chain=\"shard\"} 0.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_lead_seconds_count{chain=\"shard\"} 2.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_gap_recent_max_seconds{chain=\"shard\"} 3600.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_seconds_sum{chain=\"shard\",mark=\"collate_finish\","
+                       "side=\"before\"} 1.600000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_seconds_count{chain=\"shard\",mark=\"collate_finish\","
+                       "side=\"after\"} 2.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_rounds_total{chain=\"shard\",outcome=\"empty\"} 2.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_rounds_total{chain=\"master\",outcome=\"skipped\"} 0.000000"));
+}
+
+TEST(Metrics, ConsensusHandoffObservesBothSides) {
+  ConsensusMetrics metrics;
+  // A waiting handoff: 0.4 s of dead time after the accept, so no head start. Then a pipelined one:
+  // the next slot had been collating for 0.25 s when the parent was accepted, so no dead time. Both
+  // handoffs land in both families, and the mean signed handoff is 0.4 / 2 - 0.25 / 2 = 0.075 s.
+  metrics.observe_slot_gap(BlockChain::master, 0.4);
+  metrics.observe_slot_lead(BlockChain::master, 0.0);
+  metrics.observe_slot_gap(BlockChain::master, 0.0);
+  metrics.observe_slot_lead(BlockChain::master, 0.25);
+
+  auto out = render(metrics, "ton");
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_gap_seconds_count{chain=\"master\"} 2.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_lead_seconds_count{chain=\"master\"} 2.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_gap_seconds_sum{chain=\"master\"} 0.400000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_lead_seconds_sum{chain=\"master\"} 0.250000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_lead_seconds_bucket{chain=\"master\",le=\"0.25\"} 2.000000"));
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_lead_seconds_bucket{chain=\"master\",le=\"0.1\"} 1.000000"));
+  // The other chain still emits both families, all zeros.
+  ASSERT_TRUE(has_line(out, "ton_consensus_slot_lead_seconds_count{chain=\"shard\"} 0.000000"));
+}
+
+TEST(Metrics, ConsensusSlotMarksPreserveBothSidesOfSlotZero) {
+  ConsensusMetrics metrics;
+  metrics.observe_slot_mark(BlockChain::shard, ConsensusMark::collate_finish, -0.9);
+  metrics.observe_slot_mark(BlockChain::shard, ConsensusMark::collate_finish, 0.0);
+  metrics.observe_slot_mark(BlockChain::shard, ConsensusMark::collate_finish, 0.3);
+  metrics.observe_slot_mark(BlockChain::master, ConsensusMark::collate_finish, 0.12);
+
+  auto out = render(metrics, "ton");
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_seconds_count{chain=\"shard\",mark=\"collate_finish\","
+                       "side=\"before\"} 3.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_seconds_sum{chain=\"shard\",mark=\"collate_finish\","
+                       "side=\"before\"} 0.900000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_seconds_sum{chain=\"shard\",mark=\"collate_finish\","
+                       "side=\"after\"} 0.300000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_seconds_bucket{chain=\"shard\",mark=\"collate_finish\","
+                       "side=\"after\",le=\"0\"} 2.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_seconds_bucket{chain=\"shard\",mark=\"collate_finish\","
+                       "side=\"after\",le=\"0.001\"} 2.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_seconds_bucket{chain=\"shard\",mark=\"collate_finish\","
+                       "side=\"after\",le=\"0.5\"} 3.000000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_seconds_sum{chain=\"master\",mark=\"collate_finish\","
+                       "side=\"after\"} 0.120000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_recent_max_seconds{chain=\"shard\","
+                       "mark=\"collate_finish\",side=\"before\"} 0.900000"));
+  ASSERT_TRUE(has_line(out,
+                       "ton_consensus_collator_slot_mark_recent_max_seconds{chain=\"shard\","
+                       "mark=\"collate_finish\",side=\"after\"} 0.300000"));
+}
+
+TEST(Metrics, ConsensusExportsOnlyTheConsumedSlotMarks) {
+  ConsensusMetrics metrics;
+  // The collector walks every round mark; only the four the dashboards read reach an exposition.
+  for (size_t mark = 0; mark < LabelDomainOf<ConsensusMark>::size; ++mark) {
+    metrics.observe_slot_mark(BlockChain::shard, static_cast<ConsensusMark>(mark), 0.2);
+  }
+
+  auto out = render(metrics, "ton");
+  for (auto kept : {"collate_start", "collate_finish", "finalize_cert", "apply"}) {
+    ASSERT_TRUE(has_line(out, PSTRING() << "ton_consensus_collator_slot_mark_seconds_count{chain=\"shard\",mark=\""
+                                        << kept << "\",side=\"after\"} 1.000000"));
+  }
+  for (auto dropped : {"candidate_received", "validation_start", "validation_finish", "notarize_vote", "notarize_cert",
+                       "finalize_vote"}) {
+    ASSERT_EQ(0u, count_of(out, PSTRING() << "mark=\"" << dropped << "\""));
+  }
+  // 2 chains * 4 marks * 2 sides, and the observation is not silently folded into another cell.
+  ASSERT_EQ(16u, count_of(out, "ton_consensus_collator_slot_mark_seconds_count{"));
+  ASSERT_EQ(16u * 12u, count_of(out, "ton_consensus_collator_slot_mark_seconds_bucket{"));
+}
+
+TEST(MetricsGolden, Consensus) {
+  // ValidatorManagerImpl::collect_chain_metrics
+  ASSERT_EQ(families({
+                "ton_consensus_stage_seconds histogram",
+                "ton_consensus_slot_gap_seconds histogram",
+                "ton_consensus_slot_lead_seconds histogram",
+                "ton_consensus_slot_gap_recent_max_seconds gauge",
+                "ton_consensus_slot_lead_recent_max_seconds gauge",
+                "ton_consensus_collator_slot_mark_seconds histogram",
+                "ton_consensus_collator_slot_mark_recent_max_seconds gauge",
+                "ton_consensus_stage_recent_max_seconds gauge",
+                "ton_consensus_rounds counter",
+            }),
+            emitted_families([](Context ctx) { ctx.collect(ConsensusMetrics{}); }));
 }
 
 TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {

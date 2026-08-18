@@ -163,6 +163,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
     CandidateState &state = state_[request->id];
 
     if (state.candidate_and_cert.is_complete()) {
+      publish_candidate_outcome_if_known(state);
       co_return state.candidate_and_cert.as_resolution_result();
     }
 
@@ -174,6 +175,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
     }
 
     co_await std::move(task);
+    publish_candidate_outcome_if_known(state);
     co_return state.candidate_and_cert.as_resolution_result();
   }
 
@@ -215,6 +217,7 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   struct CandidateState {
     bool candidate_in_db = false;
     bool candidate_stored = false;
+    bool candidate_outcome_published = false;
     CandidateAndCert candidate_and_cert;
 
     std::vector<td::Promise<td::Unit>> resolve_awaiters;
@@ -224,6 +227,20 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
   NewConsensusConfig::NoncriticalParams params_;
   std::map<CandidateId, CandidateState> state_;
   std::map<adnl::AdnlNodeIdShort, td::RateLimiterWindow> rate_limiter_;
+
+  void publish_candidate_outcome_if_known(CandidateState &state) {
+    if (state.candidate_outcome_published) {
+      return;
+    }
+    CHECK(state.candidate_and_cert.is_complete());
+    const auto &bus = *owning_bus();
+    if (!bus.is_validator() && !bus.is_collator) {
+      return;
+    }
+    state.candidate_outcome_published = true;
+    const auto &candidate = *state.candidate_and_cert.candidate;
+    owning_bus().publish<CandidateOutcomeObserved>(candidate->id, candidate->is_empty());
+  }
 
   td::Status check_rate_limit(adnl::AdnlNodeIdShort src) {
     if (!rate_limiter_.contains(src)) {

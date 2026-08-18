@@ -43,11 +43,12 @@ Id::Id(WorkchainId workchain, ShardId shard, td::uint32 cc_seqno, std::optional<
     , slots_per_leader_window_(slots_per_leader_window) {
 }
 
-std::unique_ptr<CollateStarted> CollateStarted::create(td::uint32 slot) {
-  return std::unique_ptr<CollateStarted>(new CollateStarted(slot));
+std::unique_ptr<CollateStarted> CollateStarted::create(td::uint32 slot, td::Timestamp slot_start) {
+  return std::unique_ptr<CollateStarted>(new CollateStarted(slot, slot_start.at()));
 }
 
 tl::EventRef CollateStarted::to_tl() const {
+  // Slot timing is local-only Prometheus state. Preserve the trace-log constructor exactly.
   return create_tl_object<tl::collateStarted>(target_slot_);
 }
 
@@ -59,30 +60,40 @@ void CollateStarted::collect_to(MetricCollector& collector) const {
   collector.collect_collate_started(*this);
 }
 
-CollateStarted::CollateStarted(td::uint32 target_slot) : target_slot_(target_slot) {
+CollateStarted::CollateStarted(td::uint32 target_slot, double slot_start_monotonic)
+    : target_slot_(target_slot), slot_start_monotonic_(slot_start_monotonic) {
 }
 
-std::unique_ptr<CollateFinished> CollateFinished::create(td::uint32 slot, CandidateId id) {
-  return std::unique_ptr<CollateFinished>(new CollateFinished(slot, id));
+std::unique_ptr<CollateFinished> CollateFinished::create(td::uint32 target_slot, td::Timestamp slot_start,
+                                                         CandidateId id, double finished_at_monotonic) {
+  return std::unique_ptr<CollateFinished>(new CollateFinished(target_slot, slot_start.at(), id, finished_at_monotonic));
 }
 
 tl::EventRef CollateFinished::to_tl() const {
-  return create_tl_object<tl::collateFinished>(target_slot_, id_.to_tl());
+  // The steady-clock fields are in-process metrics data. Preserve both the existing trace-log
+  // constructor and Event::ts(): before local launch-slot tracking existed, target_slot carried
+  // the assigned candidate slot. Keep that value in logs so their meaning is unchanged.
+  return create_tl_object<tl::collateFinished>(id_.slot, id_.to_tl());
 }
 
 std::string CollateFinished::to_string() const {
-  return PSTRING() << "CollateFinished{target_slot=" << target_slot_ << ", id=" << id_ << "}";
+  return PSTRING() << "CollateFinished{target_slot=" << id_.slot << ", id=" << id_ << "}";
 }
 
 void CollateFinished::collect_to(MetricCollector& collector) const {
   collector.collect_collate_finished(*this);
 }
 
-CollateFinished::CollateFinished(td::uint32 target_slot, CandidateId id) : target_slot_(target_slot), id_(id) {
+CollateFinished::CollateFinished(td::uint32 target_slot, double slot_start_monotonic, CandidateId id,
+                                 double finished_at_monotonic)
+    : target_slot_(target_slot)
+    , slot_start_monotonic_(slot_start_monotonic)
+    , finished_at_monotonic_(finished_at_monotonic)
+    , id_(id) {
 }
 
-std::unique_ptr<CollatedEmpty> CollatedEmpty::create(CandidateId id) {
-  return std::unique_ptr<CollatedEmpty>(new CollatedEmpty(id));
+std::unique_ptr<CollatedEmpty> CollatedEmpty::create(td::uint32 target_slot, CandidateId id) {
+  return std::unique_ptr<CollatedEmpty>(new CollatedEmpty(target_slot, id));
 }
 
 tl::EventRef CollatedEmpty::to_tl() const {
@@ -93,7 +104,11 @@ std::string CollatedEmpty::to_string() const {
   return PSTRING() << "CollatedEmpty{id=" << id_ << "}";
 }
 
-CollatedEmpty::CollatedEmpty(CandidateId id) : id_(id) {
+void CollatedEmpty::collect_to(MetricCollector& collector) const {
+  collector.collect_collated_empty(*this);
+}
+
+CollatedEmpty::CollatedEmpty(td::uint32 target_slot, CandidateId id) : target_slot_(target_slot), id_(id) {
 }
 
 std::unique_ptr<ReceivedDelegation> ReceivedDelegation::create(td::uint32 start_slot) {

@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include <cmath>
+
 #include "td/actor/SharedFuture.h"
 #include "td/actor/coro_task.h"
 #include "td/actor/coro_utils.h"
@@ -20,6 +22,7 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
   ParentId parent = ctx.base;
   bool block_generation_active = false;
   td::actor::SharedFuture<BlockCandidate> block_generation;
+  td::uint32 block_generation_target_slot = 0;
 
   std::chrono::milliseconds hard_timeout = std::max(ctx.target_rate * 3, std::chrono::milliseconds(60'000));
   std::chrono::milliseconds start_collate_before =
@@ -34,6 +37,7 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
     bool is_first_block = !parent.has_value();
     if (!block_generation_active && (!ctx.should_generate_empty_block(state) || is_first_block)) {
       block_generation_active = true;
+      block_generation_target_slot = slot;
       CollateParams params{
           .shard = bus.shard,
           .min_masterchain_block_id = state->min_mc_block_id(),
@@ -54,14 +58,20 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
       if (ctx.collator_node_id) {
         params.collator_node_id = *ctx.collator_node_id;
       }
+      // Timestamped before the dispatch, so the mark is when collation was launched rather than
+      // when the manager's queue got around to it; published after it, so no observer or reporter
+      // turn is enqueued ahead of the request it is timing.
+      auto collate_started = stats::CollateStarted::create(slot, slot_start);
       block_generation =
           td::actor::ask(bus.manager, &ManagerFacade::collate_block, std::move(params), ctx.cancellation_token);
-      bus_handle.publish<TraceEvent>(stats::CollateStarted::create(slot));
+      bus_handle.publish<TraceEvent>(std::move(collate_started));
     }
     co_await td::actor::coro_sleep(slot_start);
 
     std::optional<BlockCandidate> generated_candidate;
+    std::optional<td::uint32> attempted_collation_target;
     if (block_generation_active) {
+      attempted_collation_target = block_generation_target_slot;
       auto r_candidate =
           co_await td::actor::await_with_timeout(block_generation.get(), slot_start + ctx.target_rate).wrap();
       // The first block in the session cannot be empty
@@ -102,17 +112,29 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
     CandidateId id;
     std::variant<BlockIdExt, BlockCandidate> block;
     if (generated_candidate.has_value()) {
+      CHECK(attempted_collation_target.has_value());
       td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate, generated_candidate->clone());
       state = state->apply(*generated_candidate);
-      block = std::move(*generated_candidate);
       id = CandidateHashData::create_full(*generated_candidate, parent).build_id_with(slot);
-      bus_handle.publish<TraceEvent>(stats::CollateFinished::create(slot, id));
+      double finished_at_monotonic = generated_candidate->collated_at_monotonic;
+      if (!std::isfinite(finished_at_monotonic) || finished_at_monotonic <= 0.0) {
+        // Synthetic/test ManagerFacade implementations may still return candidates without the
+        // local telemetry field. Preserve correct ordering instead of using the steady-clock
+        // epoch; production collators set it before fulfilling the promise.
+        finished_at_monotonic = td::Timestamp::now().at();
+      }
+      block = std::move(*generated_candidate);
+      bus_handle.publish<TraceEvent>(
+          stats::CollateFinished::create(*attempted_collation_target, slot_start, id, finished_at_monotonic));
     } else {
       CHECK(parent.has_value());
       auto referenced_block = state->assert_normal();
       block = referenced_block;
       id = CandidateHashData::create_empty(referenced_block, *parent).build_id_with(slot);
-      bus_handle.publish<TraceEvent>(stats::CollatedEmpty::create(id));
+      // Preserve the launch slot even when a carried future changed from timeout to a terminal
+      // error above and block_generation_active was cleared before we got here.
+      auto target_slot = attempted_collation_target.value_or(slot);
+      bus_handle.publish<TraceEvent>(stats::CollatedEmpty::create(target_slot, id));
     }
 
     auto id_to_sign = serialize_tl_object(id.to_tl(), true);

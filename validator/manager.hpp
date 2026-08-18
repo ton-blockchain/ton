@@ -785,9 +785,13 @@ class ValidatorManagerImpl : public ValidatorManager {
   metrics::ChainSnapshot::Blocks total_validated_blocks_;
   td::uint64 ext_message_not_ready_{0};
   metrics::BlockProcessingMetrics block_processing_metrics_;
+  metrics::ConsensusMetrics consensus_metrics_;
 
   void log_collate_query_stats(CollationStats stats) override;
   void log_validate_query_stats(ValidationStats stats) override;
+  void add_consensus_metrics(metrics::ConsensusMetrics metrics) override {
+    consensus_metrics_ += metrics;
+  }
   void add_collation_external_metrics(metrics::BlockChain chain, metrics::BlockResult result,
                                       CollationStats::ExternalMessages stats);
   void add_collation_queue_metrics(metrics::BlockChain chain, const CollationStats &stats);

@@ -6660,6 +6660,9 @@ void Collator::finalize_stats() {
   }
   stats_.cc_seqno = params_.validator_set.not_null() ? params_.validator_set->get_catchain_seqno() : 0;
   stats_.collated_at = td::Clocks::system();
+  if (block_candidate) {
+    block_candidate->collated_at_monotonic = td::Timestamp::now().at();
+  }
   stats_.attempt = params_.attempt_idx;
   stats_.first_in_window = params_.first_in_window;
   stats_.is_validator = params_.collator_node_id.is_zero();
