@@ -1121,17 +1121,15 @@ fun main() {
     NIP	    //  a.UTag
     DUP	    //  a.UTag a.UTag
     1 EQINT	//  a.UTag '3
-    IF:<{	//  a.UTag
+    IFJMP:<{	//  a.UTag
       DROP	//
       1 PUSHINT	//  '2=1
-    }>ELSE<{	//  a.UTag
-      4 EQINT	//  '6
-      IF:<{	//
-        2 PUSHINT	//  '2=2
-      }>ELSE<{	//
-        3 PUSHINT	//  '2=3
-      }>
-    }>
+    }>	//  a.UTag
+    4 EQINT	//  '6
+    IFJMP:<{	//
+      2 PUSHINT	//  '2=2
+    }>	//
+    3 PUSHINT	//  '2=3
   }>
 """
 

@@ -904,12 +904,12 @@ test22TernaryInlEq() PROC:<{
 """
 test23TernaryNested() PROC:<{
     s0 s4 XCHG
-    IF:<{
+    IFJMP:<{
       s3 POP
       s1 s2 XCHG
       CONDSEL
-    }>ELSE<{
-      3 BLKDROP
+    }>
+    3 BLKDROP
 """
 
 @fif_codegen
@@ -981,10 +981,10 @@ test31TernaryZeroOnLeft() PROC:<{
 @fif_codegen
 """
 test41MatchZero() PROC:<{
-    IF:<{
+    IFJMP:<{
       20 PUSHINT
-    }>ELSE<{
-      10 PUSHINT
+    }>
+    10 PUSHINT
 """
 
 @fif_codegen

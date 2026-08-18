@@ -970,7 +970,6 @@ struct InliningFrameLowering {
   AnyV call_origin;                   // the call site it was expanded at
   const InlineReturnPlan* plan;       // branching at if/else/match to carry FallthroughTail
   std::vector<var_idx_t> rvect_out;   // `return x` writes here
-  bool call_is_last_in_caller;        // => branches may end with RETURN (generate IFJMP, not IFELSE)
 };
 
 // a loop being lowered right now; nullptr outside any loop
@@ -987,7 +986,6 @@ struct CodeBlob {
   std::vector<LocalVarPtr> ever_smart_casted;
   const InliningFrameLowering* inlining = nullptr;
   const LoopFrameLowering* current_loop = nullptr;
-  AnyV stmt_before_immediate_return = nullptr;
   OpList ops;
   OpList* cur_ops;
   std::stack<OpList*> cur_ops_stack;
@@ -1046,14 +1044,12 @@ struct CodeBlob {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_SetContArgs, std::move(dst)));
     op.right = std::move(src);
   }
-  void add_import_fun_params(AnyV origin, std::vector<var_idx_t> ir_params, FunctionPtr f_entered, DebugMarkInfo mark_enter_fun) {
+  void add_import_fun_params(AnyV origin, std::vector<var_idx_t> ir_params, DebugMarkInfo mark_enter_fun) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Import, std::move(ir_params)));
-    op.f_sym = f_entered;
     op.debug_mark = std::move(mark_enter_fun);
   }
   void add_return(AnyV origin, std::vector<var_idx_t> ir_return, FunctionPtr f_return_from) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Return, std::move(ir_return)));
-    op.f_sym = f_return_from;
     op.debug_mark = create_mark_leave_fun(f_return_from, origin, op.left);
   }
   void add_to_tuple(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
@@ -1123,6 +1119,7 @@ struct CodeBlob {
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();
+  void materialize_immediate_returns();
   bool optimize_conditional_branches();
 
   std::vector<AsmOp> generate_asm_code(int mode) const;

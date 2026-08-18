@@ -1,5 +1,6 @@
 global t: tuple;
 
+
 @method_id(101)
 fun test1(x: int): int {
     if (x > 200) {
@@ -355,6 +356,31 @@ fun test23(x: int): int {
     return chooseAsmIfElse(x);
 }
 
+@method_id(124)
+fun test24(c: int): int {
+    var r = 0;
+    if (c > 10) { r = 1 }       // will transform to IFJMP
+    else { r = 2 }
+    return r;
+}
+
+@method_id(125)
+fun test25(a: int, b: int): int {
+    var r = 0;
+    if (a != 0) {
+        if (b != 0) { r = 1 }
+        else { r = 2 }
+    }
+    return r;
+}
+
+@method_id(126)
+fun test26(c: int): int {
+    var r = 0;
+    if (c == 0) { r = 1 }
+    else { r = 2 }
+    return r;
+}
 
 fun main() {
 
@@ -404,6 +430,13 @@ fun main() {
 @testcase | 122 | 7   | 14
 @testcase | 123 | 0   | 2
 @testcase | 123 | 4   | 1
+@testcase | 124 | 20 | 1
+@testcase | 124 | 5  | 2
+@testcase | 125 | 1 1 | 1
+@testcase | 125 | 1 0 | 2
+@testcase | 125 | 0 1 | 0
+@testcase | 126 | 0  | 1
+@testcase | 126 | 5  | 2
 
 @fif_codegen
 """
@@ -559,21 +592,20 @@ fun main() {
 """
   demo10_1() PROC:<{
     DUP
-    0 EQINT
     IFJMP:<{
-      DROP
-      $t GETGLOB
-      123 PUSHINT
-      TPUSH
-      $t SETGLOB
+      1 EQINT
+      IFJMP:<{
+        $t GETGLOB
+        456 PUSHINT
+        TPUSH
+        $t SETGLOB
+      }>
     }>
-    1 EQINT
-    IFJMP:<{
-      $t GETGLOB
-      456 PUSHINT
-      TPUSH
-      $t SETGLOB
-    }>
+    DROP
+    $t GETGLOB
+    123 PUSHINT
+    TPUSH
+    $t SETGLOB
   }>
 """
 
@@ -628,9 +660,46 @@ fun main() {
       4 ADDCONST
     }>
     SWAP
-    IF:<{
+    IFJMP:<{
       8 ADDCONST
     }>
+  }>
+"""
+
+@fif_codegen
+"""
+  test24() PROC:<{
+    10 GTINT
+    IFJMP:<{
+      1 PUSHINT
+    }>
+    2 PUSHINT
+  }>
+"""
+
+@fif_codegen
+"""
+  test25() PROC:<{
+    0 PUSHINT
+    s0 s2 XCHG
+    IFJMP:<{
+      NIP
+      IFJMP:<{
+        1 PUSHINT
+      }>
+      2 PUSHINT
+    }>
+    DROP
+  }>
+"""
+
+@fif_codegen
+"""
+  test26() PROC:<{
+    IFJMP:<{
+      2 PUSHINT
+    }>
+    1 PUSHINT
   }>
 """
 

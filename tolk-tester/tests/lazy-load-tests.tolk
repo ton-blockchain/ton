@@ -2298,36 +2298,34 @@ fun main() {
 """
   demo404() PROC:<{
     x{12345678} SDBEGINSQ
-    IF:<{
+    IFJMP:<{
       32 PLDI
       10 ADDCONST
-    }>ELSE<{
-      x{23456789} SDBEGINSQ
+    }>
+    x{23456789} SDBEGINSQ
+    IFJMP:<{
+      DROP
+      9 PUSHINT
+    }>
+    x{34567890} SDBEGINSQ
+    IFJMP:<{
+      32 LDU
+      8 LDU
+      NIP
+      8 PLDI
+      OVER
+      100 GTINT
       IF:<{
-        DROP
-        9 PUSHINT
-      }>ELSE<{
-        x{34567890} SDBEGINSQ
-        IFNOTJMP:<{
-          16 PUSHPOW2DEC
-          THROWANY
-        }>
-        32 LDU
-        8 LDU
-        NIP
-        8 PLDI
-        OVER
-        100 GTINT
-        IF:<{
-          100 PUSHINT
-          s2 POP
-        }>
-        100 EQINT
-        IF:<{
-          1 LSHIFT#
-        }>
+        100 PUSHINT
+        s2 POP
+      }>
+      100 EQINT
+      IFJMP:<{
+        1 LSHIFT#
       }>
     }>
+    16 PUSHPOW2DEC
+    THROWANY
   }>
 """
 

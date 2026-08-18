@@ -299,10 +299,9 @@ fun main() {}
 """
   helper106() PROC:<{
     SWAP
-    IF:<{
+    IFJMP:<{
       DROP
       $gTup GETGLOB
-    }>ELSE<{
     }>
   }>
 """
@@ -381,29 +380,28 @@ fun main() {}
 """
   test220() PROC:<{
     s3 POP
-    IFNOTJMP:<{
-      20 PUSHINT
-      CONDSEL
+    IFJMP:<{
+      NIP
     }>
-    NIP
+    20 PUSHINT
+    CONDSEL
   }>
 """
 
 @fif_codegen
 """
   test304() PROC:<{
-    IF:<{
+    IFJMP:<{
       Point.create0NoInline() CALLDICT
 """
 
 @fif_codegen
 """
   test305() PROC:<{
-    IF:<{
+    IFJMP:<{
       0 PUSHINT
-    }>ELSE<{
-      5 PUSHINT
     }>
+    5 PUSHINT
   }>
 """
 

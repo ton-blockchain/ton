@@ -477,12 +477,11 @@ These are moments of future optimizations. For now, it's more than enough.
 """
   testAndSimpleCodegen() PROC:<{  //  a b
     SWAP	//  b a
-    IF:<{	//  b
+    IFJMP:<{	//  b
       0 NEQINT	//  '2
-    }>ELSE<{	//  b
-      DROP	//
-      0 PUSHINT	//  '2=0
-    }>
+    }>	//  b
+    DROP	//
+    0 PUSHINT	//  '2=0
   }>
 """
 
@@ -491,13 +490,12 @@ These are moments of future optimizations. For now, it's more than enough.
   testOrSimpleCodegen() PROC:<{   //  a b
     SWAP	//  b a
     0 GTINT	//  b '3
-    IF:<{	//  b
+    IFJMP:<{	//  b
       DROP	//
       -1 PUSHINT	//  '4=-1
-    }>ELSE<{	//  b
-      0 GTINT	//  '6
-      0 NEQINT	//  '4
-    }>
+    }>	//  b
+    0 GTINT	//  '6
+    0 NEQINT	//  '4
   }>
 """
 

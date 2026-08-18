@@ -1243,14 +1243,13 @@ do_while_continue() PROC:<{
 @fif_codegen
 """
 breakable_loop_in_if_before_return() PROC:<{
-  IF:<{
+  IFJMP:<{
     AGAINBRK:<{
       7 PUSHINT
       RETALT
     }>
-  }>ELSE<{
-    9 PUSHINT
   }>
+  9 PUSHINT
 }>
 """
 */

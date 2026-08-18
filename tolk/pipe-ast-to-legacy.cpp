@@ -159,51 +159,6 @@ static void emit_lazy_loads_before(AnyV stmt, CodeBlob& code) {
 }
 
 
-// The only point of modifying `stmt_before_immediate_return`. Purpose:
-// > fun demo() {
-// >   if (cond) { then_block }
-// >   else { else_block }
-// > }
-// Since `ast_if_statement` is the last, branches are lowered as `then_block; return` and `else_block; return`,
-// resulting in IFJMP instead of IFELSE.
-// This also works for `match` branches, also works inside inlined functions.
-class ImmediateReturnGuard {
-  CodeBlob& code;
-  AnyV backup;
-
-  // detect `... stmt; return;` or `fun f() { ... stmt }` of a void function
-  static bool may_end_branches_with_return(const std::vector<AnyV>& statements, size_t idx, bool is_toplevel_block, CodeBlob& code) {
-    FunctionPtr cur_f = code.fun_ref;
-    if (cur_f->inferred_return_type != TypeDataVoid::create() || cur_f->does_return_self() || cur_f->has_mutate_params()) {
-      return false;
-    }
-    if (code.inlining && !code.inlining->call_is_last_in_caller) {
-      return false;
-    }
-    if (code.inlining && code.inlining->plan->has_early_returns) {
-      return false;
-    }
-    if (idx + 1 == statements.size()) {
-      return is_toplevel_block;
-    }
-    AnyV next = statements[idx + 1];
-    return next->kind == ast_return_statement && !next->as<ast_return_statement>()->has_return_value();
-  }
-
-public:
-  explicit ImmediateReturnGuard(CodeBlob& code)
-    : code(code), backup(code.stmt_before_immediate_return) {
-  }
-  ~ImmediateReturnGuard() {
-    code.stmt_before_immediate_return = backup;
-  }
-
-  void calc_and_set(const std::vector<AnyV>& statements, size_t idx, bool is_toplevel_block) const {
-    bool is_last = may_end_branches_with_return(statements, idx, is_toplevel_block, code);
-    code.stmt_before_immediate_return = is_last ? statements[idx] : nullptr;
-  }
-};
-
 // FallthroughTail is a suffix routed into a single live if/match branch.
 // Used independently for inline returns and for structural `continue` in loops.
 // > fun demo() {
@@ -260,11 +215,9 @@ static void process_tail(const FallthroughTail* tail, CodeBlob& code) {
   for (; tail; tail = tail->outer) {
     if (tail->statements) {
       const std::vector<AnyV>& statements = *tail->statements;
-      ImmediateReturnGuard immediate_return(code);
 
       for (size_t i = tail->next_idx; i < statements.size(); ++i) {
         AnyV stmt = statements[i];
-        immediate_return.calc_and_set(statements, i, tail->is_toplevel_block);
 
         if (code.fun_ref->lazy_load_plan) {
           emit_lazy_loads_before(stmt, code);
@@ -918,7 +871,7 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
   return ir_generated;
 }
 
-std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {
+std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {
   static thread_local std::vector<FunctionPtr> called_stack;
   if (std::find(called_stack.begin(), called_stack.end(), f_inlined) != called_stack.end()) {
     // a recursion that was not caught at normal analysis, very tricky, like
@@ -953,7 +906,6 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
     .call_origin = origin,
     .plan = &inlining_plan,
     .rvect_out = code.create_tmp_var(ret_type, origin, "(inlined-return)"),
-    .call_is_last_in_caller = is_before_immediate_return,
   };
 
   const InliningFrameLowering* backup_outer_inline = code.inlining;
@@ -1449,9 +1401,6 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
             .statements = &v_arm->get_body()->get_block_statement()->get_items(),
           };
           process_tail(&arm, code);
-          if (v == code.stmt_before_immediate_return) {
-            code.add_return(v_arm, {}, code.fun_ref);
-          }
         } else {
           // if it's `match` expression (not statement), then every arm has a result, assigned to a whole `match` result
           std::vector ir_ith_arm = pre_compile_expr(v_arm->get_body(), code);
@@ -1530,9 +1479,6 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
         .statements = &v_ith_arm->get_body()->get_block_statement()->get_items(),
       };
       process_tail(&arm, code);
-      if (v == code.stmt_before_immediate_return) {
-        code.add_return(v_ith_arm, {}, code.fun_ref);
-      }
     } else {
       std::vector ir_ith_arm = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
       code.add_let(v, ir_match_result, std::move(ir_ith_arm));
@@ -1790,7 +1736,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     rvect = gen_compile_time_code_instead_of_fun_call(code, v, vars_per_arg);
   } else if (fun_ref->is_inlined_in_place() && fun_ref->is_code_function()) {
     // `inlinedF()` — copy-paste f's body right here instead of Op::_Call
-    rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, self_obj, v == code.stmt_before_immediate_return, vars_per_arg);
+    rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, self_obj, vars_per_arg);
   } else {
     // asm or non-inline call: regular Op::_Call with flattened IR vars
     std::vector<var_idx_t> args_vars;
@@ -2274,15 +2220,9 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code, const Fa
   Op& if_op = code.add_if_else(v, std::move(ir_cond));
   code.push_set_cur(if_op.block0);
   process_block_statement(v->get_if_body(), code, if_tail);
-  if (v == code.stmt_before_immediate_return) {
-    code.add_return(v->get_if_body(), {}, code.fun_ref);
-  }
   code.close_pop_cur(v->get_if_body());
   code.push_set_cur(if_op.block1);
   process_block_statement(v->get_else_body(), code, else_tail);
-  if (v == code.stmt_before_immediate_return) {
-    code.add_return(v->get_else_body(), {}, code.fun_ref);
-  }
   code.close_pop_cur(v->get_else_body());
   if (v->is_ifnot) {      // pre-optimized to generate IFNOT instead of IF
     std::swap(if_op.block0, if_op.block1);
@@ -2433,7 +2373,7 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
     rvect_import.insert(rvect_import.end(), ir_param.begin(), ir_param.end());
     param_i.mutate()->assign_ir_idx(std::move(ir_param));
   }
-  blob->add_import_fun_params(fun_ref->ident_anchor, rvect_import, fun_ref, DebugMarkEnterFunction{
+  blob->add_import_fun_params(fun_ref->ident_anchor, rvect_import, DebugMarkEnterFunction{
     .fun_ref = fun_ref,
     .is_inlined = false,
     .is_builtin = false,

@@ -314,6 +314,7 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
       code->print(std::cerr, 6);
     }
   }
+  code->materialize_immediate_returns();
   code->compute_used_code_vars();
   code->fwd_analyze();
   code->mark_noreturn();

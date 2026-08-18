@@ -850,7 +850,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     NEWC                    	//  x b
     SWAP                    	//  b x
     0 GTINT                 	//  b '4
-    IF:<{                   	//  b
+    IFJMP:<{                	//  b
       5 PUSHINT
       8 STUR                 	//  b
     }>                      	//  b
@@ -863,13 +863,12 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     NEWC
     s3 POP
     42 EQINT
-    IF:<{
+    IFJMP:<{
       SWAP
       b{000} STSLICECONST
       8 STU                 	//  b
-    }>ELSE<{
-      DROP                  	//  b
     }>
+    DROP                    	//  b
   }>
 """
 

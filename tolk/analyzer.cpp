@@ -1144,6 +1144,95 @@ void CodeBlob::mark_noreturn() {
   ops.mark_noreturn();
 }
 
+// See `materialize_immediate_returns` below for the purpose.
+static void copy_trailing_return_into(OpList& into_blk, const OpList& src, size_t from, size_t ret_idx) {
+  // skip a branch that already returns
+  for (int i = static_cast<int>(into_blk.size()) - 1; i >= 0; --i) {
+    Op::OpKind cl = into_blk[i]->cl;
+    if (cl == Op::_Nop || cl == Op::_DebugMark) {
+      continue;
+    }
+    if (cl == Op::_Return || cl == Op::_BreakFromLoop) {
+      return;
+    }
+    break;
+  }
+  tolk_assert(!into_blk.empty() && into_blk.back()->cl == Op::_Nop);
+
+  // clone preceding Op::_DebugMark and the trailing Op::_Return
+  for (size_t j = from; j < ret_idx; ++j) {
+    if (src[j]->cl == Op::_DebugMark) {
+      auto dst = std::make_unique<Op>(src[j]->origin, Op::_DebugMark);
+      dst->debug_mark = src[j]->debug_mark;
+      into_blk.insert(into_blk.end() - 1, std::move(dst));    // -1: before the terminal _Nop
+    }
+  }
+  auto dst = std::make_unique<Op>(src[ret_idx]->origin, Op::_Return, src[ret_idx]->left);
+  dst->debug_mark = src[ret_idx]->debug_mark;   // it's DebugMarkLeaveFunction
+  into_blk.insert(into_blk.end() - 1, std::move(dst));
+}
+
+// If `Op::_If` is followed by `Op::_Return` (debug marks in between), clone that return into both branches.
+static void try_materialize_if(OpList& ops, size_t if_idx) {
+  size_t j = if_idx + 1;
+  while (j < ops.size() && ops[j]->cl == Op::_DebugMark) {
+    ++j;
+  }
+  if (j >= ops.size() || ops[j]->cl != Op::_Return) {
+    return;
+  }
+
+  // skip multi-slot returns: they duplicate stack shuffles
+  const Op& ret = *ops[j];
+  tolk_assert(!ret.disabled());
+  if (ret.left.size() > 1) {
+    return;
+  }
+  copy_trailing_return_into(ops[if_idx]->block0, ops, if_idx + 1, j);
+  copy_trailing_return_into(ops[if_idx]->block1, ops, if_idx + 1, j);
+}
+
+static void materialize_in_list(OpList& ops) {
+  for (size_t i = 0; i < ops.size(); ++i) {
+    Op& op = *ops[i];
+    if (op.cl == Op::_If) {
+      try_materialize_if(ops, i);
+    }
+    if (!op.block0.empty()) {
+      materialize_in_list(op.block0);
+    }
+    if (!op.block1.empty()) {
+      materialize_in_list(op.block1);
+    }
+  }
+}
+
+/*
+ *   Clone a `_Return` that immediately follows `_If` into both branches.
+ *   Then `mark_noreturn` + codegen emit IFJMP instead of IF + RET.
+ *
+ *   Example:
+ *   > fun demo() {
+ *   >     if (c) { A }
+ *   >     else { B }
+ *   > }
+ *
+ *   IR now:
+ *   > Op::_If then={ A } else={ B }
+ *   > Op::_Return    // it's end of function
+ *
+ *   IR after transformation:
+ *   > Op::_If then={ A; Op::_Return } else={ B; Op::_Return }
+ *   > Op::_Return    // codegen does not emit it: Op::_If is already noreturn
+ *
+ *   Result fif:
+ *   > IFJMP:<{ A }>
+ *   > B
+ */
+void CodeBlob::materialize_immediate_returns() {
+  materialize_in_list(ops);
+}
+
 /*
  *   Strip redundant `!= 0` / `== 0` from `if`, `while`, etc.
  *   `if (x != 0)` -> IF (no `0 NEQINT`)

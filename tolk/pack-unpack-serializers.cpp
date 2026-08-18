@@ -40,7 +40,7 @@ namespace tolk {
 class LValContext;
 std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, AnyV origin, const char* purpose);
 std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, AnyV origin);
-std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
+std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
 // Any type alias or struct can have custom pack/unpack functions declared:
 // > type TelegramString = slice
@@ -1416,7 +1416,7 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
     // call `fun receiver.packToBuilder(self, mutate b: builder): void`, rvect is self
     if (f.f_pack->is_inlined_in_place()) {
       std::vector vars_per_arg = { std::move(rvect), ctx->ir_builder };
-      std::vector ir_mutated_builder = gen_inline_fun_call_in_place(code, TypeDataBuilder::create(), origin, f.f_pack, nullptr, false, vars_per_arg);
+      std::vector ir_mutated_builder = gen_inline_fun_call_in_place(code, TypeDataBuilder::create(), origin, f.f_pack, nullptr, vars_per_arg);
       code.add_let(origin, ctx->ir_builder, std::move(ir_mutated_builder));
     } else {
       rvect.push_back(ctx->ir_builder0);
@@ -1431,7 +1431,7 @@ struct S_CustomReceiverForPackUnpack final : ISerializer {
     TypePtr ret_type = TypeDataTensor::create({TypeDataSlice::create(), receiver_type});
     std::vector<var_idx_t> ir_slice_and_res;
     if (f.f_unpack->is_inlined_in_place()) {
-      ir_slice_and_res = gen_inline_fun_call_in_place(code, ret_type, origin, f.f_unpack, nullptr, false, {ctx->ir_slice});
+      ir_slice_and_res = gen_inline_fun_call_in_place(code, ret_type, origin, f.f_unpack, nullptr, {ctx->ir_slice});
     } else {
       ir_slice_and_res = code.create_tmp_var(ret_type, origin, "(slice-and-res)");
       code.add_call(origin, ir_slice_and_res, ctx->ir_slice, f.f_unpack, ctx->force_keep_arg());

@@ -35,7 +35,7 @@
 namespace tolk {
 
 // implemented in ast-from-legacy.cpp
-std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
+std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
 
 std::vector<var_idx_t> generate_get_InMessage_field(CodeBlob& code, AnyV origin, std::string_view field_name, LocalVarPtr param_in_body) {
@@ -87,7 +87,7 @@ void handle_onInternalMessage_codegen_start(FunctionPtr f_onInternalMessage, con
     {
       code.push_set_cur(if_isBounced.block0);
       if (f_onBouncedMessage->is_inlined_in_place()) {
-        gen_inline_fun_call_in_place(code, TypeDataVoid::create(), origin, f_onBouncedMessage, nullptr, true, {ir_body_slice});
+        gen_inline_fun_call_in_place(code, TypeDataVoid::create(), origin, f_onBouncedMessage, nullptr, {ir_body_slice});
       } else {
         code.add_call(origin, {}, ir_body_slice, f_onBouncedMessage);
       }

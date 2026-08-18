@@ -309,17 +309,6 @@ class InlineReturnPlanBuilder {
     return InlineStmtFlow::fallsThrough;
   }
 
-  static bool has_returns_before_the_last_statement(V<ast_block_statement> v_body) {
-    for (int i = 0; i < v_body->size(); ++i) {
-      AnyV stmt = v_body->get_item(i);
-      bool is_final_return = i == v_body->size() - 1 && stmt->kind == ast_return_statement;
-      if (!is_final_return && contains_return(stmt)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
 public:
   InlineReturnPlan build(FunctionPtr fun_ref) {
     tolk_assert(fun_ref->ast_root);
@@ -334,7 +323,6 @@ public:
       fail("because it's used as a reference, like `var callback = myFunction` or `f(myFunction)`");
     } else {
       analyze(v_body->get_items());
-      plan.has_early_returns = has_returns_before_the_last_statement(v_body);
     }
     return std::move(plan);
   }

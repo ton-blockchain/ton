@@ -26,7 +26,6 @@ namespace tolk {
 // Note that `continue` in loops (LoopContinuePlan) is almost the same algorithm as returns in the middle.
 struct InlineReturnPlan {
   const char* cant_inline_because = nullptr;
-  bool has_early_returns = false;
   std::vector<TailRoutingNode> nodes;
 
   bool ok() const {
