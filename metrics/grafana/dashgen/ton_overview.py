@@ -194,7 +194,6 @@ MC_AGE = f"max by (job, instance) (clamp_min(ton_masterchain_block_age_seconds{S
 SHARD_LAG = (f"max by (job, instance) (clamp_min(ton_masterchain_seqno{SEL}"
              f" - ton_shardclient_seqno{SEL}, 0))")
 WEDGE = f"max by (job, instance) (ton_actor_scheduler_current_execute_seconds{SEL})"
-MEMPOOL_AGE = f"max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{SEL})"
 # Thresholds must not change when an operator zooms the dashboard: these expressions feed the
 # triage registry, its debounce history, and the scorecard. Exploratory panels below still use the
 # scrape-safe Grafana rate interval.
@@ -237,11 +236,6 @@ TRIAGE_CONDITIONS = [
     condition("rx_overflow", "rx overflow", severity="warning", scope="node",
               warn=f"({RX_RATE}) > bool 10", red=f"({RX_RATE}) > bool 1000",
               for_s=300),
-    # Red already means past the 600 s TTL, so the debounce only has to outlast a scrape or two:
-    # a further five minutes of that would be detecting a stalled sweeper, not mempool pressure.
-    condition("mempool_rot", "mempool rot", severity="warning", scope="node",
-              warn=f"{MEMPOOL_AGE} > bool 300", red=f"{MEMPOOL_AGE} > bool 600",
-              for_s=60),
     condition("mc_rate_low", "mc rate low", severity="critical", scope="chain",
               warn=f"({masterchain_rate('1m')}) < bool (0.8 / {SLOT})",
               red=f"({masterchain_rate('1m')}) < bool (0.5 / {SLOT})",
@@ -262,7 +256,7 @@ NODE_SEVERITY = node_severity(TRIAGE_CONDITIONS)
 
 # The scorecard columns: inline severity leads (hidden, sorts worst-first), then one health
 # dimension per column. Occupancy and rx overflow are inline (worker_occupancy, both transports);
-# mc age, shard lag, wedge and mempool oldest are the raw gauges their conditions threshold.
+# mc age, shard lag and wedge are the raw gauges their conditions threshold.
 TRIAGE_COLUMNS = [
     column("sev", NODE_SEVERITY, thresholds=thresholds(("yellow", 1), ("red", 2))),
     column("mc age", MC_AGE,
@@ -277,8 +271,6 @@ TRIAGE_COLUMNS = [
            unit="s", thresholds=thresholds(("yellow", 5), ("red", 30)), drill=ACTORS),
     column("rx overflow", RX_RATE,
            unit="pps", thresholds=thresholds(("yellow", 10), ("red", 1000)), drill=NETWORK),
-    column("mempool oldest", MEMPOOL_AGE,
-           unit="s", thresholds=thresholds(("yellow", 300), ("red", 600)), drill=BLOCKCHAIN),
 ]
 
 VARIABLES = [
@@ -309,8 +301,8 @@ ROWS = [
             description=(
                 "Selected nodes at severity red or worse right now — count(node_severity >= 2), "
                 "the composite computed inline from the per-node red conditions (unreachable, "
-                "masterchain stale, shard lag, worker saturation, wedged worker, RX overflow, "
-                "mempool rot). A down node is counted once. Zero is green; any bad node turns it "
+                "masterchain stale, shard lag, worker saturation, wedged worker, RX overflow). "
+                "A down node is counted once. Zero is green; any bad node turns it "
                 "red. The scorecard below names them worst-first."
             ),
         ),
@@ -344,7 +336,7 @@ ROWS = [
                 "One row per selected node, worst severity first, so the first screen is the "
                 "worst nodes at any fleet size. Each cell paints its own threshold — the same "
                 "numbers the inline triage conditions use — and links to the "
-                "board that explains it: masterchain and mempool cells to TON Blockchain, worker "
+                "board that explains it: masterchain cells to TON Blockchain, worker "
                 "and wedge cells to TON Actors, RX overflow to TON Network, the node name to its "
                 "own overview. The leading severity column (inline node_severity) drives the sort "
                 "and is hidden. Instant vectors only: it loads at four hundred targets. Occupancy "

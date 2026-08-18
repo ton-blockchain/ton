@@ -718,11 +718,11 @@
     {
       "id": 19,
       "type": "timeseries",
-      "title": "Outbound query RTT p95 by transport",
+      "title": "Outbound query RTT p95 by transport (${agg:text} node \u25be)",
       "gridPos": {
         "x": 0,
         "y": 5,
-        "w": 12,
+        "w": 8,
         "h": 9
       },
       "datasource": {
@@ -787,7 +787,98 @@
           "mappings": [],
           "min": 0
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "ATTR"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8E8E8E",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "ATTR2"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8E8E8E",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -798,13 +889,14 @@
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hoverProximity": 10
         }
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (trust, le) (rate(ton_quic_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))",
+          "expr": "quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval]))))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -816,7 +908,7 @@
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ton_adnl_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))",
+          "expr": "quantile(${agg}, histogram_quantile(0.95, sum by (job, instance, ton_scope, le) (rate(ton_adnl_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -825,20 +917,38 @@
           "range": true,
           "instant": false,
           "legendFormat": "adnl"
+        },
+        {
+          "refId": "ATTR",
+          "expr": "(histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) and on (trust, job, instance) (bottomk by (trust)(1, avg_over_time((abs((histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) - on (trust) group_left() (quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))))))[$__range:] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "legendFormat": "quic {{trust}} \u21d2 {{instance}}"
+        },
+        {
+          "refId": "ATTR2",
+          "expr": "(histogram_quantile(0.95, sum by (job, instance, ton_scope, le) (rate(ton_adnl_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))) and on (job, instance) (bottomk(1, avg_over_time((abs((histogram_quantile(0.95, sum by (job, instance, ton_scope, le) (rate(ton_adnl_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))) - on () group_left() (quantile(${agg}, histogram_quantile(0.95, sum by (job, instance, ton_scope, le) (rate(ton_adnl_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))))))[$__range:] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "legendFormat": "adnl \u21d2 {{instance}}"
         }
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Transport-accept to answer for queries we send: network + peer processing + transfer time. QUIC is split by peer class; ADNL remains all-peers. p95 comes from fleet-summed histogram buckets. RLDP2 bulk-transfer latency is separate below because it is not comparable with low-latency ADNL/QUIC."
+      "description": "\u25be Transport-accept to answer for queries we send: network + peer processing + transfer time. The p95 is each node's own; the Node switch collapses across nodes, so worst asks 'is RTT bad everywhere or on one node' and the hover row names it. QUIC is split by peer class; ADNL remains all-peers. RLDP2 bulk-transfer latency is separate below because it is not comparable with low-latency ADNL/QUIC. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
     },
     {
-      "id": 20,
+      "id": 21,
       "type": "timeseries",
-      "title": "Inbound query processing p95 by type",
+      "title": "Message delivery p95 (${agg:text} node \u25be)",
       "gridPos": {
-        "x": 12,
+        "x": 8,
         "y": 5,
-        "w": 12,
+        "w": 8,
         "h": 9
       },
       "datasource": {
@@ -895,107 +1005,53 @@
           "mappings": [],
           "min": 0
         },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "sortBy": "Last *",
-          "sortDesc": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (tl, le) (rate(ton_adnl_query_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) and on (tl) topk(8, sum by (tl) (increase(ton_adnl_query_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__range] @ end())))",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "editorMode": "code",
-          "range": true,
-          "instant": false,
-          "legendFormat": "{{tl}}"
-        }
-      ],
-      "pluginVersion": "12.0.0",
-      "transparent": false,
-      "description": "Time this node spends answering inbound queries, excluding network transfer. All transports funnel through this ADNL delivery-layer timer. Histogram buckets are summed across the fleet; the top 8 types are ranked by call volume over the visible range."
-    },
-    {
-      "id": 21,
-      "type": "timeseries",
-      "title": "Message delivery p95",
-      "gridPos": {
-        "x": 0,
-        "y": 14,
-        "w": 12,
-        "h": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${datasource}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s",
-          "custom": {
-            "lineWidth": 2,
-            "fillOpacity": 6,
-            "showPoints": "never",
-            "drawStyle": "line",
-            "lineInterpolation": "linear",
-            "barAlignment": 0,
-            "pointSize": 5,
-            "gradientMode": "none",
-            "spanNulls": false,
-            "insertNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "ATTR"
             },
-            "axisPlacement": "auto",
-            "axisLabel": "",
-            "axisColorMode": "text",
-            "axisBorderShow": false,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "axisCenteredZero": false,
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "color": {
-            "mode": "palette-classic"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
+            "properties": [
               {
-                "color": "green",
-                "value": null
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8E8E8E",
+                  "mode": "fixed"
+                }
               }
             ]
-          },
-          "mappings": [],
-          "min": 0
-        },
-        "overrides": []
+          }
+        ]
       },
       "options": {
         "legend": {
@@ -1006,13 +1062,14 @@
         },
         "tooltip": {
           "mode": "multi",
-          "sort": "desc"
+          "sort": "desc",
+          "hoverProximity": 10
         }
       },
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.95, sum by (trust, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))",
+          "expr": "quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval]))))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1021,20 +1078,29 @@
           "range": true,
           "instant": false,
           "legendFormat": "quic {{trust}}"
+        },
+        {
+          "refId": "ATTR",
+          "expr": "(histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) and on (trust, job, instance) (bottomk by (trust)(1, avg_over_time((abs((histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) - on (trust) group_left() (quantile by (trust) (${agg}, histogram_quantile(0.95, sum by (trust, job, instance, ton_scope, le) (rate(ton_quic_message_delivery_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))))))[$__range:] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "legendFormat": "quic {{trust}} \u21d2 {{instance}}"
         }
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "QUIC fire-and-forget delivery p95 to the receiver's empty acknowledgement, split by peer class and computed from fleet-summed histogram buckets. Plain ADNL has no acknowledgement. RLDP2 transfer delivery is separate below because bulk-transfer latency is not comparable."
+      "description": "\u25be QUIC fire-and-forget delivery p95 to the receiver's empty acknowledgement, split by peer class; each node's own p95, collapsed across nodes by the Node switch. Plain ADNL has no acknowledgement. RLDP2 transfer delivery is separate below because bulk-transfer latency is not comparable. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
     },
     {
       "id": 22,
       "type": "timeseries",
       "title": "Failure & loss ratios (${agg:text} node \u25be)",
       "gridPos": {
-        "x": 12,
-        "y": 14,
-        "w": 12,
+        "x": 16,
+        "y": 5,
+        "w": 8,
         "h": 9
       },
       "datasource": {
@@ -1460,7 +1526,7 @@
         },
         {
           "refId": "ATTR",
-          "expr": "quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) * on (trust) group_left(job, instance, ton_scope) (topk by (trust) (1, max_over_time((sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) and on (trust, job, instance) (bottomk by (trust)(1, avg_over_time((abs((sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) - on (trust) group_left() (quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1469,7 +1535,7 @@
         },
         {
           "refId": "ATTR2",
-          "expr": "quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) * on (trust) group_left(job, instance, ton_scope) (topk by (trust) (1, max_over_time((sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) and on (trust, job, instance) (bottomk by (trust)(1, avg_over_time((abs((sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)) - on (trust) group_left() (quantile by (trust) (${agg}, sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1478,7 +1544,7 @@
         },
         {
           "refId": "ATTR3",
-          "expr": "quantile(${agg}, sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) * on () group_left(job, instance, ton_scope) (topk(1, max_over_time((sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) and on (job, instance) (bottomk(1, avg_over_time((abs((sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) - on () group_left() (quantile(${agg}, sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1487,7 +1553,7 @@
         },
         {
           "refId": "ATTR4",
-          "expr": "quantile(${agg}, (sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_lost_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[$__rate_interval])) > 0)) * on () group_left(job, instance, ton_scope) (topk(1, max_over_time(((sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_lost_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+          "expr": "((sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_lost_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[$__rate_interval])) > 0)) and on (job, instance) (bottomk(1, avg_over_time((abs(((sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_lost_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[$__rate_interval])) > 0)) - on () group_left() (quantile(${agg}, (sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_lost_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1496,7 +1562,7 @@
         },
         {
           "refId": "ATTR5",
-          "expr": "quantile(${agg}, sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) * on () group_left(job, instance, ton_scope) (topk(1, max_over_time((sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) and on (job, instance) (bottomk(1, avg_over_time((abs((sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) - on () group_left() (quantile(${agg}, sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1505,7 +1571,7 @@
         },
         {
           "refId": "ATTR6",
-          "expr": "quantile(${agg}, sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) * on () group_left(job, instance, ton_scope) (topk(1, max_over_time((sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) and on (job, instance) (bottomk(1, avg_over_time((abs((sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) - on () group_left() (quantile(${agg}, sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope) (rate(ton_rldp2_message_delivery_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -1515,7 +1581,393 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "\u25be Failures divided by measured deliveries, roundtrips, or packets, computed per node and then collapsed by the Node aggregation switch rather than fleet-wide, so one struggling peer set is not averaged away; at the default worst each line is its worst node and the hidden \u21d2 row names it. Idle series disappear rather than presenting 0/0 as healthy. QUIC app outcomes are split by peer class; packet loss, ADNL, and RLDP2 remain all-peers. Persistent values above 1% deserve investigation. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+      "description": "\u25be Failures divided by measured deliveries, roundtrips, or packets, computed per node and then collapsed by the Node aggregation switch rather than fleet-wide, so one struggling peer set is not averaged away; at the default worst each line is its worst node and the hidden \u21d2 row names it. Idle series disappear rather than presenting 0/0 as healthy. QUIC app outcomes are split by peer class; packet loss, ADNL, and RLDP2 remain all-peers. Persistent values above 1% deserve investigation. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+    },
+    {
+      "id": 53,
+      "type": "timeseries",
+      "title": "Outbound query RTT p95 by type (${agg:text} node \u25be)",
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "ATTR"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8E8E8E",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "ATTR2"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8E8E8E",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc",
+          "hoverProximity": 10
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile by (tl) (${agg}, histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_adnl_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))) and on (tl) topk(8, sum by (tl) (increase(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__range] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "adnl {{tl}}"
+        },
+        {
+          "refId": "B",
+          "expr": "quantile by (tl) (${agg}, histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_quic_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) and on (tl) topk(8, sum by (tl) (increase(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__range] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "quic {{tl}}"
+        },
+        {
+          "refId": "ATTR",
+          "expr": "(histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_adnl_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))) and on (tl, job, instance) (bottomk by (tl)(1, avg_over_time((abs((histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_adnl_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))) - on (tl) group_left() (quantile by (tl) (${agg}, histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_adnl_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))))))[$__range:] @ end()))) and on (tl) topk(8, sum by (tl) (increase(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__range] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "legendFormat": "adnl {{tl}} \u21d2 {{instance}}"
+        },
+        {
+          "refId": "ATTR2",
+          "expr": "(histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_quic_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) and on (tl, job, instance) (bottomk by (tl)(1, avg_over_time((abs((histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_quic_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))) - on (tl) group_left() (quantile by (tl) (${agg}, histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_quic_query_roundtrip_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))))))[$__range:] @ end()))) and on (tl) topk(8, sum by (tl) (increase(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__range] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "legendFormat": "quic {{tl}} \u21d2 {{instance}}"
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "\u25be The transport RTT panel split by TL constructor: which query type is responsible for a p95 shift. Same measurement and same per-node p95 the Node switch collapses, with ADNL and QUIC each showing their top 8 types by call volume over the visible range. The peer-class filter applies to the QUIC lines only; ADNL remains all-peers. RLDP2 stays on its bulk-transfer panels. Hover attribution: the tooltip lists \"type \u21d2 node\" rows (hidden from the chart) answering, per type, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+    },
+    {
+      "id": 20,
+      "type": "timeseries",
+      "title": "Inbound query processing p95 by type (${agg:text} node \u25be)",
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 6,
+            "showPoints": "never",
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "pointSize": 5,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "axisCenteredZero": false,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "ATTR"
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": true,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 0
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "solid"
+                }
+              },
+              {
+                "id": "custom.spanNulls",
+                "value": false
+              },
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#8E8E8E",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc",
+          "hoverProximity": 10
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "quantile by (tl) (${agg}, histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_adnl_query_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))) and on (tl) topk(8, sum by (tl) (increase(ton_adnl_query_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__range] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "editorMode": "code",
+          "range": true,
+          "instant": false,
+          "legendFormat": "{{tl}}"
+        },
+        {
+          "refId": "ATTR",
+          "expr": "(histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_adnl_query_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))) and on (tl, job, instance) (bottomk by (tl)(1, avg_over_time((abs((histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_adnl_query_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))) - on (tl) group_left() (quantile by (tl) (${agg}, histogram_quantile(0.95, sum by (tl, job, instance, ton_scope, le) (rate(ton_adnl_query_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))))))[$__range:] @ end()))) and on (tl) topk(8, sum by (tl) (increase(ton_adnl_query_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__range] @ end())))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "legendFormat": "{{tl}} \u21d2 {{instance}}"
+        }
+      ],
+      "pluginVersion": "12.0.0",
+      "transparent": false,
+      "description": "\u25be Time a node spends answering inbound queries, excluding network transfer. All transports funnel through this ADNL delivery-layer timer. The p95 is each node's own, collapsed across nodes by the Node switch; the top 8 types are ranked by call volume over the visible range. Hover attribution: the tooltip lists \"type \u21d2 node\" rows (hidden from the chart) answering, per type, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
     },
     {
       "collapsed": false,
@@ -2069,7 +2521,7 @@
         },
         {
           "refId": "ATTR",
-          "expr": "quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) * on (direction, reason) group_left(job, instance, ton_scope) (topk by (direction, reason) (1, max_over_time((sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) and on (direction, reason, job, instance) (bottomk by (direction, reason)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) - on (direction, reason) group_left() (quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2078,7 +2530,7 @@
         },
         {
           "refId": "ATTR2",
-          "expr": "quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) * on (direction, reason) group_left(job, instance, ton_scope) (topk by (direction, reason) (1, max_over_time((sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) and on (direction, reason, job, instance) (bottomk by (direction, reason)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) - on (direction, reason) group_left() (quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_quic_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2087,7 +2539,7 @@
         },
         {
           "refId": "ATTR3",
-          "expr": "quantile by (trust, direction, reason) (${agg}, sum by (job, instance, ton_scope, trust, direction, reason) (rate(ton_quic_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0) * on (trust, direction, reason) group_left(job, instance, ton_scope) (topk by (trust, direction, reason) (1, max_over_time((sum by (job, instance, ton_scope, trust, direction, reason) (rate(ton_quic_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0)[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, trust, direction, reason) (rate(ton_quic_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0) and on (trust, direction, reason, job, instance) (bottomk by (trust, direction, reason)(1, avg_over_time((abs((sum by (job, instance, ton_scope, trust, direction, reason) (rate(ton_quic_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0) - on (trust, direction, reason) group_left() (quantile by (trust, direction, reason) (${agg}, sum by (job, instance, ton_scope, trust, direction, reason) (rate(ton_quic_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2096,7 +2548,7 @@
         },
         {
           "refId": "ATTR4",
-          "expr": "quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) * on (direction, reason) group_left(job, instance, ton_scope) (topk by (direction, reason) (1, max_over_time((sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) and on (direction, reason, job, instance) (bottomk by (direction, reason)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) - on (direction, reason) group_left() (quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2105,7 +2557,7 @@
         },
         {
           "refId": "ATTR5",
-          "expr": "quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) * on (direction, reason) group_left(job, instance, ton_scope) (topk by (direction, reason) (1, max_over_time((sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) and on (direction, reason, job, instance) (bottomk by (direction, reason)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) - on (direction, reason) group_left() (quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_wire_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2114,7 +2566,7 @@
         },
         {
           "refId": "ATTR6",
-          "expr": "quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) * on (direction, reason) group_left(job, instance, ton_scope) (topk by (direction, reason) (1, max_over_time((sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) and on (direction, reason, job, instance) (bottomk by (direction, reason)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) - on (direction, reason) group_left() (quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_adnl_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2123,7 +2575,7 @@
         },
         {
           "refId": "ATTR7",
-          "expr": "quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) * on (direction, reason) group_left(job, instance, ton_scope) (topk by (direction, reason) (1, max_over_time((sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) and on (direction, reason, job, instance) (bottomk by (direction, reason)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) - on (direction, reason) group_left() (quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_transport_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2132,7 +2584,7 @@
         },
         {
           "refId": "ATTR8",
-          "expr": "quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) * on (direction, reason) group_left(job, instance, ton_scope) (topk by (direction, reason) (1, max_over_time((sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)[$__range:] @ end())) ^ 0)",
+          "expr": "(sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) and on (direction, reason, job, instance) (bottomk by (direction, reason)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0) - on (direction, reason) group_left() (quantile by (direction, reason) (${agg}, sum by (job, instance, ton_scope, direction, reason) (rate(ton_rldp2_app_dropped_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2142,7 +2594,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "\u25be Nonzero drop rates by tier, direction, and reason, computed per node and then collapsed by the Node aggregation switch \u2014 at the default worst, each is its worst node, which the hover rows name, because drops usually come from one node. The peer-class filter applies only to QUIC app drops; wire, pre-auth transport, ADNL, and RLDP2 remain all-peers. QUIC app out/limited indicates stream-credit exhaustion. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+      "description": "\u25be Nonzero drop rates by tier, direction, and reason, computed per node and then collapsed by the Node aggregation switch \u2014 at the default worst, each is its worst node, which the hover rows name, because drops usually come from one node. The peer-class filter applies only to QUIC app drops; wire, pre-auth transport, ADNL, and RLDP2 remain all-peers. QUIC app out/limited indicates stream-credit exhaustion. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
     },
     {
       "id": 17,
@@ -2316,7 +2768,7 @@
         },
         {
           "refId": "ATTR",
-          "expr": "max(ton_quic_transport_mean_rtt_seconds{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}) * on () group_left(job, instance, ton_scope) (topk(1, max_over_time((ton_quic_transport_mean_rtt_seconds{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"})[$__range:] @ end())) ^ 0)",
+          "expr": "(ton_quic_transport_mean_rtt_seconds{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}) and on (job, instance) (topk(1, max_over_time((ton_quic_transport_mean_rtt_seconds{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"})[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2326,7 +2778,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Distribution over nodes of ton_quic_transport_mean_rtt_seconds \u2014 each node contributes one value: the connection-weighted mean smoothed RTT (ngtcp2 SRTT) over its open connections. p50 = the typical node, max = the worst node. This panel deliberately carries no \u25be: it already draws the whole node distribution at once, so letting the Node aggregation switch pick one point of it would collapse three lines into one and lose the comparison the panel exists for. This is network path RTT; peer processing time is excluded (compare the roundtrip row, which includes it). Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+      "description": "Distribution over nodes of ton_quic_transport_mean_rtt_seconds \u2014 each node contributes one value: the connection-weighted mean smoothed RTT (ngtcp2 SRTT) over its open connections. p50 = the typical node, max = the worst node. This panel deliberately carries no \u25be: it already draws the whole node distribution at once, so letting the Node aggregation switch pick one point of it would collapse three lines into one and lose the comparison the panel exists for. This is network path RTT; peer processing time is excluded (compare the roundtrip row, which includes it). Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
     },
     {
       "id": 12,
@@ -2710,7 +3162,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (tl) (${agg}, sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)) * on (tl) group_left(job, instance, ton_scope) (topk by (tl) (1, max_over_time((sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)) and on (tl, job, instance) (bottomk by (tl)(1, avg_over_time((abs((sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)) - on (tl) group_left() (quantile by (tl) (${agg}, sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_duration_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -2720,7 +3172,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Inbound query failure share by type at the common delivery layer: explicit errors and dropped answer promises over completed-query observations, computed per node and collapsed by the Node aggregation switch (worst node per type by default). All transports funnel through this layer; types below 0.1 q/s on a node are hidden there. High dht.* failure is usually expected client-mode rejection unless --dht-server is enabled. Hover attribution: the tooltip lists \"type \u21d2 node\" rows (hidden from the chart) naming, per type, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Inbound query failure share by type at the common delivery layer: explicit errors and dropped answer promises over completed-query observations, computed per node and collapsed by the Node aggregation switch (worst node per type by default). All transports funnel through this layer; types below 0.1 q/s on a node are hidden there. High dht.* failure is usually expected client-mode rejection unless --dht-server is enabled. Hover attribution: the tooltip lists \"type \u21d2 node\" rows (hidden from the chart) answering, per type, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 33,
@@ -2988,7 +3440,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (trust, tl) (${agg}, sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0.1)) * on (trust, tl) group_left(job, instance, ton_scope) (topk by (trust, tl) (1, max_over_time((sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0.1))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0.1)) and on (trust, tl, job, instance) (bottomk by (trust, tl)(1, avg_over_time((abs((sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0.1)) - on (trust, tl) group_left() (quantile by (trust, tl) (${agg}, sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, trust, tl) (rate(ton_quic_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])) > 0.1)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -2997,7 +3449,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "quantile by (tl) (${agg}, sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)) * on (tl) group_left(job, instance, ton_scope) (topk by (tl) (1, max_over_time((sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)) and on (tl, job, instance) (bottomk by (tl)(1, avg_over_time((abs((sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)) - on (tl) group_left() (quantile by (tl) (${agg}, sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_adnl_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3006,7 +3458,7 @@
             },
             {
               "refId": "ATTR3",
-              "expr": "quantile by (tl) (${agg}, sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)) * on (tl) group_left(job, instance, ton_scope) (topk by (tl) (1, max_over_time((sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)) and on (tl, job, instance) (bottomk by (tl)(1, avg_over_time((abs((sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)) - on (tl) group_left() (quantile by (tl) (${agg}, sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_failed_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, tl) (rate(ton_rldp2_query_roundtrip_seconds_count{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0.1)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3016,7 +3468,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Outbound query failure share by type and transport, computed per node and collapsed by the Node aggregation switch (worst node per series by default); series below 0.1 q/s on a node are hidden there. QUIC is split by peer class; ADNL and RLDP2 remain all-peers. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Outbound query failure share by type and transport, computed per node and collapsed by the Node aggregation switch (worst node per series by default); series below 0.1 q/s on a node are hidden there. QUIC is split by peer class; ADNL and RLDP2 remain all-peers. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         }
       ],
       "title": "Failure drill-down",
@@ -3421,7 +3873,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) * on (direction) group_left(job, instance, ton_scope) (topk by (direction) (1, max_over_time((sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) - on (direction) group_left() (quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3430,7 +3882,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"completed\"}[$__rate_interval]))) * on (direction) group_left(job, instance, ton_scope) (topk by (direction) (1, max_over_time((sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"completed\"}[$__rate_interval])))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"completed\"}[$__rate_interval]))) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"completed\"}[$__rate_interval]))) - on (direction) group_left() (quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"completed\"}[$__rate_interval]))))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3439,7 +3891,7 @@
             },
             {
               "refId": "ATTR3",
-              "expr": "quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"rejected\"}[$__rate_interval]))) * on (direction) group_left(job, instance, ton_scope) (topk by (direction) (1, max_over_time((sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"rejected\"}[$__rate_interval])))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"rejected\"}[$__rate_interval]))) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"rejected\"}[$__rate_interval]))) - on (direction) group_left() (quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",result=\"rejected\"}[$__rate_interval]))))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3449,7 +3901,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Connection installs versus completed/rejected QUIC handshakes, per node and then collapsed by the Node aggregation switch \u2014 at the default worst each line is its busiest node, which the hover rows name, because a fleet sum hides the one node that redials. The gap is handshakes that died without a verdict, usually idle timeouts dialing peers that never answered. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Connection installs versus completed/rejected QUIC handshakes, per node and then collapsed by the Node aggregation switch \u2014 at the default worst each line is its busiest node, which the hover rows name, because a fleet sum hides the one node that redials. The gap is handshakes that died without a verdict, usually idle timeouts dialing peers that never answered. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 15,
@@ -3648,7 +4100,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile(1 - ${agg}, (sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[15m])) > 0)) * on () group_left(job, instance, ton_scope) (bottomk(1, min_over_time(((sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[15m])) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "((sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[15m])) > 0)) and on (job, instance) (bottomk(1, avg_over_time((abs(((sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[15m])) > 0)) - on () group_left() (quantile(1 - ${agg}, (sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"out\"}[15m])) > 0)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3657,7 +4109,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "quantile(1 - ${agg}, (sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\"}[15m])) > 0)) * on () group_left(job, instance, ton_scope) (bottomk(1, min_over_time(((sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\"}[15m])) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "((sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\"}[15m])) > 0)) and on (job, instance) (bottomk(1, avg_over_time((abs(((sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\"}[15m])) > 0)) - on () group_left() (quantile(1 - ${agg}, (sum by (job, instance, ton_scope) (rate(ton_quic_transport_handshakes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\",result=\"completed\"}[15m]))) / (sum by (job, instance, ton_scope) (rate(ton_quic_transport_connections_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",direction=\"in\"}[15m])) > 0)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3667,7 +4119,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Completion event rate divided by connection-attempt event rate, by dial direction over 15m, per node and then collapsed by the Node aggregation switch. High is good here, so the switch runs the other way: worst is the fleet minimum and best its maximum, and the hover rows name the least successful node. This is a laggy proxy, not a cohort success percentage, and can transiently exceed 100%. Abandoned handshakes have no terminal outcome; no attempts in the window renders No data. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Completion event rate divided by connection-attempt event rate, by dial direction over 15m, per node and then collapsed by the Node aggregation switch. High is good here, so the switch runs the other way: worst is the fleet minimum and best its maximum, and the hover rows name the least successful node. This is a laggy proxy, not a cohort success percentage, and can transiently exceed 100%. Abandoned handshakes have no terminal outcome; no attempts in the window renders No data. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 23,
@@ -3786,7 +4238,7 @@
           "gridPos": {
             "x": 0,
             "y": 44,
-            "w": 12,
+            "w": 8,
             "h": 8
           },
           "datasource": {
@@ -3888,12 +4340,438 @@
           "description": "UDP payload bytes/s from each transport's socket accounting, summed across selected nodes. ADNL and QUIC own sockets; RLDP2 rides inside ADNL and is already present in its socket total."
         },
         {
+          "id": 54,
+          "type": "timeseries",
+          "title": "Wire packet rate by transport",
+          "gridPos": {
+            "x": 8,
+            "y": 44,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "pps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [],
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (direction) (rate(ton_adnl_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (direction) (rate(ton_quic_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{direction}}"
+            }
+          ],
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "description": "UDP datagrams/s from each transport's socket accounting, summed across selected nodes \u2014 the packet-count view of the throughput panel, exposing the small-packet load and syscall pressure that bytes/s hides. ADNL and QUIC own sockets; RLDP2 rides inside ADNL and is already present in its socket total."
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Datagrams per syscall (${agg:text} node \u25be)",
+          "gridPos": {
+            "x": 16,
+            "y": 44,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [],
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "ATTR"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.spanNulls",
+                    "value": false
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8E8E8E",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "ATTR2"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.spanNulls",
+                    "value": false
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8E8E8E",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": []
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc",
+              "hoverProximity": 10
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "quantile by (direction) (1 - ${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "quic {{direction}}"
+            },
+            {
+              "refId": "B",
+              "expr": "quantile by (direction) (1 - ${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "adnl {{direction}}"
+            },
+            {
+              "refId": "ATTR",
+              "expr": "(sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) - on (direction) group_left() (quantile by (direction) (1 - ${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "legendFormat": "quic {{direction}} \u21d2 {{instance}}"
+            },
+            {
+              "refId": "ATTR2",
+              "expr": "(sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) - on (direction) group_left() (quantile by (direction) (1 - ${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "legendFormat": "adnl {{direction}} \u21d2 {{instance}}"
+            }
+          ],
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "description": "\u25be Wire packets per UDP send/receive syscall, per node and then collapsed by the Node aggregation switch; higher is cheaper, so the switch runs the other way \u2014 worst is the fleet minimum, and the hover rows name the node batching worst. Outbound 1.0 means no batching: one sendmsg per datagram. Inbound counts the drain loop's closing empty read \u2014 every poll wakeup ends with one EAGAIN probe \u2014 so a lightly loaded receiver sits below 1 and approaches 0.5 as each datagram gets its own wakeup. A direction disappears when it has no syscalls instead of producing an undefined ratio. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Nodes by wire throughput (adnl+quic)",
+          "gridPos": {
+            "x": 0,
+            "y": 52,
+            "w": 24,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "Bps",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [],
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (job, instance, ton_scope) (label_replace(rate(ton_adnl_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]), \"transport\", \"adnl\", \"\", \"\") or label_replace(rate(ton_quic_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]), \"transport\", \"quic\", \"\", \"\"))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "{{ton_scope}} / {{job}} / {{instance}}"
+            }
+          ],
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "description": "Busiest nodes by available ADNL+QUIC UDP bytes (in+out). A target remains visible when either collector family is absent."
+        },
+        {
           "id": 9,
           "type": "timeseries",
           "title": "App payload by transport (${agg:text} node \u25be)",
           "gridPos": {
-            "x": 12,
-            "y": 44,
+            "x": 0,
+            "y": 60,
             "w": 12,
             "h": 9
           },
@@ -4141,7 +5019,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) * on (direction) group_left(job, instance, ton_scope) (topk by (direction) (1, max_over_time((sum by (job, instance, ton_scope, direction) (rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, direction) (rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction) (rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) - on (direction) group_left() (quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4150,7 +5028,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "quantile by (trust, direction) (${agg}, sum by (job, instance, ton_scope, trust, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval]))) * on (trust, direction) group_left(job, instance, ton_scope) (topk by (trust, direction) (1, max_over_time((sum by (job, instance, ton_scope, trust, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval])))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, trust, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval]))) and on (trust, direction, job, instance) (bottomk by (trust, direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, trust, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval]))) - on (trust, direction) group_left() (quantile by (trust, direction) (${agg}, sum by (job, instance, ton_scope, trust, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",trust=~\"$trust\"}[$__rate_interval]))))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4159,7 +5037,7 @@
             },
             {
               "refId": "ATTR3",
-              "expr": "quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) * on (direction) group_left(job, instance, ton_scope) (topk by (direction) (1, max_over_time((sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) - on (direction) group_left() (quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4169,325 +5047,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Application payload bytes/s after protocol framing, per node and then collapsed by the Node aggregation switch rather than summed, so the panel does not grow with the selection; at the default worst each line is its busiest node and the hover rows name it. QUIC is split by peer class; ADNL and RLDP2 remain all-peers. ADNL includes RLDP2 datagrams, so ADNL + RLDP2 double-counts. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
-        },
-        {
-          "id": 8,
-          "type": "timeseries",
-          "title": "Nodes by wire throughput (adnl+quic)",
-          "gridPos": {
-            "x": 0,
-            "y": 53,
-            "w": 24,
-            "h": 8
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "Bps",
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 6,
-                "showPoints": "never",
-                "drawStyle": "line",
-                "lineInterpolation": "linear",
-                "barAlignment": 0,
-                "pointSize": 5,
-                "gradientMode": "none",
-                "spanNulls": false,
-                "insertNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "axisPlacement": "auto",
-                "axisLabel": "",
-                "axisColorMode": "text",
-                "axisBorderShow": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "axisCenteredZero": false,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "color": {
-                "mode": "palette-classic"
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "mappings": [],
-              "min": 0
-            },
-            "overrides": []
-          },
-          "options": {
-            "legend": {
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true,
-              "calcs": [
-                "lastNotNull"
-              ],
-              "sortBy": "Last *",
-              "sortDesc": true
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc"
-            }
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "sum by (job, instance, ton_scope) (label_replace(rate(ton_adnl_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]), \"transport\", \"adnl\", \"\", \"\") or label_replace(rate(ton_quic_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]), \"transport\", \"quic\", \"\", \"\"))",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "editorMode": "code",
-              "range": true,
-              "instant": false,
-              "legendFormat": "{{ton_scope}} / {{job}} / {{instance}}"
-            }
-          ],
-          "pluginVersion": "12.0.0",
-          "transparent": false,
-          "description": "Busiest nodes by available ADNL+QUIC UDP bytes (in+out). A target remains visible when either collector family is absent."
-        },
-        {
-          "id": 10,
-          "type": "timeseries",
-          "title": "Datagrams per syscall (${agg:text} node \u25be)",
-          "gridPos": {
-            "x": 0,
-            "y": 61,
-            "w": 12,
-            "h": 9
-          },
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "unit": "short",
-              "custom": {
-                "lineWidth": 2,
-                "fillOpacity": 6,
-                "showPoints": "never",
-                "drawStyle": "line",
-                "lineInterpolation": "linear",
-                "barAlignment": 0,
-                "pointSize": 5,
-                "gradientMode": "none",
-                "spanNulls": false,
-                "insertNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "axisPlacement": "auto",
-                "axisLabel": "",
-                "axisColorMode": "text",
-                "axisBorderShow": false,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "axisCenteredZero": false,
-                "hideFrom": {
-                  "legend": false,
-                  "tooltip": false,
-                  "viz": false
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "color": {
-                "mode": "palette-classic"
-              },
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "mappings": [],
-              "min": 0
-            },
-            "overrides": [
-              {
-                "matcher": {
-                  "id": "byFrameRefID",
-                  "options": "ATTR"
-                },
-                "properties": [
-                  {
-                    "id": "custom.hideFrom",
-                    "value": {
-                      "legend": true,
-                      "tooltip": false,
-                      "viz": false
-                    }
-                  },
-                  {
-                    "id": "custom.lineWidth",
-                    "value": 0
-                  },
-                  {
-                    "id": "custom.fillOpacity",
-                    "value": 0
-                  },
-                  {
-                    "id": "custom.showPoints",
-                    "value": "never"
-                  },
-                  {
-                    "id": "custom.lineStyle",
-                    "value": {
-                      "fill": "solid"
-                    }
-                  },
-                  {
-                    "id": "custom.spanNulls",
-                    "value": false
-                  },
-                  {
-                    "id": "color",
-                    "value": {
-                      "fixedColor": "#8E8E8E",
-                      "mode": "fixed"
-                    }
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byFrameRefID",
-                  "options": "ATTR2"
-                },
-                "properties": [
-                  {
-                    "id": "custom.hideFrom",
-                    "value": {
-                      "legend": true,
-                      "tooltip": false,
-                      "viz": false
-                    }
-                  },
-                  {
-                    "id": "custom.lineWidth",
-                    "value": 0
-                  },
-                  {
-                    "id": "custom.fillOpacity",
-                    "value": 0
-                  },
-                  {
-                    "id": "custom.showPoints",
-                    "value": "never"
-                  },
-                  {
-                    "id": "custom.lineStyle",
-                    "value": {
-                      "fill": "solid"
-                    }
-                  },
-                  {
-                    "id": "custom.spanNulls",
-                    "value": false
-                  },
-                  {
-                    "id": "color",
-                    "value": {
-                      "fixedColor": "#8E8E8E",
-                      "mode": "fixed"
-                    }
-                  }
-                ]
-              }
-            ]
-          },
-          "options": {
-            "legend": {
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": true,
-              "calcs": []
-            },
-            "tooltip": {
-              "mode": "multi",
-              "sort": "desc",
-              "hoverProximity": 10
-            }
-          },
-          "targets": [
-            {
-              "refId": "A",
-              "expr": "quantile by (direction) (1 - ${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "editorMode": "code",
-              "range": true,
-              "instant": false,
-              "legendFormat": "quic {{direction}}"
-            },
-            {
-              "refId": "B",
-              "expr": "quantile by (direction) (1 - ${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "editorMode": "code",
-              "range": true,
-              "instant": false,
-              "legendFormat": "adnl {{direction}}"
-            },
-            {
-              "refId": "ATTR",
-              "expr": "quantile by (direction) (1 - ${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) * on (direction) group_left(job, instance, ton_scope) (bottomk by (direction) (1, min_over_time((sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "legendFormat": "quic {{direction}} \u21d2 {{instance}}"
-            },
-            {
-              "refId": "ATTR2",
-              "expr": "quantile by (direction) (1 - ${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) * on (direction) group_left(job, instance, ton_scope) (bottomk by (direction) (1, min_over_time((sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_packets_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_syscalls_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "legendFormat": "adnl {{direction}} \u21d2 {{instance}}"
-            }
-          ],
-          "pluginVersion": "12.0.0",
-          "transparent": false,
-          "description": "\u25be Wire packets per UDP send/receive syscall, per node and then collapsed by the Node aggregation switch: 1.0 means no batching and higher is cheaper, so the switch runs the other way \u2014 worst is the fleet minimum, and the hover rows name the node batching worst. A direction disappears when it has no syscalls instead of producing an undefined ratio. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Application payload bytes/s after protocol framing, per node and then collapsed by the Node aggregation switch rather than summed, so the panel does not grow with the selection; at the default worst each line is its busiest node and the hover rows name it. QUIC is split by peer class; ADNL and RLDP2 remain all-peers. ADNL includes RLDP2 datagrams, so ADNL + RLDP2 double-counts. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 11,
@@ -4495,7 +5055,7 @@
           "title": "Wire / app bytes (overhead factor, log scale) (${agg:text} node \u25be)",
           "gridPos": {
             "x": 12,
-            "y": 61,
+            "y": 60,
             "w": 12,
             "h": 9
           },
@@ -4747,7 +5307,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) * on (direction) group_left(job, instance, ton_scope) (topk by (direction) (1, max_over_time((sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) - on (direction) group_left() (quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_quic_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_quic_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4756,7 +5316,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "quantile by (direction) (${agg}, (sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope, direction) (label_replace(rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",tl!=\"rldp2.messagePart\"}[$__rate_interval]), \"layer\", \"adnl\", \"\", \"\") or label_replace(rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]), \"layer\", \"rldp2\", \"\", \"\")) > 0)) * on (direction) group_left(job, instance, ton_scope) (topk by (direction) (1, max_over_time(((sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope, direction) (label_replace(rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",tl!=\"rldp2.messagePart\"}[$__rate_interval]), \"layer\", \"adnl\", \"\", \"\") or label_replace(rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]), \"layer\", \"rldp2\", \"\", \"\")) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "((sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope, direction) (label_replace(rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",tl!=\"rldp2.messagePart\"}[$__rate_interval]), \"layer\", \"adnl\", \"\", \"\") or label_replace(rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]), \"layer\", \"rldp2\", \"\", \"\")) > 0)) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs(((sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope, direction) (label_replace(rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",tl!=\"rldp2.messagePart\"}[$__rate_interval]), \"layer\", \"adnl\", \"\", \"\") or label_replace(rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]), \"layer\", \"rldp2\", \"\", \"\")) > 0)) - on (direction) group_left() (quantile by (direction) (${agg}, (sum by (job, instance, ton_scope, direction) (rate(ton_adnl_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) / (sum by (job, instance, ton_scope, direction) (label_replace(rate(ton_adnl_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",tl!=\"rldp2.messagePart\"}[$__rate_interval]), \"layer\", \"adnl\", \"\", \"\") or label_replace(rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]), \"layer\", \"rldp2\", \"\", \"\")) > 0)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4765,7 +5325,7 @@
             },
             {
               "refId": "ATTR3",
-              "expr": "quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) * on (direction) group_left(job, instance, ton_scope) (topk by (direction) (1, max_over_time((sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) and on (direction, job, instance) (bottomk by (direction)(1, avg_over_time((abs((sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) - on (direction) group_left() (quantile by (direction) (${agg}, sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_wire_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) / (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_app_bytes_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4775,7 +5335,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Wire bytes per delivered payload byte, per node and then collapsed by the Node aggregation switch (worst node per direction by default). QUIC compares its own tiers; ADNL stack replaces rldp2.messagePart transfer data with RLDP2-delivered payload; RLDP2 alone exposes FEC, retransmission, and failed-transfer overhead. Idle transports disappear. The peer-class filter does not apply because wire counters are all-peers. Log scale. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Wire bytes per delivered payload byte, per node and then collapsed by the Node aggregation switch (worst node per direction by default). QUIC compares its own tiers; ADNL stack replaces rldp2.messagePart transfer data with RLDP2-delivered payload; RLDP2 alone exposes FEC, retransmission, and failed-transfer overhead. Idle transports disappear. The peer-class filter does not apply because wire counters are all-peers. Log scale. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         }
       ],
       "title": "Traffic & efficiency",
@@ -6032,7 +6592,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (direction, state) (${agg}, (sum by (job, instance, ton_scope, direction, state) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",state=~\"failed|timeout\"}[$__rate_interval])) / on (job, instance, ton_scope, direction) group_left sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) and on (job, instance, ton_scope, direction) (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) * on (direction, state) group_left(job, instance, ton_scope) (topk by (direction, state) (1, max_over_time(((sum by (job, instance, ton_scope, direction, state) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",state=~\"failed|timeout\"}[$__rate_interval])) / on (job, instance, ton_scope, direction) group_left sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) and on (job, instance, ton_scope, direction) (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "((sum by (job, instance, ton_scope, direction, state) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",state=~\"failed|timeout\"}[$__rate_interval])) / on (job, instance, ton_scope, direction) group_left sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) and on (job, instance, ton_scope, direction) (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) and on (direction, state, job, instance) (bottomk by (direction, state)(1, avg_over_time((abs(((sum by (job, instance, ton_scope, direction, state) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",state=~\"failed|timeout\"}[$__rate_interval])) / on (job, instance, ton_scope, direction) group_left sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) and on (job, instance, ton_scope, direction) (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)) - on (direction, state) group_left() (quantile by (direction, state) (${agg}, (sum by (job, instance, ton_scope, direction, state) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\",state=~\"failed|timeout\"}[$__rate_interval])) / on (job, instance, ton_scope, direction) group_left sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval]))) and on (job, instance, ton_scope, direction) (sum by (job, instance, ton_scope, direction) (rate(ton_rldp2_transport_transfers_total{job=~\"$job\",instance=~\"$instance\",ton_scope=~\"$scope\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -6042,7 +6602,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Failed and timed-out whole RLDP2 transfers as a share of all terminal outcomes, split by direction, per node and then collapsed by the Node aggregation switch \u2014 at the default worst, the hover rows name that node. Completed transfers/s stays visible on the right axis as fleet activity context without flattening the failure signal. Yellow at 1%; red at 5%. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Failed and timed-out whole RLDP2 transfers as a share of all terminal outcomes, split by direction, per node and then collapsed by the Node aggregation switch \u2014 at the default worst, the hover rows name that node. Completed transfers/s stays visible on the right axis as fleet activity context without flattening the failure signal. Yellow at 1%; red at 5%. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 51,

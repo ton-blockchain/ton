@@ -709,7 +709,7 @@ ROWS = [
             "Masterchain block rate — history",
             line("chain", masterchain_rate("1m")),
             line("configured target", f"vector(1 / {SLOT})"),
-            scope="the whole chain", unit="ops", id=31, decimals=2,
+            scope="the whole chain", unit="ops", id=31, w=8, decimals=2,
             query_scope="job",
             axis_label="blocks/s", legend=HISTORY_LEGEND,
             thresholds=thresholds(base="blue"), styles=[reference_line("configured target")],
@@ -726,7 +726,7 @@ ROWS = [
         ),
         fleet_timeseries(
             "Masterchain age — history", *fleet_spread(MASTERCHAIN_AGE),
-            unit="s", id=32, decimals=1,
+            unit="s", id=32, w=8, decimals=1,
             axis_label="age", legend=HISTORY_LEGEND, styles=SPREAD_STYLES,
             thresholds=threshold_lines(30, 120),
             description=(
@@ -744,7 +744,7 @@ ROWS = [
         ),
         chain_timeseries(
             "Shardchain aggregate block rate — history", line("chain", shard_rate("1m")),
-            scope="the median node", unit="ops", id=33, decimals=2,
+            scope="the median node", unit="ops", id=33, w=8, decimals=2,
             query_scope="job",
             axis_label="blocks/s", legend=HISTORY_LEGEND, thresholds=thresholds(base="blue"),
             description=(
@@ -757,7 +757,7 @@ ROWS = [
         ),
         fleet_timeseries(
             "Shard lag — history", *fleet_spread(SHARD_LAG),
-            unit="short", id=34, decimals=0,
+            unit="short", id=34, w=8, decimals=0,
             axis_label="MC blocks", legend=HISTORY_LEGEND, styles=SPREAD_STYLES,
             thresholds=threshold_lines(5, 20),
             description=(
@@ -773,7 +773,7 @@ ROWS = [
         ),
         chain_timeseries(
             "Shard collation budget — history", line("value", collation_budget("1m")),
-            scope="every collator in the fleet", unit="percentunit", id=35, decimals=0,
+            scope="every collator in the fleet", unit="percentunit", id=35, w=8, decimals=0,
             query_scope="job",
             axis_label="slot budget", legend=HISTORY_LEGEND, color_mode="thresholds",
             thresholds=threshold_lines(0.75, 1),
@@ -792,7 +792,7 @@ ROWS = [
         ),
         chain_timeseries(
             "Shard candidates discarded (10m) — history", line("value", discarded_share("10m")),
-            scope="the whole chain", unit="percentunit", id=36, decimals=0,
+            scope="the whole chain", unit="percentunit", id=36, w=8, decimals=0,
             query_scope="job",
             axis_label="discarded share", legend=HISTORY_LEGEND, color_mode="thresholds",
             thresholds=threshold_lines(0.15, 0.3),
@@ -900,7 +900,7 @@ ROWS = [
             line("transaction total", per_block(collated_seconds("real", TRANSACTIONS))),
             line("preliminary storage",
                  per_block(collated_seconds("real", "prelim_storage_stat"))),
-            scope="every collator in the fleet", unit="s", id=37,
+            scope="every collator in the fleet", unit="s", id=37, w=8,
             query_scope="job",
             axis_label="seconds / block",
             styles=[unstacked_total("transaction total", "dark-red"),
@@ -1059,7 +1059,7 @@ ROWS = [
         agg_timeseries(
             "Validation phase outliers — ${chain:text}",
             agg_line(phase_recent_max("validate", VALIDATION), key="result, clock, phase"),
-            unit="s", id=54, h=10,
+            unit="s", id=54, w=24, h=10,
             axis_label="retained max seconds", fill=0, line_width=1,
             legend=table_legend("lastNotNull", "max", sort="Max", placement="right"),
             description=(
@@ -1081,7 +1081,7 @@ ROWS = [
                                   collation_rate("ton_collation_ext_messages_offered_total")))),
             line("gas / block",
                  per_block(summed(None, collation_rate("ton_collation_gas_total")))),
-            scope="every collator in the fleet", unit="short", id=23, h=9,
+            scope="every collator in the fleet", unit="short", id=23, w=8, h=9,
             query_scope="job",
             axis_label="per block",
             styles=[series_style("gas / block", axis="right", axis_label="gas / block")],
@@ -1100,7 +1100,7 @@ ROWS = [
             line("collated data bytes",
                  per_block(summed(None,
                                   collation_rate("ton_collation_collated_data_bytes_total")))),
-            scope="every collator in the fleet", unit="bytes", id=24, h=9,
+            scope="every collator in the fleet", unit="bytes", id=24, w=8, h=9,
             query_scope="job",
             axis_label="bytes / block",
             description=(
@@ -1351,7 +1351,7 @@ ROWS = [
     *external_message_rows([
         plain_stat(
             "Accepted /s (global)", accepted("1m"),
-            id=25, scope="all selected nodes", unit="ops", decimals=1, w=5,
+            id=25, scope="all selected nodes", unit="ops", decimals=1, w=8,
             thresholds=thresholds(base="blue"),
             description=(
                 "Accepted external-submission rate over the last minute, evaluated now and "
@@ -1362,7 +1362,7 @@ ROWS = [
         ),
         plain_stat(
             "Applied /s (synced) — ${chain:text}", synced_applied("1m"),
-            id=26, scope="the median synced node", unit="ops", decimals=1, w=5,
+            id=26, scope="the median synced node", unit="ops", decimals=1, w=8,
             query_scope="job",
             thresholds=thresholds(base="blue"),
             description=(
@@ -1401,7 +1401,7 @@ ROWS = [
             "External work in failed attempts (10m)",
             f"{summed(None, collated_externals('10m', outcome='included', result='error'))}"
             f" / ({summed(None, collated_externals('10m', outcome='included'))} > 0)",
-            id=29, scope="every collator in the fleet", unit="percentunit", decimals=0, w=5,
+            id=29, scope="every collator in the fleet", unit="percentunit", decimals=0, w=8,
             query_scope="job",
             thresholds=thresholds(("yellow", 0.15), ("red", 0.3)),
             description=(

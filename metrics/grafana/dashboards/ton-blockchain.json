@@ -2117,7 +2117,7 @@
           "gridPos": {
             "x": 0,
             "y": 39,
-            "w": 12,
+            "w": 8,
             "h": 8
           },
           "datasource": {
@@ -2271,9 +2271,9 @@
           "type": "timeseries",
           "title": "Masterchain age \u2014 history",
           "gridPos": {
-            "x": 12,
+            "x": 8,
             "y": 39,
-            "w": 12,
+            "w": 8,
             "h": 8
           },
           "datasource": {
@@ -2574,7 +2574,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "max(clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0)) * on () group_left(job, instance) (topk(1, max_over_time((clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0))[$__range:] @ end())) ^ 0)",
+              "expr": "(clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0)) and on (job, instance) (topk(1, max_over_time((clamp_min(ton_masterchain_block_age_seconds{job=~\"$job\",instance=~\"$instance\"}, 0))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -2584,16 +2584,16 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Positive age of the last applied masterchain block across selected reporting targets: worst (max), p95, median, average, and best (minimum) at each point. A max-only rise isolates a lagging node; p95/median rising with it points to a fleet-wide stall. Missing targets are excluded, and with a small selection p95 nearly follows max. An offline target disappears; check the Overview offline-target card alongside this panel. Negative/future clock skew is clamped to zero, so best is not a clock-skew alarm. Yellow at 30 s and red at 120 s are conservative deployment-neutral guides; tighten them for faster networks; TON Overview owns the current worst-value card. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "Positive age of the last applied masterchain block across selected reporting targets: worst (max), p95, median, average, and best (minimum) at each point. A max-only rise isolates a lagging node; p95/median rising with it points to a fleet-wide stall. Missing targets are excluded, and with a small selection p95 nearly follows max. An offline target disappears; check the Overview offline-target card alongside this panel. Negative/future clock skew is clamped to zero, so best is not a clock-skew alarm. Yellow at 30 s and red at 120 s are conservative deployment-neutral guides; tighten them for faster networks; TON Overview owns the current worst-value card. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 33,
           "type": "timeseries",
           "title": "Shardchain aggregate block rate \u2014 history",
           "gridPos": {
-            "x": 0,
-            "y": 47,
-            "w": 12,
+            "x": 16,
+            "y": 39,
+            "w": 8,
             "h": 8
           },
           "datasource": {
@@ -2694,9 +2694,9 @@
           "type": "timeseries",
           "title": "Shard lag \u2014 history",
           "gridPos": {
-            "x": 12,
+            "x": 0,
             "y": 47,
-            "w": 12,
+            "w": 8,
             "h": 8
           },
           "datasource": {
@@ -2997,7 +2997,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "max(clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0)) * on () group_left(job, instance) (topk(1, max_over_time((clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0))[$__range:] @ end())) ^ 0)",
+              "expr": "(clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0)) and on (job, instance) (topk(1, max_over_time((clamp_min(ton_masterchain_seqno{job=~\"$job\",instance=~\"$instance\"} - ton_shardclient_seqno{job=~\"$job\",instance=~\"$instance\"}, 0))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3007,16 +3007,16 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Masterchain blocks by which the shard client trails, shown as worst (max), p95, median, average, and best (minimum) across selected reporting targets at each point. A max-only rise isolates one lagging node; p95/median rising with it means basechain processing is broadly behind. Missing targets and targets lacking either gauge are excluded; with a small selection p95 nearly follows max. An offline target disappears; check the Overview offline-target card alongside this panel. Sustained growth makes basechain state stale even when masterchain age is healthy; TON Overview owns the current worst-value card. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "Masterchain blocks by which the shard client trails, shown as worst (max), p95, median, average, and best (minimum) across selected reporting targets at each point. A max-only rise isolates one lagging node; p95/median rising with it means basechain processing is broadly behind. Missing targets and targets lacking either gauge are excluded; with a small selection p95 nearly follows max. An offline target disappears; check the Overview offline-target card alongside this panel. Sustained growth makes basechain state stale even when masterchain age is healthy; TON Overview owns the current worst-value card. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 35,
           "type": "timeseries",
           "title": "Shard collation budget \u2014 history",
           "gridPos": {
-            "x": 0,
-            "y": 55,
-            "w": 12,
+            "x": 8,
+            "y": 47,
+            "w": 8,
             "h": 8
           },
           "datasource": {
@@ -3125,9 +3125,9 @@
           "type": "timeseries",
           "title": "Shard candidates discarded (10m) \u2014 history",
           "gridPos": {
-            "x": 12,
-            "y": 55,
-            "w": 12,
+            "x": 16,
+            "y": 47,
+            "w": 8,
             "h": 8
           },
           "datasource": {
@@ -3701,7 +3701,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "(sum(rate(ton_collated_blocks_total{job=~\"$job\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum(rate(ton_collated_blocks_total{job=~\"$job\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0) * on () group_left(job, instance) (topk(1, max_over_time(((sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "((sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0)) and on (job, instance) (topk(1, max_over_time(((sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3710,7 +3710,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "(sum(rate(ton_validated_blocks_total{job=~\"$job\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum(rate(ton_validated_blocks_total{job=~\"$job\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0) * on () group_left(job, instance) (topk(1, max_over_time(((sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "((sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0)) and on (job, instance) (topk(1, max_over_time(((sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3720,7 +3720,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Problems as a share of blocks \u2014 not durations and not raw event rates. Collation/validation errors are failed shares of attempts, drawn chain-wide because one rotating collator produces each block; their hidden attribution row names the node whose own error share dominated the visible range. overload: long_collation marks blocks that hit the collator deadline. want_split is a weighted-history decision; overload reasons are only the current block's contribution, not a one-to-one cause. Durations are below. Scope: chain-wide sums across the selected jobs; Instance is intentionally ignored because collators rotate. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "Problems as a share of blocks \u2014 not durations and not raw event rates. Collation/validation errors are failed shares of attempts, drawn chain-wide because one rotating collator produces each block; their hidden attribution row names the node whose own error share dominated the visible range. overload: long_collation marks blocks that hit the collator deadline. want_split is a weighted-history decision; overload reasons are only the current block's contribution, not a one-to-one cause. Durations are below. Scope: chain-wide sums across the selected jobs; Instance is intentionally ignored because collators rotate. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         }
       ],
       "title": "Block flow & production outcomes",
@@ -4095,7 +4095,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (clock, phase) (${agg}, sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0)) * on (clock, phase) group_left(job, instance) (topk by (clock, phase) (1, max_over_time((sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0)) and on (clock, phase, job, instance) (bottomk by (clock, phase)(1, avg_over_time((abs((sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0)) - on (clock, phase) group_left() (quantile by (clock, phase) (${agg}, sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4105,7 +4105,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Which collator is slowest in which real or CPU phase: each node's own seconds in a phase per block it collated, collapsed across nodes by the Node aggregation switch \u2014 worst by default, so a line is the slowest collator's cost for that phase and the hidden \u21d2 row names it. The total-tail and retained-max panels show how bad a collation was; this says where its real or CPU cost landed and on whom. Only one node collates each block, so a node contributes only while it holds the slot and the series are sparse during rotation \u2014 a phase with no successful collation on any node in the window renders no line. Deliberately not stacked: these are separate nodes' readings and do not add. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Which collator is slowest in which real or CPU phase: each node's own seconds in a phase per block it collated, collapsed across nodes by the Node aggregation switch \u2014 worst by default, so a line is the slowest collator's cost for that phase and the hidden \u21d2 row names it. The total-tail and retained-max panels show how bad a collation was; this says where its real or CPU cost landed and on whom. Only one node collates each block, so a node contributes only while it holds the slot and the series are sparse during rotation \u2014 a phase with no successful collation on any node in the window renders no line. Deliberately not stacked: these are separate nodes' readings and do not add. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 49,
@@ -4405,7 +4405,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "max(sum by (job, instance) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"cpu\"}[$__rate_interval]))) * on () group_left(job, instance) (topk(1, max_over_time((sum by (job, instance) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"cpu\"}[$__rate_interval])))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"cpu\"}[$__rate_interval]))) and on (job, instance) (topk(1, max_over_time((sum by (job, instance) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"cpu\"}[$__rate_interval])))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4415,7 +4415,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "CPU seconds spent collating per wall second, shown as worst, p95, median, average, and best across selected nodes. One means one CPU core continuously consumed; values can exceed one when work runs in parallel. A worst-only rise identifies a hot collator and the hidden attribution row names it; a fleet-wide rise moves the median too. This is CPU cost, not elapsed time, and therefore excludes pure fsync or scheduling waits. Successful, failed, and discarded retry attempts all contribute; an error scope still active during reporting can be omitted. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "CPU seconds spent collating per wall second, shown as worst, p95, median, average, and best across selected nodes. One means one CPU core continuously consumed; values can exceed one when work runs in parallel. A worst-only rise identifies a hot collator and the hidden attribution row names it; a fleet-wide rise moves the median too. This is CPU cost, not elapsed time, and therefore excludes pure fsync or scheduling waits. Successful, failed, and discarded retry attempts all contribute; an error scope still active during reporting can be omitted. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 51,
@@ -4676,7 +4676,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "max(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"elapsed\"})) * on () group_left(job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"elapsed\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"elapsed\"})) and on (job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"elapsed\"}))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4685,7 +4685,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "max(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"real\"})) * on () group_left(job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"real\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"real\"})) and on (job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"real\"}))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4694,7 +4694,7 @@
             },
             {
               "refId": "ATTR3",
-              "expr": "max(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"cpu\"})) * on () group_left(job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"cpu\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"cpu\"})) and on (job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"cpu\"}))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4704,7 +4704,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Exact maxima for failed or discarded internal collation attempts, retained by each node for roughly 10\u201320 minutes and collapsed to the fleet worst with stable node attribution. Successful maxima already live in the compact summary above; this panel exists only so expensive retries cannot disappear from success-only p50/p95. Elapsed, real and CPU maxima may belong to different nodes and attempts. Error real/CPU are best-effort when a timer scope was still active at reporting. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "Exact maxima for failed or discarded internal collation attempts, retained by each node for roughly 10\u201320 minutes and collapsed to the fleet worst with stable node attribution. Successful maxima already live in the compact summary above; this panel exists only so expensive retries cannot disappear from success-only p50/p95. Elapsed, real and CPU maxima may belong to different nodes and attempts. Error real/CPU are best-effort when a timer scope was still active at reporting. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 53,
@@ -4851,7 +4851,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (result, clock, phase) (${agg}, max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\",clock=~\"real|cpu\"})) * on (result, clock, phase) group_left(job, instance) (topk by (result, clock, phase) (1, max_over_time((max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\",clock=~\"real|cpu\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\",clock=~\"real|cpu\"})) and on (result, clock, phase, job, instance) (bottomk by (result, clock, phase)(1, avg_over_time((abs((max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\",clock=~\"real|cpu\"})) - on (result, clock, phase) group_left() (quantile by (result, clock, phase) (${agg}, max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"collate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"preinit|queue_cleanup|dispatch_queue|import_internals|import_externals|process_new_msgs|enqueue_new_messages|final_storage_stat|combine_account_transactions|create_shard_state|create_block|create_collated_data|create_block_candidate\",clock=~\"real|cpu\"})))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -4861,7 +4861,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Retained exact maximum for every outer collation phase, split by success/error and real/CPU clock, then collapsed across nodes by Node aggregation. Failed includes discarded internal retries. Worst is the default and the hidden row names the collator. This is the causal companion to the total retained maximum, but each phase maximum may come from a different attempt and must not be read as a decomposition of that worst total event. Error phases are best-effort when a timer scope was still active at reporting. A large real-but-not-CPU phase suggests blocking, while both rising suggests computation. The outer phases are additive per attempt; nested transaction and preliminary-storage timers remain excluded. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Retained exact maximum for every outer collation phase, split by success/error and real/CPU clock, then collapsed across nodes by Node aggregation. Failed includes discarded internal retries. Worst is the default and the hidden row names the collator. This is the causal companion to the total retained maximum, but each phase maximum may come from a different attempt and must not be read as a decomposition of that worst total event. Error phases are best-effort when a timer scope was still active at reporting. A large real-but-not-CPU phase suggests blocking, while both rising suggests computation. The outer phases are additive per attempt; nested transaction and preliminary-storage timers remain excluded. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 70,
@@ -5425,7 +5425,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (clock, phase) (${agg}, sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0)) * on (clock, phase) group_left(job, instance) (topk by (clock, phase) (1, max_over_time((sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0)) and on (clock, phase, job, instance) (bottomk by (clock, phase)(1, avg_over_time((abs((sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0)) - on (clock, phase) group_left() (quantile by (clock, phase) (${agg}, sum by (job, instance, clock, phase) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",clock=~\"real|cpu\",result=\"ok\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\"}[$__rate_interval])) / on (job, instance) group_left () (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"ok\"}[$__rate_interval])) > 0)))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -5435,7 +5435,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Which validator is slowest in which real or CPU phase: each node's own seconds in a phase per block it validated, collapsed across nodes by the Node aggregation switch \u2014 worst by default, with the hidden \u21d2 row naming that node. Every validator validates every block, so unlike the collation twin this population is dense and the spread between worst and median is a real per-node comparison rather than an artefact of who held the slot. CPU distinguishes computation from wall-time blocking. Validation phases can run in parallel contexts, so they do not add up to the per-block total on the panel above and are never stacked. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Which validator is slowest in which real or CPU phase: each node's own seconds in a phase per block it validated, collapsed across nodes by the Node aggregation switch \u2014 worst by default, with the hidden \u21d2 row naming that node. Every validator validates every block, so unlike the collation twin this population is dense and the spread between worst and median is a real per-node comparison rather than an artefact of who held the slot. CPU distinguishes computation from wall-time blocking. Validation phases can run in parallel contexts, so they do not add up to the per-block total on the panel above and are never stacked. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 50,
@@ -5735,7 +5735,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "max(sum by (job, instance) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"cpu\"}[$__rate_interval]))) * on () group_left(job, instance) (topk(1, max_over_time((sum by (job, instance) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"cpu\"}[$__rate_interval])))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (job, instance) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"cpu\"}[$__rate_interval]))) and on (job, instance) (topk(1, max_over_time((sum by (job, instance) (rate(ton_block_processing_seconds_total{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",phase=\"total\",clock=\"cpu\"}[$__rate_interval])))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -5745,7 +5745,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "CPU seconds spent validating per wall second, shown as worst, p95, median, average, and best across selected validators. One means one CPU core continuously consumed. The worst line's hidden row names the range-dominant node. Compare CPU with elapsed and real tails: real rising without CPU indicates blocking or descheduling, while elapsed rising without real indicates untimed waits. CPU rising with real indicates expensive validation work. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "CPU seconds spent validating per wall second, shown as worst, p95, median, average, and best across selected validators. One means one CPU core continuously consumed. The worst line's hidden row names the range-dominant node. Compare CPU with elapsed and real tails: real rising without CPU indicates blocking or descheduling, while elapsed rising without real indicates untimed waits. CPU rising with real indicates expensive validation work. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 52,
@@ -6006,7 +6006,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "max(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"elapsed\"})) * on () group_left(job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"elapsed\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"elapsed\"})) and on (job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"elapsed\"}))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -6015,7 +6015,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "max(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"real\"})) * on () group_left(job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"real\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"real\"})) and on (job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"real\"}))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -6024,7 +6024,7 @@
             },
             {
               "refId": "ATTR3",
-              "expr": "max(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"cpu\"})) * on () group_left(job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"cpu\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"cpu\"})) and on (job, instance) (topk(1, max_over_time((max by (job, instance) (ton_block_processing_duration_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=\"error\",clock=\"cpu\"}))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -6034,7 +6034,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Exact failed-validation maxima retained per node for roughly 10\u201320 minutes. The visible lines are the fleet worst and hidden rows name their validators. Successful maxima already live in the compact summary above, so this panel only preserves pathological failures that a success distribution cannot show. Compare elapsed, real and CPU to separate untimed waits, blocking and computation. Error real/CPU are best-effort when a timer scope was still active. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "Exact failed-validation maxima retained per node for roughly 10\u201320 minutes. The visible lines are the fleet worst and hidden rows name their validators. Successful maxima already live in the compact summary above, so this panel only preserves pathological failures that a success distribution cannot show. Compare elapsed, real and CPU to separate untimed waits, blocking and computation. Error real/CPU are best-effort when a timer scope was still active. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 54,
@@ -6043,7 +6043,7 @@
           "gridPos": {
             "x": 0,
             "y": 60,
-            "w": 12,
+            "w": 24,
             "h": 10
           },
           "datasource": {
@@ -6181,7 +6181,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (result, clock, phase) (${agg}, max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\",clock=~\"real|cpu\"})) * on (result, clock, phase) group_left(job, instance) (topk by (result, clock, phase) (1, max_over_time((max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\",clock=~\"real|cpu\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\",clock=~\"real|cpu\"})) and on (result, clock, phase, job, instance) (bottomk by (result, clock, phase)(1, avg_over_time((abs((max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\",clock=~\"real|cpu\"})) - on (result, clock, phase) group_left() (quantile by (result, clock, phase) (${agg}, max by (result, clock, phase, job, instance) (ton_block_processing_phase_recent_max_seconds{job=~\"$job\",instance=~\"$instance\",operation=\"validate\",chain=~\"${chain:raw}\",result=~\"ok|error\",phase=~\"unpack_block_candidate|process_mc_state|validate_block_tlb|unpack_state|unpack_block_data|precheck_account_updates|precheck_account_transactions|precheck_msg_queue|unpack_dispatch_queue|check_in_msg_descr|check_out_msg_descr|check_dispatch_queue|check_processed_upto|check_in_queue|trx_tvm|trx_storage_stat|trx_other|check_transactions_other|check_new_state\",clock=~\"real|cpu\"})))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -6191,7 +6191,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Retained exact maximum for every validation phase, split by success/error and real/CPU clock, then collapsed across nodes by Node aggregation. Worst is the default and the hidden row names the validator. Each phase maximum may come from a different validation, and phase timers can overlap or run in parallel; these are therefore independent outlier signals, never a stack or an additive decomposition of the worst total event. Error phases are best-effort when a timer scope was still active at reporting. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Retained exact maximum for every validation phase, split by success/error and real/CPU clock, then collapsed across nodes by Node aggregation. Worst is the default and the hidden row names the validator. Each phase maximum may come from a different validation, and phase timers can overlap or run in parallel; these are therefore independent outlier signals, never a stack or an additive decomposition of the worst total event. Error phases are best-effort when a timer scope was still active at reporting. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         }
       ],
       "title": "Validation diagnostics",
@@ -6214,7 +6214,7 @@
           "gridPos": {
             "x": 0,
             "y": 43,
-            "w": 12,
+            "w": 8,
             "h": 9
           },
           "datasource": {
@@ -6403,9 +6403,9 @@
           "type": "timeseries",
           "title": "Work per block \u2014 ${chain:text}",
           "gridPos": {
-            "x": 12,
+            "x": 8,
             "y": 43,
-            "w": 12,
+            "w": 8,
             "h": 9
           },
           "datasource": {
@@ -6540,9 +6540,9 @@
           "type": "timeseries",
           "title": "Bytes per block \u2014 ${chain:text}",
           "gridPos": {
-            "x": 0,
-            "y": 52,
-            "w": 12,
+            "x": 16,
+            "y": 43,
+            "w": 8,
             "h": 9
           },
           "datasource": {
@@ -6649,7 +6649,7 @@
           "title": "Block/state/storage perf load (${agg:text} node \u25be)",
           "gridPos": {
             "x": 0,
-            "y": 61,
+            "y": 52,
             "w": 24,
             "h": 10
           },
@@ -6788,7 +6788,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (op) (${agg}, sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\",op=~\"check_signature_consensus|apply_block_to_state(_fast)?|serialize_state(_to_file)?|transaction_storage_stat_[ab]|cell_(load|store|store_refcnt_diff)|celldb_(store_cell|store_cell_multi|prepare_stats|gc_cell)|rocksdb_commit_(write_batch|transaction)|fd_sync\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) * on (op) group_left(job, instance) (topk by (op) (1, max_over_time((sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\",op=~\"check_signature_consensus|apply_block_to_state(_fast)?|serialize_state(_to_file)?|transaction_storage_stat_[ab]|cell_(load|store|store_refcnt_diff)|celldb_(store_cell|store_cell_multi|prepare_stats|gc_cell)|rocksdb_commit_(write_batch|transaction)|fd_sync\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"})))[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\",op=~\"check_signature_consensus|apply_block_to_state(_fast)?|serialize_state(_to_file)?|transaction_storage_stat_[ab]|cell_(load|store|store_refcnt_diff)|celldb_(store_cell|store_cell_multi|prepare_stats|gc_cell)|rocksdb_commit_(write_batch|transaction)|fd_sync\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) and on (op, job, instance) (bottomk by (op)(1, avg_over_time((abs((sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\",op=~\"check_signature_consensus|apply_block_to_state(_fast)?|serialize_state(_to_file)?|transaction_storage_stat_[ab]|cell_(load|store|store_refcnt_diff)|celldb_(store_cell|store_cell_multi|prepare_stats|gc_cell)|rocksdb_commit_(write_batch|transaction)|fd_sync\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))) - on (op) group_left() (quantile by (op) (${agg}, sum by (op, job, instance) (rate(ton_perf_op_ticks_total{job=~\"$job\",instance=~\"$instance\",op=~\"check_signature_consensus|apply_block_to_state(_fast)?|serialize_state(_to_file)?|transaction_storage_stat_[ab]|cell_(load|store|store_refcnt_diff)|celldb_(store_cell|store_cell_multi|prepare_stats|gc_cell)|rocksdb_commit_(write_batch|transaction)|fd_sync\"}[$__rate_interval]) / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second{job=~\"$job\",instance=~\"$instance\"}))))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -6798,7 +6798,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Per-node TD_PERF_COUNTER elapsed load, collapsed with Node aggregation, for consensus-signature and low-level block, state, cell, CellDB, RocksDB commit, and file-sync operations relevant to production stalls. One unit means one scope-equivalent continuously elapsed on a node; blocking and descheduling count, so this is not OS CPU load. Up to 17 registered matching operations are shown without top-k truncation; untouched sites have no series. Scopes may be nested and also cover work outside collation/validation, so do not add the lines and correlate them with the phase panels above. Hover attribution: the tooltip lists \"operation \u21d2 node\" rows (hidden from the chart) naming, per operation, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Per-node TD_PERF_COUNTER elapsed load, collapsed with Node aggregation, for consensus-signature and low-level block, state, cell, CellDB, RocksDB commit, and file-sync operations relevant to production stalls. One unit means one scope-equivalent continuously elapsed on a node; blocking and descheduling count, so this is not OS CPU load. Up to 17 registered matching operations are shown without top-k truncation; untouched sites have no series. Scopes may be nested and also cover work outside collation/validation, so do not add the lines and correlate them with the phase panels above. Hover attribution: the tooltip lists \"operation \u21d2 node\" rows (hidden from the chart) answering, per operation, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 68,
@@ -6806,7 +6806,7 @@
           "title": "Out-msg queue \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 71,
+            "y": 62,
             "w": 12,
             "h": 9
           },
@@ -6962,7 +6962,7 @@
           "title": "Storage-stat cache \u2014 ${chain:text}",
           "gridPos": {
             "x": 12,
-            "y": 71,
+            "y": 62,
             "w": 12,
             "h": 9
           },
@@ -8222,7 +8222,7 @@
           "gridPos": {
             "x": 0,
             "y": 46,
-            "w": 5,
+            "w": 8,
             "h": 4
           },
           "datasource": {
@@ -8288,9 +8288,9 @@
           "type": "stat",
           "title": "Applied /s (synced) \u2014 ${chain:text}",
           "gridPos": {
-            "x": 5,
+            "x": 8,
             "y": 46,
-            "w": 5,
+            "w": 8,
             "h": 4
           },
           "datasource": {
@@ -8356,9 +8356,9 @@
           "type": "stat",
           "title": "External work in failed attempts (10m)",
           "gridPos": {
-            "x": 10,
+            "x": 16,
             "y": 46,
-            "w": 5,
+            "w": 8,
             "h": 4
           },
           "datasource": {
@@ -9053,7 +9053,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile by (reason) (${agg}, sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\",reason!=\"applied\"}[5m])) > 0) * on (reason) group_left(job, instance) (topk by (reason) (1, max_over_time((sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\",reason!=\"applied\"}[5m])) > 0)[$__range:] @ end())) ^ 0)",
+              "expr": "(sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\",reason!=\"applied\"}[5m])) > 0) and on (reason, job, instance) (bottomk by (reason)(1, avg_over_time((abs((sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\",reason!=\"applied\"}[5m])) > 0) - on (reason) group_left() (quantile by (reason) (${agg}, sum by (reason, job, instance) (rate(ton_mempool_ext_removed_total{job=~\"$job\",instance=~\"$instance\",reason!=\"applied\"}[5m])) > 0))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -9063,7 +9063,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Why entries left selected pools without an applied cleanup: expired hit the 600s TTL; rejected_final exhausted its ~3 retry postpones; pool_pressure was evicted while its priority level was at the soft limit; filtered could not be registered by collation (for example, duplicate or wrong shard). Averaged over 5m windows because evictions are batch events \u2014 the TTL sweep runs only every 250s per chain, so shorter windows render each sweep as an isolated spike whose height depends on window length, not on the loss rate. Sustained expired means at least one selected pool held messages past TTL without observing them applied; correlate with applied throughput and other nodes before calling it network-wide loss. Scope: worst selected node independently per reason; the lines need not come from one pool. Hover attribution: the tooltip lists \"reason \u21d2 node\" rows (hidden from the chart) naming, per reason, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Why entries left selected pools without an applied cleanup: expired hit the 600s TTL; rejected_final exhausted its ~3 retry postpones; pool_pressure was evicted while its priority level was at the soft limit; filtered could not be registered by collation (for example, duplicate or wrong shard). Averaged over 5m windows because evictions are batch events \u2014 the TTL sweep runs only every 250s per chain, so shorter windows render each sweep as an isolated spike whose height depends on window length, not on the loss rate. Sustained expired means at least one selected pool held messages past TTL without observing them applied; correlate with applied throughput and other nodes before calling it network-wide loss. Scope: worst selected node independently per reason; the lines need not come from one pool. Hover attribution: the tooltip lists \"reason \u21d2 node\" rows (hidden from the chart) answering, per reason, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         },
         {
           "id": 12,
@@ -9286,7 +9286,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "quantile(${agg}, max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})) * on () group_left(job, instance) (topk(1, max_over_time((max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})) and on (job, instance) (bottomk(1, avg_over_time((abs((max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})) - on () group_left() (quantile(${agg}, max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"})))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -9295,7 +9295,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "quantile(${agg}, max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})) * on () group_left(job, instance) (topk(1, max_over_time((max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"}))[$__range:] @ end())) ^ 0)",
+              "expr": "(max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})) and on (job, instance) (bottomk(1, avg_over_time((abs((max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})) - on () group_left() (quantile(${agg}, max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})))))[$__range:] @ end())))",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -9305,7 +9305,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "\u25be Worst selected node at each point. Backlog is all pending externals; oldest age uses the right axis. The TTL is 600s and cleanup runs periodically, so both lines can cliff-drop after a sweep. Reprioritization resets an entry's age. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) naming, per series, the node that dominated the visible range \u2014 its maximum over the whole range, or its minimum where low is the bad direction. That is deliberately one stable owner for the range rather than a name flickering sample by sample, so under a median or p95 node aggregation the plotted value is that aggregate while the name stays the range-dominant node."
+          "description": "\u25be Worst selected node at each point. Backlog is all pending externals; oldest age uses the right axis. The TTL is 600s and cleanup runs periodically, so both lines can cliff-drop after a sweep. Reprioritization resets an entry's age. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         }
       ],
       "title": "Mempool diagnostics",
