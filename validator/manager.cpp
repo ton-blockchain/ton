@@ -46,6 +46,7 @@
 #include "checksum.h"
 #include "fabric.h"
 #include "get-next-key-blocks.h"
+#include "git.h"
 #include "import-db-slice-local.hpp"
 #include "import-db-slice.hpp"
 #include "manager.h"
@@ -2996,6 +2997,8 @@ void ValidatorManagerImpl::prepare_stats(td::Promise<std::vector<std::pair<std::
   }
 
   vec.emplace_back("start_time", td::to_string(started_at_));
+  vec.emplace_back("node_version", PSTRING() << "validator-engine, Commit: " << GitMetadata::CommitSHA1()
+                                             << ", Date: " << GitMetadata::CommitDate());
   for (int iter = 0; iter < 2; ++iter) {
     td::StringBuilder sb;
     td::uint32 total = 0;
