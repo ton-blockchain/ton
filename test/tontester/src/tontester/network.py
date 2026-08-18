@@ -29,6 +29,11 @@ from .zerostate import ExternalBasechainState, NetworkConfig, Zerostate, create_
 
 l = logging.getLogger(__name__)
 
+_NODE_TERM_TIMEOUT_S = 10.0
+_NODE_KILL_TIMEOUT_S = 5.0
+_LOG_STREAM_TIMEOUT_S = 5.0
+_AUXILIARY_STOP_TIMEOUT_S = 5.0
+
 
 @dataclass
 class _IPv4AddressAndPort:
@@ -149,6 +154,7 @@ class Network:
             self.__process: asyncio.subprocess.Process | None = None
             self.__process_watcher: asyncio.Task[None] | None = None
             self.__log_streamer: LogStreamer | None = None
+            self.__stop_task: asyncio.Task[None] | None = None
 
         def _new_network_address(self) -> _IPv4AddressAndPort:
             self._network._port += 1
@@ -258,6 +264,7 @@ class Network:
                         env=process_env,
                         stderr=asyncio.subprocess.PIPE,
                         pass_fds=start_options.pass_fds,
+                        start_new_session=True,
                     )
                 case "rr":
                     l.info(f"Recording {self.name} with rr")
@@ -270,17 +277,34 @@ class Network:
                         env=process_env,
                         stderr=asyncio.subprocess.PIPE,
                         pass_fds=start_options.pass_fds,
+                        start_new_session=True,
                     )
 
-            assert self.__process.stderr is not None  # to placate pyright
-            self.__process_watcher = asyncio.create_task(process_watcher())
+            try:
+                # Observe cancellation at a boundary where process ownership is already recorded.
+                await asyncio.sleep(0)
+                if self._network._status >= _Status.CLOSED:
+                    raise RuntimeError(f"Network closed while node '{self.name}' was starting")
+                assert self.__process.stderr is not None  # to placate pyright
+                self.__process_watcher = asyncio.create_task(process_watcher())
 
-            self.__log_streamer = LogStreamer(
-                open(self.log_path, "wb"),
-                self.name,
-                self.__process.stderr,
-                start_options.console_verbosity,
-            )
+                log_file = open(self.log_path, "wb")
+                try:
+                    self.__log_streamer = LogStreamer(
+                        log_file,
+                        self.name,
+                        self.__process.stderr,
+                        start_options.console_verbosity,
+                    )
+                except BaseException:
+                    log_file.close()
+                    raise
+            except BaseException:
+                try:
+                    await asyncio.shield(self.stop())
+                except BaseException:
+                    l.exception("Failed to clean up partially started node '%s'", self.name)
+                raise
 
         def announce_to(self, dht: DHTNode):
             self._static_nodes.append(dht)
@@ -289,37 +313,94 @@ class Network:
         async def run(self, options: StartOptions | None = None):
             pass
 
-        async def stop(self):
-            if self.__process:
-                # No exception can occur between self.__process and self._log_streamer creation
-                assert self.__log_streamer is not None
-                assert self.__process_watcher is not None
+        async def _stop_started_process(self) -> None:
+            assert self.__process is not None
+            process = self.__process
+            process_watcher = self.__process_watcher
+            log_streamer = self.__log_streamer
+            errors: list[Exception] = []
 
-                if not self.__process_watcher.done():
-                    l.info(f"Killing node '{self.name}'")
-                    try:
-                        self.__process.terminate()
-                    except ProcessLookupError:
-                        # Terminate might still fail if Python internally has already finished
-                        # waiting for the child process but didn't yet resume the watcher.
-                        pass
+            if process.returncode is None:
+                l.info(f"Stopping node '{self.name}'")
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    # The child may have exited before the watcher resumed.
+                    pass
 
-                await self.__process_watcher
-                await self.__log_streamer.aclose()
+            try:
+                _ = await asyncio.wait_for(
+                    asyncio.shield(process.wait()), timeout=_NODE_TERM_TIMEOUT_S
+                )
+            except TimeoutError:
+                l.warning(
+                    "Node '%s' did not stop within %.1fs; sending SIGKILL",
+                    self.name,
+                    _NODE_TERM_TIMEOUT_S,
+                )
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    _ = await asyncio.wait_for(
+                        asyncio.shield(process.wait()), timeout=_NODE_KILL_TIMEOUT_S
+                    )
+                except TimeoutError:
+                    errors.append(RuntimeError(f"Node '{self.name}' did not exit after SIGKILL"))
+                except Exception as error:
+                    errors.append(error)
+            except Exception as error:
+                errors.append(error)
 
+            if process_watcher is not None:
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(process_watcher), timeout=_LOG_STREAM_TIMEOUT_S
+                    )
+                except TimeoutError:
+                    _ = process_watcher.cancel()
+                    _ = await asyncio.gather(process_watcher, return_exceptions=True)
+                    errors.append(RuntimeError(f"Watcher for node '{self.name}' did not finish"))
+                except Exception as error:
+                    errors.append(error)
+            if log_streamer is not None:
+                try:
+                    await asyncio.wait_for(log_streamer.aclose(), timeout=_LOG_STREAM_TIMEOUT_S)
+                except Exception as error:
+                    errors.append(error)
+
+            if process.returncode is not None:
                 self.__process = None
                 self.__process_watcher = None
                 self.__log_streamer = None
+            else:
+                errors.append(RuntimeError(f"Node '{self.name}' is still running after cleanup"))
+
+            if errors:
+                raise ExceptionGroup(f"Failed to stop node '{self.name}' cleanly", errors)
+
+        async def stop(self):
+            if self.__process is None:
+                return
+            if self.__stop_task is None:
+                self.__stop_task = asyncio.create_task(self._stop_started_process())
+            try:
+                await asyncio.shield(self.__stop_task)
+            finally:
+                if self.__stop_task.done():
+                    self.__stop_task = None
 
     def __init__(
         self,
         install: Install,
         directory: Path,
         event_loop: asyncio.AbstractEventLoop | None = None,
+        port_base: int = 2000,
     ):
         self._install = install
         self._directory = directory.absolute()
-        self._port = 2000
+        self._port = port_base
         self._node_idx = 0
         self._status = _Status.INITED
 
@@ -331,6 +412,7 @@ class Network:
         self.__network_config: NetworkConfig = NetworkConfig()
         self.__external_basechain: ExternalBasechainState | None = None
         self.__zerostate: Zerostate | None = None
+        self.__close_task: asyncio.Task[None] | None = None
 
     @property
     def zerostate(self) -> Zerostate:
@@ -388,14 +470,25 @@ class Network:
         self._status = _Status.ZEROSTATE_GENERATED
         return self.__zerostate
 
-    async def aclose(self):
-        assert self._status < _Status.CLOSED
+    async def _close(self) -> None:
         self._status = _Status.CLOSED
 
-        for node in self.__nodes:
-            await node.stop()
+        errors: list[BaseException] = []
+        results = await asyncio.gather(
+            *(node.stop() for node in self.__nodes), return_exceptions=True
+        )
+        errors.extend(result for result in results if isinstance(result, BaseException))
+        try:
+            self._event_loop.close()
+        except BaseException as error:
+            errors.append(error)
+        if errors:
+            raise BaseExceptionGroup("Failed to close network cleanly", errors)
 
-        self._event_loop.close()
+    async def aclose(self):
+        if self.__close_task is None:
+            self.__close_task = asyncio.create_task(self._close())
+        await asyncio.shield(self.__close_task)
 
     async def __aenter__(self):
         return self
@@ -406,7 +499,17 @@ class Network:
         exc_value: BaseException | None,
         traceback: types.TracebackType | None,
     ) -> bool | None:
-        await asyncio.shield(self.aclose())
+        interrupted: asyncio.CancelledError | None = None
+        while True:
+            try:
+                await self.aclose()
+                break
+            except asyncio.CancelledError as error:
+                # Do not let repeated cancellation release a surrounding net-dir lease while
+                # the shared close task is still terminating children.
+                interrupted = error
+        if interrupted is not None:
+            raise interrupted
 
     async def wait_mc_block(self, seqno: int):
         client = await self.__full_nodes[0].tonlib_client()
@@ -594,6 +697,40 @@ class FullNode(Network.Node):
         self._ensure_no_zerostate_yet()
         self._is_initial_validator = True
 
+    def make_collator(self) -> bytes:
+        """Turn the node into a dedicated collator node and return its collator ADNL id.
+
+        The node stops holding validator keys (so ValidatorManager reports is_validator()
+        false) and instead serves collation for the ADNL id returned here. Validators learn
+        about it through the on-chain validator registry, which they populate from the list
+        installed by ``set_collators_list``.
+        """
+        self._ensure_no_zerostate_yet()
+        # A node cannot be both: an initial validator holds signing keys the zerostate expects,
+        # and this method just emptied them — leaving the flag set would bake an initial
+        # validator with no keys into the zerostate.
+        self._is_initial_validator = False
+        key, _ = self._new_keyring_key()
+        self._local_config.validators = []
+        self._local_config.adnl.append(ton_api.Engine_adnl(id=key.id, category=0))
+        self._local_config.collators.append(key.id)
+        return key.id
+
+    def set_collators_list(self, collators: Collection[bytes], *, disable_self_collate: bool):
+        """Pre-place the collators list the engine reads at startup (db_root/collators-list.json)."""
+        entries = [
+            ton_api.Engine_validator_collatorsList_collator(adnl_id=collator)
+            for collator in collators
+        ]
+        _write_model(
+            self._directory / "collators-list.json",
+            ton_api.Engine_validator_collatorsList(
+                collators=entries,
+                disable_self_collate=disable_self_collate,
+                register_collators=entries,
+            ),
+        )
+
     @property
     def is_initial_validator(self):
         return self._is_initial_validator
@@ -761,29 +898,58 @@ class FullNode(Network.Node):
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 cwd=self._directory,
+                start_new_session=True,
             )
             try:
                 _ = await process.wait()
             except asyncio.CancelledError:
                 try:
-                    process.terminate()
+                    os.killpg(process.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
-                _ = await asyncio.shield(process.wait())
+                try:
+                    _ = await asyncio.wait_for(
+                        asyncio.shield(process.wait()), timeout=_NODE_TERM_TIMEOUT_S
+                    )
+                except TimeoutError:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    _ = await asyncio.wait_for(
+                        asyncio.shield(process.wait()), timeout=_NODE_KILL_TIMEOUT_S
+                    )
                 raise
 
         self._blockchain_explorer = asyncio.create_task(explorer())
 
     @override
     async def stop(self):
-        if self._client:
-            await self._client.aclose()
-        if self._engine_console:
-            self._engine_console.close()
-        if self._blockchain_explorer:
+        errors: list[Exception] = []
+        if self._client is not None:
+            try:
+                await asyncio.wait_for(self._client.aclose(), timeout=_AUXILIARY_STOP_TIMEOUT_S)
+            except Exception as error:
+                errors.append(error)
+            self._client = None
+        if self._engine_console is not None:
+            try:
+                self._engine_console.close()
+            except Exception as error:
+                errors.append(error)
+            self._engine_console = None
+        if self._blockchain_explorer is not None:
             _ = self._blockchain_explorer.cancel()
             try:
                 await self._blockchain_explorer
             except asyncio.CancelledError:
                 pass
-        await super().stop()
+            except Exception as error:
+                errors.append(error)
+            self._blockchain_explorer = None
+        try:
+            await super().stop()
+        except Exception as error:
+            errors.append(error)
+        if errors:
+            raise ExceptionGroup(f"Failed to stop full node '{self.name}' cleanly", errors)
