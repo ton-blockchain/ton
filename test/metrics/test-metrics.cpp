@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include <atomic>
+#include <charconv>
 #include <chrono>
 #include <functional>
 #include <limits>
@@ -20,6 +22,7 @@
 #include "metrics/collectors.h"
 #include "metrics/consensus-metrics.h"
 #include "metrics/ext-message-pool-metrics.h"
+#include "metrics/prometheus-exporter.h"
 #include "metrics/tl-traffic-bucket.h"
 #include "metrics/well-known.h"
 #ifdef TON_TEST_METRICS_QUIC
@@ -29,9 +32,14 @@
 #include "rldp2/rldp-metrics.h"
 #include "td/actor/actor.h"
 #include "td/actor/core/Scheduler.h"
+#include "td/utils/Random.h"
 #include "td/utils/ScopeGuard.h"
 #include "td/utils/Time.h"
 #include "td/utils/as.h"
+#include "td/utils/misc.h"
+#include "td/utils/port/Poll.h"
+#include "td/utils/port/ServerSocketFd.h"
+#include "td/utils/port/SocketFd.h"
 #include "td/utils/tests.h"
 #include "tl-utils/lite-utils.hpp"
 #include "tl-utils/tl-utils.hpp"
@@ -1619,6 +1627,459 @@ TEST(MetricsGolden, Overlay) {
               Labeled<TlTrafficBucket, ::ton::metrics::Direction> broadcasts;
               ctx.with_name("overlay").collect(broadcasts, "broadcast");
             }));
+}
+
+// ===== Collect-at-scrape exporter =====
+//
+// A scrape runs the collectors and is answered from that run, so these tests drive the exporter's
+// scheduler by hand and scrape it over a real socket the way Prometheus does. What they assert is
+// the order of scrapes and gathers, never a duration.
+
+class ProbeCollector final : public td::actor::Actor {
+ public:
+  // Read from the test thread while the collector runs on the scheduler's.
+  using Calls = std::shared_ptr<std::atomic<int>>;
+
+  explicit ProbeCollector(Calls calls) : calls_(std::move(calls)) {
+  }
+
+  // Emits one recognizable family, then keeps the gather in flight for as long as the test wants
+  // the scrapes sharing it to pile up, and fails it if the test asked for a failing collector.
+  td::actor::Task<> collect(Context ctx) {
+    calls_->fetch_add(1, std::memory_order_relaxed);
+    ctx.collect(probe_, "stub_probe");
+    while (blocked_) {
+      co_await td::actor::coro_sleep(td::Timestamp::in(0.01));
+    }
+    if (failing_) {
+      co_return td::Status::Error("the probe collector refused");
+    }
+    co_return {};
+  }
+
+  void set_blocked(bool blocked) {
+    blocked_ = blocked;
+  }
+
+  void set_failing(bool failing) {
+    failing_ = failing;
+  }
+
+ private:
+  Counter probe_{7};
+  Calls calls_;
+  bool blocked_ = false;
+  bool failing_ = false;
+};
+
+// A collector that registers after the endpoint is already bound, the way validator-engine's
+// subsystems do. Its family is exactly what a gather started before the node declared itself ready
+// would have left out of the exposition.
+class LateCollector final : public td::actor::Actor {
+ public:
+  td::actor::Task<> collect(Context ctx) {
+    ctx.collect(late_, "stub_late");
+    co_return {};
+  }
+
+ private:
+  Counter late_{3};
+};
+
+struct Reply {
+  int code = 0;
+  std::string head;
+  std::string body;
+};
+
+td::Result<std::string> decode_chunked(std::string_view raw) {
+  std::string body;
+  while (true) {
+    auto eol = raw.find("\r\n");
+    if (eol == std::string_view::npos) {
+      return td::Status::Error("truncated chunk header");
+    }
+    size_t size = 0;
+    if (std::from_chars(raw.data(), raw.data() + eol, size, 16).ec != std::errc{}) {
+      return td::Status::Error("malformed chunk header");
+    }
+    raw.remove_prefix(eol + 2);
+    if (size == 0) {
+      return body;  // the trailer that follows carries nothing this test needs
+    }
+    if (raw.size() < size + 2) {
+      return td::Status::Error("truncated chunk");
+    }
+    body.append(raw.substr(0, size));
+    raw.remove_prefix(size + 2);
+  }
+}
+
+// Whether everything the response announced has arrived, without waiting for the peer to close.
+bool response_complete(const std::string &raw) {
+  constexpr std::string_view content_length = "Content-Length: ";
+  auto split = raw.find("\r\n\r\n");
+  if (split == std::string::npos) {
+    return false;
+  }
+  std::string_view head{raw.data(), split};
+  std::string_view body{raw.data() + split + 4, raw.size() - split - 4};
+  if (head.find("Transfer-Encoding: Chunked") != std::string_view::npos) {
+    return body.starts_with("0\r\n\r\n") || body.find("\r\n0\r\n\r\n") != std::string_view::npos;
+  }
+  auto at = head.find(content_length);
+  if (at == std::string_view::npos) {
+    return false;
+  }
+  size_t length = 0;
+  std::from_chars(head.data() + at + content_length.size(), head.data() + head.size(), length);
+  return body.size() >= length;
+}
+
+td::Result<Reply> parse_response(std::string raw) {
+  auto split = raw.find("\r\n\r\n");
+  if (split == std::string::npos) {
+    return td::Status::Error(PSLICE() << "malformed response: " << raw);
+  }
+  Reply reply{.head = raw.substr(0, split), .body = raw.substr(split + 4)};
+  auto code_at = reply.head.find(' ');
+  if (code_at == std::string::npos) {
+    return td::Status::Error(PSLICE() << "malformed status line: " << reply.head);
+  }
+  reply.code = td::to_integer<int>(td::Slice(reply.head).substr(code_at + 1));
+  if (reply.head.find("Transfer-Encoding: Chunked") != std::string::npos) {
+    TRY_RESULT_ASSIGN(reply.body, decode_chunked(reply.body));
+  }
+  return reply;
+}
+
+// Delivery window for requests already written to their sockets: writing to a socket is not the
+// same as the exporter actor having taken the request. Nothing is waited *for* here — a caller of
+// this is pinning the gather, so nothing can be answered meanwhile — and whether the scrapes really
+// were concurrent is asserted afterwards, from the number of gathers they cost.
+constexpr double kDeliveryWindow = 0.05;
+
+// `count` scrapes over separate connections, every request issued before any answer is read back, so
+// the exporter has them all outstanding at once. Responses are produced by actors on this thread, so
+// the scheduler is pumped between polls; `outstanding` runs once the requests have been delivered,
+// which is where a test pinning the gather lets it go.
+td::Result<std::vector<Reply>> http_get_n(const td::IPAddress &addr, td::Slice target, size_t count,
+                                          const std::function<void()> &pump, const std::function<void()> &outstanding,
+                                          double timeout = 5.0) {
+  struct Scrape {
+    td::SocketFd fd;
+    size_t sent = 0;
+    std::string raw;
+    bool done = false;
+  };
+
+  std::vector<Scrape> scrapes;
+  scrapes.reserve(count);
+  td::Poll poll;
+  poll.init();
+  SCOPE_EXIT {
+    for (auto &scrape : scrapes) {
+      poll.unsubscribe_before_close(scrape.fd.get_poll_info().get_pollable_fd_ref());
+    }
+    poll.clear();
+  };
+  for (size_t i = 0; i < count; i++) {
+    TRY_RESULT(fd, td::SocketFd::open(addr));
+    scrapes.push_back({.fd = std::move(fd)});
+    poll.subscribe(scrapes.back().fd.get_poll_info().extract_pollable_fd(nullptr), td::PollFlags::ReadWrite());
+  }
+
+  std::string request = PSTRING() << "GET " << target << " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+  auto deadline = td::Timestamp::in(timeout);
+  std::optional<td::Timestamp> delivered;
+  bool released = false;
+  while (true) {
+    if (deadline.is_in_past()) {
+      return td::Status::Error("the scrape timed out");
+    }
+    poll.run(5);
+    pump();
+
+    size_t sent = 0, done = 0;
+    for (auto &scrape : scrapes) {
+      if (scrape.sent < request.size()) {
+        if (td::can_close(scrape.fd) || scrape.fd.get_poll_info().get_flags_local().has_pending_error()) {
+          TRY_STATUS(scrape.fd.get_pending_error());  // the listener is not up yet: fail fast
+          return td::Status::Error("the connection was refused");
+        }
+        if (td::can_write(scrape.fd)) {
+          TRY_RESULT(size, scrape.fd.write(td::Slice(request).substr(scrape.sent)));
+          scrape.sent += size;
+        }
+        if (scrape.sent < request.size()) {
+          continue;
+        }
+      }
+      sent++;
+      while (td::can_read(scrape.fd)) {
+        char buffer[4096];
+        TRY_RESULT(size, scrape.fd.read(td::MutableSlice(buffer, sizeof(buffer))));
+        if (size == 0) {
+          break;
+        }
+        scrape.raw.append(buffer, size);
+      }
+      scrape.done = response_complete(scrape.raw);
+      if (!scrape.done && td::can_close(scrape.fd)) {
+        return td::Status::Error(PSLICE() << "the connection closed on an incomplete response: " << scrape.raw);
+      }
+      done += scrape.done;
+    }
+    if (done == count) {
+      break;
+    }
+    if (!released && sent == count) {
+      if (!delivered.has_value()) {
+        delivered = td::Timestamp::in(kDeliveryWindow);
+      } else if (delivered->is_in_past()) {
+        released = true;
+        outstanding();
+      }
+    }
+  }
+
+  std::vector<Reply> replies;
+  for (auto &scrape : scrapes) {
+    TRY_RESULT(reply, parse_response(std::move(scrape.raw)));
+    replies.push_back(std::move(reply));
+  }
+  return replies;
+}
+
+// One scrape over a real connection, the way Prometheus makes it.
+td::Result<Reply> http_get(const td::IPAddress &addr, td::Slice target, const std::function<void()> &pump,
+                           double timeout = 5.0) {
+  TRY_RESULT(replies, http_get_n(addr, target, 1, pump, [] {}, timeout));
+  return std::move(replies[0]);
+}
+
+// A port nothing is listening on: bound, released, and handed to the exporter (which sets
+// SO_REUSEADDR, so the immediate rebind is safe).
+td::int32 free_port() {
+  for (int attempt = 0; attempt < 100; attempt++) {
+    auto port = static_cast<td::int32>(20000 + td::Random::fast(0, 20000));
+    if (td::ServerSocketFd::open(port, td::CSlice("127.0.0.1")).is_ok()) {
+      return port;
+    }
+  }
+  LOG(FATAL) << "found no free port to run the exporter on";
+  UNREACHABLE();
+}
+
+class ExporterUnderTest {
+ public:
+  // Everything but the readiness test registers its collectors before binding and is ready at once,
+  // which is the state every other contract below is about.
+  explicit ExporterUnderTest(bool ready = true) {
+    addr_.init_ipv4_port("127.0.0.1", free_port()).ensure();
+    scheduler_.run_in_context([&] {
+      collector_ = td::actor::create_actor<ProbeCollector>("probe", collections_);
+      exporter_ = ::ton::PrometheusExporter::create("ton");
+      td::actor::send_closure(exporter_.get(), &::ton::PrometheusExporter::add<ProbeCollector>, collector_.get(),
+                              &ProbeCollector::collect);
+      td::actor::send_closure(exporter_.get(), &::ton::PrometheusExporter::listen, addr_);
+      if (ready) {
+        td::actor::send_closure(exporter_.get(), &::ton::PrometheusExporter::ready);
+      }
+    });
+  }
+
+  ~ExporterUnderTest() {
+    // A collector still holding a gather has to let go before the actors are killed, or the teardown
+    // destroys a live task.
+    set_blocked(false);
+    pump(0.1);
+    scheduler_.run_in_context([&] {
+      exporter_.reset();
+      collector_.reset();
+      late_collector_.reset();
+    });
+    pump(0.1);
+    // scheduler_ is destroyed last and runs until every actor is gone.
+  }
+
+  void set_blocked(bool blocked) {
+    scheduler_.run_in_context(
+        [&] { td::actor::send_closure(collector_.get(), &ProbeCollector::set_blocked, blocked); });
+  }
+
+  void set_failing(bool failing) {
+    scheduler_.run_in_context(
+        [&] { td::actor::send_closure(collector_.get(), &ProbeCollector::set_failing, failing); });
+  }
+
+  void add_late_collector() {
+    scheduler_.run_in_context([&] {
+      late_collector_ = td::actor::create_actor<LateCollector>("late");
+      td::actor::send_closure(exporter_.get(), &::ton::PrometheusExporter::add<LateCollector>, late_collector_.get(),
+                              &LateCollector::collect);
+    });
+  }
+
+  void declare_ready() {
+    scheduler_.run_in_context([&] { td::actor::send_closure(exporter_.get(), &::ton::PrometheusExporter::ready); });
+  }
+
+  td::Result<Reply> scrape() {
+    return http_get(addr_, "/metrics", [this] { scheduler_.run(0.005); });
+  }
+
+  // `count` scrapes outstanding at the same time; `outstanding` runs once the exporter has them all.
+  td::Result<std::vector<Reply>> scrape_together(size_t count, const std::function<void()> &outstanding) {
+    return http_get_n(addr_, "/metrics", count, [this] { scheduler_.run(0.005); }, outstanding);
+  }
+
+  // Scrapes until `accept` likes the reply, driving the scheduler between attempts so that the
+  // listener bind can happen.
+  td::Result<Reply> scrape_until(const std::function<bool(const Reply &)> &accept, double timeout = 20.0) {
+    auto deadline = td::Timestamp::in(timeout);
+    auto last = td::Status::Error("no scrape was attempted");
+    while (!deadline.is_in_past()) {
+      auto r_reply = scrape();
+      if (r_reply.is_error()) {
+        last = r_reply.move_as_error();
+      } else if (accept(r_reply.ok())) {
+        return r_reply.move_as_ok();
+      } else {
+        last = td::Status::Error(PSLICE() << "unacceptable reply: " << r_reply.ok().head);
+      }
+      scheduler_.run(0.01);
+    }
+    return std::move(last);
+  }
+
+  void pump(double seconds) {
+    auto until = td::Timestamp::in(seconds);
+    while (!until.is_in_past()) {
+      scheduler_.run(0.01);
+    }
+  }
+
+  // Runs the scheduler until `ready`, or until the deadline says it never will.
+  bool pump_until(const std::function<bool()> &ready, double timeout) {
+    auto deadline = td::Timestamp::in(timeout);
+    while (!deadline.is_in_past() && !ready()) {
+      scheduler_.run(0.01);
+    }
+    return ready();
+  }
+
+  // No gather starts within a window many times the actor hop that starting one takes — the bounded
+  // form a negative claim has to take.
+  bool no_gather_starts() {
+    auto before = collections();
+    return !pump_until([&] { return collections() > before; }, 0.05);
+  }
+
+  // How many times a collector has been asked for its metrics, i.e. how many gathers have started.
+  int collections() const {
+    return collections_->load(std::memory_order_relaxed);
+  }
+
+ private:
+  ProbeCollector::Calls collections_ = std::make_shared<std::atomic<int>>(0);
+  td::actor::Scheduler scheduler_{{1}};
+  td::IPAddress addr_;
+  td::actor::ActorOwn<ProbeCollector> collector_;
+  td::actor::ActorOwn<LateCollector> late_collector_;
+  td::actor::ActorOwn<::ton::PrometheusExporter> exporter_;
+};
+
+bool answered_ok(const Reply &reply) {
+  return reply.code == 200;
+}
+
+TEST(MetricsExporter, ScrapeIsAnsweredFromItsOwnGather) {
+  ExporterUnderTest exporter;
+  auto reply = exporter.scrape_until(answered_ok).move_as_ok();
+
+  ASSERT_TRUE(reply.head.find("Content-Type: application/openmetrics-text") != std::string::npos);
+  ASSERT_TRUE(has_line(reply.body, "ton_stub_probe_total 7.000000"));
+  // One gather produced this response, so the scraper gets one whole exposition: the terminator
+  // appears once and last.
+  ASSERT_TRUE(reply.body.ends_with("# EOF\n"));
+  ASSERT_EQ(1u, count_of(reply.body, "# EOF"));
+
+  // And the next scrape is fresh data rather than these bytes again: it pays for its own gather.
+  auto before = exporter.collections();
+  auto again = exporter.scrape().move_as_ok();
+  ASSERT_EQ(200, again.code);
+  ASSERT_EQ(before + 1, exporter.collections());
+}
+
+TEST(MetricsExporter, NothingIsGatheredUntilTheCollectorSetIsDeclaredComplete) {
+  ExporterUnderTest exporter{/* ready = */ false};
+
+  // The endpoint is bound while the node is still bringing subsystems up, so a scrape can land here.
+  // It must be told "not ready" and must not start a gather: that gather would render whichever
+  // collectors happened to have registered by then, and the families missing from it would appear
+  // one scrape later and read as rate() artifacts.
+  ASSERT_EQ(503, exporter.scrape_until([](const Reply &reply) { return reply.code == 503; }).move_as_ok().code);
+  ASSERT_TRUE(exporter.no_gather_starts());
+
+  exporter.add_late_collector();  // exactly the registration such a gather would have missed
+  ASSERT_EQ(503, exporter.scrape().move_as_ok().code);
+  ASSERT_TRUE(exporter.no_gather_starts());
+  ASSERT_EQ(0, exporter.collections());
+
+  exporter.declare_ready();
+  // The seal makes the collector set final, so the first exposition this node ever serves is
+  // complete by construction — the late collector's family included — and this scrape waits for it.
+  auto served = exporter.scrape().move_as_ok();
+  ASSERT_EQ(200, served.code);
+  ASSERT_TRUE(has_line(served.body, "ton_stub_probe_total 7.000000"));
+  ASSERT_TRUE(has_line(served.body, "ton_stub_late_total 3.000000"));
+  ASSERT_EQ(1, exporter.collections());
+}
+
+TEST(MetricsExporter, ConcurrentScrapesShareOneGather) {
+  ExporterUnderTest exporter;
+  exporter.scrape_until(answered_ok).ensure();
+  auto gathers = exporter.collections();
+
+  // The gather the first of the four starts stays in flight until all four are outstanding, which
+  // is the state the single flight is about.
+  exporter.set_blocked(true);
+  auto replies = exporter.scrape_together(4, [&] { exporter.set_blocked(false); }).move_as_ok();
+
+  // Four answered scrapes against one gather: every one of them was waiting on it when it landed —
+  // a scrape that had arrived after it would have paid for a gather of its own.
+  ASSERT_EQ(gathers + 1, exporter.collections());
+  ASSERT_EQ(size_t{4}, replies.size());
+  for (auto &reply : replies) {
+    ASSERT_EQ(200, reply.code);
+    ASSERT_TRUE(has_line(reply.body, "ton_stub_probe_total 7.000000"));
+    ASSERT_TRUE(has_line(reply.body, "ton_exporter_collections_total 2.000000"));
+    ASSERT_EQ(replies[0].body, reply.body);  // one gather, one rendering, one body for all of them
+  }
+}
+
+TEST(MetricsExporter, AFailedGatherAnswersEveryWaiter) {
+  ExporterUnderTest exporter;
+  exporter.scrape_until(answered_ok).ensure();
+
+  // A collector that errors out fails the gather three scrapes are waiting on. Every one of them
+  // has to be answered: an unanswered waiter would hold the flight and wedge the endpoint for good.
+  exporter.set_failing(true);
+  exporter.set_blocked(true);
+  auto replies = exporter.scrape_together(3, [&] { exporter.set_blocked(false); }).move_as_ok();
+  ASSERT_EQ(size_t{3}, replies.size());
+  for (auto &reply : replies) {
+    ASSERT_EQ(500, reply.code);
+  }
+
+  // The flight was released with them, so the next scrape gathers again rather than hanging.
+  exporter.set_failing(false);
+  auto before = exporter.collections();
+  auto recovered = exporter.scrape().move_as_ok();
+  ASSERT_EQ(200, recovered.code);
+  ASSERT_TRUE(has_line(recovered.body, "ton_stub_probe_total 7.000000"));
+  ASSERT_EQ(before + 1, exporter.collections());
 }
 
 }  // namespace

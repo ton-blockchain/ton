@@ -473,6 +473,7 @@ void run_server(Config config) {
                               &ton::rldp2::Rldp::collect);
       td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
                               &ton::quic::QuicSender::collect);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::ready);
     }
 
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, local_id, "B",
@@ -559,6 +560,7 @@ void run_client(Config config) {
                               &ton::rldp2::Rldp::collect);
       td::actor::send_closure(exporter, &ton::PrometheusExporter::add<ton::quic::QuicSender>, quic_sender.get(),
                               &ton::quic::QuicSender::collect);
+      td::actor::send_closure(exporter, &ton::PrometheusExporter::ready);
     }
 
     stats_reporter = td::actor::create_actor<StatsReporter>("quic-stats-client", quic_sender.get(), "client-periodic",
