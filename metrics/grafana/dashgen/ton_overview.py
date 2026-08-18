@@ -19,6 +19,7 @@ from .lib import (
     failure_bands,
     fleet_timeseries,
     line,
+    mempool,
     node_severity,
     node_severity_timeline,
     of_target_bands,
@@ -565,15 +566,19 @@ ROWS = [
             ),
         ),
         worst_node_stat(
-            "Mempool backlog", summed("job, instance", f"ton_mempool_ext_messages{SEL}",
-                                      agg="max"),
-            id=9, drill=BLOCKCHAIN, unit="short",
+            "Eligible mempool backlog", mempool.eligible(),
+            id=9, drill=BLOCKCHAIN, unit="locale",
             thresholds=thresholds(("yellow", 1000), ("red", 5000)),
             description=(
-                "Pending external messages on the busiest node. A fleet sum scales with fleet size "
-                "and can hide which node is actually falling behind. Green <1k, yellow >=1k, red "
-                ">=5k. Growing = input exceeds chain capacity; see TON Blockchain -> External "
-                "messages."
+                "Stored external messages whose active flag is true on the busiest selected node, "
+                "across every destination chain and priority in that node's pool. A fleet sum would "
+                "scale with fleet size and hide which node is falling behind. Green <1k, yellow "
+                ">=1k, red >=5k. Eligible does not guarantee that the current collator can select "
+                "every entry. Stateful exporters exclude postponed active=false storage; a postponed "
+                "entry may remain there after its retry deadline until a collator snapshot revisits "
+                "it. Legacy unlabeled history falls back to the old all-stored count. See TON "
+                "Blockchain -> Mempool diagnostics for total storage, expiry-handler lag, and "
+                "stock/flow balance."
             ),
         ),
         plain_stat(
@@ -594,15 +599,16 @@ ROWS = [
         ),
         worst_node_stat(
             "Oldest pending external",
-            summed("job, instance", f"ton_mempool_oldest_ext_message_age_seconds{SEL}",
-                   agg="max"),
+            mempool.oldest_age(),
             id=29, drill=BLOCKCHAIN, unit="s", decimals=0,
             thresholds=thresholds(("yellow", 60), ("red", 300)),
             description=(
-                "Age of the oldest external message still waiting in the pool, worst node (max — "
-                "every node holds the same broadcast stream). Messages expire after 600 s, so red "
-                "(>=300 s) means messages are about to expire unserved: the chain is not keeping "
-                "up with input. Yellow >=60 s."
+                "Age of the oldest stored external message on the worst selected node, across all "
+                "destination chains, priorities, and active/postponed states. Yellow begins at "
+                "60s; red at 300s means messages are approaching their 600s TTL. A value at or "
+                "past 600s means atomic deadline-driven expiry processing is late. Only stateful "
+                "exporters are shown; legacy nodes are omitted because their periodic expiry "
+                "semantics are not comparable."
             ),
         ),
     ]),
@@ -656,7 +662,7 @@ ROWS = [
             line("validation errors", error_share("validated", "5m")),
             attributed("admission/storage issues",
                        ratio(rate("ton_mempool_ext_admission_total", "job, instance", over="5m",
-                                  outcome="!~accepted|duplicate|reprioritized"),
+                                  outcome="!~accepted|validated_only|duplicate|reprioritized"),
                              rate("ton_mempool_ext_admission_total", "job, instance", over="5m",
                                   outcome="!duplicate"))),
             unit="percentunit", id=17, thresholds=failure_bands(),
@@ -665,7 +671,9 @@ ROWS = [
                 "two chain-wide signals intentionally ignore Instance because collators rotate. "
                 "External admission/storage issues have no chain label, so that line is the worst "
                 "selected node's share and names it; duplicates are excluded as normal broadcast "
-                "traffic. A family with no attempts in the window renders No data. Local pool "
+                "traffic, while accepted, validated_only, and reprioritized are successful or "
+                "stock-neutral rather than issues. A family with no attempts in the window renders "
+                "No data. Local pool "
                 "removals are detailed on TON Blockchain."
             ),
         ),

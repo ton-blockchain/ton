@@ -2632,7 +2632,7 @@
     {
       "id": 9,
       "type": "stat",
-      "title": "Mempool backlog (worst node)",
+      "title": "Eligible mempool backlog (worst node)",
       "gridPos": {
         "x": 6,
         "y": 49,
@@ -2645,7 +2645,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "locale",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -2697,7 +2697,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(1, max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\"}))",
+          "expr": "topk(1, (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"})) or (sum by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"\"})))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2710,7 +2710,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Pending external messages on the busiest node. A fleet sum scales with fleet size and can hide which node is actually falling behind. Green <1k, yellow >=1k, red >=5k. Growing = input exceeds chain capacity; see TON Blockchain -> External messages."
+      "description": "Stored external messages whose active flag is true on the busiest selected node, across every destination chain and priority in that node's pool. A fleet sum would scale with fleet size and hide which node is falling behind. Green <1k, yellow >=1k, red >=5k. Eligible does not guarantee that the current collator can select every entry. Stateful exporters exclude postponed active=false storage; a postponed entry may remain there after its retry deadline until a collator snapshot revisits it. Legacy unlabeled history falls back to the old all-stored count. See TON Blockchain -> Mempool diagnostics for total storage, expiry-handler lag, and stock/flow balance."
     },
     {
       "id": 28,
@@ -2849,7 +2849,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "topk(1, max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"}))",
+          "expr": "topk(1, (max by (job, instance) (ton_mempool_oldest_ext_message_age_seconds{job=~\"$job\",instance=~\"$instance\"})) and on (job, instance) (max by (job, instance) (ton_mempool_ext_messages{job=~\"$job\",instance=~\"$instance\",state=\"eligible\"}) >= 0))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -2862,7 +2862,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Age of the oldest external message still waiting in the pool, worst node (max \u2014 every node holds the same broadcast stream). Messages expire after 600 s, so red (>=300 s) means messages are about to expire unserved: the chain is not keeping up with input. Yellow >=60 s."
+      "description": "Age of the oldest stored external message on the worst selected node, across all destination chains, priorities, and active/postponed states. Yellow begins at 60s; red at 300s means messages are approaching their 600s TTL. A value at or past 600s means atomic deadline-driven expiry processing is late. Only stateful exporters are shown; legacy nodes are omitted because their periodic expiry semantics are not comparable."
     },
     {
       "collapsed": false,
@@ -3533,7 +3533,7 @@
         },
         {
           "refId": "C",
-          "expr": "max((sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!~\"accepted|duplicate|reprioritized\"}[5m]))) / (sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!=\"duplicate\"}[5m])) > 0))",
+          "expr": "max((sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!~\"accepted|validated_only|duplicate|reprioritized\"}[5m]))) / (sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!=\"duplicate\"}[5m])) > 0))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3545,7 +3545,7 @@
         },
         {
           "refId": "ATTR",
-          "expr": "((sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!~\"accepted|duplicate|reprioritized\"}[5m]))) / (sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!=\"duplicate\"}[5m])) > 0)) and on (job, instance) (topk(1, max_over_time(((sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!~\"accepted|duplicate|reprioritized\"}[5m]))) / (sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!=\"duplicate\"}[5m])) > 0))[$__range:] @ end())))",
+          "expr": "((sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!~\"accepted|validated_only|duplicate|reprioritized\"}[5m]))) / (sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!=\"duplicate\"}[5m])) > 0)) and on (job, instance) (topk(1, max_over_time(((sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!~\"accepted|validated_only|duplicate|reprioritized\"}[5m]))) / (sum by (job, instance) (rate(ton_mempool_ext_admission_total{job=~\"$job\",instance=~\"$instance\",outcome!=\"duplicate\"}[5m])) > 0))[$__range:] @ end())))",
           "datasource": {
             "type": "prometheus",
             "uid": "${datasource}"
@@ -3555,7 +3555,7 @@
       ],
       "pluginVersion": "12.0.0",
       "transparent": false,
-      "description": "Shardchain collation and validation error shares across the selected jobs; those two chain-wide signals intentionally ignore Instance because collators rotate. External admission/storage issues have no chain label, so that line is the worst selected node's share and names it; duplicates are excluded as normal broadcast traffic. A family with no attempts in the window renders No data. Local pool removals are detailed on TON Blockchain. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+      "description": "Shardchain collation and validation error shares across the selected jobs; those two chain-wide signals intentionally ignore Instance because collators rotate. External admission/storage issues have no chain label, so that line is the worst selected node's share and names it; duplicates are excluded as normal broadcast traffic, while accepted, validated_only, and reprioritized are successful or stock-neutral rather than issues. A family with no attempts in the window renders No data. Local pool removals are detailed on TON Blockchain. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
     },
     {
       "id": 31,
