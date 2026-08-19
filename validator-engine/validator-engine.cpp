@@ -106,16 +106,11 @@ static td::Result<ton::adnl::AdnlNodeIdShort> parse_adnl_id_hex(td::Slice value)
 }
 
 Config::Config() {
-  out_port = 3278;
   full_node = ton::PublicKeyHash::zero();
 }
 
 Config::Config(const ton::ton_api::engine_validator_config &config) {
   full_node = ton::PublicKeyHash::zero();
-  out_port = static_cast<td::uint16>(config.out_port_);
-  if (!out_port) {
-    out_port = 3278;
-  }
   for (auto &addr : config.addrs_) {
     td::IPAddress ip;
     std::vector<AdnlCategory> categories;
@@ -337,7 +332,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   }
 
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
-      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
+      std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
       full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec),
       std::move(full_node_config_obj), std::move(extra_config_obj), std::move(liteserver_vec), std::move(control_vec),
       std::move(shards_vec), std::move(gc_vec));
@@ -2178,7 +2173,7 @@ void ValidatorEngine::start() {
 }
 
 void ValidatorEngine::start_adnl() {
-  adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create(config_.out_port);
+  adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create();
   adnl_ = ton::adnl::Adnl::create(db_root_, keyring_.get());
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::adnl::AdnlNetworkManager>,

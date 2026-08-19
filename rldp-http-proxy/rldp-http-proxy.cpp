@@ -908,8 +908,7 @@ class RldpHttpProxy : public td::actor::Actor {
       std::_Exit(2);
     }
     {
-      adnl_network_manager_ =
-          ton::adnl::AdnlNetworkManager::create(is_client_ ? client_port_ : static_cast<td::uint16>(addr_.get_port()));
+      adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create();
       adnl_ = ton::adnl::Adnl::create(is_client_ ? std::string("") : (db_root_), keyring_.get());
       td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
       ton::adnl::AdnlCategoryMask cat_mask;

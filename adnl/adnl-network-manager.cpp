@@ -25,8 +25,8 @@ namespace ton {
 
 namespace adnl {
 
-td::actor::ActorOwn<AdnlNetworkManager> AdnlNetworkManager::create(td::uint16 port) {
-  return td::actor::create_actor<AdnlNetworkManagerImpl>("NetworkManager", port);
+td::actor::ActorOwn<AdnlNetworkManager> AdnlNetworkManager::create() {
+  return td::actor::create_actor<AdnlNetworkManagerImpl>("NetworkManager");
 }
 
 AdnlNetworkManagerImpl::OutDesc *AdnlNetworkManagerImpl::choose_out_iface(td::uint8 cat, td::uint32 priority) {

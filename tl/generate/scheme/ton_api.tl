@@ -610,7 +610,7 @@ engine.validator.collatorNodeWhitelist enabled:Bool adnl_ids:(vector int256) = e
 engine.validator.extraConfig state_serializer_enabled:Bool fast_sync_member_certificates:(vector engine.validator.fastSyncMemberCertificate)
     collator_node_whitelist:engine.validator.collatorNodeWhitelist
     fast_sync_overlay_clients:(vector engine.validator.fastSyncOverlayClient) = engine.validator.ExtraConfig;
-engine.validator.config out_port:int addrs:(vector engine.Addr) adnl:(vector engine.adnl)
+engine.validator.config addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) collators:(vector int256)
         fullnode:int256 fullnodeslaves:(vector engine.validator.fullNodeSlave)

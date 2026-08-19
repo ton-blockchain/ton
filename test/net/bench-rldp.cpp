@@ -430,7 +430,7 @@ void run_server(Config config) {
       td::actor::send_closure(exporter, &ton::PrometheusExporter::listen, addr);
     }
     keyring = ton::keyring::Keyring::create(db_root);
-    network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
+    network_manager = ton::adnl::AdnlNetworkManager::create();
     adnl = ton::adnl::Adnl::create(db_root, keyring.get());
     td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
 
@@ -515,7 +515,7 @@ void run_client(Config config) {
     }
 
     keyring = ton::keyring::Keyring::create(db_root);
-    network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(config.local_addr.get_port()));
+    network_manager = ton::adnl::AdnlNetworkManager::create();
     adnl = ton::adnl::Adnl::create(db_root, keyring.get());
     td::actor::send_closure(adnl, &ton::adnl::Adnl::register_network_manager, network_manager.get());
 
