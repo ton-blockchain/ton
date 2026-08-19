@@ -261,6 +261,7 @@ class BridgeImpl final : public IValidatorGroup {
     bus->is_collator = params_.is_collator;
     bus->all_collators = params_.all_collators;
     bus->collator_scoreboard = params_.collator_scoreboard;
+    bus->expected_start_time = params_.expected_start_time;
 
     bool found = false;
     size_t idx = 0;

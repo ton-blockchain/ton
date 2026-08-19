@@ -46,6 +46,7 @@ struct SessionInfo {
   std::vector<adnl::AdnlNodeIdShort> overlay_members;
   std::set<adnl::AdnlNodeIdShort> all_current_validators;
   std::vector<GroupIdentity> identities;
+  td::Timestamp expected_start_time;
 
   CatchainSeqno cc_seqno() const {
     return validator_set->get_catchain_seqno();
@@ -165,7 +166,8 @@ ValidatorSessionId session_id_for(const Context &ctx, ShardIdFull shard, const t
                                              opts_hash, std::move(vec));
 }
 
-SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set) {
+SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::ValidatorSet> validator_set,
+                         td::Timestamp expected_start_time = td::Timestamp::never()) {
   auto config = ctx.state.get_new_consensus_config(shard.workchain);
 
   std::vector<GroupIdentity> identities;
@@ -183,6 +185,7 @@ SessionInfo session_info(const Context &ctx, ShardIdFull shard, td::Ref<block::V
       .overlay_members = ctx.overlay_members.all,
       .all_current_validators = ctx.overlay_members.all_current_validators,
       .identities = std::move(identities),
+      .expected_start_time = expected_start_time,
   };
 }
 
@@ -205,6 +208,7 @@ td::actor::ActorOwn<IValidatorGroup> make_group(const Context &ctx, const Sessio
       .is_collator = identity.is_collator,
       .all_collators = ctx.all_collators,
       .collator_scoreboard = ctx.deps.collator_scoreboard,
+      .expected_start_time = info.expected_start_time,
   };
   return IValidatorGroup::create_bridge(PSTRING() << "valgroup" << info.shard, params);
 }
@@ -237,38 +241,39 @@ std::map<ShardIdFull, std::vector<BlockIdExt>> basechain_target(const Masterchai
   return target;
 }
 
-std::set<ShardIdFull> masterchain_future_shards(const MasterchainState &state) {
-  return {ShardIdFull{masterchainId, shardIdAll}};
+std::vector<std::pair<ShardIdFull, td::Timestamp>> masterchain_future_shards(const MasterchainState &state) {
+  auto lifetime = state.get_catchain_validators_config().mc_cc_lifetime;
+  UnixTime next_rotation_ts = state.get_unix_time() / lifetime * lifetime + lifetime;
+  std::vector<std::pair<ShardIdFull, td::Timestamp>> result;
+  result.emplace_back(ShardIdFull{masterchainId, shardIdAll}, td::Timestamp::at_unix(next_rotation_ts));
+  return result;
 }
 
-std::set<ShardIdFull> basechain_future_shards(const MasterchainState &state) {
-  using namespace std::chrono_literals;
-
+std::vector<std::pair<ShardIdFull, td::Timestamp>> basechain_future_shards(const MasterchainState &state) {
+  auto lifetime = state.get_catchain_validators_config().shard_cc_lifetime;
+  UnixTime next_rotation_ts = state.get_unix_time() / lifetime * lifetime + lifetime;
   std::set<ShardIdFull> shards;
-  auto now = td::UTCClock::now();
+  std::vector<std::pair<ShardIdFull, td::Timestamp>> result;
+  auto add_shard = [&](ShardIdFull shard, UnixTime start_time) {
+    if (shards.insert(shard).second) {
+      result.emplace_back(shard, td::Timestamp::at_unix(start_time));
+    }
+  };
+  auto now = state.get_unix_time();
   for (auto &descr : state.get_shards()) {
     auto shard = descr->shard();
-    switch (descr->fsm_state()) {
-      case McShardHash::FsmState::fsm_split:
-        if (descr->fsm_utime_chrono() < now + 60s) {
-          shards.insert(ShardIdFull{shard.workchain, shard_child(shard.shard, true)});
-          shards.insert(ShardIdFull{shard.workchain, shard_child(shard.shard, false)});
-        } else {
-          shards.insert(shard);
-        }
-        break;
-      case McShardHash::FsmState::fsm_merge:
-        if (descr->fsm_utime_chrono() < now + 60s) {
-          shards.insert(ShardIdFull{shard.workchain, shard_parent(shard.shard)});
-        } else {
-          shards.insert(shard);
-        }
-        break;
-      default:
-        shards.insert(shard);
+    if (descr->fsm_state() != McShardHash::FsmState::fsm_none &&
+        descr->fsm_utime() <= std::min(now + 60, next_rotation_ts)) {
+      if (descr->fsm_state() == McShardHash::FsmState::fsm_split) {
+        add_shard(shard_child(shard, true), descr->fsm_utime());
+        add_shard(shard_child(shard, false), descr->fsm_utime());
+      } else {
+        add_shard(shard_parent(shard), descr->fsm_utime());
+      }
     }
+    add_shard(shard, next_rotation_ts);
   }
-  return shards;
+  return result;
 }
 
 struct Group {
@@ -508,7 +513,7 @@ class WorkchainState {
   }
 
   void update(const Context &ctx, const std::map<ShardIdFull, std::vector<BlockIdExt>> &target,
-              const std::set<ShardIdFull> &future_shards) {
+              const std::vector<std::pair<ShardIdFull, td::Timestamp>> &future_shards) {
     tree_->update(ctx, target, future_);
     if (ctx.should_manage_groups) {
       update_future(ctx, future_shards);
@@ -527,17 +532,17 @@ class WorkchainState {
   }
 
  private:
-  void update_future(const Context &ctx, const std::set<ShardIdFull> &future_shards) {
+  void update_future(const Context &ctx, const std::vector<std::pair<ShardIdFull, td::Timestamp>> &future_shards) {
     if (ctx.state.rotated_all_shards()) {
       future_.clear();
       return;
     }
-    for (auto &shard : future_shards) {
+    for (auto &[shard, expected_start_time] : future_shards) {
       auto val_set = ctx.state.get_next_validator_set(shard);
       if (val_set.is_null()) {
         continue;
       }
-      auto info = session_info(ctx, shard, val_set);
+      auto info = session_info(ctx, shard, val_set, expected_start_time);
       if (info.identities.empty()) {
         continue;
       }
