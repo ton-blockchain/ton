@@ -32,7 +32,9 @@ void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) c
     has_import |= import.imported_file == declared_in;
   }
   if (!has_import) {
-    err("Using a non-imported symbol `{}`\n""hint: forgot to import \"{}\"?", name, declared_in->extract_short_name()).collect(usage, cur_f);
+    err("Using a non-imported symbol `{}`\n""hint: forgot to import \"{}\"?", name, declared_in->extract_short_name())
+      .with_secondary(this, "declared here")
+      .collect(usage, cur_f);
   }
 }
 
@@ -305,17 +307,15 @@ static Error err_redefinition_of_symbol(const Symbol* previous) {
   if (previous->is_builtin()) {
     return err("redefinition of built-in symbol");
   }
-  if (previous->ident_anchor->range.get_src_file()->is_stdlib_file) {
-    return err("redefinition of a symbol from stdlib");
-  }
-  return err("redefinition of symbol, previous was at: {}", previous->ident_anchor->range.stringify_start_location(false));
+  return err("redefinition of symbol `{}`", previous->name)
+    .with_secondary(previous, "previous definition is here");
 }
 
 void GlobalSymbolTable::add_global_symbol(const Symbol* sym) {
   auto key = key_hash(sym->name);
   auto [it, inserted] = entries.emplace(key, sym);
   if (!inserted) {
-    err_redefinition_of_symbol(it->second).fire(sym->ident_anchor);
+    err_redefinition_of_symbol(it->second).fire(sym);
   }
 }
 

@@ -8,4 +8,6 @@ fun cantUnifyBytesNAndSlice(n: slice, c: bytes16) {
 @compilation_should_fail
 @stderr types of ternary branches are incompatible: `slice` and `bytes16`
 @stderr hint: maybe, you should use `<some_expr> as <type>` to make them identical
+@stderr note: this operand is `slice`
+@stderr note: this operand is `bytes16`
  */

@@ -25,11 +25,14 @@ fun break_in_try() {
 
 // @stderr `continue` is not allowed inside `try/catch`
 // @stderr can not compile `continue`, because of `continue` in non-standard, unsupported position
+// @stderr note: this prevents compiling `continue`
 // @stderr in function `continue_in_try`
+// @stderr try {
+// @stderr continue  ;
 fun continue_in_try() {
     while (true) {
         try {
-            continue;
+            continue  ;
         } catch {
         }
     }
@@ -78,6 +81,11 @@ fun terminal_if_then_dead_suffix() {
 
 // @stderr `return` is not allowed inside a loop that uses `break`
 // @stderr in function `return_and_break_same_loop`
+// @stderr } else {
+// @stderr   return;
+// @stderr note: `break` is used here
+// @stderr if (cond) {
+// @stderr   break;
 fun return_and_break_same_loop(cond: bool) {
     while (true) {
         if (cond) {

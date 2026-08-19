@@ -487,7 +487,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     if (FunctionPtr f = existing_sym->try_as<FunctionPtr>(); f && f->base_fun_ref == fun_ref) {
       return f;
     }
-    err_instantiated_name_conflict(new_name).fire(existing_sym->ident_anchor);
+    err_instantiated_name_conflict(new_name).fire(existing_sym);
   }
 
   // to store permanently, allocate an object in heap
@@ -525,7 +525,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     instantiation_depth--;
   });
   if (instantiation_depth > 64) {
-    err_instantiate_recursive(fun_ref).fire(fun_ref->ident_anchor);
+    err_instantiate_recursive(fun_ref).fire(fun_ref);
   }
 
   FunctionPtr new_fun_ref = pipeline_register_instantiated_generic_function(fun_ref, new_root, std::move(new_name), allocatedTs);
@@ -543,7 +543,7 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
     if (StructPtr s = existing_sym->try_as<StructPtr>(); s && s->base_struct_ref == struct_ref) {
       return s;
     }
-    err_instantiated_name_conflict(new_name).fire(struct_ref->ident_anchor);
+    err_instantiated_name_conflict(new_name).fire(struct_ref);
   }
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
@@ -557,7 +557,7 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
     instantiation_depth--;
   });
   if (instantiation_depth > 64) {
-    err_instantiate_recursive(struct_ref).fire(struct_ref->ident_anchor);
+    err_instantiate_recursive(struct_ref).fire(struct_ref);
   }
 
   StructPtr new_struct_ref = pipeline_register_instantiated_generic_struct(struct_ref, new_root, std::move(new_name), allocatedTs);
@@ -578,11 +578,11 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
     if (AliasDefPtr a = existing_sym->try_as<AliasDefPtr>(); a && a->base_alias_ref == alias_ref) {
       if (a->underlying_type == nullptr) {
-        err("type `{}` circularly references itself", a).fire(a->ident_anchor);
+        err("type `{}` circularly references itself", a).fire(a);
       }
       return a;
     }
-    err_instantiated_name_conflict(new_name).fire(alias_ref->ident_anchor);
+    err_instantiated_name_conflict(new_name).fire(alias_ref);
   }
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
@@ -596,7 +596,7 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
     instantiation_depth--;
   });
   if (instantiation_depth > 64) {
-    err_instantiate_recursive(alias_ref).fire(alias_ref->ident_anchor);
+    err_instantiate_recursive(alias_ref).fire(alias_ref);
   }
 
   AliasDefPtr new_alias_ref = pipeline_register_instantiated_generic_alias(alias_ref, new_root, std::move(new_name), allocatedTs);

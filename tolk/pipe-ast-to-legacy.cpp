@@ -878,7 +878,7 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
     // > fun MyInt.packToBuilder(self, mutate b: builder) {
     // >   b.storeAny(S{x: self})     // during lowering, expanded to packToBuilder again
     std::string_view postfix = f_inlined->is_packToBuilder() || f_inlined->is_unpackFromSlice() ? " and leads to infinite serialization" : "";
-    err("function `{}` is recursive{}", f_inlined, postfix).fire(f_inlined->ident_anchor, f_inlined);
+    err("function `{}` is recursive{}", f_inlined, postfix).fire(f_inlined);
   }
 
   tolk_assert(vars_per_arg.size() == f_inlined->parameters.size());
@@ -2451,7 +2451,7 @@ public:
 
     // do not allow `mutate` combined with non-primitives arg_order shuffling: impractical but hard to follow
     if (has_arg_width_not_1 && total_arg_mutate_width) {
-      err("width not 1 and mutate").fire(fun_ref->ident_anchor, fun_ref);
+      err("width not 1 and mutate").fire(fun_ref);
     }
 
     // example: `fun f(a: int, b: (int, (int, int)), c: int)` with `asm (b a c)`

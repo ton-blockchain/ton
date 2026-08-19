@@ -81,11 +81,13 @@
 
 namespace tolk {
 
-class ContainsReturnVisitor final : public ASTVisitorFunctionBody {
-  bool found = false;
+class FindFirstReturnVisitor final : public ASTVisitorFunctionBody {
+  AnyV found = nullptr;
 
-  void visit(V<ast_return_statement>) override {
-    found = true;
+  void visit(V<ast_return_statement> v) override {
+    if (!found) {
+      found = v;
+    }
   }
 
 public:
@@ -93,16 +95,16 @@ public:
     return false;
   }
 
-  bool check(AnyV v) {
-    found = false;
+  AnyV find(AnyV v) {
+    found = nullptr;
     parent::visit(v);
     return found;
   }
 };
 
-static bool contains_return(AnyV v) {
-  ContainsReturnVisitor visitor;
-  return visitor.check(v);
+static AnyV find_first_return(AnyV v) {
+  FindFirstReturnVisitor visitor;
+  return visitor.find(v);
 }
 
 // How control flow leaves a statement (or a list of statements).
@@ -132,15 +134,16 @@ struct InlineArmCounts {
 class InlineReturnPlanBuilder {
   InlineReturnPlan plan;
 
-  void fail(const char* because) {
+  void fail(const char* because, SrcRange at = SrcRange::undefined()) {
     if (plan.ok()) {        // store the first "because" reason
       plan.cant_inline_because = because;
+      plan.cant_inline_at = at;
     }
   }
 
   void reject_return_inside(AnyV subtree) {
-    if (contains_return(subtree)) {
-      fail("because of `return` in non-standard, unsupported position");
+    if (AnyV ret = find_first_return(subtree)) {
+      fail("because of `return` in non-standard, unsupported position", ret->range);
     }
   }
 
@@ -154,7 +157,7 @@ class InlineReturnPlanBuilder {
         // > if (...) { return }
         // > else { return }
         // > next
-        fail("because a terminal `if/else/match` is followed by unreachable statements");
+        fail("because a terminal `if/else/match` is followed by unreachable statements", statements[i + 1]->range);
         break;
       }
     }
@@ -224,7 +227,7 @@ class InlineReturnPlanBuilder {
       return InlineStmtFlow::goesToBranch;
     }
 
-    fail("because `if/else` has complicated `return` and multiple exit points");
+    fail("because `if/else` has complicated `return` and multiple exit points", v->keyword_range());
     return InlineStmtFlow::fallsThrough;    // the plan is already invalid, the value doesn't matter
   }
 
@@ -261,7 +264,7 @@ class InlineReturnPlanBuilder {
       return InlineStmtFlow::goesToBranch;
     }
 
-    fail("because some `match` arms do `return`, some do not");
+    fail("because some `match` arms do `return`, some do not", v->keyword_range());
     return InlineStmtFlow::fallsThrough;    // the plan is already invalid, the value doesn't matter
   }
 
@@ -281,19 +284,19 @@ class InlineReturnPlanBuilder {
       return analyze_match(v_match);
     }
     // any other statement is okay, unless it hides a `return` in a position we can't route
-    if (contains_return(stmt)) {
+    if (AnyV ret = find_first_return(stmt)) {
       // make a reasonable message for common cases
       switch (stmt->kind) {
         case ast_repeat_statement:
         case ast_while_statement:
         case ast_do_while_statement:
-          fail("because of `return` inside a loop");
+          fail("because of `return` inside a loop", ret->range);
           break;
         case ast_try_catch_statement:
-          fail("because of `return` inside try/catch");
+          fail("because of `return` inside try/catch", ret->range);
           break;
         default:
-          fail("because of `return` in non-standard, unsupported position");
+          fail("because of `return` in non-standard, unsupported position", ret->range);
           break;
       }
       return InlineStmtFlow::fallsThrough;    // the plan is already invalid, the value doesn't matter

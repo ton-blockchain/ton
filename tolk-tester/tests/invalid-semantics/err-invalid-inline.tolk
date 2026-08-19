@@ -2,10 +2,13 @@
 
 // @stderr function `badInlineCalledFromUnused` can't be inlined
 // @stderr `@inline` is impossible, because of `return` inside a loop
+// @stderr note: this prevents inlining
+// @stderr repeat (1) {
+// @stderr return x;  // explanation
 @inline
 fun badInlineCalledFromUnused(x: int): int {
     repeat (1) {
-        return x;
+        return x;  // explanation
     }
     return 0;
 }

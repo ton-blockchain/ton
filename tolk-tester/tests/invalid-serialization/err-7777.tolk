@@ -21,5 +21,9 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr ambiguous method, both `Pair<X, Y>.packToBuilder` and `Pair<X, int8>.packToBuilder` are applicable
+@stderr ambiguous method, several serializers are applicable
+@stderr note: this method is also applicable
+@stderr fun Pair<X, Y>.packToBuilder
+@stderr fun Pair<X, int8>.packToBuilder
+@stderr fun Pair<string, Y>.packToBuilder
  */

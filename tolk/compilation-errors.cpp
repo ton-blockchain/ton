@@ -16,7 +16,6 @@
 */
 #include "compilation-errors.h"
 #include "ast.h"
-#include "type-system.h"
 #include "compiler-state.h"
 #include "json-output.h"
 
@@ -28,18 +27,19 @@
  *   Be very careful of using collect()! Bulk errors are tricky. Double-check that no forward logic
  * relies on this. For example, collecting errors in a type checker (after type inferring) is safe,
  * but when resolving symbols, if a symbol not found, we can do only fire() — otherwise, nullptr is left.
+ *
+ *   Optional related locations can be attached with `with_secondary()` before fire()/collect().
+ *
+ *   Note: the compiler emits only errors, not warnings (warnings are the goal of a linter).
  */
 
 namespace tolk {
 
 static std::string str_in_function(FunctionPtr f) {
-  if (f == nullptr) {
-    return "";
-  }
   if (f->is_lambda()) {
-    return "in lambda " + str_in_function(f->base_fun_ref);
+    return f->base_fun_ref ? "in lambda " + str_in_function(f->base_fun_ref) : "in lambda";
   }
-  return "in function `" + f->as_human_readable() + "`"; 
+  return "in function `" + f->as_human_readable() + "`";
 }
 
 void on_assertion_failed(const char *description, const char *file_name, int line_number) {
@@ -114,7 +114,7 @@ void ErrorBuilder::push(bool v) {
   add_arg(v ? "true" : "false");
 }
 
-Error ErrorBuilder::build() const {
+std::string ErrorBuilder::build_string() const {
   std::string replaced = tpl;
   size_t arg_i = 0, pos;
   while ((pos = replaced.find("{}")) != std::string::npos) {
@@ -131,26 +131,73 @@ Error ErrorBuilder::build() const {
     throw Fatal(std::string("mismatch err() tpl: ") + tpl);
   }
 #endif
-  return Error(std::move(replaced));
+  return replaced;
 }
 
 
-void Error::fire(AnyV at, FunctionPtr in_function) const {
-  throw ThrownParseError(str_in_function(in_function), at->range, message);  
+Error& Error::with_secondary(AnyV at, std::string note) {
+  // `at` may be nullptr for `fun_ref->return_type_node` and other optional;
+  // then just don't add a secondary location, only a primary will be shown
+  if (at) {
+    secondary_locations.push_back(ErrorSecondaryLocation{at->range, std::move(note)});
+  }
+  return *this;
 }
 
-void Error::fire(SrcRange range, FunctionPtr in_function) const {
-  throw ThrownParseError(str_in_function(in_function), range, message);  
+Error& Error::with_secondary(const Symbol* at_sym, std::string note) {
+  // ident_anchor may be nullptr in built-in symbols todo rework built-ins
+  if (at_sym->ident_anchor) {
+    secondary_locations.push_back(ErrorSecondaryLocation{at_sym->ident_anchor->range, std::move(note)});
+  }
+  return *this;
 }
 
-void Error::collect(AnyV at, FunctionPtr in_function) const {
+Error& Error::with_secondary(SrcRange range, std::string note) {
+  secondary_locations.push_back(ErrorSecondaryLocation{range, std::move(note)});
+  return *this;
+}
+
+void Error::fire(AnyV at, FunctionPtr in_function) {
+  throw ThrownParseError(in_function, at->range, std::move(message), std::move(secondary_locations));
+}
+
+void Error::fire(const Symbol* at_sym, FunctionPtr in_function) {
+  throw ThrownParseError(in_function, at_sym->ident_anchor->range, std::move(message), std::move(secondary_locations));
+}
+
+void Error::fire(SrcRange range, FunctionPtr in_function) {
+  throw ThrownParseError(in_function, range, std::move(message), std::move(secondary_locations));
+}
+
+void Error::collect(AnyV at, FunctionPtr in_function) {
   tolk_assert(G.error_collector);
-  G.error_collector->add(ThrownParseError(str_in_function(in_function), at->range, message));
+  G.error_collector->add(ThrownParseError(in_function, at->range, std::move(message), std::move(secondary_locations)));
 }
 
-void Error::collect(SrcRange range, FunctionPtr in_function) const {
+void Error::collect(const Symbol* at_sym, FunctionPtr in_function) {
   tolk_assert(G.error_collector);
-  G.error_collector->add(ThrownParseError(str_in_function(in_function), range, message));
+  G.error_collector->add(ThrownParseError(in_function, at_sym->ident_anchor->range, std::move(message), std::move(secondary_locations)));
+}
+
+void Error::collect(SrcRange range, FunctionPtr in_function) {
+  tolk_assert(G.error_collector);
+  G.error_collector->add(ThrownParseError(in_function, range, std::move(message), std::move(secondary_locations)));
+}
+
+struct JsonErrorRange {
+  SrcRange range;
+};
+
+static void to_json(JsonPrettyOutput& json, JsonErrorRange v) {
+  SrcRange::DecodedRange decoded = v.range.decode_offsets();
+  json.start_object();
+  json.key_value("file_name", v.range.get_src_file()->realpath);
+  json.key_value("start_line_no", decoded.start_line_no);
+  json.key_value("start_char_no", decoded.start_char_no);
+  json.key_value("end_line_no", decoded.end_line_no);
+  json.key_value("end_char_no", decoded.end_char_no);
+  json.key_value("text_inside", decoded.text_inside);
+  json.end_object();
 }
 
 void ThrownParseError::output_to_console(std::ostream& os) const {
@@ -175,28 +222,37 @@ void ThrownParseError::output_to_console(std::ostream& os) const {
       os << loc_spaces << "  " << message.substr(start) << std::endl;
     }
   }
-  if (!in_function.empty()) {
-    os << std::endl << "    // " << in_function << std::endl;
+  if (in_function) {
+    os << std::endl << "    // " << str_in_function(in_function) << std::endl;
   }
   range.output_underlined(os);
+
+  for (const ErrorSecondaryLocation& loc : secondary_locations) {
+    os << std::endl;
+    os << loc.range.stringify_start_location(true) << ": note: " << loc.note << std::endl;
+    loc.range.output_underlined(os);
+  }
 }
 
 void ThrownParseError::output_to_json(JsonPrettyOutput& json) const {
   json.start_object();
   json.key_value("message", message);
-  if (!in_function.empty()) {
-    json.key_value("in_function", in_function);
+  if (in_function) {
+    json.key_value("in_function", str_in_function(in_function));
   }
   if (range.is_valid()) {
-    SrcRange::DecodedRange r = range.decode_offsets();
-    json.start_object("range");
-    json.key_value("file_name", range.get_src_file()->realpath);
-    json.key_value("start_line_no", r.start_line_no);
-    json.key_value("start_char_no", r.start_char_no);
-    json.key_value("end_line_no", r.end_line_no);
-    json.key_value("end_char_no", r.end_char_no);
-    json.key_value("text_inside", r.text_inside);
-    json.end_object();
+    json.key_value("range", JsonErrorRange{range});
+  }
+  if (!secondary_locations.empty()) {
+    json.start_array("secondary_locations");
+    for (const ErrorSecondaryLocation& loc : secondary_locations) {
+      json.next_array_item();
+      json.start_object();
+      json.key_value("note", loc.note);
+      json.key_value("range", JsonErrorRange{loc.range});
+      json.end_object();
+    }
+    json.end_array();
   }
   json.end_object();
 }

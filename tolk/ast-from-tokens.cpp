@@ -759,7 +759,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
     }
     if (lex.tok() == tok_semicolon && allow_lateinit) {
       if (declared_type == nullptr) {
-        lex.error("provide a type for a variable, because its default value is omitted:\n> var " + static_cast<std::string>(v_ident->name) + ": <type>;");
+        lex.error("provide a type for a variable, because its default value is omitted\n""hint:\n> var " + static_cast<std::string>(v_ident->name) + ": <type>;");
       }
       is_lateinit = true;
     }
@@ -1045,7 +1045,8 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
 
   range.end(body->range);
   if (pattern_expr == nullptr) {  // for match by type / default case, empty vertex, not nullptr
-    pattern_expr = createV<ast_empty_expression>(SrcRange::span(range, 4));
+    SrcRange range_before_arrow = exact_type ? exact_type->range : SrcRange::span(range, 4);
+    pattern_expr = createV<ast_empty_expression>(range_before_arrow);
   }
   return createV<ast_match_arm>(range, pattern_kind, exact_type, pattern_expr, body);
 }

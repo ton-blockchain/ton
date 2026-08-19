@@ -68,13 +68,16 @@ struct StateWhileTraversingFunction {
          + n_control_flow * 10 + n_globals * 5 + (max_block_depth - 1) * 10;
   }
 
-  // if a user specified `@inline`, check that it's possible
-  const char* why_cannot_be_inlined_if_annotated() const {
+  // if a user specified `@inline`, check that it's possible; if not, show an error why
+  void try_inline_or_collect_error() const {
     InlineReturnPlan inlining_plan = build_inlining_plan_for_function(fun_ref);
     if (!inlining_plan.ok()) {
-      return inlining_plan.cant_inline_because;
+      Error diagnostic = err("function `{}` can't be inlined\n""hint: `@inline` is impossible, {}", fun_ref, inlining_plan.cant_inline_because);
+      if (inlining_plan.cant_inline_at.is_defined()) {
+        diagnostic.with_secondary(inlining_plan.cant_inline_at, "this prevents inlining");
+      }
+      diagnostic.collect(fun_ref);
     }
-    return nullptr;
   }
 
   // if no annotation specified, detect whether to auto-inline a function
@@ -205,9 +208,7 @@ public:
 
   void on_exit_function(V<ast_function_declaration> v_function) override {
     if (cur_f->inline_mode == FunctionInlineMode::inlineInPlace) {
-      if (const char* why = cur_state.why_cannot_be_inlined_if_annotated()) {
-        err("function `{}` can't be inlined\n""hint: `@inline` is impossible, {}", cur_f, why).collect(cur_f->ident_anchor);
-      }
+      cur_state.try_inline_or_collect_error();
     } else if (cur_state.should_auto_inline_if_not_annotated()) {
       cur_f->mutate()->assign_inline_mode_in_place();
     }

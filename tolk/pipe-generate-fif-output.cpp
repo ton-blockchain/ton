@@ -34,13 +34,13 @@ namespace tolk {
 
 GNU_ATTRIBUTE_NOINLINE
 static void fire_on_method_id_collision(FunctionPtr f1, FunctionPtr f2) {
+  Error diagnostic = err("method_id collision: `{}` and `{}` produce the same method_id={}", f2, f1, f1->tvm_method_id);
   if (f1->is_entrypoint() && f2->is_entrypoint()) {
-    err("both `main` and `onInternalMessage` are not allowed").fire(f1->ident_anchor);
+    diagnostic = err("both `main` and `onInternalMessage` are not allowed");
   } else if (f1->is_contract_getter() && f2->is_contract_getter()) {
-    err("GET methods hash collision: `{}` and `{}` produce the same method_id={}. Consider renaming one of these functions.", f2, f1, f1->tvm_method_id).fire(f1->ident_anchor);
-  } else {
-    err("method_id collision: `{}` and `{}` produce the same method_id={}", f2, f1, f1->tvm_method_id).fire(f1->ident_anchor);
+    diagnostic = err("GET methods hash collision: `{}` and `{}` produce the same method_id={}\n""hint: rename one of these functions", f2, f1, f1->tvm_method_id);
   }
+  diagnostic.with_secondary(f2, "collides with this function").fire(f1);
 }
 
 void FunctionBodyCode::set_code(CodeBlob* code) {
@@ -345,7 +345,7 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
     err("generated TVM stack is too deep while compiling function `{}`.\n"
         "TVM can not store more than 255 elements on the stack.\n"
         "hint: try splitting very wide tensors/structs, storing parts in cells/tuples",
-        fun_ref).fire(fun_ref->ident_anchor, fun_ref);
+        fun_ref).fire(fun_ref);
   }
 
   if (G_settings.verbosity >= 2) {
@@ -428,7 +428,7 @@ void pipeline_generate_fif_output(std::ostream& os) {
 
     // Asm.fif short GETGLOB/SETGLOB accept only slots 1..31
     if (++n_used_globals > 31) {
-      err("too many global variables (more than 31)").fire(var_ref->ident_anchor);
+      err("too many global variables (more than 31)").fire(var_ref);
     }
     os << "  " << "DECLGLOBVAR " << CodeBlob::fift_name(var_ref) << "\n";
   }

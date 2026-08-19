@@ -17,6 +17,7 @@
 #pragma once
 
 #include "fwd-declarations.h"
+#include "src-file.h"
 #include "tail-routing.h"
 #include <vector>
 
@@ -25,7 +26,8 @@ namespace tolk {
 // Per-function plan for every inlined function (auto-detected or marked as `@inline`).
 // Note that `continue` in loops (LoopContinuePlan) is almost the same algorithm as returns in the middle.
 struct InlineReturnPlan {
-  const char* cant_inline_because = nullptr;
+  const char* cant_inline_because = nullptr;          // error text reason: "because of `return` inside a loop"
+  SrcRange cant_inline_at = SrcRange::undefined();    // underlined secondary location (e.g. that return statement)
   std::vector<TailRoutingNode> nodes;
 
   bool ok() const {

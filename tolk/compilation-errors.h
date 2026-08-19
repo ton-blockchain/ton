@@ -31,22 +31,44 @@ void on_assertion_failed(const char *description, const char *file_name, int lin
 
 class JsonPrettyOutput;   // forward declaration
 
+// A compilation error may optionally have several related locations.
+// For example, can't `break` from a loop if it has `return` (break is secondary, also highlighted).
+struct ErrorSecondaryLocation {
+  SrcRange range;
+  std::string note;
+};
+
+// Error is a compilation error created with `err("...")`:
+// 1) err("...").fire() — throw an error immediately and interrupt compilation, it's [[noreturn]]
+// 2) err("...").collect() — store errors in a buffer, all collected will be thrown before AST->IR stage
 class [[nodiscard]] Error {
   std::string message;
+  std::vector<ErrorSecondaryLocation> secondary_locations;
+
+  Error& with_secondary(AnyV at, std::string note);
+  Error& with_secondary(const Symbol* at_sym, std::string note);
+  Error& with_secondary(SrcRange range, std::string note);
 
 public:
   explicit Error(std::string message)
     : message(std::move(message)) {}
 
-  GNU_ATTRIBUTE_NORETURN
-  void fire(AnyV at, FunctionPtr in_function = nullptr) const;
-  GNU_ATTRIBUTE_NORETURN
-  void fire(SrcRange range, FunctionPtr in_function = nullptr) const;
+  template<class Loc, class... Args>
+  Error& with_secondary(Loc at, const char* note_tpl, Args&&... args);
 
-  void collect(AnyV at, FunctionPtr in_function = nullptr) const;
-  void collect(SrcRange range, FunctionPtr in_function = nullptr) const;
+  GNU_ATTRIBUTE_NORETURN
+  void fire(AnyV at, FunctionPtr in_function = nullptr);
+  GNU_ATTRIBUTE_NORETURN
+  void fire(const Symbol* at_sym, FunctionPtr in_function = nullptr);
+  GNU_ATTRIBUTE_NORETURN
+  void fire(SrcRange range, FunctionPtr in_function = nullptr);
+
+  void collect(AnyV at, FunctionPtr in_function = nullptr);
+  void collect(const Symbol* at_sym, FunctionPtr in_function = nullptr);
+  void collect(SrcRange range, FunctionPtr in_function = nullptr);
 };
 
+// `err("format {} string", arg)` and `with_secondary(..., "note {}", arg)` share this formatter.
 class ErrorBuilder {
   const char* tpl;
   std::vector<std::string> args;
@@ -78,16 +100,25 @@ public:
   void push(const void*) = delete;
   void push(std::nullptr_t) = delete;
 
-  [[nodiscard]] Error build() const;
+  [[nodiscard]] std::string build_string() const;
 };
 
+template<class... Args>
+inline std::string format_err_message(const char* tpl, Args&&... args) {
+  ErrorBuilder b(tpl);
+  (b.push(std::forward<Args>(args)), ...);
+  return b.build_string();
+}
+
+template<class Loc, class... Args>
+inline Error& Error::with_secondary(Loc at, const char* note_tpl, Args&&... args) {
+  return with_secondary(at, format_err_message(note_tpl, std::forward<Args>(args)...));
+}
 
 template<class... Args>
 GNU_ATTRIBUTE_COLD
 inline Error err(const char* tpl, Args&&... args) {
-  ErrorBuilder b(tpl);
-  (b.push(std::forward<Args>(args)), ...);
-  return b.build();
+  return Error(format_err_message(tpl, std::forward<Args>(args)...));
 }
 
 
@@ -109,12 +140,15 @@ struct TooDeepStackFatal final : std::exception {
 };
 
 struct ThrownParseError final : std::exception {
-  std::string in_function;
+  FunctionPtr in_function;
   SrcRange range;
   std::string message;
+  std::vector<ErrorSecondaryLocation> secondary_locations;
 
-  ThrownParseError(std::string in_function, SrcRange range, std::string message)
-    : in_function(std::move(in_function)), range(range), message(std::move(message)) {}
+  ThrownParseError(FunctionPtr in_function, SrcRange range, std::string message,
+                   std::vector<ErrorSecondaryLocation> secondary_locations)
+    : in_function(in_function), range(range), message(std::move(message))
+    , secondary_locations(std::move(secondary_locations)) {}
 
   const char* what() const noexcept override {
     return message.c_str();
@@ -134,6 +168,7 @@ struct UnexpectedASTNodeKind final : std::exception {
   }
 };
 
+// `err("...").collect()` (not `fire`) are stored in a global buffer.
 class ErrorCollector {
   std::vector<ThrownParseError> errors;
 

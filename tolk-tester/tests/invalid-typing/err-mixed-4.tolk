@@ -15,10 +15,13 @@ fun errBreakOutside() {
 
 // @stderr function `errInlineReturnInLoop` can't be inlined
 // @stderr `@inline` is impossible, because of `return` inside a loop
+// @stderr note: this prevents inlining
+// @stderr repeat (1) {
+// @stderr return x; // here
 @inline
 fun errInlineReturnInLoop(x: int): int {
     repeat (1) {
-        return x;
+        return x; // here
     }
     return 0;
 }

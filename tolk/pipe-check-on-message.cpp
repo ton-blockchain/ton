@@ -32,14 +32,14 @@ namespace tolk {
 
 static void validate_onBouncedMessage(FunctionPtr f) {
   if (f->inferred_return_type != TypeDataVoid::create() && f->inferred_return_type != TypeDataNever::create()) {
-    err("`onBouncedMessage` should return `void`").fire(f->ident_anchor, f);
+    err("`onBouncedMessage` should return `void`").fire(f);
   }
   if (f->get_num_params() != 1) {
-    err("`onBouncedMessage` should have one parameter `InMessageBounced`").fire(f->ident_anchor, f);
+    err("`onBouncedMessage` should have one parameter `InMessageBounced`").fire(f);
   }
   const auto* t_struct = f->get_param(0).declared_type->try_as<TypeDataStruct>();
   if (!t_struct || t_struct->struct_ref->name != "InMessageBounced") {
-    err("`onBouncedMessage` should have one parameter `InMessageBounced`").fire(f->ident_anchor, f);
+    err("`onBouncedMessage` should have one parameter `InMessageBounced`").fire(f);
   }
 }
 
@@ -47,7 +47,7 @@ static void validate_onExternalMessage(FunctionPtr f) {
   bool no_param_or_slice = f->get_num_params() == 0 ||
     (f->get_num_params() == 1 && f->get_param(0).declared_type == TypeDataSlice::create());
   if (!no_param_or_slice) {
-    err("`onExternalMessage` should have one parameter `slice`").fire(f->ident_anchor, f);
+    err("`onExternalMessage` should have one parameter `slice`").fire(f);
   }
 }
 
@@ -57,7 +57,7 @@ class CheckOnMessageVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_reference> v) override {
     // don't allow `var v = in` or passing `in` to another function (only `in.someField` is allowed)
     if (v->sym == param_ref) {
-      err("using `{}` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\n""hint: use `{}.senderAddress` and other fields directly", param_ref->name, param_ref->name).fire(v, cur_f);
+      err("using `{}` as an object is prohibited, because `InMessage` is a built-in struct, its fields are mapped to TVM instructions\n""hint: use `{}.senderAddress` and other fields directly", param_ref, param_ref).fire(v, cur_f);
     }
     parent::visit(v);
   }

@@ -769,7 +769,7 @@ bool OpList::prune_unreachable() {
 
 void CodeBlob::prune_unreachable_code() {
   if (ops.prune_unreachable()) {
-    err("control reaches end of function (stack is malformed, a compiler bug)").fire(fun_ref->ident_anchor, fun_ref);
+    err("control reaches end of function (stack is malformed, a compiler bug)").fire(fun_ref);
   }
 }
 

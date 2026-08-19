@@ -119,8 +119,9 @@ static Error err_calling_asm_function_with_non1_stack_width_arg(FunctionPtr fun_
 }
 
 // make an error on using lateinit variable before definite assignment
-static Error err_using_lateinit_variable_uninitialized(std::string_view name) {
-  return err("using variable `{}` before it's definitely assigned", name);
+static Error err_using_lateinit_variable_uninitialized(LocalVarPtr var_ref) {
+  return err("using variable `{}` before it's definitely assigned", var_ref)
+    .with_secondary(var_ref, "variable declared here");
 }
 
 // make an error when `obj.f()`, method `f` not found, try to locate a method for another type
@@ -145,7 +146,7 @@ static Error err_method_or_field_not_found(TypePtr receiver_type, std::string_vi
     return err("method `{}` not found for type `{}`\n(but it exists for {} {})", field_name, receiver_type, other.size() == 1 ? "type" : "types", candidate_receivers);
   }
   if (const Symbol* sym = lookup_global_symbol(field_name); sym && sym->try_as<FunctionPtr>()) {
-    return err("method `{}` not found, but there is a global function named `{}`\n(a function should be called `foo(arg)`, not `arg.foo()`)", field_name, field_name);
+    return err("method `{}` not found, but there is a global function named `{}`\n""hint: a function should be called `foo(arg)`, not `arg.foo()`", field_name, field_name);
   }
   return err("method `{}` not found", field_name);
 }
@@ -243,20 +244,26 @@ static TypePtr pick_exact_type_if_generics_omitted(TypePtr expr_type, TypePtr cm
 // make an error "call to method is ambiguous, valid candidates: formatted list"
 GNU_ATTRIBUTE_NOINLINE
 static Error err_ambiguous_receiver(TypePtr receiver_type, std::string_view method_name, const std::vector<MethodCallCandidate>& candidates) {
-  std::ostringstream list;
+  // built-in functions don't have ident_anchor, so can't call with_secondary with them todo rework built-ins
+  std::string builtin_list;
   for (const MethodCallCandidate& candidate : candidates) {
     FunctionPtr method_ref = candidate.method_ref;
-    list << "candidate function: `" << method_ref->as_human_readable() << "`";
-    if (method_ref->is_generic_function()) {
-      list << " with " << candidate.substitutedTs.as_human_readable(false);
-    }
-    if (method_ref->ident_anchor) {
-      list << " (declared at " << method_ref->ident_anchor->range.stringify_start_location(false) << ")\n";
-    } else if (method_ref->is_builtin()) {
-      list << " (builtin)\n";
+    if (method_ref->is_builtin()) {
+      builtin_list += "\ncandidate function: `" + method_ref->as_human_readable() + "` (builtin)";
     }
   }
-  return err("call to method `{}` for type `{}` is ambiguous\n{}", method_name, receiver_type, list.str());
+  Error diagnostic = err("call to method `{}` for type `{}` is ambiguous{}", method_name, receiver_type, builtin_list);
+  for (const MethodCallCandidate& candidate : candidates) {
+    FunctionPtr method_ref = candidate.method_ref;
+    if (!method_ref->is_builtin()) {
+      if (method_ref->is_generic_function()) {
+        diagnostic.with_secondary(method_ref, "candidate function: `{}` with {}", method_ref, candidate.substitutedTs.as_human_readable(false));
+      } else {
+        diagnostic.with_secondary(method_ref, "candidate function: `{}`", method_ref);
+      }
+    }
+  }
+  return diagnostic;
 }
 
 static void check_no_unexpected_type_arguments(FunctionPtr cur_f, V<ast_instantiationT_list> v_instantiationTs) {
@@ -286,7 +293,7 @@ struct LoopFlowFrame {
  */
 class InferTypesAndCallsAndFieldsVisitor final {
   FunctionPtr cur_f = nullptr;
-  std::vector<AnyExprV> return_statements;
+  std::vector<V<ast_return_statement>> return_statements;
   std::vector<LoopFlowFrame> loop_stack;
 
   GNU_ATTRIBUTE_ALWAYS_INLINE
@@ -736,7 +743,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
     if (branches_unifier.became_union_without_hint()) {
       // `... ? intVar : sliceVar` results in `int | slice`, probably it's not what the user expected
       // but do NOT show an error for `var v: T = ternary` (T is hint); it will be checked by type checker later
-      err("types of ternary branches are incompatible: `{}` and `{}`\n""hint: maybe, you should use `<some_expr> as <type>` to make them identical", v->get_when_true()->inferred_type, v->get_when_false()->inferred_type).fire(v, cur_f);
+      err("types of ternary branches are incompatible: `{}` and `{}`\n""hint: maybe, you should use `<some_expr> as <type>` to make them identical", v->get_when_true()->inferred_type, v->get_when_false()->inferred_type)
+        .with_secondary(v->get_when_true(), "this operand is `{}`", v->get_when_true()->inferred_type)
+        .with_secondary(v->get_when_false(), "this operand is `{}`", v->get_when_false()->inferred_type)
+        .collect(v, cur_f);
     }
     assign_inferred_type(v, branches_unifier.get_result());
 
@@ -787,7 +797,10 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (branches_unifier.became_union_without_hint()) {
         // `nullableSlice ?? 0` results in `slice | int`, probably it's not what the user expected
         // but do NOT show an error for `var v: T = ...` (T is hint); it will be checked by type checker later
-        err("type of operator `??` is `{}`; probably, it's not what you expected\n""assign it to a variable `var v: <type> = ... ?? ...` manually", branches_unifier.get_result()).fire(v, cur_f);
+        err("type of operator `??` is `{}`; probably, it's not what you expected\n""hint: assign it to a variable `var v: <type> = ... ?? ...` manually", branches_unifier.get_result())
+          .with_secondary(v->get_lhs(), "this operand is `{}`", lhs_type)
+          .with_secondary(v->get_rhs(), "this operand is `{}`", v->get_rhs()->inferred_type)
+          .collect(v, cur_f);
       }
       assign_inferred_type(v, branches_unifier.get_result());
     }
@@ -928,7 +941,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     if (fun_ref->is_asm_function() || fun_ref->is_builtin()) {
       for (int i = 0; i < substitutedTs.size(); ++i) {
         if (substitutedTs.typeT_at(i)->get_width_on_stack() != 1 && !is_allowed_asm_generic_function_with_non1_width_T(fun_ref, substitutedTs, i)) {
-          err_calling_asm_function_with_non1_stack_width_arg(fun_ref, substitutedTs, i).fire(range, cur_f);
+          err_calling_asm_function_with_non1_stack_width_arg(fun_ref, substitutedTs, i).collect(range, cur_f);
         }
       }
     }
@@ -948,7 +961,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       assign_inferred_type(v, local_type);
       bool used_as_write = v->is_lvalue && !v->is_rvalue;
       if (var_ref->is_lateinit() && local_type == TypeDataNotInferred::create() && !used_as_write) {
-        err_using_lateinit_variable_uninitialized(v->get_name()).fire(v, cur_f);
+        err_using_lateinit_variable_uninitialized(var_ref).fire(v, cur_f);
       }
       // it might be `local_var()` also, don't fill out_f_called, we have no fun_ref, it's a call of arbitrary expression
 
@@ -1137,7 +1150,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         candidates = resolve_methods_for_call(declared_type, field_name, true);
       }
       if (candidates.size() > 1) {
-        err_ambiguous_receiver(dot_obj->inferred_type, field_name, candidates).fire(dot_obj, cur_f);
+        err_ambiguous_receiver(dot_obj->inferred_type, field_name, candidates).fire(v_ident, cur_f);
       }
       if (candidates.size() == 1) {
         fun_ref = candidates.front().method_ref;
@@ -1397,7 +1410,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       types_list.emplace_back(item->inferred_type);
     }
     if (types_list.size() >= 64) {
-      err("too big tuple (64 or more elements)").fire(v, cur_f);
+      err("too big tuple (64 or more elements)").collect(v, cur_f);
     }
 
     if (v->type_node) {
@@ -1429,7 +1442,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
         unifier.unify_with(types_list[i]);
       }
       if (unifier.became_union_without_hint()) {
-        err("type of `[...]` is `array<{}>`; probably, it's not what you expected\n""specify the array's type manually\n""example:\n""> var x = array<unknown> [...]", unifier.get_result()).fire(v, cur_f);
+        err("type of `[...]` is `array<{}>`; probably, it's not what you expected\n""hint: specify the array's type manually, for example:\n""> var x = array<unknown> [...]", unifier.get_result()).collect(v, cur_f);
       }
       assign_inferred_type(v, TypeDataArray::create(unifier.get_result()));
     }
@@ -1508,7 +1521,12 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
       if (branches_unifier.became_union_without_hint()) {
         // same as in ternary: `match (...) { t1 => someSlice, t2 => someInt }` is `int|slice`, probably unexpected
-        err("type of `match` was inferred as `{}`; probably, it's not what you expected\nassign it to a variable `var v: <type> = match (...) { ... }` manually", branches_unifier.get_result()).fire(v->keyword_range(), cur_f);
+        Error diagnostic = err("type of `match` was inferred as `{}`; probably, it's not what you expected\n""hint: assign it to a variable `var v: <type> = match (...) { ... }` manually", branches_unifier.get_result());
+        for (int i = 0; i < v->get_arms_count(); ++i) {
+          auto ith_arm = v->get_arm(i);
+          diagnostic.with_secondary(ith_arm->get_pattern_expr(), "this branch is `{}`", ith_arm->get_body()->inferred_type);
+        }
+        diagnostic.collect(v->keyword_range(), cur_f);
       }
       assign_inferred_type(v, branches_unifier.get_result());
     }
@@ -1548,7 +1566,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       }
     }
     if (!struct_ref || struct_ref->is_instantiation_of_LispListT()) {
-      err("can not detect struct name\nuse either `var v: StructName = { ... }` or `var v = StructName { ... }`").fire(v, cur_f);
+      err("can not detect struct name\n""hint: use `var v = StructName { ... }`").fire(v, cur_f);
     }
 
     // so, we have struct_ref, so we can check field names and infer values
@@ -1561,7 +1579,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       std::string_view field_name = field_i->get_field_name();
       StructFieldPtr field_ref = struct_ref->find_field(field_name);
       if (!field_ref) {
-        err("field `{}` not found in struct `{}`", field_name, struct_ref).fire(field_i->get_field_identifier(), cur_f);
+        err("field `{}` not found in struct `{}`", field_name, struct_ref)
+          .with_secondary(struct_ref, "struct declared here")
+          .fire(field_i->get_field_identifier(), cur_f);
       }
       field_i->mutate()->assign_field_ref(field_ref);
 
@@ -1605,7 +1625,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
       if (!(occurred_mask & (1ULL << field_ref->field_idx))) {
         bool allow_missing = field_ref->has_default_value() || field_ref->declared_type == TypeDataVoid::create();
         if (!allow_missing) {
-          err("field `{}` missed in initialization of struct `{}`", field_ref, struct_ref).fire(SrcRange::empty_at_end(v->range), cur_f);
+          err("field `{}` missed in initialization of struct `{}`", field_ref, struct_ref)
+            .with_secondary(field_ref, "field declared here")
+            .collect(v, cur_f);
         }
       }
     }
@@ -1648,7 +1670,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
       TypePtr captured_type = flow.smart_cast_or(SinkExpression(captured_var_ref), nullptr);
       tolk_assert(captured_type != nullptr);
       if (captured_var_ref->is_lateinit() && captured_type == TypeDataNotInferred::create()) {
-        err_using_lateinit_variable_uninitialized(captured_var_ref->name).fire(v, cur_f);
+        err_using_lateinit_variable_uninitialized(captured_var_ref).fire(v, cur_f);
       }
       full_params_types.push_back(captured_type);
     }
@@ -1699,7 +1721,7 @@ class InferTypesAndCallsAndFieldsVisitor final {
     flow.mark_unreachable(UnreachableKind::ReturnStatement);
 
     if (!cur_f->declared_return_type) {
-      return_statements.push_back(v->get_return_value());   // for future unification
+      return_statements.push_back(v);   // for future unification
     }
     return flow;
   }
@@ -1885,13 +1907,16 @@ public:
         if (fun_ref->does_return_self()) {
           return_unifier.unify_with(fun_ref->parameters[0].declared_type);
         }
-        bool has_void_returns = false;
-        bool has_non_void_returns = false;
-        for (AnyExprV return_expr : return_statements) {
-          TypePtr cur_type = return_expr->inferred_type;     // `return expr` - type of expr; `return` - void
+        V<ast_return_statement> last_void_return = nullptr;
+        V<ast_return_statement> last_non_void_return = nullptr;
+        for (V<ast_return_statement> v_return : return_statements) {
+          TypePtr cur_type = v_return->get_return_value()->inferred_type;     // `return expr` - type of expr; `return` - void
           return_unifier.unify_with(cur_type);
-          has_void_returns |= cur_type == TypeDataVoid::create();
-          has_non_void_returns |= cur_type != TypeDataVoid::create();
+          if (cur_type == TypeDataVoid::create()) {
+            last_void_return = v_return;
+          } else {
+            last_non_void_return = v_return;
+          }
         }
         inferred_return_type = return_unifier.get_result();
         if (inferred_return_type == nullptr) {    // if no return statements at all
@@ -1899,18 +1924,20 @@ public:
         }
 
         if (!body_end.is_unreachable() && inferred_return_type != TypeDataVoid::create()) {
-          err("missing return").fire(SrcRange::empty_at_end(v_function->range), fun_ref);
+          err("missing return").collect(SrcRange::empty_at_end(v_function->range), fun_ref);
         }
-        if (has_void_returns && has_non_void_returns) {
-          for (AnyExprV return_expr : return_statements) {
-            if (return_expr->inferred_type == TypeDataVoid::create()) {
-              err("mixing void and non-void returns in function `{}`", fun_ref).fire(return_expr, fun_ref);
-            }
-          }
-        }
-        if (return_unifier.became_union_without_hint()) {
+        if (last_void_return && last_non_void_return) {
+          err("mixing void and non-void returns")
+            .with_secondary(last_non_void_return->keyword_range(), "this return has a value")
+            .collect(last_void_return->keyword_range(), fun_ref);
+        } else if (return_unifier.became_union_without_hint()) {
           // `return intVar` + `return sliceVar` results in `int | slice`, probably unexpected
-          err("function `{}` calculated return type is `{}`; probably, it's not what you expected\ndeclare `fun (...): <return_type>` manually", fun_ref, inferred_return_type).fire(v_function->get_identifier(), fun_ref);
+          Error diagnostic = err("function `{}` calculated return type is `{}`; probably, it's not what you expected\n""hint: declare `fun (...): <return_type>` manually", fun_ref, inferred_return_type);
+          for (V<ast_return_statement> v_return : return_statements) {
+            TypePtr cur_type = v_return->get_return_value()->inferred_type;
+            diagnostic.with_secondary(v_return->keyword_range(), "this return is `{}`", cur_type);
+          }
+          diagnostic.fire(v_function->get_identifier(), fun_ref);
         }
       }
 
@@ -1985,7 +2012,7 @@ static void infer_and_save_return_type_of_function(FunctionPtr fun_ref) {
   // prevent recursion of untyped functions, like `fun f() { return g(); } fun g() { return f(); }`
   bool contains = std::find(called_stack.begin(), called_stack.end(), fun_ref) != called_stack.end();
   if (contains) {
-    err("could not infer return type of `{}`, because it appears in a recursive call chain\ndeclare `fun (...): <return_type>` manually", fun_ref).fire(fun_ref->ident_anchor, fun_ref);
+    err("could not infer return type of `{}`, because it appears in a recursive call chain\n""hint: declare `fun (...): <return_type>` manually", fun_ref).fire(fun_ref);
   }
 
   // dig into g's body; it's safe, since the compiler is single-threaded
@@ -2007,7 +2034,7 @@ static void infer_and_save_type_of_constant(GlobalConstPtr const_ref) {
   // prevent recursion like `const a = b; const b = a`
   bool contains = std::find(called_stack.begin(), called_stack.end(), const_ref) != called_stack.end();
   if (contains) {
-    err("const `{}` appears, directly or indirectly, in its own initializer", const_ref).fire(const_ref->ident_anchor);
+    err("const `{}` appears, directly or indirectly, in its own initializer", const_ref).fire(const_ref);
   }
 
   called_stack.push_back(const_ref);

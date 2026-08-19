@@ -126,9 +126,11 @@ struct NameAndScopeResolver {
     }
 
     uint64_t key = key_hash(v_sym->name);
-    const auto& [_, inserted] = scopes.rbegin()->emplace(key, v_sym);
+    const auto& [it, inserted] = scopes.rbegin()->emplace(key, v_sym);
     if (!inserted) {
-      err("redeclaration of local variable `{}`", v_sym).fire(v_sym->ident_anchor);
+      err("redeclaration of local variable `{}`", v_sym)
+        .with_secondary(it->second, "previous declaration is here")
+        .fire(v_sym);
     }
   }
 };

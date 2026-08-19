@@ -7,4 +7,6 @@ fun main(): int {
 /**
 @compilation_should_fail
 @stderr using variable `x` before it's definitely assigned
+@stderr note: variable declared here
+@stderr var x: int;
  */

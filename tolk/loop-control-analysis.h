@@ -17,6 +17,7 @@
 #pragma once
 
 #include "fwd-declarations.h"
+#include "src-file.h"
 #include "tail-routing.h"
 #include <vector>
 
@@ -25,7 +26,8 @@ namespace tolk {
 // Per-loop plan for structural `continue`; analogous to InlineReturnPlan.
 // See the cpp file for comments.
 struct LoopContinuePlan {
-  const char* cant_continue_because = nullptr;
+  const char* cant_continue_because = nullptr;        // error text reason: "because some `match` arms do `continue`, some do not"
+  SrcRange cant_continue_at = SrcRange::undefined();  // underlined secondary location (e.g. that match keyword)
   std::vector<TailRoutingNode> nodes;
 
   bool ok() const {

@@ -134,9 +134,13 @@ static void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_
   if (!called_f->does_accept_self() && self_obj) {   // static method `Point.create(...)` called as `p.create()`
     err("method `{}` can not be called via dot\n(it's a static method, it does not accept `self`)", called_f).collect(v->get_callee(), cur_f);
   } else if (n_max_params < n_arguments) {
-    err("too many arguments in call to `{}`, expected {}, have {}", called_f, n_max_params - delta_self, n_arguments - delta_self).collect(v->get_arg_list(), cur_f);
+    err("too many arguments in call to `{}`, expected {}, have {}", called_f, n_max_params - delta_self, n_arguments - delta_self)
+      .with_secondary(called_f, "function declared here")
+      .collect(v->get_arg(n_max_params - delta_self), cur_f);
   } else if (n_arguments < n_min_params) {
-    err("too few arguments in call to `{}`, expected {}, have {}", called_f, n_min_params - delta_self, n_arguments - delta_self).collect(v->get_arg_list(), cur_f);
+    err("too few arguments in call to `{}`, expected {}, have {}", called_f, n_min_params - delta_self, n_arguments - delta_self)
+      .with_secondary(called_f, "function declared here")
+      .collect(v->get_arg_list(), cur_f);
   }
 }
 
@@ -191,7 +195,7 @@ static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr arg_t
 // technically it's correct, type of `n` is TypeDataNullLiteral, but it's not what the user wanted
 // so, it's better to see an error on assignment, that later, on `n` usage and types mismatch
 static Error err_assign_null_literal_to_variable(LocalVarPtr assigned_var) {
-  return err("can not infer type of `{}`, it's always null\nspecify its type with `{}: <type>` or use `null as <type>`", assigned_var, assigned_var);
+  return err("can not infer type of `{}`, it's always null\n""hint: specify its type with `{}: <type>` or use `null as <type>`", assigned_var, assigned_var);
 }
 
 // handle __expect_type(expr, "type") call
@@ -284,11 +288,11 @@ static void check_declared_packToBuilder(FunctionPtr f_pack) {
                          && f_pack->get_param(1).declared_type == TypeDataBuilder::create()
                          && f_pack->inferred_return_type->equal_to(TypeDataVoid::create());
   if (!declared_correctly) {
-    err("method `{}` is declared incorrectly\n""hint: it must accept 2 parameters and return nothing:\n""> fun {}(self, mutate b: builder)", f_pack, f_pack).collect(f_pack->ident_anchor, f_pack);
+    err("method `{}` is declared incorrectly\n""hint: it must accept 2 parameters and return nothing:\n""> fun {}(self, mutate b: builder)", f_pack, f_pack).collect(f_pack);
   }
   bool is_receiver_ok = f_pack->receiver_type->try_as<TypeDataAlias>() || f_pack->receiver_type->try_as<TypeDataStruct>() || f_pack->receiver_type->try_as<TypeDataEnum>();
   if (!is_receiver_ok) {
-    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_pack->receiver_type).collect(f_pack->ident_anchor, f_pack);
+    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_pack->receiver_type).collect(f_pack);
   }
 }
 
@@ -299,11 +303,11 @@ static void check_declared_unpackFromSlice(FunctionPtr f_unpack) {
                          && f_unpack->get_param(0).declared_type == TypeDataSlice::create()
                          && f_unpack->inferred_return_type->equal_to(f_unpack->receiver_type);
   if (!declared_correctly) {
-    err("method `{}` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n""> fun {}(mutate s: slice): {}", f_unpack, f_unpack, f_unpack->receiver_type).collect(f_unpack->ident_anchor, f_unpack);
+    err("method `{}` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n""> fun {}(mutate s: slice): {}", f_unpack, f_unpack, f_unpack->receiver_type).collect(f_unpack);
   }
   bool is_receiver_ok = f_unpack->receiver_type->try_as<TypeDataAlias>() || f_unpack->receiver_type->try_as<TypeDataStruct>() || f_unpack->receiver_type->try_as<TypeDataEnum>();
   if (!is_receiver_ok) {
-    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_unpack->receiver_type).collect(f_unpack->ident_anchor, f_unpack);
+    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_unpack->receiver_type).collect(f_unpack);
   }
 }
 
@@ -422,7 +426,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       std::string hint = "";
       const TypeDataUnion* to_union = cast_to->unwrap_alias()->try_as<TypeDataUnion>();
       if (to_union && to_union->or_null && cast_from->can_be_casted_with_as_operator(to_union->or_null)) {
-        hint = "\n""use an intermediate cast: `xxx as " + to_union->or_null->as_human_readable() + " as " + cast_to->as_human_readable() + "`";
+        hint = "\n""hint: use an intermediate cast: `xxx as " + to_union->or_null->as_human_readable() + " as " + cast_to->as_human_readable() + "`";
       }
       err("type `{}` can not be cast to `{}`{}", cast_from, cast_to, hint).collect(v, cur_f);
     }
@@ -433,7 +437,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     TypePtr rhs_type = v->type_node->resolved_type;
 
     if (rhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {   // `v is T1 | T2` / `v is T?` is disallowed
-      err("union types are not allowed, use concrete types in `is`").collect(v, cur_f);
+      err("union types are not allowed, use concrete types in `is`").collect(v->type_node, cur_f);
       return;
     }
 
@@ -503,7 +507,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       V<ast_argument> arg_i = v->get_arg(i);
       TypePtr param_type = param_i.declared_type;
       if (!param_type->can_rhs_be_assigned(arg_i->inferred_type)) {
-        err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).collect(arg_i, cur_f);
+        err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type)
+          .with_secondary(&param_i, "parameter declared here")
+          .collect(arg_i, cur_f);
       }
       if (param_i.is_mutate_parameter()) {
         check_function_argument_mutate_back(cur_f, arg_i->inferred_type, arg_i->get_expr(), false);
@@ -585,12 +591,17 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     // types were already inferred, so just check their compatibility
     // for strange lhs like `f() = rhs` type checking will pass, but will fail lvalue check later
     if (!lhs->inferred_type->can_rhs_be_assigned(rhs_type)) {
-      if (lhs->try_as<ast_reference>()) {
-        err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, lhs->inferred_type).collect(err_loc, cur_f);
-      } else if (lhs->try_as<ast_dot_access>()) {
-        err_type_mismatch("can not assign {src} to field of type {dst}", rhs_type, lhs->inferred_type).collect(err_loc, cur_f);
+      if (auto as_ref = lhs->try_as<ast_reference>()) {
+        err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, lhs->inferred_type)
+          .with_secondary(as_ref->sym, "variable declared here")
+          .collect(err_loc, cur_f);
+      } else if (auto as_dot = lhs->try_as<ast_dot_access>(); as_dot && as_dot->is_target_struct_field()) {
+        err_type_mismatch("can not assign {src} to field of type {dst}", rhs_type, lhs->inferred_type)
+          .with_secondary(std::get<StructFieldPtr>(as_dot->target), "field declared here")
+          .collect(err_loc, cur_f);
       } else {
-        err_type_mismatch("can not assign {src} to {dst}", rhs_type, lhs->inferred_type).collect(err_loc, cur_f);
+        err_type_mismatch("can not assign {src} to {dst}", rhs_type, lhs->inferred_type)
+          .collect(err_loc, cur_f);
       }
     }
   }
@@ -607,7 +618,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     TypePtr expr_type = v->get_return_value()->inferred_type;
     if (!cur_f->inferred_return_type->can_rhs_be_assigned(expr_type)) {
-      err_type_mismatch("can not convert type {src} to return type {dst}", expr_type, cur_f->inferred_return_type).collect(v->get_return_value(), cur_f);
+      err_type_mismatch("can not convert type {src} to return type {dst}", expr_type, cur_f->inferred_return_type)
+        .with_secondary(cur_f->return_type_node, "return type declared here")
+        .collect(v->get_return_value(), cur_f);
     }
   }
 
@@ -664,7 +677,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         // for `map`, every item must be `[k,v]`, e.g. `map<int32, bool> [ [1,true], [2,false] ]`
         auto ith_square = ith_v->try_as<ast_square_brackets>();
         if (!ith_square || ith_square->size() != 2) {
-          err("invalid `[...]` constructor for `map`: each item must be `[key, value]`\n""example:\n""> var m: map<int32, bool> = [ [1,true], [2,false] ];").collect(ith_v, cur_f);
+          err("invalid `[...]` constructor for `map`: each item must be `[key, value]`\n""hint: for example:\n""> var m: map<int32, bool> = [ [1,true], [2,false] ];").collect(ith_v, cur_f);
         } else {
           if (!h_map->TKey->can_rhs_be_assigned(ith_square->get_item(0)->inferred_type)) {
             err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", ith_square->get_item(0)->inferred_type, h_map->TKey).collect(ith_square->get_item(0), cur_f);
@@ -838,7 +851,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_init_val());
 
     if (!v->field_ref->declared_type->can_rhs_be_assigned(v->get_init_val()->inferred_type)) {
-      err_type_mismatch("can not assign {src} to field of type {dst}", v->get_init_val()->inferred_type, v->field_ref->declared_type).collect(v->get_init_val(), cur_f);
+      err_type_mismatch("can not assign {src} to field of type {dst}", v->get_init_val()->inferred_type, v->field_ref->declared_type)
+        .with_secondary(v->field_ref, "field declared here")
+        .collect(v->get_init_val(), cur_f);
     }
   }
 

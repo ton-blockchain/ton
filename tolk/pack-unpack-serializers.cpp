@@ -42,6 +42,15 @@ std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, Ty
 std::vector<var_idx_t> transition_to_target_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr original_type, TypePtr target_type, AnyV origin);
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, const std::vector<std::vector<var_idx_t>>& vars_per_arg);
 
+// make an error "ambiguous method" enumerating all available candidates
+static Error err_ambiguous_pack_unpack_method(const std::vector<MethodCallCandidate>& applicable) {
+  Error diagnostic = err("ambiguous method, several serializers are applicable");
+  for (size_t i = 1; i < applicable.size(); ++i) {    // from 1, because primary is 0
+    diagnostic.with_secondary(applicable[i].method_ref, "this method is also applicable");
+  }
+  return diagnostic;
+}
+
 // Any type alias or struct can have custom pack/unpack functions declared:
 // > type TelegramString = slice
 // > fun TelegramString.packToBuilder(self, mutate b: builder) { ... }
@@ -63,14 +72,14 @@ CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::ve
   std::vector<MethodCallCandidate> c_unpack = resolve_methods_for_call(receiver_type, "unpackFromSlice", false);
 
   if (c_pack.size() > 1) {
-    err("ambiguous method, both `{}` and `{}` are applicable", c_pack[0].method_ref, c_pack[1].method_ref).fire(c_pack[0].method_ref->ident_anchor);
+    err_ambiguous_pack_unpack_method(c_pack).fire(c_pack[0].method_ref);
   }
   if (!c_pack.empty()) {
     f.f_pack = c_pack[0].method_ref;
   }
 
   if (c_unpack.size() > 1) {
-    err("ambiguous method, both `{}` and `{}` are applicable", c_unpack[0].method_ref, c_unpack[1].method_ref).fire(c_unpack[0].method_ref->ident_anchor);
+    err_ambiguous_pack_unpack_method(c_unpack).fire(c_unpack[0].method_ref);
   }
   if (!c_unpack.empty()) {
     f.f_unpack = c_unpack[0].method_ref;

@@ -1536,6 +1536,8 @@ struct Vertex<ast_contract_directive> final : ASTOtherVararg {
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   auto get_ith_item(int i) const { return children.at(i + 1)->as<ast_contract_directive_item>(); }
 
+  SrcRange keyword_range() const { return SrcRange::span(range, 8); }
+
   Vertex(SrcRange range, std::vector<AnyV>&& name_and_items)
     : ASTOtherVararg(ast_contract_directive, range, std::move(name_and_items)) {}
 };

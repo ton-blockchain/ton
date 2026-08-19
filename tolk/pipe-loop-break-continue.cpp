@@ -83,11 +83,15 @@ class LoopBreakContinueValidator final : public ASTVisitorFunctionBody {
     parent::visit(body);
     const LoopFrame& frame = loop_frames.back();
     if (frame.break_stmt && frame.return_stmt) {
-      err("`return` is not allowed inside a loop that uses `break`").collect(frame.return_stmt, cur_f);
+      err("`return` is not allowed inside a loop that uses `break`")
+        .with_secondary(frame.break_stmt, "`break` is used here")
+        .collect(frame.return_stmt, cur_f);
     }
     LoopContinuePlan plan = build_continue_plan_for_loop(body);
     if (!plan.ok()) {
-      err("can not compile `continue`, {}", plan.cant_continue_because).collect(keyword_range, cur_f);
+      err("can not compile `continue`, {}", plan.cant_continue_because)
+        .with_secondary(plan.cant_continue_at, "this prevents compiling `continue`")
+        .collect(keyword_range, cur_f);
     }
     loop_frames.pop_back();
   }

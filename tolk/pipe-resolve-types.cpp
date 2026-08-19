@@ -278,7 +278,7 @@ class TypeNodesVisitorResolver {
       if (!struct_ref->genericTs) {
         bool contains = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
         if (contains) {
-          err("type `{}` circularly references itself", struct_ref).fire(struct_ref->ident_anchor);
+          err("type `{}` circularly references itself", struct_ref).fire(struct_ref);
         }
         called_stack.push_back(struct_ref);
         RecursionGuard guard([&] {
@@ -443,7 +443,7 @@ public:
     // prevent recursion like `type A = B; type B = A` (we can't create TypeDataAlias without a resolved underlying type)
     if (!inserted) {
       if (!it_visited->second) {
-        err("type `{}` circularly references itself", alias_ref).fire(alias_ref->ident_anchor);
+        err("type `{}` circularly references itself", alias_ref).fire(alias_ref);
       }
       return;
     }
@@ -774,7 +774,7 @@ class InfiniteStructSizeDetector {
 
     bool contains = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
     if (contains) {
-      err("struct `{}` size is infinity due to recursive fields", struct_ref).fire(struct_ref->ident_anchor);
+      err("struct `{}` size is infinity due to recursive fields", struct_ref).fire(struct_ref);
     }
 
     // Some nominal references intentionally defer struct fields until a later top-level pass.

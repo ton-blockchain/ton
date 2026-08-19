@@ -146,7 +146,9 @@ static EnumDefPtr register_enum(V<ast_enum_declaration> v) {
 
     for (EnumMemberPtr prev : members) {
       if (prev->name == member_name) {
-        err("redeclaration of member `{}`", member_name).fire(v_member);
+        err("redeclaration of member `{}`", member_name)
+          .with_secondary(prev, "previous declaration is here")
+          .fire(v_ident);
       }
     }
     members.emplace_back(new EnumMemberData(std::move(member_name), v_ident, i, v_member->init_value, DocCommentLines(v_member->doc_lines)));
@@ -173,7 +175,9 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
 
     for (StructFieldPtr prev : fields) {
       if (prev->name == field_name) {
-        err("redeclaration of field `{}`", field_name).fire(v_field);
+        err("redeclaration of field `{}`", field_name)
+          .with_secondary(prev, "previous declaration is here")
+          .fire(v_ident);
       }
     }
     fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->abi_type_node, v_field->default_value, DocCommentLines(v_field->doc_lines)));
@@ -378,7 +382,10 @@ static void iterate_through_file_symbols(SrcFilePtr file, FileSymbolsRegistratio
           // we do not allow `import "something"` having `get fun` inside;
           // we force the convention: all getters to be visible at a glance, in the contract file
           if (nearest_contract_file && file != nearest_contract_file) {
-            err("all contract entrypoints must be placed in the contract file `{}`\n""hint: keep `onInternalMessage` and `get fun` just below `contract`, not in other files", nearest_contract_file->extract_short_name()).fire(v_fun->get_identifier());
+            auto v_contract = nearest_contract_file->contract_directive->v_contract->as<ast_contract_directive>();
+            err("all contract entrypoints must be placed in the contract file `{}`\n""hint: keep `onInternalMessage` and `get fun` just below `contract`, not in other files", nearest_contract_file->extract_short_name())
+              .with_secondary(v_contract->keyword_range(), "`contract` is here")
+              .fire(v_fun->get_identifier());
           }
         }
         break;

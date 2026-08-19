@@ -65,11 +65,13 @@
 
 namespace tolk {
 
-class ContainsContinueVisitor final : public ASTVisitorFunctionBody {
-  bool found = false;
+class FindFirstContinueVisitor final : public ASTVisitorFunctionBody {
+  AnyV found = nullptr;
 
-  void visit(V<ast_continue_statement>) override {
-    found = true;
+  void visit(V<ast_continue_statement> v) override {
+    if (!found) {
+      found = v;
+    }
   }
 
   // in the current loop only: nested `continue` is their, not ours
@@ -82,16 +84,16 @@ public:
     return false;
   }
 
-  bool check(AnyV v) {
-    found = false;
+  AnyV find(AnyV v) {
+    found = nullptr;
     parent::visit(v);
     return found;
   }
 };
 
-static bool contains_continue(AnyV v) {
-  ContainsContinueVisitor visitor;
-  return visitor.check(v);
+static AnyV find_first_continue(AnyV v) {
+  FindFirstContinueVisitor visitor;
+  return visitor.find(v);
 }
 
 // How control flow leaves a statement (or a list of statements).
@@ -121,15 +123,16 @@ struct LoopArmCounts {
 class LoopContinuePlanBuilder {
   LoopContinuePlan plan;
 
-  void fail(const char* because) {
+  void fail(const char* because, SrcRange at = SrcRange::undefined()) {
     if (plan.ok()) {        // store the first "because" reason
       plan.cant_continue_because = because;
+      plan.cant_continue_at = at;
     }
   }
 
   void reject_continue_inside(AnyV subtree) {
-    if (contains_continue(subtree)) {
-      fail("because of `continue` in non-standard, unsupported position");
+    if (AnyV cont = find_first_continue(subtree)) {
+      fail("because of `continue` in non-standard, unsupported position", cont->range);
     }
   }
 
@@ -143,7 +146,7 @@ class LoopContinuePlanBuilder {
         // > if (...) { continue }
         // > else { break }
         // > next
-        fail("because a terminal `if/else/match` is followed by unreachable statements");
+        fail("because a terminal `if/else/match` is followed by unreachable statements", statements[i + 1]->range);
         break;
       }
     }
@@ -213,7 +216,7 @@ class LoopContinuePlanBuilder {
       return LoopStmtFlow::goesToBranch;
     }
 
-    fail("because `if/else` has complicated `continue` and multiple exit points");
+    fail("because `if/else` has complicated `continue` and multiple exit points", v->keyword_range());
     return LoopStmtFlow::fallsThrough;    // the plan is already invalid, the value doesn't matter
   }
 
@@ -250,7 +253,7 @@ class LoopContinuePlanBuilder {
       return LoopStmtFlow::goesToBranch;
     }
 
-    fail("because some `match` arms do `continue`, some do not");
+    fail("because some `match` arms do `continue`, some do not", v->keyword_range());
     return LoopStmtFlow::fallsThrough;    // the plan is already invalid, the value doesn't matter
   }
 
@@ -276,9 +279,9 @@ class LoopContinuePlanBuilder {
       return analyze_match(v_match);
     }
     // any other statement is okay, unless it hides a `continue` in a position we can't route;
-    // nested loops are skipped by contains_continue (their transfers are not ours)
-    if (contains_continue(stmt)) {
-      fail("because of `continue` in non-standard, unsupported position");
+    // nested loops are skipped by find_first_continue (their transfers are not ours)
+    if (AnyV cont = find_first_continue(stmt)) {
+      fail("because of `continue` in non-standard, unsupported position", cont->range);
       return LoopStmtFlow::fallsThrough;    // the plan is already invalid, the value doesn't matter
     }
 

@@ -45,10 +45,12 @@ static Error err_invalid_mutate_arg_passed(FunctionPtr fun_ref, const LocalVarDa
 
   if (p_sym.is_mutate_parameter() && !arg_passed_as_mutate) {
     // called `mutating_function(arg)`; suggest: `mutate arg`
-    return err("function `{}` mutates parameter `{}`\nyou need to specify `mutate` when passing an argument, like `mutate {}`", fun_ref, param_name, arg_str);
+    return err("function `{}` mutates parameter `{}`\n""hint: specify `mutate` when passing an argument, like `mutate {}`", fun_ref, param_name, arg_str)
+      .with_secondary(&p_sym, "parameter declared here");
   } else {
     // called `usual_function(mutate arg)`
-    return err("incorrect `mutate`, since `{}` does not mutate parameter `{}`", fun_ref, param_name);
+    return err("incorrect `mutate`, since `{}` does not mutate parameter `{}`", fun_ref, param_name)
+      .with_secondary(&p_sym, "parameter declared here");
   }
 }
 

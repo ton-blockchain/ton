@@ -19,6 +19,7 @@
 #include "compiler-state.h"
 #include "compiler-settings.h"
 #include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -183,6 +184,41 @@ SrcRange::DecodedRange SrcRange::decode_offsets() const {
   };
 }
 
+static bool contains_only_spaces(std::string_view s) {
+  for (char c : s) {
+    if (!std::isspace(static_cast<unsigned char>(c))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// True when the underlined range is essentially the whole statement on its line,
+// e.g. `return x;` or `    break; // comment`
+// Then we'll also output a line above, for better context.
+static bool occupies_almost_whole_line(const SrcFile::SrcPosition& start, const SrcFile::SrcPosition& end) {
+  if (start.line_no != end.line_no) {
+    return false;
+  }
+
+  // before: only spaces
+  std::string_view before = start.line_str.substr(0, start.char_no - 1);
+  if (!contains_only_spaces(before)) {
+    return false;
+  }
+
+  // after: spaces, semicolon, optional comment
+  std::string_view after = start.line_str.substr(end.char_no - 1);
+  size_t i = 0;
+  while (i < after.size() && (std::isspace(static_cast<unsigned char>(after[i])) || after[i] == ';')) {
+    ++i;
+  }
+  if (i >= after.size()) {
+    return true;
+  }
+  return i + 1 < after.size() && after[i] == '/' && after[i + 1] == '/';
+}
+
 void SrcRange::output_underlined(std::ostream& os) const {
   SrcFilePtr src_file = get_src_file();
   if (!src_file || !src_file->is_offset_valid(end_offset) || !is_valid()) {
@@ -190,6 +226,13 @@ void SrcRange::output_underlined(std::ostream& os) const {
   }
   SrcFile::SrcPosition start = src_file->convert_offset(start_offset);
   SrcFile::SrcPosition end = src_file->convert_offset(end_offset);
+
+  if (occupies_almost_whole_line(start, end) && start.line_no > 1) {
+    SrcFile::SrcPosition prev = src_file->convert_offset(src_file->line_offsets[start.line_no - 2]);
+    if (!contains_only_spaces(prev.line_str)) {
+      os << std::right << std::setw(4) << prev.line_no << " | " << prev.line_str << "\n";
+    }
+  }
 
   os << std::right << std::setw(4) << start.line_no << " | " << start.line_str << "\n";
   os << "    " << " | ";
