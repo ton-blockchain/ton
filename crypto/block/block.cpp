@@ -34,6 +34,8 @@
 namespace block {
 using namespace std::literals::string_literals;
 
+static constexpr td::uint64 max_total_validator_weight = 1ULL << 61;
+
 td::Result<PublicKey> PublicKey::from_bytes(td::Slice key) {
   if (key.size() != 32) {
     return td::Status::Error("Ed25519 public key must be exactly 32 bytes long");
@@ -1904,6 +1906,19 @@ bool valid_config_data(Ref<vm::Cell> cell, const td::BitArray<256>& addr, bool c
     if (!dict.int_key_exists(x)) {
       LOG(ERROR) << "mandatory configuration parameter #" << x << " is missing";
       return false;
+    }
+  }
+  for (int param : {32, 34, 36}) {
+    auto cell = dict.lookup_ref(td::BitArray<32>(param));
+    if (cell.not_null()) {
+      auto R = Config::unpack_validator_set(cell);
+      if (R.is_error()) {
+        return false;
+      }
+      auto val_set = R.move_as_ok();
+      if (val_set->total_weight > max_total_validator_weight) {
+        return false;
+      }
     }
   }
   return config_params_present(dict, dict.lookup_ref(td::BitArray<32>{9})) &&
