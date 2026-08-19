@@ -419,7 +419,7 @@ class BridgeImpl final : public IValidatorGroup {
 td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(td::Slice name, GroupParams params) {
   auto name_with_seqno =
       std::string(name.begin(), name.end()) + "." + std::to_string(params.validator_set->get_catchain_seqno());
-  return td::actor::create_actor<consensus::BridgeImpl>(name, name_with_seqno, std::move(params));
+  return td::actor::create_actor<consensus::BridgeImpl>(name_with_seqno, name_with_seqno, std::move(params));
 }
 
 }  // namespace ton::validator

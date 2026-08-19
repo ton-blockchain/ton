@@ -241,37 +241,55 @@ std::map<ShardIdFull, std::vector<BlockIdExt>> basechain_target(const Masterchai
   return target;
 }
 
-std::vector<std::pair<ShardIdFull, td::Timestamp>> masterchain_future_shards(const MasterchainState &state) {
+struct FutureShard {
+  ShardIdFull shard;
+  CatchainSeqno cc_seqno;
+  td::Timestamp expected_start_time;
+};
+
+std::vector<FutureShard> masterchain_future_shards(const MasterchainState &state) {
   auto lifetime = state.get_catchain_validators_config().mc_cc_lifetime;
   UnixTime next_rotation_ts = state.get_unix_time() / lifetime * lifetime + lifetime;
-  std::vector<std::pair<ShardIdFull, td::Timestamp>> result;
-  result.emplace_back(ShardIdFull{masterchainId, shardIdAll}, td::Timestamp::at_unix(next_rotation_ts));
+  std::vector<FutureShard> result;
+  result.push_back(FutureShard{.shard = ShardIdFull{masterchainId},
+                               .cc_seqno = state.get_shard_cc_seqno(ShardIdFull{masterchainId}) + 1,
+                               .expected_start_time = td::Timestamp::at_unix(next_rotation_ts)});
   return result;
 }
 
-std::vector<std::pair<ShardIdFull, td::Timestamp>> basechain_future_shards(const MasterchainState &state) {
+std::vector<FutureShard> basechain_future_shards(const MasterchainState &state) {
   auto lifetime = state.get_catchain_validators_config().shard_cc_lifetime;
   UnixTime next_rotation_ts = state.get_unix_time() / lifetime * lifetime + lifetime;
   std::set<ShardIdFull> shards;
-  std::vector<std::pair<ShardIdFull, td::Timestamp>> result;
-  auto add_shard = [&](ShardIdFull shard, UnixTime start_time) {
+  std::vector<FutureShard> result;
+  auto add_shard = [&](ShardIdFull shard, CatchainSeqno cc_seqno, UnixTime start_time) {
     if (shards.insert(shard).second) {
-      result.emplace_back(shard, td::Timestamp::at_unix(start_time));
+      result.push_back(
+          FutureShard{.shard = shard, .cc_seqno = cc_seqno, .expected_start_time = td::Timestamp::at_unix(start_time)});
     }
   };
-  auto now = state.get_unix_time();
   for (auto &descr : state.get_shards()) {
+    if (descr->before_merge() || descr->before_split()) {
+      continue;
+    }
     auto shard = descr->shard();
-    if (descr->fsm_state() != McShardHash::FsmState::fsm_none &&
-        descr->fsm_utime() <= std::min(now + 60, next_rotation_ts)) {
-      if (descr->fsm_state() == McShardHash::FsmState::fsm_split) {
-        add_shard(shard_child(shard, true), descr->fsm_utime());
-        add_shard(shard_child(shard, false), descr->fsm_utime());
-      } else {
-        add_shard(shard_parent(shard), descr->fsm_utime());
+    CatchainSeqno current_cc_seqno = state.get_shard_cc_seqno(shard);
+    if (descr->fsm_state() == McShardHash::FsmState::fsm_split && descr->fsm_utime() < next_rotation_ts) {
+      add_shard(shard_child(shard, true), current_cc_seqno, descr->fsm_utime());
+      add_shard(shard_child(shard, false), current_cc_seqno, descr->fsm_utime());
+      continue;
+    }
+    if (descr->fsm_state() == McShardHash::FsmState::fsm_merge && descr->fsm_utime() < next_rotation_ts) {
+      ShardIdFull sib_shard = shard_sibling(shard);
+      auto sib_descr = state.get_shard_from_config(sib_shard, true);
+      if (sib_descr.not_null() && sib_descr->fsm_state() == McShardHash::FsmState::fsm_merge &&
+          sib_descr->fsm_utime() < next_rotation_ts) {
+        current_cc_seqno = std::max(current_cc_seqno, state.get_shard_cc_seqno(sib_shard));
+        add_shard(shard_parent(shard), current_cc_seqno + 1, std::max(descr->fsm_utime(), sib_descr->fsm_utime()));
+        continue;
       }
     }
-    add_shard(shard, next_rotation_ts);
+    add_shard(shard, current_cc_seqno + 1, next_rotation_ts);
   }
   return result;
 }
@@ -513,7 +531,7 @@ class WorkchainState {
   }
 
   void update(const Context &ctx, const std::map<ShardIdFull, std::vector<BlockIdExt>> &target,
-              const std::vector<std::pair<ShardIdFull, td::Timestamp>> &future_shards) {
+              const std::vector<FutureShard> &future_shards) {
     tree_->update(ctx, target, future_);
     if (ctx.should_manage_groups) {
       update_future(ctx, future_shards);
@@ -532,13 +550,13 @@ class WorkchainState {
   }
 
  private:
-  void update_future(const Context &ctx, const std::vector<std::pair<ShardIdFull, td::Timestamp>> &future_shards) {
+  void update_future(const Context &ctx, const std::vector<FutureShard> &future_shards) {
     if (ctx.state.rotated_all_shards()) {
       future_.clear();
       return;
     }
-    for (auto &[shard, expected_start_time] : future_shards) {
-      auto val_set = ctx.state.get_next_validator_set(shard);
+    for (auto &[shard, cc_seqno, expected_start_time] : future_shards) {
+      auto val_set = ctx.state.get_validator_set(shard, cc_seqno);
       if (val_set.is_null()) {
         continue;
       }
