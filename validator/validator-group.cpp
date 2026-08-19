@@ -284,9 +284,9 @@ std::vector<FutureShard> basechain_future_shards(const MasterchainState &state) 
       auto sib_descr = state.get_shard_from_config(sib_shard, true);
       if (sib_descr.not_null() && sib_descr->fsm_state() == McShardHash::FsmState::fsm_merge &&
           sib_descr->fsm_utime() < next_rotation_ts) {
-        current_cc_seqno = std::max(current_cc_seqno, state.get_shard_cc_seqno(sib_shard));
-        add_shard(shard_parent(shard), current_cc_seqno + 1, std::max(descr->fsm_utime(), sib_descr->fsm_utime()));
-        continue;
+        auto merge_cc_seqno = std::max(current_cc_seqno, state.get_shard_cc_seqno(sib_shard)) + 1;
+        add_shard(shard_parent(shard), merge_cc_seqno, std::max(descr->fsm_utime(), sib_descr->fsm_utime()));
+        // Fallthrough: merge is not guaranteed
       }
     }
     add_shard(shard, current_cc_seqno + 1, next_rotation_ts);
