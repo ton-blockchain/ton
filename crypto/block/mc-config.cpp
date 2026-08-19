@@ -254,7 +254,7 @@ td::Status Config::unpack() {
   }
   config_dict = std::make_unique<vm::Dictionary>(config_root, 32);
   if (mode & needValidatorSet) {
-    auto vset_res = unpack_validator_set(get_config_param(35, 34), true);
+    auto vset_res = unpack_validator_set(get_config_param(34), true);
     if (vset_res.is_error()) {
       return vset_res.move_as_error();
     }
