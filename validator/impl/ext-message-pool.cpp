@@ -327,16 +327,22 @@ void ExtMessagePool::erase_external_messages(BlockIdExt block_id, td::uint64 app
     if (it != ext_messages_hashes_norm_.end()) {
       auto ids = it->second;
       for (const auto &message_id : ids) {
-        if (erase_message(message_id.priority, message_id.id)) {
+        double age = 0.0;
+        if (erase_message(message_id.priority, message_id.id, &age)) {
           ++applied_ext_msgs_deleted_;
           record_removal(metrics::ExtMessageRemovalReason::applied);
+          ext_inclusion_seconds_.observe(age);
         }
       }
     }
   }
 }
 
-bool ExtMessagePool::erase_message(int priority, MessageId id) {
+double ExtMessagePool::stored_age(const MempoolMsg &message) {
+  return std::max(0.0, MempoolMsg::TTL - message.delete_at.in());
+}
+
+bool ExtMessagePool::erase_message(int priority, MessageId id, double *stored_age_seconds) {
   auto it_priority = ext_msgs_.find(priority);
   if (it_priority == ext_msgs_.end()) {
     return false;
@@ -348,6 +354,9 @@ bool ExtMessagePool::erase_message(int priority, MessageId id) {
   }
 
   auto message = msg_opt.value();
+  if (stored_age_seconds != nullptr) {
+    *stored_age_seconds = stored_age(*message);
+  }
   auto address = message->address();
   auto hash_norm = message->hash_norm;
   ext_message_states_.erase(message->active ? metrics::ExtMessageState::eligible : metrics::ExtMessageState::postponed);
@@ -376,10 +385,7 @@ std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats()
 }
 
 ExtMessagePool::MetricsSnapshot ExtMessagePool::get_metrics_snapshot() {
-  double oldest_age = 0.0;
-  if (expiry_order_.oldest() != nullptr) {
-    oldest_age = std::max(0.0, MempoolMsg::TTL - expiry_order_.oldest()->delete_at.in());
-  }
+  double oldest_age = expiry_order_.oldest() != nullptr ? stored_age(*expiry_order_.oldest()) : 0.0;
   DCHECK(ext_message_states_.total() == ext_messages_hashes_.size());
   return {
       .ext_messages = ext_message_states_,
@@ -388,6 +394,7 @@ ExtMessagePool::MetricsSnapshot ExtMessagePool::get_metrics_snapshot() {
       .check_error = total_check_ext_messages_error_,
       .admission = admission_outcomes_,
       .removed = removal_reasons_,
+      .ext_inclusion_seconds = ext_inclusion_seconds_,
       .applied_master = applied_ext_messages_master_,
       .applied_shard = applied_ext_messages_shard_,
   };

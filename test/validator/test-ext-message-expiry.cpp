@@ -7,10 +7,12 @@
     (at your option) any later version.
 */
 
+#include <cmath>
 #include <deque>
 #include <memory>
 #include <vector>
 
+#include "td/utils/Time.h"
 #include "td/utils/tests.h"
 #include "validator/impl/expiry-ordered-list.hpp"
 #include "validator/impl/ext-message-pool.hpp"
@@ -82,6 +84,10 @@ struct ExtMessagePoolTestPeer {
     pool.complete_external_messages({hash}, {});
   }
 
+  static void filter_out(ExtMessagePool &pool, ExtMessage::Hash hash) {
+    pool.complete_external_messages({}, {hash});
+  }
+
   static bool prepare_for_collation(ExtMessagePool &pool, const EntryPtr &entry) {
     return pool.prepare_message_for_collation(entry.get());
   }
@@ -100,6 +106,10 @@ struct ExtMessagePoolTestPeer {
 
   static td::uint64 admitted(const ExtMessagePool &pool, metrics::ExtMessageAdmissionOutcome outcome) {
     return pool.admission_outcomes_[static_cast<size_t>(outcome)];
+  }
+
+  static const metrics::Histogram<metrics::kExtInclusionBuckets> &inclusion(const ExtMessagePool &pool) {
+    return pool.ext_inclusion_seconds_;
   }
 
   static td::uint64 removed_total(const ExtMessagePool &pool) {
@@ -224,6 +234,35 @@ TEST(ExtMessagePool, AppliedAndExpiredEntriesRecordExactlyOneDistinctRemoval) {
   EXPECT_EQ(PoolPeer::removed_total(*expired_pool), 1u);
   EXPECT_EQ(PoolPeer::removed(*expired_pool, metrics::ExtMessageRemovalReason::applied), 0u);
   EXPECT_EQ(PoolPeer::removed(*expired_pool, metrics::ExtMessageRemovalReason::expired), 1u);
+}
+
+TEST(ExtMessagePool, OnlyAppliedRemovalObservesHowLongTheEntryWasStored) {
+  constexpr double stored_for = 12.0;
+  auto pool = PoolPeer::make_pool();
+  auto message = PoolPeer::make_message(11);
+  auto alarm = td::Timestamp::never();
+  ASSERT_EQ(PoolPeer::add(*pool, message, 1, alarm), metrics::ExtMessageAdmissionOutcome::accepted);
+
+  td::Time::jump_in_future(td::Time::now() + stored_for);
+  PoolPeer::apply(*pool, message->hash_norm());
+
+  EXPECT_EQ(PoolPeer::removed(*pool, metrics::ExtMessageRemovalReason::applied), 1u);
+  EXPECT_EQ(PoolPeer::inclusion(*pool).count(), 1u);
+  EXPECT(std::abs(PoolPeer::inclusion(*pool).sum() - stored_for) < 1.0);
+
+  // Every other removal reason answers "how long until eviction", so none of them is observed.
+  auto evicted_pool = PoolPeer::make_pool();
+  auto expiring = PoolPeer::make_message(12);
+  auto filtered = PoolPeer::make_message(13);
+  alarm = td::Timestamp::never();
+  ASSERT_EQ(PoolPeer::add(*evicted_pool, expiring, 1, alarm), metrics::ExtMessageAdmissionOutcome::accepted);
+  ASSERT_EQ(PoolPeer::add(*evicted_pool, filtered, 1, alarm), metrics::ExtMessageAdmissionOutcome::accepted);
+  PoolPeer::filter_out(*evicted_pool, filtered->hash());
+  EXPECT_EQ(PoolPeer::expire(*evicted_pool, PoolPeer::find(*evicted_pool, expiring->hash())->delete_at), 1u);
+
+  EXPECT_EQ(PoolPeer::removed_total(*evicted_pool), 2u);
+  EXPECT_EQ(PoolPeer::inclusion(*evicted_pool).count(), 0u);
+  EXPECT_EQ(PoolPeer::inclusion(*evicted_pool).sum(), 0.0);
 }
 
 TEST(ExtMessagePool, AdmissionAndRemovalCountersReconcileWithStoredStock) {

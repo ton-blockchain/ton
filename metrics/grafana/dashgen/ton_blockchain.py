@@ -543,7 +543,7 @@ def external_message_rows(panels):
     """Separate end-to-end message flow from node-local mempool health."""
     specs = (
         ("External message flow", 103, (25, 26, 29, 10, 11)),
-        ("Mempool diagnostics", 110, (27, 28, 30, 12, 71)),
+        ("Mempool diagnostics", 110, (27, 28, 30, 12, 71, 72)),
     )
     by_id = {panel["id"]: panel for panel in panels}
     expected = {panel_id for _, _, ids in specs for panel_id in ids}
@@ -574,7 +574,7 @@ def collation_glance(chain, chain_name, *, id):
             summary_column("recent max",
                            processing_recent_max_fleet("collate", chain=chain), unit="s"),
         ],
-        id=id, w=12, h=5, key_name="Clock",
+        id=id, w=12, h=7, key_name="Clock",
         key_mappings=(("elapsed", "End-to-end"), ("real", "Timed wall"), ("cpu", "CPU")),
         label_columns=(("instance", "max owner"),), query_scope="job",
         description=(
@@ -601,7 +601,7 @@ def validation_glance(chain, chain_name, *, id):
             summary_column("recent max",
                            processing_recent_max_fleet("validate", chain=chain), unit="s"),
         ],
-        id=id, w=12, h=5, key_name="Clock",
+        id=id, w=12, h=7, key_name="Clock",
         key_mappings=(("elapsed", "End-to-end"), ("real", "Timed wall"), ("cpu", "CPU")),
         label_columns=(("instance", "max owner"),), query_scope="job",
         description=(
@@ -1555,6 +1555,28 @@ ROWS = [
                 "on validators and collators that store messages and trivially 0 = 0 on relay-only "
                 "nodes. These plotted window deltas remain estimates. A sustained residual means a "
                 "missing transition counter or gauge-accounting bug."
+            ),
+        ),
+        agg_timeseries(
+            "External inclusion latency by node",
+            agg_line(mempool.inclusion_quantile(0.5), name="p50"),
+            agg_line(mempool.inclusion_quantile(0.95), name="p95"),
+            unit="s", id=72, h=9,
+            axis_label="seconds stored",
+            description=(
+                "How long an entry sat in a node's pool before that same node observed the message "
+                "in an applied block. Each quantile is one node's own event quantile over a fixed "
+                "five-minute window, and the Node aggregation switch then collapses across nodes. "
+                "The clock starts at local admission and stops "
+                "at local observation, so it contains broadcast propagation to whichever collator "
+                "included the message plus this node's apply lag; it is a node-local reading, not a "
+                "chain-wide inclusion time, and a slow or lagging node inflates its own value. "
+                "Only applied removals are observed: expired, filtered, rejected_final and "
+                "pool_pressure evictions are never sampled. A pool that is failing to get its "
+                "messages included therefore draws FEWER samples rather than a higher latency, so "
+                "read this beside the removal-reason and backlog panels above, which is where such "
+                "a failure actually shows. Reprioritizing a duplicate replaces the entry and "
+                "restarts its clock. Values are bounded by the 600s TTL by construction."
             ),
         ),
     ]),
