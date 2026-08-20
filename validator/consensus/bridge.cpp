@@ -206,6 +206,9 @@ class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::ac
 
     int mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync |
                fullnode::FullNode::broadcast_mode_public;
+    if (bus->is_collator) {
+      mode = fullnode::FullNode::broadcast_mode_custom;
+    }
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
     td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, block.id, block.data.clone(),
                             mode);

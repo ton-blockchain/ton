@@ -62,6 +62,11 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       block_broadcast_mode = 0;
       finality_broadcast_mode = 0;
     }
+    if (bus.is_collator) {
+      block_broadcast_mode &= fullnode::FullNode::broadcast_mode_custom;
+      finality_broadcast_mode &= fullnode::FullNode::broadcast_mode_custom;
+      send_shard_block_desc = false;
+    }
     co_await td::actor::ask(bus.manager, &ManagerFacade::accept_block, block.id, block_data,
                             event->candidate->leader.value(), event->signatures, block_broadcast_mode,
                             finality_broadcast_mode, send_shard_block_desc, true);
@@ -86,9 +91,12 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     if (!sent_candidate_broadcasts_.insert(candidate.id).second) {
       return;
     }
+    int mode = fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom;
+    if (bus->is_collator) {
+      mode = fullnode::FullNode::broadcast_mode_custom;
+    }
     td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, candidate.id,
-                            candidate.data.clone(),
-                            fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
+                            candidate.data.clone(), mode);
   }
 
  private:
