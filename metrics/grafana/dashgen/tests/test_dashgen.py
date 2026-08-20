@@ -52,7 +52,7 @@ BLOCKCHAIN_DIAGNOSTIC_PANELS = {
     106: [43, 41, 55, 42],
     105: [39, 40],
     103: [25, 26, 29, 10, 11],
-    110: [27, 28, 30, 12, 71],
+    110: [27, 28, 30, 12, 71, 72],
 }
 BLOCKCHAIN_REMOVED_PANELS = {1, 2, 4, 7, 9, 20, 21, 22, 46, 57}
 
@@ -102,7 +102,7 @@ class DashboardGenerationTest(unittest.TestCase):
             if row_id == 107:
                 continue
             with self.subTest(row=row_id):
-                limit = 6 if row_id in (102, 104, 109) else 5
+                limit = 6 if row_id in (102, 104, 109, 110) else 5
                 self.assertLessEqual(len(item["panels"]), limit)
         for row_id, panel_ids in BLOCKCHAIN_DIAGNOSTIC_PANELS.items():
             with self.subTest(row=row_id):
@@ -211,6 +211,23 @@ class DashboardGenerationTest(unittest.TestCase):
         self.assertIn("Applied is normal cleanup", removals["description"])
         self.assertIn("Node aggregation switch", removals["description"])
         self.assertNotIn("Scope: worst selected node", removals["description"])
+
+        inclusion = blockchain[72]
+        self.assertEqual(inclusion["title"],
+                         "External inclusion latency by node (${agg:text} node ▾)")
+        query_text = expressions(inclusion)
+        self.assertIn("histogram_quantile(0.5,", query_text)
+        self.assertIn("histogram_quantile(0.95,", query_text)
+        self.assertIn("sum by (job, instance, le) (rate(ton_mempool_ext_inclusion_seconds_bucket",
+                      query_text)
+        self.assertEqual(
+            [query["legendFormat"] for query in inclusion["targets"]
+             if not query["refId"].startswith("ATTR")],
+            ["p50", "p95"],
+        )
+        self.assertEqual(inclusion["fieldConfig"]["defaults"]["unit"], "s")
+        self.assertIn("FEWER samples", inclusion["description"])
+        self.assertIn("Reprioritizing a duplicate", inclusion["description"])
 
     def test_blockchain_collapsed_diagnostics_open_directly_below_their_row(self):
         dashboard = ton_blockchain.build()

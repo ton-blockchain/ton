@@ -170,13 +170,16 @@ class ExtMessagePool : public td::actor::Actor {
   std::array<td::uint64, static_cast<size_t>(metrics::ExtMessageRemovalReason::count)> removal_reasons_{};
   td::uint64 applied_ext_messages_master_{0}, applied_ext_messages_shard_{0};
   metrics::ExtMessageStateCounts ext_message_states_;
+  metrics::Histogram<metrics::kExtInclusionBuckets> ext_inclusion_seconds_;
   detail::ExpiryOrderedList<MempoolMsg> expiry_order_;
 
   metrics::ExtMessageAdmissionOutcome add_message_to_mempool(td::Ref<ExtMessage> message, int priority,
                                                              td::Timestamp &alarm);
   metrics::ExtMessageAdmissionOutcome finalize_admission(td::Ref<ExtMessage> message, int priority, bool add_to_mempool,
                                                          td::Timestamp &alarm);
-  bool erase_message(int priority, MessageId id);
+  // `stored_age_seconds`, when given, receives the erased entry's age before it is destroyed.
+  bool erase_message(int priority, MessageId id, double *stored_age_seconds = nullptr);
+  static double stored_age(const MempoolMsg &message);
   size_t cleanup_expired_messages(td::Timestamp now = td::Timestamp::now());
   bool prepare_message_for_collation(MempoolMsg *message);
   void link_message(MempoolMsg *message);

@@ -1,6 +1,6 @@
 """Shared PromQL fragments for the node-local external-message pool."""
 
-from .conventions import summed
+from .conventions import histogram_quantile, summed
 from .core import NODE, sel
 
 METRIC = "ton_mempool_ext_messages"
@@ -45,6 +45,16 @@ def oldest_age():
         agg="max",
     )
     return _only_stateful(inner)
+
+
+def inclusion_quantile(q):
+    """One node's quantile of how long an entry it stored waited until that node saw it applied.
+
+    Fixed five minutes, like every other event quantile on the boards: inclusions arrive in
+    block-sized bursts that a scrape-sized window would turn into a sawtooth.
+    """
+    return histogram_quantile(q, "ton_mempool_ext_inclusion_seconds", by="job, instance",
+                              over="5m", **NODE)
 
 
 def stock_delta(over="5m"):

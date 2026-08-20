@@ -1514,6 +1514,7 @@ TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
   for (size_t i = 0; i < snapshot.removed.size(); ++i) {
     snapshot.removed[i] = 31 + i;
   }
+  snapshot.ext_inclusion_seconds.observe(2.5);  // le="4"
   auto out = render(snapshot, "");
   EXPECT_EQ(
       "# TYPE mempool_ext_messages gauge\n"
@@ -1545,10 +1546,31 @@ TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
       "mempool_ext_removed_total{reason=\"rejected_final\"} 33.000000\n"
       "mempool_ext_removed_total{reason=\"filtered\"} 34.000000\n"
       "mempool_ext_removed_total{reason=\"pool_pressure\"} 35.000000\n"
+      "# TYPE mempool_ext_inclusion_seconds histogram\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"0.25\"} 0.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"0.5\"} 0.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"1\"} 0.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"2\"} 0.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"4\"} 1.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"8\"} 1.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"15\"} 1.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"30\"} 1.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"60\"} 1.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"120\"} 1.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"300\"} 1.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"600\"} 1.000000\n"
+      "mempool_ext_inclusion_seconds_bucket{le=\"+Inf\"} 1.000000\n"
+      "mempool_ext_inclusion_seconds_sum 2.500000\n"
+      "mempool_ext_inclusion_seconds_count 1.000000\n"
       "# TYPE applied_ext_messages counter\n"
       "applied_ext_messages_total{chain=\"master\"} 41.000000\n"
       "applied_ext_messages_total{chain=\"shard\"} 43.000000\n",
       out);
+
+  // The bucket, sum and count samples must all belong to one family under the production prefix.
+  Sink sink;
+  Context(sink).with_name("ton").collect(snapshot);
+  EXPECT_EQ(1u, count_of(std::move(sink).build().render(), "# TYPE ton_mempool_ext_inclusion_seconds histogram\n"));
 }
 
 TEST(Metrics, ExtMessageStateCountsPreserveTheStoredStockIdentity) {

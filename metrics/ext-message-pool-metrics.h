@@ -83,6 +83,11 @@ enum class ExtMessageAdmissionOutcome : size_t {
 
 enum class ExtMessageRemovalReason : size_t { applied, expired, rejected_final, filtered, pool_pressure, count };
 
+// How long an entry sat in the pool before this node saw it applied. An idle chain includes within
+// one block, so the low end has to stay sub-second; an entry can never be stored longer than the
+// 600 s TTL, which is therefore the natural last bound.
+inline constexpr std::array<double, 12> kExtInclusionBuckets = {0.25, 0.5, 1, 2, 4, 8, 15, 30, 60, 120, 300, 600};
+
 struct ExtMessagePoolSnapshot {
   ExtMessageStateCounts ext_messages;
   double oldest_ext_message_age_seconds{0.0};
@@ -90,6 +95,7 @@ struct ExtMessagePoolSnapshot {
   td::uint64 check_error{0};
   std::array<td::uint64, static_cast<size_t>(ExtMessageAdmissionOutcome::count)> admission{};
   std::array<td::uint64, static_cast<size_t>(ExtMessageRemovalReason::count)> removed{};
+  Histogram<kExtInclusionBuckets> ext_inclusion_seconds;
   td::uint64 applied_master{0};
   td::uint64 applied_shard{0};
 
@@ -123,6 +129,8 @@ struct ExtMessagePoolSnapshot {
     for (size_t i = 0; i < removed.size(); ++i) {
       removed_family.with_label("reason", removal_reason_names_[i]).push(double(removed[i]));
     }
+
+    mempool.collect(ext_inclusion_seconds, "ext_inclusion_seconds");
 
     auto applied = ctx.with_name("applied_ext_messages");
     applied.open_family("counter", "total");

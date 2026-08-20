@@ -269,7 +269,7 @@
         "x": 0,
         "y": 1,
         "w": 12,
-        "h": 5
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -469,7 +469,7 @@
         "x": 12,
         "y": 1,
         "w": 12,
-        "h": 5
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -667,9 +667,9 @@
       "title": "Validation summary (5m) \u2014 Masterchain",
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 8,
         "w": 12,
-        "h": 5
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -867,9 +867,9 @@
       "title": "Validation summary (5m) \u2014 Shardchain",
       "gridPos": {
         "x": 12,
-        "y": 6,
+        "y": 8,
         "w": 12,
-        "h": 5
+        "h": 7
       },
       "datasource": {
         "type": "prometheus",
@@ -1067,7 +1067,7 @@
       "title": "Collate time stats \u2014 mean per block \u2014 ${chain:text}",
       "gridPos": {
         "x": 0,
-        "y": 11,
+        "y": 15,
         "w": 24,
         "h": 10
       },
@@ -1388,7 +1388,7 @@
       "title": "Collate CPU stats \u2014 mean per block \u2014 ${chain:text}",
       "gridPos": {
         "x": 0,
-        "y": 21,
+        "y": 25,
         "w": 24,
         "h": 9
       },
@@ -1656,7 +1656,7 @@
       "title": "Slot timeline \u2014 zero is slot start \u2014 Masterchain",
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -1881,7 +1881,7 @@
       "title": "Slot timeline \u2014 zero is slot start \u2014 Shardchain",
       "gridPos": {
         "x": 12,
-        "y": 30,
+        "y": 34,
         "w": 12,
         "h": 8
       },
@@ -2106,7 +2106,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 38
+        "y": 42
       },
       "id": 104,
       "panels": [
@@ -2116,7 +2116,7 @@
           "title": "Masterchain block rate \u2014 history",
           "gridPos": {
             "x": 0,
-            "y": 39,
+            "y": 43,
             "w": 8,
             "h": 8
           },
@@ -2272,7 +2272,7 @@
           "title": "Masterchain age \u2014 history",
           "gridPos": {
             "x": 8,
-            "y": 39,
+            "y": 43,
             "w": 8,
             "h": 8
           },
@@ -2592,7 +2592,7 @@
           "title": "Shardchain aggregate block rate \u2014 history",
           "gridPos": {
             "x": 16,
-            "y": 39,
+            "y": 43,
             "w": 8,
             "h": 8
           },
@@ -2695,7 +2695,7 @@
           "title": "Shard lag \u2014 history",
           "gridPos": {
             "x": 0,
-            "y": 47,
+            "y": 51,
             "w": 8,
             "h": 8
           },
@@ -3015,7 +3015,7 @@
           "title": "Shard collation budget \u2014 history",
           "gridPos": {
             "x": 8,
-            "y": 47,
+            "y": 51,
             "w": 8,
             "h": 8
           },
@@ -3126,7 +3126,7 @@
           "title": "Shard candidates discarded (10m) \u2014 history",
           "gridPos": {
             "x": 16,
-            "y": 47,
+            "y": 51,
             "w": 8,
             "h": 8
           },
@@ -3241,7 +3241,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 43
       },
       "id": 101,
       "panels": [
@@ -3251,7 +3251,7 @@
           "title": "Block flow (chain-wide) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 40,
+            "y": 44,
             "w": 12,
             "h": 9
           },
@@ -3447,7 +3447,7 @@
           "title": "Production problems (% of blocks) \u2014 ${chain:text}",
           "gridPos": {
             "x": 12,
-            "y": 40,
+            "y": 44,
             "w": 12,
             "h": 9
           },
@@ -3732,7 +3732,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 40
+        "y": 44
       },
       "id": 102,
       "panels": [
@@ -3742,7 +3742,7 @@
           "title": "Collation latency history (5m) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 41,
+            "y": 45,
             "w": 12,
             "h": 8
           },
@@ -3956,7 +3956,7 @@
           "title": "Collation real/CPU phases by node \u2014 ${chain:text} (${agg:text} node \u25be)",
           "gridPos": {
             "x": 12,
-            "y": 41,
+            "y": 45,
             "w": 12,
             "h": 9
           },
@@ -4113,7 +4113,7 @@
           "title": "Collation CPU load across nodes \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 50,
+            "y": 54,
             "w": 12,
             "h": 9
           },
@@ -4423,7 +4423,7 @@
           "title": "Failed/retry collation maxima \u2014 ${chain:text}",
           "gridPos": {
             "x": 12,
-            "y": 50,
+            "y": 54,
             "w": 12,
             "h": 9
           },
@@ -4712,7 +4712,7 @@
           "title": "Collation phase outliers \u2014 ${chain:text} (${agg:text} node \u25be)",
           "gridPos": {
             "x": 0,
-            "y": 59,
+            "y": 63,
             "w": 12,
             "h": 10
           },
@@ -4869,7 +4869,7 @@
           "title": "First slot vs steady state \u2014 ${chain:text}",
           "gridPos": {
             "x": 12,
-            "y": 59,
+            "y": 63,
             "w": 12,
             "h": 9
           },
@@ -5062,7 +5062,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 41
+        "y": 45
       },
       "id": 108,
       "panels": [
@@ -5072,7 +5072,7 @@
           "title": "Validation latency history (5m) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 42,
+            "y": 46,
             "w": 12,
             "h": 8
           },
@@ -5286,7 +5286,7 @@
           "title": "Validation real/CPU phases by node \u2014 ${chain:text} (${agg:text} node \u25be)",
           "gridPos": {
             "x": 12,
-            "y": 42,
+            "y": 46,
             "w": 12,
             "h": 9
           },
@@ -5443,7 +5443,7 @@
           "title": "Validation CPU load across nodes \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 51,
+            "y": 55,
             "w": 12,
             "h": 9
           },
@@ -5753,7 +5753,7 @@
           "title": "Failed validation maxima \u2014 ${chain:text}",
           "gridPos": {
             "x": 12,
-            "y": 51,
+            "y": 55,
             "w": 12,
             "h": 9
           },
@@ -6042,7 +6042,7 @@
           "title": "Validation phase outliers \u2014 ${chain:text} (${agg:text} node \u25be)",
           "gridPos": {
             "x": 0,
-            "y": 60,
+            "y": 64,
             "w": 24,
             "h": 10
           },
@@ -6203,7 +6203,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 46
       },
       "id": 109,
       "panels": [
@@ -6213,7 +6213,7 @@
           "title": "Collation nested work (per block) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 43,
+            "y": 47,
             "w": 8,
             "h": 9
           },
@@ -6404,7 +6404,7 @@
           "title": "Work per block \u2014 ${chain:text}",
           "gridPos": {
             "x": 8,
-            "y": 43,
+            "y": 47,
             "w": 8,
             "h": 9
           },
@@ -6541,7 +6541,7 @@
           "title": "Bytes per block \u2014 ${chain:text}",
           "gridPos": {
             "x": 16,
-            "y": 43,
+            "y": 47,
             "w": 8,
             "h": 9
           },
@@ -6649,7 +6649,7 @@
           "title": "Block/state/storage perf load (${agg:text} node \u25be)",
           "gridPos": {
             "x": 0,
-            "y": 52,
+            "y": 56,
             "w": 24,
             "h": 10
           },
@@ -6806,7 +6806,7 @@
           "title": "Out-msg queue \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 62,
+            "y": 66,
             "w": 12,
             "h": 9
           },
@@ -6962,7 +6962,7 @@
           "title": "Storage-stat cache \u2014 ${chain:text}",
           "gridPos": {
             "x": 12,
-            "y": 62,
+            "y": 66,
             "w": 12,
             "h": 9
           },
@@ -7153,7 +7153,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 47
       },
       "id": 106,
       "panels": [
@@ -7163,7 +7163,7 @@
           "title": "Slot outcomes (5m) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 44,
+            "y": 48,
             "w": 24,
             "h": 8
           },
@@ -7337,7 +7337,7 @@
           "title": "Finality position in slot (5m) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 52,
+            "y": 56,
             "w": 24,
             "h": 5
           },
@@ -7507,7 +7507,7 @@
           "title": "Consensus stage stats (5m) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 57,
+            "y": 61,
             "w": 24,
             "h": 10
           },
@@ -7790,7 +7790,7 @@
           "title": "Slot handoff stats (5m) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 67,
+            "y": 71,
             "w": 24,
             "h": 5
           },
@@ -7990,7 +7990,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 44
+        "y": 48
       },
       "id": 105,
       "panels": [
@@ -8000,7 +8000,7 @@
           "title": "First-arrival winner / applied blocks (recent) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 45,
+            "y": 49,
             "w": 24,
             "h": 10
           },
@@ -8104,7 +8104,7 @@
           "title": "Source arrivals / applied blocks (recent) \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 55,
+            "y": 59,
             "w": 24,
             "h": 10
           },
@@ -8211,7 +8211,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 45
+        "y": 49
       },
       "id": 103,
       "panels": [
@@ -8221,7 +8221,7 @@
           "title": "Validated/admitted /s (global)",
           "gridPos": {
             "x": 0,
-            "y": 46,
+            "y": 50,
             "w": 8,
             "h": 4
           },
@@ -8289,7 +8289,7 @@
           "title": "Applied /s (synced) \u2014 ${chain:text}",
           "gridPos": {
             "x": 8,
-            "y": 46,
+            "y": 50,
             "w": 8,
             "h": 4
           },
@@ -8357,7 +8357,7 @@
           "title": "External work in failed attempts (10m)",
           "gridPos": {
             "x": 16,
-            "y": 46,
+            "y": 50,
             "w": 8,
             "h": 4
           },
@@ -8433,7 +8433,7 @@
           "title": "External flow /s \u2014 ${chain:text}",
           "gridPos": {
             "x": 0,
-            "y": 50,
+            "y": 54,
             "w": 12,
             "h": 9
           },
@@ -8599,7 +8599,7 @@
           "title": "External admission & collation outcomes /s \u2014 ${chain:text}",
           "gridPos": {
             "x": 12,
-            "y": 50,
+            "y": 54,
             "w": 12,
             "h": 9
           },
@@ -8723,7 +8723,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 46
+        "y": 50
       },
       "id": 110,
       "panels": [
@@ -8733,7 +8733,7 @@
           "title": "Eligible mempool backlog (worst node)",
           "gridPos": {
             "x": 0,
-            "y": 47,
+            "y": 51,
             "w": 4,
             "h": 4
           },
@@ -8816,7 +8816,7 @@
           "title": "Oldest pending external (worst node)",
           "gridPos": {
             "x": 4,
-            "y": 47,
+            "y": 51,
             "w": 5,
             "h": 4
           },
@@ -8900,7 +8900,7 @@
           "title": "Local mempool removals /s (5m, per reason) (${agg:text} node \u25be)",
           "gridPos": {
             "x": 9,
-            "y": 47,
+            "y": 51,
             "w": 12,
             "h": 9
           },
@@ -9086,7 +9086,7 @@
           "title": "External mempool state (${agg:text} node \u25be)",
           "gridPos": {
             "x": 0,
-            "y": 56,
+            "y": 60,
             "w": 12,
             "h": 9
           },
@@ -9453,7 +9453,7 @@
           "title": "Mempool stock / accounted flow (5m change) (${agg:text} node \u25be)",
           "gridPos": {
             "x": 12,
-            "y": 56,
+            "y": 60,
             "w": 12,
             "h": 9
           },
@@ -9800,6 +9800,228 @@
           "pluginVersion": "12.0.0",
           "transparent": false,
           "description": "\u25be Five-minute per-node reconciliation across all destination chains and priorities. All lines are message counts over the same five-minute endpoints: measured is the sum of delta(total state buckets); accounted is increase(new accepted insertions) minus the sum of increase(every removal reason); unexplained |delta| is their per-node absolute difference before node aggregation. Delta and increase both extrapolate range endpoints, so it should stay near zero apart from scrape alignment and restart or schema-rollout transients. Reprioritized admissions are deliberately excluded because moving an existing entry between priorities is stock-neutral. Only stateful exporters render: legacy accepted counters also counted successful validation on nodes that did not store the message, so showing old history here would invent growth. The Node aggregation switch chooses the pointwise worst, p95, median, or best selected node independently per line; worst therefore finds the largest residual regardless of its original sign. The underlying accepted-minus-removals identity is exact from process start on every upgraded process: it is informative on validators and collators that store messages and trivially 0 = 0 on relay-only nodes. These plotted window deltas remain estimates. A sustained residual means a missing transition counter or gauge-accounting bug. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+        },
+        {
+          "id": 72,
+          "type": "timeseries",
+          "title": "External inclusion latency by node (${agg:text} node \u25be)",
+          "gridPos": {
+            "x": 0,
+            "y": 69,
+            "w": 12,
+            "h": 9
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s",
+              "custom": {
+                "lineWidth": 2,
+                "fillOpacity": 6,
+                "showPoints": "never",
+                "drawStyle": "line",
+                "lineInterpolation": "linear",
+                "barAlignment": 0,
+                "pointSize": 5,
+                "gradientMode": "none",
+                "spanNulls": false,
+                "insertNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "axisPlacement": "auto",
+                "axisLabel": "seconds stored",
+                "axisColorMode": "text",
+                "axisBorderShow": false,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "axisCenteredZero": false,
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "color": {
+                "mode": "palette-classic"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "mappings": [],
+              "min": 0
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "ATTR"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.spanNulls",
+                    "value": false
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8E8E8E",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byFrameRefID",
+                  "options": "ATTR2"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": false,
+                      "viz": false
+                    }
+                  },
+                  {
+                    "id": "custom.lineWidth",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.fillOpacity",
+                    "value": 0
+                  },
+                  {
+                    "id": "custom.showPoints",
+                    "value": "never"
+                  },
+                  {
+                    "id": "custom.lineStyle",
+                    "value": {
+                      "fill": "solid"
+                    }
+                  },
+                  {
+                    "id": "custom.spanNulls",
+                    "value": false
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "#8E8E8E",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Last *",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc",
+              "hoverProximity": 10
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "quantile(${agg}, histogram_quantile(0.5, sum by (job, instance, le) (rate(ton_mempool_ext_inclusion_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[5m]))))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "p50"
+            },
+            {
+              "refId": "B",
+              "expr": "quantile(${agg}, histogram_quantile(0.95, sum by (job, instance, le) (rate(ton_mempool_ext_inclusion_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[5m]))))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "editorMode": "code",
+              "range": true,
+              "instant": false,
+              "legendFormat": "p95"
+            },
+            {
+              "refId": "ATTR",
+              "expr": "(histogram_quantile(0.5, sum by (job, instance, le) (rate(ton_mempool_ext_inclusion_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (bottomk(1, avg_over_time((abs((histogram_quantile(0.5, sum by (job, instance, le) (rate(ton_mempool_ext_inclusion_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[5m])))) - on () group_left() (quantile(${agg}, histogram_quantile(0.5, sum by (job, instance, le) (rate(ton_mempool_ext_inclusion_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[5m])))))))[$__range:] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "legendFormat": "p50 \u21d2 {{instance}}"
+            },
+            {
+              "refId": "ATTR2",
+              "expr": "(histogram_quantile(0.95, sum by (job, instance, le) (rate(ton_mempool_ext_inclusion_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[5m])))) and on (job, instance) (bottomk(1, avg_over_time((abs((histogram_quantile(0.95, sum by (job, instance, le) (rate(ton_mempool_ext_inclusion_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[5m])))) - on () group_left() (quantile(${agg}, histogram_quantile(0.95, sum by (job, instance, le) (rate(ton_mempool_ext_inclusion_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[5m])))))))[$__range:] @ end())))",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "legendFormat": "p95 \u21d2 {{instance}}"
+            }
+          ],
+          "pluginVersion": "12.0.0",
+          "transparent": false,
+          "description": "\u25be How long an entry sat in a node's pool before that same node observed the message in an applied block. Each quantile is one node's own event quantile over a fixed five-minute window, and the Node aggregation switch then collapses across nodes. The clock starts at local admission and stops at local observation, so it contains broadcast propagation to whichever collator included the message plus this node's apply lag; it is a node-local reading, not a chain-wide inclusion time, and a slow or lagging node inflates its own value. Only applied removals are observed: expired, filtered, rejected_final and pool_pressure evictions are never sampled. A pool that is failing to get its messages included therefore draws FEWER samples rather than a higher latency, so read this beside the removal-reason and backlog panels above, which is where such a failure actually shows. Reprioritizing a duplicate replaces the entry and restarts its clock. Values are bounded by the 600s TTL by construction. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         }
       ],
       "title": "Mempool diagnostics",
