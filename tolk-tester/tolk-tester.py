@@ -351,7 +351,7 @@ class TolkTestFile:
 
     def run_and_check(self):
         cmd_args = ([TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename(),
-                     "--no-symbol-types", "--no-compiled-boc"]
+                     "--no-symbol-types", "--no-compiled-boc", "--color", "never"]
                     + self.more_cmd_line_options)
         if not self.abi_json:
             cmd_args += ["--no-contract-abi"]

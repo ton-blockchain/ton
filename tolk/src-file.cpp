@@ -219,7 +219,7 @@ static bool occupies_almost_whole_line(const SrcFile::SrcPosition& start, const 
   return i + 1 < after.size() && after[i] == '/' && after[i + 1] == '/';
 }
 
-void SrcRange::output_underlined(std::ostream& os) const {
+void SrcRange::output_underlined(std::ostream& os, const char* ansi_gutter, const char* ansi_underline, const char* ansi_reset) const {
   SrcFilePtr src_file = get_src_file();
   if (!src_file || !src_file->is_offset_valid(end_offset) || !is_valid()) {
     return;
@@ -227,37 +227,39 @@ void SrcRange::output_underlined(std::ostream& os) const {
   SrcFile::SrcPosition start = src_file->convert_offset(start_offset);
   SrcFile::SrcPosition end = src_file->convert_offset(end_offset);
 
+  os << ansi_gutter << "    " << " | " << ansi_reset << std::endl;
+
   if (occupies_almost_whole_line(start, end) && start.line_no > 1) {
     SrcFile::SrcPosition prev = src_file->convert_offset(src_file->line_offsets[start.line_no - 2]);
     if (!contains_only_spaces(prev.line_str)) {
-      os << std::right << std::setw(4) << prev.line_no << " | " << prev.line_str << "\n";
+      os << ansi_gutter << "    " << " | " << ansi_reset << prev.line_str << "\n";
     }
   }
 
-  os << std::right << std::setw(4) << start.line_no << " | " << start.line_str << "\n";
-  os << "    " << " | ";
+  os << ansi_gutter << std::right << std::setw(4) << start.line_no << " | " << ansi_reset << start.line_str << "\n";
+  os << ansi_gutter << "    " << " | " << ansi_reset;
   for (int i = 1; i < start.char_no; ++i) {
     os << ' ';
   }
-  int end_char_no_first_line = start.line_no == end.line_no ? end.char_no : static_cast<int>(start.line_str.size());
-  for (int i = start.char_no; i < end_char_no_first_line; ++i) {
+  int end_char_no_first_line = start.line_no == end.line_no ? end.char_no - 1 : static_cast<int>(start.line_str.size());
+  os << ansi_underline;
+  for (int i = start.char_no; i <= end_char_no_first_line; ++i) {
     os << '^';
   }
-  os << "\n";
+  os << ansi_reset << "\n";
 
   if (end.line_no > start.line_no + 1) {
-    os << " ..." << "   ...";
-    os << "\n";
+    os << ansi_gutter << " ..." << "   ..." << ansi_reset << "\n";
   }
   if (end.line_no > start.line_no) {
-    os << std::right << std::setw(4) << end.line_no << " | " << end.line_str << "\n";
-    os << "    " << " | ";
+    os << ansi_gutter << std::right << std::setw(4) << end.line_no << " | " << ansi_reset << end.line_str << "\n";
+    os << ansi_gutter << "    " << " | " << ansi_reset << ansi_underline;
     bool was_non_space = false;
     for (int i = 1; i < end.char_no; ++i) {
       was_non_space |= !std::isspace(end.line_str[i - 1]);
       os << (was_non_space ? '^' : ' ');
     }
-    os << "\n";
+    os << ansi_reset << "\n";
   }
 }
 

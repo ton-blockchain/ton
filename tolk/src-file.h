@@ -152,7 +152,7 @@ public:
   SrcFilePtr get_src_file() const;
   std::string stringify_start_location(bool output_char_no) const;
 
-  void output_underlined(std::ostream& os) const;
+  void output_underlined(std::ostream& os, const char* ansi_gutter, const char* ansi_underline, const char* ansi_reset) const;
 
 
   struct DecodedRange {

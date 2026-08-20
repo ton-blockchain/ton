@@ -27,6 +27,7 @@
 #include "compiler-state.h"
 #include "compiler-settings.h"
 #include "td/utils/port/path.h"
+#include <cstring>
 #include <getopt.h>
 #include <fstream>
 #include <sys/stat.h>
@@ -34,7 +35,8 @@
 #include <mach-o/dyld.h>
 #elif TD_WINDOWS
 #include <windows.h>
-#else  // linux
+#endif
+#if !TD_WINDOWS
 #include <unistd.h>
 #endif
 #include "git.h"
@@ -51,6 +53,7 @@ enum LongOnlyOptions {
   OPT_NO_SYMBOL_TYPES,
   OPT_EMIT_DEBUG_MARKS,
   OPT_JSON_ERRORS,
+  OPT_COLOR,
   OPT_CHECK_ONLY,
   OPT_ALLOW_NO_ENTRYPOINT,
   OPT_ALLOW_EMPTY_GET_FUN,
@@ -66,6 +69,7 @@ static struct option long_options[] = {
   {"no-symbol-types", no_argument, nullptr, OPT_NO_SYMBOL_TYPES},
   {"emit-debug-marks", no_argument, nullptr, OPT_EMIT_DEBUG_MARKS},
   {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
+  {"color", required_argument, nullptr, OPT_COLOR},
   {"check-only", no_argument, nullptr, OPT_CHECK_ONLY},
   {"allow-no-entrypoint", no_argument, nullptr, OPT_ALLOW_NO_ENTRYPOINT},
   {"allow-empty-get-fun", no_argument, nullptr, OPT_ALLOW_EMPTY_GET_FUN},
@@ -94,6 +98,8 @@ void usage(const char* progname) {
             "\tOutput debug marks JSON artifact and debug marks to Fift code\n"
          "--json-errors\n"
             "\tShow compilation errors in JSON (not human-readable) format\n"
+         "--color <auto|always|never>\n"
+            "\tControl colors in human-readable compilation errors\n"
          "--check-only\n"
             "\tCheck sources for errors without generating code (for IDE in background)\n"
          "--allow-no-entrypoint\n"
@@ -267,6 +273,24 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
   static_cast<void>(callback_payload);
 }
 
+static bool auto_detect_colorize() {
+#if TD_WINDOWS
+  return false;
+#else
+  // may be disabled by any non-empty env, e.g. NO_COLOR=yes|1|true
+  if (const char* no_color = getenv("NO_COLOR"); no_color && *no_color) {
+    return false;
+  }
+
+  if (!::isatty(STDERR_FILENO)) {
+    return false;
+  }
+
+  const char* term = getenv("TERM");
+  return term && *term && std::strcmp(term, "dumb") != 0;
+#endif
+}
+
 GNU_ATTRIBUTE_NOINLINE
 static void compilation_failed_output_errors(const std::vector<ThrownParseError>& errors) {
   constexpr int JSON_ERROR_LIMIT = 50;
@@ -297,7 +321,7 @@ static void compilation_failed_output_errors(const std::vector<ThrownParseError>
 }
 
 static void compilation_failed_with_fatal(const std::string& message) {
-  // no location, no pretty header, no json output, just "fatal", something unexpected happened
+  // no location, no pretty header, no colorize, no json output, just "fatal", something unexpected happened
   std::cerr << "fatal: " << message << std::endl;
 }
 
@@ -309,6 +333,7 @@ static void compilation_succeed_after_output_done() {
 
 int main(int argc, char* const argv[]) {
   int i;
+  const char* color_mode = "auto";
   while ((i = getopt_long(argc, argv, "o:evVh", long_options, nullptr)) != -1) {
     switch (i) {
       case 'o':
@@ -339,6 +364,13 @@ int main(int argc, char* const argv[]) {
         break;
       case OPT_JSON_ERRORS:
         G_settings.show_errors_as_json = true;
+        break;
+      case OPT_COLOR:
+        if (strcmp(optarg, "auto") && strcmp(optarg, "always") && strcmp(optarg, "never")) {
+          std::cerr << "invalid --color value: expected auto|always|never" << std::endl;
+          return 2;
+        }
+        color_mode = optarg;
         break;
       case OPT_CHECK_ONLY:
         G_settings.check_only_no_output = true;
@@ -396,6 +428,14 @@ int main(int argc, char* const argv[]) {
   if (G_settings.emit_debug_marks && !G_settings.emit_symbol_types) {
     std::cerr << "--emit-debug-marks requires symbol types; remove --no-symbol-types" << std::endl;
     return 2;
+  }
+
+  if (!G_settings.show_errors_as_json) {    // no colorize for json errors
+    if (strcmp(color_mode, "always") == 0) {
+      G_settings.colorize_errors = true;
+    } else if (strcmp(color_mode, "auto") == 0) {
+      G_settings.colorize_errors = auto_detect_colorize();
+    }
   }
 
   TolkCompilationResult result = tolk_proceed(argv[optind]);

@@ -16,6 +16,7 @@
 */
 #include "compilation-errors.h"
 #include "ast.h"
+#include "compiler-settings.h"
 #include "compiler-state.h"
 #include "json-output.h"
 
@@ -35,11 +36,40 @@
 
 namespace tolk {
 
-static std::string str_in_function(FunctionPtr f) {
-  if (f->is_lambda()) {
-    return f->base_fun_ref ? "in lambda " + str_in_function(f->base_fun_ref) : "in lambda";
+static constexpr char ANSI_RESET[] = "\x1b[0m";
+static constexpr char ANSI_BOLD[] = "\x1b[1m";
+static constexpr char ANSI_DIM[] = "\x1b[2m";
+static constexpr char ANSI_BOLD_RED[] = "\x1b[1;31m";
+static constexpr char ANSI_BOLD_BLUE[] = "\x1b[1;34m";
+static constexpr char ANSI_BOLD_MAGENTA[] = "\x1b[1;35m";
+static constexpr char ANSI_BOLD_CYAN[] = "\x1b[1;36m";
+
+struct AnsiStyled {
+  std::string_view text;
+  const char* ansi_style;
+};
+
+static std::ostream& operator<<(std::ostream& os, const AnsiStyled& value) {
+  if (G_settings.colorize_errors) {
+    os << value.ansi_style;
   }
-  return "in function `" + f->as_human_readable() + "`";
+  os << value.text;
+  if (G_settings.colorize_errors) {
+    os << ANSI_RESET;
+  }
+  return os;
+}
+
+// generate prefix "in function" or "in lambda in function", returning topmost non-lambda
+static std::string str_in_function(FunctionPtr& f) {
+  if (f->is_lambda()) {
+    if (!f->base_fun_ref) {
+      return "in lambda ";
+    }
+    f = f->base_fun_ref;
+    return "in lambda " + str_in_function(f);
+  }
+  return "in function ";
 }
 
 void on_assertion_failed(const char *description, const char *file_name, int line_number) {
@@ -201,36 +231,60 @@ static void to_json(JsonPrettyOutput& json, JsonErrorRange v) {
 }
 
 void ThrownParseError::output_to_console(std::ostream& os) const {
-  std::string loc_text = range.stringify_start_location(true);
-  os << loc_text << ": error: ";
+  os << AnsiStyled{"error", ANSI_BOLD_RED}
+     << AnsiStyled{": ", ANSI_BOLD};
 
-  if (message.find('\n') == std::string::npos) {
-    // just print a single-line message after "error:"
-    os << message << std::endl;
-  } else {
-    // print "location: line1 \n (spaces) line2 \n ..."
-    std::string loc_spaces(std::min(static_cast<int>(loc_text.size()), 9), ' ');
-    size_t start = 0, end;
-    while ((end = message.find('\n', start)) != std::string::npos) {
-      if (start > 0) {
-        os << loc_spaces << "  ";
-      }
-      os << message.substr(start, end - start) << std::endl;
-      start = end + 1;
-    }
-    if (start < message.size()) {
-      os << loc_spaces << "  " << message.substr(start) << std::endl;
-    }
+  // message is:
+  // - a single string "can not parse"
+  // - a multi-line string "can not parse\n""because it's bad"
+  // - a multi-line string with hints: "can not parse\n""hint: first\n""hint: second"
+  std::string_view msg_text = message;
+  std::string_view hint_text;
+  if (size_t hint_pos = message.find("\nhint:"); hint_pos != std::string_view::npos) {
+    hint_text = msg_text.substr(hint_pos + 1);
+    msg_text = msg_text.substr(0, hint_pos);
   }
+
+  size_t first_eol = msg_text.find('\n');
+  // a bold message after "error:"
+  os << AnsiStyled{msg_text.substr(0, first_eol), ANSI_BOLD} << "\n";
+  // multi-line message: print "(spaces) line2 \n (spaces) line3", non-bold
+  size_t start = first_eol == std::string_view::npos ? msg_text.size() : first_eol + 1;
+  while (start < msg_text.size()) {
+    size_t eol = msg_text.find('\n', start);
+    size_t end = eol == std::string_view::npos ? msg_text.size() : eol;
+    os << "    " << msg_text.substr(start, end - start) << "\n";
+    start = end + 1;
+  }
+
+  os << AnsiStyled{"    --> ", ANSI_BOLD_BLUE}
+     << range.stringify_start_location(true) << "\n";
+
   if (in_function) {
-    os << std::endl << "    // " << str_in_function(in_function) << std::endl;
+    FunctionPtr f_non_lambda = in_function;
+    os << AnsiStyled{"     |  ", ANSI_BOLD_BLUE}
+       << AnsiStyled{str_in_function(f_non_lambda), ANSI_DIM}
+       << AnsiStyled{f_non_lambda->as_human_readable(), ANSI_BOLD_MAGENTA} << "\n";
   }
-  range.output_underlined(os);
+
+  range.output_underlined(os,
+    G_settings.colorize_errors ? ANSI_BOLD_BLUE : "",
+    G_settings.colorize_errors ? ANSI_BOLD_RED : "",
+    G_settings.colorize_errors ? ANSI_RESET : "");
+
+  // print hints, probably multi-line (one hint per line), non-bold, don't highlight "hint"
+  if (!hint_text.empty()) {
+    os << hint_text << "\n";
+  }
 
   for (const ErrorSecondaryLocation& loc : secondary_locations) {
-    os << std::endl;
-    os << loc.range.stringify_start_location(true) << ": note: " << loc.note << std::endl;
-    loc.range.output_underlined(os);
+    os << "\n" << AnsiStyled{"note", ANSI_BOLD_CYAN} << ": " << loc.note << "\n"
+       << AnsiStyled{"    --> ", ANSI_BOLD_BLUE}
+       << loc.range.stringify_start_location(true) << "\n";
+    loc.range.output_underlined(os,
+      G_settings.colorize_errors ? ANSI_BOLD_BLUE : "",
+      G_settings.colorize_errors ? ANSI_BOLD_CYAN : "",
+      G_settings.colorize_errors ? ANSI_RESET : "");
   }
 }
 
@@ -238,7 +292,9 @@ void ThrownParseError::output_to_json(JsonPrettyOutput& json) const {
   json.start_object();
   json.key_value("message", message);
   if (in_function) {
-    json.key_value("in_function", str_in_function(in_function));
+    FunctionPtr f_non_lambda = in_function;
+    std::string in_prefix = str_in_function(f_non_lambda);
+    json.key_value("in_function", in_prefix + f_non_lambda->as_human_readable());
   }
   if (range.is_valid()) {
     json.key_value("range", JsonErrorRange{range});

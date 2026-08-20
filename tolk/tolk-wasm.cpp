@@ -75,6 +75,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   TRY_RESULT(emit_debug_marks, config.get_optional_bool_field("withDebugMarks", false));
   TRY_RESULT(entrypoint_filename, config.get_required_string_field("entrypointFileName"));
   TRY_RESULT(show_errors_as_json, config.get_optional_bool_field("jsonErrors", false));
+  TRY_RESULT(colorize_errors, config.get_optional_bool_field("colorizeErrors", false));
   TRY_RESULT(check_only_no_output, config.get_optional_bool_field("checkOnly", false));
   TRY_RESULT(allow_no_entrypoint, config.get_optional_bool_field("allowNoEntrypoint", false));
   TRY_RESULT(allow_empty_get_fun, config.get_optional_bool_field("allowEmptyGetFun", false));
@@ -84,6 +85,7 @@ static td::Result<std::string> compile_internal(char *config_json) {
   G_settings.stack_layout_comments = stack_comments;
   G_settings.tolk_src_as_line_comments = src_line_comments;
   G_settings.show_errors_as_json = show_errors_as_json;
+  G_settings.colorize_errors = colorize_errors && !show_errors_as_json;
   G_settings.check_only_no_output = check_only_no_output;
   G_settings.emit_contract_abi = true;
   G_settings.emit_symbol_types = emit_symbol_types;
