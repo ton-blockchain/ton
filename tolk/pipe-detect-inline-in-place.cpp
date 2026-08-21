@@ -18,7 +18,10 @@
 #include "ast-visitor.h"
 #include "compilation-errors.h"
 #include "inline-return-analysis.h"
+#include "pack-unpack-api.h"
+#include <algorithm>
 #include <functional>
+#include <unordered_map>
 #include <unordered_set>
 
 /*
@@ -46,6 +49,9 @@
  *
  *   Besides inline detection, this pipe populates `fun_ref->n_times_called` (while building call graph).
  * It's used in Fift output inside comments.
+ *
+ *   The same call graph is reused to assign `requires_callxargs`: a function needs CALLXARGS if it
+ * contains `try/catch`, or inlines in-place another function that does.
  */
 
 namespace tolk {
@@ -218,23 +224,46 @@ public:
 // this visitor (called once for a function):
 // 1) fills call_graph[cur_f] (all function calls from cur_f)
 // 2) increments n_times_called
+// 3) records functions that contain `try/catch`
 // as a result of applying it to every function, we get a full call graph and how many times each function was called;
 // we'll use this call graph to detect recursive components (functions within recursions can not be inlined)
+// and to propagate `requires_callxargs` through in-place inline edges
 class CallGraphBuilderVisitor final : public ASTVisitorFunctionBody {
+
+  void register_call(FunctionPtr called_f) {
+    tolk_assert(!called_f->is_generic_function());
+    if (called_f->is_code_function()) {
+      call_graph[cur_f].emplace_back(called_f);
+    }
+    called_f->mutate()->n_times_called++;
+  }
 
   void visit(V<ast_function_call> v) override {
     if (FunctionPtr called_f = v->fun_maybe) {
-      if (called_f->is_code_function()) {
-        call_graph[cur_f].emplace_back(called_f);
+      register_call(called_f);
+
+      // calling `SomeStruct.toCell()` implicitly calls custom `packToBuilder()` serializers for nested fields;
+      // include them in call graph to detect recursive serializers and try/catch within them
+      if (called_f->is_compile_time_special_gen() && called_f->is_instantiation_of_generic_function()) {
+        std::vector<FunctionPtr> implicit_pack_unpack;
+        collect_recursive_pack_unpack_when_f_called(called_f, nullptr, &implicit_pack_unpack);
+        for (FunctionPtr implicit_f : implicit_pack_unpack) {
+          register_call(implicit_f);
+        }
       }
-      called_f->mutate()->n_times_called++;
     }
+    parent::visit(v);
+  }
+
+  void visit(V<ast_try_catch_statement> v) override {
+    functions_with_try_catch.insert(cur_f);
     parent::visit(v);
   }
 
 public:
   // populated while visiting: maps [ fun_ref -> list of functions it calls ]
   std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph;
+  std::unordered_set<FunctionPtr> functions_with_try_catch;
 
   bool should_visit_function(FunctionPtr fun_ref) override {
     // don't include asm functions, we don't need them in calculations
@@ -246,18 +275,13 @@ public:
   }
 };
 
-static void detect_recursive_functions() {
-  // 1) build call_graph (and calculate n_times_called also)
-  CallGraphBuilderVisitor visitor;
-  visit_ast_of_all_functions(visitor);
-  std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph = std::move(visitor.call_graph);
-
-  // 2) using call_graph, detect cycles (the smallest, non-optimized algorithm, okay for our needs)
+static void detect_recursive_functions(const std::unordered_map<FunctionPtr, std::vector<FunctionPtr>>& call_graph) {
+  // using call_graph, detect cycles (the smallest, non-optimized algorithm, okay for our needs)
   for (const auto& it : call_graph) {
     FunctionPtr f_start_from = it.first;
     std::unordered_set<FunctionPtr> visited;
     std::function<bool(FunctionPtr)> is_recursive_dfs = [&](FunctionPtr cur) -> bool {
-      for (FunctionPtr f_called : call_graph[cur]) {
+      for (FunctionPtr f_called : call_graph.at(cur)) {
         if (f_called == f_start_from)
           return true;
         if (!visited.insert(f_called).second)
@@ -269,7 +293,31 @@ static void detect_recursive_functions() {
     };
     if (!it.second.empty() && is_recursive_dfs(f_start_from)) {
       f_start_from->mutate()->n_times_called = 9999;      // means "recursive"
+      if (f_start_from->is_packToBuilder() || f_start_from->is_unpackFromSlice()) {
+        err("function `{}` is recursive and leads to infinite serialization", f_start_from).collect(f_start_from);
+      }
     }
+  }
+}
+
+static void detect_requires_callxargs(const std::unordered_map<FunctionPtr, std::vector<FunctionPtr>>& call_graph,
+                                      const std::unordered_set<FunctionPtr>& functions_with_try_catch) {
+  std::unordered_set<FunctionPtr> requires_callxargs = functions_with_try_catch;
+  bool changed;
+  do {
+    changed = false;
+    for (const auto& [caller, callees] : call_graph) {
+      if (!requires_callxargs.contains(caller)) {
+        bool inlines_callxargs = std::any_of(callees.begin(), callees.end(), [&](FunctionPtr callee) {
+          return callee->is_inlined_in_place() && requires_callxargs.contains(callee);
+        });
+        changed |= inlines_callxargs && requires_callxargs.insert(caller).second;
+      }
+    }
+  } while (changed);
+
+  for (FunctionPtr fun_ref : requires_callxargs) {
+    fun_ref->mutate()->assign_requires_callxargs();
   }
 }
 
@@ -295,11 +343,19 @@ public:
 };
 
 void pipeline_detect_inline_in_place() {
-  detect_recursive_functions();
+  // 1) we need call graph to detect recursive functions, BEFORE calculating inline
+  CallGraphBuilderVisitor graph_visitor;
+  visit_ast_of_all_functions(graph_visitor);
+  detect_recursive_functions(graph_visitor.call_graph);
+
+  // 2) not auto-detect inline and check `@inline` annotations
   DetectIfToInlineFunctionInPlaceVisitor visitor;
   visit_ast_of_all_functions(visitor);
   CheckExpectInlineAssertionsVisitor checker;
   visit_ast_of_all_functions(checker);
+
+  // 3) assign callxargs by THE SAME call graph, strictly AFTER calculating inline
+  detect_requires_callxargs(graph_visitor.call_graph, graph_visitor.functions_with_try_catch);
 }
 
 } // namespace tolk

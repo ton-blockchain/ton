@@ -872,15 +872,6 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
 }
 
 std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {
-  static thread_local std::vector<FunctionPtr> called_stack;
-  if (std::find(called_stack.begin(), called_stack.end(), f_inlined) != called_stack.end()) {
-    // a recursion that was not caught at normal analysis, very tricky, like
-    // > fun MyInt.packToBuilder(self, mutate b: builder) {
-    // >   b.storeAny(S{x: self})     // during lowering, expanded to packToBuilder again
-    std::string_view postfix = f_inlined->is_packToBuilder() || f_inlined->is_unpackFromSlice() ? " and leads to infinite serialization" : "";
-    err("function `{}` is recursive{}", f_inlined, postfix).fire(f_inlined);
-  }
-
   tolk_assert(vars_per_arg.size() == f_inlined->parameters.size());
   std::vector<var_idx_t> ir_params;
   for (int i = 0; i < f_inlined->get_num_params(); ++i) {
@@ -914,7 +905,6 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
 
   code.fun_ref = f_inlined;
   code.inlining = &inlining;
-  called_stack.push_back(f_inlined);
   // specially handle `point.getX()` if point is a lazy var: to make `self.toCell()` work and `self.x` asserted;
   // (only methods preserve lazy, `getXOf(point)` does not, though theoretically can be done)
   const LazyVariableLoadedState* lazy_receiver = self_obj ? code.get_lazy_variable(self_obj) : nullptr;
@@ -948,7 +938,6 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
   ClearStateAfterInlineInPlace visitor;
   visitor.start_visiting_function(f_inlined, v_ast_root);
 
-  called_stack.pop_back();
   code.fun_ref = backup_cur_fun;
   code.inlining = backup_outer_inline;
   code.lazy_variables = std::move(backup_lazy_variables);
@@ -2163,7 +2152,6 @@ static void process_catch_variable(AnyExprV v_catch_var, CodeBlob& code) {
 }
 
 static void process_try_catch_statement(V<ast_try_catch_statement> v, CodeBlob& code) {
-  code.require_callxargs = true;
   Op& try_catch_op = code.add_try_catch(v);
   code.push_set_cur(try_catch_op.block0);
   process_any_statement(v->get_try_body(), code);

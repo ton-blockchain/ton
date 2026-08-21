@@ -75,14 +75,18 @@ CustomPackUnpackF get_custom_pack_unpack_function(TypePtr receiver_type, std::ve
     err_ambiguous_pack_unpack_method(c_pack).fire(c_pack[0].method_ref);
   }
   if (!c_pack.empty()) {
-    f.f_pack = c_pack[0].method_ref;
+    if (!c_pack[0].method_ref->is_generic_function() || c_pack[0].substitutedTs.all_Ts_initialized()) {
+      f.f_pack = c_pack[0].method_ref;
+    }
   }
 
   if (c_unpack.size() > 1) {
     err_ambiguous_pack_unpack_method(c_unpack).fire(c_unpack[0].method_ref);
   }
   if (!c_unpack.empty()) {
-    f.f_unpack = c_unpack[0].method_ref;
+    if (!c_unpack[0].method_ref->is_generic_function() || c_unpack[0].substitutedTs.all_Ts_initialized()) {
+      f.f_unpack = c_unpack[0].method_ref;
+    }
   }
 
   if (out_candidates) {

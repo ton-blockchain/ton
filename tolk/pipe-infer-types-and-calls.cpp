@@ -912,12 +912,11 @@ class InferTypesAndCallsAndFieldsVisitor final {
     }
 
     std::vector<TypePtr> type_arguments;
-    type_arguments.reserve(genericTs->size());
+    type_arguments.reserve(instantiationT_list->size());
     for (int i = 0; i < instantiationT_list->size(); ++i) {
       type_arguments.push_back(instantiationT_list->get_item(i)->type_node->resolved_type);
     }
-    genericTs->append_defaults(type_arguments);
-
+    // omitted tail arguments stay nullptr; check_and_instantiate_generic_function applies defaults
     return type_arguments;
   }
 
@@ -927,6 +926,14 @@ class InferTypesAndCallsAndFieldsVisitor final {
   // example: was `var cb = t.first<int>;` (used as reference, as non-call), instantiate `tuple.first<int>`
   // returns fun_ref to instantiated function
   FunctionPtr check_and_instantiate_generic_function(SrcRange range, FunctionPtr fun_ref, GenericsSubstitutions&& substitutedTs) const {
+    // `<U = int32>` fills T that deduction left nullptr; anything still missing is an error
+    substitutedTs.rewrite_missing_with_defaults();
+    for (int i = 0; i < substitutedTs.size(); ++i) {
+      if (substitutedTs.typeT_at(i) == nullptr) {
+        GenericSubstitutionsDeducing(fun_ref).err_can_not_deduce(substitutedTs.nameT_at(i)).fire(range, cur_f);
+      }
+    }
+
     // T for asm function must be a TVM primitive (width 1), otherwise, asm would act incorrectly
     if (fun_ref->is_asm_function()) {
       for (int i = 0; i < substitutedTs.size(); ++i) {
@@ -1311,20 +1318,9 @@ class InferTypesAndCallsAndFieldsVisitor final {
     // same for generic methods `t.tupleAt<T>`, need to achieve `t.tupleAt<int>`
 
     if (fun_ref->is_generic_function()) {
-      // if `f(args)` was called, Ts were inferred; check that all of them are known
-      std::string_view nameT_unknown = deducingTs.get_first_not_deduced_nameT();
-      if (!nameT_unknown.empty() && hint && !hint->has_genericT_inside() && fun_ref->declared_return_type) {
-        // example: `t.tupleFirst()`, T doesn't depend on arguments, but is determined by return type
-        // if used like `var x: int = t.tupleFirst()` / `t.tupleFirst() as int` / etc., use hint
+      // `t.tupleFirst()` — T does not depend on arguments, but `var x: int = t.tupleFirst()` provides it
+      if (!deducingTs.get_first_not_deduced_nameT().empty() && hint && !hint->has_genericT_inside() && fun_ref->declared_return_type) {
         deducingTs.auto_deduce_from_argument(cur_f, v->get_callee()->range, fun_ref->declared_return_type, hint);
-        nameT_unknown = deducingTs.get_first_not_deduced_nameT();
-      }
-      if (!nameT_unknown.empty()) {
-        deducingTs.apply_defaults_from_declaration();
-        nameT_unknown = deducingTs.get_first_not_deduced_nameT();
-      }
-      if (!nameT_unknown.empty()) {
-        deducingTs.err_can_not_deduce(nameT_unknown).fire(v->get_callee(), cur_f);
       }
       fun_ref = check_and_instantiate_generic_function(v->get_callee()->range, fun_ref, deducingTs.flush());
     }
@@ -1341,17 +1337,12 @@ class InferTypesAndCallsAndFieldsVisitor final {
 
     // calling `SomeStruct.toCell()` implicitly calls custom `packToBuilder()` serializers for nested fields,
     // which may be generic and need to be instantiated here
-    if (fun_ref->is_builtin() && fun_ref->is_instantiation_of_generic_function()) {
-      TypePtr serialized_type = nullptr;
-      bool is_pack = true;
-      if (is_serialization_builtin_function(fun_ref, &serialized_type, &is_pack)) {
-        // use the traversing function that collects all nested types recursively (fields, tensor components, etc.)
-        std::vector<MethodCallCandidate> un_pack_candidates;
-        check_struct_can_be_packed_or_unpacked(serialized_type, is_pack, nullptr, &un_pack_candidates);
-        for (MethodCallCandidate c : un_pack_candidates) {
-          if (c.is_generic() && c.substitutedTs.typeT_at(c.substitutedTs.size() - 1)) {
-            instantiate_generic_function(c.method_ref, std::move(c.substitutedTs));
-          }
+    if (fun_ref->is_compile_time_special_gen() && fun_ref->is_instantiation_of_generic_function()) {
+      std::vector<MethodCallCandidate> un_pack_candidates;
+      collect_recursive_pack_unpack_when_f_called(fun_ref, &un_pack_candidates, nullptr);
+      for (MethodCallCandidate c : un_pack_candidates) {
+        if (c.is_generic()) {
+          check_and_instantiate_generic_function(v->get_callee()->range, c.method_ref, std::move(c.substitutedTs));
         }
       }
     }

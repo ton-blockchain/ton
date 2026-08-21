@@ -673,7 +673,7 @@ bool Op::generate_code_step(Stack& stack, const OpList& parent_ops, size_t self_
       } else {
         if (f_sym->inline_mode == FunctionInlineMode::inlineRef) {
           stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " INLINECALLDICT", (int)right.size(), (int)left.size());
-        } else if (f_sym->is_code_function() && std::get<FunctionBodyCode*>(f_sym->body)->code->require_callxargs) {
+        } else if (f_sym->requires_callxargs()) {
           stack.o << AsmOp::Custom(origin, CodeBlob::fift_name(f_sym) + " PREPAREDICT", 0, 2);
           exec_callxargs((int)right.size() + 1, (int)left.size());
         } else {
@@ -1093,7 +1093,7 @@ std::vector<AsmOp> CodeBlob::generate_asm_code(int mode) const {
     stack.push_new_var(x);
   }
   ops.generate_code_all(stack);
-  stack.apply_wrappers_if_retalt(fun_ref->ident_anchor, require_callxargs && (mode & Stack::_InlineRef) ? n_import_width : -1);
+  stack.apply_wrappers_if_retalt(fun_ref->ident_anchor, fun_ref->requires_callxargs() && (mode & Stack::_InlineRef) ? n_import_width : -1);
   return std::move(out_list.list_);
 }
 

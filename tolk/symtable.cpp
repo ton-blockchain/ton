@@ -166,6 +166,10 @@ void FunctionData::assign_is_type_inferring_done() {
   this->flags |= flagTypeInferringDone;
 }
 
+void FunctionData::assign_requires_callxargs() {
+  this->flags |= flagRequiresCallxargs;
+}
+
 void FunctionData::assign_is_really_used() {
   this->flags |= flagReallyUsed;
 }

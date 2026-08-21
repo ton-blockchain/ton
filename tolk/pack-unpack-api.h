@@ -24,7 +24,8 @@ namespace tolk {
 struct MethodCallCandidate;
 
 bool is_serialization_builtin_function(FunctionPtr fun_ref, TypePtr* serialized_type, bool* is_pack);
-bool check_struct_can_be_packed_or_unpacked(TypePtr any_type, bool is_pack, std::string* because_msg, std::vector<MethodCallCandidate>* out_un_pack_candidates = nullptr);
+bool check_struct_can_be_packed_or_unpacked(TypePtr any_type, bool is_pack, std::string* because_msg);
+void collect_recursive_pack_unpack_when_f_called(FunctionPtr called_f, std::vector<MethodCallCandidate>* out_generic_candidates, std::vector<FunctionPtr>* out_un_pack_functions);
 PackSize estimate_serialization_size(TypePtr any_type);
 
 // functions like T.toCell() are not declared here: they are implemented in a .cpp file,

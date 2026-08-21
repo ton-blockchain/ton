@@ -721,6 +721,24 @@ fun test50(x: int): int {
     return keepBuilder.endCell().beginParse().loadUint(16) + storedSlice.loadUint(16);
 }
 
+@method_id(151)
+fun test51() {
+    gPackCalled = 0;
+    var m = map<int32, GenericValueInMap<int7>> [];
+    m.set(1, { value: 42 });    // calls custom pack, writes 8+7 bits
+    return (m.toLowLevelDict().iDictGet(32, 1).0!.remainingBitsCount(), gPackCalled);
+}
+
+@method_id(152)
+fun test52() {
+    gPackCalled = 0;
+    var ll = createEmptyDict();
+    ll.iDictSet(32, 1, beginCell().storeUint(255, 8).storeInt(42, 7).toCell().beginParse());
+    var m = createMapFromLowLevelDict<int32, GenericValueInMap<int7>>(ll);
+    return (m.mustGet(1), gPackCalled);
+}
+
+
 fun main() {
     __expect_type(createEmptyMap<int8, (int32, int64)>, "() -> map<int8, (int32, int64)>");
 }
@@ -777,6 +795,8 @@ fun main() {
 @testcase | 148 |            | 111
 @testcase | 149 |            | -1
 @testcase | 150 | 4660       | 48350
+@testcase | 151 |            | 15 1
+@testcase | 152 |            | 42 10
 
 @fif_codegen
 """

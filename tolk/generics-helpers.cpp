@@ -112,9 +112,10 @@ void GenericsSubstitutions::set_typeT(std::string_view nameT, TypePtr typeT) {
 void GenericsSubstitutions::provide_type_arguments(const std::vector<TypePtr>& type_arguments) {
   tolk_assert(genericTs != nullptr);
   int start_from = genericTs->n_from_receiver;    // for `Container<T>.wrap<U>` user should specify only U
-  tolk_assert(static_cast<int>(type_arguments.size()) + start_from == genericTs->size());
-  for (int i = start_from; i < genericTs->size(); ++i) {
-    valuesTs[i] = type_arguments[i - start_from];
+  int n_provided = static_cast<int>(type_arguments.size());
+  tolk_assert(n_provided + start_from <= genericTs->size());
+  for (int i = 0; i < n_provided; ++i) {
+    valuesTs[start_from + i] = type_arguments[i];
   }
 }
 
@@ -429,6 +430,14 @@ TypePtr GenericsSubstitutions::get_substitution_for_nameT(std::string_view nameT
 TypePtr GenericsSubstitutions::get_default_for_nameT(std::string_view nameT) const {
   int idx = genericTs->find_nameT(nameT);
   return idx == -1 ? nullptr : genericTs->get_defaultT(idx);
+}
+
+bool GenericsSubstitutions::all_Ts_initialized() const {
+  bool any_nullptr = false;
+  for (TypePtr ithT : valuesTs) {
+    any_nullptr |= ithT == nullptr;
+  }
+  return !any_nullptr;
 }
 
 // given this=<T1> and rhs=<T2>, check that T1 is equal to T2 in terms of "equal_to" of TypePtr

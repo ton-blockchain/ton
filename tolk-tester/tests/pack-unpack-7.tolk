@@ -450,6 +450,85 @@ fun test117() {
     );
 }
 
+type TryCatchSerialized = int
+
+fun TryCatchSerialized.packToBuilder(self, mutate b: builder) {
+    __expect_inline(true);
+    try {
+        if (self == 0) {
+            throw 1;
+        }
+        b.storeInt(self, 32);
+    } catch {
+        b.storeInt(555, 32);
+    }
+}
+
+fun TryCatchSerialized.unpackFromSlice(mutate s: slice): TryCatchSerialized {
+    __expect_inline(true);
+    var value = -123;   // returned if slice is short
+    try {
+        value = s.loadInt(32);
+    } catch {}
+    return value;
+}
+
+@noinline
+fun serializeTryCatch(v: int): cell {
+    return (v as TryCatchSerialized).toCell();
+}
+
+@noinline
+fun deserializeTryCatch(c: cell): int {
+    return TryCatchSerialized.fromCell(c);
+}
+
+@method_id(118)
+fun test118(v: int) {
+    var keep1 = v + 1000;
+    var keep2 = v + 2000;
+    return (keep1, keep2, deserializeTryCatch(serializeTryCatch(v)));
+}
+
+@noinline
+fun setTryCatch(mutate m: map<int8, TryCatchSerialized>, value: TryCatchSerialized) {
+    m.set(1, value);
+}
+
+@noinline
+fun getTryCatch(m: map<int8, TryCatchSerialized>): TryCatchSerialized {
+    return m.mustGet(1);
+}
+
+@method_id(119)
+fun test119(value: TryCatchSerialized) {
+    var keep1 = value + 1000;
+    var keep2 = value + 2000;
+    var m: map<int8, TryCatchSerialized> = [];
+    setTryCatch(mutate m, value);
+    return (keep1, keep2, getTryCatch(m));
+}
+
+type CustomWithRawMap = uint8
+
+fun CustomWithRawMap.packToBuilder(self, mutate b: builder) {
+    // a map is stored as an already serialized dictionary; its value serializer is not called here
+    var empty: map<int8, CustomWithRawMap> = [];
+    b.storeRef(empty.toCell()); // no "recursive call" for CustomWithRawMap
+    b.storeUint(self, 8);
+}
+
+fun CustomWithRawMap.unpackFromSlice(mutate s: slice): CustomWithRawMap {
+    s.loadRef();
+    return s.loadUint(8) as CustomWithRawMap;
+}
+
+@method_id(120)
+fun test120(value: uint8) {
+    var serialized = (value as CustomWithRawMap).toCell();
+    return CustomWithRawMap.fromCell(serialized);
+}
+
 fun main() {
     __expect_type(createEmptySlice() as TelegramString, "TelegramString");
 }
@@ -475,6 +554,11 @@ fun main() {
 @testcase | 115 |     | 258
 @testcase | 116 |     | 5
 @testcase | 117 |     | 12 10 1 12 11 1
+@testcase | 118 | 123 | 1123 2123 123
+@testcase | 118 | 0   | 1000 2000 555
+@testcase | 119 | 123 | 1123 2123 123
+@testcase | 119 | 0   | 1000 2000 555
+@testcase | 120 | 123 | 123
 
 @fif_codegen
 """

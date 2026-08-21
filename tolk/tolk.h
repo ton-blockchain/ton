@@ -989,7 +989,6 @@ struct CodeBlob {
   OpList ops;
   OpList* cur_ops;
   std::stack<OpList*> cur_ops_stack;
-  bool require_callxargs = false;
   explicit CodeBlob(FunctionPtr fun_ref)
     : var_cnt(0), in_var_cnt(0), fun_ref(fun_ref), cur_ops(&ops) {
   }

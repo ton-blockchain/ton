@@ -130,6 +130,7 @@ struct FunctionData final : Symbol {
     flagReallyUsed = 2048,      // calculated via dfs from used functions; declared but unused functions are not codegenerated
     flagCompileTimeVal = 4096,  // calculated only at compile-time for constant arguments: `grams("0.05")`, `"str".crc32()`, and others
     flagManualOnBounce = 32768, // for onInternalMessage, don't insert "if (isBounced) return"
+    flagRequiresCallxargs = 65536, // the lowered body contains try/catch and needs a private c2
   };
 
   int tvm_method_id = EMPTY_TVM_METHOD_ID;
@@ -234,6 +235,7 @@ struct FunctionData final : Symbol {
   bool is_compile_time_const_val() const { return flags & flagCompileTimeVal; }
   bool is_compile_time_special_gen() const { return std::holds_alternative<FunctionBodyBuiltinGenerateOps*>(body); }
   bool is_manual_on_bounce() const { return flags & flagManualOnBounce; }
+  bool requires_callxargs() const { return flags & flagRequiresCallxargs; }
 
   bool is_onInternalMessage() const;
   bool is_onExternalMessage() const;
@@ -249,6 +251,7 @@ struct FunctionData final : Symbol {
   void assign_is_used_as_noncall();
   void assign_is_implicit_return();
   void assign_is_type_inferring_done();
+  void assign_requires_callxargs();
   void assign_is_really_used();
   void assign_inline_mode_in_place();
   void assign_arg_order(std::vector<int>&& arg_order);

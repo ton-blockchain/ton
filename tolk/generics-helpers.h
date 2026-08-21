@@ -76,6 +76,7 @@ public:
   bool has_nameT(std::string_view nameT) const;
   TypePtr get_substitution_for_nameT(std::string_view nameT) const;
   TypePtr get_default_for_nameT(std::string_view nameT) const;
+  bool all_Ts_initialized() const;
   std::string_view nameT_at(int idx) const { return genericTs->get_nameT(idx); }
   TypePtr typeT_at(int idx) const { return valuesTs.at(idx); }
   bool equal_to(const GenericsSubstitutions* rhs) const;

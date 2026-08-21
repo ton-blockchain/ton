@@ -57,7 +57,8 @@ class PackUnpackAvailabilityChecker {
   };
 
   std::vector<CalledStackEntry> called_stack;      // to prevent recursion unless it passes through `Cell<T>`
-  std::vector<MethodCallCandidate>* out_un_pack_candidates;
+  std::vector<MethodCallCandidate>* out_un_pack_candidates = nullptr;
+  std::vector<FunctionPtr>* out_un_pack_functions = nullptr;
 
   // check custom pack/unpack functions; their prototypes have already been checked at type inferring,
   // so here we analyze other consistency (properties filled after type inferring)
@@ -77,13 +78,21 @@ class PackUnpackAvailabilityChecker {
   }
 
 public:
-  explicit PackUnpackAvailabilityChecker(std::vector<MethodCallCandidate>* out_un_pack_candidates)
-    : out_un_pack_candidates(out_un_pack_candidates) {}
+  PackUnpackAvailabilityChecker() = default;
+  PackUnpackAvailabilityChecker(std::vector<MethodCallCandidate>* out_un_pack_candidates, std::vector<FunctionPtr>* out_un_pack_functions)
+    : out_un_pack_candidates(out_un_pack_candidates), out_un_pack_functions(out_un_pack_functions) {}
 
-  // During type inference, this class is also used only to collect custom pack/unpack methods
-  // that need generic instantiation. In that mode, skip checks that estimate finalized binary layout.
-  bool is_collecting_out_candidates_only() const {
-    return out_un_pack_candidates != nullptr;
+  // This class is also used only to collect custom pack/unpack methods, either for generic instantiation
+  // during type inference or for the call graph. In that mode, skip checks that estimate finalized binary layout.
+  bool is_collecting_only() const {
+    return out_un_pack_candidates != nullptr || out_un_pack_functions != nullptr;
+  }
+
+  void collect_custom_serializer(CustomPackUnpackF f, bool is_pack) const {
+    FunctionPtr f_serializer = is_pack ? f.f_pack : f.f_unpack;
+    if (out_un_pack_functions && f_serializer) {
+      out_un_pack_functions->push_back(f_serializer);
+    }
   }
 
   std::optional<CantSerializeBecause> detect_why_cant_serialize(TypePtr any_type, bool is_pack, int cell_ref_depth) {
@@ -113,8 +122,11 @@ public:
     }
 
     if (const auto* t_map = any_type->try_as<TypeDataMapKV>()) {
-      detect_why_cant_serialize(t_map->TKey, is_pack, cell_ref_depth);    // collect out_un_pack_candidates if custom values
-      detect_why_cant_serialize(t_map->TValue, is_pack, cell_ref_depth);
+      // a map is already serialized: K/V serializers are checked, but are not called for the map itself
+      if (!out_un_pack_functions) {
+        detect_why_cant_serialize(t_map->TKey, is_pack, cell_ref_depth);    // collect out_un_pack_candidates if custom values
+        detect_why_cant_serialize(t_map->TValue, is_pack, cell_ref_depth);
+      }
       return {};
     }
 
@@ -122,7 +134,8 @@ public:
       StructPtr struct_ref = t_struct->struct_ref;
 
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_struct, out_un_pack_candidates)) {
-        return is_collecting_out_candidates_only() ? std::nullopt : check_custom_pack_unpack(t_struct, f, is_pack);
+        collect_custom_serializer(f, is_pack);
+        return is_collecting_only() ? std::nullopt : check_custom_pack_unpack(t_struct, f, is_pack);
       }
 
       if (struct_ref->is_instantiation_of_CellT()) {
@@ -156,7 +169,8 @@ public:
 
     if (const auto* t_enum = any_type->try_as<TypeDataEnum>()) {
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_enum, out_un_pack_candidates)) {
-        return is_collecting_out_candidates_only() ? std::nullopt : check_custom_pack_unpack(t_enum, f, is_pack);
+        collect_custom_serializer(f, is_pack);
+        return is_collecting_only() ? std::nullopt : check_custom_pack_unpack(t_enum, f, is_pack);
       }
 
       if (t_enum->enum_ref->members.empty()) {
@@ -181,7 +195,7 @@ public:
           return CantSerializeBecause("because variant #" + std::to_string(i + 1) + " of type `" + variant->as_human_readable() + "` can't be serialized", why.value());
         }
       }
-      if (is_collecting_out_candidates_only()) {
+      if (is_collecting_only()) {
         return {};
       }
       if (t_union->or_null == TypeDataVoid::create()) {
@@ -226,7 +240,7 @@ public:
       if (auto why = detect_why_cant_serialize(t_array->innerT, is_pack, cell_ref_depth)) {
         return CantSerializeBecause("because array of type `" + t_array->innerT->as_human_readable() + "` can't be serialized", why.value());
       }
-      if (is_collecting_out_candidates_only()) {
+      if (is_collecting_only()) {
         return {};
       }
       PackSize sizeT = estimate_serialization_size(t_array->innerT);
@@ -245,7 +259,8 @@ public:
       }
 
       if (CustomPackUnpackF f = get_custom_pack_unpack_function(t_alias, out_un_pack_candidates)) {
-        return is_collecting_out_candidates_only() ? std::nullopt : check_custom_pack_unpack(t_alias, f, is_pack);
+        collect_custom_serializer(f, is_pack);
+        return is_collecting_only() ? std::nullopt : check_custom_pack_unpack(t_alias, f, is_pack);
       }
 
       if (auto why = detect_why_cant_serialize(t_alias->underlying_type, is_pack, cell_ref_depth)) {
@@ -282,8 +297,8 @@ public:
   }
 };
 
-bool check_struct_can_be_packed_or_unpacked(TypePtr any_type, bool is_pack, std::string* because_msg, std::vector<MethodCallCandidate>* out_un_pack_candidates) {
-  PackUnpackAvailabilityChecker checker(out_un_pack_candidates);
+bool check_struct_can_be_packed_or_unpacked(TypePtr any_type, bool is_pack, std::string* because_msg) {
+  PackUnpackAvailabilityChecker checker;
   if (auto why = checker.detect_why_cant_serialize(any_type, is_pack, 0)) {
     if (because_msg != nullptr) {
       *because_msg = why.value().because_msg;
@@ -291,6 +306,15 @@ bool check_struct_can_be_packed_or_unpacked(TypePtr any_type, bool is_pack, std:
     return false;
   }
   return true;
+}
+
+void collect_recursive_pack_unpack_when_f_called(FunctionPtr called_f, std::vector<MethodCallCandidate>* out_generic_candidates, std::vector<FunctionPtr>* out_un_pack_functions) {
+  TypePtr serialized_type = nullptr;
+  bool is_pack = false;
+  PackUnpackAvailabilityChecker checker(out_generic_candidates, out_un_pack_functions);
+  if (is_serialization_builtin_function(called_f, &serialized_type, &is_pack)) {
+    checker.detect_why_cant_serialize(serialized_type, is_pack, 0);
+  }
 }
 
 static int calc_offset_on_stack(StructPtr struct_ref, int field_idx) {
@@ -319,6 +343,26 @@ bool is_serialization_builtin_function(FunctionPtr fun_ref, TypePtr* serialized_
     *is_pack = f_name == "T.toCell" || f_name == "builder.storeAny" || f_name == "reflect.estimateSerializationOf" || f_name == "createMessage" || f_name == "createExternalLogMessage";
     return true;
   }
+
+  // `map.set(k, v)` implicitly invokes `packToBuilder` for v if defined
+  bool is_map_builtin = fun_ref->receiver_type && fun_ref->receiver_type->try_as<TypeDataMapKV>();
+  if (const TypeDataMapKV* t_map = is_map_builtin ? fun_ref->receiver_type->try_as<TypeDataMapKV>() : nullptr) {
+    // mutating methods, like `set` and `setAndGetPrevious`, which take K and V params, they pack v
+    if (fun_ref->does_mutate_self() && fun_ref->get_num_params() > 2) {
+      *serialized_type = t_map->TValue;
+      *is_pack = true;
+      return true;
+    }
+    // reads, like `map.get`, return a raw slice on a stack, the user calls `result.loadValue()` after;
+    // exception: `map.mustGet` immediately unpacks v, does not return MapLookupResult
+    if (fun_ref->declared_return_type->equal_to(t_map->TValue) && t_map->TValue != TypeDataSlice::create()) {
+      *serialized_type = t_map->TValue;
+      *is_pack = false;
+      return true;
+    }
+    // map keys cannot have custom serializers (binary width must be constant)
+  }
+
   return false;
 }
 
