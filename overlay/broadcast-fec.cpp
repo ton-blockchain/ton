@@ -172,6 +172,7 @@ class BroadcastFec : public td::ListNode {
   std::set<adnl::AdnlNodeIdShort> completed_neighbours_;
   std::set<td::uint32> received_parts_;
   std::map<td::uint32, std::pair<td::BufferSlice, td::BufferSlice>> parts_;
+  std::vector<adnl::AdnlNodeIdShort> fixed_neighbours_;
   adnl::AdnlNodeIdShort src_peer_id_ = adnl::AdnlNodeIdShort::zero();
   td::BufferSlice data_;
 };
@@ -209,7 +210,15 @@ td::Status BroadcastFec::distribute_part(OverlayImpl *overlay, td::uint32 seqno)
   td::BufferSlice data_short = std::move(tls.first);
   td::BufferSlice data = std::move(tls.second);
 
-  auto nodes = overlay->get_neighbours(overlay->propagate_broadcast_to());
+  std::vector<adnl::AdnlNodeIdShort> nodes;
+  if (flags_ & Overlays::BroadcastFlagFixedNeighbours()) {
+    if (fixed_neighbours_.empty()) {
+      fixed_neighbours_ = overlay->get_neighbours(overlay->propagate_broadcast_to());
+    }
+    nodes = fixed_neighbours_;
+  } else {
+    nodes = overlay->get_neighbours(overlay->propagate_broadcast_to());
+  }
   auto manager = overlay->overlay_manager();
 
   auto &limiter = overlay->get_broadcasts_limiter(src_.compute_short_id(), certificate_.get());
