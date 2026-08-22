@@ -389,6 +389,9 @@ class Overlays : public td::actor::Actor {
   static constexpr td::uint32 BroadcastFlagAnySender() {
     return 1;
   }
+  static constexpr td::uint32 BroadcastFlagFixedNeighbours() {
+    return 2;
+  }
   static constexpr td::uint32 BroadcastFlagNoTwostep() {
     return 256;
   }

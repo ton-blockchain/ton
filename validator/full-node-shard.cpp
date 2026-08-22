@@ -388,8 +388,8 @@ void FullNodeShardImpl::send_external_message(td::BufferSlice data) {
     td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, adnl_id_, overlay_id_, source, 0,
                             std::move(B));
   } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source, 0,
-                            std::move(B));
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
+                            overlay::Overlays::BroadcastFlagFixedNeighbours(), std::move(B));
   }
 }
 
