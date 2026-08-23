@@ -677,8 +677,7 @@ td::Result<GenContext> make_gen_context(const Config &cfg) {
     LOG_CHECK(state_cells <= kMaxAccStateCells)
         << "--fats-size " << cfg.fats_size << " yields " << state_cells
         << " account-state cells, over max_acc_state_cells (" << kMaxAccStateCells
-        << "); such a fat would be untouchable. Reduce --fats-size to <= "
-        << (kMaxAccStateCells - overhead) * 127;
+        << "); such a fat would be untouchable. Reduce --fats-size to <= " << (kMaxAccStateCells - overhead) * 127;
   }
   return std::move(ctx);
 }
