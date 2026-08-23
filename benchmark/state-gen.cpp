@@ -102,9 +102,6 @@ struct Config {
   std::string progress_file;
   double progress_interval = 3.0;
   int threads = static_cast<int>(td::thread::hardware_concurrency());
-  // Bundle ~bundle_depth key-bit levels of the accounts dict (plus the leaf's
-  // account/data cells) into one celldb record; 0 disables bundling.
-  int bundle_depth = 5;
   int merge_shards = 0;  // 0 → derived from threads; power of two in [1, 256]
   bool overwrite = false;
   td::uint64 run_batch_bytes = 512ULL << 20;
@@ -394,20 +391,13 @@ class CountingSink : public CellSink {
       progress_->cells.fetch_add(1, std::memory_order_relaxed);
     }
   }
-  void emit_raw(const td::Bits256 &hash, std::string value) override {
-    bundles_++;
-  }
   td::uint64 count() const {
     return count_;
-  }
-  td::uint64 bundles() const {
-    return bundles_;
   }
 
  private:
   Progress *progress_;
   td::uint64 count_{0};
-  td::uint64 bundles_{0};
 };
 
 // Merge shards: cells are routed to a shard by the top bits of their hash, so a
@@ -475,9 +465,8 @@ class RunFileSink : public CellSink {
     CHECK(n_recs_ == 0);  // flush() must be called explicitly
   }
   void emit(const Ref<vm::DataCell> &cell) override {
-    emit_raw(td::Bits256{cell->get_hash().bits()}, vm::CellStorer::serialize_value(kRefcnt, cell, false));
-  }
-  void emit_raw(const td::Bits256 &hash, std::string value) override {
+    auto hash = td::Bits256{cell->get_hash().bits()};
+    auto value = vm::CellStorer::serialize_value(kRefcnt, cell, false);
     Rec rec;
     rec.hash = hash;
     rec.offset = buf_.size();
@@ -767,20 +756,10 @@ void derive_phase(const GenContext &ctx, BucketWriter &writer, Progress &progres
 // ---------------------------------------------------------------------------
 
 // Rebuild the account's cells from a derivation record; emits everything below
-// the Account cell, returns the Account cell stand-in + balance. With a tracker,
-// the Account cell and its data-root cell are retained so the dict-leaf bundle
-// can inline them (shared code cells and deeper ballast chain cells are not
-// retained and stay external references).
-std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, const DeriveRecord &rec, CellSink &sink,
-                                                      BundleTracker *tracker) {
+// the Account cell, returns the Account cell stand-in + balance.
+std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, const DeriveRecord &rec, CellSink &sink) {
   const auto &cfg = ctx.cfg;
-  auto emit_retain_standin = [&](const Ref<vm::DataCell> &cell) {
-    sink.emit(cell);
-    if (tracker != nullptr) {
-      tracker->retain(cell);
-    }
-    return make_standin(cell);
-  };
+  auto emit_retain_standin = [&](const Ref<vm::DataCell> &cell) { return emit_and_standin(sink, cell); };
   td::Bits256 addr;
   addr.as_slice().copy_from(td::Slice(rec.addr, 32));
   td::Bits256 payload;
@@ -839,8 +818,7 @@ std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, con
 }
 
 // Process one bucket file: sort records, build account cells + dict subtree.
-DictNode build_bucket(const GenContext &ctx, const std::string &bucket_file, CellSink &sink, BundleTracker *tracker,
-                      Progress &progress) {
+DictNode build_bucket(const GenContext &ctx, const std::string &bucket_file, CellSink &sink, Progress &progress) {
   auto r_data = td::read_file(bucket_file);
   LOG_CHECK(r_data.is_ok()) << "cannot read " << bucket_file << ": " << r_data.error();
   auto data = r_data.move_as_ok();
@@ -853,9 +831,9 @@ DictNode build_bucket(const GenContext &ctx, const std::string &bucket_file, Cel
   data = {};
   std::sort(records.begin(), records.end(),
             [](const DeriveRecord &a, const DeriveRecord &b) { return memcmp(a.addr, b.addr, 32) < 0; });
-  ShardAccountsStreamBuilder builder(sink, tracker);
+  ShardAccountsStreamBuilder builder(sink);
   for (const auto &rec : records) {
-    auto [account, balance] = build_account_cells(ctx, rec, sink, tracker);
+    auto [account, balance] = build_account_cells(ctx, rec, sink);
     td::Bits256 addr;
     addr.as_slice().copy_from(td::Slice(rec.addr, 32));
     builder.add_account(addr, std::move(account), balance);
@@ -999,25 +977,14 @@ MergeStats merge_shard_to_sst(const std::vector<std::string> &runs, const std::s
     stats.value_bytes += value.size();
     progress.merged_bytes.fetch_add(32 + value.size(), std::memory_order_relaxed);
   };
-  auto is_bundle_value = [](const std::string &value) {
-    return value.size() >= 4 && td::as<td::int32>(value.data()) == vm::CellStorer::kBundleTag;
-  };
   while (!heap.empty()) {
     auto idx = heap.top();
     heap.pop();
     auto &cur = *cursors[idx];
     if (have_prev && cur.hash() == prev_hash) {
-      if (cur.value() != prev_value) {
-        // A bundle-root hash carries both its plain record (emitted at cell
-        // materialization) and its bundle record (emitted at close-out); the
-        // bundle wins. Anything else is a genuine collision.
-        bool prev_bundle = is_bundle_value(prev_value);
-        bool cur_bundle = is_bundle_value(cur.value());
-        LOG_CHECK(prev_bundle != cur_bundle) << "hash collision with different values: " << prev_hash.to_hex();
-        if (cur_bundle) {
-          prev_value = cur.value();
-        }
-      }
+      // Equal hashes must carry byte-identical values (serialize_value is
+      // deterministic); anything else is a genuine hash collision.
+      LOG_CHECK(cur.value() == prev_value) << "hash collision with different values: " << prev_hash.to_hex();
     } else {
       if (have_prev) {
         emit_kv(prev_hash, prev_value);
@@ -1213,9 +1180,6 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   progress.accounts.store(0);
   RunRegistry registry(run_dir, cfg.merge_shards);
   std::array<DictNode, 256> pendings;
-  // Retained cells whose bundle root lies above the bucket root (handed over to
-  // the top-level builder's tracker); empty when bundling is off.
-  std::array<std::vector<Ref<vm::DataCell>>, 256> bundle_leftovers;
   {
     std::atomic<int> next_bucket{0};
     auto worker = [&] {
@@ -1234,15 +1198,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
         if (bucket >= 256) {
           break;
         }
-        std::unique_ptr<BundleTracker> tracker;
-        if (cfg.bundle_depth > 0) {
-          tracker = std::make_unique<BundleTracker>(*sink, cfg.bundle_depth, kRefcnt);
-        }
-        pendings[bucket] =
-            build_bucket(ctx, BucketWriter::bucket_path(bucket_dir, bucket), *sink, tracker.get(), progress);
-        if (tracker != nullptr) {
-          bundle_leftovers[bucket] = tracker->take_retained();
-        }
+        pendings[bucket] = build_bucket(ctx, BucketWriter::bucket_path(bucket_dir, bucket), *sink, progress);
       }
       if (run_sink != nullptr) {
         run_sink->flush();
@@ -1282,14 +1238,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
     if (cfg.num_fats > 0) {
       emit_subtree(*main_sink, ctx.contracts.fat_code);
     }
-    std::unique_ptr<BundleTracker> top_tracker;
-    if (cfg.bundle_depth > 0) {
-      top_tracker = std::make_unique<BundleTracker>(*main_sink, cfg.bundle_depth, kRefcnt);
-      for (auto &leftovers : bundle_leftovers) {
-        top_tracker->adopt(std::move(leftovers));
-      }
-    }
-    ShardAccountsStreamBuilder top_builder(*main_sink, top_tracker.get());
+    ShardAccountsStreamBuilder top_builder(*main_sink);
     for (int b = 0; b < 256; b++) {
       if (pendings[b].type != DictNode::Type::Empty) {
         top_builder.add_subtree(std::move(pendings[b]));
@@ -1299,16 +1248,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
     Ref<vm::Cell> dict_root;
     if (root_node.type != DictNode::Type::Empty) {
       res.total_balance = root_node.balance;
-      dict_root = materialize_dict_node(*main_sink, root_node, 0, top_tracker.get());
-      if (top_tracker != nullptr) {
-        // the dict root is always a bundle root
-        top_tracker->close_out(dict_root->get_hash());
-      }
-    }
-    if (top_tracker != nullptr) {
-      // every dict node / account cell must have been claimed by exactly one bundle
-      LOG_CHECK(top_tracker->retained_count() == 0)
-          << "bundle tracker leak: " << top_tracker->retained_count() << " cells never claimed";
+      dict_root = materialize_dict_node(*main_sink, root_node, 0);
     }
     auto state_root = build_shard_state_root(*main_sink, dict_root, res.total_balance, cfg.gen_utime);
     res.root_hash = td::Bits256{state_root->get_hash().bits()};
@@ -1573,74 +1513,10 @@ class StandinCellCreator : public vm::ExtCellCreator {
   }
 };
 
-// Walk the accounts dictionary from the state root down to wallet `addr`'s
-// account data cell, loading by hash exactly where an ExtCell boundary would
-// force a DB read. Returns {db_loads, cells_visited}.
-std::pair<td::uint64, td::uint64> count_descent_loads(vm::CellLoader &loader, vm::ExtCellCreator &creator,
-                                                      const td::Bits256 &root_hash, const td::Bits256 &addr) {
-  td::uint64 loads = 0;
-  td::uint64 cells = 0;
-  auto resolve = [&](const Ref<vm::Cell> &cell) -> Ref<vm::DataCell> {
-    cells++;
-    if (cell->is_loaded()) {
-      return cell->load_cell().move_as_ok().data_cell;
-    }
-    loads++;
-    auto r = loader.load(cell->get_hash().as_slice(), true, creator).move_as_ok();
-    LOG_CHECK(r.status == vm::CellLoader::LoadResult::Ok) << "missing cell " << cell->get_hash().to_hex();
-    return r.cell();
-  };
-  // the state root itself
-  loads++;
-  cells++;
-  auto root = loader.load(root_hash.as_slice(), true, creator).move_as_ok().cell();
-  auto accounts_wrap = resolve(root->get_ref(1));  // ^ShardAccounts
-  vm::CellSlice wrap_cs(vm::NoVm{}, accounts_wrap);
-  CHECK(wrap_cs.fetch_ulong(1) == 1);  // ahme_root$1
-  auto cur = resolve(wrap_cs.fetch_ref());
-  int pos = 0;
-  while (true) {
-    vm::CellSlice cs(vm::NoVm{}, cur);
-    int rem = 256 - pos;
-    int k = 32 - td::count_leading_zeroes32(rem);
-    int len;
-    if (cs.fetch_ulong(1) == 0) {  // hml_short$0: unary length
-      len = 0;
-      while (cs.fetch_ulong(1) == 1) {
-        len++;
-      }
-      cs.advance(len);
-    } else if (cs.fetch_ulong(1) == 0) {  // hml_long$10
-      len = static_cast<int>(cs.fetch_ulong(k));
-      cs.advance(len);
-    } else {  // hml_same$11
-      cs.advance(1);
-      len = static_cast<int>(cs.fetch_ulong(k));
-    }
-    pos += len;
-    CHECK(pos <= 256);
-    if (pos == 256) {
-      break;  // leaf
-    }
-    bool bit = addr.bits()[pos];
-    pos++;
-    auto left = cs.fetch_ref();
-    auto right = cs.fetch_ref();
-    cur = resolve(bit ? right : left);
-  }
-  // leaf: extra:DepthBalanceInfo then account:^Account; Account ref1 = data root
-  vm::CellSlice leaf_cs(vm::NoVm{}, cur);
-  auto account = resolve(leaf_cs.fetch_ref());
-  CHECK(account->get_refs_cnt() == 2);
-  resolve(account->get_ref(1));
-  return {loads, cells};
-}
-
-td::Bits256 self_test_celldb(const Config &base_cfg, int bundle_depth) {
+td::Bits256 self_test_celldb(const Config &base_cfg) {
   Config cfg = base_cfg;
   cfg.num_v5 = 2000;
   cfg.num_ballast = 100;
-  cfg.bundle_depth = bundle_depth;
   cfg.num_fats = 20;
   cfg.fats_size = 4000;  // small fat dicts keep the self-test fast while exercising AccountType::Fat
   cfg.out_dir = PSTRING() << "/tmp/bench-state-gen-selftest." << getpid();
@@ -1659,12 +1535,8 @@ td::Bits256 self_test_celldb(const Config &base_cfg, int bundle_depth) {
   vm::CellLoader loader(reader);
   StandinCellCreator creator;
 
-  // full traversal: load every cell by hash, verify hashes + refcnt; for bundle
-  // records additionally verify the materialized slab byte-matches the
-  // standalone plain records of the same cells
+  // full traversal: load every cell by hash, verify hashes + refcnt
   td::uint64 visited = 0;
-  td::uint64 bundle_records = 0;
-  td::uint64 bundled_cells = 0;
   td::HashSet<vm::CellHash> seen;
   std::vector<td::Bits256> stack{res.root_hash};
   while (!stack.empty()) {
@@ -1682,71 +1554,10 @@ td::Bits256 self_test_celldb(const Config &base_cfg, int bundle_depth) {
     for (unsigned i = 0; i < cell->get_refs_cnt(); i++) {
       stack.push_back(td::Bits256{cell->get_ref(i)->get_hash().bits()});
     }
-    if (load_res.stored_bundle_) {
-      bundle_records++;
-      // walk the materialized slab (loaded children; ext cells mark the cut)
-      td::HashSet<vm::CellHash> slab_seen;
-      std::vector<Ref<vm::DataCell>> slab_stack{cell};
-      while (!slab_stack.empty()) {
-        auto parent = std::move(slab_stack.back());
-        slab_stack.pop_back();
-        for (unsigned i = 0; i < parent->get_refs_cnt(); i++) {
-          auto child = parent->get_ref(i);
-          if (!child->is_loaded() || !slab_seen.insert(child->get_hash()).second) {
-            continue;
-          }
-          auto in_bundle = child->load_cell().move_as_ok().data_cell;
-          bundled_cells++;
-          // interior slab cells must also exist as standalone plain records
-          auto standalone_res = loader.load(child->get_hash().as_slice(), true, creator).move_as_ok();
-          LOG_CHECK(standalone_res.status == vm::CellLoader::LoadResult::Ok)
-              << "missing standalone record for bundled cell " << child->get_hash().to_hex();
-          CHECK(!standalone_res.stored_bundle_);
-          auto standalone = standalone_res.cell();
-          CHECK(standalone->get_hash() == in_bundle->get_hash());
-          CHECK(standalone->get_bits() == in_bundle->get_bits());
-          CHECK(memcmp(standalone->get_data(), in_bundle->get_data(), (in_bundle->get_bits() + 7) / 8) == 0);
-          CHECK(standalone->get_refs_cnt() == in_bundle->get_refs_cnt());
-          for (unsigned r = 0; r < in_bundle->get_refs_cnt(); r++) {
-            CHECK(standalone->get_ref(r)->get_hash() == in_bundle->get_ref(r)->get_hash());
-          }
-          slab_stack.push_back(std::move(in_bundle));
-        }
-      }
-    }
   }
   LOG_CHECK(visited == res.distinct_cells) << "traversed " << visited << " cells, db has " << res.distinct_cells;
-  if (bundle_depth == 0) {
-    CHECK(bundle_records == 0);
-  } else {
-    CHECK(bundle_records > 0);
-    CHECK(bundled_cells > bundle_records);  // slabs actually contain inlined cells
-  }
 
-  // dictionary descent cost: with bundling, descending to an account's data cell
-  // must take far fewer DB reads than the number of cells on the path
-  {
-    auto ctx = make_gen_context(cfg).move_as_ok();
-    td::uint64 total_loads = 0;
-    td::uint64 total_cells = 0;
-    for (td::uint64 i = 0; i < 8; i++) {
-      auto wallet = derive_wallet(cfg.seed, i, cfg.wallet_id, ctx.minter_addr, ctx.contracts).move_as_ok();
-      auto [loads, cells] = count_descent_loads(loader, creator, res.root_hash, wallet.w5_addr);
-      total_loads += loads;
-      total_cells += cells;
-    }
-    if (bundle_depth == 0) {
-      CHECK(total_loads == total_cells);
-    } else {
-      LOG_CHECK(2 * total_loads < total_cells)
-          << "bundled descent too expensive: " << total_loads << " loads for " << total_cells << " cells";
-    }
-    LOG(INFO) << "self-test (c) descent cost (bundle_depth=" << bundle_depth << "): " << total_loads << " loads / "
-              << total_cells << " cells over 8 descents";
-  }
-
-  // V2 dynamic BoC reader (the validator's celldb path): full DFS through the
-  // shared cache, ext cells at bundle cuts load transparently
+  // V2 dynamic BoC reader (the validator's celldb path): full DFS through the shared cache
   {
     auto boc = vm::DynamicBagOfCellsDb::create_v2({.extra_threads = 0});
     boc->set_loader(std::make_unique<vm::CellLoader>(reader));
@@ -1814,8 +1625,7 @@ td::Bits256 self_test_celldb(const Config &base_cfg, int bundle_depth) {
   CHECK(fats_lines == cfg.num_fats);
   CHECK(fats_addrs.find("0:" + tagged_sha256(cfg.seed, "fat", 0).to_hex()) != std::string::npos);
 
-  LOG(INFO) << "self-test (c) celldb round-trip (bundle_depth=" << bundle_depth << "): OK (" << visited << " cells, "
-            << bundle_records << " bundles, root " << res.root_hash.to_hex() << ")";
+  LOG(INFO) << "self-test (c) celldb round-trip: OK (" << visited << " cells, root " << res.root_hash.to_hex() << ")";
   return res.root_hash;
 }
 
@@ -1888,10 +1698,7 @@ td::Status do_self_test(const Config &base_cfg) {
   TRY_RESULT(ctx, make_gen_context(cfg));
   self_test_streaming(ctx);
   self_test_external(ctx);
-  auto root_plain = self_test_celldb(cfg, 0);
-  auto root_bundled = self_test_celldb(cfg, 5);
-  // bundling is a storage-layer change only: the state root must not move
-  CHECK(root_plain == root_bundled);
+  self_test_celldb(cfg);
   self_test_empty_root(cfg);
   LOG(INFO) << "self-test: ALL OK";
   return td::Status::OK();
@@ -1959,15 +1766,6 @@ int main(int argc, char *argv[]) {
     TRY_RESULT_ASSIGN(cfg.wallet_id, td::to_integer_safe<td::uint32>(arg));
     return td::Status::OK();
   });
-  p.add_checked_option('\0', "bundle-depth",
-                       "bundle this many key-bit levels of the accounts dict per celldb record (default 5, 0 = off)",
-                       [&](td::Slice arg) {
-                         TRY_RESULT_ASSIGN(cfg.bundle_depth, td::to_integer_safe<int>(arg));
-                         if (cfg.bundle_depth < 0 || cfg.bundle_depth > 16) {
-                           return td::Status::Error("--bundle-depth must be in [0, 16]");
-                         }
-                         return td::Status::OK();
-                       });
   p.add_option('\0', "contracts-dir", "directory with contract .boc files (default: benchmark/contracts)",
                [&](td::Slice arg) { cfg.contracts_dir = arg.str(); });
   p.add_option('\0', "out-dir", "output directory (celldb + manifest.json)",

@@ -190,10 +190,6 @@ void CellDbIn::start_up() {
     if (res.cell_.is_null()) {
       return;
     }
-    if (res.stored_bundle_) {
-      // bundle records (written by offline state tooling) are intentional, never migrated
-      return;
-    }
     bool expected_stored_boc = res.cell_->get_depth() == compress_depth && compress_depth != 0;
     if (expected_stored_boc != res.stored_boc_) {
       td::actor::send_closure(*actor, &CellDbIn::MigrationProxy::migrate_cell,
@@ -976,10 +972,6 @@ void CellDbIn::migrate_cells() {
     if (R.ok().status == vm::CellLoader::LoadResult::NotFound) {
       continue;
     }
-    if (R.ok().stored_bundle_) {
-      // bundle records (written by offline state tooling) are intentional, never migrated
-      continue;
-    }
     bool expected_stored_boc =
         R.ok().cell_->get_depth() == opts_->get_celldb_compress_depth() && opts_->get_celldb_compress_depth() != 0;
     if (expected_stored_boc != R.ok().stored_boc_) {
@@ -1106,10 +1098,6 @@ void CellDb::start_up() {
                            td::actor::create_actor<CellDbIn::MigrationProxy>("celldbmigration", cell_db_.get())),
                        compress_depth = opts_->get_celldb_compress_depth()](const vm::CellLoader::LoadResult& res) {
     if (res.cell_.is_null()) {
-      return;
-    }
-    if (res.stored_bundle_) {
-      // bundle records (written by offline state tooling) are intentional, never migrated
       return;
     }
     bool expected_stored_boc = res.cell_->get_depth() == compress_depth && compress_depth != 0;
