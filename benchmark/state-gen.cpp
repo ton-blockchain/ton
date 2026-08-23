@@ -72,6 +72,12 @@ constexpr td::int32 kRefcnt = 1 << 30;
 // the python and C++ values matched on 2026-06-12.
 const char *kEmptyStateRootHashHex = "a6a1063927dd1fec6960f194d331835702b32f2dcac02711cd33938abd5917d1";
 
+// Hard cap on --fats-size, enforced at parse time. 8 MB / 127 ≈ 63k storage cells, comfortably under
+// the 65536 max_acc_state_cells limit, so a fat stays touchable (a bigger state has any nonce-mutating
+// message rejected by check_state_limits). Rejecting at parse time also stops an absurd value (e.g. 1 GB)
+// from making build_fat_storage allocate millions of cells before any diagnostic.
+static constexpr int kMaxFatsBytes = 8'000'000;
+
 struct Config {
   td::Bits256 seed = td::sha256_bits256("tonbench-default-seed");
   td::uint64 num_v5 = 1000000;
@@ -663,21 +669,11 @@ td::Result<GenContext> make_gen_context(const Config &cfg) {
     LOG_CHECK(!ctx.contracts.fat_code.is_null()) << "fat.code.boc is required for --fats-count > 0";
     LOG_CHECK(cfg.fats_size >= 1) << "--fats-size must be >= 1 when --fats-count > 0";
     ctx.fat_code_standin = make_standin(ctx.contracts.fat_code);
+    // fats_size is capped at parse time (kMaxFatsBytes), so this stays well under
+    // max_acc_state_cells and never over-allocates for an absurd value.
     auto fat_cells = build_fat_storage(tagged_sha256(cfg.seed, "fat", 0), cfg.fats_size);
     std::vector<Ref<vm::Cell>> fat_roots{ctx.contracts.fat_code, fat_cells[0]};
     ctx.fat_used = compute_account_storage_used(cfg.jw_balance, fat_roots);
-    // The 4-ary tree keeps the DEPTH legal, but nothing bounds the cell COUNT: past
-    // ~8.32 MB a fat exceeds max_acc_state_cells, and then any message that mutates its
-    // nonce is rejected by check_state_limits, so the fat can never be touched — useless
-    // as a load target. compute_account_storage_used adds the AccountStorage root that
-    // check_state_limits does not count, so drop that one cell before comparing.
-    td::uint64 state_cells = ctx.fat_used.cells > 0 ? ctx.fat_used.cells - 1 : 0;
-    td::uint64 tree_cells = static_cast<td::uint64>(std::max(1, cfg.fats_size / 127));
-    td::uint64 overhead = state_cells > tree_cells ? state_cells - tree_cells : 0;
-    LOG_CHECK(state_cells <= kMaxAccStateCells)
-        << "--fats-size " << cfg.fats_size << " yields " << state_cells
-        << " account-state cells, over max_acc_state_cells (" << kMaxAccStateCells
-        << "); such a fat would be untouchable. Reduce --fats-size to <= " << (kMaxAccStateCells - overhead) * 127;
   }
   return std::move(ctx);
 }
@@ -1947,6 +1943,11 @@ int main(int argc, char *argv[]) {
                          TRY_RESULT_ASSIGN(cfg.fats_size, td::to_integer_safe<int>(arg));
                          if (cfg.fats_size < 0) {
                            return td::Status::Error("--fats-size must be >= 0");
+                         }
+                         if (cfg.fats_size > bench::kMaxFatsBytes) {
+                           return td::Status::Error(PSTRING() << "--fats-size must be <= " << bench::kMaxFatsBytes
+                                                              << " (a bigger fat exceeds max_acc_state_cells "
+                                                                 "and would be untouchable)");
                          }
                          return td::Status::OK();
                        });
