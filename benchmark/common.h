@@ -91,11 +91,6 @@ void append_dict_label(vm::CellBuilder &cb, td::ConstBitPtr label, int len, int 
 // defining data equals the live data — one cell for both.
 constexpr Uint128 kPrepaidJettonBalance = 1000000;
 
-// Mirror of SizeLimitsConfig::max_acc_state_cells (ConfigParam 43 default). An account whose
-// code+data spans more than this many distinct cells has any state-changing transaction rejected
-// by Transaction::check_state_limits, so a fat storage tree must stay within it to remain touchable.
-constexpr td::uint64 kMaxAccStateCells = 65536;
-
 // w5 data: is_signature_allowed=1, seqno=0, wallet_id, pubkey, empty extensions dict
 Ref<vm::DataCell> build_w5_data(const td::Bits256 &pubkey, td::uint32 wallet_id);
 // prepaid jetton-wallet data: balance:Coins owner:MsgAddressInt master:MsgAddressInt (NO code ref)
