@@ -105,9 +105,11 @@ std::vector<Ref<vm::DataCell>> build_ballast_chain(const td::Bits256 &addr, int 
 // Shared trivial ballast code cell
 Ref<vm::DataCell> build_ballast_code();
 Ref<vm::DataCell> build_empty_cell();
-// Fat load-target storage: nonce:uint64(=0) | ^bigDict, where bigDict is a chain of unique cells sized
-// from `fats_size` bytes (~fats_size/127 cells). Returns [storage_root, chain...]; the caller emits
-// [1..] and stand-ins [0]. Every cell is unique per addr, so nothing dedups across fats or ballast.
+// Fat load-target storage: nonce:uint64(=0) | ^bigDict, where bigDict is a 4-ary tree of unique cells
+// sized from `fats_size` bytes (~fats_size/127 cells). A tree, not a chain, so depth stays ~log4(cells)
+// and fats_size can pass the ~1024-cell / ~130 KB CellTraits::max_depth wall up to the 65536-cell account
+// cap. Returns [storage_root, tree...]; the caller emits [1..] and stand-ins [0]. Every cell is unique
+// per addr, so nothing dedups across fats or ballast.
 std::vector<Ref<vm::DataCell>> build_fat_storage(const td::Bits256 &addr, int fats_size);
 
 // StorageUsed of one account: cells/bits over the serialized AccountStorage

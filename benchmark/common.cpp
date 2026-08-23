@@ -230,8 +230,15 @@ Ref<vm::DataCell> build_state_init(Ref<vm::Cell> code, Ref<vm::Cell> data) {
   return cb.finalize_novm();
 }
 
-std::vector<Ref<vm::DataCell>> build_ballast_chain(const td::Bits256 &addr, int num_cells) {
-  CHECK(num_cells >= 1);
+// Build `num_cells` unique cells (127 bytes of splitmix64 filler each, keyed by
+// (addr, cell index)) linked as a complete `fanout`-ary tree in heap array
+// layout: node k refs children fanout*k+1 .. fanout*k+fanout that exist. Element
+// 0 is the root. fanout=1 is a linear chain (depth = num_cells, so it dies at the
+// CellTraits::max_depth = 1024 wall, ~130 KB); fanout>1 keeps depth
+// ~log_fanout(num_cells), letting an account fill up to max_acc_state_cells
+// (65536) cells instead of stalling at ~1024.
+static std::vector<Ref<vm::DataCell>> build_cell_tree(const td::Bits256 &addr, int num_cells, int fanout) {
+  CHECK(num_cells >= 1 && fanout >= 1);
   std::vector<Ref<vm::DataCell>> cells(num_cells);
   td::uint64 addr64 = 0;
   for (int i = 0; i < 8; i++) {
@@ -248,12 +255,19 @@ std::vector<Ref<vm::DataCell>> build_ballast_chain(const td::Bits256 &addr, int 
     }
     vm::CellBuilder cb;
     cb.store_bits(filler, 127 * 8);
-    if (k + 1 < num_cells) {
-      cb.store_ref(cells[k + 1]);
+    for (int c = 1; c <= fanout; c++) {
+      long long child = 1LL * fanout * k + c;
+      if (child < num_cells) {
+        cb.store_ref(cells[child]);
+      }
     }
     cells[k] = cb.finalize_novm();
   }
   return cells;
+}
+
+std::vector<Ref<vm::DataCell>> build_ballast_chain(const td::Bits256 &addr, int num_cells) {
+  return build_cell_tree(addr, num_cells, 1);
 }
 
 Ref<vm::DataCell> build_ballast_code() {
@@ -268,9 +282,11 @@ Ref<vm::DataCell> build_empty_cell() {
 
 std::vector<Ref<vm::DataCell>> build_fat_storage(const td::Bits256 &addr, int fats_size) {
   // ~fats_size bytes of unique cells (127 data bytes each), reusing the ballast filler keyed by addr
-  // so nothing dedups. bigDict is the chain head; the storage root prefixes a zero nonce and refs it.
+  // so nothing dedups. bigDict is a 4-ary tree (not a linear chain) so its depth stays ~log4(cells)
+  // and fats_size can exceed the ~1024-cell / ~130 KB depth wall a chain hits (CellTraits::max_depth),
+  // up to the 65536-cell account-state cap. The storage root prefixes a zero nonce and refs the tree.
   int num_cells = std::max(1, fats_size / 127);
-  auto chain = build_ballast_chain(addr, num_cells);
+  auto chain = build_cell_tree(addr, num_cells, 4);
   vm::CellBuilder cb;
   cb.store_long(0, 64);    // nonce:uint64 = 0
   cb.store_ref(chain[0]);  // ^bigDict
