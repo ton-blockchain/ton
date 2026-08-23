@@ -29,7 +29,11 @@
 #include "block/block-parse.h"
 #include "common/checksum.h"
 #include "common/io.hpp"
+// FIXME: Remove once RocksDB stops triggering this warning.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
 #include "rocksdb/db.h"
+#pragma GCC diagnostic pop
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/table.h"
