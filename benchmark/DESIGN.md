@@ -22,9 +22,10 @@ Hardware: /mnt/bench = 4TB Samsung 990 PRO (ext4, noatime). All big artifacts li
 4. **`bench-spam`** (C++, `benchmark/spam.cpp`): pre-signs wallet-v5 externals doing
    jetton transfers, sends via liteserver at a configured rate, tracks inclusion by
    scanning new blocks, reports TPS/latency/block stats (JSON + CSV).
-5. **Orchestration**: `test/integration/bench_jetton.py` — builds network on /mnt/bench,
-   checkpoints the master celldb into the node dir (RocksDB Checkpoint = hardlinks),
-   starts node, runs bench-spam, collects results.
+5. **Orchestration**: manual — the standalone `bench_jetton.py` driver was removed.
+   Generate the master celldb with `bench-state-gen gen`, `--checkpoint` it into the node
+   dir (RocksDB Checkpoint = hardlinks), start the tontester network on that state, run
+   `bench-spam` against its liteserver, and collect its JSON/CSV output.
 
 ## State composition (defaults, CLI-overridable)
 
