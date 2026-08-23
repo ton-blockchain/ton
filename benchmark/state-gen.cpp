@@ -84,7 +84,10 @@ struct Config {
   Uint128 v5_balance = 100'000'000'000ULL;    // 100 TON
   Uint128 jw_balance = 1'000'000'000ULL;      // 1 TON
   Uint128 minter_balance = 1'000'000'000ULL;  // 1 TON
-  Uint128 jw_jetton_balance = 1'000'000'000'000'000ULL;
+  // Every generated jetton wallet is prepaid with kPrepaidJettonBalance (build_jw_data), so this —
+  // which feeds total_supply() and manifest.jw_jetton_balance — must match it, or the manifest
+  // publishes a per-wallet balance and a minter supply that disagree with the actual state.
+  Uint128 jw_jetton_balance = kPrepaidJettonBalance;
   std::string contracts_dir = "benchmark/contracts";
   std::string out_dir;
   std::string tmp_dir;
@@ -173,13 +176,18 @@ class ProgressPrinter {
       }
       auto accounts = progress_.accounts.load();
       auto elapsed = td::Timestamp::now().at() - start_;
-      // Human-readable LOG line — unchanged.
-      LOG(INFO) << "[" << progress_.phase.load() << "] accounts=" << accounts << " ("
-                << (accounts - prev_log_accounts_) / 3 << "/s) cells=" << progress_.cells.load()
+      // account rate over the ACTUAL elapsed since the last tick, not a hardcoded 3 s: a non-default
+      // --progress-interval otherwise misreports throughput (a 60 s cadence would read ~20x high).
+      double dt = elapsed - prev_log_elapsed_;
+      td::uint64 rate =
+          dt > 1e-6 ? static_cast<td::uint64>(static_cast<double>(accounts - prev_log_accounts_) / dt) : 0;
+      LOG(INFO) << "[" << progress_.phase.load() << "] accounts=" << accounts << " (" << rate
+                << "/s) cells=" << progress_.cells.load()
                 << " run_bytes=" << td::format::as_size(progress_.run_bytes.load())
                 << " merged_bytes=" << td::format::as_size(progress_.merged_bytes.load()) << " elapsed=" << elapsed
                 << "s";
       prev_log_accounts_ = accounts;
+      prev_log_elapsed_ = elapsed;
       if (!progress_file_.empty()) {
         write_snapshot(/*final_snapshot=*/false);
       }
@@ -350,6 +358,7 @@ class ProgressPrinter {
   td::uint64 accounts_total_;
   double start_ = 0.0;
   double prev_tick_time_ = 0.0;
+  double prev_log_elapsed_ = 0.0;
   td::uint64 prev_log_accounts_ = 0;
   td::uint64 prev_done_ = 0;
   int prev_phase_index_ = 0;
@@ -657,6 +666,19 @@ td::Result<GenContext> make_gen_context(const Config &cfg) {
     auto fat_cells = build_fat_storage(tagged_sha256(cfg.seed, "fat", 0), cfg.fats_size);
     std::vector<Ref<vm::Cell>> fat_roots{ctx.contracts.fat_code, fat_cells[0]};
     ctx.fat_used = compute_account_storage_used(cfg.jw_balance, fat_roots);
+    // The 4-ary tree keeps the DEPTH legal, but nothing bounds the cell COUNT: past
+    // ~8.32 MB a fat exceeds max_acc_state_cells, and then any message that mutates its
+    // nonce is rejected by check_state_limits, so the fat can never be touched — useless
+    // as a load target. compute_account_storage_used adds the AccountStorage root that
+    // check_state_limits does not count, so drop that one cell before comparing.
+    td::uint64 state_cells = ctx.fat_used.cells > 0 ? ctx.fat_used.cells - 1 : 0;
+    td::uint64 tree_cells = static_cast<td::uint64>(std::max(1, cfg.fats_size / 127));
+    td::uint64 overhead = state_cells > tree_cells ? state_cells - tree_cells : 0;
+    LOG_CHECK(state_cells <= kMaxAccStateCells)
+        << "--fats-size " << cfg.fats_size << " yields " << state_cells
+        << " account-state cells, over max_acc_state_cells (" << kMaxAccStateCells
+        << "); such a fat would be untouchable. Reduce --fats-size to <= "
+        << (kMaxAccStateCells - overhead) * 127;
   }
   return std::move(ctx);
 }
@@ -1352,6 +1374,11 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
     }
     TRY_STATUS(td::write_file(cfg.out_dir + "/fats.addrs", fats_addrs));
     TRY_STATUS(td::write_file(cfg.out_dir + "/fats.sizes", fats_sizes));
+  } else {
+    // Regenerating without fats into a dir that had them (--overwrite only drops celldb): remove the
+    // stale sidecars so go-spam --mode fats can't target fat accounts that no longer exist.
+    td::unlink(cfg.out_dir + "/fats.addrs").ignore();
+    td::unlink(cfg.out_dir + "/fats.sizes").ignore();
   }
 
   // verify: the DB opens and the root cell loads via vm::CellLoader
@@ -1848,6 +1875,7 @@ void self_test_empty_root(const Config &base_cfg) {
   Config cfg = base_cfg;
   cfg.num_v5 = 0;
   cfg.num_ballast = 0;
+  cfg.num_fats = 0;  // else a `self-test --fats-count N` run generates fats here and total_balance != 0
   cfg.gen_utime = 1700000000;
   cfg.tmp_dir = PSTRING() << "/tmp/bench-state-gen-selftest-e." << getpid();
   auto res = run_pipeline(cfg, false).move_as_ok();
