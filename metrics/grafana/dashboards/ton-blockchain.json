@@ -3701,7 +3701,7 @@
             },
             {
               "refId": "ATTR",
-              "expr": "((sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0)) and on (job, instance) (topk(1, max_over_time(((sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0))[$__range:] @ end())))",
+              "expr": "sum by (job, instance) (rate(ton_collated_blocks_total{job=~\"$job\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval])) / on () group_left () (sum(rate(ton_collated_blocks_total{job=~\"$job\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0) > 0",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3710,7 +3710,7 @@
             },
             {
               "refId": "ATTR2",
-              "expr": "((sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0)) and on (job, instance) (topk(1, max_over_time(((sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval]))) / (sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",instance=~\"$instance\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0))[$__range:] @ end())))",
+              "expr": "sum by (job, instance) (rate(ton_validated_blocks_total{job=~\"$job\",chain=~\"${chain:raw}\",result=\"error\"}[$__rate_interval])) / on () group_left () (sum(rate(ton_validated_blocks_total{job=~\"$job\",chain=~\"${chain:raw}\"}[$__rate_interval])) > 0) > 0",
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
@@ -3720,7 +3720,7 @@
           ],
           "pluginVersion": "12.0.0",
           "transparent": false,
-          "description": "Problems as a share of blocks \u2014 not durations and not raw event rates. Collation/validation errors are failed shares of attempts, drawn chain-wide because one rotating collator produces each block; their hidden attribution row names the node whose own error share dominated the visible range. overload: long_collation marks blocks that hit the collator deadline. want_split is a weighted-history decision; overload reasons are only the current block's contribution, not a one-to-one cause. Durations are below. Scope: chain-wide sums across the selected jobs; Instance is intentionally ignored because collators rotate. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
+          "description": "Problems as a share of blocks \u2014 not durations and not raw event rates. Collation/validation errors are failed shares of attempts, drawn chain-wide because one rotating collator produces each block. Their hidden attribution rows decompose the drawn value: one row per node currently erring, each showing that node's slice of the chain-wide share, so the rows sum to the drawn line and a clean node never appears. overload: long_collation marks blocks that hit the collator deadline. want_split is a weighted-history decision; overload reasons are only the current block's contribution, not a one-to-one cause. Durations are below. Scope: chain-wide sums across the selected jobs; Instance is intentionally ignored because collators rotate. Hover attribution: the tooltip lists \"series \u21d2 node\" rows (hidden from the chart) answering, per series, whose number the drawn line is. Each row names one stable node for the visible range \u2014 on a Node-switch panel the node whose series stays nearest the drawn quantile (the dominant node under worst, the node the median follows under median), elsewhere the node that dominated the range \u2014 and always carries that node's own value, so where the row hugs the drawn line, the line is that node."
         }
       ],
       "title": "Block flow & production outcomes",

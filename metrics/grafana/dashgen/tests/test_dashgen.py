@@ -499,14 +499,51 @@ class DashboardGenerationTest(unittest.TestCase):
                 validate_dashboard(dashboard)
                 self.assertNotIn('ALERTS{', json.dumps(dashboard))
 
+    def test_node_timeline_warn_tier_survives_missing_warn_samples(self):
+        # The tier sum is label-matched vector addition. A condition whose red arm covers nodes
+        # its warn expression has no sample for — mc-stale firing because the age gauge vanished —
+        # must not lose those nodes to the addition: the warn operand has to be anchored on the
+        # red bool's labelset with `or 0 * (red)`.
+        from metrics.grafana.dashgen.lib import condition
+        from metrics.grafana.dashgen.lib.conventions import node_condition_rows
+
+        conds = [
+            condition("redonly", "red only", severity="critical", scope="node",
+                      red="red_expr", for_s=60),
+            condition("both", "both tiers", severity="warning", scope="node",
+                      red="red_expr", warn="warn_expr", for_s=60),
+        ]
+        expr = node_condition_rows(conds)
+        self.assertIn("clamp_max((red_expr) * 2 + ((warn_expr) or 0 * (red_expr)), 2)", expr)
+        self.assertNotIn("+ (warn_expr)", expr.replace("+ ((warn_expr)", ""))
+        # And the real board keeps the anchoring for every warn-carrying node condition.
+        board_expr = next(
+            query["expr"] for panel in panels(ton_overview.build())
+            for query in panel.get("targets", [])
+            if panel.get("title", "").startswith("Nodes that went bad"))
+        warn_conditions = [c for c in ton_overview.TRIAGE_CONDITIONS
+                           if c.scope == "node" and c.warn]
+        self.assertTrue(warn_conditions)
+        # The union appears twice in the final expression — once as the live vector and once
+        # inside the range-activity filter — so each anchoring shows up exactly twice.
+        self.assertEqual(board_expr.count(") or 0 * ("), 2 * len(warn_conditions))
+
     def test_attribution_owner_is_anchored_to_range_end(self):
+        # A derived overlay picks one owner for the visible range, so it must be pinned to the
+        # range end. A decomposition overlay (explicit `overlay=`) has no owner to pin: its rows
+        # are per-node contributions guarded to nonzero, recognizable by the shared-denominator
+        # join. Every overlay must be one or the other.
         for module in BOARDS:
             with self.subTest(board=module.__name__):
                 overlays = [query for panel in panels(module.build())
                             for query in panel.get("targets", [])
                             if query["refId"].startswith("ATTR")]
                 self.assertTrue(overlays)
-                self.assertTrue(all("@ end()" in query["expr"] for query in overlays))
+                for query in overlays:
+                    expr = query["expr"]
+                    anchored = "@ end()" in expr
+                    decomposed = "/ on () group_left ()" in expr and expr.rstrip().endswith("> 0")
+                    self.assertTrue(anchored or decomposed, expr)
 
     def test_job_scoped_panels_do_not_read_instance(self):
         for module in BOARDS:

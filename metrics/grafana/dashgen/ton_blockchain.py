@@ -262,6 +262,18 @@ def error_share(kind, by=None):
                  summed(by, blocks(kind, node=node)))
 
 
+def error_contribution(kind):
+    """Each node's slice of the chain-wide error share; the slices sum to the drawn line.
+
+    Errors are sparse, so a range-dominant owner explains nothing at the moment of a spike: the
+    range winner is usually clean right then, and the row would truthfully show 0 next to a
+    nonzero drawn value. Contributions instead name exactly the nodes erring now, and their sum
+    is the drawn value by construction (per-node numerator over the same chain-wide denominator).
+    """
+    return (f'{summed("job, instance", blocks(kind, result="error"))}'
+            f' / on () group_left () ({summed(None, blocks(kind))} > 0) > 0')
+
+
 def rejections():
     """Admissions the node refused, excluding every successful or stock-neutral outcome."""
     return f"rate(ton_mempool_ext_admission_total{sel(**NODE, outcome=REJECTED)}[{RATE}])"
@@ -840,9 +852,11 @@ ROWS = [
         fleet_timeseries(
             "Production problems (% of blocks) — ${chain:text}",
             attributed("collation errors", error_share("collated", "job, instance"),
-                       shown=error_share("collated")),
+                       shown=error_share("collated"),
+                       overlay=error_contribution("collated")),
             attributed("validation errors", error_share("validated", "job, instance"),
-                       shown=error_share("validated")),
+                       shown=error_share("validated"),
+                       overlay=error_contribution("validated")),
             line("overload: {{reason}}",
                  f"{summed('reason', collation_rate('ton_collation_overload_total'))}"
                  f" / on () group_left () ({summed(None, blocks(result='ok'))} > 0) > 0"),
@@ -856,8 +870,10 @@ ROWS = [
             description=(
                 "Problems as a share of blocks — not durations and not raw event rates. "
                 "Collation/validation errors are failed shares of attempts, drawn chain-wide "
-                "because one rotating collator produces each block; their hidden attribution row "
-                "names the node whose own error share dominated the visible range. overload: "
+                "because one rotating collator produces each block. Their hidden attribution "
+                "rows decompose the drawn value: one row per node currently erring, each showing "
+                "that node's slice of the chain-wide share, so the rows sum to the drawn line and "
+                "a clean node never appears. overload: "
                 "long_collation marks blocks that hit the collator deadline. want_split is a "
                 "weighted-history decision; overload reasons are only the current block's "
                 "contribution, not a one-to-one cause. Durations are below. Scope: chain-wide sums "
