@@ -1152,7 +1152,7 @@ consensus.stats.id workchain:int shard:long cc_seqno:int idx:int total_validator
 consensus.stats.collateStarted target_slot:int = consensus.stats.Event;
 consensus.stats.collateFinished target_slot:int id:consensus.candidateId = consensus.stats.Event;
 consensus.stats.collatedEmpty id:consensus.candidateId = consensus.stats.Event;
-consensus.stats.candidateReceived id:consensus.candidateId parent:consensus.CandidateParent block:consensus.stats.CandidateBlock is_collator:Bool = consensus.stats.Event;
+consensus.stats.candidateReceived id:consensus.candidateId parent:consensus.CandidateParent block:consensus.stats.CandidateBlock is_collator:Bool collator_node_id:int256 = consensus.stats.Event;
 consensus.stats.validationStarted id:consensus.candidateId = consensus.stats.Event;
 consensus.stats.validationFinished id:consensus.candidateId = consensus.stats.Event;
 consensus.stats.blockAccepted id:consensus.candidateId = consensus.stats.Event;

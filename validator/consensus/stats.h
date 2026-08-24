@@ -139,12 +139,14 @@ class CandidateReceived : public CollectibleEvent<MetricCollector> {
   }
 
  private:
-  CandidateReceived(CandidateId id, ParentId parent, std::optional<BlockIdExt> block, bool is_collator);
+  CandidateReceived(CandidateId id, ParentId parent, std::optional<BlockIdExt> block, bool is_collator,
+                    std::optional<adnl::AdnlNodeIdShort> collator_node);
 
   CandidateId id_;
   ParentId parent_;
   std::optional<BlockIdExt> block_;
   bool is_collator_;
+  std::optional<adnl::AdnlNodeIdShort> collator_node_;
 };
 
 class ValidationStarted : public CollectibleEvent<MetricCollector> {

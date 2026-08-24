@@ -99,9 +99,13 @@ std::unique_ptr<CandidateReceived> CandidateReceived::create(const CandidateRef&
   auto empty_fn = [&](const BlockIdExt&) { return std::optional<BlockIdExt>{}; };
   auto candidate_fn = [&](const BlockCandidate& candidate_block) { return std::optional{candidate_block.id}; };
   auto block = std::visit(td::overloaded(empty_fn, candidate_fn), candidate->block);
+  std::optional<adnl::AdnlNodeIdShort> collator_node;
+  if (candidate->delegation) {
+    collator_node = adnl::AdnlNodeIdShort{candidate->delegation->collator_key.compute_short_id()};
+  }
 
   return std::unique_ptr<CandidateReceived>(
-      new CandidateReceived(candidate->id, candidate->parent_id, block, is_collator));
+      new CandidateReceived(candidate->id, candidate->parent_id, block, is_collator, collator_node));
 }
 
 tl::EventRef CandidateReceived::to_tl() const {
@@ -111,8 +115,9 @@ tl::EventRef CandidateReceived::to_tl() const {
   } else {
     block = create_tl_object<tl::empty>();
   }
-  return create_tl_object<tl::candidateReceived>(id_.to_tl(), CandidateId::parent_id_to_tl(parent_), std::move(block),
-                                                 is_collator_);
+  return create_tl_object<tl::candidateReceived>(
+      id_.to_tl(), CandidateId::parent_id_to_tl(parent_), std::move(block), is_collator_,
+      collator_node_ ? collator_node_->bits256_value() : td::Bits256::zero());
 }
 
 std::string CandidateReceived::to_string() const {
@@ -120,15 +125,17 @@ std::string CandidateReceived::to_string() const {
   if (block_.has_value()) {
     block_str = block_->to_str();
   }
-  return PSTRING() << "CandidateReceived{id=" << id_ << ", parent=" << parent_ << ", block_id=" << block_str << "}";
+  return PSTRING() << "CandidateReceived{id=" << id_ << ", parent=" << parent_ << ", block_id=" << block_str
+                   << ", collator_node=" << collator_node_ << "}";
 }
 
 void CandidateReceived::collect_to(MetricCollector& collector) const {
   collector.collect_candidate_received(*this);
 }
 
-CandidateReceived::CandidateReceived(CandidateId id, ParentId parent, std::optional<BlockIdExt> block, bool is_collator)
-    : id_(id), parent_(parent), block_(block), is_collator_(is_collator) {
+CandidateReceived::CandidateReceived(CandidateId id, ParentId parent, std::optional<BlockIdExt> block, bool is_collator,
+                                     std::optional<adnl::AdnlNodeIdShort> collator_node)
+    : id_(id), parent_(parent), block_(block), is_collator_(is_collator), collator_node_(collator_node) {
 }
 
 std::unique_ptr<ValidationStarted> ValidationStarted::create(CandidateId id) {
