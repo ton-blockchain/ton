@@ -303,7 +303,7 @@ td::Status BroadcastFecPart::run_checks(OverlayImpl *overlay, BroadcastFec *bcas
       overlay->check_source_eligible(source_, cert_.get(), broadcast_size_, /* is_fec = */ true,
                                      /* is_any_sender = */ flags_ & Overlays::BroadcastFlagAnySender(), src_peer_id_);
   if (r == BroadcastCheckResult::Forbidden) {
-    return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
+    return td::Status::Error(ErrorCode::notready, "broadcast is forbidden");
   }
 
   if (r == BroadcastCheckResult::NeedCheck) {
