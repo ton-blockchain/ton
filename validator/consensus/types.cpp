@@ -303,6 +303,13 @@ bool Candidate::is_empty() const {
   return std::holds_alternative<BlockIdExt>(block);
 }
 
+adnl::AdnlNodeIdShort Candidate::collated_by(const Bus& bus) const {
+  if (delegation) {
+    return adnl::AdnlNodeIdShort{delegation->collator_key.compute_short_id()};
+  }
+  return leader.get_using(bus).adnl_id;
+}
+
 stats::Event::Event() : ts_(td::Clocks::system()) {
 }
 

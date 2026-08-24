@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "consensus/stats.h"
 #include "consensus/window-producer.h"
 #include "td/actor/SharedFuture.h"
 #include "td/actor/coro_task.h"
@@ -107,6 +108,9 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
       return;
     }
     slot->state->received_block = candidate;
+    if (candidate->collated_by(*owning_bus()) != owning_bus()->local_adnl_id) {
+      owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
+    }
     owning_bus().publish<StoreCandidate>(candidate).start().detach();
   }
 

@@ -208,7 +208,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     }
 
     slot->state->pending_block = candidate;
-    if (candidate->leader != owning_bus()->local_id->idx) {
+    if (candidate->collated_by(*owning_bus()) != owning_bus()->local_adnl_id) {
       owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
     }
     try_notarize(*slot).start().detach();
