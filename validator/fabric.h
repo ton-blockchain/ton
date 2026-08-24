@@ -47,6 +47,10 @@ struct CollateParams {
   // If not empty, should be the same size as prev
   std::vector<Ref<BlockData>> prev_block_data = {};
   std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
+
+  // Optional deterministic block seed for replay/benchmark tooling. Normal
+  // production callers leave it empty and retain the collator's random seed.
+  td::optional<td::Bits256> rand_seed = {};
 };
 
 struct ValidateParams {

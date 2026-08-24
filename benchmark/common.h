@@ -255,6 +255,7 @@ td::Result<WalletInfo> derive_wallet(const td::Bits256 &seed, td::uint64 index, 
 struct SpamParams {
   Uint128 msg_value{50'000'000};     // 0.05 TON attached to the transfer
   Uint128 jetton_amount{1'000'000};  // jetton units moved per transfer
+  Uint128 forward_ton_amount{0};     // notification value; zero preserves the original 3-account workload
 };
 
 // Pre-signed wallet-v5 external (seqno 0) doing a jetton transfer from wallet
@@ -262,5 +263,12 @@ struct SpamParams {
 td::Result<Ref<vm::DataCell>> build_signed_external(const td::Bits256 &seed, td::uint64 wallet_index,
                                                     td::uint64 recipient_index, const Manifest &manifest,
                                                     const ContractSet &contracts, const SpamParams &params = {});
+
+// Pre-signed wallet-v5 external (seqno 0) doing a plain, non-bounceable TON
+// transfer of params.msg_value with an empty body from wallet `wallet_index` to
+// wallet `recipient_index`; params.jetton_amount/forward_ton_amount are unused.
+td::Result<Ref<vm::DataCell>> build_signed_simple_external(const td::Bits256 &seed, td::uint64 wallet_index,
+                                                           td::uint64 recipient_index, const Manifest &manifest,
+                                                           const ContractSet &contracts, const SpamParams &params = {});
 
 }  // namespace bench

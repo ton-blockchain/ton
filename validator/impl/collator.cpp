@@ -82,6 +82,9 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
   if (params_.collator_opts.is_null()) {
     params_.collator_opts = Ref<CollatorOptions>{true};
   }
+  if (params_.rand_seed) {
+    rand_seed_ = params_.rand_seed.value();
+  }
   if (!params_.soft_timeout) {
     params_.soft_timeout = params_.hard_timeout;
   }
