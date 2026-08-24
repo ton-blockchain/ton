@@ -20,6 +20,9 @@ using id = ton_api::consensus_stats_id;
 using collateStarted = ton_api::consensus_stats_collateStarted;
 using collateFinished = ton_api::consensus_stats_collateFinished;
 using collatedEmpty = ton_api::consensus_stats_collatedEmpty;
+using receivedDelegation = ton_api::consensus_stats_receivedDelegation;
+using sentDelegation = ton_api::consensus_stats_sentDelegation;
+using concludedDelegation = ton_api::consensus_stats_concludedDelegation;
 using candidateReceived = ton_api::consensus_stats_candidateReceived;
 using validationStarted = ton_api::consensus_stats_validationStarted;
 using validationFinished = ton_api::consensus_stats_validationFinished;
@@ -117,6 +120,49 @@ class CollatedEmpty : public Event {
   CandidateId id_;
 };
 
+class ReceivedDelegation : public Event {
+ public:
+  static std::unique_ptr<ReceivedDelegation> create(td::uint32 start_slot);
+
+  tl::EventRef to_tl() const override;
+  std::string to_string() const override;
+
+ private:
+  explicit ReceivedDelegation(td::uint32 start_slot);
+
+  td::uint32 start_slot_;
+};
+
+class SentDelegation : public Event {
+ public:
+  static std::unique_ptr<SentDelegation> create(td::uint32 start_slot, adnl::AdnlNodeIdShort collator_node_id);
+
+  tl::EventRef to_tl() const override;
+  std::string to_string() const override;
+
+ private:
+  SentDelegation(td::uint32 start_slot, adnl::AdnlNodeIdShort collator_node_id);
+
+  td::uint32 start_slot_;
+  adnl::AdnlNodeIdShort collator_node_id_;
+};
+
+class ConcludedDelegation : public Event {
+ public:
+  static std::unique_ptr<ConcludedDelegation> create(td::uint32 start_slot, adnl::AdnlNodeIdShort collator_node_id,
+                                                     bool success);
+
+  tl::EventRef to_tl() const override;
+  std::string to_string() const override;
+
+ private:
+  ConcludedDelegation(td::uint32 start_slot, adnl::AdnlNodeIdShort collator_node_id, bool success);
+
+  td::uint32 start_slot_;
+  adnl::AdnlNodeIdShort collator_node_id_;
+  bool success_;
+};
+
 class CandidateReceived : public CollectibleEvent<MetricCollector> {
  public:
   static std::unique_ptr<CandidateReceived> create(const CandidateRef& candidate, bool is_collator);
@@ -187,7 +233,7 @@ class ValidationFinished : public CollectibleEvent<MetricCollector> {
 
 class BlockAccepted : public CollectibleEvent<MetricCollector> {
  public:
-  static std::unique_ptr<BlockAccepted> create(CandidateId id);
+  static std::unique_ptr<BlockAccepted> create(const CandidateRef& candidate);
 
   tl::EventRef to_tl() const override;
   std::string to_string() const override;
@@ -198,9 +244,11 @@ class BlockAccepted : public CollectibleEvent<MetricCollector> {
   }
 
  private:
-  BlockAccepted(CandidateId id);
+  BlockAccepted(CandidateId id, BlockIdExt block_id, std::optional<adnl::AdnlNodeIdShort> collator_node_id);
 
   CandidateId id_;
+  BlockIdExt block_id_;
+  std::optional<adnl::AdnlNodeIdShort> collator_node_id_;
 };
 
 class MetricCollector {

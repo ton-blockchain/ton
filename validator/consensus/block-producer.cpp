@@ -10,6 +10,7 @@
 #include "validator/collator-scoreboard.hpp"
 
 #include "bus.h"
+#include "stats.h"
 #include "window-producer.h"
 
 namespace ton::validator::consensus {
@@ -183,6 +184,7 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     }
 
     delegated_windows_[start_slot] = DelegatedWindow{selected_collator, false};
+    owning_bus().publish<TraceEvent>(stats::SentDelegation::create(start_slot, selected_collator));
     while (true) {
       auto timeout = td::Timestamp::in(COLLATE_REQUEST_TIMEOUT);
       auto response = co_await owning_bus()
@@ -224,6 +226,8 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     while (!delegated_windows_.empty() && delegated_windows_.begin()->first < boundary_slot) {
       auto& [start_slot, window] = *delegated_windows_.begin();
       if (!window.from_db) {
+        owning_bus().publish<TraceEvent>(
+            stats::ConcludedDelegation::create(start_slot, window.collator, window.produced));
         td::actor::send_closure(bus.collator_scoreboard, &CollatorScoreboard::report_outcome, window.collator,
                                 window.produced);
       }

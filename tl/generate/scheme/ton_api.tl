@@ -1152,10 +1152,13 @@ consensus.stats.id workchain:int shard:long cc_seqno:int idx:int total_validator
 consensus.stats.collateStarted target_slot:int = consensus.stats.Event;
 consensus.stats.collateFinished target_slot:int id:consensus.candidateId = consensus.stats.Event;
 consensus.stats.collatedEmpty id:consensus.candidateId = consensus.stats.Event;
+consensus.stats.receivedDelegation start_slot:int = consensus.stats.Event;
+consensus.stats.sentDelegation start_slot:int collator_node_id:int256 = consensus.stats.Event;
+consensus.stats.concludedDelegation start_slot:int collator_node_id:int256 success:Bool = consensus.stats.Event;
 consensus.stats.candidateReceived id:consensus.candidateId parent:consensus.CandidateParent block:consensus.stats.CandidateBlock is_collator:Bool collator_node_id:int256 = consensus.stats.Event;
 consensus.stats.validationStarted id:consensus.candidateId = consensus.stats.Event;
 consensus.stats.validationFinished id:consensus.candidateId = consensus.stats.Event;
-consensus.stats.blockAccepted id:consensus.candidateId = consensus.stats.Event;
+consensus.stats.blockAccepted id:consensus.candidateId block_id:tonNode.blockIdExt collator_node_id:int256 = consensus.stats.Event;
 consensus.stats.timestampedEvent ts:double event:consensus.stats.Event = consensus.stats.TimestampedEvent;
 consensus.stats.events id:int256 events:(vector consensus.stats.timestampedEvent) = consensus.stats.Events;
 
