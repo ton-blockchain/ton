@@ -846,27 +846,6 @@ http.server.config dhs:(vector http.server.dnsEntry) local_hosts:(vector http.se
 
 ---types---
 
-validatorStats.stats.producer flags:#
-  validator_id:int256 block_status:int
-  candidate_id:flags.0?int256 block_id:flags.0?tonNode.blockIdExt collated_data_hash:flags.0?int256
-  is_accepted:flags.0?Bool is_ours:flags.0?Bool
-  got_block_at:flags.0?double got_block_by:flags.0?int got_submit_at:flags.0?double gen_utime:flags.0?int comment:flags.0?string
-  collation_time:flags.1?double collated_at:flags.1?double collation_cached:flags.1?Bool self_collated:flags.1?Bool collator_node_id:flags.2?int256
-  validation_time:flags.3?double validated_at:flags.3?double validation_cached:flags.3?Bool
-  approved_weight:flags.0?long approved_33pct_at:flags.0?double approved_66pct_at:flags.0?double approvers:flags.0?string
-  signed_weight:flags.0?long signed_33pct_at:flags.0?double signed_66pct_at:flags.0?double signers:flags.0?string
-  serialize_time:flags.4?double deserialize_time:flags.4?double serialized_size:flags.4?int = validatorStats.stats.Producer;
-
-validatorStats.stats.round started_at:double producers:(vector validatorStats.stats.producer) = validatorStats.stats.Round;
-
-validatorStats.stats flags:#
-    session_id:int256 self:int256 block_id:tonNode.blockIdExt cc_seqno:int success:Bool timestamp:double
-    creator:flags.0?int256
-    total_validators:int total_weight:long
-    signatures:flags.0?int signatures_weight:flags.0?long
-    approve_signatures:flags.0?int approve_signatures_weight:flags.0?long
-    first_round:int rounds:(vector validatorStats.stats.round) = validatorStats.Stats;
-
 validatorStats.blockLimitsStatus
     bytes:int gas:int lt_delta:int collated_data_bytes:int
     cat_bytes:int cat_gas:int cat_lt_delta:int cat_collated_data_bytes:int
@@ -910,34 +889,10 @@ validatorStats.validatedBlock
     storage_stat_cache:validatorStats.storageStatCacheStats
     parallel_accounts_validation:Bool = validatorStats.ValidatedBlock;
 
-validatorStats.newValidatorGroup.node id:int256 pubkey:PublicKey adnl_id:int256 weight:long = validatorStats.newValidatorGroup.Node;
-validatorStats.newValidatorGroup session_id:int256 shard:tonNode.shardId cc_seqno:int
-    last_key_block_seqno:int started_at:double prev:(vector tonNode.blockIdExt)
-    self_idx:int self:int256 nodes:(vector validatorStats.newValidatorGroup.node) = validatorStats.NewValidatorGroup;
-
-validatorStats.endValidatorGroup.node id:int256 catchain_blocks:int = validatorStats.endValidatorGroup.Node;
-validatorStats.endValidatorGroup session_id:int256 timestamp:double self:int256
-    nodes:(vector validatorStats.endValidatorGroup.node) = validatorStats.EndValidatorGroup;
-
-validatorStats.collatorNodeResponse self:int256 validator_id:int256 timestamp:double
-    block_id:tonNode.blockIdExt original_block_id:tonNode.blockIdExt collated_data_hash:int256
-    = validatorStats.CollatorNodeResponse;
-
-collatorNode.candidate source:PublicKey id:tonNode.blockIdExt data:bytes collated_data:bytes = collatorNode.Candidate;
-collatorNode.compressedCandidate flags:# source:PublicKey id:tonNode.blockIdExt decompressed_size:int data:bytes = collatorNode.Candidate;
-collatorNode.compressedCandidateV2 flags:# source:PublicKey id:tonNode.blockIdExt data:bytes = collatorNode.Candidate;
-collatorNode.pong#5bbf0521 flags:# version:flags.0?int = collatorNode.Pong;
-collatorNode.error code:int message:string = collatorNode.Error;
-
 shardBlockVerifier.subscribed flags:# = shardBlockVerifier.Subscribed;
 shardBlockVerifier.confirmBlocks blocks:(vector tonNode.blockIdExt) = shardBlockVerifier.ConfirmBlocks;
 
 ---functions---
-collatorNode.generateBlock shard:tonNode.shardId cc_seqno:int prev_blocks:(vector tonNode.blockIdExt)
-    creator:int256 round:int first_block_round:int priority:int = collatorNode.Candidate;
-collatorNode.requestBlockCallback flags:# block_id:tonNode.BlockIdExt = collatorNode.Candidate;
-collatorNode.ping flags:# = collatorNode.Pong;
-
 shardBlockVerifier.subscribe shard:tonNode.shardId flags:# = shardBlockVerifier.Subscribed;
 
 ---types---
