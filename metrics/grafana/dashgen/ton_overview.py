@@ -203,15 +203,17 @@ RX_RATE = both_transports("wire_dropped", ("quic", "adnl"), over=TRIAGE_RATE,
 CPU_OCC = worker_occupancy("cpu", over=TRIAGE_RATE)
 IO_OCC = worker_occupancy("io", over=TRIAGE_RATE)
 
-# Red when over 120 s, OR up with no age sample yet — still syncing is red, not no-data.
-# Red when the head is old, or when a node that was reporting it stopped: the second arm is what
-# catches a wedged or resyncing node whose gauge simply vanishes. It is gated on having reported
-# within the hour, because "never reported" is a different animal — a liteserver, a node_exporter,
-# Prometheus itself — and calling those masterchain-stale forever is noise, not a finding.
+# Red when the head is old, or when a node that was reporting the gauge stopped while its scrapes
+# still succeed: the second arm catches a wedged or resyncing validator subsystem whose gauge
+# simply vanishes. It is gated on having reported within the hour ("never reported" is a
+# different animal — a liteserver, a node_exporter, Prometheus itself) AND on the target being
+# up, because a down target loses every series at once and that is already the unreachable
+# condition — one fault, one flag.
 MC_REPORTED = (f"count by (job, instance) (max_over_time("
                f"ton_masterchain_block_age_seconds{SEL}[1h])) > bool 0")
-MC_STALE_RED = (f"({MC_AGE} > bool 120) or (({MC_REPORTED})"
-                f" unless max by (job, instance) (ton_masterchain_block_age_seconds{SEL}))")
+MC_STALE_RED = (f"({MC_AGE} > bool 120) or ((({MC_REPORTED})"
+                f" unless max by (job, instance) (ton_masterchain_block_age_seconds{SEL}))"
+                f" and on (job, instance) ({UP} == 1))")
 
 TRIAGE_CONDITIONS = [
     condition("unreachable", "unreachable", severity="critical", scope="node",
@@ -348,24 +350,24 @@ ROWS = [
         node_severity_timeline(
             "Nodes that went bad — history", TRIAGE_CONDITIONS, id=45, w=24, h=8,
             description=(
-                "A row for each node that was unhealthy at some point in the window, banded by "
-                "inline node_severity: yellow warn, red bad, gaps healthy. This is the 'where' the "
-                "scorecard loses once a breach recovers — it names which node was bad and when. "
-                "Healthy nodes are not drawn, so the panel stays legible on a large fleet and an "
-                "empty one means everything stayed healthy. Pair it with the breach history below "
-                "(which condition) and the scorecard above (which condition, now)."
+                "A row for every node-and-condition pair that was unhealthy at some point in the "
+                "window — the row label names both, so each band answers what was bad, where, and "
+                "when in one look; gaps are the healthy stretches. Yellow is the warn tier, red "
+                "the bad tier, and a node tripping several conditions shows them as parallel "
+                "rows. Healthy pairs are not drawn, so the panel stays legible on a large fleet "
+                "and an empty one means everything stayed healthy; the magnitudes behind the "
+                "colours live on the scorecard above."
             ),
         ),
         breach_timeline(
             "Breach history", TRIAGE_CONDITIONS, id=44, w=24, h=7,
             description=(
-                "One band per condition — the count breaching it, count(<red> == 1) computed "
-                "inline over the visible range — so a band shows when a condition started and how "
-                "widespread it is. Covers node-level conditions (the count is nodes breaching) "
-                "and the chain-level ones below them — mc rate low, chain stalled, shard discard, "
-                "collation slow (the count is jobs), so every active condition here has a row that "
-                "turns red with it. Green ok, red with the "
-                "count once anything breaches. Height is fixed at the condition count, so this "
+                "One stepped line per condition — the count breaching it, count(<red> == 1) "
+                "computed inline — drawn only while that count is nonzero, so a gap means nobody "
+                "breaches it and any visible step shows when a condition started and exactly how "
+                "widespread it got; hover for the counts. Covers node-level conditions (the count "
+                "is nodes breaching) and the chain-level ones — mc rate low, chain stalled, shard "
+                "discard, collation slow (the count is jobs). Height is fixed, so this "
                 "reads the same at eight nodes and four hundred; the two panels above say which "
                 "node."
             ),

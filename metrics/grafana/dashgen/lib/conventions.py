@@ -153,6 +153,7 @@ class Attributed(NamedTuple):
     pick: str
     top: str
     shown: str
+    overlay: str = None
 
 
 def line(name, expr, *, ref_id=None, bare=False):
@@ -160,7 +161,7 @@ def line(name, expr, *, ref_id=None, bare=False):
     return Line(name, expr, ref_id, bare)
 
 
-def attributed(name, inner, *, key=None, pick="max", top="", shown=None):
+def attributed(name, inner, *, key=None, pick="max", top="", shown=None, overlay=None):
     """A series the panel collapses over nodes, tagged with the node it came from.
 
     `inner` must be a per-(job, instance) vector expression - a guarded per-node ratio
@@ -170,8 +171,14 @@ def attributed(name, inner, *, key=None, pick="max", top="", shown=None):
     range. `key=None` collapses to one series, `top` keeps only the busiest keys, and
     `shown` replaces the drawn expression where the panel must keep a chain-scoped value
     that no per-node maximum can stand in for.
+
+    `overlay` replaces the derived row outright, for series where range dominance answers
+    the wrong question. A sparse event share needs decomposition, not a stable owner: pass
+    per-node contributions to the drawn value (same denominator, per-node numerator,
+    guarded with > 0) and the rows name exactly the nodes responsible at each moment and
+    sum to the drawn line.
     """
-    return Attributed(name, inner, key, pick, top, shown)
+    return Attributed(name, inner, key, pick, top, shown, overlay)
 
 
 def fleet_spread(inner, *, average="average", include_best=True):
@@ -310,7 +317,7 @@ def _attributed_targets(items, transplant):
             continue
         ref = ATTR if not overlays else f"{ATTR}{len(overlays) + 1}"
         name = item.name or ("worst" if item.pick == "max" else "best")
-        overlays.append(target(_overlay(item) + item.top,
+        overlays.append(target((item.overlay or _overlay(item)) + item.top,
                                ref_id=ref, bare=True, legend=f"{name} ⇒ {{{{instance}}}}"))
         overrides.append(_frame(ref, copy.deepcopy(ATTR_PROPS)))
     return drawn + overlays, overrides
@@ -792,31 +799,61 @@ def node_severity(conditions):
     return f"2 * {red} + ({warn} or 0 * {red})"
 
 
+def node_condition_rows(conditions):
+    """Per-(node, condition) severity series, the condition named in the `sig` label.
+
+    One united vector: each node condition contributes one series valued 2 while its red bool
+    holds, 1 while only its warn does, and 0 while healthy, tagged with the condition's human
+    label. The tiers combine arithmetically (`clamp_max(red*2 + warn, 2)`) rather than with `or`:
+    the red bool exists even at 0, so an `or` of separate tier branches would shadow every
+    warn-only sample behind a zero red. Zeros are kept deliberately — they are what terminates a
+    band when the node recovers — and the range filter keeps rows only for pairs that were
+    unhealthy at some point in the visible window, so healthy pairs draw nothing at all. The
+    panel keys its rows on the legend, so the condition name rides in the series identity, and
+    simultaneous conditions on one node appear as parallel rows instead of fighting for a cell.
+    """
+    node = [c for c in conditions if c.scope == "node"]
+    branches = []
+    for c in node:
+        # `warn or 0*red` anchors the warn tier on the red bool's labelset (the same defaulting
+        # node_severity() uses): the tier sum is label-matched vector addition, and a condition
+        # whose red arm covers nodes the warn expression has no sample for — mc-stale's
+        # vanished-gauge arm — would otherwise drop those nodes from the sum entirely.
+        if c.warn:
+            tier = f"clamp_max(({c.red}) * 2 + (({c.warn}) or 0 * ({c.red})), 2)"
+        else:
+            tier = f"({c.red}) * 2"
+        branches.append(f'label_replace({tier}, "sig", "{c.label}", "", "")')
+    union = f"max by (job, instance, sig) ({' or '.join(branches)})"
+    active = f"max by (job, instance, sig) (max_over_time(({union})[$__range:] @ end()))"
+    return f"({union}) and on (job, instance, sig) (({active}) > 0)"
+
+
 def breach_timeline(title, conditions, *, description, id, w=24, h=6, x=None, y=None,
                     overrides=None):
-    """A state-timeline with one band per CONDITION, so its height is O(conditions) not O(nodes).
+    """Stepped count of breachers per condition; a gap means nobody breaches it.
 
-    Each band draws `count(<red> == 1) or vector(0)`, the number breaching that condition inline —
-    nodes for a node condition, jobs for a chain one — `or vector(0)` when none. 0 maps to a green
-    "ok", any count to red with the number kept as the cell text — the "when did it start, one node
-    or the whole fleet" panel that a per-node grid cannot stay legible as at four hundred nodes.
-    Fixed fleet scope: the title takes the (fleet) marker, never the ▾ of an aggregation panel.
+    One step line per condition, valued at how many are breaching it right now — nodes for a node
+    condition, jobs for a chain one — and drawn only while that count is nonzero, so a healthy
+    stretch is a gap rather than a zero carpet. The hover shows the exact counts; this used to be
+    a state-timeline, but that panel renders numeric cells as threshold-bucket labels ("1+") in
+    current Grafana, burying the count it exists to show. Fixed fleet scope, never the ▾.
     """
-    targets = [target(f"count(({c.red}) == 1) or vector(0)", ref_id=ref, legend=c.label)
+    targets = [target(f"count(({c.red}) == 1) > 0", ref_id=ref, legend=c.label)
                for c, ref in zip(conditions, string.ascii_uppercase)]
-    custom = {"lineWidth": 0, "fillOpacity": 80, "spanNulls": False, "insertNulls": False,
+    custom = {"lineWidth": 2, "fillOpacity": 25, "spanNulls": False,
+              "lineInterpolation": "stepAfter", "showPoints": "never",
+              "stacking": {"mode": "none"},
               "hideFrom": {"legend": False, "tooltip": False, "viz": False}}
     return panel(
-        "state-timeline",
+        "timeseries",
         title if title.endswith(WORST_FIRST) else title + WORST_FIRST,
         description,
         unit="short", w=w, h=h, x=x, y=y, id=id,
-        defaults={"custom": custom, "color": {"mode": "thresholds"},
-                  "thresholds": _steps(thresholds(("red", 1))),
-                  "mappings": [{"type": "value", "options": {"0": {"text": "ok", "index": 0}}}]},
-        options={"mergeValues": True, "showValue": "auto", "alignValue": "left", "rowHeight": 0.9,
-                 "legend": {"showLegend": True, "displayMode": "list", "placement": "bottom"},
-                 "tooltip": {"mode": "single", "sort": "none"}},
+        defaults={"custom": custom, "min": 0, "decimals": 0,
+                  "noValue": "no condition breached in this window"},
+        options={"legend": {"showLegend": True, "displayMode": "list", "placement": "bottom"},
+                 "tooltip": {"mode": "multi", "sort": "desc"}},
         targets=targets,
         query_scope="mixed",
         overrides=overrides,
@@ -828,12 +865,12 @@ def node_severity_timeline(title, conditions, *, description, id, w=24, h=8, x=N
     """A state-timeline of the nodes that went bad, one row each, coloured by inline severity.
 
     The breach-by-condition timeline says which failure mode fired and when; this says which NODE
-    was bad and when — the "where" that an instant scorecard loses once a breach recovers. Only
-    non-zero severity is plotted, so a node earns a row by having a problem: an empty panel means
-    every selected node stayed healthy, and the height is O(bad nodes), not O(nodes) — four
-    hundred healthy nodes draw nothing rather than four hundred unreadable green slivers. Bands
-    are 1 warn (yellow) and 2+ bad (red); the gaps between them are the healthy stretches.
-    Fixed fleet scope — no ▾.
+    was bad and when — the "where" that an instant scorecard loses once a breach recovers. Rows
+    are node-and-condition pairs, the condition named right in the row label, so a band answers
+    what was bad on which node without relying on cell text; simultaneous conditions appear as
+    parallel rows. Only unhealthy stretches are plotted: an empty panel means every selected node
+    stayed healthy, and the height is O(active problems), not O(nodes). Yellow is the warn tier,
+    red the bad tier; the magnitudes live on the scorecard. Fixed fleet scope — no ▾.
     """
     custom = {"lineWidth": 0, "fillOpacity": 80, "spanNulls": False, "insertNulls": False,
               "hideFrom": {"legend": False, "tooltip": False, "viz": False}}
@@ -843,16 +880,15 @@ def node_severity_timeline(title, conditions, *, description, id, w=24, h=8, x=N
         description,
         unit="short", w=w, h=h, x=x, y=y, id=id,
         defaults={"custom": custom, "color": {"mode": "thresholds"},
-                  "thresholds": _steps(thresholds(("#EAB839", 1), ("red", 2))),
+                  # Base transparent: the healthy zeros exist to terminate a band, not to draw one.
+                  "thresholds": _steps(thresholds(("#EAB839", 1), ("red", 2), base="transparent")),
                   "noValue": "every selected node stayed healthy",
-                  "mappings": [{"type": "value", "options": {
-                      "1": {"text": "warn", "index": 0}, "2": {"text": "bad", "index": 1},
-                      "3": {"text": "bad", "index": 2}}}]},
-        options={"mergeValues": True, "showValue": "auto", "alignValue": "left", "rowHeight": 0.9,
+                  "mappings": []},
+        options={"mergeValues": True, "showValue": "never", "alignValue": "left", "rowHeight": 0.9,
                  "legend": {"showLegend": False, "displayMode": "list", "placement": "bottom"},
                  "tooltip": {"mode": "single", "sort": "none"}},
-        targets=[target(f"({node_severity(conditions)}) > 0", ref_id="A",
-                        legend="{{instance}}")],
+        targets=[target(node_condition_rows(conditions), ref_id="A",
+                        legend="{{instance}} · {{sig}}")],
         query_scope="selected",
         overrides=overrides,
     )
