@@ -704,6 +704,34 @@ td::Result<std::string> require_foreign_candidate_directory(td::CSlice directory
   return canonical;
 }
 
+td::Status create_corpus_output_directory(td::CSlice directory_slice) {
+  std::filesystem::path directory{directory_slice.str()};
+  while (directory.has_relative_path() && directory.filename().empty()) {
+    auto parent = directory.parent_path();
+    if (parent == directory) {
+      break;
+    }
+    directory = std::move(parent);
+  }
+
+  std::error_code error;
+  const auto parent = directory.parent_path();
+  if (!parent.empty()) {
+    std::filesystem::create_directories(parent, error);
+    if (error) {
+      return td::Status::Error(PSLICE() << "cannot create corpus output parent directory: " << error.message());
+    }
+  }
+
+  if (!std::filesystem::create_directory(directory, error)) {
+    if (!error || error == std::errc::file_exists) {
+      return td::Status::Error(PSLICE() << "corpus output path already exists: " << directory_slice);
+    }
+    return td::Status::Error(PSLICE() << "cannot create corpus output directory: " << error.message());
+  }
+  return td::Status::OK();
+}
+
 }  // namespace
 
 td::Slice collation_corpus_workload_name(Workload workload) {
@@ -750,10 +778,7 @@ td::Result<std::string> write_collation_corpus(td::CSlice directory_slice, const
     return td::Status::Error("full and preloaded candidates disagree on golden block facts");
   }
 
-  // mkpath creates components terminated by a slash, so retain the trailing
-  // slash for the corpus root.  mkdir is deliberately forgiving for an
-  // existing directory but rejects a non-directory at any fixed subpath.
-  TRY_STATUS(td::mkpath(PSTRING() << directory << '/'));
+  TRY_STATUS(create_corpus_output_directory(directory_slice));
   TRY_STATUS(td::mkdir(PSTRING() << directory << "/states"));
   TRY_STATUS(td::mkdir(PSTRING() << directory << "/blocks"));
   TRY_STATUS(td::mkdir(PSTRING() << directory << "/externals"));
