@@ -268,6 +268,7 @@ class BridgeImpl final : public IValidatorGroup {
     bus->is_collator = params_.is_collator;
     bus->all_collators = params_.all_collators;
     bus->collator_scoreboard = params_.collator_scoreboard;
+    bus->expected_start_time = params_.expected_start_time;
 
     bool found = false;
     size_t idx = 0;
@@ -370,7 +371,20 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   td::actor::Task<> resolve_state_and_start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) {
-    auto state = co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id);
+    Ref<ChainState> state;
+    while (true) {
+      auto r_state =
+          co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id).wrap();
+      if (!bus_) {
+        co_return td::Status::Error("validator group already destroyed");
+      }
+      if (r_state.is_error() && r_state.error().code() == ErrorCode::timeout) {
+        LOG(WARNING) << "Failed to resolve chain state: timeout, retrying";
+        continue;
+      }
+      state = CO_TRY(std::move(r_state));
+      break;
+    }
     start_event_ = std::make_shared<Start>(state);
     bus_.publish(start_event_);
     co_return {};
@@ -412,7 +426,7 @@ class BridgeImpl final : public IValidatorGroup {
 td::actor::ActorOwn<IValidatorGroup> IValidatorGroup::create_bridge(td::Slice name, GroupParams params) {
   auto name_with_seqno =
       std::string(name.begin(), name.end()) + "." + std::to_string(params.validator_set->get_catchain_seqno());
-  return td::actor::create_actor<consensus::BridgeImpl>(name, name_with_seqno, std::move(params));
+  return td::actor::create_actor<consensus::BridgeImpl>(name_with_seqno, name_with_seqno, std::move(params));
 }
 
 }  // namespace ton::validator

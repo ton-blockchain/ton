@@ -70,7 +70,7 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     co_await td::actor::ask(bus.manager, &ManagerFacade::accept_block, block.id, block_data,
                             event->candidate->leader.value(), event->signatures, block_broadcast_mode,
                             finality_broadcast_mode, send_shard_block_desc, true);
-    owning_bus().publish<TraceEvent>(stats::BlockAccepted::create(event->candidate->id));
+    owning_bus().publish<TraceEvent>(stats::BlockAccepted::create(event->candidate));
     co_return {};
   }
 

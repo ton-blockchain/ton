@@ -196,6 +196,7 @@ struct Candidate : td::CntObject {
   td::BufferSlice serialize() const;
   td::BufferSlice serialize_for_broadcast() const;
   bool is_empty() const;
+  adnl::AdnlNodeIdShort collated_by(const Bus& bus) const;
 
  private:
   static td::Result<td::Ref<Candidate>> deserialize_data(tl::CandidateDataRef data,

@@ -93,9 +93,18 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       }
     }
 
+    start_up_cont().start().detach();
+  }
+
+  td::actor::Task<> start_up_cont() {
+    auto& bus = *owning_bus();
     if (bus.first_nonannounced_window == 0 && bus.collator_schedule->is_expected_collator(bus.local_id->idx, 0)) {
+      if (bus.expected_start_time) {
+        co_await td::actor::coro_sleep(bus.expected_start_time - UPCOMING_FIRST_WINDOW_BEFORE);
+      }
       owning_bus().publish<OurLeaderWindowUpcoming>(0);
     }
+    co_return {};
   }
 
   template <>
@@ -199,7 +208,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     }
 
     slot->state->pending_block = candidate;
-    if (candidate->leader != owning_bus()->local_id->idx) {
+    if (candidate->collated_by(*owning_bus()) != owning_bus()->local_adnl_id) {
       owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
     }
     try_notarize(*slot).start().detach();
@@ -306,6 +315,8 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
   bool previous_window_had_skip_ = false;
   std::optional<State> state_;
   td::uint32 current_window_ = 0;
+
+  static constexpr double UPCOMING_FIRST_WINDOW_BEFORE = 5.0;
 };
 
 }  // namespace

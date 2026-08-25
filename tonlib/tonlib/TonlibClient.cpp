@@ -6753,6 +6753,9 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getBlock& request,
                        if (req_block_id != block_id) {
                          return td::Status::Error("Liteserver responded with wrong block");
                        }
+                       if (td::sha256_bits256(block_data->data_) != block_id.file_hash) {
+                         return td::Status::Error("Block file hash mismatch");
+                       }
 
                        tonlib_api::blocks_blockData r;
                        r.id_ = to_tonlib_api(*block_data->id_);

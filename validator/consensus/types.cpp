@@ -37,7 +37,8 @@ bool PeerValidator::check_signature(ValidatorSessionId session, td::Slice data, 
 }
 
 td::StringBuilder& operator<<(td::StringBuilder& stream, const PeerValidator& peer_validator) {
-  return stream << peer_validator.idx << " at " << peer_validator.short_id;
+  return stream << peer_validator.idx << " (id " << peer_validator.short_id << " adnl " << peer_validator.adnl_id
+                << ")";
 }
 
 CandidateId CandidateId::from_tl(const tl::CandidateIdRef& tl_parent) {
@@ -301,6 +302,13 @@ td::BufferSlice Candidate::serialize_for_broadcast() const {
 
 bool Candidate::is_empty() const {
   return std::holds_alternative<BlockIdExt>(block);
+}
+
+adnl::AdnlNodeIdShort Candidate::collated_by(const Bus& bus) const {
+  if (delegation) {
+    return adnl::AdnlNodeIdShort{delegation->collator_key.compute_short_id()};
+  }
+  return leader.get_using(bus).adnl_id;
 }
 
 stats::Event::Event() : ts_(td::Clocks::system()) {

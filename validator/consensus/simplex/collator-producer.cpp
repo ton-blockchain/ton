@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "consensus/stats.h"
 #include "consensus/window-producer.h"
 #include "td/actor/SharedFuture.h"
 #include "td/actor/coro_task.h"
@@ -105,6 +106,9 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
       return;
     }
     slot->state->received_block = candidate;
+    if (candidate->collated_by(*owning_bus()) != owning_bus()->local_adnl_id) {
+      owning_bus().publish<TraceEvent>(stats::CandidateReceived::create(candidate, false));
+    }
     owning_bus().publish<StoreCandidate>(candidate).start().detach();
   }
 
@@ -179,6 +183,7 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
 
     LOG(INFO) << "Window " << window_start << " is delegated to us by " << leader;
     delegation_signatures_[window_start] = delegation_signature.clone();
+    owning_bus().publish<TraceEvent>(stats::ReceivedDelegation::create(window_start));
 
     if (last_window_.has_value() && last_window_->start_slot == window_start) {
       start_production(window_start, last_window_->base);

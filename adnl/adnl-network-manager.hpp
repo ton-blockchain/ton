@@ -70,9 +70,6 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
 
   OutDesc *choose_out_iface(td::uint8 cat, td::uint32 priority);
 
-  AdnlNetworkManagerImpl(td::uint16 out_udp_port) : out_udp_port_(out_udp_port) {
-  }
-
   void install_callback(std::unique_ptr<Callback> callback) override {
     callback_ = std::move(callback);
   }
@@ -125,8 +122,6 @@ class AdnlNetworkManagerImpl : public AdnlNetworkManager {
   std::map<td::uint16, size_t> port_2_socket_;
 
   std::map<AdnlNodeIdShort, td::uint8> adnl_id_2_cat_;
-
-  td::uint16 out_udp_port_;
 };
 
 }  // namespace adnl

@@ -273,7 +273,7 @@ static td::Result<BroadcastCheckResult> check_source(OverlayImpl *overlay, const
   auto r = overlay->check_source_eligible(src_keyhash, certificate, data_size, /* is_fec = */ true,
                                           /* is_any_sender = */ false, message_from);
   if (r == BroadcastCheckResult::Forbidden) {
-    return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
+    return td::Status::Error(ErrorCode::notready, "broadcast is forbidden");
   }
   return r;
 }

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "ton/ton-io.hpp"
 #include "ton/ton-tl.hpp"
 
 #include "stats.h"
@@ -95,13 +96,66 @@ std::string CollatedEmpty::to_string() const {
 CollatedEmpty::CollatedEmpty(CandidateId id) : id_(id) {
 }
 
+std::unique_ptr<ReceivedDelegation> ReceivedDelegation::create(td::uint32 start_slot) {
+  return std::unique_ptr<ReceivedDelegation>(new ReceivedDelegation(start_slot));
+}
+
+tl::EventRef ReceivedDelegation::to_tl() const {
+  return create_tl_object<tl::receivedDelegation>(start_slot_);
+}
+
+std::string ReceivedDelegation::to_string() const {
+  return PSTRING() << "ReceivedDelegation{start_slot=" << start_slot_ << "}";
+}
+
+ReceivedDelegation::ReceivedDelegation(td::uint32 start_slot) : start_slot_(start_slot) {
+}
+
+std::unique_ptr<SentDelegation> SentDelegation::create(td::uint32 start_slot, adnl::AdnlNodeIdShort collator_node_id) {
+  return std::unique_ptr<SentDelegation>(new SentDelegation(start_slot, collator_node_id));
+}
+
+tl::EventRef SentDelegation::to_tl() const {
+  return create_tl_object<tl::sentDelegation>(start_slot_, collator_node_id_.bits256_value());
+}
+
+std::string SentDelegation::to_string() const {
+  return PSTRING() << "SentDelegation{start_slot=" << start_slot_ << ", collator_node_id=" << collator_node_id_ << "}";
+}
+
+SentDelegation::SentDelegation(td::uint32 start_slot, adnl::AdnlNodeIdShort collator_node_id)
+    : start_slot_(start_slot), collator_node_id_(collator_node_id) {
+}
+
+std::unique_ptr<ConcludedDelegation> ConcludedDelegation::create(td::uint32 start_slot,
+                                                                 adnl::AdnlNodeIdShort collator_node_id, bool success) {
+  return std::unique_ptr<ConcludedDelegation>(new ConcludedDelegation(start_slot, collator_node_id, success));
+}
+
+tl::EventRef ConcludedDelegation::to_tl() const {
+  return create_tl_object<tl::concludedDelegation>(start_slot_, collator_node_id_.bits256_value(), success_);
+}
+
+std::string ConcludedDelegation::to_string() const {
+  return PSTRING() << "ConcludedDelegation{start_slot=" << start_slot_ << ", collator_node_id=" << collator_node_id_
+                   << ", success=" << success_ << "}";
+}
+
+ConcludedDelegation::ConcludedDelegation(td::uint32 start_slot, adnl::AdnlNodeIdShort collator_node_id, bool success)
+    : start_slot_(start_slot), collator_node_id_(collator_node_id), success_(success) {
+}
+
 std::unique_ptr<CandidateReceived> CandidateReceived::create(const CandidateRef& candidate, bool is_collator) {
   auto empty_fn = [&](const BlockIdExt&) { return std::optional<BlockIdExt>{}; };
   auto candidate_fn = [&](const BlockCandidate& candidate_block) { return std::optional{candidate_block.id}; };
   auto block = std::visit(td::overloaded(empty_fn, candidate_fn), candidate->block);
+  std::optional<adnl::AdnlNodeIdShort> collator_node;
+  if (candidate->delegation) {
+    collator_node = adnl::AdnlNodeIdShort{candidate->delegation->collator_key.compute_short_id()};
+  }
 
   return std::unique_ptr<CandidateReceived>(
-      new CandidateReceived(candidate->id, candidate->parent_id, block, is_collator));
+      new CandidateReceived(candidate->id, candidate->parent_id, block, is_collator, collator_node));
 }
 
 tl::EventRef CandidateReceived::to_tl() const {
@@ -111,8 +165,9 @@ tl::EventRef CandidateReceived::to_tl() const {
   } else {
     block = create_tl_object<tl::empty>();
   }
-  return create_tl_object<tl::candidateReceived>(id_.to_tl(), CandidateId::parent_id_to_tl(parent_), std::move(block),
-                                                 is_collator_);
+  return create_tl_object<tl::candidateReceived>(
+      id_.to_tl(), CandidateId::parent_id_to_tl(parent_), std::move(block), is_collator_,
+      collator_node_ ? collator_node_->bits256_value() : td::Bits256::zero());
 }
 
 std::string CandidateReceived::to_string() const {
@@ -120,15 +175,17 @@ std::string CandidateReceived::to_string() const {
   if (block_.has_value()) {
     block_str = block_->to_str();
   }
-  return PSTRING() << "CandidateReceived{id=" << id_ << ", parent=" << parent_ << ", block_id=" << block_str << "}";
+  return PSTRING() << "CandidateReceived{id=" << id_ << ", parent=" << parent_ << ", block_id=" << block_str
+                   << ", collator_node=" << collator_node_ << "}";
 }
 
 void CandidateReceived::collect_to(MetricCollector& collector) const {
   collector.collect_candidate_received(*this);
 }
 
-CandidateReceived::CandidateReceived(CandidateId id, ParentId parent, std::optional<BlockIdExt> block, bool is_collator)
-    : id_(id), parent_(parent), block_(block), is_collator_(is_collator) {
+CandidateReceived::CandidateReceived(CandidateId id, ParentId parent, std::optional<BlockIdExt> block, bool is_collator,
+                                     std::optional<adnl::AdnlNodeIdShort> collator_node)
+    : id_(id), parent_(parent), block_(block), is_collator_(is_collator), collator_node_(collator_node) {
 }
 
 std::unique_ptr<ValidationStarted> ValidationStarted::create(CandidateId id) {
@@ -169,23 +226,31 @@ void ValidationFinished::collect_to(MetricCollector& collector) const {
 ValidationFinished::ValidationFinished(CandidateId id) : id_(id) {
 }
 
-std::unique_ptr<BlockAccepted> BlockAccepted::create(CandidateId id) {
-  return std::unique_ptr<BlockAccepted>(new BlockAccepted(id));
+std::unique_ptr<BlockAccepted> BlockAccepted::create(const CandidateRef& candidate) {
+  std::optional<adnl::AdnlNodeIdShort> collator_node_id;
+  if (candidate->delegation) {
+    collator_node_id = adnl::AdnlNodeIdShort{candidate->delegation->collator_key.compute_short_id()};
+  }
+  return std::unique_ptr<BlockAccepted>(new BlockAccepted(candidate->id, candidate->block_id(), collator_node_id));
 }
 
 tl::EventRef BlockAccepted::to_tl() const {
-  return create_tl_object<tl::blockAccepted>(id_.to_tl());
+  return create_tl_object<tl::blockAccepted>(
+      id_.to_tl(), create_tl_block_id(block_id_),
+      collator_node_id_ ? collator_node_id_->bits256_value() : td::Bits256::zero());
 }
 
 std::string BlockAccepted::to_string() const {
-  return PSTRING() << "BlockAccepted{id=" << id_ << "}";
+  return PSTRING() << "BlockAccepted{id=" << id_ << ", block_id=" << block_id_
+                   << ", collator_node_id=" << collator_node_id_ << "}";
 }
 
 void BlockAccepted::collect_to(MetricCollector& collector) const {
   collector.collect_block_accepted(*this);
 }
 
-BlockAccepted::BlockAccepted(CandidateId id) : id_(id) {
+BlockAccepted::BlockAccepted(CandidateId id, BlockIdExt block_id, std::optional<adnl::AdnlNodeIdShort> collator_node_id)
+    : id_(id), block_id_(block_id), collator_node_id_(collator_node_id) {
 }
 
 }  // namespace ton::validator::consensus::stats

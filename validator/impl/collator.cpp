@@ -5176,10 +5176,7 @@ bool Collator::create_mc_state_extra() {
   if (!tlb::csr_unpack(state_extra.r1.validator_info, val_info)) {
     return fatal_error("cannot unpack ValidatorInfo from previous state");
   }
-  auto cur_vset_cell = cfg_dict_new.lookup_ref(td::BitArray<32>{35});
-  if (cur_vset_cell.is_null()) {
-    cur_vset_cell = cfg_dict_new.lookup_ref(td::BitArray<32>{34});
-  }
+  auto cur_vset_cell = cfg_dict_new.lookup_ref(td::BitArray<32>{34});
   auto res = block::Config::unpack_validator_set(std::move(cur_vset_cell));
   if (res.is_error()) {
     auto err = res.move_as_error();

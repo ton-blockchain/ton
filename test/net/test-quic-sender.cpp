@@ -245,7 +245,7 @@ class TestRunner : public td::actor::Actor {
     td::mkdir(db).ensure();
 
     node.keyring = ton::keyring::Keyring::create(db);
-    node.network_manager = ton::adnl::AdnlNetworkManager::create(static_cast<td::uint16>(port));
+    node.network_manager = ton::adnl::AdnlNetworkManager::create();
     node.adnl = ton::adnl::Adnl::create(db, node.keyring.get());
 
     td::actor::send_closure(node.adnl, &ton::adnl::Adnl::register_network_manager, node.network_manager.get());
