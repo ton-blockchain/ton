@@ -550,13 +550,21 @@ class DashboardGenerationTest(unittest.TestCase):
     def test_attribution_subqueries_pin_an_explicit_step(self):
         # An unstepped [$__range:] subquery inherits the server's evaluation_interval, so a long
         # range turns every attribution target into a full-resolution scan. The step is the cost
-        # bound; range dominance does not need sub-minute resolution.
+        # bound; range dominance does not need sub-minute resolution. A 5m step has no evaluation
+        # point in some shorter ranges, so the exact range-end value keeps attribution alive.
+        derived = 0
         for module in BOARDS:
             with self.subTest(board=module.__name__):
                 for panel in panels(module.build()):
                     for query in panel.get("targets", []):
-                        if query["refId"].startswith("ATTR"):
-                            self.assertNotIn("[$__range:]", query["expr"])
+                        expr = query["expr"]
+                        if not query["refId"].startswith("ATTR") or "[$__range:" not in expr:
+                            continue
+                        derived += 1
+                        self.assertIn("[$__range:5m] @ end()", expr)
+                        self.assertIn(" or last_over_time(", expr)
+                        self.assertIn("[1ms:1ms] @ end()", expr)
+        self.assertGreater(derived, 0)
 
     def test_attribution_owner_is_anchored_to_range_end(self):
         # A derived overlay picks one owner for the visible range, so it must be pinned to the
