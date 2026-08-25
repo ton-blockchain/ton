@@ -2527,8 +2527,9 @@ void ValidatorManagerImpl::update_shards() {
     td::actor::send_closure(db_, &Db::update_init_masterchain_block, last_masterchain_block_id_, std::move(P));
   }
   if (!serializer_.empty()) {
-    td::actor::send_closure(serializer_, &AsyncStateSerializer::auto_disable_serializer,
-                            is_validator() && last_masterchain_state_->get_global_id() == -239);  // mainnet only
+    td::actor::send_closure(
+        serializer_, &AsyncStateSerializer::auto_disable_serializer,
+        (is_validator() || is_collator()) && last_masterchain_state_->get_global_id() == -239);  // mainnet only
   }
   adnl::AdnlNodeIdShort mc_validator_adnl_id = adnl::AdnlNodeIdShort::zero();
   auto mc_val_set = last_masterchain_state_->get_validator_set(ShardIdFull{masterchainId});
@@ -2863,6 +2864,15 @@ void ValidatorManagerImpl::get_shard_client_state(bool from_db, td::Promise<Bloc
   } else {
     td::actor::send_closure(db_, &Db::get_shard_client_state, std::move(promise));
   }
+}
+
+void ValidatorManagerImpl::get_sync_delay(td::Promise<double> promise) {
+  if (!last_masterchain_block_handle_ || !shard_client_handle_) {
+    promise.set_error(td::Status::Error(ErrorCode::notready, "not inited"));
+    return;
+  }
+  promise.set_value(td::Clocks::system() -
+                    (double)std::min(last_masterchain_block_handle_->unix_time(), shard_client_handle_->unix_time()));
 }
 
 void ValidatorManagerImpl::update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) {

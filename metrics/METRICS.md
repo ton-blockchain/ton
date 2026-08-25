@@ -486,8 +486,8 @@ chain truth.
 
 Most timing samples reuse statistics already collected for validator session logs. Four broad scopes
 cover previously unattributed collation work: `dispatch_queue`, `import_internals`, `import_externals`,
-and `process_new_msgs`. They include nested transaction work, so they overlap `trx_tvm`,
-`trx_storage_stat`, and `trx_other`. Collation exports those 17 work phases plus `wait_externals`;
+and `process_new_msgs`. They do not include nested transaction work (`trx_tvm`, `trx_storage_stat`, and `trx_other`).
+Collation exports those 17 work phases plus `wait_externals`;
 validation exports its 19 work phases plus `active` and `waiting`.
 Timing samples for an operation/chain/result tuple appear only after its first attempt; all applicable phase/clock
 samples are emitted thereafter, including zeros. Split and overload cells are emitted from boot, including zeros.

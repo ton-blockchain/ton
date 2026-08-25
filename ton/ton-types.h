@@ -532,7 +532,9 @@ struct NewConsensusConfig {
   uint32_fn(12, candidate_resolve_rate_limit, 10)                       \
   duration_fn(13, min_block_interval, 0)                                \
   duration_fn(14, no_empty_blocks_on_error_timeout, 15'000)             \
-  uint32_fn(15, certificate_gossip_neighbors, 20)
+  uint32_fn(15, certificate_gossip_neighbors, 20)                       \
+  uint32_fn(17, collator_max_future_window, 4)                          \
+  duration_fn(18, collator_max_sync_delay, 10'000)
   // clang-format on
 
   struct NoncriticalParams {

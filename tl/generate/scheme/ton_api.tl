@@ -626,12 +626,19 @@ engine.validator.customOverlay name:string nodes:(vector engine.validator.custom
     skip_public_msg_send:Bool use_quic:Bool send_queries:Bool = engine.validator.CustomOverlay;
 engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOverlay) = engine.validator.CustomOverlaysConfig;
 
+engine.validator.collatorOptions.paramLimits underload:int soft_limit:int hard_limit:int = engine.validator.collatorOptions.ParamLimits;
+
 engine.validator.collatorOptions
   deferring_enabled:Bool defer_messages_after:int defer_out_queue_size_limit:long
   dispatch_phase_2_max_total:int dispatch_phase_3_max_total:int
   dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int
   whitelist:(vector string) prioritylist:(vector string)
-  force_full_collated_data:Bool ignore_collated_data_limits:Bool = engine.validator.CollatorOptions;
+  force_full_collated_data:Bool ignore_collated_data_limits:Bool
+  block_limits_bytes:engine.validator.collatorOptions.paramLimits
+  block_limits_gas:engine.validator.collatorOptions.paramLimits
+  block_limits_lt_delta:engine.validator.collatorOptions.paramLimits
+  block_limits_collated_data:engine.validator.collatorOptions.paramLimits
+  = engine.validator.CollatorOptions;
 
 engine.validator.collatorsList.collator adnl_id:int256 = engine.validator.collatorsList.Collator;
 engine.validator.collatorsList collators:(vector engine.validator.collatorsList.collator) disable_self_collate:Bool
@@ -1181,6 +1188,8 @@ consensus.simplex.noncriticalParams
     no_empty_blocks_on_error_timeout_ms:flags.14?int
     certificate_gossip_neighbors:flags.15?int
     standstill_min_egress_bytes_per_s:flags.16?int
+    collator_max_future_window:flags.17?int
+    collator_max_sync_delay_ms:flags.18?int
     = consensus.NoncriticalParams;
 
 consensus.noncriticalParamsOverride

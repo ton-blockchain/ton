@@ -97,6 +97,10 @@ class ManagerFacadeImpl : public ManagerFacade {
     opts_ = std::move(opts);
   }
 
+  td::actor::Task<double> get_sync_delay() override {
+    co_return co_await td::actor::ask(manager_, &ValidatorManager::get_sync_delay);
+  }
+
  private:
   td::actor::ActorId<ValidatorManager> manager_;
   td::Ref<block::ValidatorSet> validator_set_;
@@ -202,6 +206,9 @@ class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::ac
 
     int mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync |
                fullnode::FullNode::broadcast_mode_public;
+    if (bus->is_collator) {
+      mode = fullnode::FullNode::broadcast_mode_custom;
+    }
     const auto& block = std::get<BlockCandidate>(event->candidate->block);
     td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, block.id, block.data.clone(),
                             mode);
