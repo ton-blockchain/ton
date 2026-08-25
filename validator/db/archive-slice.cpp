@@ -340,14 +340,12 @@ void ArchiveSlice::update_handle(BlockHandle handle, td::Promise<td::Unit> promi
   CHECK(!key_blocks_only_);
 
   begin_transaction();
-  do {
-    auto version = handle->version();
-    kv_->set(get_db_key_block_info(handle->id()), handle->serialize().as_slice()).ensure();
-    handle->flushed_upto(version);
-    update_temp_max_seqno(handle->id().id);
-  } while (handle->need_flush());
+  auto version = handle->version();
+  kv_->set(get_db_key_block_info(handle->id()), handle->serialize().as_slice()).ensure();
   commit_transaction([=, this, promise = std::move(promise)](td::Result<td::Unit> R) mutable {
     R.ensure();
+    handle->flushed_upto(version);
+    update_temp_max_seqno(handle->id().id);
     if (!temp_) {
       handle->set_handle_moved_to_archive();
     }
@@ -472,6 +470,9 @@ void ArchiveSlice::get_handle(BlockIdExt block_id, td::Promise<BlockHandle> prom
   auto handle = E.move_as_ok();
   if (!temp_) {
     handle->set_handle_moved_to_archive();
+  }
+  if (handle->is_applied()) {
+    handle->set_applied_stored();
   }
   promise.set_value(std::move(handle));
 }
