@@ -271,8 +271,8 @@ python3 -m metrics.grafana.dashgen.build validate # build and run semantic dashb
 ```
 
 Workflow: edit the board (or the convention), run `build`, review the JSON diff, commit both.
-Never edit the JSON by hand — `check` is the drift gate that catches it (run it in review or
-wire it into CI; nothing runs it automatically today). When a pattern needs to
+Never edit the JSON by hand — `check` is the drift gate that catches it, and the Lint workflow
+runs it (plus `validate` and the dashgen tests) on every pull request. When a pattern needs to
 appear on one more panel, it is one more archetype call in the board; when a pattern changes,
 it changes in `lib/conventions.py` for every panel at once.
 

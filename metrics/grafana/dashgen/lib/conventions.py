@@ -229,7 +229,14 @@ def _drawn(item):
     return item.shown or summed(item.key, item.inner, agg=item.pick)
 
 
-def _overlay(item):
+# Attribution subqueries are deliberately coarse. They answer "which node dominated the visible
+# range", which needs no sub-minute resolution, and the step bounds their cost: without it the
+# server's evaluation_interval decides, so a long range silently turns every one of the ~90
+# attribution targets into a full-resolution range scan on each refresh.
+ATTR_STEP = "5m"
+
+
+def _overlay(item, node_labels=NODE_LABELS):
     """One node's own series, chosen to explain the drawn line: whose number is on screen.
 
     Mirroring the drawn aggregate here was wrong by any interpretation — a fleet median wearing
@@ -239,19 +246,26 @@ def _overlay(item):
     dominant node under worst, the node the median follows under median. Elsewhere the drawn
     line is a fleet figure no single node is, and the row names the range-dominant node — its
     maximum over the range, or minimum where low is the bad direction.
+
+    `node_labels` is what identifies a node on the owning panel — the same tuple the panel
+    transplants. Boards whose per-node identity carries more than (job, instance), like the
+    network board's `ton_scope`, must join on all of it: matching on a subset lets one scope's
+    row take another scope's value.
     """
-    on = f"{item.key}, job, instance" if item.key else "job, instance"
+    node = ", ".join(node_labels)
+    on = f"{item.key}, {node}" if item.key else node
     drawn = _drawn(item)
     if "${agg}" in drawn:
         by = f" by ({item.key})" if item.key else ""
         join = f"on ({item.key}) group_left()" if item.key else "on () group_left()"
-        miss = f"avg_over_time((abs(({item.inner}) - {join} ({drawn})))[$__range:] @ end())"
+        miss = (f"avg_over_time((abs(({item.inner}) - {join} ({drawn})))"
+                f"[$__range:{ATTR_STEP}] @ end())")
         return f"({item.inner}) and on ({on}) (bottomk{by}(1, {miss}))"
     picker, over = (("topk", "max_over_time") if item.pick == "max"
                     else ("bottomk", "min_over_time"))
     rank = f"{picker} by ({item.key}) (1, " if item.key else f"{picker}(1, "
     return (f"({item.inner}) and on ({on})"
-            f" ({rank}{over}(({item.inner})[$__range:] @ end())))")
+            f" ({rank}{over}(({item.inner})[$__range:{ATTR_STEP}] @ end())))")
 
 
 LIST_LEGEND = {"displayMode": "list", "placement": "bottom", "showLegend": True, "calcs": []}
@@ -317,7 +331,7 @@ def _attributed_targets(items, transplant):
             continue
         ref = ATTR if not overlays else f"{ATTR}{len(overlays) + 1}"
         name = item.name or ("worst" if item.pick == "max" else "best")
-        overlays.append(target((item.overlay or _overlay(item)) + item.top,
+        overlays.append(target((item.overlay or _overlay(item, transplant)) + item.top,
                                ref_id=ref, bare=True, legend=f"{name} ⇒ {{{{instance}}}}"))
         overrides.append(_frame(ref, copy.deepcopy(ATTR_PROPS)))
     return drawn + overlays, overrides

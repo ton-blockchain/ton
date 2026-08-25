@@ -16,6 +16,13 @@
 
 #include "collectors.h"
 
+// MIDL's <rpcndr.h> defines `small` as a typedef macro on Windows, which would eat the
+// StorageCacheOutcome enumerator of the same name. The label lists below are the only place this
+// header spells it, so drop the macro here rather than renaming the exported label value.
+#ifdef small
+#undef small
+#endif
+
 namespace ton::metrics {
 
 enum class BlockChain : size_t { master, shard };

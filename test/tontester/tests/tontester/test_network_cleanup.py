@@ -1,3 +1,9 @@
+# Drives Network teardown through its private seams with stubbed nodes, so the checker sees
+# private access and Any-typed doubles by design. Suppressed per file; production modules keep
+# the full rule set.
+# pyright: reportPrivateLocalImportUsage=false, reportPrivateUsage=false
+# pyright: reportUnannotatedClassAttribute=false, reportUnknownArgumentType=false
+# pyright: reportUnknownLambdaType=false, reportUnusedCallResult=false
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
