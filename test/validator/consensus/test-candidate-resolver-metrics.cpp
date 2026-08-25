@@ -73,7 +73,9 @@ TEST(CandidateResolverMetrics, PublishesOneOutcomeAfterSuccessfulResolution) {
   scheduler.run([&]() -> td::actor::Task<> {
     auto candidate = empty_candidate();
     auto bus = std::make_shared<Bus>();
-    bus->local_id = PeerValidator{.idx = PeerValidatorId{0}};
+    PeerValidator local{};
+    local.idx = PeerValidatorId{0};
+    bus->local_id = local;
     bus->config.noncritical_params.candidate_resolve_cooldown = std::chrono::milliseconds{2};
     bus->db = std::make_unique<DiscardingDb>();
     auto handle = runtime.start(std::move(bus), "candidate-resolver-metrics");

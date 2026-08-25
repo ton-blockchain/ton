@@ -1500,13 +1500,12 @@ TEST(MetricsGolden, Consensus) {
 }
 
 TEST(Metrics, ExtMessagePoolSnapshotRendersEachFamily) {
-  ExtMessagePoolSnapshot snapshot{
-      .oldest_ext_message_age_seconds = 4.5,
-      .check_ok = 5,
-      .check_error = 7,
-      .applied_master = 41,
-      .applied_shard = 43,
-  };
+  ExtMessagePoolSnapshot snapshot;
+  snapshot.oldest_ext_message_age_seconds = 4.5;
+  snapshot.check_ok = 5;
+  snapshot.check_error = 7;
+  snapshot.applied_master = 41;
+  snapshot.applied_shard = 43;
   snapshot.ext_messages.insert(ExtMessageState::eligible, 3);
   for (size_t i = 0; i < snapshot.admission.size(); ++i) {
     snapshot.admission[i] = 11 + i;
@@ -1836,7 +1835,7 @@ td::Result<std::vector<Reply>> http_get_n(const td::IPAddress &addr, td::Slice t
   };
   for (size_t i = 0; i < count; i++) {
     TRY_RESULT(fd, td::SocketFd::open(addr));
-    scrapes.push_back({.fd = std::move(fd)});
+    scrapes.push_back(Scrape{.fd = std::move(fd), .sent = 0, .raw = {}, .done = false});
     poll.subscribe(scrapes.back().fd.get_poll_info().extract_pollable_fd(nullptr), td::PollFlags::ReadWrite());
   }
 

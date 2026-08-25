@@ -528,6 +528,36 @@ class DashboardGenerationTest(unittest.TestCase):
         # inside the range-activity filter — so each anchoring shows up exactly twice.
         self.assertEqual(board_expr.count(") or 0 * ("), 2 * len(warn_conditions))
 
+    def test_attribution_joins_on_every_node_identity_label(self):
+        # A board whose per-node identity carries more than (job, instance) — the network board's
+        # ton_scope — must join its overlay rows on all of it. Matching on a subset lets one
+        # scope's hidden row take another scope's value.
+        for module, labels in ((ton_network, ("job", "instance", "ton_scope")),
+                               (ton_actors, ("job", "instance")),
+                               (ton_overview, ("job", "instance"))):
+            with self.subTest(board=module.__name__):
+                overlays = [query["expr"] for panel in panels(module.build())
+                            for query in panel.get("targets", [])
+                            if query["refId"].startswith("ATTR")]
+                self.assertTrue(overlays)
+                for expr in overlays:
+                    if "and on (" not in expr:
+                        continue
+                    keys = expr.split("and on (")[1].split(")")[0]
+                    for label in labels:
+                        self.assertIn(label, keys, expr)
+
+    def test_attribution_subqueries_pin_an_explicit_step(self):
+        # An unstepped [$__range:] subquery inherits the server's evaluation_interval, so a long
+        # range turns every attribution target into a full-resolution scan. The step is the cost
+        # bound; range dominance does not need sub-minute resolution.
+        for module in BOARDS:
+            with self.subTest(board=module.__name__):
+                for panel in panels(module.build()):
+                    for query in panel.get("targets", []):
+                        if query["refId"].startswith("ATTR"):
+                            self.assertNotIn("[$__range:]", query["expr"])
+
     def test_attribution_owner_is_anchored_to_range_end(self):
         # A derived overlay picks one owner for the visible range, so it must be pinned to the
         # range end. A decomposition overlay (explicit `overlay=`) has no owner to pin: its rows

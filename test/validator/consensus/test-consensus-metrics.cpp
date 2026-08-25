@@ -112,7 +112,7 @@ TEST(ConsensusMetricCollector, ReorderedFinalCertificateAndApplyAreCountedExactl
 
   collect_finalize(collector, candidate->id);  // certificate can reach this subscriber first
   collect_candidate(collector, candidate);
-  auto accepted = consensus::stats::BlockAccepted::create(candidate->id);
+  auto accepted = consensus::stats::BlockAccepted::create(candidate);
   collector.collect_block_accepted(*accepted);
   collector.collect_block_accepted(*accepted);  // duplicate manager notification
 
@@ -126,7 +126,7 @@ TEST(ConsensusMetricCollector, OutcomeAfterFinalityAndApplyCompletesAcceptedRoun
   auto candidate = full_candidate(12);
 
   collect_finalize(collector, candidate->id);
-  auto accepted = consensus::stats::BlockAccepted::create(candidate->id);
+  auto accepted = consensus::stats::BlockAccepted::create(candidate);
   collector.collect_block_accepted(*accepted);
   collector.collect_block_accepted(*accepted);
 
@@ -166,7 +166,7 @@ TEST(ConsensusMetricCollector, ReceiptAndApplyTimingDoNotInventRoundOutcomes) {
   MetricCollector applied_only(metrics::BlockChain::master, kValidatorOnly);
   auto full = full_candidate(14);
   collect_finalize(applied_only, full->id);
-  auto accepted = consensus::stats::BlockAccepted::create(full->id);
+  auto accepted = consensus::stats::BlockAccepted::create(full);
   applied_only.collect_block_accepted(*accepted);
 
   auto applied_output = render(applied_only.take_metrics());
@@ -245,7 +245,7 @@ TEST(ConsensusMetricCollector, StagesArrivingAfterFinalityAndFlushAreCountedExac
   collector.collect_cert_observed(*notarize_cert);
   auto finalize_vote = Voted::create(FinalizeVote{candidate->id});
   collector.collect_voted(*finalize_vote);
-  auto accepted = consensus::stats::BlockAccepted::create(candidate->id);
+  auto accepted = consensus::stats::BlockAccepted::create(candidate);
   collector.collect_block_accepted(*accepted);
 
   // Duplicate delivery must neither move a first-seen mark nor repeat a stage.
@@ -380,7 +380,7 @@ TEST(ConsensusMetricCollector, HandoffPairsOnlyConsecutiveSlots) {
   ASSERT_TRUE(has_line(before_apply, "ton_consensus_slot_lead_seconds_count{chain=\"master\"} 0.000000"));
   ASSERT_TRUE(has_line(before_apply, "ton_consensus_slot_gap_seconds_count{chain=\"master\"} 0.000000"));
 
-  auto accepted = consensus::stats::BlockAccepted::create(candidate->id);
+  auto accepted = consensus::stats::BlockAccepted::create(candidate);
   collector.collect_block_accepted(*accepted);
 
   auto output = render(collector.take_metrics());
@@ -407,7 +407,7 @@ TEST(ConsensusMetricCollector, SplitRolesPartitionWhatOneMergedIdentityReports) 
   auto notarize_cert = CertObserved::create(NotarizeVote{candidate->id});
   auto finalize_vote = Voted::create(FinalizeVote{candidate->id});
   auto finalize_cert = CertObserved::create(FinalizeVote{candidate->id});
-  auto accepted = consensus::stats::BlockAccepted::create(candidate->id);
+  auto accepted = consensus::stats::BlockAccepted::create(candidate);
 
   auto replay = [&](Roles roles, const auto& stream) {
     MetricCollector collector(metrics::BlockChain::shard, roles);

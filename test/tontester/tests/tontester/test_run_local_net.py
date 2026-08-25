@@ -1,3 +1,11 @@
+# These two harness tests drive the local-net runner by substituting doubles for its
+# subprocess, HTTP and filesystem seams, so they deliberately touch private helpers and pass
+# values the checker can only see as Any. Suppressed per file rather than with ~165 inline
+# ignores; production modules keep the full rule set.
+# pyright: reportAny=false, reportExplicitAny=false, reportPrivateUsage=false
+# pyright: reportUnannotatedClassAttribute=false, reportUnknownArgumentType=false
+# pyright: reportUnknownLambdaType=false, reportUnusedCallResult=false
+# pyright: reportUnusedParameter=false
 import asyncio
 import base64
 import http.client
