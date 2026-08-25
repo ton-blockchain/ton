@@ -33,6 +33,7 @@ from .lib import (
     variable_query,
     worst_node_stat,
 )
+from .lib.quic import confirmation_rate
 
 SELF = "ton-network"
 RATE = "$__rate_interval"
@@ -322,22 +323,27 @@ ROWS = [
         ),
         net_agg_timeseries(
             "Message confirmation p95",
-            agg_line(quantile("ton_quic_message_confirmation_seconds",
-                              by=f"trust, {NODE_KEYS}", trusted=True),
-                     key="trust", name="quic {{trust}}"),
+            agg_line(
+                f"histogram_quantile(0.95, "
+                f"{confirmation_rate('seconds_bucket', f'trust, {NODE_KEYS}, le', selector=sel(**TRUSTED))})",
+                key="trust", name="quic {{trust}}"),
             unit="s", id=21, w=8, h=9,
             description=(
-                "QUIC fire-and-forget confirmation p95 to the peer transport's acknowledgement of "
-                "stream data and FIN, split by peer class; each node's own p95, collapsed across "
-                "nodes by the Node switch. "
+                "Stream-based QUIC fire-and-forget confirmation p95: the peer transport acknowledges "
+                "data and FIN for unidirectional messages, while legacy bidirectional messages use "
+                "the receiver's empty receipt. DATAGRAM messages have no confirmation sample. "
+                "Results are split by peer class; each node's own p95 is collapsed across nodes "
+                "by the Node switch. "
                 "Plain ADNL has no acknowledgement. RLDP2 transfer delivery is separate below "
                 "because bulk-transfer latency is not comparable."
             ),
         ),
         net_agg_timeseries(
             "Failure & loss ratios",
-            node_share("quic {{trust}} confirmation", "ton_quic_message_confirmation_failed_total",
-                       "ton_quic_message_confirmation_seconds_count", "trust", trusted=True),
+            agg_line(ratio(
+                confirmation_rate("failed_total", f"{NODE_KEYS}, trust", selector=sel(**TRUSTED)),
+                confirmation_rate("seconds_count", f"{NODE_KEYS}, trust", selector=sel(**TRUSTED))),
+                key="trust", name="quic {{trust}} confirmation"),
             node_share("quic {{trust}} roundtrip", "ton_quic_query_roundtrip_failed_total",
                        "ton_quic_query_roundtrip_seconds_count", "trust", trusted=True),
             node_share("rldp2 roundtrip", "ton_rldp2_query_roundtrip_failed_total",
@@ -504,15 +510,15 @@ ROWS = [
         net_agg_timeseries(
             "New QUIC connections: attempts vs completions",
             node_rate("attempts {{direction}}", "ton_quic_transport_connections_total"),
-            handshakes("completed"), handshakes("rejected"),
+            handshakes("completed"), handshakes("rejected"), handshakes("timed_out"),
             unit="ops", id=14,
             description=(
-                "Connection installs versus completed/rejected QUIC handshakes, per node and then "
+                "Connection installs versus completed, rejected and handshake-deadline timed-out "
+                "outcomes, per node and then "
                 "collapsed by the Node aggregation switch — at the default worst each line is its "
                 "busiest node, which the hover rows name, because a fleet sum hides the one node "
-                "that redials. The gap is handshakes that died without a verdict, usually idle "
-                "timeouts "
-                "dialing peers that never answered."
+                "that redials. Any remaining gap is a handshake abandoned through another path "
+                "without an instrumented terminal outcome."
             ),
         ),
         net_agg_timeseries(
@@ -525,8 +531,10 @@ ROWS = [
                 "High is good here, so the switch runs the other way: worst is the fleet minimum "
                 "and best its maximum, and the hover rows name the least successful node. This is "
                 "a laggy proxy, not a "
-                "cohort success percentage, and can transiently exceed 100%. Abandoned handshakes "
-                "have no terminal outcome; no attempts in the window renders No data."
+                "cohort success percentage, and can transiently exceed 100%. Rejected and "
+                "handshake-deadline timed-out outcomes are excluded from the numerator; handshakes "
+                "abandoned through other paths have no terminal outcome. No attempts in the window "
+                "renders No data."
             ),
         ),
         per_node_timeseries(
@@ -534,9 +542,11 @@ ROWS = [
             line(BY_NODE, f"ton_quic_transport_sids_current{sel(**NET)}"),
             unit="short", id=23, fill=6,
             description=(
-                "Currently open streams per node, both directions of initiation (each side capped "
-                "at 4096 per connection). A plateau near the cap while sends start failing with "
-                "app dropped{out,limited} is the stream-credit exhaustion signature."
+                "Currently open streams with an outbound half: locally initiated bidirectional "
+                "and unidirectional streams, plus peer-initiated bidirectional streams. These are "
+                "three independently negotiated credit pools (4096 each by default), so the total "
+                "gauge cannot identify which pool is exhausted. App dropped{out,limited} is the "
+                "detector; a matching plateau here only corroborates it."
             ),
         ),
     ]),

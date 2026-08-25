@@ -50,6 +50,9 @@ struct PeerMetrics {
     ctx.collect(app, "app");
     ctx.collect(query_roundtrip, "query_roundtrip");
     ctx.collect(message_confirmation, "message_confirmation");
+    // Temporary rolling-upgrade alias for dashboards and alerts that still use the old family.
+    // Keep this an exact duplicate and remove it once all consumers use message_confirmation.
+    ctx.collect(message_confirmation, "message_delivery");
   }
 };
 
