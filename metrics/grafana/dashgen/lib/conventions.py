@@ -234,6 +234,14 @@ def _drawn(item):
 # server's evaluation_interval decides, so a long range silently turns every one of the ~90
 # attribution targets into a full-resolution range scan on each refresh.
 ATTR_STEP = "5m"
+# Prometheus evaluates at integer milliseconds, so this includes the exact range-end point.
+ATTR_FALLBACK = "1ms:1ms"
+
+
+def _range_score(expr, reducer):
+    """Score the visible range, or its exact end when a sub-5m range has no 5m step."""
+    return (f"({reducer}(({expr})[$__range:{ATTR_STEP}] @ end()) or "
+            f"last_over_time(({expr})[{ATTR_FALLBACK}] @ end()))")
 
 
 def _overlay(item, node_labels=NODE_LABELS):
@@ -258,14 +266,13 @@ def _overlay(item, node_labels=NODE_LABELS):
     if "${agg}" in drawn:
         by = f" by ({item.key})" if item.key else ""
         join = f"on ({item.key}) group_left()" if item.key else "on () group_left()"
-        miss = (f"avg_over_time((abs(({item.inner}) - {join} ({drawn})))"
-                f"[$__range:{ATTR_STEP}] @ end())")
+        miss = _range_score(f"abs(({item.inner}) - {join} ({drawn}))", "avg_over_time")
         return f"({item.inner}) and on ({on}) (bottomk{by}(1, {miss}))"
     picker, over = (("topk", "max_over_time") if item.pick == "max"
                     else ("bottomk", "min_over_time"))
     rank = f"{picker} by ({item.key}) (1, " if item.key else f"{picker}(1, "
-    return (f"({item.inner}) and on ({on})"
-            f" ({rank}{over}(({item.inner})[$__range:{ATTR_STEP}] @ end())))")
+    score = _range_score(item.inner, over)
+    return f"({item.inner}) and on ({on}) ({rank}{score}))"
 
 
 LIST_LEGEND = {"displayMode": "list", "placement": "bottom", "showLegend": True, "calcs": []}
