@@ -280,7 +280,7 @@ bool print_hashmap(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& 
       }
       pp.mode_nl();
       pp.os << "x" << key.to_hex(key_len) << ":";
-      return value_type.print_skip(pp, value.write()) || pp.fail("invalid hashmap value");
+      return (value_type.print_skip(pp, value.write()) && value->empty_ext()) || pp.fail("invalid hashmap value");
     }) && pp.close();
   } catch (vm::VmError&) {
     return pp.fail("invalid Hashmap");
@@ -312,7 +312,7 @@ bool print_hashmap_aug(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const T
       }
       pp.mode_nl();
       pp.os << "x" << key.to_hex(key_len) << ":";
-      return value_type.print_skip(pp, value.write()) || pp.fail("invalid hashmapAug value");
+      return (value_type.print_skip(pp, value.write()) && value->empty_ext()) || pp.fail("invalid hashmapAug value");
     }) && pp.close();
   } catch (vm::VmError&) {
     return pp.fail("invalid HashmapAug");
