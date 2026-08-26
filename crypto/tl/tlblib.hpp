@@ -616,6 +616,11 @@ struct PrettyPrinter {
   }
 };
 
+bool print_hashmap(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& dict_type, const TLB& value_type,
+                   bool non_empty);
+bool print_hashmap_aug(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& dict_type, const TLB& value_type,
+                       const TLB& aug_type, bool non_empty);
+
 }  // namespace tlb
 
 namespace tlb {
