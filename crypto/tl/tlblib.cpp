@@ -275,6 +275,9 @@ bool print_hashmap(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& 
     }
     pp.open(non_empty ? "Hashmap" : "HashmapE");
     return dict.check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int key_len) {
+      if (!pp.register_recursive_call()) {
+        return pp.fail("too many recursive calls while printing a TL-B value");
+      }
       pp.mode_nl();
       pp.os << "x" << key.to_hex(key_len) << ":";
       return value_type.print_skip(pp, value.write()) || pp.fail("invalid hashmap value");
@@ -304,6 +307,9 @@ bool print_hashmap_aug(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const T
     pp.open(non_empty ? "HashmapAug" : "HashmapAugE");
     return dict->check_for_each_extra([&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key,
                                           int key_len) {
+      if (!pp.register_recursive_call()) {
+        return pp.fail("too many recursive calls while printing a TL-B value");
+      }
       pp.mode_nl();
       pp.os << "x" << key.to_hex(key_len) << ":";
       return value_type.print_skip(pp, value.write()) || pp.fail("invalid hashmapAug value");
