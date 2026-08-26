@@ -191,8 +191,8 @@ TypePtr TypeDataIntN::create(int n_bits, bool is_unsigned, bool is_variadic) {
   return new TypeDataIntN(n_bits, is_unsigned, is_variadic);
 }
 
-TypePtr TypeDataBitsN::create(int n_width, bool is_bits) {
-  return new TypeDataBitsN(n_width, is_bits);
+TypePtr TypeDataBitsN::create(int n_bits) {
+  return new TypeDataBitsN(n_bits);
 }
 
 TypePtr TypeDataUnion::create(std::vector<TypePtr>&& variants, std::vector<InvalidDuplicateVariant>* out_invalid_duplicates) {
@@ -478,8 +478,7 @@ std::string TypeDataIntN::as_human_readable() const {
 }
 
 std::string TypeDataBitsN::as_human_readable() const {
-  std::string s_bits = is_bits ? "bits" : "bytes";
-  return s_bits + std::to_string(n_width);
+  return "bits" + std::to_string(n_bits);
 }
 
 std::string TypeDataUnion::as_human_readable() const {
@@ -807,8 +806,8 @@ bool TypeDataIntN::can_rhs_be_assigned(TypePtr rhs) const {
 bool TypeDataBitsN::can_rhs_be_assigned(TypePtr rhs) const {
   if (const TypeDataBitsN* rhs_bitsN = rhs->try_as<TypeDataBitsN>()) {
     // `slice` is NOT assignable to bitsN without `as`
-    // `bytes32` is NOT assignable to `bytes256` and even to `bits256` without `as`
-    return n_width == rhs_bitsN->n_width && is_bits == rhs_bitsN->is_bits;
+    // `bits32` is NOT assignable to `bits256` without `as`
+    return n_bits == rhs_bitsN->n_bits;
   }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return can_rhs_be_assigned(rhs_alias->underlying_type);
@@ -932,7 +931,7 @@ bool TypeDataCell::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataSlice::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  if (cast_to->try_as<TypeDataBitsN>()) {  // `slice` to `bytes32` / `slice` to `bits8`
+  if (cast_to->try_as<TypeDataBitsN>()) {  // `slice` to `bits32`
     return true;
   }
   if (cast_to->try_as<TypeDataAddress>()) {   // `slice` to `address`
@@ -1133,13 +1132,13 @@ bool TypeDataIntN::can_be_casted_with_as_operator(TypePtr cast_to) const {
 }
 
 bool TypeDataBitsN::can_be_casted_with_as_operator(TypePtr cast_to) const {
-  if (cast_to->try_as<TypeDataBitsN>()) {  // `bytes256` as `bytes512`, `bits1` as `bytes8`
+  if (cast_to->try_as<TypeDataBitsN>()) {  // `bits512` as `bits512`
     return true;
   }
-  if (cast_to->try_as<TypeDataAddress>()) {   // `bytes267` as `address`
+  if (cast_to->try_as<TypeDataAddress>()) {   // `bits267` as `address`
     return true;
   }
-  if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {   // `bytes8` as `slice?`
+  if (const TypeDataUnion* to_union = cast_to->try_as<TypeDataUnion>()) {   // `bits8` as `slice?`
     return to_union->calculate_exact_variant_to_fit_rhs(this);
   }
   if (const TypeDataAlias* to_alias = cast_to->try_as<TypeDataAlias>()) {
@@ -1406,7 +1405,7 @@ bool TypeDataIntN::equal_to(TypePtr rhs) const {
 
 bool TypeDataBitsN::equal_to(TypePtr rhs) const {
   if (const TypeDataBitsN* rhs_bitsN = rhs->try_as<TypeDataBitsN>()) {
-    return n_width == rhs_bitsN->n_width && is_bits == rhs_bitsN->is_bits;
+    return n_bits == rhs_bitsN->n_bits;
   }
   if (const TypeDataAlias* rhs_alias = rhs->try_as<TypeDataAlias>()) {
     return equal_to(rhs_alias->underlying_type);

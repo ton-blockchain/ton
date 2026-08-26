@@ -99,9 +99,6 @@ type string = builtin
 /// an error will be fired at serialization with [T.toCell] and similar, NOT at assignment.
 type bitsN = builtin
 
-/// `bytes8`, `bytes99`, etc. is a convenient alias for `bits(N*8)`
-type bytesN = builtin
-
 /// `map<K, V>` is "a map from a key K to a value V".
 /// Internally, it's an "optional cell": an empty map is `null`, a non-empty points to a root cell.
 /// Restrictions for K and V types:

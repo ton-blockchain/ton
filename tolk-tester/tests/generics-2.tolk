@@ -593,8 +593,8 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
     __expect_type(d.value, "int");
     __expect_type(Wrapper<int> { value: 200 } as WrappedInt, "WrappedInt");
     __expect_type(Wrapper<slice>{ value: c.value }, "Wrapper<slice>");
-    __expect_type(Wrapper<bytes32>{ value: c.value as bytes32 }, "Wrapper<bytes32>");
-    __expect_type(Wrapper<bytes32>{ value: Wrapper<bytes32> { value: (c.value as bytes32 as bytes32?)! }.value }, "Wrapper<bytes32>");
+    __expect_type(Wrapper<bits256>{ value: c.value as bits256 }, "Wrapper<bits256>");
+    __expect_type(Wrapper<bits256>{ value: Wrapper<bits256> { value: (c.value as bits256 as bits256?)! }.value }, "Wrapper<bits256>");
     __expect_type(Wrapper{ value: c.value }, "Wrapper<slice>");
     __expect_type(Wrapper{ value: c.value.loadInt(32) }, "Wrapper<int>");
     __expect_type(Wrapper{ value: 10 }, "Wrapper<int>");

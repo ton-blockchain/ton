@@ -233,7 +233,7 @@ void TypeDataCoins::as_abi_json(std::string& out, JsonTypeExporter& registry) co
 
 void TypeDataBitsN::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"bitsN","n":)";
-  out += std::to_string(is_bits ? n_width : n_width * 8);
+  out += std::to_string(n_bits);
   out += '}';
 }
 

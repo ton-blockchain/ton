@@ -98,7 +98,7 @@ static int is_TKey_TVM_slice(TypePtr TKey) {
     return t_address->is_internal() ? 3 + 8 + 256 : 0;
   }
   if (const TypeDataBitsN* t_bitsN = TKey->try_as<TypeDataBitsN>()) {
-    return t_bitsN->is_bits ? t_bitsN->n_width : t_bitsN->n_width * 8;
+    return t_bitsN->n_bits;
   }
   if (const TypeDataAlias* t_alias = TKey->try_as<TypeDataAlias>()) {
     return is_TKey_TVM_slice(t_alias->underlying_type);

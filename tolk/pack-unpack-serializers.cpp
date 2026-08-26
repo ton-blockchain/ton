@@ -359,8 +359,8 @@ struct S_VariadicIntN final : ISerializer {
 struct S_BitsN final : ISerializer {
   const int n_bits;
 
-  explicit S_BitsN(int n_width, bool is_bits)
-    : n_bits(is_bits ? n_width : n_width * 8) {}
+  explicit S_BitsN(int n_bits)
+    : n_bits(n_bits) {}
 
   void pack(const PackContext* ctx, CodeBlob& code, AnyV origin, std::vector<var_idx_t>&& rvect) override {
     tolk_assert(rvect.size() == 1);
@@ -1659,7 +1659,7 @@ static std::unique_ptr<ISerializer> get_serializer_for_type(TypePtr any_type) {
     return std::make_unique<S_IntN>(t_intN->n_bits, t_intN->is_unsigned);
   }
   if (const auto* t_bitsN = any_type->try_as<TypeDataBitsN>()) {
-    return std::make_unique<S_BitsN>(t_bitsN->n_width, t_bitsN->is_bits);
+    return std::make_unique<S_BitsN>(t_bitsN->n_bits);
   }
   if (any_type == TypeDataCoins::create()) {
     return std::make_unique<S_Coins>();

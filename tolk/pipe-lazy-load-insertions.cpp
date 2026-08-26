@@ -447,7 +447,7 @@ struct ExprUsagesWhileCollecting {
         if (const TypeDataBitsN* last_bitsN = future_fields.back().field_type->try_as<TypeDataBitsN>()) {
           PackSize cur_size = estimate_serialization_size(field_type);
           if (cur_size.min_bits == cur_size.max_bits && cur_size.max_refs == 0 && !cur_size.skipping_is_dangerous) {
-            TypePtr total_bitsN = TypeDataBitsN::create(last_bitsN->n_width + cur_size.max_bits, true);
+            TypePtr total_bitsN = TypeDataBitsN::create(last_bitsN->n_bits + cur_size.max_bits);
             future_fields.back().field_type = total_bitsN;
             continue;
           }
@@ -458,7 +458,7 @@ struct ExprUsagesWhileCollecting {
       TypePtr skip_type = field_type;
       PackSize skip_size = estimate_serialization_size(field_type);
       if (skip_size.min_bits == skip_size.max_bits && skip_size.max_refs == 0 && !skip_size.skipping_is_dangerous) {
-        skip_type = TypeDataBitsN::create(skip_size.max_bits, true);
+        skip_type = TypeDataBitsN::create(skip_size.max_bits);
       }
       future_fields.emplace_back(LazyStructLoadInfo::SkipField, "`gap`", skip_type);
     }

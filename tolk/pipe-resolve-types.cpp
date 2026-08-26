@@ -88,14 +88,14 @@ static TypePtr parse_intN_uintN(std::string_view strN, bool is_unsigned) {
   return TypeDataIntN::create(n, is_unsigned, false);
 }
 
-static TypePtr parse_bytesN_bitsN(std::string_view strN, bool is_bits) {
+static TypePtr parse_bitsN(std::string_view strN) {
   int n;
   auto result = std::from_chars(strN.data(), strN.data() + strN.size(), n);
   bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
   if (!parsed || n <= 0 || n > 1023) {
-    return nullptr;   // `bytes9999`, maybe it's user-defined alias, let it be unresolved
+    return nullptr;   // `bits9999`, maybe it's user-defined alias, let it be unresolved
   }
-  return TypeDataBitsN::create(n, is_bits);
+  return TypeDataBitsN::create(n);
 }
 
 static TypePtr try_parse_predefined_type(std::string_view str) {
@@ -151,13 +151,8 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
     }
   }
   if (str.starts_with("bits")) {
-    if (TypePtr bitsN = parse_bytesN_bitsN(str.substr(4), true)) {
+    if (TypePtr bitsN = parse_bitsN(str.substr(4))) {
       return bitsN;
-    }
-  }
-  if (str.starts_with("bytes")) {
-    if (TypePtr bytesN = parse_bytesN_bitsN(str.substr(5), false)) {
-      return bytesN;
     }
   }
 

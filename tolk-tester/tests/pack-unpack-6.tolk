@@ -3,7 +3,7 @@ struct (0x03) CounterDecrementBy1 {}
 type CounterMsg = CounterIncrement | CounterDecrementBy1;
 
 struct SomeBytesFields {
-    f1: bytes1;
+    f1: bits8;
 }
 
 @method_id(101)
@@ -43,18 +43,18 @@ fun test4() {
 
 @method_id(105)
 fun test5() {
-    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell().hash() & 0xFFFF;
+    return SomeBytesFields { f1: stringHexToSlice("11") as bits8 }.toCell().hash() & 0xFFFF;
 }
 
 @method_id(106)
 fun test6() {
-    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell({skipBitsNValidation: true}).hash() & 0xFFFF;
+    return SomeBytesFields { f1: stringHexToSlice("11") as bits8 }.toCell({skipBitsNValidation: true}).hash() & 0xFFFF;
 }
 
 @method_id(107)
 fun test7(believe: bool) {
     try {
-        return SomeBytesFields { f1: stringHexToSlice("ffff") as bytes1 }.toCell({skipBitsNValidation: believe}).hash() & 0xFFFF;
+        return SomeBytesFields { f1: stringHexToSlice("ffff") as bits8 }.toCell({skipBitsNValidation: believe}).hash() & 0xFFFF;
     } catch (excno) {
         return excno;
     }

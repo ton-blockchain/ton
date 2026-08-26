@@ -614,22 +614,20 @@ public:
 };
 
 /*
- * `bits512`, `bytes8`, `bits9` are TypeDataBitsN. At TVM level, it's just slice.
- * The purpose of bitsN is to be used in struct fields, describing the way of serialization (n bytes / n bits).
+ * `bits512`, `bits9` are TypeDataBitsN. At TVM level, it's just slice.
+ * The purpose of bitsN is to be used in struct fields, describing the way of serialization.
  * In this essence, bitsN is very similar to intN.
  * Note that unlike intN automatically cast to/from int, bitsN does NOT auto cast to slice (without `as`).
  */
 class TypeDataBitsN final : public TypeData {
-  TypeDataBitsN(int n_width, bool is_bits)
+  explicit TypeDataBitsN(int n_bits)
     : TypeData(0)
-    , n_width(n_width)
-    , is_bits(is_bits) {}
+    , n_bits(n_bits) {}
 
 public:
-  const int n_width;          // either in bits, or in bytes
-  const bool is_bits;
+  const int n_bits;
 
-  static TypePtr create(int n_width, bool is_bits);
+  static TypePtr create(int n_bits);
 
   int get_type_id() const override;
   std::string as_human_readable() const override;
