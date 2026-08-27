@@ -670,7 +670,7 @@ td::Result<Ref<vm::DataCell>> build_signed_external(const td::Bits256 &seed, td:
   store_addr_std(body, recipient.w5_addr);                    // destination (new owner)
   store_addr_none(body);                                      // response_destination
   body.store_long(0, 1);                                      // custom_payload:(Maybe ^Cell)
-  store_grams(body, 0);                                       // forward_ton_amount
+  store_grams(body, params.forward_ton_amount);               // forward_ton_amount
   body.store_long(0, 1);                                      // forward_payload:(Either Cell ^Cell) = inline empty
 
   // MessageRelaxed: internal to the sender's jetton wallet
@@ -689,6 +689,65 @@ td::Result<Ref<vm::DataCell>> build_signed_external(const td::Bits256 &seed, td:
   msg.store_long(0, 1);   // init:(Maybe ...)
   msg.store_long(0, 1);   // body:(Either X ^X) = inline
   msg.append_builder(body);
+  auto msg_cell = msg.finalize_novm();
+
+  // c5 / OutList: out_list$_ prev:^(OutList 0) action:(action_send_msg mode)
+  vm::CellBuilder c5;
+  c5.store_ref(build_empty_cell());  // out_list_empty$_
+  c5.store_long(0x0ec3c86d, 32);     // action_send_msg
+  c5.store_long(3, 8);               // mode = +1 pay fees separately, +2 ignore errors
+  c5.store_ref(msg_cell);
+  auto c5_cell = c5.finalize_novm();
+
+  // Signed wallet-v5 external body
+  vm::CellBuilder inner;
+  inner.store_long(0x7369676E, 32);          // "sign"
+  inner.store_long(manifest.wallet_id, 32);  // wallet_id
+  inner.store_long(0xFFFFFFFELL, 32);        // valid_until
+  inner.store_long(0, 32);                   // seqno
+  inner.store_long(1, 1);                    // (Maybe OutList) = just
+  inner.store_ref(c5_cell);
+  inner.store_long(0, 1);  // no other actions
+  auto unsigned_cell = inner.finalize_copy();
+
+  TRY_RESULT(pk, derive_w5_private_key(seed, wallet_index));
+  TRY_RESULT(sig, pk.sign(unsigned_cell->get_hash().as_slice()));
+  CHECK(sig.size() == 64);
+  inner.store_bytes(sig.as_slice());
+
+  // ext_in_msg_info$10 src:addr_none dest:(addr_std wallet) import_fee:0; no init; inline body
+  vm::CellBuilder ext;
+  ext.store_long(0b10, 2);
+  store_addr_none(ext);
+  store_addr_std(ext, sender.w5_addr);
+  store_grams(ext, 0);   // import_fee
+  ext.store_long(0, 1);  // init:(Maybe ...)
+  ext.store_long(0, 1);  // body:(Either X ^X) = inline
+  ext.append_builder(inner);
+  return ext.finalize_novm();
+}
+
+td::Result<Ref<vm::DataCell>> build_signed_simple_external(const td::Bits256 &seed, td::uint64 wallet_index,
+                                                           td::uint64 recipient_index, const Manifest &manifest,
+                                                           const ContractSet &contracts, const SpamParams &params) {
+  TRY_RESULT(sender, derive_wallet(seed, wallet_index, manifest.wallet_id, manifest.minter_addr, contracts));
+  TRY_RESULT(recipient, derive_wallet(seed, recipient_index, manifest.wallet_id, manifest.minter_addr, contracts));
+
+  // MessageRelaxed: plain non-bounceable transfer to the recipient wallet
+  vm::CellBuilder msg;
+  msg.store_long(0, 1);  // int_msg_info$0
+  msg.store_long(1, 1);  // ihr_disabled
+  msg.store_long(0, 1);  // bounce
+  msg.store_long(0, 1);  // bounced
+  store_addr_none(msg);  // src
+  store_addr_std(msg, recipient.w5_addr);
+  store_currency_collection(msg, params.msg_value);
+  store_grams(msg, 0);    // ihr_fee
+  store_grams(msg, 0);    // fwd_fee
+  msg.store_long(0, 64);  // created_lt
+  msg.store_long(0, 32);  // created_at
+  msg.store_long(0, 1);   // init:(Maybe ...)
+  msg.store_long(0, 1);   // body:(Either X ^X) = inline, empty
   auto msg_cell = msg.finalize_novm();
 
   // c5 / OutList: out_list$_ prev:^(OutList 0) action:(action_send_msg mode)
