@@ -91,6 +91,7 @@ class RocksDb : public KeyValue {
   Status run_gc() override;
   Result<size_t> count(Slice prefix) override;
   Status for_each(std::function<Status(Slice, Slice)> f) override;
+  Status for_each(std::function<Status(Slice, Slice)> f, ForEachOptions options) override;
   Status for_each_in_range(Slice begin, Slice end, std::function<Status(Slice, Slice)> f) override;
 
   Status begin_write_batch() override;
