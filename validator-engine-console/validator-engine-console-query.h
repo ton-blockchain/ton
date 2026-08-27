@@ -1913,3 +1913,25 @@ class GetConsensusNoncriticalParamsOverridesQuery : public Query {
     return get_name();
   }
 };
+
+class SetExtMessagePoolOptionsJsonQuery : public Query {
+ public:
+  SetExtMessagePoolOptionsJsonQuery(td::actor::ActorId<ValidatorEngineConsole> console, Tokenizer tokenizer)
+      : Query(console, std::move(tokenizer)) {
+  }
+  td::Status run() override;
+  td::Status send() override;
+  td::Status receive(td::BufferSlice data) override;
+  static std::string get_name() {
+    return "set-ext-message-pool-options-json";
+  }
+  static std::string get_help() {
+    return "set-ext-message-pool-options-json <filename>\tset options for mempool from file <filename>";
+  }
+  std::string name() const override {
+    return get_name();
+  }
+
+ private:
+  std::string file_name_;
+};

@@ -106,6 +106,7 @@ struct Config {
   std::set<ton::PublicKeyHash> gc;
   std::vector<ton::ShardIdFull> shards_to_monitor;
   std::vector<FastSyncOverlayClient> fast_sync_overlay_clients;
+  ton::tl_object_ptr<ton::ton_api::engine_validator_extMessagePoolConfig> ext_message_pool_config;
 
   bool state_serializer_enabled = true;
   std::vector<std::pair<ton::adnl::AdnlNodeIdShort, ton::overlay::OverlayMemberCertificate>>
@@ -158,7 +159,7 @@ struct Config {
   ton::tl_object_ptr<ton::ton_api::engine_validator_config> tl() const;
 
   Config();
-  Config(const ton::ton_api::engine_validator_config &config);
+  Config(ton::ton_api::engine_validator_config config);
 };
 
 class ValidatorEngine : public td::actor::Actor {
@@ -240,7 +241,6 @@ class ValidatorEngine : public td::actor::Actor {
   std::map<CI_key, td::uint32> control_permissions_;
 
   double state_ttl_ = 0;
-  size_t max_mempool_num_ = 0;
   double block_ttl_ = 0;
   double sync_ttl_ = 0;
   double archive_ttl_ = 0;
@@ -301,9 +301,6 @@ class ValidatorEngine : public td::actor::Actor {
   void set_db_root(std::string db_root);
   void set_state_ttl(double t) {
     state_ttl_ = t;
-  }
-  void set_max_mempool_num(size_t t) {
-    max_mempool_num_ = t;
   }
   void set_block_ttl(double t) {
     block_ttl_ = t;
@@ -712,6 +709,8 @@ class ValidatorEngine : public td::actor::Actor {
   void run_control_query(ton::ton_api::engine_validator_waitForLiteServer &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
   void run_control_query(ton::ton_api::engine_validator_waitForInitialSync &query, td::BufferSlice data,
+                         ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
+  void run_control_query(ton::ton_api::engine_validator_setExtMessagePoolOptions &query, td::BufferSlice data,
                          ton::PublicKeyHash src, td::uint32 perm, td::Promise<td::BufferSlice> promise);
 
   template <class T>
