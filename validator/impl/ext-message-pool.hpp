@@ -205,7 +205,8 @@ class ExtMessagePool : public td::actor::Actor {
   // FIFO order (bounded — beyond that requests fail fast instead of queueing into a congestion
   // collapse that would starve the whole node).
   size_t inflight_checks_{0};
-  std::deque<td::actor::StartedTask<>::ExternalPromise> admission_waiters_;
+  std::map<int, std::deque<td::actor::StartedTask<>::ExternalPromise>> admission_waiters_;  // priority -> queue
+  size_t total_admission_waiters_ = 0;
   void release_check_slot();
   // Adaptive wait-queue cap: bound the ESTIMATED queueing delay, not just the count, so that
   // under degraded capacity (CPU contention, cold caches) requests fail fast instead of being
