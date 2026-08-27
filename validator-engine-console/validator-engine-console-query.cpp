@@ -2107,3 +2107,29 @@ td::Status GetConsensusNoncriticalParamsOverridesQuery::receive(td::BufferSlice 
   td::TerminalIO::out() << td::json_encode<std::string>(td::ToJson(*result), true) << "\n";
   return td::Status::OK();
 }
+
+td::Status SetExtMessagePoolOptionsJsonQuery::run() {
+  TRY_RESULT_ASSIGN(file_name_, tokenizer_.get_token<std::string>());
+  TRY_STATUS(tokenizer_.check_endl());
+  return td::Status::OK();
+}
+
+td::Status SetExtMessagePoolOptionsJsonQuery::send() {
+  TRY_RESULT_PREFIX(data, td::read_file(file_name_), "failed to read file: ");
+  TRY_RESULT_PREFIX(json, td::json_decode(data.as_slice()), "failed to parse json: ");
+  if (json.type() != td::JsonValueType::Object) {
+    return td::Status::Error("json is not an object");
+  }
+  auto config = ton::create_tl_object<ton::ton_api::engine_validator_extMessagePoolConfig>(-1, -1, -1, -1, -1.0);
+  TRY_STATUS_PREFIX(ton::ton_api::from_json(*config, json.get_object()), "json does not fit TL scheme: ");
+  auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setExtMessagePoolOptions>(std::move(config));
+  td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
+  return td::Status::OK();
+}
+
+td::Status SetExtMessagePoolOptionsJsonQuery::receive(td::BufferSlice data) {
+  TRY_RESULT_PREFIX(f, ton::fetch_tl_object<ton::ton_api::engine_validator_success>(data.as_slice(), true),
+                    "received incorrect answer: ");
+  td::TerminalIO::out() << "success\n";
+  return td::Status::OK();
+}
