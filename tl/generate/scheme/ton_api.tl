@@ -607,9 +607,13 @@ engine.validator.fullNodeConfig ext_messages_broadcast_disabled:Bool = engine.va
 engine.validator.fastSyncMemberCertificate adnl_id:int256 certificate:overlay.MemberCertificate = engine.validator.FastSyncMemberCertificate;
 engine.validator.fastSyncOverlayClient adnl_id:int256 slot:int = engine.validator.FastSyncOverlayClient;
 engine.validator.collatorNodeWhitelist enabled:Bool adnl_ids:(vector int256) = engine.validator.CollatorNodeWhitelist;
+engine.validator.extMessagePoolConfig max_mempool_messages:int
+    num_checkers:int max_admission_waiters:int
+    max_ext_msg_per_addr:int max_ext_msg_per_addr_time_window:double = engine.validator.ExtMessagePoolConfig;
 engine.validator.extraConfig state_serializer_enabled:Bool fast_sync_member_certificates:(vector engine.validator.fastSyncMemberCertificate)
     collator_node_whitelist:engine.validator.collatorNodeWhitelist
-    fast_sync_overlay_clients:(vector engine.validator.fastSyncOverlayClient) = engine.validator.ExtraConfig;
+    fast_sync_overlay_clients:(vector engine.validator.fastSyncOverlayClient)
+    ext_message_pool_config:engine.validator.extMessagePoolConfig = engine.validator.ExtraConfig;
 engine.validator.config addrs:(vector engine.Addr) adnl:(vector engine.adnl)
         dht:(vector engine.dht)
         validators:(vector engine.validator) collators:(vector int256)
@@ -806,6 +810,8 @@ engine.validator.showShardBlockVerifierConfig = engine.validator.ShardBlockVerif
 
 engine.validator.waitForLiteServer = engine.validator.Success;
 engine.validator.waitForInitialSync = engine.validator.Success;
+
+engine.validator.setExtMessagePoolOptions config:engine.validator.extMessagePoolConfig = engine.validator.Success;
 
 ---types---
 

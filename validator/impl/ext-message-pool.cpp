@@ -42,9 +42,20 @@ metrics::ExtMessageAdmissionOutcome admission_outcome(ExtMessageChecker::Failure
 }  // namespace
 
 void ExtMessagePool::init_checkers() {
-  checker_inflight_.assign(NUM_CHECKERS, 0);
-  for (size_t i = 0; i < NUM_CHECKERS; ++i) {
-    checkers_.push_back(td::actor::create_actor<ExtMessageChecker>(PSTRING() << "extmsgcheck" << i, manager_));
+  if (inited_checkers_) {
+    inflight_checks_ = 0;
+    for (auto &checker : checkers_) {
+      td::actor::send_closure(checker.actor, &ExtMessageChecker::destroy);
+      checker.actor.release();
+    }
+    checkers_.clear();
+  }
+  ++checkers_generation_;
+  inited_checkers_ = true;
+  size_t num_checkers = pool_opts_->num_checkers;
+  checkers_.resize(num_checkers);
+  for (size_t i = 0; i < num_checkers; ++i) {
+    checkers_[i].actor = td::actor::create_actor<ExtMessageChecker>(PSTRING() << "extmsgcheck" << i, manager_);
   }
 }
 
@@ -63,36 +74,47 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
     record_admission(metrics::ExtMessageAdmissionOutcome::too_large);
     co_return td::Status::Error("external message too large, rejecting");
   }
-  if (checkers_.empty()) {
+  if (!inited_checkers_) {
     init_checkers();
   }
   // Backpressure: bound the number of concurrent checks. Without it, an over-rate burst piles
   // unbounded work onto the worker/pool mailboxes and the queueing delay alone times every
   // request out (congestion collapse) while starving the rest of the node of CPU.
-  while (inflight_checks_ >= MAX_INFLIGHT_CHECKS) {
+  while (inflight_checks_ >= MAX_INFLIGHT_CHECKS_PER_CHECKER * checkers_.size()) {
     if (admission_waiters_.size() >= max_admission_waiters()) {
       ++admission_window_.rejected;
       record_admission(metrics::ExtMessageAdmissionOutcome::backpressure);
       co_return td::Status::Error(ErrorCode::notready, "too many pending external message checks");
+    }
+    if (checkers_.empty()) {
+      ++admission_window_.rejected;
+      record_admission(metrics::ExtMessageAdmissionOutcome::not_ready);
+      co_return td::Status::Error(ErrorCode::notready, "no checkers are configured");
     }
     auto [task, promise] = td::actor::StartedTask<>::make_bridge();
     admission_waiters_.push_back(std::move(promise));
     co_await std::move(task);
     // Loop: a new arrival may have grabbed the slot between our wakeup and resumption.
   }
+  size_t current_generation = checkers_generation_;
   ++inflight_checks_;
   SCOPE_EXIT {
-    release_check_slot();
+    ++completions_in_rate_window_;
+    if (current_generation == checkers_generation_) {
+      release_check_slot();
+    }
   };
   // The expensive stages (parse, account state fetch — cold celldb reads —, VM execution) run
   // on a worker; this pool actor stays free to dispatch/finalize other messages meanwhile.
   size_t worker = next_checker_++ % checkers_.size();
-  ++checker_inflight_[worker];
+  ++checkers_[worker].inflight;
   td::Timer check_timer;
-  auto r_checked = co_await td::actor::ask(checkers_[worker].get(), &ExtMessageChecker::check, std::move(data),
+  auto r_checked = co_await td::actor::ask(checkers_[worker].actor, &ExtMessageChecker::check, std::move(data),
                                            ext_msg_limits, last_masterchain_state_)
                        .wrap();
-  --checker_inflight_[worker];
+  if (current_generation == checkers_generation_) {
+    --checkers_[worker].inflight;
+  }
   admission_window_.check_time += check_timer.elapsed();
   ++admission_window_.checked;
   if (r_checked.is_error()) {
@@ -120,14 +142,14 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
   WorkchainId wc = message->wc();
   StdSmcAddress addr = message->addr();
   auto finalize = [&]() -> td::Result<CheckResult> {
-    if (checked_ext_msg_counter_.get_msg_count(wc, addr) >= MAX_EXT_MSG_PER_ADDR) {
+    if (checked_ext_msg_counter_.get_msg_count(wc, addr) >= pool_opts_->max_ext_msg_per_addr) {
       return td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex());
     }
     td::actor::StartedTask<> wait_allow_broadcast;
     auto [task, allow_broadcast_promise] = td::actor::StartedTask<>::make_bridge();
     allow_broadcast_promise.set_value(td::Unit{});
     wait_allow_broadcast = std::move(task);
-    if (checked_ext_msg_counter_.inc_msg_count(wc, addr) > MAX_EXT_MSG_PER_ADDR) {
+    if (checked_ext_msg_counter_.inc_msg_count(wc, addr) > pool_opts_->max_ext_msg_per_addr) {
       return td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex());
     }
     return CheckResult{std::move(message), std::move(wait_allow_broadcast)};
@@ -172,11 +194,11 @@ size_t ExtMessagePool::max_admission_waiters() {
     rate_window_start_ = now;
   }
   double cap = check_completion_rate_ * MAX_ADMISSION_QUEUE_DELAY;
-  return (size_t)td::clamp(cap, 512.0, (double)MAX_ADMISSION_WAITERS);
+  double min_cap = std::min(512.0, (double)pool_opts_->max_admission_waiters);
+  return (size_t)td::clamp(cap, min_cap, (double)pool_opts_->max_admission_waiters);
 }
 
 void ExtMessagePool::release_check_slot() {
-  ++completions_in_rate_window_;
   --inflight_checks_;
   // Wake one waiter per freed slot; it re-checks the limit when it resumes, so this stays
   // correct (no slot leak) even if the woken request was cancelled while waiting.
@@ -192,9 +214,9 @@ void ExtMessagePool::log_admission_stats() {
   double dt = td::Time::now() - w.window_start.at();
   if (w.in > 0 && dt > 0) {
     size_t busy = 0, inflight = 0;
-    for (size_t n : checker_inflight_) {
-      busy += n > 0;
-      inflight += n;
+    for (auto &checker : checkers_) {
+      busy += checker.inflight > 0;
+      inflight += checker.inflight;
     }
     char buf[320];
     snprintf(buf, sizeof(buf),
@@ -375,6 +397,29 @@ bool ExtMessagePool::erase_message(int priority, MessageId id, double *stored_ag
   return true;
 }
 
+void ExtMessagePool::update_options(td::Ref<ValidatorManagerOptions> opts) {
+  opts_ = std::move(opts);
+  if (opts_->get_ext_message_pool_options() == pool_opts_) {
+    return;
+  }
+  pool_opts_ = opts_->get_ext_message_pool_options();
+  if (checked_ext_msg_counter_.time_window_ != pool_opts_->max_ext_msg_per_addr_time_window) {
+    checked_ext_msg_counter_ = {};
+    checked_ext_msg_counter_.time_window_ = pool_opts_->max_ext_msg_per_addr_time_window;
+  }
+  if (inited_checkers_ && checkers_.size() != pool_opts_->num_checkers) {
+    init_checkers();
+    // Wakeup all waiters here. Pool options don't change often, so it's OK
+    auto waiters = std::move(admission_waiters_);
+    admission_waiters_.clear();
+    while (!waiters.empty()) {
+      auto waiter = std::move(waiters.front());
+      waiters.pop_front();
+      waiter.set_value(td::Unit{});
+    }
+  }
+}
+
 std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats() {
   auto stats = get_metrics_snapshot();
   std::vector<std::pair<std::string, std::string>> vec;
@@ -422,9 +467,9 @@ metrics::ExtMessageAdmissionOutcome ExtMessagePool::add_message_to_mempool(td::R
   WorkchainId wc = message->wc();
   StdSmcAddress addr = message->addr();
   auto &msgs = ext_msgs_[priority];
-  if (msgs.ext_messages_.size() > opts_->max_mempool_num()) {
+  if (msgs.ext_messages_.size() > pool_opts_->max_mempool_messages) {
     LOG(INFO) << "cannot add message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority
-              << " to mempool: mempool is full (limit=" << opts_->max_mempool_num() << ")";
+              << " to mempool: mempool is full (limit=" << pool_opts_->max_mempool_messages << ")";
     return metrics::ExtMessageAdmissionOutcome::pool_full;
   }
   auto msg = std::make_shared<MempoolMsg>(message);
@@ -508,10 +553,10 @@ void ExtMessagePool::CheckedExtMsgCounter::before_query() {
     counter_prev_ = std::move(counter_cur_);
     counter_cur_.clear();
     if (counter_prev_.empty()) {
-      cleanup_at_ = td::Timestamp::in(MAX_EXT_MSG_PER_ADDR_TIME_WINDOW / 2.0);
+      cleanup_at_ = td::Timestamp::in(time_window_ / 2.0);
       break;
     }
-    cleanup_at_ += MAX_EXT_MSG_PER_ADDR_TIME_WINDOW / 2.0;
+    cleanup_at_ += time_window_ / 2.0;
   }
 }
 
