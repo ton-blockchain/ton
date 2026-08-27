@@ -77,11 +77,17 @@ td::Result<td::Ref<ExtMessagePoolOptions>> ExtMessagePoolOptions::unpack(
   if (f.max_mempool_messages_ >= 0) {
     options.max_mempool_messages = f.max_mempool_messages_;
   }
-  if (f.num_checkers_ >= 0) {
-    if (f.num_checkers_ > 128) {
-      return td::Status::Error("too many checkers (max 128)");
+  if (f.num_regular_checkers_ >= 0) {
+    if (f.num_regular_checkers_ > 128) {
+      return td::Status::Error("too many regular checkers (max 128)");
     }
-    options.num_checkers = f.num_checkers_;
+    options.num_regular_checkers = f.num_regular_checkers_;
+  }
+  if (f.num_priority_checkers_ >= 0) {
+    if (f.num_priority_checkers_ > 128) {
+      return td::Status::Error("too many priority checkers (max 128)");
+    }
+    options.num_priority_checkers = f.num_priority_checkers_;
   }
   if (f.max_admission_waiters_ >= 0) {
     options.max_admission_waiters = f.max_admission_waiters_;

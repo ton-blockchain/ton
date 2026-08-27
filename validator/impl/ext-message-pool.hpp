@@ -197,17 +197,24 @@ class ExtMessagePool : public td::actor::Actor {
   struct Checker {
     td::actor::ActorOwn<ExtMessageChecker> actor;
     size_t inflight = 0;
+    bool priority = false;
   };
+  // First num_regular_checkers_ are regular, last num_priority_checkers_ are priority
   std::vector<Checker> checkers_;
-  size_t next_checker_{0};
+  size_t num_regular_checkers_ = 0, num_priority_checkers_ = 0;
+  size_t next_regular_checker_ = 0, next_priority_checker_ = 0;
   void init_checkers();
   // Admission backpressure: only MAX_INFLIGHT_CHECKS checks run concurrently; the rest wait in
   // FIFO order (bounded — beyond that requests fail fast instead of queueing into a congestion
   // collapse that would starve the whole node).
-  size_t inflight_checks_{0};
+  size_t inflight_total_checks_{0};
+  size_t inflight_regular_checks_{0};
+  size_t inflight_priority_checks_{0};
   std::map<int, std::deque<td::actor::StartedTask<>::ExternalPromise>> admission_waiters_;  // priority -> queue
   size_t total_admission_waiters_ = 0;
-  void release_check_slot();
+  bool have_free_slots(int priority);
+  size_t select_worker(int priority);
+  void release_check_slot(size_t worker);
   // Adaptive wait-queue cap: bound the ESTIMATED queueing delay, not just the count, so that
   // under degraded capacity (CPU contention, cold caches) requests fail fast instead of being
   // answered after the client has already timed out.

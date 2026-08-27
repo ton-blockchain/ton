@@ -2120,7 +2120,8 @@ td::Status SetExtMessagePoolOptionsJsonQuery::send() {
   if (json.type() != td::JsonValueType::Object) {
     return td::Status::Error("json is not an object");
   }
-  auto config = ton::create_tl_object<ton::ton_api::engine_validator_extMessagePoolConfig>(-1, -1, -1, -1, -1.0, -1);
+  auto config =
+      ton::create_tl_object<ton::ton_api::engine_validator_extMessagePoolConfig>(-1, -1, -1, -1, -1, -1.0, -1);
   TRY_STATUS_PREFIX(ton::ton_api::from_json(*config, json.get_object()), "json does not fit TL scheme: ");
   auto b = ton::create_serialize_tl_object<ton::ton_api::engine_validator_setExtMessagePoolOptions>(std::move(config));
   td::actor::send_closure(console_, &ValidatorEngineConsole::envelope_send_query, std::move(b), create_promise());
