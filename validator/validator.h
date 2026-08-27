@@ -136,7 +136,8 @@ struct NoncriticalParamsOverride {
 
 struct ExtMessagePoolOptions : public td::CntObject {
   size_t max_mempool_messages = 999999;
-  size_t num_checkers = 24;
+  // Total checkers = num_regular_checkers + num_priority_checkers
+  size_t num_regular_checkers = 24, num_priority_checkers = 0;
   // Absolute bound on queued admission requests; the effective bound is adaptive
   // (max_admission_waiters() targets MAX_ADMISSION_QUEUE_DELAY of estimated wait).
   size_t max_admission_waiters = 50000;

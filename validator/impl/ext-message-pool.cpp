@@ -43,7 +43,9 @@ metrics::ExtMessageAdmissionOutcome admission_outcome(ExtMessageChecker::Failure
 
 void ExtMessagePool::init_checkers() {
   if (inited_checkers_) {
-    inflight_checks_ = 0;
+    inflight_total_checks_ = 0;
+    inflight_regular_checks_ = 0;
+    inflight_priority_checks_ = 0;
     for (auto &checker : checkers_) {
       td::actor::send_closure(checker.actor, &ExtMessageChecker::destroy);
       checker.actor.release();
@@ -52,10 +54,15 @@ void ExtMessagePool::init_checkers() {
   }
   ++checkers_generation_;
   inited_checkers_ = true;
-  size_t num_checkers = pool_opts_->num_checkers;
-  checkers_.resize(num_checkers);
-  for (size_t i = 0; i < num_checkers; ++i) {
-    checkers_[i].actor = td::actor::create_actor<ExtMessageChecker>(PSTRING() << "extmsgcheck" << i, manager_);
+  num_regular_checkers_ = pool_opts_->num_regular_checkers;
+  num_priority_checkers_ = pool_opts_->num_priority_checkers;
+  next_regular_checker_ = 0;
+  next_priority_checker_ = num_regular_checkers_;
+  checkers_.resize(num_regular_checkers_ + num_priority_checkers_);
+  for (size_t i = 0; i < checkers_.size(); ++i) {
+    checkers_[i].actor = td::actor::create_actor<ExtMessageChecker>(
+        PSTRING() << "extmsgcheck." << (i < num_regular_checkers_ ? "" : "prio.") << i, manager_);
+    checkers_[i].priority = i >= num_regular_checkers_;
   }
 }
 
@@ -80,8 +87,8 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
   // Backpressure: bound the number of concurrent checks. Without it, an over-rate burst piles
   // unbounded work onto the worker/pool mailboxes and the queueing delay alone times every
   // request out (congestion collapse) while starving the rest of the node of CPU.
-  while (inflight_checks_ >= MAX_INFLIGHT_CHECKS_PER_CHECKER * checkers_.size()) {
-    if (checkers_.empty()) {
+  while (!have_free_slots(priority)) {
+    if ((priority > 0 ? checkers_.size() : num_regular_checkers_) == 0) {
       ++admission_window_.rejected;
       record_admission(metrics::ExtMessageAdmissionOutcome::not_ready);
       co_return td::Status::Error(ErrorCode::notready, "no checkers are configured");
@@ -112,25 +119,23 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
     }
     // Loop: a new arrival may have grabbed the slot between our wakeup and resumption.
   }
+  // The expensive stages (parse, account state fetch — cold celldb reads —, VM execution) run
+  // on a worker; this pool actor stays free to dispatch/finalize other messages meanwhile.
+  size_t worker = select_worker(priority);
   size_t current_generation = checkers_generation_;
-  ++inflight_checks_;
+  ++inflight_total_checks_;
+  ++(checkers_[worker].priority ? inflight_priority_checks_ : inflight_regular_checks_);
+  ++checkers_[worker].inflight;
   SCOPE_EXIT {
     ++completions_in_rate_window_;
     if (current_generation == checkers_generation_) {
-      release_check_slot();
+      release_check_slot(worker);
     }
   };
-  // The expensive stages (parse, account state fetch — cold celldb reads —, VM execution) run
-  // on a worker; this pool actor stays free to dispatch/finalize other messages meanwhile.
-  size_t worker = next_checker_++ % checkers_.size();
-  ++checkers_[worker].inflight;
   td::Timer check_timer;
   auto r_checked = co_await td::actor::ask(checkers_[worker].actor, &ExtMessageChecker::check, std::move(data),
                                            ext_msg_limits, last_masterchain_state_)
                        .wrap();
-  if (current_generation == checkers_generation_) {
-    --checkers_[worker].inflight;
-  }
   admission_window_.check_time += check_timer.elapsed();
   ++admission_window_.checked;
   if (r_checked.is_error()) {
@@ -214,12 +219,47 @@ size_t ExtMessagePool::max_admission_waiters() {
   return (size_t)td::clamp(cap, min_cap, (double)pool_opts_->max_admission_waiters);
 }
 
-void ExtMessagePool::release_check_slot() {
-  --inflight_checks_;
+bool ExtMessagePool::have_free_slots(int priority) {
+  if (priority > 0) {
+    return inflight_total_checks_ < checkers_.size() * MAX_INFLIGHT_CHECKS_PER_CHECKER;
+  }
+  return inflight_regular_checks_ < num_regular_checkers_ * MAX_INFLIGHT_CHECKS_PER_CHECKER;
+}
+
+size_t ExtMessagePool::select_worker(int priority) {
+  // select_worker is called after checking have_free_slots, so the slot should exist
+  if (priority > 0 && inflight_priority_checks_ < num_priority_checkers_ * MAX_INFLIGHT_CHECKS_PER_CHECKER) {
+    for (size_t iter = 0; iter < num_priority_checkers_; ++iter) {
+      size_t idx = next_priority_checker_++;
+      if (next_priority_checker_ == checkers_.size()) {
+        next_priority_checker_ = num_regular_checkers_;
+      }
+      if (checkers_[idx].inflight < MAX_INFLIGHT_CHECKS_PER_CHECKER) {
+        return idx;
+      }
+    }
+  }
+  for (size_t iter = 0; iter < num_regular_checkers_; ++iter) {
+    size_t idx = next_regular_checker_++;
+    next_regular_checker_ %= num_regular_checkers_;
+    if (checkers_[idx].inflight < MAX_INFLIGHT_CHECKS_PER_CHECKER) {
+      return idx;
+    }
+  }
+  return 0;
+}
+
+void ExtMessagePool::release_check_slot(size_t worker) {
+  --inflight_total_checks_;
+  --(checkers_[worker].priority ? inflight_priority_checks_ : inflight_regular_checks_);
+  --checkers_[worker].inflight;
   // Wake one waiter per freed slot; it re-checks the limit when it resumes, so this stays
   // correct (no slot leak) even if the woken request was cancelled while waiting.
   if (!admission_waiters_.empty()) {
     auto &[priority, waiters] = *admission_waiters_.rbegin();
+    if (!have_free_slots(priority)) {
+      return;
+    }
     auto waiter = std::move(waiters.front());
     waiters.pop_front();
     --total_admission_waiters_;
@@ -428,7 +468,8 @@ void ExtMessagePool::update_options(td::Ref<ValidatorManagerOptions> opts) {
     checked_ext_msg_counter_ = {};
     checked_ext_msg_counter_.time_window_ = pool_opts_->max_ext_msg_per_addr_time_window;
   }
-  if (inited_checkers_ && checkers_.size() != pool_opts_->num_checkers) {
+  if (inited_checkers_ && (num_regular_checkers_ != pool_opts_->num_regular_checkers ||
+                           num_priority_checkers_ != pool_opts_->num_priority_checkers)) {
     init_checkers();
     // Wakeup all waiters here. Pool options don't change often, so it's OK
     auto waiters = std::move(admission_waiters_);
