@@ -98,6 +98,9 @@ td::Result<td::Ref<ExtMessagePoolOptions>> ExtMessagePoolOptions::unpack(
     }
     options.max_ext_msg_per_addr_time_window = f.max_ext_msg_per_addr_time_window_;
   }
+  if (f.local_ls_message_priority_ >= 0) {
+    options.local_ls_message_priority = f.local_ls_message_priority_;
+  }
   return td::Ref<ExtMessagePoolOptions>{true, std::move(options)};
 }
 
