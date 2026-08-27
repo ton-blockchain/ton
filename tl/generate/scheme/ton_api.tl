@@ -608,7 +608,7 @@ engine.validator.fastSyncMemberCertificate adnl_id:int256 certificate:overlay.Me
 engine.validator.fastSyncOverlayClient adnl_id:int256 slot:int = engine.validator.FastSyncOverlayClient;
 engine.validator.collatorNodeWhitelist enabled:Bool adnl_ids:(vector int256) = engine.validator.CollatorNodeWhitelist;
 engine.validator.extMessagePoolConfig max_mempool_messages:int
-    num_checkers:int max_admission_waiters:int
+    num_regular_checkers:int num_priority_checkers:int max_admission_waiters:int
     max_ext_msg_per_addr:int max_ext_msg_per_addr_time_window:double
     local_ls_message_priority:int = engine.validator.ExtMessagePoolConfig;
 engine.validator.extraConfig state_serializer_enabled:Bool fast_sync_member_certificates:(vector engine.validator.fastSyncMemberCertificate)
