@@ -1,3 +1,10 @@
+## Offline TX Retrieval Tool
+
+See tools/ directory.
+Includes a C CLI tool and Python wrapper.
+
+<hr/>
+
 <div align="center">
   <a href="https://ton.org">
     <picture>
