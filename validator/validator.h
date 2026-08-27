@@ -143,6 +143,8 @@ struct ExtMessagePoolOptions : public td::CntObject {
   size_t max_ext_msg_per_addr = 10 * 3;
   double max_ext_msg_per_addr_time_window = 10.0;
 
+  int local_ls_message_priority = 0;
+
   static td::Result<td::Ref<ExtMessagePoolOptions>> unpack(const ton_api::engine_validator_extMessagePoolConfig& f);
 };
 
