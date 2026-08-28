@@ -129,9 +129,9 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   //LOG(DEBUG) << "after get_validator_set: addr=" << (const void*)val_set.get();
 
   auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), last = last_masterchain_block_id_, val_set, prev](td::Result<BlockCandidate> R) {
+      [SelfId = actor_id(this), last = last_masterchain_block_id_, val_set, prev](td::Result<GeneratedCandidate> R) {
         if (R.is_ok()) {
-          auto v = R.move_as_ok();
+          auto v = std::move(R.ok_ref().candidate);
           LOG(ERROR) << "created block " << v.id;
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::validate_fake, std::move(v), std::move(prev), last,
                                   val_set);
