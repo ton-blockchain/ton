@@ -3436,8 +3436,10 @@ void ValidatorManagerImpl::add_collation_external_metrics(metrics::BlockChain ch
   };
   add(metrics::CollationExternalOutcome::filtered, stats.filtered);
   add(metrics::CollationExternalOutcome::skipped_backpressure, stats.skipped_backpressure);
+  add(metrics::CollationExternalOutcome::skipped_duplicate, stats.skipped_duplicate);
   add(metrics::CollationExternalOutcome::included, stats.accepted);
-  auto accounted = static_cast<td::uint64>(stats.filtered) + stats.skipped_backpressure + stats.accepted;
+  auto accounted =
+      static_cast<td::uint64>(stats.filtered) + stats.skipped_backpressure + stats.skipped_duplicate + stats.accepted;
   add(metrics::CollationExternalOutcome::rejected, stats.total > accounted ? stats.total - accounted : 0);
 }
 

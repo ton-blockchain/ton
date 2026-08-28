@@ -87,6 +87,7 @@ struct CollationStats {
     td::uint32 filtered;
     td::uint32 accepted;
     td::uint32 skipped_backpressure;
+    td::uint32 skipped_duplicate;
   };
 
   ShardIdFull shard{workchainInvalid, 0};
@@ -121,9 +122,11 @@ struct CollationStats {
   td::uint32 ext_msgs_accepted = 0;
   td::uint32 ext_msgs_rejected = 0;
   td::uint32 ext_msgs_skipped_backpressure = 0;
+  td::uint32 ext_msgs_skipped_duplicate = 0;
 
   ExternalMessages external_messages() const {
-    return {ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted, ext_msgs_skipped_backpressure};
+    return {ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted, ext_msgs_skipped_backpressure,
+            ext_msgs_skipped_duplicate};
   }
 
   td::uint64 old_out_msg_queue_size = 0;
