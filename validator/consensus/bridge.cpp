@@ -32,11 +32,11 @@ class ManagerFacadeImpl : public ManagerFacade {
       : manager_(manager), validator_set_(std::move(validator_set)), opts_(std::move(opts)) {
   }
 
-  td::actor::Task<BlockCandidate> collate_block(CollateParams params,
-                                                td::CancellationToken cancellation_token) override {
+  td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
+                                                    td::CancellationToken cancellation_token) override {
     params.validator_set = validator_set_;
     params.collator_opts = opts_->get_collator_options();
-    auto [task, promise] = td::actor::StartedTask<BlockCandidate>::make_bridge();
+    auto [task, promise] = td::actor::StartedTask<GeneratedCandidate>::make_bridge();
     run_collate_query(std::move(params), manager_, std::move(cancellation_token), std::move(promise));
     co_return co_await std::move(task);
   }
