@@ -1328,10 +1328,8 @@ void ValidatorManagerImpl::get_shard_blocks_for_collator(
   promise.set_value(std::move(v));
 }
 
-void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
-                                                      std::vector<ExtMessage::Hash> to_delete) {
-  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::complete_external_messages, std::move(to_delay),
-                          std::move(to_delete));
+void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Hash> to_delete) {
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::complete_external_messages, std::move(to_delete));
 }
 
 void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) {

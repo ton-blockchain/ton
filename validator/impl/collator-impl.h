@@ -218,7 +218,7 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<vm::Dictionary> block_create_stats_;
   std::map<td::Bits256, int> block_create_count_;
   unsigned block_create_total_{0};
-  std::vector<ExtMessage::Hash> bad_ext_msgs_, delay_ext_msgs_;
+  std::vector<ExtMessage::Hash> bad_ext_msgs_;
   Ref<vm::Cell> shard_account_blocks_;  // ShardAccountBlocks
 
   std::map<td::Bits256, Ref<vm::Cell>> block_state_proofs_;

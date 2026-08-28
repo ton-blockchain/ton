@@ -370,8 +370,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) = 0;
   virtual void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                              td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) = 0;
-  virtual void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
-                                          std::vector<ExtMessage::Hash> to_delete) = 0;
+  virtual void complete_external_messages(std::vector<ExtMessage::Hash> to_delete) {
+  }
   virtual void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) = 0;
 
   //virtual void set_first_block(ZeroStateIdExt state, BlockIdExt block, td::Promise<td::Unit> promise) = 0;
