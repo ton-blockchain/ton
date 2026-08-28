@@ -44,6 +44,7 @@ struct InlineReturnPlan {
   }
 };
 
+AnyV find_first_return(AnyV v);
 InlineReturnPlan build_inlining_plan_for_function(FunctionPtr fun_ref);
 
 } // namespace tolk

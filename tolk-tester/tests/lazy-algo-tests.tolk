@@ -224,7 +224,8 @@ fun loadWalletStorage() {
 }
 
 fun WalletStorage.load() {
-    return WalletStorage.fromCell(createEmptyCell());
+    val emptyCell = createEmptyCell();
+    return WalletStorage.fromCell(emptyCell);
 }
 
 // Uses only `other`, not `self`.

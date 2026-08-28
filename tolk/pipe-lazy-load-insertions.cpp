@@ -21,6 +21,7 @@
 #include "type-system.h"
 #include "smart-casts-cfg.h"
 #include "pack-unpack-api.h"
+#include "inline-return-analysis.h"
 
 namespace tolk {
 
@@ -160,12 +161,13 @@ static bool does_function_satisfy_for_lazy_operator(FunctionPtr fun_ref, bool al
     std::string_view f_name = fun_ref->base_fun_ref->name;
     return f_name == "T.fromSlice" || f_name == "T.fromCell" || f_name == "Cell<T>.load";
   }
-  // allow `lazy loadData()`, where loadData() is a simple wrapper like
-  // `fun loadData() { return SomeStruct.fromCell(contract.getData()) }`
+  // allow `lazy loadData()`, where loadData() ends with `return SomeStruct.fromCell(...)`
+  // and has no other returns
   if (allow_wrapper && fun_ref->is_code_function() && fun_ref->get_num_params() == 0) {
     auto f_body = fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_block_statement>();
-    if (f_body->size() == 1) {
-      if (auto f_returns = f_body->get_item(0)->try_as<ast_return_statement>(); f_returns && f_returns->has_return_value()) {
+    if (!f_body->empty()) {
+      auto f_returns = f_body->get_item(f_body->size() - 1)->try_as<ast_return_statement>();
+      if (f_returns && f_returns->has_return_value() && find_first_return(f_body) == f_returns) {
         if (auto f_returns_call = f_returns->get_return_value()->try_as<ast_function_call>()) {
           return does_function_satisfy_for_lazy_operator(f_returns_call->fun_maybe, false)
               && fun_ref->inferred_return_type->equal_to(f_returns_call->inferred_type);

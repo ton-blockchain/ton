@@ -60,6 +60,11 @@ struct Point {
     y: int8;
 }
 
+@noinline
+fun loadLazyPointNoInline(): Point {
+    return Point.fromSlice("0102".hexToSlice());
+}
+
 fun Point.getX(self) {
     return self.x
 }
@@ -258,6 +263,7 @@ struct WithInternalAddress {
 }
 
 global gModByCustom: int;
+global lazyLoadWrapperCounter: int;
 
 type MagicGlobalModifier = ();
 
@@ -346,8 +352,24 @@ fun loadWalletStorage() {
     return WalletStorage.fromSlice(stringHexToSlice("8000003d800000e4000000000000000000000000000000000000000000000000000000000000000020_"));
 }
 
+fun loadWalletStorageViaLocalSlice() {
+    val storageSlice = stringHexToSlice("8000003d800000e4000000000000000000000000000000000000000000000000000000000000000020_");
+    return WalletStorage.fromSlice(storageSlice);
+}
+
 fun WalletStorage.load() {
     return WalletStorage.fromCell(contract.getFakeData(777));
+}
+
+fun WalletStorage.loadWithPrelude() {
+    val p = lazy Point.fromSlice(stringHexToSlice("0102"));
+    __expect_lazy("[p] load x");
+    lazyLoadWrapperCounter = p.x;
+    if (lazyLoadWrapperCounter == 1) {
+        lazyLoadWrapperCounter = 777;
+    }
+    val storageCell = contract.getFakeData(lazyLoadWrapperCounter);
+    return WalletStorage.fromCell(storageCell);
 }
 
 fun inc8(mutate x: int8) {
@@ -1123,6 +1145,26 @@ fun demo163(nSkip: int) {
     __expect_lazy("[o] skip (bits32), load rest");
     var x = o.rest.loadUint(8);
     return (x, (o.rest.skipBits(nSkip), o.rest.remainingBitsCount()).1);
+}
+
+@method_id(164)
+fun testNoInlineLazyWrapper(): int {
+    val p = lazy loadLazyPointNoInline();
+    __expect_lazy("[p] skip (bits8), load y");
+    return p.y;
+}
+
+fun loadRestPayloadOfPoint() {
+    val header = lazy WithOneRestField.fromSlice("000000FF01".hexToSlice());
+    __expect_lazy("[header] skip (bits32), load rest");
+    return Point.fromSlice(header.rest);
+}
+
+@method_id(165)
+fun testLoadLazyOfLazy() {
+    val payloadP = lazy loadRestPayloadOfPoint();
+    __expect_lazy("[payloadP] load x");
+    return payloadP.x;
 }
 
 
@@ -1914,6 +1956,21 @@ fun demo417(s: slice): int32 {
     };
 }
 
+@method_id(418)
+fun demo418() {
+    lazyLoadWrapperCounter = 0;
+    val st = lazy WalletStorage.loadWithPrelude();
+    __expect_lazy("[st] skip (bits1), load seqno");
+    return (st.seqno, lazyLoadWrapperCounter);
+}
+
+@method_id(419)
+fun demo419() {
+    val st = lazy loadWalletStorageViaLocalSlice();
+    __expect_lazy("[st] skip (bits33), load walletId");
+    return st.walletId;
+}
+
 
 fun main() {
     val s = stringHexToSlice("0102");
@@ -2024,6 +2081,7 @@ fun main() {
 @testcase | 161 |                 | 1
 @testcase | 162 | 8               | 17
 @testcase | 163 | 4               | 240 4
+@testcase | 165 |                 | 1
 
 @testcase | 200 |                 | 1
 @testcase | 201 |                 | 1 2 -1
@@ -2099,6 +2157,8 @@ fun main() {
 @testcase | 416 | x{52}                       | 0
 @testcase | 417 | x{000000154_}               | 42
 @testcase | 417 | x{800000154_}               | 42
+@testcase | 418 |                             | 777 777
+@testcase | 419 |                             | 456
 
 @fif_codegen
 """

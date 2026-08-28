@@ -27,6 +27,7 @@
 #include "gen-entrypoints.h"
 #include "inline-return-analysis.h"
 #include "loop-control-analysis.h"
+#include <optional>
 
 /*
  *   This pipe is the last one operating AST: it transforms AST to IR.
@@ -476,11 +477,38 @@ public:
   }
 
   void on_enter_function(V<ast_function_declaration> v_function) override {
-    tolk_assert(cur_f->is_inlined_in_place());
+    tolk_assert(cur_f->is_code_function());
 
     for (int i = 0; i < cur_f->get_num_params(); ++i) {
       cur_f->get_param(i).mutate()->assign_ir_idx({});
     }
+  }
+};
+
+// Installs function-specific state while `f_inlined` AST body is lowered into caller's CodeBlob
+struct FunctionBodyInliningGuard {
+  CodeBlob& code;
+  FunctionPtr f_inlined;
+  const InliningFrameLowering* backup_frame;
+  FunctionPtr backup_cur_fun;
+  std::vector<LazyVarRefAtCodegen> backup_lazy_variables;
+
+  FunctionBodyInliningGuard(CodeBlob& code, FunctionPtr f_inlined, const InliningFrameLowering* inlining_frame)
+    : code(code)
+    , f_inlined(f_inlined)
+    , backup_frame(code.inlining)
+    , backup_cur_fun(code.fun_ref)
+    , backup_lazy_variables(code.lazy_variables) {
+    code.fun_ref = f_inlined;
+    code.inlining = inlining_frame;
+  }
+
+  ~FunctionBodyInliningGuard() {
+    ClearStateAfterInlineInPlace visitor;
+    visitor.start_visiting_function(f_inlined, f_inlined->ast_root->as<ast_function_declaration>());
+    code.fun_ref = backup_cur_fun;
+    code.inlining = backup_frame;
+    code.lazy_variables = std::move(backup_lazy_variables);
   }
 };
 
@@ -899,12 +927,7 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
     .rvect_out = code.create_tmp_var(ret_type, origin, "(inlined-return)"),
   };
 
-  const InliningFrameLowering* backup_outer_inline = code.inlining;
-  FunctionPtr backup_cur_fun = code.fun_ref;
-  auto backup_lazy_variables = code.lazy_variables;
-
-  code.fun_ref = f_inlined;
-  code.inlining = &inlining;
+  FunctionBodyInliningGuard guard(code, f_inlined, &inlining);
   // specially handle `point.getX()` if point is a lazy var: to make `self.toCell()` work and `self.x` asserted;
   // (only methods preserve lazy, `getXOf(point)` does not, though theoretically can be done)
   const LazyVariableLoadedState* lazy_receiver = self_obj ? code.get_lazy_variable(self_obj) : nullptr;
@@ -935,12 +958,6 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
   FallthroughTail tail_leave_fun{.emit_leave_fun = true};
   process_block_statement(v_block, code, &tail_leave_fun);
 
-  ClearStateAfterInlineInPlace visitor;
-  visitor.start_visiting_function(f_inlined, v_ast_root);
-
-  code.fun_ref = backup_cur_fun;
-  code.inlining = backup_outer_inline;
-  code.lazy_variables = std::move(backup_lazy_variables);
   return inlining.rvect_out;
 }
 
@@ -1300,11 +1317,23 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   auto v_call = v->get_expr()->try_as<ast_function_call>();
   tolk_assert(v_call && v_call->fun_maybe);
 
+  std::optional<FunctionBodyInliningGuard> wrapper_guard;
   FunctionPtr called_f = v_call->fun_maybe;
-  if (called_f->is_code_function()) {     // `lazy loadStorage()` is allowed, it contains just `return ...`, inline it here
+  if (called_f->is_code_function()) {     // `lazy loadStorage()`, its body is `smth; return ...`
+    wrapper_guard.emplace(code, called_f, nullptr);
     auto f_body = called_f->ast_root->as<ast_function_declaration>()->get_body()->as<ast_block_statement>();
-    tolk_assert(f_body->size() == 1 && f_body->get_item(0)->kind == ast_return_statement);
-    auto f_returns = f_body->get_item(0)->as<ast_return_statement>();
+    // inline `smth` preceding the final `return` (no `return` in the middle)
+    for (int i = 0; i < f_body->size(); ++i) {
+      AnyV stmt = f_body->get_item(i);
+      if (called_f->lazy_load_plan) {   // in case `loadStorage` has lazy vars itself
+        emit_lazy_loads_before(stmt, code);
+      }
+      if (i < f_body->size() - 1) {     // the last is `return fromCell/fromSlice`, handled below
+        process_any_statement(stmt, code);
+      }
+    }
+    auto f_returns = f_body->get_item(f_body->size() - 1)->try_as<ast_return_statement>();
+    tolk_assert(f_returns);
     v_call = f_returns->get_return_value()->try_as<ast_function_call>();
     tolk_assert(v_call && v_call->fun_maybe && v_call->fun_maybe->is_builtin());
     called_f = v_call->fun_maybe;
@@ -1336,6 +1365,7 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   // on `var p = lazy Point.fromSlice(s, options)`, save s and options (lazy_variable)
   AnyExprV v_options = has_passed_options ? v_call->get_arg(v_call->get_num_args() - 1)->get_expr() : called_f->parameters.back().default_value;
   std::vector ir_options = pre_compile_expr(v_options, code, called_f->parameters[1].declared_type);
+  wrapper_guard.reset();
   const LazyVariableLoadedState* lazy_variable = new LazyVariableLoadedState(v->dest_var_ref->declared_type, std::move(ir_slice), std::move(ir_options));
   code.lazy_variables.emplace_back(v->dest_var_ref, lazy_variable);
 

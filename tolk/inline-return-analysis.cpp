@@ -102,7 +102,7 @@ public:
   }
 };
 
-static AnyV find_first_return(AnyV v) {
+AnyV find_first_return(AnyV v) {
   FindFirstReturnVisitor visitor;
   return visitor.find(v);
 }
