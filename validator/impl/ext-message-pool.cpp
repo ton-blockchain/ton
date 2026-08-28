@@ -368,34 +368,15 @@ size_t ExtMessagePool::cleanup_expired_messages(td::Timestamp now) {
   });
 }
 
-void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
-                                                std::vector<ExtMessage::Hash> to_delete) {
+void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to_delete) {
   for (auto &hash : to_delete) {
-    auto it = ext_messages_hashes_.find(hash);
-    if (it != ext_messages_hashes_.end() && erase_message(it->second.first, it->second.second)) {
-      record_removal(metrics::ExtMessageRemovalReason::filtered);
-    }
-  }
-  for (auto &hash : to_delay) {
-    auto it = ext_messages_hashes_.find(hash);
-    if (it != ext_messages_hashes_.end()) {
-      int priority = it->second.first;
-      auto msg_id = it->second.second;
-      auto &msgs = ext_msgs_[priority];
-      auto msg = msgs.ext_messages_.find(msg_id);
-      if (!msg) {
-        continue;
-      }
-      bool can_postpone = msg.value()->can_postpone();
-      if (can_postpone && msgs.ext_messages_.size() < SOFT_MEMPOOL_LIMIT) {
-        if (msg.value()->postpone()) {
-          ext_message_states_.transition(metrics::ExtMessageState::eligible, metrics::ExtMessageState::postponed);
+    auto it = ext_messages_hashes_norm_.find(hash);
+    if (it != ext_messages_hashes_norm_.end()) {
+      auto ids = it->second;
+      for (const auto &message_id : ids) {
+        if (erase_message(message_id.priority, message_id.id)) {
+          record_removal(metrics::ExtMessageRemovalReason::filtered);
         }
-        continue;
-      }
-      if (erase_message(priority, msg_id)) {
-        record_removal(can_postpone ? metrics::ExtMessageRemovalReason::pool_pressure
-                                    : metrics::ExtMessageRemovalReason::rejected_final);
       }
     }
   }
