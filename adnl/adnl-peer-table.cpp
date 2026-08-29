@@ -174,12 +174,14 @@ void AdnlPeerTableImpl::receive_decrypted_packet(AdnlNodeIdShort dst, AdnlPacket
 
   auto R = peer_id.pubkey().create_encryptor();
   if (R.is_error()) {
+    record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
     VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
                      << "]: failed to create encryptor: " << R.move_as_error();
     return;
   }
   auto S = R.move_as_ok()->check_signature(packet.to_sign().as_slice(), packet.signature().as_slice());
   if (S.is_error()) {
+    record_transport_dropped(metrics::Direction::in, metrics::Reason::invalid);
     VLOG(adnl, INFO) << this << ": dropping IN message [" << packet.from_short() << "->" << dst
                      << "]: bad signature: " << S;
     return;
