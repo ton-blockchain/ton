@@ -134,6 +134,21 @@ struct NoncriticalParamsOverride {
   }
 };
 
+struct ExtMessagePoolOptions : public td::CntObject {
+  size_t max_mempool_messages = 999999;
+  // Total checkers = num_regular_checkers + num_priority_checkers
+  size_t num_regular_checkers = 24, num_priority_checkers = 0;
+  // Absolute bound on queued admission requests; the effective bound is adaptive
+  // (max_admission_waiters() targets MAX_ADMISSION_QUEUE_DELAY of estimated wait).
+  size_t max_admission_waiters = 50000;
+  size_t max_ext_msg_per_addr = 10 * 3;
+  double max_ext_msg_per_addr_time_window = 10.0;
+
+  int local_ls_message_priority = 0;
+
+  static td::Result<td::Ref<ExtMessagePoolOptions>> unpack(const ton_api::engine_validator_extMessagePoolConfig& f);
+};
+
 struct ValidatorManagerOptions : public td::CntObject {
  public:
   virtual BlockIdExt zero_block_id() const = 0;
@@ -143,7 +158,6 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual double sync_blocks_before() const = 0;
   virtual double block_ttl() const = 0;
   virtual double state_ttl() const = 0;
-  virtual size_t max_mempool_num() const = 0;
   virtual double archive_ttl() const = 0;
   virtual double key_proof_ttl() const = 0;
   virtual bool initial_sync_disabled() const = 0;
@@ -182,6 +196,7 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual std::string get_db_event_fifo_path() const = 0;
   virtual NewConsensusConfig::NoncriticalParams get_noncritical_params(
       ShardIdFull shard, td::uint32 cc_seqno, const NewConsensusConfig::NoncriticalParams& config) const = 0;
+  virtual td::Ref<ExtMessagePoolOptions> get_ext_message_pool_options() const = 0;
 
   virtual void set_zero_block_id(BlockIdExt block_id) = 0;
   virtual void set_init_block_id(BlockIdExt block_id) = 0;
@@ -190,7 +205,6 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_sync_blocks_before(double value) = 0;
   virtual void set_block_ttl(double value) = 0;
   virtual void set_state_ttl(double value) = 0;
-  virtual void set_max_mempool_num(size_t value) = 0;
   virtual void set_archive_ttl(double value) = 0;
   virtual void set_key_proof_ttl(double value) = 0;
   virtual void set_initial_sync_disabled(bool value) = 0;
@@ -221,12 +235,13 @@ struct ValidatorManagerOptions : public td::CntObject {
   virtual void set_parallel_validation(bool value) = 0;
   virtual void set_db_event_fifo_path(std::string value) = 0;
   virtual void set_noncritical_params_overrides(std::vector<NoncriticalParamsOverride> value) = 0;
+  virtual void set_ext_message_pool_options(td::Ref<ExtMessagePoolOptions> value) = 0;
 
   static td::Ref<ValidatorManagerOptions> create(BlockIdExt zero_block_id, BlockIdExt init_block_id,
                                                  bool allow_blockchain_init = false, double sync_blocks_before = 3600,
                                                  double block_ttl = 86400, double state_ttl = 86400,
                                                  double archive_ttl = 86400 * 7, double key_proof_ttl = 86400 * 3650,
-                                                 size_t max_mempool_num = 999999, bool initial_sync_disabled = false);
+                                                 bool initial_sync_disabled = false);
 };
 
 class ValidatorManagerInterface : public td::actor::Actor {

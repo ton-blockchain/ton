@@ -65,7 +65,7 @@ static constexpr int MAX_ATTEMPTS = 5;
  * @param promise The promise to return the result.
  */
 Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
-                   td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise)
+                   td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise)
     : params_(std::move(params))
     , shard_(params_.shard)
     , prev_blocks(params_.prev)
@@ -95,6 +95,7 @@ Collator::Collator(CollateParams params, td::actor::ActorId<ValidatorManager> ma
     internal_msg_timeout_ = td::Timestamp::in(t * 0.5);
     external_msg_timeout_ = td::Timestamp::in(t * 0.75);
   }
+  processed_external_messages_ = params_.processed_external_messages;
 }
 
 /**
@@ -4321,13 +4322,18 @@ td::actor::Task<bool> Collator::process_inbound_external_messages() {
     }
     auto [ext_msg_ref, priority] = std::move(item);
     ++stats_.ext_msgs_total;
-    if (register_external_message(ext_msg_ref, priority).is_error()) {
-      ++stats_.ext_msgs_filtered;
-      bad_ext_msgs_.emplace_back(ext_msg_ref->hash());
-      continue;
-    }
     if (out_msg_queue_size_ > SKIP_EXTERNALS_QUEUE_SIZE && priority < HIGH_PRIORITY_EXTERNAL) {
       ++stats_.ext_msgs_skipped_backpressure;
+      continue;
+    }
+    if (processed_external_messages_.find(ext_msg_ref->hash_norm())) {
+      ++stats_.ext_msgs_skipped_duplicate;
+      continue;
+    }
+    processed_external_messages_ = processed_external_messages_.insert(ext_msg_ref->hash_norm(), td::Unit{});
+    if (register_external_message(ext_msg_ref, priority).is_error()) {
+      ++stats_.ext_msgs_filtered;
+      bad_ext_msgs_.emplace_back(ext_msg_ref->hash_norm());
       continue;
     }
     auto ext_msg = ext_msg_ref->root_cell();
@@ -4339,11 +4345,11 @@ td::actor::Task<bool> Collator::process_inbound_external_messages() {
       ++stats_.ext_msgs_rejected;
     }
     if (r < 0) {
-      bad_ext_msgs_.emplace_back(ext_msg_ref->hash());
+      bad_ext_msgs_.emplace_back(ext_msg_ref->hash_norm());
       co_return false;
     }
     if (r == 0) {
-      delay_ext_msgs_.emplace_back(ext_msg_ref->hash());
+      bad_ext_msgs_.emplace_back(ext_msg_ref->hash_norm());
     }
     if (r > 0) {
       full = !block_limit_status_->fits(block::ParamLimits::cl_soft);
@@ -6476,42 +6482,6 @@ bool Collator::create_block_candidate() {
   block_candidate = std::make_unique<BlockCandidate>(params_.creator, new_block_id_ext,
                                                      block::compute_file_hash(cdata_slice.as_slice()),
                                                      blk_slice.clone(), cdata_slice.clone());
-  bool need_out_msg_queue_broadcasts = false;  // Not supported yet
-  if (need_out_msg_queue_broadcasts) {
-    // we can't generate two proofs at the same time for the same root (it is not currently supported by cells)
-    // so we have can't reuse new state and have to regenerate it with merkle update
-    auto new_state = vm::MerkleUpdate::apply(prev_state_root_pure_, state_update).ensure().move_as_ok();
-    CHECK(new_state->get_hash() == state_root->get_hash());
-    CHECK(shard_conf_);
-    auto neighbor_list = shard_conf_->get_neighbor_shard_hash_ids(shard_);
-    LOG(INFO) << "Build OutMsgQueueProofs for " << neighbor_list.size() << " neighbours";
-    for (BlockId blk_id : neighbor_list) {
-      auto prefix = blk_id.shard_full();
-      if (shard_intersects(prefix, shard_)) {
-        continue;
-      }
-      auto limits = mc_state_->get_imported_msg_queue_limits(blk_id.workchain);
-
-      // one could use monitor_min_split_depth here, to decrease number of broadcasts
-      // but current implementation OutMsgQueueImporter doesn't support it
-
-      auto r_proof = OutMsgQueueProof::build(
-          prefix,
-          {OutMsgQueueProof::OneBlock{.id = new_block_id_ext, .state_root = new_state, .block_root = new_block}},
-          limits);
-      if (r_proof.is_ok()) {
-        auto proof = r_proof.move_as_ok();
-        CHECK(proof->msg_counts_.size() == 1);
-        block_candidate->out_msg_queue_proof_broadcasts.push_back(td::Ref<OutMsgQueueProofBroadcast>(
-            true, OutMsgQueueProofBroadcast(prefix, new_block_id_ext, limits.max_bytes, limits.max_msgs,
-                                            std::move(proof->queue_proofs_), std::move(proof->block_state_proofs_),
-                                            proof->msg_counts_[0])));
-      } else {
-        LOG(ERROR) << "Failed to build OutMsgQueueProof to " << prefix << ": " << r_proof.error();
-      }
-    }
-  }
-
   // 3.1 check block and collated data size
   if (block_candidate->data.size() > consensus_config.max_block_size) {
     return fatal_error(PSTRING() << "block size (" << block_candidate->data.size()
@@ -6527,10 +6497,9 @@ bool Collator::create_block_candidate() {
   // 4. finish collation
   td::actor::send_closure_later(actor_id(this), &Collator::return_block_candidate);
   // 5. communicate about bad and delayed external messages
-  if (!bad_ext_msgs_.empty() || !delay_ext_msgs_.empty()) {
+  if (!bad_ext_msgs_.empty()) {
     LOG(INFO) << "sending complete_external_messages() to Manager";
-    td::actor::send_closure_later(manager, &ValidatorManager::complete_external_messages, std::move(delay_ext_msgs_),
-                                  std::move(bad_ext_msgs_));
+    td::actor::send_closure_later(manager, &ValidatorManager::complete_external_messages, std::move(bad_ext_msgs_));
   }
   if (!storage_stat_cache_update_.empty()) {
     td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
@@ -6551,7 +6520,11 @@ void Collator::return_block_candidate() {
   finalize_stats();
   stats_.status = td::Status::OK();
   td::actor::send_closure(manager, &ValidatorManager::log_collate_query_stats, std::move(stats_));
-  main_promise.set_value(block_candidate->clone());
+  main_promise.set_value(GeneratedCandidate{
+      .candidate = block_candidate->clone(),
+      .collated_at_monotonic = td::Timestamp::now().at(),
+      .processed_external_messages = processed_external_messages_,
+  });
   busy_ = false;
   stop();
 }
@@ -6584,10 +6557,6 @@ td::Status Collator::register_external_message(Ref<ExtMessage> ext_msg, int prio
   if (cs.prefetch_ulong(2) != 2) {  // ext_in_msg_info$10
     return td::Status::Error("external message must begin with ext_in_msg_info$10");
   }
-  Bits256 hash{ext_msg_cell->get_hash().bits()};
-  if (registered_ext_msgs_.contains(hash)) {
-    return td::Status::Error("external message has been registered before");
-  }
   if (!block::gen::t_Message_Any.validate_ref(256, ext_msg_cell)) {
     return td::Status::Error("external message is not a (Message Any) according to automated checks");
   }
@@ -6615,7 +6584,6 @@ td::Status Collator::register_external_message(Ref<ExtMessage> ext_msg, int prio
       block::gen::t_Message_Any.print_ref(sb, ext_msg_cell);
     };
   }
-  registered_ext_msgs_.insert(hash);
   return td::Status::OK();
 }
 
@@ -6660,9 +6628,6 @@ void Collator::finalize_stats() {
   }
   stats_.cc_seqno = params_.validator_set.not_null() ? params_.validator_set->get_catchain_seqno() : 0;
   stats_.collated_at = td::Clocks::system();
-  if (block_candidate) {
-    block_candidate->collated_at_monotonic = td::Timestamp::now().at();
-  }
   stats_.attempt = params_.attempt_idx;
   stats_.first_in_window = params_.first_in_window;
   stats_.is_validator = params_.collator_node_id.is_zero();

@@ -172,7 +172,14 @@ class RecentMax {
   std::array<Bucket, 2> buckets_;
 };
 
-enum class CollationExternalOutcome : size_t { filtered, skipped_backpressure, included, rejected, count };
+enum class CollationExternalOutcome : size_t {
+  filtered,
+  skipped_backpressure,
+  skipped_duplicate,
+  included,
+  rejected,
+  count
+};
 
 struct CollationWork {
   td::uint64 transactions{0};
@@ -589,6 +596,7 @@ class BlockProcessingMetrics {
   static constexpr auto collation_external_outcome_names_ = std::to_array<std::string_view>({
       "filtered",
       "skipped_backpressure",
+      "skipped_duplicate",
       "included",
       "rejected",
   });

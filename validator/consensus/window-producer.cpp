@@ -21,8 +21,9 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
   ChainStateRef state = ctx.state;
   ParentId parent = ctx.base;
   bool block_generation_active = false;
-  td::actor::SharedFuture<BlockCandidate> block_generation;
+  td::actor::SharedFuture<GeneratedCandidate> block_generation;
   td::uint32 block_generation_target_slot = 0;
+  td::PersistentTreap<td::Bits256, td::Unit> processed_external_messages;
 
   std::chrono::milliseconds hard_timeout = std::max(ctx.target_rate * 3, std::chrono::milliseconds(60'000));
   std::chrono::milliseconds start_collate_before =
@@ -48,6 +49,7 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
           .hard_timeout = slot_start + hard_timeout,
           .prev_block_data = state->block_data(),
           .prev_block_state_roots = state->state(),
+          .processed_external_messages = processed_external_messages,
       };
       if (bus.shard.is_masterchain()) {
         params.soft_timeout = slot_start + ctx.target_rate;
@@ -68,7 +70,7 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
     }
     co_await td::actor::coro_sleep(slot_start);
 
-    std::optional<BlockCandidate> generated_candidate;
+    std::optional<GeneratedCandidate> generated_candidate;
     std::optional<td::uint32> attempted_collation_target;
     if (block_generation_active) {
       attempted_collation_target = block_generation_target_slot;
@@ -113,9 +115,10 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
     std::variant<BlockIdExt, BlockCandidate> block;
     if (generated_candidate.has_value()) {
       CHECK(attempted_collation_target.has_value());
-      td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate, generated_candidate->clone());
-      state = state->apply(*generated_candidate);
-      id = CandidateHashData::create_full(*generated_candidate, parent).build_id_with(slot);
+      td::actor::send_closure(bus.manager, &ManagerFacade::cache_block_candidate,
+                              generated_candidate->candidate.clone());
+      state = state->apply(generated_candidate->candidate);
+      id = CandidateHashData::create_full(generated_candidate->candidate, parent).build_id_with(slot);
       double finished_at_monotonic = generated_candidate->collated_at_monotonic;
       if (!std::isfinite(finished_at_monotonic) || finished_at_monotonic <= 0.0) {
         // Synthetic/test ManagerFacade implementations may still return candidates without the
@@ -123,7 +126,8 @@ td::actor::Task<> produce_window(BusHandle bus_handle, ProduceWindowContext ctx)
         // epoch; production collators set it before fulfilling the promise.
         finished_at_monotonic = td::Timestamp::now().at();
       }
-      block = std::move(*generated_candidate);
+      block = std::move(generated_candidate->candidate);
+      processed_external_messages = generated_candidate->processed_external_messages;
       bus_handle.publish<TraceEvent>(
           stats::CollateFinished::create(*attempted_collation_target, slot_start, id, finished_at_monotonic));
     } else {

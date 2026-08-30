@@ -87,6 +87,7 @@ struct CollationStats {
     td::uint32 filtered;
     td::uint32 accepted;
     td::uint32 skipped_backpressure;
+    td::uint32 skipped_duplicate;
   };
 
   ShardIdFull shard{workchainInvalid, 0};
@@ -121,9 +122,11 @@ struct CollationStats {
   td::uint32 ext_msgs_accepted = 0;
   td::uint32 ext_msgs_rejected = 0;
   td::uint32 ext_msgs_skipped_backpressure = 0;
+  td::uint32 ext_msgs_skipped_duplicate = 0;
 
   ExternalMessages external_messages() const {
-    return {ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted, ext_msgs_skipped_backpressure};
+    return {ext_msgs_total, ext_msgs_filtered, ext_msgs_accepted, ext_msgs_skipped_backpressure,
+            ext_msgs_skipped_duplicate};
   }
 
   td::uint64 old_out_msg_queue_size = 0;
@@ -367,8 +370,8 @@ class ValidatorManager : public ValidatorManagerInterface {
   virtual void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) = 0;
   virtual void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                              td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) = 0;
-  virtual void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
-                                          std::vector<ExtMessage::Hash> to_delete) = 0;
+  virtual void complete_external_messages(std::vector<ExtMessage::Hash> to_delete) {
+  }
   virtual void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) = 0;
 
   //virtual void set_first_block(ZeroStateIdExt state, BlockIdExt block, td::Promise<td::Unit> promise) = 0;

@@ -491,7 +491,8 @@ td::actor::Task<> ValidatorManagerImpl::new_external_message_broadcast(td::Buffe
 
 td::actor::Task<> ValidatorManagerImpl::new_external_message_query(td::BufferSlice data) {
   auto [message, wait_allow_broadcast] =
-      co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data), 0,
+      co_await td::actor::ask(ext_message_pool_, &ExtMessagePool::check_add_external_message, std::move(data),
+                              opts_->get_ext_message_pool_options()->local_ls_message_priority,
                               /* add_to_mempool = */ is_validator() || is_collator());
   new_external_message_query_cont(std::move(message), std::move(wait_allow_broadcast)).start().detach();
   co_return td::Unit{};
@@ -1327,10 +1328,8 @@ void ValidatorManagerImpl::get_shard_blocks_for_collator(
   promise.set_value(std::move(v));
 }
 
-void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
-                                                      std::vector<ExtMessage::Hash> to_delete) {
-  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::complete_external_messages, std::move(to_delay),
-                          std::move(to_delete));
+void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Hash> to_delete) {
+  td::actor::send_closure(ext_message_pool_, &ExtMessagePool::complete_external_messages, std::move(to_delete));
 }
 
 void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) {
@@ -3435,8 +3434,10 @@ void ValidatorManagerImpl::add_collation_external_metrics(metrics::BlockChain ch
   };
   add(metrics::CollationExternalOutcome::filtered, stats.filtered);
   add(metrics::CollationExternalOutcome::skipped_backpressure, stats.skipped_backpressure);
+  add(metrics::CollationExternalOutcome::skipped_duplicate, stats.skipped_duplicate);
   add(metrics::CollationExternalOutcome::included, stats.accepted);
-  auto accounted = static_cast<td::uint64>(stats.filtered) + stats.skipped_backpressure + stats.accepted;
+  auto accounted =
+      static_cast<td::uint64>(stats.filtered) + stats.skipped_backpressure + stats.skipped_duplicate + stats.accepted;
   add(metrics::CollationExternalOutcome::rejected, stats.total > accounted ? stats.total - accounted : 0);
 }
 
