@@ -1,12 +1,14 @@
 """Tests for the hand-written augmentations spliced into block.generated."""
 
+import pytest
 from bitarray import bitarray
 from block.generated import (
-    AccountDispatchQueue,
     AccountType,
     CommonMsgInfo,
     DepthBalanceAug,
+    DispatchQueue,
     DispatchQueueAug,
+    DispatchQueueAugDataType,
     EnqueuedMsg,
     KeyExtBlkRef,
     KeyMaxLt,
@@ -15,6 +17,7 @@ from block.generated import (
     OutMsgQueueAug,
     account,
     account_descr,
+    account_dispatch_queue,
     account_dispatch_queue_old,
     account_none,
     account_storage,
@@ -24,6 +27,8 @@ from block.generated import (
     anycast_info,
     currencies,
     depth_balance,
+    dispatch_queue_aug,
+    dispatch_queue_aug_old,
     ext_blk_ref,
     ext_in_msg_info,
     ext_out_msg_info,
@@ -40,7 +45,7 @@ from block.generated import (
 )
 from pytoniq_core import Builder, Slice
 from tlb.hashmap import HashmapDict
-from tlb.object import AnyType, Ref
+from tlb.object import AnyType, Ref, TlbModelError
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -173,6 +178,16 @@ def _enqueued(enqueued_lt: int, envelope: msg_envelope | msg_envelope_v2) -> Enq
     )
 
 
+def _dispatch_messages(*lts: int) -> Ref[HashmapDict[EnqueuedMsg, None]]:
+    messages: HashmapDict[EnqueuedMsg, None] = HashmapDict(64, EnqueuedMsg, allow_empty=False)
+    for lt in lts:
+        messages[lt] = _enqueued(lt, _msg_envelope_v2(emitted_lt=None))
+    return Ref(
+        HashmapDict[EnqueuedMsg, None].type_info(64, EnqueuedMsg, allow_empty=False),
+        messages,
+    )
+
+
 # ── DepthBalanceAug ─────────────────────────────────────────────────────
 
 
@@ -264,19 +279,124 @@ class TestOutMsgQueueAug:
 
 class TestDispatchQueueAug:
     def test_eval_empty(self):
-        assert DispatchQueueAug().eval_empty() == 0
+        result = DispatchQueueAug().eval_empty()
+        assert isinstance(result, dispatch_queue_aug_old)
+        assert result.min_created_lt == 0
 
-    def test_merge_picks_min(self):
-        assert DispatchQueueAug().merge(50, 100) == 50
+    def test_legacy_augmentation_keeps_uint64_wire_format(self):
+        cs = dispatch_queue_aug_old(min_created_lt=42).serialize().begin_parse()
 
-    def test_eval_leaf_picks_smallest_key(self):
-        # The inner dict's keys ARE the per-message lts; aug returns the min.
-        d: HashmapDict[EnqueuedMsg, None] = HashmapDict(64, EnqueuedMsg, allow_empty=True)
-        d[1000] = _enqueued(1000, _msg_envelope_v2(emitted_lt=None))
-        d[42] = _enqueued(42, _msg_envelope_v2(emitted_lt=None))
-        d[500] = _enqueued(500, _msg_envelope_v2(emitted_lt=None))
-        adq = account_dispatch_queue_old(messages=d, count=3)
-        assert DispatchQueueAug().eval_leaf(adq) == 42
+        assert cs.load_uint(64) == 42
+        assert cs.remaining_bits == 0
+        assert cs.remaining_refs == 0
+
+    def test_merge_known_balances(self):
+        left = dispatch_queue_aug(min_created_lt=50, total_balance=_balance(100, {1: 20}))
+        right = dispatch_queue_aug(min_created_lt=100, total_balance=_balance(250, {1: 5, 2: 7}))
+
+        result = DispatchQueueAug().merge(left, right)
+
+        assert isinstance(result, dispatch_queue_aug)
+        assert result.min_created_lt == 50
+        assert result.total_balance.grams.amount == 350
+        assert result.total_balance.other.dict.to_dict() == {1: 25, 2: 7}
+
+    def test_merge_with_unknown_balance(self):
+        known = dispatch_queue_aug(min_created_lt=100, total_balance=_balance(250))
+        unknown = dispatch_queue_aug_old(min_created_lt=50)
+
+        results = (
+            DispatchQueueAug().merge(known, unknown),
+            DispatchQueueAug().merge(unknown, known),
+        )
+
+        for result in results:
+            assert isinstance(result, dispatch_queue_aug_old)
+            assert result.min_created_lt == 50
+
+    def test_eval_legacy_leaf(self):
+        queue = account_dispatch_queue_old(
+            messages=_dispatch_messages(1000, 42, 500),
+            count=3,
+        )
+
+        result = DispatchQueueAug().eval_leaf(queue)
+
+        assert isinstance(result, dispatch_queue_aug_old)
+        assert result.min_created_lt == 42
+
+    def test_eval_new_leaf(self):
+        high_lt = (1 << 63) + 7
+        queue = account_dispatch_queue(
+            messages=_dispatch_messages(high_lt),
+            count=1,
+            total_balance=_balance(123, {7: 10}),
+        )
+
+        result = DispatchQueueAug().eval_leaf(queue)
+
+        assert isinstance(result, dispatch_queue_aug)
+        assert result.min_created_lt == high_lt
+        assert result.total_balance == queue.total_balance
+
+    def test_eval_leaf_rejects_empty_messages(self):
+        queue = account_dispatch_queue_old(messages=_dispatch_messages(), count=0)
+
+        with pytest.raises(TlbModelError, match="messages must not be empty"):
+            _ = DispatchQueueAug().eval_leaf(queue)
+
+    def test_known_dispatch_queue_serializes_total_augmentation(self):
+        queue = DispatchQueue(
+            field={
+                1: account_dispatch_queue(
+                    messages=_dispatch_messages(50),
+                    count=1,
+                    total_balance=_balance(100, {1: 20}),
+                ),
+                2: account_dispatch_queue(
+                    messages=_dispatch_messages(100),
+                    count=1,
+                    total_balance=_balance(250, {1: 5, 2: 7}),
+                ),
+            }
+        )
+
+        builder = Builder()
+        queue.serialize_to(builder)
+        cs = builder.end_cell().begin_parse()
+        assert cs.load_bit() == 1
+        _ = cs.load_ref()
+        outer_extra = DispatchQueueAugDataType().load_from(cs)
+
+        assert isinstance(outer_extra, dispatch_queue_aug)
+        assert outer_extra.min_created_lt == 50
+        assert outer_extra.total_balance.grams.amount == 350
+        assert outer_extra.total_balance.other.dict.to_dict() == {1: 25, 2: 7}
+
+    def test_mixed_dispatch_queue_has_unknown_total_augmentation(self):
+        queue = DispatchQueue(
+            field={
+                1: account_dispatch_queue_old(
+                    messages=_dispatch_messages(50),
+                    count=1,
+                ),
+                2: account_dispatch_queue(
+                    messages=_dispatch_messages(100),
+                    count=1,
+                    total_balance=_balance(250),
+                ),
+            }
+        )
+
+        builder = Builder()
+        queue.serialize_to(builder)
+        cs = builder.end_cell().begin_parse()
+        assert cs.load_bit() == 1
+        _ = cs.load_ref()
+        outer_extra = DispatchQueueAugDataType().load_from(cs)
+
+        assert isinstance(outer_extra, dispatch_queue_aug_old)
+        assert outer_extra.min_created_lt == 50
 
 
 # ── KeyMaxLtAug ─────────────────────────────────────────────────────────
