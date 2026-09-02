@@ -250,9 +250,13 @@ ihr_pending$_ import_lt:uint64 = IhrPendingSince;
 _ (HashmapE 320 IhrPendingSince) = IhrPendingInfo;
 
 // key - created_lt
-_ messages:(HashmapE 64 EnqueuedMsg) count:uint48 = AccountDispatchQueue;
-// key - sender address, aug - min created_lt
-_ (HashmapAugE 256 AccountDispatchQueue uint64) = DispatchQueue;
+account_dispatch_queue_old$1 messages:^(Hashmap 64 EnqueuedMsg) count:uint48 = AccountDispatchQueue;
+account_dispatch_queue$000 messages:^(Hashmap 64 EnqueuedMsg) count:uint48 total_balance:CurrencyCollection = AccountDispatchQueue;
+
+dispatch_queue_aug_old$0 min_created_lt:uint63 = DispatchQueueAugData;
+dispatch_queue_aug$10 min_created_lt:uint64 total_balance:CurrencyCollection = DispatchQueueAugData;
+// key - sender address
+_ (HashmapAugE 256 AccountDispatchQueue DispatchQueueAugData) = DispatchQueue;
 
 out_msg_queue_extra#0 dispatch_queue:DispatchQueue out_queue_size:(Maybe uint48) = OutMsgQueueExtra;
 

@@ -31,6 +31,7 @@
 #include "vm/dict.h"
 #include "vm/stack.hpp"
 
+#include "block-auto.h"
 #include "signature-set.h"
 
 namespace block {
@@ -785,12 +786,23 @@ bool parse_hex_hash(td::Slice str, td::Bits256& hash);
 bool parse_block_id_ext(const char* str, const char* end, ton::BlockIdExt& blkid);
 bool parse_block_id_ext(td::Slice str, ton::BlockIdExt& blkid);
 
-bool unpack_account_dispatch_queue(Ref<vm::CellSlice> csr, vm::Dictionary& dict, td::uint64& dict_size);
-Ref<vm::CellSlice> pack_account_dispatch_queue(const vm::Dictionary& dict, td::uint64 dict_size);
+struct AccountDispatchQueue {
+  vm::Dictionary dict{64};
+  td::uint64 dict_size = 0;
+  CurrencyCollection total_balance = {};  // !is_valid() if not known
+
+  bool unpack(Ref<vm::CellSlice> csr);
+  bool pack(Ref<vm::CellSlice>& csr) const;
+};
+
+CurrencyCollection get_message_balance_for_dispatch_queue(const gen::CommonMsgInfo::Record_int_msg_info& info,
+                                                          int global_version);
+CurrencyCollection get_message_balance_for_dispatch_queue(Ref<vm::Cell> msg, int global_version);
+CurrencyCollection get_message_balance_for_dispatch_queue(Ref<vm::CellSlice> enqueued_msg, int global_version);
 Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictionary& dispatch_queue,
                                                      ton::StdSmcAddress& addr);
 bool remove_dispatch_queue_entry(vm::AugmentedDictionary& dispatch_queue, const ton::StdSmcAddress& addr,
-                                 ton::LogicalTime lt);
+                                 ton::LogicalTime lt, bool store_total_balance, int global_version);
 
 struct MsgMetadata {
   td::uint32 depth;

@@ -1031,6 +1031,7 @@ bool ValidateQuery::try_unpack_mc_state() {
     }
     global_version_ = config_->get_global_version();
     allow_same_timestamp_ = global_version_ >= 13;
+    store_dispatch_queue_balance_ = global_version_ >= 16;
     prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
     if (prev_key_block_exists_) {
       prev_key_block_seqno_ = prev_key_block_.seqno();
@@ -3618,31 +3619,46 @@ bool ValidateQuery::precheck_message_queue_update() {
  */
 bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm::CellSlice> old_queue_csr,
                                                         Ref<vm::CellSlice> new_queue_csr) {
-  vm::Dictionary old_dict{64};
-  td::uint64 old_dict_size = 0;
-  if (!block::unpack_account_dispatch_queue(old_queue_csr, old_dict, old_dict_size)) {
+  block::AccountDispatchQueue old_queue, new_queue;
+  if (!old_queue.unpack(old_queue_csr)) {
     return reject_query(PSTRING() << "invalid AccountDispatchQueue for " << addr.to_hex() << " in the old state");
   }
-  vm::Dictionary new_dict{64};
-  td::uint64 new_dict_size = 0;
-  if (!block::unpack_account_dispatch_queue(new_queue_csr, new_dict, new_dict_size)) {
+  if (!new_queue.unpack(new_queue_csr)) {
     return reject_query(PSTRING() << "invalid AccountDispatchQueue for " << addr.to_hex() << " in the new state");
   }
-  td::uint64 expected_dict_size = old_dict_size;
+  if (store_dispatch_queue_balance_) {
+    if (!new_queue.total_balance.is_valid() && old_queue.total_balance.is_valid()) {
+      // old_queue.total_balance.is_valid() happens when total_balance was stored or old_queue_csr is null
+      return reject_query(PSTRING() << "AccountDispatchQueue for " << addr.to_hex()
+                                    << " in the new state does not have stored total_balance");
+    }
+  } else {
+    // Allow keeping already existing total_balance if global version is downgraded
+    if (new_queue.total_balance.is_valid() && new_queue_csr.not_null() &&
+        (!old_queue.total_balance.is_valid() || old_queue_csr.is_null())) {
+      return reject_query(PSTRING() << "AccountDispatchQueue for " << addr.to_hex()
+                                    << " in the new state has stored total_balance, but storing balance is disabled");
+    }
+  }
+  td::uint64 expected_dict_size = old_queue.dict_size, total_removed = 0;
+  block::CurrencyCollection balance_added = block::CurrencyCollection::zero();
+  block::CurrencyCollection balance_removed = block::CurrencyCollection::zero();
   LogicalTime max_removed_lt = 0;
   LogicalTime min_added_lt = (LogicalTime)-1;
-  bool res = old_dict.scan_diff(new_dict, [&](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_val,
-                                              Ref<vm::CellSlice> new_val) {
+  bool res = old_queue.dict.scan_diff(new_queue.dict, [&](td::ConstBitPtr key, int key_len, Ref<vm::CellSlice> old_val,
+                                                          Ref<vm::CellSlice> new_val) {
     REJECT_UNLESS(key_len == 64);
     REJECT_UNLESS(old_val.not_null() || new_val.not_null());
-    if (old_val.not_null() && new_val.not_null()) {
-      return false;
-    }
     td::uint64 lt = key.get_uint(64);
+    if (old_val.not_null() && new_val.not_null()) {
+      return reject_query(PSTRING() << "EnqueuedMsg in AccountDispatchQueue for " << addr.to_hex() << " with lt " << lt
+                                    << " was changed");
+    }
     block::gen::EnqueuedMsg::Record rec;
     if (old_val.not_null()) {
       LOG(DEBUG) << "removed message from DispatchQueue: account=" << addr.to_hex() << ", lt=" << lt;
       --expected_dict_size;
+      ++total_removed;
       if (!block::tlb::csr_unpack(old_val, rec)) {
         return reject_query(PSTRING() << "invalid EnqueuedMsg in AccountDispatchQueue for " << addr.to_hex());
       }
@@ -3669,8 +3685,8 @@ bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm
                                     << ", lt=" << lt << ": unexpected emitted_lt");
     }
     vm::CellSlice msg_cs = vm::load_cell_slice(env.msg);
-    block::tlb::CommonMsgInfo::Record_int_msg_info info;
-    if (!block::tlb::t_CommonMsgInfo.unpack(msg_cs, info)) {
+    block::gen::CommonMsgInfo::Record_int_msg_info info;
+    if (!block::gen::t_CommonMsgInfo.unpack(msg_cs, info)) {
       return reject_query(PSTRING() << "invalid EnqueuedMsg in AccountDispatchQueue for " << addr.to_hex()
                                     << ": cannot unpack CommonMsgInfo");
     }
@@ -3703,27 +3719,62 @@ bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm
                                       << ", but it is not listed in OutMsgDescr");
       }
     }
+    if (new_queue.total_balance.is_valid()) {
+      block::CurrencyCollection msg_balance = block::get_message_balance_for_dispatch_queue(info, global_version_);
+      if (!msg_balance.is_valid()) {
+        return reject_query(PSTRING() << "invalid EnqueuedMsg in AccountDispatchQueue for " << addr.to_hex()
+                                      << ": cannot get balance");
+      }
+      if (old_val.not_null()) {
+        balance_removed += msg_balance;
+      } else {
+        balance_added += msg_balance;
+      }
+    }
     return true;
   });
   if (!res) {
     return reject_query(PSTRING() << "invalid AccountDispatchQueue diff for account " << addr.to_hex());
   }
-  if (expected_dict_size != new_dict_size) {
+  if (expected_dict_size != new_queue.dict_size) {
     return reject_query(PSTRING() << "invalid count in AccountDispatchQuery for " << addr.to_hex()
-                                  << ": expected=" << expected_dict_size << ", found=" << new_dict_size);
+                                  << ": expected=" << expected_dict_size << ", found=" << new_queue.dict_size);
   }
-  if (!new_dict.is_empty()) {
+  if (new_queue.total_balance.is_valid()) {
+    block::CurrencyCollection expected_balance;
+    if (new_queue.dict.is_empty()) {
+      expected_balance.set_zero();
+    } else if (total_removed == old_queue.dict_size) {
+      expected_balance = balance_added;
+    } else {
+      if (!old_queue.total_balance.is_valid()) {
+        return reject_query(PSTRING() << "total balance for AccountDispatchQueue for " << addr.to_hex()
+                                      << " cannot be calculated: no total balance in prev state");
+      }
+      expected_balance = old_queue.total_balance + balance_added - balance_removed;
+      if (!expected_balance.is_valid()) {
+        return reject_query(PSTRING() << "total balance for AccountDispatchQueue for " << addr.to_hex()
+                                      << " cannot be calculated");
+      }
+    }
+    if (expected_balance != new_queue.total_balance) {
+      return reject_query(PSTRING() << "invalid total balance in AccountDispatchQueue for " << addr.to_hex()
+                                    << ": expected=" << expected_balance.to_str()
+                                    << ", found=" << new_queue.total_balance.to_str());
+    }
+  }
+  if (!new_queue.dict.is_empty()) {
     td::BitArray<64> new_min_lt;
-    REJECT_UNLESS(new_dict.get_minmax_key(new_min_lt).not_null());
+    REJECT_UNLESS(new_queue.dict.get_minmax_key(new_min_lt).not_null());
     if (new_min_lt.to_ulong() <= max_removed_lt) {
       return reject_query(PSTRING() << "invalid AccountDispatchQuery update for " << addr.to_hex()
                                     << ": max removed lt is " << max_removed_lt << ", but lt=" << new_min_lt.to_ulong()
                                     << " is still in queue");
     }
   }
-  if (!old_dict.is_empty()) {
+  if (!old_queue.dict.is_empty()) {
     td::BitArray<64> old_max_lt;
-    REJECT_UNLESS(old_dict.get_minmax_key(old_max_lt, true).not_null());
+    REJECT_UNLESS(old_queue.dict.get_minmax_key(old_max_lt, true).not_null());
     if (old_max_lt.to_ulong() >= min_added_lt) {
       return reject_query(PSTRING() << "invalid AccountDispatchQuery update for " << addr.to_hex()
                                     << ": min added lt is " << min_added_lt << ", but lt=" << old_max_lt.to_ulong()
@@ -3735,7 +3786,7 @@ bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm
     }
   }
   accounts_with_dispatch_queue_diff_.insert(addr);
-  if (old_dict_size > 0 && max_removed_lt != 0) {
+  if (old_queue.dict_size > 0 && max_removed_lt != 0) {
     ++processed_account_dispatch_queues_;
   }
   return true;

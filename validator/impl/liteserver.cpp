@@ -3533,18 +3533,17 @@ void LiteQuery::finish_getDispatchQueueInfo(StdSmcAddress after_addr, int max_ac
     }
     --remaining;
     StdSmcAddress addr = after_addr;
-    vm::Dictionary dict{64};
-    td::uint64 dict_size;
-    if (!block::unpack_account_dispatch_queue(value, dict, dict_size)) {
+    block::AccountDispatchQueue account_queue;
+    if (!account_queue.unpack(value)) {
       fatal_error(PSTRING() << "invalid account dispatch queue for account " << addr.to_hex());
       return;
     }
-    CHECK(dict_size > 0);
+    CHECK(account_queue.dict_size > 0);
     td::BitArray<64> min_lt, max_lt;
-    dict.get_minmax_key(min_lt.bits(), 64, false, false);
-    dict.get_minmax_key(max_lt.bits(), 64, true, false);
-    result.push_back(create_tl_object<lite_api::liteServer_accountDispatchQueueInfo>(addr, dict_size, min_lt.to_ulong(),
-                                                                                     max_lt.to_ulong()));
+    account_queue.dict.get_minmax_key(min_lt.bits(), 64, false, false);
+    account_queue.dict.get_minmax_key(max_lt.bits(), 64, true, false);
+    result.push_back(create_tl_object<lite_api::liteServer_accountDispatchQueueInfo>(
+        addr, account_queue.dict_size, min_lt.to_ulong(), max_lt.to_ulong()));
   }
 
   td::BufferSlice proof;
@@ -3631,17 +3630,16 @@ void LiteQuery::finish_getDispatchQueueMessages(StdSmcAddress addr, LogicalTime 
       complete = true;
       break;
     }
-    vm::Dictionary account_queue{64};
-    td::uint64 dict_size;
-    if (!block::unpack_account_dispatch_queue(value, account_queue, dict_size)) {
+    block::AccountDispatchQueue account_queue;
+    if (!account_queue.unpack(value)) {
       fatal_error(PSTRING() << "invalid account dispatch queue for account " << addr.to_hex());
       return;
     }
-    CHECK(dict_size > 0);
+    CHECK(account_queue.dict_size > 0);
     while (true) {
       td::BitArray<64> lt_key;
       lt_key.store_ulong(lt);
-      auto value2 = account_queue.lookup_nearest_key(lt_key, true, false);
+      auto value2 = account_queue.dict.lookup_nearest_key(lt_key, true, false);
       if (value2.is_null()) {
         break;
       }

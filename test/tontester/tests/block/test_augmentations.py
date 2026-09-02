@@ -15,6 +15,7 @@ from block.generated import (
     OutMsgQueueAug,
     account,
     account_descr,
+    account_dispatch_queue_old,
     account_none,
     account_storage,
     account_uninit,
@@ -268,22 +269,13 @@ class TestDispatchQueueAug:
     def test_merge_picks_min(self):
         assert DispatchQueueAug().merge(50, 100) == 50
 
-    def test_eval_leaf_empty_messages_returns_uint64_max(self):
-        # Empty inner dict → (1<<64)-1 so a min-merge with non-empty
-        # siblings still surfaces the real minimum lt.
-        adq = AccountDispatchQueue(
-            messages=HashmapDict(64, EnqueuedMsg, allow_empty=True),
-            count=0,
-        )
-        assert DispatchQueueAug().eval_leaf(adq) == (1 << 64) - 1
-
     def test_eval_leaf_picks_smallest_key(self):
         # The inner dict's keys ARE the per-message lts; aug returns the min.
         d: HashmapDict[EnqueuedMsg, None] = HashmapDict(64, EnqueuedMsg, allow_empty=True)
         d[1000] = _enqueued(1000, _msg_envelope_v2(emitted_lt=None))
         d[42] = _enqueued(42, _msg_envelope_v2(emitted_lt=None))
         d[500] = _enqueued(500, _msg_envelope_v2(emitted_lt=None))
-        adq = AccountDispatchQueue(messages=d, count=3)
+        adq = account_dispatch_queue_old(messages=d, count=3)
         assert DispatchQueueAug().eval_leaf(adq) == 42
 
 

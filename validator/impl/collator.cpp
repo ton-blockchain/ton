@@ -867,6 +867,7 @@ bool Collator::unpack_last_mc_state() {
   msg_metadata_enabled_ = config_->has_capability(ton::capMsgMetadata);
   deferring_messages_enabled_ = config_->has_capability(ton::capDeferMessages);
   allow_same_timestamp_ = global_version_ >= 13;
+  store_dispatch_queue_balance_ = global_version_ >= 16;
   full_collated_data_ = config_->has_capability(capFullCollatedData) || params_.collator_opts->force_full_collated_data;
   LOG(DEBUG) << "full_collated_data is " << full_collated_data_;
   shard_conf_ = std::make_unique<block::ShardConfig>(*config_);
@@ -4462,7 +4463,7 @@ bool Collator::process_dispatch_queue() {
         return register_dispatch_queue_op(true);
       }
       StdSmcAddress src_addr;
-      td::Ref<vm::CellSlice> account_dispatch_queue;
+      td::Ref<vm::CellSlice> account_queue_csr;
       while (!prioritylist.empty()) {
         if (prioritylist_iter == prioritylist.end()) {
           prioritylist_iter = prioritylist.begin();
@@ -4473,31 +4474,30 @@ bool Collator::process_dispatch_queue() {
           continue;
         }
         src_addr = priority_addr.second;
-        account_dispatch_queue = cur_dispatch_queue.lookup(src_addr);
-        if (account_dispatch_queue.is_null()) {
+        account_queue_csr = cur_dispatch_queue.lookup(src_addr);
+        if (account_queue_csr.is_null()) {
           prioritylist_iter = prioritylist.erase(prioritylist_iter);
         } else {
           ++prioritylist_iter;
           break;
         }
       }
-      if (account_dispatch_queue.is_null()) {
-        account_dispatch_queue = block::get_dispatch_queue_min_lt_account(cur_dispatch_queue, src_addr);
-        if (account_dispatch_queue.is_null()) {
+      if (account_queue_csr.is_null()) {
+        account_queue_csr = block::get_dispatch_queue_min_lt_account(cur_dispatch_queue, src_addr);
+        if (account_queue_csr.is_null()) {
           return fatal_error("invalid dispatch queue in shard state");
         }
       }
-      vm::Dictionary dict{64};
-      td::uint64 dict_size;
-      if (!block::unpack_account_dispatch_queue(account_dispatch_queue, dict, dict_size)) {
+      block::AccountDispatchQueue account_queue;
+      if (!account_queue.unpack(account_queue_csr)) {
         return fatal_error(PSTRING() << "invalid account dispatch queue for account " << src_addr.to_hex());
       }
       td::BitArray<64> key;
-      Ref<vm::CellSlice> enqueued_msg = dict.extract_minmax_key(key.bits(), 64, false, false);
+      Ref<vm::CellSlice> enqueued_msg = account_queue.dict.extract_minmax_key(key.bits(), 64, false, false);
       LogicalTime lt = key.to_ulong();
 
       td::optional<block::MsgMetadata> msg_metadata;
-      if (!process_deferred_message(std::move(enqueued_msg), src_addr, lt, msg_metadata)) {
+      if (!process_deferred_message(enqueued_msg, src_addr, lt, msg_metadata)) {
         return fatal_error(PSTRING() << "error processing internal message from dispatch queue: account="
                                      << src_addr.to_hex() << ", lt=" << lt);
       }
@@ -4506,14 +4506,23 @@ bool Collator::process_dispatch_queue() {
       bool ok;
       if (iter == 0 ||
           (iter == 1 && sender_generated_messages_count_[src_addr] >= params_.collator_opts->defer_messages_after &&
-           !params_.collator_opts->whitelist.count({workchain(), src_addr}))) {
+           !params_.collator_opts->whitelist.contains({workchain(), src_addr}))) {
         ok = cur_dispatch_queue.lookup_delete(src_addr).not_null();
       } else {
-        dict.lookup_delete(key);
-        --dict_size;
-        account_dispatch_queue = block::pack_account_dispatch_queue(dict, dict_size);
-        ok = account_dispatch_queue.not_null() ? cur_dispatch_queue.set(src_addr, account_dispatch_queue)
-                                               : cur_dispatch_queue.lookup_delete(src_addr).not_null();
+        account_queue.dict.lookup_delete(key);
+        --account_queue.dict_size;
+        if (store_dispatch_queue_balance_ && account_queue.total_balance.is_valid()) {
+          account_queue.total_balance -= block::get_message_balance_for_dispatch_queue(enqueued_msg, global_version_);
+          if (!account_queue.total_balance.is_valid()) {
+            return fatal_error(PSTRING() << "error calculating dispatch queue balance (1): account="
+                                         << src_addr.to_hex() << ", lt=" << lt);
+          }
+        } else {
+          account_queue.total_balance.invalidate();
+        }
+        account_queue.pack(account_queue_csr);
+        ok = account_queue_csr.not_null() ? cur_dispatch_queue.set(src_addr, account_queue_csr)
+                                          : cur_dispatch_queue.lookup_delete(src_addr).not_null();
       }
       if (!ok) {
         return fatal_error(PSTRING() << "error processing internal message from dispatch queue: account="
@@ -4557,7 +4566,8 @@ bool Collator::process_dispatch_queue() {
  */
 bool Collator::process_deferred_message(Ref<vm::CellSlice> enq_msg, StdSmcAddress src_addr, LogicalTime lt,
                                         td::optional<block::MsgMetadata>& msg_metadata) {
-  if (!block::remove_dispatch_queue_entry(*dispatch_queue_, src_addr, lt)) {
+  if (!block::remove_dispatch_queue_entry(*dispatch_queue_, src_addr, lt, store_dispatch_queue_balance_,
+                                          global_version_)) {
     return fatal_error(PSTRING() << "failed to delete message from DispatchQueue: address=" << src_addr.to_hex()
                                  << ", lt=" << lt);
   }
@@ -4830,19 +4840,31 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
   // 6. insert EnqueuedMsg into OutMsgQueue (or DispatchQueue)
   if (defer) {
     LOG(INFO) << "deferring new message from account " << workchain() << ":" << src_addr.to_hex() << ", lt=" << msg.lt;
-    vm::Dictionary dispatch_dict{64};
-    td::uint64 dispatch_dict_size;
-    if (!block::unpack_account_dispatch_queue(dispatch_queue_->lookup(src_addr), dispatch_dict, dispatch_dict_size)) {
+    block::AccountDispatchQueue account_queue;
+    if (!account_queue.unpack(dispatch_queue_->lookup(src_addr))) {
       return fatal_error(PSTRING() << "cannot unpack AccountDispatchQueue for account " << src_addr.to_hex());
     }
     td::BitArray<64> key;
     key.store_ulong(msg.lt);
-    if (!dispatch_dict.set_builder(key, cb, vm::Dictionary::SetMode::Add)) {
+    if (!account_queue.dict.set_builder(key, cb, vm::Dictionary::SetMode::Add)) {
       return fatal_error(PSTRING() << "cannot add message to AccountDispatchQueue for account " << src_addr.to_hex()
                                    << ", lt=" << msg.lt);
     }
-    ++dispatch_dict_size;
-    dispatch_queue_->set(src_addr, block::pack_account_dispatch_queue(dispatch_dict, dispatch_dict_size));
+    ++account_queue.dict_size;
+    if (store_dispatch_queue_balance_ && account_queue.total_balance.is_valid()) {
+      account_queue.total_balance += block::get_message_balance_for_dispatch_queue(msg.msg, global_version_);
+      if (!account_queue.total_balance.is_valid()) {
+        return fatal_error(PSTRING() << "error calculating dispatch queue balance (2): account=" << src_addr.to_hex()
+                                     << ", lt=" << msg.lt);
+      }
+    } else {
+      account_queue.total_balance.invalidate();
+    }
+    Ref<vm::CellSlice> account_dict_csr;
+    if (!account_queue.pack(account_dict_csr)) {
+      return fatal_error(PSTRING() << "cannot pack AccountDispatchQueue for account " << src_addr.to_hex());
+    }
+    dispatch_queue_->set(src_addr, account_dict_csr);
     return register_dispatch_queue_op();
   }
 
@@ -6294,19 +6316,17 @@ bool Collator::prepare_proofs() {
       [this](td::ConstBitPtr, int, Ref<vm::CellSlice> old_value, Ref<vm::CellSlice> new_value) {
         if (old_value.not_null()) {
           old_value = old_dispatch_queue_->extract_value(std::move(old_value));
-          vm::Dictionary dispatch_dict{64};
-          td::uint64 dispatch_dict_size;
-          CHECK(block::unpack_account_dispatch_queue(old_value, dispatch_dict, dispatch_dict_size));
+          block::AccountDispatchQueue account_queue;
+          CHECK(account_queue.unpack(old_value));
           td::BitArray<64> max_lt;
-          CHECK(dispatch_dict.get_minmax_key(max_lt, true).not_null());
+          CHECK(account_queue.dict.get_minmax_key(max_lt, true).not_null());
         }
         if (new_value.not_null()) {
           new_value = dispatch_queue_->extract_value(std::move(new_value));
-          vm::Dictionary dispatch_dict{64};
-          td::uint64 dispatch_dict_size;
-          CHECK(block::unpack_account_dispatch_queue(new_value, dispatch_dict, dispatch_dict_size));
+          block::AccountDispatchQueue account_queue;
+          CHECK(account_queue.unpack(new_value));
           td::BitArray<64> min_lt;
-          CHECK(dispatch_dict.get_minmax_key(min_lt, false).not_null());
+          CHECK(account_queue.dict.get_minmax_key(min_lt, false).not_null());
         }
         return true;
       },

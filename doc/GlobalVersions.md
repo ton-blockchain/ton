@@ -336,3 +336,6 @@ __Enabled in mainnet on 2026-07-23__
 
 ### Transaction changes
 - Fixed not being able to unfreeze accounts with non-zero fixed prefix length.
+
+### Other changes
+- Added total message value to dispatch queue augmentation data.

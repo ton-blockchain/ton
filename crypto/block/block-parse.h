@@ -937,8 +937,36 @@ struct Aug_OutMsgQueue final : AugmentationCheckData {
 
 extern const Aug_OutMsgQueue aug_OutMsgQueue;
 
+struct DispatchQueueAugData final : TLB_Complex {
+  enum { tag_old = 0, tag_new = 1 };
+
+  struct Record {
+    typedef DispatchQueueAugData type_class;
+    unsigned long long min_created_lt = 0;
+    block::CurrencyCollection total_balance = {};  // !is_valid() when not present
+  };
+
+  int get_tag(const vm::CellSlice& cs) const override {
+    if (cs.prefetch_ulong(1) == 0) {
+      return tag_old;
+    }
+    if (cs.prefetch_ulong(2) == 0b10) {
+      return tag_new;
+    }
+    return -1;
+  }
+
+  bool skip(vm::CellSlice& cs) const override;
+  bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override;
+
+  bool unpack(vm::CellSlice& cs, Record& res) const;
+  bool pack(vm::CellBuilder& cb, const Record& res) const;
+};
+
+extern const DispatchQueueAugData t_DispatchQueueAug;
+
 struct Aug_DispatchQueue final : AugmentationCheckData {
-  Aug_DispatchQueue() : AugmentationCheckData(gen::t_AccountDispatchQueue, t_uint64) {
+  Aug_DispatchQueue() : AugmentationCheckData(gen::t_AccountDispatchQueue, t_DispatchQueueAug) {
   }
   bool eval_fork(vm::CellBuilder& cb, vm::CellSlice& left_cs, vm::CellSlice& right_cs) const override;
   bool eval_empty(vm::CellBuilder& cb) const override;
