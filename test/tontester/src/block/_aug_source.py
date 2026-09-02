@@ -13,28 +13,31 @@ These match the C++ augmentation logic in crypto/block/block-parse.cpp.
 from typing import final, override
 
 from tlb.hashmap import Augmentation, HashmapDict
-from tlb.object import TypeInfo, UintTypeConstructor, VarUIntTypeConstructor
+from tlb.object import TlbModelError, TypeInfo, UintTypeConstructor, VarUIntTypeConstructor
 
 from .generated import (
     AccountDispatchQueue,
     CurrencyCollection,
     DepthBalanceInfo,
+    DispatchQueueAugData,
+    DispatchQueueAugDataType,
     EnqueuedMsg,
     KeyExtBlkRef,
     KeyMaxLt,
     ShardAccount,
     account,
     account_descr,
+    account_dispatch_queue,
     currencies,
     depth_balance,
+    dispatch_queue_aug,
+    dispatch_queue_aug_old,
     ext_out_msg_info,
     extra_currencies,
     int_msg_info,
     msg_envelope_v2,
     nanograms,
 )
-
-_UINT64_MAX = (1 << 64) - 1
 
 
 def _zero_cc() -> CurrencyCollection:
@@ -139,33 +142,46 @@ class OutMsgQueueAug(Augmentation[EnqueuedMsg, int]):
 
 
 @final
-class DispatchQueueAug(Augmentation[AccountDispatchQueue, int]):
-    """DispatchQueue: HashmapAugE 256 AccountDispatchQueue uint64.
+class DispatchQueueAug(Augmentation[AccountDispatchQueue, DispatchQueueAugData]):
+    """DispatchQueue: HashmapAugE 256 AccountDispatchQueue DispatchQueueAugData.
 
-    eval_leaf mirrors `Aug_DispatchQueue::eval_leaf` in block-parse.cpp:
-    return the smallest lt key in the inner messages dict, or
-    (1<<64)-1 when the dict is empty so a min-merge with non-empty
-    siblings still picks the real minimum.
-    merge: min across subtrees.
+    eval_leaf returns the smallest lt key and, for the new account queue
+    constructor, its stored total balance. merge keeps a total balance only
+    when both children have one; otherwise it emits the legacy augmentation.
     """
 
     @property
     @override
-    def extra_ti(self) -> TypeInfo[int]:
-        return UintTypeConstructor(64)
+    def extra_ti(self) -> TypeInfo[DispatchQueueAugData]:
+        return DispatchQueueAugDataType()
 
     @override
-    def eval_leaf(self, value: AccountDispatchQueue) -> int:
-        first = next(iter(value.messages.keys()), None)
-        return first if first is not None else _UINT64_MAX
+    def eval_leaf(self, value: AccountDispatchQueue) -> DispatchQueueAugData:
+        first = next(iter(value.messages.ref.keys()), None)
+        if first is None:
+            raise TlbModelError("AccountDispatchQueue messages must not be empty")
+        if isinstance(value, account_dispatch_queue):
+            return dispatch_queue_aug(
+                min_created_lt=first,
+                total_balance=value.total_balance,
+            )
+        return dispatch_queue_aug_old(min_created_lt=first)
 
     @override
-    def merge(self, left: int, right: int) -> int:
-        return min(left, right)
+    def merge(
+        self, left: DispatchQueueAugData, right: DispatchQueueAugData
+    ) -> DispatchQueueAugData:
+        min_created_lt = min(left.min_created_lt, right.min_created_lt)
+        if isinstance(left, dispatch_queue_aug) and isinstance(right, dispatch_queue_aug):
+            return dispatch_queue_aug(
+                min_created_lt=min_created_lt,
+                total_balance=_add_cc(left.total_balance, right.total_balance),
+            )
+        return dispatch_queue_aug_old(min_created_lt=min_created_lt)
 
     @override
-    def eval_empty(self) -> int:
-        return 0
+    def eval_empty(self) -> DispatchQueueAugData:
+        return dispatch_queue_aug_old(min_created_lt=0)
 
 
 @final
