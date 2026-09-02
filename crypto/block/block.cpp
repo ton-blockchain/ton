@@ -2443,33 +2443,78 @@ bool parse_block_id_ext(td::Slice str, ton::BlockIdExt& blkid) {
   return parse_block_id_ext(str.begin(), str.end(), blkid);
 }
 
-bool unpack_account_dispatch_queue(Ref<vm::CellSlice> csr, vm::Dictionary& dict, td::uint64& dict_size) {
-  if (csr.not_null()) {
-    block::gen::AccountDispatchQueue::Record rec;
-    if (!block::tlb::csr_unpack(std::move(csr), rec)) {
+bool AccountDispatchQueue::unpack(Ref<vm::CellSlice> csr) {
+  if (csr.is_null()) {
+    dict = vm::Dictionary{64};
+    dict_size = 0;
+    total_balance.set_zero();
+    return true;
+  }
+  if (gen::AccountDispatchQueue::Record_account_dispatch_queue_old rec; gen::csr_unpack(csr, rec)) {
+    if (rec.count == 0) {
       return false;
     }
     dict = vm::Dictionary{rec.messages, 64};
     dict_size = rec.count;
-    if (dict_size == 0 || dict.is_empty()) {
+    total_balance.invalidate();
+    return true;
+  }
+  if (gen::AccountDispatchQueue::Record_account_dispatch_queue rec; gen::csr_unpack(csr, rec)) {
+    if (rec.count == 0) {
       return false;
     }
-  } else {
-    dict = vm::Dictionary{64};
-    dict_size = 0;
+    dict = vm::Dictionary{rec.messages, 64};
+    dict_size = rec.count;
+    return total_balance.unpack(rec.total_balance);
   }
-  return true;
+  return false;
 }
 
-Ref<vm::CellSlice> pack_account_dispatch_queue(const vm::Dictionary& dict, td::uint64 dict_size) {
+bool AccountDispatchQueue::pack(Ref<vm::CellSlice>& csr) const {
   if (dict_size == 0) {
+    csr = {};
+    return true;
+  }
+  if (total_balance.is_valid()) {
+    gen::AccountDispatchQueue::Record_account_dispatch_queue rec{
+        .messages = dict.get_root_cell(), .count = (long long)dict_size, .total_balance = {}};
+    return total_balance.pack_to(rec.total_balance) && gen::csr_pack(csr, rec);
+  }
+  gen::AccountDispatchQueue::Record_account_dispatch_queue_old rec{.messages = dict.get_root_cell(),
+                                                                   .count = (long long)dict_size};
+  return gen::csr_pack(csr, rec);
+}
+
+CurrencyCollection get_message_balance_for_dispatch_queue(const gen::CommonMsgInfo::Record_int_msg_info& info,
+                                                          int global_version) {
+  CurrencyCollection msg_balance;
+  if (!msg_balance.unpack(info.value)) {
     return {};
   }
-  // _ messages:(HashmapE 64 EnqueuedMsg) count:uint48 = AccountDispatchQueue;
-  vm::CellBuilder cb;
-  CHECK(dict.append_dict_to_bool(cb));
-  cb.store_long(dict_size, 48);
-  return cb.as_cellslice_ref();
+  msg_balance += tlb::t_Grams.as_integer(info.fwd_fee);
+  msg_balance += global_version >= 12 ? td::zero_refint() : tlb::t_Grams.as_integer(info.extra_flags);
+  return msg_balance;
+}
+
+CurrencyCollection get_message_balance_for_dispatch_queue(Ref<vm::Cell> msg, int global_version) {
+  vm::CellSlice msg_cs = vm::load_cell_slice(msg);
+  gen::CommonMsgInfo::Record_int_msg_info info;
+  if (!gen::t_CommonMsgInfo.unpack(msg_cs, info)) {
+    return {};
+  }
+  return get_message_balance_for_dispatch_queue(info, global_version);
+}
+
+CurrencyCollection get_message_balance_for_dispatch_queue(Ref<vm::CellSlice> enqueued_msg, int global_version) {
+  if (enqueued_msg.is_null()) {
+    return {};
+  }
+  gen::EnqueuedMsg::Record rec;
+  tlb::MsgEnvelope::Record_std env;
+  if (!(tlb::csr_unpack(enqueued_msg, rec) && tlb::unpack_cell(rec.out_msg, env))) {
+    return {};
+  }
+  return get_message_balance_for_dispatch_queue(env.msg, global_version);
 }
 
 Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictionary& dispatch_queue,
@@ -2480,10 +2525,11 @@ Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictiona
     return {};
   }
   auto root_extra = queue.get_root_extra();
-  if (root_extra.is_null()) {
+  tlb::DispatchQueueAugData::Record aug;
+  if (root_extra.is_null() || !tlb::csr_unpack(root_extra, aug)) {
     return {};
   }
-  ton::LogicalTime min_lt = root_extra->prefetch_long(64);
+  ton::LogicalTime min_lt = aug.min_created_lt;
   while (true) {
     td::Bits256 key;
     int pfx_len = queue.get_common_prefix(key.bits(), 256);
@@ -2500,10 +2546,10 @@ Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictiona
       return {};
     }
     root_extra = queue_cut.get_root_extra();
-    if (root_extra.is_null()) {
+    if (root_extra.is_null() || !tlb::csr_unpack(root_extra, aug)) {
       return {};
     }
-    ton::LogicalTime cut_min_lt = root_extra->prefetch_long(64);
+    ton::LogicalTime cut_min_lt = aug.min_created_lt;
     if (cut_min_lt != min_lt) {
       key[pfx_len] = true;
     }
@@ -2514,26 +2560,35 @@ Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictiona
 }
 
 bool remove_dispatch_queue_entry(vm::AugmentedDictionary& dispatch_queue, const ton::StdSmcAddress& addr,
-                                 ton::LogicalTime lt) {
-  auto account_dispatch_queue = dispatch_queue.lookup(addr);
-  if (account_dispatch_queue.is_null()) {
+                                 ton::LogicalTime lt, bool store_total_balance, int global_version) {
+  auto account_queue_csr = dispatch_queue.lookup(addr);
+  if (account_queue_csr.is_null()) {
     return false;
   }
-  vm::Dictionary dict{64};
-  td::uint64 dict_size;
-  if (!unpack_account_dispatch_queue(std::move(account_dispatch_queue), dict, dict_size)) {
+  AccountDispatchQueue account_queue;
+  if (!account_queue.unpack(std::move(account_queue_csr))) {
     return false;
   }
   td::BitArray<64> key;
   key.store_ulong(lt);
-  auto entry = dict.lookup_delete(key);
+  auto entry = account_queue.dict.lookup_delete(key);
   if (entry.is_null()) {
     return false;
   }
-  --dict_size;
-  account_dispatch_queue = pack_account_dispatch_queue(dict, dict_size);
-  if (account_dispatch_queue.not_null()) {
-    dispatch_queue.set(addr, account_dispatch_queue);
+  --account_queue.dict_size;
+  if (account_queue.total_balance.is_valid() && store_total_balance) {
+    account_queue.total_balance -= get_message_balance_for_dispatch_queue(entry, global_version);
+    if (!account_queue.total_balance.is_valid()) {
+      return false;
+    }
+  } else {
+    account_queue.total_balance.invalidate();
+  }
+  if (!account_queue.pack(account_queue_csr)) {
+    return false;
+  }
+  if (account_queue_csr.not_null()) {
+    dispatch_queue.set(addr, account_queue_csr);
   } else {
     dispatch_queue.lookup_delete(addr);
   }

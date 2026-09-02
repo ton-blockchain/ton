@@ -2146,33 +2146,99 @@ bool Aug_OutMsgQueue::eval_leaf(vm::CellBuilder& cb, vm::CellSlice& cs) const {
          cb.store_ulong_rchk_bool(emitted_lt, 64);
 }
 
+bool DispatchQueueAugData::skip(vm::CellSlice& cs) const {
+  switch (get_tag(cs)) {
+    case tag_old:
+      // dispatch_queue_aug_old$0 min_created_lt:uint63 = DispatchQueueAugData;
+      return cs.advance(1 + 63);
+    case tag_new:
+      // dispatch_queue_aug$10 min_created_lt:uint64 tota_balance:CurrencyCollection = DispatchQueueAugData;
+      return cs.advance(2 + 64) && t_CurrencyCollection.skip(cs);
+  }
+  return false;
+}
+
+bool DispatchQueueAugData::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
+  switch (get_tag(cs)) {
+    case tag_old:
+      // dispatch_queue_aug_old$0 min_created_lt:uint63 = DispatchQueueAugData;
+      return cs.advance(1 + 63);
+    case tag_new:
+      // dispatch_queue_aug$10 min_created_lt:uint64 total_balance:CurrencyCollection = DispatchQueueAugData;
+      return cs.advance(2 + 64) && t_CurrencyCollection.validate_skip(ops, cs, weak);
+  }
+  return false;
+}
+
+bool DispatchQueueAugData::unpack(vm::CellSlice& cs, Record& res) const {
+  switch (get_tag(cs)) {
+    case tag_old:
+      // dispatch_queue_aug_old$0 min_created_lt:uint63 = DispatchQueueAugData;
+      res.total_balance.invalidate();
+      return cs.advance(1) && cs.fetch_ulong_bool(63, res.min_created_lt);
+    case tag_new:
+      // dispatch_queue_aug$10 min_created_lt:uint64 total_balance:CurrencyCollection = DispatchQueueAugData;
+      return cs.advance(2) && cs.fetch_ulong_bool(64, res.min_created_lt) &&
+             t_CurrencyCollection.unpack(cs, res.total_balance);
+  }
+  return false;
+}
+
+bool DispatchQueueAugData::pack(vm::CellBuilder& cb, const Record& res) const {
+  if (res.total_balance.is_valid()) {
+    // dispatch_queue_aug$10 min_created_lt:uint64 total_balance:CurrencyCollection = DispatchQueueAugData;
+    return cb.store_long_bool(0b10, 2) && cb.store_long_bool(res.min_created_lt, 64) &&
+           t_CurrencyCollection.pack(cb, res.total_balance);
+  }
+  // dispatch_queue_aug_old$0 min_created_lt:uint63 = DispatchQueueAugData;
+  return cb.store_long_bool(0, 1) && cb.store_ulong_rchk_bool(res.min_created_lt, 63);
+}
+
 bool Aug_DispatchQueue::eval_fork(vm::CellBuilder& cb, vm::CellSlice& left_cs, vm::CellSlice& right_cs) const {
-  unsigned long long x, y;
-  return left_cs.fetch_ulong_bool(64, x) && right_cs.fetch_ulong_bool(64, y) &&
-         cb.store_ulong_rchk_bool(std::min(x, y), 64);
+  DispatchQueueAugData::Record left, right, res;
+  if (!(t_DispatchQueueAug.unpack(left_cs, left) && t_DispatchQueueAug.unpack(right_cs, right))) {
+    return false;
+  }
+  res.min_created_lt = std::min(left.min_created_lt, right.min_created_lt);
+  if (left.total_balance.is_valid() && right.total_balance.is_valid()) {
+    res.total_balance = left.total_balance + right.total_balance;
+    if (!res.total_balance.is_valid()) {
+      return false;
+    }
+  }
+  return t_DispatchQueueAug.pack(cb, res);
 }
 
 bool Aug_DispatchQueue::eval_empty(vm::CellBuilder& cb) const {
-  return cb.store_long_bool(0, 64);
+  // Don't store zero total_balance here for compatibility
+  return t_DispatchQueueAug.pack(cb, DispatchQueueAugData::Record{});
 }
 
 bool Aug_DispatchQueue::eval_leaf(vm::CellBuilder& cb, vm::CellSlice& cs) const {
+  DispatchQueueAugData::Record result;
   Ref<vm::Cell> messages_root;
-  if (!cs.fetch_maybe_ref(messages_root)) {
+  vm::CellSlice cs2 = cs;
+  if (gen::AccountDispatchQueue::Record_account_dispatch_queue_old rec; unpack(cs, rec)) {
+    messages_root = rec.messages;
+  } else if (gen::AccountDispatchQueue::Record_account_dispatch_queue rec; unpack(cs2, rec)) {
+    messages_root = rec.messages;
+    if (!t_CurrencyCollection.unpack(rec.total_balance.write(), result.total_balance)) {
+      return false;
+    }
+  } else {
     return false;
   }
-  vm::Dictionary messages{std::move(messages_root), 64};
+  vm::Dictionary messages{messages_root, 64};
   td::BitArray<64> key_buffer;
-  td::uint64 key;
   if (messages.get_minmax_key(key_buffer.bits(), 64).is_null()) {
-    key = (td::uint64)-1;
-  } else {
-    key = key_buffer.to_ulong();
+    return false;
   }
-  return cb.store_long_bool(key, 64);
+  result.min_created_lt = key_buffer.to_ulong();
+  return t_DispatchQueueAug.pack(cb, result);
 }
 
 const Aug_OutMsgQueue aug_OutMsgQueue;
+const DispatchQueueAugData t_DispatchQueueAug;
 const Aug_DispatchQueue aug_DispatchQueue;
 const OutMsgQueue t_OutMsgQueue;
 
