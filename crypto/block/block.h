@@ -136,6 +136,7 @@ struct EnqueuedMsgDescr {
   ton::Bits256 hash_;
   Ref<vm::Cell> msg_;
   Ref<vm::Cell> msg_env_;
+  td::RefInt256 fwd_fee_remaining_;
   EnqueuedMsgDescr() = default;
   EnqueuedMsgDescr(ton::AccountIdPrefixFull cur_pfx, ton::AccountIdPrefixFull next_pfx, ton::LogicalTime lt,
                    ton::LogicalTime enqueued_lt, td::ConstBitPtr hash)
