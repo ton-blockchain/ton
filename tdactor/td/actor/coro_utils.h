@@ -410,4 +410,6 @@ Result<T>&& co_try_inner(Result<T>&& value) {
 }
 #define CO_TRY(x) (co_await ::td::actor::co_try_inner(x))
 
+#define CO_TRY_BOOL(x) (co_await ((x) ? ::td::Status::OK() : ::td::Status::Error("check failed: " #x)))
+
 }  // namespace td::actor

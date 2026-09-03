@@ -2441,6 +2441,8 @@ void ValidatorManagerImpl::completed_prestart_sync() {
   LOG(WARNING) << "initial read complete: " << last_masterchain_block_handle_->id() << " "
                << last_masterchain_block_id_;
   callback_->initial_read_complete(last_masterchain_block_handle_);
+
+  global_balance_calculator_ = GlobalBalanceCalculator::create(last_masterchain_block_id_, actor_id(this));
 }
 
 void ValidatorManagerImpl::new_masterchain_block() {

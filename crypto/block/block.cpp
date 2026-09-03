@@ -648,6 +648,7 @@ bool EnqueuedMsgDescr::unpack(vm::CellSlice& cs) {
   hash_ = env.msg->get_hash().bits();
   msg_ = std::move(env.msg);
   msg_env_ = std::move(enq.out_msg);
+  fwd_fee_remaining_ = env.fwd_fee_remaining;
   return true;
 }
 

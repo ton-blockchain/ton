@@ -45,6 +45,7 @@
 #include "ton/ton-io.hpp"
 
 #include "collator-scoreboard.hpp"
+#include "global-balance-calculator.hpp"
 #include "manager-init.h"
 #include "queue-size-counter.hpp"
 #include "shard-block-retainer.hpp"
@@ -843,6 +844,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::actor::Task<> collect(metrics::Context ctx) override;
   void update_block_receive_stats(BlockIdExt block_id, BlockSource type);
+
+  td::actor::ActorOwn<GlobalBalanceCalculator> global_balance_calculator_;
 };
 
 }  // namespace validator
