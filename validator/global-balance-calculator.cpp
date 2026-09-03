@@ -29,6 +29,30 @@ namespace ton::validator {
 
 namespace {
 
+td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue,
+                                                           int global_version) {
+  td::RefInt256 result = td::zero_refint();
+  bool ok =
+      dispatch_queue.check_for_each_extra([&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr, int) {
+        block::AccountDispatchQueue account_queue;
+        if (!account_queue.unpack(value)) {
+          return false;
+        }
+        return account_queue.dict.check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr, int) {
+          auto balance = block::get_message_balance_for_dispatch_queue(value, global_version);
+          if (!balance.is_valid()) {
+            return false;
+          }
+          result += balance.grams;
+          return true;
+        });
+      });
+  if (!ok || !result->is_valid()) {
+    return td::Status::Error("failed to calculate dispatch queue balance");
+  }
+  return result;
+}
+
 struct ParsedShardState {
   ShardIdFull shard;
   std::unique_ptr<vm::AugmentedDictionary> msg_queue;
@@ -38,7 +62,8 @@ struct ParsedShardState {
   td::RefInt256 mc_total_validator_fees = td::zero_refint();
 
   static td::actor::Task<std::shared_ptr<ParsedShardState>> fetch(
-      Ref<ShardState> state, Ref<vm::Cell> block_root, std::vector<std::shared_ptr<ParsedShardState>> prev = {}) {
+      Ref<ShardState> state, Ref<vm::Cell> block_root, int global_version,
+      std::vector<std::shared_ptr<ParsedShardState>> prev = {}) {
     co_await td::actor::detach_from_actor();
     try {
       td::Timer timer;
@@ -70,8 +95,7 @@ struct ParsedShardState {
         if (aug_data.total_balance.is_valid()) {
           result->dispatch_queue_balance = aug_data.total_balance.grams;
         } else if (!dispatch_queue.is_empty()) {
-          // TODO: calculate dispatch queue balance (for historical blocks only - new blocks will have stored balance)
-          co_return td::Status::Error("dispatch queue balance is not known");
+          result->dispatch_queue_balance = CO_TRY(calculate_dispatch_queue_balance(dispatch_queue, global_version));
         }
       }
 
@@ -278,7 +302,8 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   td::actor::Task<std::vector<std::shared_ptr<ParsedShardState>>> load_all_states(Ref<MasterchainStateQ> mc_state,
                                                                                   Ref<vm::Cell> mc_block_root) {
     std::vector<td::actor::StartedTask<std::shared_ptr<ParsedShardState>>> parse_tasks;
-    parse_tasks.push_back(ParsedShardState::fetch(mc_state, mc_block_root).start());
+    int global_version = mc_state->get_config()->get_global_version();
+    parse_tasks.push_back(ParsedShardState::fetch(mc_state, mc_block_root, global_version).start());
 
     std::vector<td::actor::StartedTask<std::pair<Ref<ShardState>, Ref<BlockData>>>> shard_state_block_tasks;
     for (auto desc : mc_state->get_shards()) {
@@ -286,7 +311,8 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
     }
     for (auto& [state, block] : co_await td::actor::all(std::move(shard_state_block_tasks))) {
       parse_tasks.push_back(
-          ParsedShardState::fetch(state, block.not_null() ? block->root_cell() : Ref<vm::Cell>{}).start());
+          ParsedShardState::fetch(state, block.not_null() ? block->root_cell() : Ref<vm::Cell>{}, global_version)
+              .start());
     }
     co_return co_await td::actor::all(std::move(parse_tasks));
   }

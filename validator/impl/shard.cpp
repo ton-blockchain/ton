@@ -346,11 +346,12 @@ td::Status MasterchainStateQ::mc_init() {
 }
 
 td::Status MasterchainStateQ::mc_reinit() {
-  auto res = block::ConfigInfo::extract_config(
-      root_cell(), blkid,
-      block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet | block::ConfigInfo::needShardHashes |
-          block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needWorkchainInfo |
-          block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc);
+  auto res =
+      block::ConfigInfo::extract_config(root_cell(), blkid,
+                                        block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet |
+                                            block::ConfigInfo::needShardHashes | block::ConfigInfo::needPrevBlocks |
+                                            block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needAccountsRoot |
+                                            block::ConfigInfo::needSpecialSmc | block::ConfigInfo::needCapabilities);
   cur_validators_.reset();
   next_validators_.reset();
   if (res.is_error()) {
