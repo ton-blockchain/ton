@@ -2524,9 +2524,8 @@ Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictiona
   if (queue.is_empty()) {
     return {};
   }
-  auto root_extra = queue.get_root_extra();
   tlb::DispatchQueueAugData::Record aug;
-  if (root_extra.is_null() || !tlb::csr_unpack(root_extra, aug)) {
+  if (!tlb::csr_unpack_safe(queue.get_root_extra(), aug)) {
     return {};
   }
   ton::LogicalTime min_lt = aug.min_created_lt;
@@ -2545,8 +2544,7 @@ Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictiona
     if (!queue_cut.cut_prefix_subdict(key.bits(), pfx_len + 1)) {
       return {};
     }
-    root_extra = queue_cut.get_root_extra();
-    if (root_extra.is_null() || !tlb::csr_unpack(root_extra, aug)) {
+    if (!tlb::csr_unpack_safe(queue_cut.get_root_extra(), aug)) {
       return {};
     }
     ton::LogicalTime cut_min_lt = aug.min_created_lt;
