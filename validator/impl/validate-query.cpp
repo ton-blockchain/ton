@@ -3725,6 +3725,12 @@ bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm
         return reject_query(PSTRING() << "invalid EnqueuedMsg in AccountDispatchQueue for " << addr.to_hex()
                                       << ": cannot get balance");
       }
+      if (new_val.not_null() &&
+          !msg_balance.check_extra_currency_limit(action_phase_cfg_.size_limits.max_msg_extra_currencies)) {
+        // Avoid too expensive CurrencyCollection operations
+        return reject_query(PSTRING() << "invalid EnqueuedMsg in AccountDispatchQueue for " << addr.to_hex()
+                                      << ": too many extra currencies");
+      }
       if (old_val.not_null()) {
         balance_removed += msg_balance;
       } else {
