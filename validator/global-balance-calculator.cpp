@@ -5,6 +5,7 @@
  */
 
 #include "ton/ton-io.hpp"
+#include "vm/cells/PrunnedCell.h"
 
 #include "block-auto.h"
 #include "block-parse.h"
@@ -32,29 +33,59 @@ namespace {
 td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue,
                                                            int global_version) {
   td::RefInt256 result = td::zero_refint();
-  bool ok =
+  TRY_STATUS(
       dispatch_queue.check_for_each_extra([&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr, int) {
         block::AccountDispatchQueue account_queue;
-        if (!account_queue.unpack(value)) {
-          return false;
-        }
+        TRY_BOOL(account_queue.unpack(value));
         return account_queue.dict.check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr, int) {
           auto balance = block::get_message_balance_for_dispatch_queue(value, global_version);
-          if (!balance.is_valid()) {
-            return false;
-          }
+          TRY_BOOL(balance.is_valid());
           result += balance.grams;
-          return true;
+          return td::Status::OK();
+          ;
         });
-      });
-  if (!ok || !result->is_valid()) {
+      }));
+  if (!result->is_valid()) {
     return td::Status::Error("failed to calculate dispatch queue balance");
   }
   return result;
 }
 
+// prune_message_queue converts msg queue from shard state to an identical in-memory msg queue
+// with unneeded branches pruned (message contents). This speeds up its processing while keeping memory usage low.
+td::Result<vm::CellSlice> prune_message_queue_entry(vm::CellSlice cs) {
+  // _ enqueued_lt:uint64 out_msg:^MsgEnvelope = EnqueuedMsg;
+  TRY_BOOL(cs.size_refs() == 1);
+  vm::CellSlice env_cs = vm::load_cell_slice(cs.fetch_ref());
+  // msg_envelope#4 ... msg:^(Message Any) = MsgEnvelope;
+  // msg_envelope_v2#5 ... msg:^(Message Any) ... = MsgEnvelope;
+  TRY_BOOL(env_cs.size_refs() >= 1);
+  vm::CellSlice msg_cs = vm::load_cell_slice(env_cs.fetch_ref());
+  vm::CellBuilder msg_cb;
+  while (msg_cs.size_refs() > 0) {
+    TRY_RESULT(prunned, vm::PrunnedCell<td::Unit>::create(msg_cs.fetch_ref(), td::Unit{}));
+    msg_cb.store_ref(prunned);
+  }
+  msg_cb.append_cellslice(msg_cs);
+  vm::CellBuilder env_cb;
+  env_cb.store_ref(msg_cb.finalize()).append_cellslice(env_cs);
+  return vm::CellBuilder{}.store_ref(env_cb.finalize()).append_cellslice(cs).as_cellslice();
+}
+
+td::Result<std::unique_ptr<vm::AugmentedDictionary>> prune_message_queue(vm::AugmentedDictionary& msg_queue) {
+  auto new_msg_queue = std::make_unique<vm::AugmentedDictionary>(352, block::tlb::aug_OutMsgQueue);
+  TRY_STATUS(msg_queue.check_for_each_extra(
+      [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
+        CHECK(key_len == 352);
+        TRY_RESULT(pruned, prune_message_queue_entry(*value));
+        TRY_BOOL(new_msg_queue->set(key, key_len, std::move(pruned)));
+        return td::Status::OK();
+      }));
+  return std::move(new_msg_queue);
+}
+
 struct ParsedShardState {
-  ShardIdFull shard;
+  BlockIdExt block_id;
   std::unique_ptr<vm::AugmentedDictionary> msg_queue;
   Ref<vm::CellSlice> proc_info;
   td::RefInt256 accounts_balance = td::zero_refint();
@@ -68,7 +99,7 @@ struct ParsedShardState {
     try {
       td::Timer timer;
       auto result = std::make_shared<ParsedShardState>();
-      result->shard = state->get_shard();
+      result->block_id = state->get_block_id();
       block::gen::ShardStateUnsplit::Record state_rec;
       CO_TRY_BOOL(tlb::unpack_cell(state->root_cell(), state_rec));
 
@@ -83,8 +114,14 @@ struct ParsedShardState {
       CO_TRY_BOOL(tlb::unpack_cell(state_rec.out_msg_queue_info, qinfo));
       result->proc_info = qinfo.proc_info;
 
-      result->msg_queue =
-          std::make_unique<vm::AugmentedDictionary>(std::move(qinfo.out_queue), 352, block::tlb::aug_OutMsgQueue);
+      vm::AugmentedDictionary state_msg_queue{std::move(qinfo.out_queue), 352, block::tlb::aug_OutMsgQueue};
+      if (prev.empty()) {
+        result->msg_queue = CO_TRY(prune_message_queue(state_msg_queue));
+      } else {
+        result->msg_queue = CO_TRY(update_message_queue(prev, block_root, state->get_shard()));
+      }
+      CO_TRY_BOOL(result->msg_queue->get_wrapped_dict_root()->get_hash() ==
+                  state_msg_queue.get_wrapped_dict_root()->get_hash());
 
       if (qinfo.extra.write().fetch_long(1) != 0) {
         block::gen::OutMsgQueueExtra::Record queue_extra;
@@ -114,6 +151,111 @@ struct ParsedShardState {
     } catch (vm::VmError& e) {
       co_return e.as_status();
     }
+  }
+
+ private:
+  static td::Result<std::unique_ptr<vm::AugmentedDictionary>> update_message_queue(
+      const std::vector<std::shared_ptr<ParsedShardState>>& prev, Ref<vm::Cell> block_root, ShardIdFull shard) {
+    TRY_BOOL(!prev.empty());
+    auto msg_queue =
+        std::make_unique<vm::AugmentedDictionary>(prev[0]->msg_queue->get_root(), 352, block::tlb::aug_OutMsgQueue);
+    if (prev.size() == 1) {
+      if (prev[0]->block_id.shard_full() != shard) {
+        TRY_BOOL(shard.pfx_len() > 0 && prev[0]->block_id.shard_full() == shard_parent(shard));
+        TRY_BOOL(block::filter_out_msg_queue(*msg_queue, prev[0]->block_id.shard_full(), shard) >= 0);
+      }
+    } else {
+      TRY_BOOL(prev.size() == 2);
+      TRY_BOOL(prev[0]->block_id.shard_full() == shard_child(shard, true));
+      TRY_BOOL(prev[1]->block_id.shard_full() == shard_child(shard, false));
+      TRY_BOOL(msg_queue->combine_with(*prev[1]->msg_queue));
+    }
+
+    block::gen::Block::Record block_rec;
+    block::gen::BlockInfo::Record block_info;
+    block::gen::BlockExtra::Record block_extra;
+    TRY_BOOL(tlb::unpack_cell(block_root, block_rec) && tlb::unpack_cell(block_rec.info, block_info) &&
+             tlb::unpack_cell(block_rec.extra, block_extra));
+    vm::AugmentedDictionary out_msg_dict{vm::load_cell_slice_ref(block_extra.out_msg_descr), 256,
+                                         block::tlb::aug_OutMsgDescrDefault};
+    // out_msg_dict reflects changes in out msg queue:
+    // - msg_export_new: add entry, enqueued_lt = message created_lt
+    // - msg_export_tr: add entry, enqueued_lt = block started_lt
+    // - msg_export_deferred_tr: add entry, enqueued_lt = message emitted_lt
+    // - msg_export_deq_short: delete entry
+    // - msg_export_deq_short: delete entry
+    // - msg_export_deq: delete entry
+    // - msg_export_tr_req: delete entry with old prefix, add entry with new prefix, enqueued_lt = block started_lt
+    TRY_STATUS(out_msg_dict.check_for_each_extra(
+        [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
+          CHECK(key_len == 256);
+          int tag = block::gen::t_OutMsg.get_tag(*value);
+          if (tag == block::gen::OutMsg::msg_export_deq_short) {
+            block::gen::OutMsg::Record_msg_export_deq_short out_msg;
+            TRY_BOOL(tlb::csr_unpack(value, out_msg));
+            td::BitArray<352> msg_queue_key;
+            msg_queue_key.bits().store_int(out_msg.next_workchain, 32);
+            (msg_queue_key.bits() + 32).store_int(out_msg.next_addr_pfx, 64);
+            (msg_queue_key.bits() + 96).copy_from(key, 256);
+            TRY_BOOL(msg_queue->lookup_delete(msg_queue_key).not_null());
+            return td::Status::OK();
+          }
+          if (tag != block::gen::OutMsg::msg_export_deq && tag != block::gen::OutMsg::msg_export_deq_imm &&
+              tag != block::gen::OutMsg::msg_export_tr && tag != block::gen::OutMsg::msg_export_tr_req &&
+              tag != block::gen::OutMsg::msg_export_new && tag != block::gen::OutMsg::msg_export_deferred_tr) {
+            return td::Status::OK();
+          }
+          Ref<vm::Cell> env_cell = value->prefetch_ref();
+          TRY_BOOL(env_cell.not_null());
+          auto env_csr = vm::load_cell_slice_ref(env_cell);
+          TRY_RESULT(msg_queue_key, get_out_queue_key_from_msg_env(env_csr, key));
+          if (tag == block::gen::OutMsg::msg_export_tr_req) {
+            block::gen::OutMsg::Record_msg_export_tr_req out_msg;
+            block::gen::InMsg::Record_msg_import_tr in_msg;
+            TRY_BOOL(tlb::csr_unpack(value, out_msg) && tlb::unpack_cell(out_msg.imported, in_msg));
+            TRY_RESULT(old_msg_queue_key, get_out_queue_key_from_msg_env(vm::load_cell_slice_ref(in_msg.in_msg), key));
+            TRY_BOOL(msg_queue->lookup_delete(old_msg_queue_key).not_null());
+          }
+          if (tag == block::gen::OutMsg::msg_export_deq || tag == block::gen::OutMsg::msg_export_deq_imm) {
+            TRY_BOOL(msg_queue->lookup_delete(msg_queue_key).not_null());
+          }
+          if (tag == block::gen::OutMsg::msg_export_new || tag == block::gen::OutMsg::msg_export_tr ||
+              tag == block::gen::OutMsg::msg_export_tr_req || tag == block::gen::OutMsg::msg_export_deferred_tr) {
+            unsigned long long enqueued_lt;
+            if (tag == block::gen::OutMsg::msg_export_tr || tag == block::gen::OutMsg::msg_export_tr_req) {
+              enqueued_lt = block_info.start_lt;
+            } else {
+              TRY_BOOL(block::tlb::t_MsgEnvelope.get_emitted_lt(*env_csr, enqueued_lt));
+            }
+            TRY_RESULT(cs, prune_message_queue_entry(
+                               vm::CellBuilder{}.store_long(enqueued_lt, 64).store_ref(env_cell).as_cellslice()));
+            TRY_BOOL(msg_queue->set(msg_queue_key, std::move(cs), vm::Dictionary::SetMode::Add));
+          }
+          return td::Status::OK();
+        }));
+
+    return std::move(msg_queue);
+  }
+
+  static td::Result<td::BitArray<352>> get_out_queue_key_from_msg_env(Ref<vm::CellSlice> env_csr,
+                                                                      td::Bits256 expected_msg_hash) {
+    block::tlb::MsgEnvelope::Record_std env;
+    block::gen::CommonMsgInfo::Record_int_msg_info info;
+    if (!tlb::csr_unpack(env_csr, env) || !tlb::unpack_cell_inexact(env.msg, info) ||
+        env.msg->get_hash().as_bits256() != expected_msg_hash) {
+      return td::Status::Error("failed to unpack MsgEnvelope");
+    }
+    AccountIdPrefixFull src_prefix, dest_prefix;
+    if (!block::tlb::t_MsgAddressInt.get_prefix_to(info.src, src_prefix) ||
+        !block::tlb::t_MsgAddressInt.get_prefix_to(info.dest, dest_prefix)) {
+      return td::Status::Error("failed to unpack msg addresses");
+    }
+    AccountIdPrefixFull next_prefix = block::interpolate_addr(src_prefix, dest_prefix, env.next_addr);
+    td::BitArray<352> key;
+    key.bits().store_int(next_prefix.workchain, 32);
+    (key.bits() + 32).store_int(next_prefix.account_id_prefix, 64);
+    (key.bits() + 96).copy_from(expected_msg_hash);
+    return key;
   }
 };
 
@@ -151,7 +293,8 @@ td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance(
     };
     std::vector<std::unique_ptr<block::MsgProcessedUptoCollection>> processed_upto;
     for (auto& state : all_states) {
-      processed_upto.push_back(block::MsgProcessedUptoCollection::unpack(state->shard, state->proc_info));
+      processed_upto.push_back(
+          block::MsgProcessedUptoCollection::unpack(state->block_id.shard_full(), state->proc_info));
       CO_TRY_BOOL(processed_upto.back());
       for (auto& proc : processed_upto.back()->list) {
         auto aux_state = co_await get_aux_mc_state(std::min(proc.mc_seqno, mc_state->get_seqno()));
@@ -160,29 +303,24 @@ td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance(
     }
     size_t total_messages = 0;
     for (auto& state : all_states) {
-      bool msg_queue_ok = state->msg_queue->check_for_each_extra(
+      CO_TRY(state->msg_queue->check_for_each_extra(
           [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
             CHECK(key_len == 352);
             ++total_messages;
             block::EnqueuedMsgDescr enq_msg_descr;
-            if (!enq_msg_descr.unpack(value.write()) || !enq_msg_descr.check_key(key)) {
-              return false;
-            }
+            TRY_BOOL(enq_msg_descr.unpack(value.write()) && enq_msg_descr.check_key(key));
             for (auto& proc : processed_upto) {
               if (proc->already_processed(enq_msg_descr)) {
-                return true;
+                return td::Status::OK();
               }
             }
             vm::CellSlice msg_cs = vm::load_cell_slice(enq_msg_descr.msg_);
             block::gen::CommonMsgInfo::Record_int_msg_info info;
             block::CurrencyCollection cc;
-            if (!tlb::unpack(msg_cs, info) || !cc.unpack(info.value)) {
-              return false;
-            }
+            TRY_BOOL(tlb::unpack(msg_cs, info) && cc.unpack(info.value));
             result->global_balance += cc.grams + enq_msg_descr.fwd_fee_remaining_;
-            return true;
-          });
-      CO_TRY_BOOL(msg_queue_ok);
+            return td::Status::OK();
+          }));
     }
 
     if (mc_state->get_seqno() != 0) {
