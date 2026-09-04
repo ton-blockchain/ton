@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include "td/actor/SharedFuture.h"
 #include "ton/ton-io.hpp"
 #include "vm/cells/PrunnedCell.h"
 
@@ -32,6 +33,7 @@ namespace {
 
 td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue,
                                                            int global_version) {
+  size_t cnt = 0;
   td::RefInt256 result = td::zero_refint();
   TRY_STATUS(
       dispatch_queue.check_for_each_extra([&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr, int) {
@@ -41,6 +43,7 @@ td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictiona
           auto balance = block::get_message_balance_for_dispatch_queue(value, global_version);
           TRY_BOOL(balance.is_valid());
           result += balance.grams;
+          ++cnt;
           return td::Status::OK();
           ;
         });
@@ -48,6 +51,7 @@ td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictiona
   if (!result->is_valid()) {
     return td::Status::Error("failed to calculate dispatch queue balance");
   }
+  VLOG(validator, DEBUG) << "calculate_dispatch_queue_balance: balance=" << result << " cnt=" << cnt;
   return result;
 }
 
@@ -73,14 +77,17 @@ td::Result<vm::CellSlice> prune_message_queue_entry(vm::CellSlice cs) {
 }
 
 td::Result<std::unique_ptr<vm::AugmentedDictionary>> prune_message_queue(vm::AugmentedDictionary& msg_queue) {
+  size_t cnt = 0;
   auto new_msg_queue = std::make_unique<vm::AugmentedDictionary>(352, block::tlb::aug_OutMsgQueue);
   TRY_STATUS(msg_queue.check_for_each_extra(
       [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
         CHECK(key_len == 352);
         TRY_RESULT(pruned, prune_message_queue_entry(*value));
         TRY_BOOL(new_msg_queue->set(key, key_len, std::move(pruned)));
+        ++cnt;
         return td::Status::OK();
       }));
+  VLOG(validator, DEBUG) << "prune_message_queue: cnt=" << cnt;
   return std::move(new_msg_queue);
 }
 
@@ -118,7 +125,7 @@ struct ParsedShardState {
       if (prev.empty()) {
         result->msg_queue = CO_TRY(prune_message_queue(state_msg_queue));
       } else {
-        result->msg_queue = CO_TRY(update_message_queue(prev, block_root, state->get_shard()));
+        result->msg_queue = CO_TRY(update_message_queue(prev, block_root, state->get_block_id()));
       }
       CO_TRY_BOOL(result->msg_queue->get_wrapped_dict_root()->get_hash() ==
                   state_msg_queue.get_wrapped_dict_root()->get_hash());
@@ -155,7 +162,8 @@ struct ParsedShardState {
 
  private:
   static td::Result<std::unique_ptr<vm::AugmentedDictionary>> update_message_queue(
-      const std::vector<std::shared_ptr<ParsedShardState>>& prev, Ref<vm::Cell> block_root, ShardIdFull shard) {
+      const std::vector<std::shared_ptr<ParsedShardState>>& prev, Ref<vm::Cell> block_root, BlockIdExt block_id) {
+    ShardIdFull shard = block_id.shard_full();
     TRY_BOOL(!prev.empty());
     auto msg_queue =
         std::make_unique<vm::AugmentedDictionary>(prev[0]->msg_queue->get_root(), 352, block::tlb::aug_OutMsgQueue);
@@ -186,6 +194,7 @@ struct ParsedShardState {
     // - msg_export_deq_short: delete entry
     // - msg_export_deq: delete entry
     // - msg_export_tr_req: delete entry with old prefix, add entry with new prefix, enqueued_lt = block started_lt
+    size_t cnt_added = 0, cnt_deleted = 0;
     TRY_STATUS(out_msg_dict.check_for_each_extra(
         [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
           CHECK(key_len == 256);
@@ -198,6 +207,7 @@ struct ParsedShardState {
             (msg_queue_key.bits() + 32).store_int(out_msg.next_addr_pfx, 64);
             (msg_queue_key.bits() + 96).copy_from(key, 256);
             TRY_BOOL(msg_queue->lookup_delete(msg_queue_key).not_null());
+            ++cnt_deleted;
             return td::Status::OK();
           }
           if (tag != block::gen::OutMsg::msg_export_deq && tag != block::gen::OutMsg::msg_export_deq_imm &&
@@ -215,9 +225,11 @@ struct ParsedShardState {
             TRY_BOOL(tlb::csr_unpack(value, out_msg) && tlb::unpack_cell(out_msg.imported, in_msg));
             TRY_RESULT(old_msg_queue_key, get_out_queue_key_from_msg_env(vm::load_cell_slice_ref(in_msg.in_msg), key));
             TRY_BOOL(msg_queue->lookup_delete(old_msg_queue_key).not_null());
+            ++cnt_deleted;
           }
           if (tag == block::gen::OutMsg::msg_export_deq || tag == block::gen::OutMsg::msg_export_deq_imm) {
             TRY_BOOL(msg_queue->lookup_delete(msg_queue_key).not_null());
+            ++cnt_deleted;
           }
           if (tag == block::gen::OutMsg::msg_export_new || tag == block::gen::OutMsg::msg_export_tr ||
               tag == block::gen::OutMsg::msg_export_tr_req || tag == block::gen::OutMsg::msg_export_deferred_tr) {
@@ -230,9 +242,12 @@ struct ParsedShardState {
             TRY_RESULT(cs, prune_message_queue_entry(
                                vm::CellBuilder{}.store_long(enqueued_lt, 64).store_ref(env_cell).as_cellslice()));
             TRY_BOOL(msg_queue->set(msg_queue_key, std::move(cs), vm::Dictionary::SetMode::Add));
+            ++cnt_added;
           }
           return td::Status::OK();
         }));
+    VLOG(validator, DEBUG) << "update_message_queue " << block_id.id << ": added=" << cnt_added
+                           << " deleted=" << cnt_deleted;
 
     return std::move(msg_queue);
   }
@@ -265,7 +280,7 @@ struct GlobalInfo {
   td::RefInt256 last_mc_block_burned = td::zero_refint();
 };
 
-td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance(
+td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance_from_states(
     std::vector<std::shared_ptr<ParsedShardState>> all_states, Ref<MasterchainStateQ> mc_state,
     Ref<vm::Cell> mc_block_root, td::actor::ActorId<ValidatorManager> manager) {
   co_await td::actor::detach_from_actor();
@@ -392,7 +407,7 @@ void compare_global_balance(const GlobalInfo& prev, const GlobalInfo& next) {
 class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
  public:
   explicit GlobalBalanceCalculatorImpl(BlockIdExt start_mc_block, td::actor::ActorId<ValidatorManager> manager)
-      : current_mc_block_(start_mc_block), manager_(std::move(manager)) {
+      : start_mc_block_(start_mc_block), manager_(std::move(manager)) {
   }
 
   void start_up() override {
@@ -408,51 +423,108 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   }
 
   td::actor::Task<> init() {
-    co_await wait_for_mc_seqno(current_mc_block_.seqno());
-    auto [mc_state, mc_block] = co_await load_mc_state_block(current_mc_block_);
+    co_await wait_for_mc_seqno(start_mc_block_.seqno());
+    auto [mc_state, mc_block] = co_await load_mc_state_block(start_mc_block_);
     auto mc_block_root = mc_block.not_null() ? mc_block->root_cell() : Ref<vm::Cell>{};
-    auto all_states = co_await load_all_states(mc_state, mc_block_root);
-    current_ = co_await compute_global_balance(all_states, mc_state, mc_block_root, manager_);
+    current_global_version_ = mc_state->get_config()->get_global_version();
+    current_ = co_await compute_global_balance(mc_state, mc_block_root);
     co_return {};
   }
 
   td::actor::Task<> advance_mc_seqno() {
-    co_await wait_for_mc_seqno(current_mc_block_.seqno() + 1);
-    auto next_mc_block_id =
-        (co_await td::actor::ask(manager_, &ValidatorManager::get_block_by_seqno_from_db,
-                                 AccountIdPrefixFull{masterchainId, shardIdAll}, current_mc_block_.seqno() + 1))
-            ->id();
+    BlockSeqno next_seqno = current_->mc_state->get_seqno() + 1;
+    co_await wait_for_mc_seqno(next_seqno);
+    auto next_mc_block_id = (co_await td::actor::ask(manager_, &ValidatorManager::get_block_by_seqno_from_db,
+                                                     AccountIdPrefixFull{masterchainId, shardIdAll}, next_seqno))
+                                ->id();
     auto [mc_state, mc_block /* not null! */] = co_await load_mc_state_block(next_mc_block_id);
-    auto all_states = co_await load_all_states(mc_state, mc_block->root_cell());
-    auto next = co_await compute_global_balance(all_states, mc_state, mc_block->root_cell(), manager_);
+    current_global_version_ = mc_state->get_config()->get_global_version();
+    auto next = co_await compute_global_balance(mc_state, mc_block->root_cell());
     compare_global_balance(*current_, *next);
-
-    current_mc_block_ = next_mc_block_id;
     current_ = std::move(next);
+    for (auto it = cached_shard_states_.begin(); it != cached_shard_states_.end();) {
+      if (is_block_too_old(it->first)) {
+        it = cached_shard_states_.erase(it);
+      } else {
+        ++it;
+      }
+    }
     co_return {};
   }
 
  private:
-  BlockIdExt current_mc_block_;
+  BlockIdExt start_mc_block_;
   td::actor::ActorId<ValidatorManager> manager_;
   std::shared_ptr<GlobalInfo> current_;
+
+  // Global version does not need to be precise. It is used only for correct handing of ihr_fee in old blocks
+  int current_global_version_ = 0;
+
+  std::map<BlockIdExt, td::actor::SharedFuture<std::shared_ptr<ParsedShardState>>> cached_shard_states_;
+
+  bool inited() const {
+    return current_ != nullptr;
+  }
+
+  td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance(Ref<MasterchainStateQ> mc_state,
+                                                                      Ref<vm::Cell> mc_block_root) {
+    auto all_states = co_await load_all_states(mc_state, mc_block_root);
+    co_return co_await compute_global_balance_from_states(all_states, mc_state, mc_block_root, manager_);
+  }
 
   td::actor::Task<std::vector<std::shared_ptr<ParsedShardState>>> load_all_states(Ref<MasterchainStateQ> mc_state,
                                                                                   Ref<vm::Cell> mc_block_root) {
     std::vector<td::actor::StartedTask<std::shared_ptr<ParsedShardState>>> parse_tasks;
-    int global_version = mc_state->get_config()->get_global_version();
-    parse_tasks.push_back(ParsedShardState::fetch(mc_state, mc_block_root, global_version).start());
-
-    std::vector<td::actor::StartedTask<std::pair<Ref<ShardState>, Ref<BlockData>>>> shard_state_block_tasks;
+    parse_tasks.push_back(load_parsed_state(mc_state->get_block_id(), mc_state, mc_block_root).start());
     for (auto desc : mc_state->get_shards()) {
-      shard_state_block_tasks.push_back(load_state_block(desc->top_block_id()).start());
-    }
-    for (auto& [state, block] : co_await td::actor::all(std::move(shard_state_block_tasks))) {
-      parse_tasks.push_back(
-          ParsedShardState::fetch(state, block.not_null() ? block->root_cell() : Ref<vm::Cell>{}, global_version)
-              .start());
+      parse_tasks.push_back(load_parsed_state(desc->top_block_id()).start());
     }
     co_return co_await td::actor::all(std::move(parse_tasks));
+  }
+
+  td::actor::Task<std::shared_ptr<ParsedShardState>> load_parsed_state(BlockIdExt block_id, Ref<ShardState> state = {},
+                                                                       Ref<vm::Cell> block_root = {}) {
+    if (is_block_too_old(block_id)) {
+      co_return td::Status::Error(ErrorCode::cancelled, "block is older that the current tip");
+    }
+    if (!cached_shard_states_.contains(block_id)) {
+      cached_shard_states_[block_id] =
+          load_parsed_state_inner(block_id, std::move(state), std::move(block_root)).start();
+    }
+    co_return co_await cached_shard_states_[block_id].get();
+  }
+
+  td::actor::Task<std::shared_ptr<ParsedShardState>> load_parsed_state_inner(BlockIdExt block_id, Ref<ShardState> state,
+                                                                             Ref<vm::Cell> block_root) {
+    Ref<BlockData> loaded_block_data;
+    if (state.is_null()) {
+      std::tie(state, loaded_block_data) = co_await load_state_block(block_id);
+      if (loaded_block_data.not_null()) {
+        block_root = loaded_block_data->root_cell();
+      }
+    }
+    std::vector<std::shared_ptr<ParsedShardState>> prev;
+    if (inited() && block_id.seqno() > 0) {
+      std::vector<td::actor::StartedTask<std::shared_ptr<ParsedShardState>>> tasks;
+      for (BlockIdExt prev_block_id : CO_TRY(block::get_block_header_info(block_root, block_id)).prev) {
+        tasks.push_back(load_parsed_state(prev_block_id).start());
+      }
+      prev = co_await td::actor::all(std::move(tasks));
+    }
+    co_return co_await ParsedShardState::fetch(std::move(state), std::move(block_root), current_global_version_,
+                                               std::move(prev))
+        .trace("parse state " + block_id.to_str());
+  }
+
+  bool is_block_too_old(BlockIdExt block_id) const {
+    if (!inited()) {
+      return false;
+    }
+    if (block_id.is_masterchain()) {
+      return block_id.seqno() < current_->mc_state->get_seqno();
+    }
+    auto prev_desc = current_->mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
+    return prev_desc.not_null() && block_id.seqno() < prev_desc->top_block_id().seqno();
   }
 
   td::actor::Task<> wait_for_mc_seqno(BlockSeqno mc_seqno) {
