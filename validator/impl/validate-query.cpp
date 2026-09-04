@@ -3131,7 +3131,7 @@ bool ValidateQuery::precheck_account_updates() {
               REJECT_UNLESS(key_len == 256);
               return precheck_one_account_update(key, std::move(old_val_extra), std::move(new_val_extra));
             },
-            2 /* check augmentation of changed nodes in the new dict */)) {
+            vm::DictionaryFixed::check_new_aug)) {
       return reject_query("invalid ShardAccounts dictionary in the new state");
     }
   } catch (vm::VmError& err) {
@@ -3589,7 +3589,7 @@ bool ValidateQuery::precheck_message_queue_update() {
               REJECT_UNLESS(key_len == 352);
               return precheck_one_message_queue_update(key, std::move(old_val_extra), std::move(new_val_extra));
             },
-            2 /* check augmentation of changed nodes in the new dict */)) {
+            vm::DictionaryFixed::check_new_aug | vm::DictionaryFixed::check_new_canonical_labels)) {
       return reject_query("invalid OutMsgQueue dictionary in the new state");
     }
   } catch (vm::VmError& err) {
@@ -3826,7 +3826,7 @@ bool ValidateQuery::unpack_dispatch_queue_update() {
           return check_account_dispatch_queue_update(key, ps_.dispatch_queue_->extract_value(std::move(old_val_extra)),
                                                      ns_.dispatch_queue_->extract_value(std::move(new_val_extra)));
         },
-        2 /* check augmentation of changed nodes in the new dict */);
+        vm::DictionaryFixed::check_new_aug);
     if (!res) {
       return reject_query("invalid DispatchQueue dictionary in the new state");
     }
@@ -6507,7 +6507,7 @@ bool ValidateQuery::CheckAccountTxs::scan_account_libraries(Ref<vm::Cell> orig_l
                }
                return true;
              },
-             3) ||
+             vm::DictionaryFixed::check_old_aug | vm::DictionaryFixed::check_new_aug) ||
          reject_query("error scanning old and new libraries of account "s + addr.to_hex());
 }
 
@@ -6773,7 +6773,7 @@ bool ValidateQuery::check_one_library_update(td::ConstBitPtr key, Ref<vm::CellSl
             lib_publishers2_.insert(item);
             return true;
           },
-          3 /* check augmentation of changed nodes */)) {
+          vm::DictionaryFixed::check_old_aug | vm::DictionaryFixed::check_new_aug)) {
     return reject_query("invalid publishers set for shard library with hash "s + key.to_hex(256));
   }
   return true;
@@ -6794,7 +6794,7 @@ bool ValidateQuery::check_shard_libraries() {
             REJECT_UNLESS(key_len == 256);
             return check_one_library_update(key, std::move(old_val), std::move(new_val));
           },
-          3 /* check augmentation of changed nodes */)) {
+          vm::DictionaryFixed::check_old_aug | vm::DictionaryFixed::check_new_aug)) {
     return reject_query("invalid shard libraries dictionary in the new state");
   }
   for (auto& [lib_key, addr, added] : lib_publishers_) {
@@ -7163,7 +7163,7 @@ bool ValidateQuery::check_mc_state_extra() {
               return check_one_prev_dict_update((unsigned)key.get_uint(32), std::move(old_val_extra),
                                                 std::move(new_val_extra));
             },
-            3 /* check augmentation of changed nodes */)) {
+            vm::DictionaryFixed::check_old_aug | vm::DictionaryFixed::check_new_aug)) {
       return reject_query("invalid previous block dictionary in the new state");
     }
     td::BitArray<32> key;
@@ -7402,7 +7402,7 @@ bool ValidateQuery::check_block_create_stats() {
               REJECT_UNLESS(key_len == 256);
               return check_one_block_creator_update(key, std::move(old_val), std::move(new_val));
             },
-            3 /* check augmentation of changed nodes */)) {
+            vm::DictionaryFixed::check_old_aug | vm::DictionaryFixed::check_new_aug)) {
       return reject_query("invalid BlockCreateStats dictionary in the new state");
     }
     auto check_unchanged_entry = [&](td::Bits256 key) -> bool {

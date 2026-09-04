@@ -33,12 +33,13 @@ namespace dict {
 struct LabelParser {
   enum { chk_none = 0, chk_min = 1, chk_size = 2, chk_all = 3 };
   Ref<CellSlice> remainder;
+  int l_type;
   int l_offs;
   int l_same;
   int l_bits;
   unsigned s_bits;
-  LabelParser(Ref<CellSlice> cs, int max_label_len, int auto_validate = chk_all);
-  LabelParser(Ref<Cell> cell, int max_label_len, int auto_validate = chk_all);
+  LabelParser(Ref<CellSlice> cs, int max_label_len, int auto_validate = chk_all, bool check_canonical = false);
+  LabelParser(Ref<Cell> cell, int max_label_len, int auto_validate = chk_all, bool check_canonical = false);
   int is_valid() const {
     return l_offs;
   }
@@ -65,6 +66,7 @@ struct LabelParser {
 
  private:
   bool parse_label(CellSlice& cs, int max_label_len);
+  bool is_canonical(int max_len) const;
 };
 
 struct AugmentationData {
@@ -188,6 +190,12 @@ class DictionaryFixed : public DictionaryBase {
   typedef std::function<td::Status(Ref<CellSlice>, td::ConstBitPtr, int)> foreach_func_status_t;
   typedef std::function<bool(td::ConstBitPtr, int, Ref<CellSlice>, Ref<CellSlice>)> scan_diff_func_t;
 
+  enum ScanDiffMode : int {
+    check_old_aug = 1,
+    check_new_aug = 2,
+    check_new_canonical_labels = 8,
+  };
+
   DictionaryFixed(int _n, bool validate = true) : DictionaryBase(_n, validate) {
   }
   DictionaryFixed(Ref<CellSlice> _root, int _n, bool validate = true) : DictionaryBase(std::move(_root), _n, validate) {
@@ -231,7 +239,7 @@ class DictionaryFixed : public DictionaryBase {
   bool combine_with(DictionaryFixed& dict2, const combine_func_t& combine_func, int mode = 0);
   bool combine_with(DictionaryFixed& dict2, const simple_combine_func_t& simple_combine_func, int mode = 0);
   bool combine_with(DictionaryFixed& dict2);
-  bool scan_diff(DictionaryFixed& dict2, const scan_diff_func_t& diff_func, int check_augm = 0);
+  bool scan_diff(DictionaryFixed& dict2, const scan_diff_func_t& diff_func, int check_mode = 0);
   bool validate_check(const foreach_func_t& foreach_func, bool invert_first = false);
   bool validate_all();
   DictIterator null_iterator();
