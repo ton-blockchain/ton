@@ -2307,6 +2307,24 @@ bool DictionaryFixed::check_for_each(const foreach_func_t& foreach_func, bool in
                              shuffle);
 }
 
+td::Status DictionaryFixed::check_for_each(const foreach_func_status_t& foreach_func, bool invert_first, bool shuffle) {
+  td::Status status = td::Status::OK();
+  bool ok = check_for_each(
+      [&](Ref<CellSlice> value, td::ConstBitPtr key, int key_len) {
+        auto S = foreach_func(std::move(value), key, key_len);
+        if (S.is_error()) {
+          status = std::move(S);
+          return false;
+        }
+        return true;
+      },
+      invert_first, shuffle);
+  if (!ok && status.is_ok()) {
+    status = td::Status::Error("check_for_each failed");
+  }
+  return status;
+}
+
 static inline bool set_bit(td::BitPtr ptr, bool value = true) {
   *ptr = value;
   return true;
@@ -3139,6 +3157,31 @@ bool AugmentedDictionary::check_for_each_extra(const foreach_extra_func_t& forea
     return extra.not_null() && foreach_extra_func(std::move(value_extra), std::move(extra), key, key_len);
   };
   return DictionaryFixed::check_for_each(foreach_func, invert_first);
+}
+
+td::Status AugmentedDictionary::check_for_each_extra(const foreach_extra_func_status_t& foreach_extra_func,
+                                                     bool invert_first) {
+  force_validate();
+  const auto& augm = aug;
+  td::Status status = td::Status::OK();
+  foreach_func_t foreach_func = [&](Ref<CellSlice> value_extra, td::ConstBitPtr key, int key_len) {
+    auto extra = augm.extract_extra(value_extra.write());
+    if (extra.is_null()) {
+      status = td::Status::Error("failed to extract extra");
+      return false;
+    }
+    auto S = foreach_extra_func(std::move(value_extra), std::move(extra), key, key_len);
+    if (S.is_error()) {
+      status = std::move(S);
+      return false;
+    }
+    return true;
+  };
+  bool ok = DictionaryFixed::check_for_each(foreach_func, invert_first);
+  if (!ok && status.is_ok()) {
+    status = td::Status::Error("check_for_each_extra failed");
+  }
+  return status;
 }
 
 std::pair<Ref<CellSlice>, Ref<CellSlice>> AugmentedDictionary::dict_traverse_extra(
