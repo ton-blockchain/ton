@@ -3440,11 +3440,11 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
   }
   auto q_msg_env = (old_value.not_null() ? old_value : new_value)->prefetch_ref();
   int tag = block::tlb::t_OutMsg.get_tag(*out_msg_cs);
-  if (tag == 12 || tag == 13) {
+  if (tag == 12 || tag == 13) {  // dequeue
     tag /= 2;
-  } else if (tag == 20) {
+  } else if (tag == 20) {  // msg_export_new_defer
     tag = 8;
-  } else if (tag == 21) {
+  } else if (tag == 21) {  // msg_export_deferred_tr
     tag = 9;
   }
   // mode for msg_export_{ext,new,imm,tr,deq_imm,???,deq/deq_short,tr_req,new_defer,deferred_tr}
@@ -3456,8 +3456,8 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
                                   << out_msg_id.to_hex(352) << " has invalid tag " << tag << "(" << tag_str[tag & 7]
                                   << ")");
   }
-  bool is_short = (tag == 6 && (out_msg_cs->prefetch_ulong(4) &
-                                1));  // msg_export_deq_short does not contain true MsgEnvelope / Message
+  bool is_short = (tag == /* dequeue */ 6 && (out_msg_cs->prefetch_ulong(4) &
+                                              1));  // msg_export_deq_short does not contain true MsgEnvelope / Message
   Ref<vm::Cell> msg_env, msg;
   td::Bits256 msg_env_hash;
   block::gen::OutMsg::Record_msg_export_deq_short deq_short;
@@ -3485,7 +3485,7 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
   //
   if (mode == 1) {
     // dequeued message
-    if (tag == 7) {
+    if (tag == /* msg_export_tr_req */ 7) {
       // this is a msg_export_tr_req$111, a re-queued transit message (after merge)
       // check that q_msg_env still contains msg
       auto q_msg = vm::load_cell_slice(q_msg_env).prefetch_ref();
@@ -3535,6 +3535,15 @@ bool ValidateQuery::precheck_one_message_queue_update(td::ConstBitPtr out_msg_id
     REJECT_UNLESS_MSG(emitted_lt <= enqueued_lt, PSTRING() << "EnqueuedMsg with key " << out_msg_id.to_hex(352)
                                                            << " has emitted_lt " << emitted_lt
                                                            << " greater than enqueued_lt " << enqueued_lt);
+    if (tag == /* msg_export_new */ 1 || tag == /* msg_export_deferred_tr */ 9) {
+      REJECT_UNLESS_MSG(emitted_lt == enqueued_lt,
+                        PSTRING() << "EnqueuedMsg with key " << out_msg_id.to_hex(352) << " and tag " << tag_str[tag]
+                                  << " has emitted_lt " << emitted_lt << " not equal to enqueued_lt " << enqueued_lt);
+    } else if (tag == /* msg_export_tr */ 3 || tag == /* msg_export_tr_req */ 7) {
+      REJECT_UNLESS_MSG(start_lt_ == enqueued_lt,
+                        PSTRING() << "EnqueuedMsg with key " << out_msg_id.to_hex(352) << " and tag " << tag_str[tag]
+                                  << " has enqueued_lt " << enqueued_lt << " not equal to block start_lt" << start_lt_);
+    }
   }
   // in all cases above, we have to check that all 352-bit key is correct (including first 96 bits)
   // otherwise we might not be able to correctly recover OutMsgQueue entries starting from OutMsgDescr later
