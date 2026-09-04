@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: LGPL-2.0-or-later
  */
 
+#include <algorithm>
+
 #include "td/actor/SharedFuture.h"
 #include "ton/ton-io.hpp"
 #include "vm/cells/PrunnedCell.h"
@@ -31,6 +33,9 @@ namespace ton::validator {
 
 namespace {
 
+// Dispatch queue operations does not to be efficient like msg queue operations because we'll normally use
+// total dispatch queue balance from shard state. calculate_dispatch_queue_balance is only for historical blocks
+// without total balance stored.
 td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue,
                                                            int global_version) {
   size_t cnt = 0;
@@ -52,6 +57,51 @@ td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictiona
     return td::Status::Error("failed to calculate dispatch queue balance");
   }
   VLOG(validator, DEBUG) << "calculate_dispatch_queue_balance: balance=" << result << " cnt=" << cnt;
+  return result;
+}
+
+td::Result<td::RefInt256> calculate_dispatch_queue_balance_diff(vm::AugmentedDictionary& old_queue,
+                                                                vm::AugmentedDictionary& new_queue,
+                                                                int global_version) {
+  size_t cnt_added = 0, cnt_removed = 0;
+  td::RefInt256 result = td::zero_refint();
+  bool ok = old_queue.scan_diff(
+      new_queue,
+      [&](td::ConstBitPtr, int, Ref<vm::CellSlice> old_val_extra, Ref<vm::CellSlice> new_val_extra) {
+        block::AccountDispatchQueue old_account_queue, new_account_queue;
+        if (!old_account_queue.unpack(old_queue.extract_value(old_val_extra))) {
+          return false;
+        }
+        if (!new_account_queue.unpack(new_queue.extract_value(new_val_extra))) {
+          return false;
+        }
+        return old_account_queue.dict.scan_diff(
+            new_account_queue.dict, [&](td::ConstBitPtr, int, Ref<vm::CellSlice> old_val, Ref<vm::CellSlice> new_val) {
+              if (old_val.not_null()) {
+                auto balance = block::get_message_balance_for_dispatch_queue(old_val, global_version);
+                if (!balance.is_valid()) {
+                  return false;
+                }
+                result -= balance.grams;
+                ++cnt_removed;
+              }
+              if (new_val.not_null()) {
+                auto balance = block::get_message_balance_for_dispatch_queue(new_val, global_version);
+                if (!balance.is_valid()) {
+                  return false;
+                }
+                result += balance.grams;
+                ++cnt_added;
+              }
+              return true;
+            });
+      },
+      vm::DictionaryFixed::check_new_aug);
+  if (!ok || !result->is_valid()) {
+    return td::Status::Error("failed to calculate dispatch queue balance diff");
+  }
+  VLOG(validator, DEBUG) << "calculate_dispatch_queue_balance_diff: diff=" << result << " added=" << cnt_added
+                         << " removed=" << cnt_removed;
   return result;
 }
 
@@ -94,6 +144,7 @@ td::Result<std::unique_ptr<vm::AugmentedDictionary>> prune_message_queue(vm::Aug
 struct ParsedShardState {
   BlockIdExt block_id;
   std::unique_ptr<vm::AugmentedDictionary> msg_queue;
+  std::unique_ptr<vm::AugmentedDictionary> dispatch_queue;  // optional - only if queue balance is not stored in state
   Ref<vm::CellSlice> proc_info;
   td::RefInt256 accounts_balance = td::zero_refint();
   td::RefInt256 dispatch_queue_balance = td::zero_refint();
@@ -139,7 +190,9 @@ struct ParsedShardState {
         if (aug_data.total_balance.is_valid()) {
           result->dispatch_queue_balance = aug_data.total_balance.grams;
         } else if (!dispatch_queue.is_empty()) {
-          result->dispatch_queue_balance = CO_TRY(calculate_dispatch_queue_balance(dispatch_queue, global_version));
+          result->dispatch_queue_balance =
+              CO_TRY(get_dispatch_queue_balance(dispatch_queue, prev, state->get_block_id(), global_version));
+          result->dispatch_queue = std::make_unique<vm::AugmentedDictionary>(std::move(dispatch_queue));
         }
       }
 
@@ -271,6 +324,35 @@ struct ParsedShardState {
     (key.bits() + 32).store_int(next_prefix.account_id_prefix, 64);
     (key.bits() + 96).copy_from(expected_msg_hash);
     return key;
+  }
+
+  static td::Result<td::RefInt256> get_dispatch_queue_balance(
+      vm::AugmentedDictionary& dispatch_queue, const std::vector<std::shared_ptr<ParsedShardState>>& prev,
+      BlockIdExt block_id, int global_version) {
+    if (prev.empty() || (prev.size() == 1 && prev[0]->block_id.shard_full() != block_id.shard_full()) ||
+        std::any_of(prev.begin(), prev.end(),
+                    [](const std::shared_ptr<ParsedShardState>& state) { return state->dispatch_queue == nullptr; })) {
+      return calculate_dispatch_queue_balance(dispatch_queue, global_version);
+    }
+    ShardIdFull shard = block_id.shard_full();
+    vm::AugmentedDictionary prev_dispatch_queue{prev[0]->dispatch_queue->get_root(), 256,
+                                                block::tlb::aug_DispatchQueue};
+    if (prev.size() == 1) {
+      TRY_BOOL(prev[0]->block_id.shard_full() == shard);
+    } else {
+      TRY_BOOL(prev.size() == 2);
+      TRY_BOOL(prev[0]->block_id.shard_full() == shard_child(shard, true));
+      TRY_BOOL(prev[1]->block_id.shard_full() == shard_child(shard, false));
+      TRY_BOOL(prev_dispatch_queue.combine_with(*prev[1]->dispatch_queue));
+    }
+    TRY_RESULT(result, calculate_dispatch_queue_balance_diff(prev_dispatch_queue, dispatch_queue, global_version));
+    for (const auto& state : prev) {
+      result += state->dispatch_queue_balance;
+    }
+    if (!result->is_valid() || result->sgn() < 0) {
+      return td::Status::Error("dispatch queue balance is invalid");
+    }
+    return result;
   }
 };
 
