@@ -276,6 +276,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       // Dropping the result does not cancel ValidateQuery. Reserve the single slot until it finishes.
       if (speculative_->completed) {
         speculative_.reset();
+        retry_speculation();
       }
     }
   }
@@ -291,9 +292,18 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     job->completed = true;
     if (job->obsolete && speculative_ == job) {
       speculative_.reset();
+      retry_speculation();
     }
     promise.set_result(std::move(result));
     co_return {};
+  }
+
+  void retry_speculation() {
+    // A pending child's first attempt may have been blocked by the previous reservation.
+    auto [begin, end] = state_->tracked_slots_interval();
+    for (auto i = begin; i < end && !stopping_ && !speculative_; ++i) {
+      try_speculate(*state_->slot_at(i));
+    }
   }
 
   void try_speculate(State::SlotRef slot) {

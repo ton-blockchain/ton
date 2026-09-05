@@ -152,6 +152,11 @@ class ControlledDependencies final : public td::actor::SpawnsWith<Bus>, public t
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   template <>
+  td::actor::Task<> process(BusHandle, std::shared_ptr<LeaderWindowObserved>) {
+    co_return {};
+  }
+
+  template <>
   td::actor::Task<WaitForParent::ReturnType> process(BusHandle, std::shared_ptr<WaitForParent> request) {
     auto slot = request->candidate->id.slot;
     if (active->allowed_parents.contains(slot)) {
@@ -229,6 +234,7 @@ void run_scenario(Scenario scenario, std::chrono::milliseconds min_interval = st
   active = &h;
   Consensus::register_in(h.runtime);
   h.runtime.register_actor<ControlledDependencies>("ControlledDependencies");
+  bool completed = false;
   scheduler.run([&]() -> td::actor::Task<> {
     auto bus = std::make_shared<Bus>();
     PeerValidator local{};
@@ -243,7 +249,7 @@ void run_scenario(Scenario scenario, std::chrono::milliseconds min_interval = st
     bus->config.noncritical_params.min_block_interval = min_interval;
     bus->config.noncritical_params.first_block_timeout = std::chrono::seconds{30};
     bus->collator_schedule = td::make_ref<RemoteCollator>();
-    h.parent_time = td::Clocks::system();
+    h.parent_time = td::Clocks::system() - 0.001;  // Avoid clock conversion rounding into the future.
     h.bus = h.runtime.start(std::move(bus), "speculative-validation");
     co_await scheduler.wait_sync_work();
     co_await h.bus.publish<LeaderWindowObserved>(0, ParentId{});
@@ -255,8 +261,10 @@ void run_scenario(Scenario scenario, std::chrono::milliseconds min_interval = st
     h.speculative_waiters.clear();
     h.bus = {};
     co_await scheduler.wait_sync_work();
+    completed = true;
     co_return {};
   });
+  EXPECT(completed);
   active = nullptr;
 }
 
@@ -453,30 +461,50 @@ TEST(SpeculativeValidation, ConflictingCandidateCertificateDuringStoragePrevents
   });
 }
 
-TEST(SpeculativeValidation, ObsoleteRunningValidationKeepsSingleSpeculationReservation) {
-  run_scenario([](Harness& h, td::actor::TestScheduler& scheduler) -> td::actor::Task<> {
-    co_await start_parent_and_child(h, scheduler);
-    auto id = candidate_id(1);
-    h.bus.publish<FinalizationObserved>(
-        id, td::make_ref<FinalCert>(FinalizeVote{id}, std::vector<FinalCert::VoteSignature>{}));
-    h.allow_parent(2);
-    h.bus.publish<CandidateReceived>(h.candidate(2));
-    h.bus.publish<CandidateReceived>(h.candidate(3));
-    co_await scheduler.wait_sync_work();
-    EXPECT_EQ(h.votes(2), 1u);
-    EXPECT_EQ(h.speculative_calls[3], 0u);
-    h.accept_speculation(1);
-    co_await scheduler.wait_sync_work();
-    EXPECT_EQ(h.votes(1), 0u);
-    h.certify(2);
-    co_await scheduler.wait_sync_work();
-    EXPECT_EQ(h.votes(3), 1u);
-    h.bus.publish<CandidateReceived>(h.candidate(4));
-    co_await scheduler.wait_sync_work();
-    EXPECT_EQ(h.speculative_calls[4], 1u);
-    h.accept_speculation(4);
-    co_return {};
-  });
+TEST(SpeculativeValidation, ObsoleteValidationRestartsPendingChild) {
+  for (bool completed : {false, true}) {
+    run_scenario([completed](Harness& h, td::actor::TestScheduler& scheduler) -> td::actor::Task<> {
+      co_await start_parent_and_child(h, scheduler);
+      if (completed) {
+        h.accept_speculation(1);
+        co_await scheduler.wait_sync_work();
+      }
+
+      h.allow_parent(2);
+      h.bus.publish<CandidateReceived>(h.candidate(2));
+      h.bus.publish<CandidateReceived>(h.candidate(3));
+      co_await scheduler.wait_sync_work();
+      EXPECT_EQ(h.votes(2), 1u);
+      EXPECT_EQ(h.speculative_calls[3], 0u);
+
+      auto id = candidate_id(1);
+      h.bus.publish<FinalizationObserved>(
+          id, td::make_ref<FinalCert>(FinalizeVote{id}, std::vector<FinalCert::VoteSignature>{}));
+      co_await scheduler.wait_sync_work();
+      if (!completed) {
+        EXPECT_EQ(h.speculative_calls[3], 0u);
+        h.accept_speculation(1);
+        co_await scheduler.wait_sync_work();
+      }
+      EXPECT_EQ(h.votes(1), 0u);
+      EXPECT_EQ(h.speculative_calls[3], 1u);
+      EXPECT_EQ(h.normal_calls[3], 0u);
+
+      h.accept_speculation(3);
+      co_await scheduler.wait_sync_work();
+      EXPECT_EQ(h.votes(3), 0u);
+      h.certify(2);
+      co_await scheduler.wait_sync_work();
+      EXPECT_EQ(h.votes(3), 1u);
+      EXPECT_EQ(h.normal_calls[3], 0u);
+
+      h.bus.publish<CandidateReceived>(h.candidate(4));
+      co_await scheduler.wait_sync_work();
+      EXPECT_EQ(h.speculative_calls[4], 1u);
+      h.accept_speculation(4);
+      co_return {};
+    });
+  }
 }
 
 TEST(SpeculativeValidation, SkipAllowsLateNotarizationButPreventsFinalVote) {
