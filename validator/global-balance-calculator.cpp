@@ -165,7 +165,8 @@ struct ParsedShardState {
                                             block::tlb::aug_ShardAccounts};
       block::gen::DepthBalanceInfo::Record extra;
       block::CurrencyCollection accounts_cc;
-      CO_TRY_BOOL(tlb::csr_unpack_safe(accounts_dict.get_root_extra(), extra) && accounts_cc.unpack(extra.balance));
+      CO_TRY_BOOL(tlb::csr_unpack_safe(accounts_dict.get_root_extra(), extra));
+      CO_TRY_BOOL(accounts_cc.unpack(extra.balance));
       result->accounts_balance = accounts_cc.grams;
 
       block::gen::OutMsgQueueInfo::Record qinfo;
