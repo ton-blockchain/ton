@@ -96,6 +96,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , timeout(timeout)
     , main_promise(std::move(promise))
     , is_fake_(params.is_fake)
+    , require_full_collated_data_(params.require_full_collated_data)
     , parallel_accounts_validation_(params.parallel_validation)
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
@@ -263,7 +264,11 @@ void ValidateQuery::finish_query() {
     stats_.comment = (PSTRING() << "OK ts=" << now_);
     LOG(WARNING) << "validate query done";
     double ok_from_utime = now_ms_ ? (double)now_ms_.value() / 1000.0 : (double)now_;
-    main_promise.set_result(CandidateAccept{.ok_from_utime = ok_from_utime});
+    main_promise.set_result(CandidateAccept{
+        .ok_from_utime = ok_from_utime,
+        .can_validate_child = workchain() == ton::basechainId && full_collated_data_ && !after_split_ &&
+                              !after_merge_ && !before_split_,
+    });
   }
   stop();
 }
@@ -392,6 +397,12 @@ void ValidateQuery::start_up() {
       reject_query("error unpacking block candidate");
       return;
     }
+  }
+  if (require_full_collated_data_ &&
+      (workchain() != ton::basechainId || !full_collated_data_ || after_split_ || after_merge_ || before_split_)) {
+    main_promise.set_error(td::Status::Error(ErrorCode::notready, "Candidate requires certified parent state"));
+    stop();
+    return;
   }
   // 4. load state(s) corresponding to previous block(s) (not full-collated-data or masterchain)
   prev_states.resize(prev_blocks.size());
