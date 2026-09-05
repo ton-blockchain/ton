@@ -380,7 +380,7 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     std::optional<ValidateCandidateResult> accepted_early;
     auto job = speculative_;
     if (job && !job->obsolete && job->id == candidate->id && candidate->parent_id == job->parent_id &&
-        parent.state->block_ids() == std::vector<BlockIdExt>{job->parent_block_id} &&
+        parent.state->as_normal() == job->parent_block_id &&
         parent.state->min_mc_block_id() == job->min_mc_block_id) {
       auto early = co_await std::move(job->result).wrap();
       if (!active_candidate(candidate)) {
@@ -409,6 +409,8 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     auto accepted = validation_result.get<CandidateAccept>();
     auto ok_from = td::Timestamp::at_unix(accepted.ok_from_utime);
     if (!ok_from.is_in_past()) {
+      LOG(INFO) << "Candidate " << candidate->id << " has timestamp in the future, wait for " << ok_from.in()
+                << " s";
       co_await td::actor::coro_sleep(ok_from);
     }
     if (!active_candidate(candidate)) {

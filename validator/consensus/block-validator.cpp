@@ -108,19 +108,9 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
     owning_bus().publish<TraceEvent>(stats::ValidationFinished::create(event->candidate->id));
 
-    if (validation_result.has<CandidateReject>()) {
-      if (event->candidate->leader == bus.local_id->idx) {
-        LOG(ERROR) << "BUG! Candidate " << event->candidate->id
-                   << " is self-rejected: " << validation_result.get<CandidateReject>().reason;
-      }
-      co_return validation_result;
-    }
-
-    td::Timestamp ok_from = td::Timestamp::at_unix(validation_result.get<CandidateAccept>().ok_from_utime);
-    if (!ok_from.is_in_past()) {
-      LOG(INFO) << "Candidate " << event->candidate->id << " has timestamp in the future, wait for " << ok_from.in()
-                << " s";
-      co_await td::actor::coro_sleep(ok_from);
+    if (validation_result.has<CandidateReject>() && event->candidate->leader == bus.local_id->idx) {
+      LOG(ERROR) << "BUG! Candidate " << event->candidate->id
+                 << " is self-rejected: " << validation_result.get<CandidateReject>().reason;
     }
     co_return validation_result;
   }

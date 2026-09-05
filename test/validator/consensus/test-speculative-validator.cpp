@@ -7,6 +7,7 @@
 #include "consensus/bus.h"
 #include "td/actor/TestScheduler.h"
 #include "td/utils/tests.h"
+#include "vm/cells/CellBuilder.h"
 
 namespace ton::validator::consensus::test {
 namespace {
@@ -82,7 +83,7 @@ class RecordingManager final : public ManagerFacade {
   ValidationCalls& calls_;
 };
 
-enum class RequestCase { Eligible, Empty, Masterchain, ParentHash, SlotGap, ChildShard, ParentShard, SeqnoGap };
+enum class RequestCase { Eligible, Ordinary, Empty, Masterchain, ParentHash, SlotGap, ChildShard, ParentShard, SeqnoGap };
 
 void check_dispatch(RequestCase request_case, bool manager_fails = false) {
   td::actor::TestScheduler scheduler;
@@ -108,6 +109,10 @@ void check_dispatch(RequestCase request_case, bool manager_fails = false) {
     const auto min_mc = block_id(masterchainId, shardIdAll, 200);
 
     switch (request_case) {
+      case RequestCase::Ordinary:
+        parent_block = block_id(basechainId, shardIdAll, 0);
+        child_block = block_id(basechainId, shardIdAll, 1);
+        break;
       case RequestCase::Masterchain:
         bus->shard = {masterchainId, shardIdAll};
         parent_block = block_id(masterchainId, shardIdAll, 100);
@@ -136,12 +141,19 @@ void check_dispatch(RequestCase request_case, bool manager_fails = false) {
     co_await scheduler.wait_sync_work();
     calls.ok_from = td::Timestamp::in(60).at_unix();
 
-    auto validation = handle.publish<SpeculativeValidationRequest>(block, parent, parent_block, min_mc).start();
+    td::actor::StartedTask<ValidateCandidateResult> validation;
+    if (request_case == RequestCase::Ordinary) {
+      auto state = td::make_ref<ChainState>(
+          ChainState::ZerostateTip{parent_block, vm::CellBuilder{}.finalize_novm()}, min_mc);
+      validation = handle.publish<ValidationRequest>(std::move(state), block).start();
+    } else {
+      validation = handle.publish<SpeculativeValidationRequest>(block, parent, parent_block, min_mc).start();
+    }
     co_await scheduler.wait_sync_work();
     // The caller must receive the result while its timestamp is still in the future.
     EXPECT(validation.await_ready());
     auto result = co_await std::move(validation).wrap();
-    if (request_case != RequestCase::Eligible) {
+    if (request_case != RequestCase::Eligible && request_case != RequestCase::Ordinary) {
       EXPECT(result.is_error());
       EXPECT_EQ(result.error().code(), ErrorCode::notready);
       EXPECT_EQ(calls.count, 0u);
@@ -155,8 +167,8 @@ void check_dispatch(RequestCase request_case, bool manager_fails = false) {
       EXPECT_EQ(calls.params->prev[0], parent_block);
       EXPECT_EQ(calls.params->min_masterchain_block_id, min_mc);
       EXPECT_EQ(calls.params->local_validator_id, local.short_id);
-      EXPECT(calls.params->require_full_collated_data);
-      EXPECT(calls.params->prev_block_state_roots.empty());
+      EXPECT_EQ(calls.params->require_full_collated_data, request_case != RequestCase::Ordinary);
+      EXPECT_EQ(calls.params->prev_block_state_roots.size(), request_case == RequestCase::Ordinary ? 1u : 0u);
       EXPECT(!calls.params->is_fake);
       if (manager_fails) {
         EXPECT(result.is_error());
@@ -187,6 +199,10 @@ TEST(SpeculativeValidator, IneligibleRequestsNeverReachManager) {
 
 TEST(SpeculativeValidator, ExactContextAndRawFutureTimestamp) {
   check_dispatch(RequestCase::Eligible);
+}
+
+TEST(SpeculativeValidator, OrdinaryValidationReturnsRawFutureTimestamp) {
+  check_dispatch(RequestCase::Ordinary);
 }
 
 TEST(SpeculativeValidator, MissingDependencyRemainsRetryable) {

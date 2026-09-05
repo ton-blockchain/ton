@@ -333,6 +333,26 @@ TEST(SpeculativeValidation, VotesRespectParentIntervalAndCandidateTimestamp) {
   }
 }
 
+TEST(SpeculativeValidation, OrdinaryValidationWaitsForCandidateTimestamp) {
+  run_scenario([](Harness& h, td::actor::TestScheduler& scheduler) -> td::actor::Task<> {
+    h.parent_time += 0.5;
+    h.parent_can_validate_child = false;
+    h.bus.publish<CandidateReceived>(h.candidate(0));
+    co_await scheduler.wait_sync_work();
+    EXPECT_EQ(h.normal_calls[0], 1u);
+    EXPECT_EQ(h.votes(0), 0u);
+
+    scheduler.advance_time(std::chrono::milliseconds{200});
+    co_await scheduler.wait_sync_work();
+    EXPECT_EQ(h.votes(0), 0u);
+    scheduler.advance_time(std::chrono::milliseconds{310});
+    co_await scheduler.wait_sync_work();
+    EXPECT_EQ(h.votes(0), 1u);
+    EXPECT_EQ(h.speculative_calls[0], 0u);
+    co_return {};
+  });
+}
+
 TEST(SpeculativeValidation, OneChildAheadAndDuplicateCandidatesDoNotMultiplyWork) {
   run_scenario([](Harness& h, td::actor::TestScheduler& scheduler) -> td::actor::Task<> {
     co_await start_parent_and_child(h, scheduler);
