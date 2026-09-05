@@ -62,6 +62,9 @@ struct ValidateParams {
 
   bool parallel_validation = false;
 
+  // Speculative validation must use proofs, without loading the uncertified parent's state.
+  bool require_full_collated_data = false;
+
   // Optional - if empty, states are taken from manager
   // If not empty, should be the same size as prev
   std::vector<Ref<vm::Cell>> prev_block_state_roots = {};
