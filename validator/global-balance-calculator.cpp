@@ -365,7 +365,7 @@ struct GlobalInfo {
 
 td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance_from_states(
     std::vector<std::shared_ptr<ParsedShardState>> all_states, Ref<MasterchainStateQ> mc_state,
-    Ref<vm::Cell> mc_block_root, td::actor::ActorId<ValidatorManager> manager) {
+    Ref<vm::Cell> mc_block_root, td::actor::ActorId<ValidatorManager> manager, int global_version) {
   co_await td::actor::detach_from_actor();
   try {
     td::Timer timer;
@@ -417,6 +417,11 @@ td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance_from_states(
             block::CurrencyCollection cc;
             TRY_BOOL(tlb::unpack(msg_cs, info) && cc.unpack(info.value));
             result->global_balance += cc.grams + enq_msg_descr.fwd_fee_remaining_;
+            if (global_version < 12) {
+              td::RefInt256 ihr_fee;
+              TRY_BOOL(block::tlb::t_Grams.as_integer_to(info.extra_flags, ihr_fee));
+              result->global_balance += ihr_fee;
+            }
             return td::Status::OK();
           }));
     }
@@ -552,7 +557,8 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance(Ref<MasterchainStateQ> mc_state,
                                                                       Ref<vm::Cell> mc_block_root) {
     auto all_states = co_await load_all_states(mc_state, mc_block_root);
-    co_return co_await compute_global_balance_from_states(all_states, mc_state, mc_block_root, manager_);
+    co_return co_await compute_global_balance_from_states(all_states, mc_state, mc_block_root, manager_,
+                                                          current_global_version_);
   }
 
   td::actor::Task<std::vector<std::shared_ptr<ParsedShardState>>> load_all_states(Ref<MasterchainStateQ> mc_state,
