@@ -39,7 +39,8 @@ class SharedFuture {
       co_await token.check();
       value_ = std::move(result);
       is_resolved = true;
-      for (auto& p : promises_) {
+      auto promises = std::move(promises_);
+      for (auto& p : promises) {
         p.set_result(value_.clone());
       }
     }
