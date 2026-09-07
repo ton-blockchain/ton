@@ -29,6 +29,7 @@
 #include "block/transaction.h"
 #include "common/global-version.h"
 #include "interfaces/validator-manager.h"
+#include "td/actor/SharedFuture.h"
 #include "vm/cells.h"
 #include "vm/dict.h"
 
@@ -271,6 +272,10 @@ class ValidateQuery : public td::actor::Actor {
   td::uint64 processed_account_dispatch_queues_ = 0;
   bool have_unprocessed_account_dispatch_queue_ = false;
 
+  bool check_global_balance_ = false;
+  td::actor::SharedFuture<td::RefInt256> validate_global_balance_future_;
+  td::CancellationTokenSource cancellation_;
+
   td::PerfWarningTimer perf_timer_;
   td::PerfLog perf_log_;
 
@@ -281,7 +286,7 @@ class ValidateQuery : public td::actor::Actor {
     return shard_.workchain;
   }
 
-  void finish_query();
+  td::actor::Task<> finish_query();
   void abort_query(td::Status error);
   bool reject_query(std::string error, td::BufferSlice reason = {});
   bool reject_query(std::string err_msg, td::Status error, td::BufferSlice reason = {});
@@ -475,6 +480,8 @@ class ValidateQuery : public td::actor::Actor {
   bool check_one_shard_fee(ShardIdFull shard, const block::CurrencyCollection& fees,
                            const block::CurrencyCollection& create);
   bool check_mc_block_extra();
+
+  bool validate_global_balance();
 
   Ref<vm::Cell> get_virt_state_root(const BlockIdExt& block_id);
 

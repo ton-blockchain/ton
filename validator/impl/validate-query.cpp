@@ -100,6 +100,7 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
+    , check_global_balance_(params.check_global_balance && shard_.is_masterchain())
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -253,7 +254,23 @@ bool ValidateQuery::fatal_error(std::string err_msg, int err_code) {
 /**
  * Finishes the query and sends the result to the promise.
  */
-void ValidateQuery::finish_query() {
+td::actor::Task<> ValidateQuery::finish_query() {
+  if (check_global_balance_) {
+    td::Timer timer;
+    auto R = co_await validate_global_balance_future_.get().wrap();
+    stats_.wait_validate_global_balance_time = timer.elapsed();
+    if (R.is_error()) {
+      if (R.error().code() == ErrorCode::cancelled) {
+        abort_query(R.move_as_error());
+      } else {
+        // We check validate_global_balance result in finish_query instead of immediately when it finished
+        // This way invalid blocks will be rejected normally, not as confusing "global balance error"
+        reject_query("Validate global balance error", R.move_as_error());
+      }
+      co_return {};
+    }
+    LOG(INFO) << "Global balance checked: " << R.move_as_ok();
+  }
   if (main_promise) {
     if (!storage_stat_cache_update_.empty()) {
       td::actor::send_closure(manager, &ValidatorManager::update_storage_stat_cache,
@@ -266,6 +283,7 @@ void ValidateQuery::finish_query() {
     main_promise.set_result(CandidateAccept{.ok_from_utime = ok_from_utime});
   }
   stop();
+  co_return {};
 }
 
 /*
@@ -7528,6 +7546,22 @@ bool ValidateQuery::check_mc_block_extra() {
 }
 
 /**
+ * Sends validate_global_balance to GlobalBalanceCalculator
+ *
+ * @returns True if the operation was successful, false otherwise.
+ */
+bool ValidateQuery::validate_global_balance() {
+  auto r_state = create_shard_state(id_, state_root_);
+  if (r_state.is_error()) {
+    return reject_query("failed to create ShardState", r_state.move_as_error());
+  }
+  validate_global_balance_future_ =
+      td::actor::ask(manager, &ValidatorManager::validate_global_balance, Ref<MasterchainState>{r_state.move_as_ok()},
+                     block_root_, cancellation_.get_cancellation_token());
+  return true;
+}
+
+/**
  * Validates the value flow of a block.
  *
  * @returns True if the value flow is valid, False otherwise.
@@ -7619,6 +7653,9 @@ bool ValidateQuery::try_validate() {
         }
         if (!prepare_out_msg_queue_size()) {
           return reject_query("cannot request out msg queue size");
+        }
+        if (check_global_balance_ && !validate_global_balance()) {
+          return reject_query("cannot run validate_global_balance");
         }
       }
       stage_ = 1;
@@ -7741,7 +7778,7 @@ bool ValidateQuery::try_validate() {
     return reject_query(err.get_msg());
   }
 
-  finish_query();
+  finish_query().start().detach_silent();
   return true;
 }
 
