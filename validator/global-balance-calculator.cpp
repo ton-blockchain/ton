@@ -6,6 +6,7 @@
 
 #include <algorithm>
 
+#include "impl/global-balance-calculator-internal.hpp"
 #include "td/actor/SharedFuture.h"
 #include "ton/ton-io.hpp"
 #include "vm/cells/PrunnedCell.h"
@@ -13,7 +14,6 @@
 #include "block-auto.h"
 #include "block-parse.h"
 #include "global-balance-calculator.hpp"
-#include "impl/global-balance-calculator-internal.hpp"
 #include "shard.hpp"
 
 namespace ton::validator {
@@ -160,6 +160,7 @@ td::actor::Task<std::shared_ptr<ParsedShardState>> ParsedShardState::fetch(
     Ref<ShardState> state, Ref<vm::Cell> block_root, int global_version,
     std::vector<std::shared_ptr<ParsedShardState>> prev) {
   co_await td::actor::detach_from_actor();
+  TD_PERF_COUNTER(global_balance_fetch_shard_state);
   try {
     td::Timer timer;
     auto result = std::make_shared<ParsedShardState>();
@@ -225,6 +226,7 @@ static td::Result<td::BitArray<352>> get_out_queue_key_from_msg_env(Ref<vm::Cell
 
 td::Result<std::unique_ptr<vm::AugmentedDictionary>> update_message_queue(
     const std::vector<std::shared_ptr<ParsedShardState>>& prev, Ref<vm::Cell> block_root, BlockIdExt block_id) {
+  TD_PERF_COUNTER(global_balance_update_message_queue);
   ShardIdFull shard = block_id.shard_full();
   TRY_BOOL(!prev.empty());
   auto msg_queue =
@@ -335,17 +337,17 @@ static td::Result<td::BitArray<352>> get_out_queue_key_from_msg_env(Ref<vm::Cell
   return key;
 }
 
-td::Result<td::RefInt256> get_dispatch_queue_balance(
-    vm::AugmentedDictionary& dispatch_queue, const std::vector<std::shared_ptr<ParsedShardState>>& prev,
-    BlockIdExt block_id, int global_version) {
+td::Result<td::RefInt256> get_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue,
+                                                     const std::vector<std::shared_ptr<ParsedShardState>>& prev,
+                                                     BlockIdExt block_id, int global_version) {
+  TD_PERF_COUNTER(global_balance_dispatch_queue);
   if (prev.empty() || (prev.size() == 1 && prev[0]->block_id.shard_full() != block_id.shard_full()) ||
       std::any_of(prev.begin(), prev.end(),
                   [](const std::shared_ptr<ParsedShardState>& state) { return state->dispatch_queue == nullptr; })) {
     return calculate_dispatch_queue_balance(dispatch_queue, global_version);
   }
   ShardIdFull shard = block_id.shard_full();
-  vm::AugmentedDictionary prev_dispatch_queue{prev[0]->dispatch_queue->get_root(), 256,
-                                              block::tlb::aug_DispatchQueue};
+  vm::AugmentedDictionary prev_dispatch_queue{prev[0]->dispatch_queue->get_root(), 256, block::tlb::aug_DispatchQueue};
   if (prev.size() == 1) {
     TRY_BOOL(prev[0]->block_id.shard_full() == shard);
   } else {
@@ -413,22 +415,25 @@ td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance_from_states(
       }
     }
     size_t total_messages = 0;
-    for (auto& state : all_states) {
-      CO_TRY(state->msg_queue->check_for_each_extra(
-          [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
-            CHECK(key_len == 352);
-            ++total_messages;
-            block::EnqueuedMsgDescr enq_msg_descr;
-            TRY_BOOL(enq_msg_descr.unpack(value.write()) && enq_msg_descr.check_key(key));
-            for (auto& proc : processed_upto) {
-              if (proc->already_processed(enq_msg_descr)) {
-                return td::Status::OK();
+    {
+      TD_PERF_COUNTER(global_balance_compute_total_out_queue_balance);
+      for (auto& state : all_states) {
+        CO_TRY(state->msg_queue->check_for_each_extra(
+            [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
+              CHECK(key_len == 352);
+              ++total_messages;
+              block::EnqueuedMsgDescr enq_msg_descr;
+              TRY_BOOL(enq_msg_descr.unpack(value.write()) && enq_msg_descr.check_key(key));
+              for (auto& proc : processed_upto) {
+                if (proc->already_processed(enq_msg_descr)) {
+                  return td::Status::OK();
+                }
               }
-            }
-            TRY_RESULT(balance, detail::get_out_queue_message_balance(enq_msg_descr, global_version));
-            result->global_balance += balance;
-            return td::Status::OK();
-          }));
+              TRY_RESULT(balance, detail::get_out_queue_message_balance(enq_msg_descr, global_version));
+              result->global_balance += balance;
+              return td::Status::OK();
+            }));
+      }
     }
 
     if (mc_state->get_seqno() != 0) {
