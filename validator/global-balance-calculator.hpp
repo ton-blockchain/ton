@@ -13,7 +13,8 @@ namespace ton::validator {
 class GlobalBalanceCalculator : public td::actor::Actor {
  public:
   static td::actor::ActorOwn<GlobalBalanceCalculator> create(BlockIdExt start_mc_block,
-                                                             td::actor::ActorId<ValidatorManager> manager);
+                                                             td::actor::ActorId<ValidatorManager> manager,
+                                                             std::unique_ptr<GarbageCollectorBlocker> gc_blocker);
 };
 
 }  // namespace ton::validator
