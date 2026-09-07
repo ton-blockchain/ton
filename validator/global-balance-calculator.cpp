@@ -523,7 +523,7 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   }
 
   void start_up() override {
-    run().start().detach_ensure();
+    run().start().detach_silent();
     alarm();
   }
   void tear_down() override {

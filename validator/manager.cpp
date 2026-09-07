@@ -2441,9 +2441,6 @@ void ValidatorManagerImpl::completed_prestart_sync() {
   LOG(WARNING) << "initial read complete: " << last_masterchain_block_handle_->id() << " "
                << last_masterchain_block_id_;
   callback_->initial_read_complete(last_masterchain_block_handle_);
-
-  global_balance_calculator_ =
-      GlobalBalanceCalculator::create(last_masterchain_block_id_, actor_id(this), add_gc_blocker());
 }
 
 void ValidatorManagerImpl::new_masterchain_block() {
@@ -2534,6 +2531,27 @@ void ValidatorManagerImpl::update_shards() {
     td::actor::send_closure(
         serializer_, &AsyncStateSerializer::auto_disable_serializer,
         (is_validator() || is_collator()) && last_masterchain_state_->get_global_id() == -239);  // mainnet only
+  }
+  if (started_) {
+    init_global_balance_calculator();
+  }
+}
+
+void ValidatorManagerImpl::init_global_balance_calculator() {
+  bool is_mc_validator = false;
+  for (auto &key : validator_keys_) {
+    if (last_masterchain_state_->is_current_or_next_masterchain_validator(key)) {
+      is_mc_validator = true;
+      break;
+    }
+  }
+  if (is_mc_validator) {
+    if (global_balance_calculator_.empty()) {
+      global_balance_calculator_ =
+          GlobalBalanceCalculator::create(last_masterchain_block_id_, actor_id(this), add_gc_blocker());
+    }
+  } else {
+    global_balance_calculator_ = {};
   }
 }
 

@@ -347,6 +347,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_masterchain_block();
   void update_shard_overlays();
   void update_shards();
+  void init_global_balance_calculator();
   void update_shard_blocks();
   void updated_init_block(BlockIdExt last_rotate_block_id);
   void got_next_gc_masterchain_handle(BlockHandle handle);
@@ -706,7 +707,10 @@ class ValidatorManagerImpl : public ValidatorManager {
   td::actor::Task<td::RefInt256> validate_global_balance(Ref<MasterchainState> mc_state, Ref<vm::Cell> block_root,
                                                          td::CancellationToken cancellation_token) override {
     if (global_balance_calculator_.empty()) {
-      co_return td::Status::Error(ErrorCode::notready, "global balance calculator is not inited");
+      init_global_balance_calculator();
+      if (global_balance_calculator_.empty()) {
+        co_return td::Status::Error(ErrorCode::notready, "global balance calculator is not inited");
+      }
     }
     co_return co_await td::actor::ask(global_balance_calculator_, &GlobalBalanceCalculator::validate_global_balance,
                                       std::move(mc_state), std::move(block_root), std::move(cancellation_token));
