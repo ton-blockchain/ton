@@ -15,6 +15,7 @@ class GlobalBalanceCalculator : public td::actor::Actor {
   virtual td::actor::Task<td::RefInt256> validate_global_balance(Ref<MasterchainState> mc_state,
                                                                  Ref<vm::Cell> block_root,
                                                                  td::CancellationToken cancellation_token) = 0;
+  virtual void on_new_shard_block(BlockIdExt block_id) = 0;
 
   static td::actor::ActorOwn<GlobalBalanceCalculator> create(BlockIdExt start_mc_block,
                                                              td::actor::ActorId<ValidatorManager> manager,

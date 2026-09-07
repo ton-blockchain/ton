@@ -643,6 +643,13 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
     co_return next.global_balance;
   }
 
+  void on_new_shard_block(BlockIdExt block_id) override {
+    if (!inited() || is_block_too_old(block_id) || is_block_too_new(block_id)) {
+      return;
+    }
+    load_parsed_state(block_id).start().detach_silent();
+  }
+
  private:
   BlockIdExt start_mc_block_;
   td::actor::ActorId<ValidatorManager> manager_;
@@ -721,8 +728,28 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
     if (block_id.is_masterchain()) {
       return block_id.seqno() < current_.mc_state->get_seqno();
     }
-    auto prev_desc = current_.mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
-    return prev_desc.not_null() && block_id.seqno() < prev_desc->top_block_id().seqno();
+    auto prev_desc_left = current_.mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
+    auto prev_desc_right = current_.mc_state->get_shard_from_config(block_id.shard_full() + 1, false);
+    if (prev_desc_left.is_null() || prev_desc_right.is_null()) {
+      return false;
+    }
+    return block_id.seqno() < std::max(prev_desc_left->top_block_id().seqno(), prev_desc_right->top_block_id().seqno());
+  }
+
+  bool is_block_too_new(BlockIdExt block_id) const {
+    if (!inited()) {
+      return false;
+    }
+    if (block_id.is_masterchain()) {
+      return block_id.seqno() > current_.mc_state->get_seqno() + 8;
+    }
+    auto prev_desc_left = current_.mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
+    auto prev_desc_right = current_.mc_state->get_shard_from_config(block_id.shard_full() + 1, false);
+    if (prev_desc_left.is_null() || prev_desc_right.is_null()) {
+      return true;
+    }
+    return block_id.seqno() >
+           std::max(prev_desc_left->top_block_id().seqno(), prev_desc_right->top_block_id().seqno()) + 8;
   }
 
   td::actor::Task<> wait_for_mc_seqno(BlockSeqno mc_seqno) {
