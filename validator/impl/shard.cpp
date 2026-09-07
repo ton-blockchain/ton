@@ -420,6 +420,20 @@ Ref<block::ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard,
   return Ref<block::ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};
 }
 
+bool MasterchainStateQ::is_current_or_next_masterchain_validator(const PublicKeyHash& key) const {
+  for (auto& total_set : {cur_validators_, next_validators_}) {
+    if (!total_set) {
+      continue;
+    }
+    for (int idx = 0; idx < total_set->main; ++idx) {
+      if (PublicKey{pubkeys::Ed25519{total_set->list[idx].pubkey}}.compute_short_id() == key) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 Ref<block::ValidatorSet> MasterchainStateQ::get_next_validator_set(ShardIdFull shard, CatchainSeqno cc_seqno) const {
   if (!config_ || !next_validators_) {
     return {};
