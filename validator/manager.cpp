@@ -254,6 +254,9 @@ td::actor::Task<> ValidatorManagerImpl::validate_block_broadcast(BlockBroadcast 
                                              std::move(promise), false, signatures_checked)
       .release();
   co_await std::move(task);
+  if (!block_id.is_masterchain() && !global_balance_calculator_.empty()) {
+    td::actor::send_closure(global_balance_calculator_, &GlobalBalanceCalculator::on_new_shard_block, block_id);
+  }
   if (is_final) {
     validated_accepted_block_broadcast(block_id, cc_seqno).start().detach();
   }
@@ -694,6 +697,10 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
         td::actor::send_closure(SelfId, &ValidatorManagerImpl::process_accepted_nonfinal_block, block_id, cc_seqno);
       });
       wait_block_state_short(desc->block_id(), 0, td::Timestamp::in(60.0), true, std::move(P));
+      if (!global_balance_calculator_.empty()) {
+        td::actor::send_closure(global_balance_calculator_, &GlobalBalanceCalculator::on_new_shard_block,
+                                desc->block_id());
+      }
     }
   }
   if (validating_masterchain()) {
