@@ -237,6 +237,7 @@ struct ValidationStats {
   std::string time_stats;
   double actual_time = 0.0;
   bool parallel_accounts_validation = false;
+  double wait_validate_global_balance_time = 0.0;
 
   struct WorkTimeStats {
     td::RealCpuTimer::Time total;
@@ -289,7 +290,7 @@ struct ValidationStats {
         create_tl_block_id(block_id), collated_data_hash, validated_at, self.bits256_value(), valid, comment,
         actual_bytes, actual_collated_data_bytes, total_time, actual_time, work_time.total.real, work_time.total.cpu,
         time_stats, work_time.to_str(false), work_time.to_str(true), storage_stat_cache.tl(),
-        parallel_accounts_validation);
+        parallel_accounts_validation, wait_validate_global_balance_time);
   }
 };
 
@@ -473,6 +474,12 @@ class ValidatorManager : public ValidatorManagerInterface {
   }
 
   virtual void iterate_temp_block_handles(std::function<void(const BlockHandleInterface&)> f) {
+  }
+
+  virtual td::actor::Task<td::RefInt256> validate_global_balance(Ref<MasterchainState> mc_state,
+                                                                 Ref<vm::Cell> block_root,
+                                                                 td::CancellationToken cancellation_token) {
+    co_return td::Status::Error("not implemented");
   }
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {

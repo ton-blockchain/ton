@@ -197,11 +197,23 @@ td::actor::Task<std::shared_ptr<ParsedShardState>> ParsedShardState::fetch(
       CO_TRY_BOOL(tlb::csr_unpack_safe(dispatch_queue.get_root_extra(), aug_data));
       if (aug_data.total_balance.is_valid()) {
         result->dispatch_queue_balance = aug_data.total_balance.grams;
-      } else if (!dispatch_queue.is_empty()) {
+        result->dispatch_queue_balance_stored = true;
+      } else if (dispatch_queue.is_empty()) {
+        result->dispatch_queue_balance_stored = true;
+      } else {
+        if (global_version >= 16 && !prev.empty() &&
+            std::all_of(prev.begin(), prev.end(), [](const std::shared_ptr<ParsedShardState>& state) {
+              return state->dispatch_queue_balance_stored;
+            })) {
+          // This is to avoid expensive computation on an invalid masterchain block candidate
+          co_return td::Status::Error("dispatch queue does not have total balance stored, but prevoius states had it");
+        }
         result->dispatch_queue_balance =
             CO_TRY(get_dispatch_queue_balance(dispatch_queue, prev, state->get_block_id(), global_version));
         result->dispatch_queue = std::make_unique<vm::AugmentedDictionary>(std::move(dispatch_queue));
       }
+    } else {
+      result->dispatch_queue_balance_stored = true;
     }
 
     if (state->get_shard().is_masterchain()) {
@@ -378,18 +390,18 @@ struct GlobalInfo {
   td::RefInt256 last_mc_block_burned = td::zero_refint();
 };
 
-td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance_from_states(
+td::actor::Task<GlobalInfo> compute_global_balance_from_states(
     std::vector<std::shared_ptr<ParsedShardState>> all_states, Ref<MasterchainStateQ> mc_state,
     Ref<vm::Cell> mc_block_root, td::actor::ActorId<ValidatorManager> manager, int global_version) {
   co_await td::actor::detach_from_actor();
   try {
     td::Timer timer;
-    auto result = std::make_shared<GlobalInfo>();
-    result->mc_state = mc_state;
+    GlobalInfo result;
+    result.mc_state = mc_state;
     for (auto& state : all_states) {
-      result->global_balance += state->accounts_balance;
-      result->global_balance += state->dispatch_queue_balance;
-      result->global_balance += state->mc_total_validator_fees;
+      result.global_balance += state->accounts_balance;
+      result.global_balance += state->dispatch_queue_balance;
+      result.global_balance += state->mc_total_validator_fees;
     }
 
     std::map<BlockSeqno, Ref<MasterchainStateQ>> aux_mc_states;
@@ -430,7 +442,7 @@ td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance_from_states(
                 }
               }
               TRY_RESULT(balance, detail::get_out_queue_message_balance(enq_msg_descr, global_version));
-              result->global_balance += balance;
+              result.global_balance += balance;
               return td::Status::OK();
             }));
       }
@@ -441,12 +453,12 @@ td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance_from_states(
       CO_TRY_BOOL(tlb::unpack_cell(mc_block_root, block_rec));
       block::ValueFlow value_flow;
       CO_TRY_BOOL(value_flow.unpack(vm::load_cell_slice_ref(block_rec.value_flow)));
-      result->last_mc_block_burned = value_flow.burned.grams;
+      result.last_mc_block_burned = value_flow.burned.grams;
     }
 
-    CO_TRY_BOOL(result->global_balance->is_valid());
+    CO_TRY_BOOL(result.global_balance->is_valid());
     VLOG(validator, INFO) << "Calculated global balance at " << mc_state->get_block_id().seqno()
-                          << ": balance=" << result->global_balance << " messages=" << total_messages
+                          << ": balance=" << result.global_balance << " messages=" << total_messages
                           << " time=" << timer.elapsed();
     co_return result;
   } catch (vm::VmError& e) {
@@ -454,52 +466,53 @@ td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance_from_states(
   }
 }
 
-void compare_global_balance(const GlobalInfo& prev, const GlobalInfo& next) {
+td::Status compare_global_balance(const GlobalInfo& prev, const GlobalInfo& next, bool log_success) {
   td::RefInt256 masterchain_create_fee = td::zero_refint(), basechain_create_fee = td::zero_refint();
   if (auto param = prev.mc_state->get_config()->get_config_param(14); param.not_null()) {
     block::gen::BlockCreateFees::Record create_fees;
-    if (!(tlb::unpack_cell(param, create_fees) &&
-          block::tlb::t_Grams.as_integer_to(create_fees.masterchain_block_fee, masterchain_create_fee) &&
-          block::tlb::t_Grams.as_integer_to(create_fees.basechain_block_fee, basechain_create_fee))) {
-      CHECK(false);
-    }
+    TRY_BOOL(tlb::unpack_cell(param, create_fees));
+    TRY_BOOL(block::tlb::t_Grams.as_integer_to(create_fees.masterchain_block_fee, masterchain_create_fee));
+    TRY_BOOL(block::tlb::t_Grams.as_integer_to(create_fees.basechain_block_fee, basechain_create_fee));
   }
   td::RefInt256 funds_created = masterchain_create_fee;
   for (auto desc : next.mc_state->get_shards()) {
     int new_blocks = 0;
     auto prev_desc_left = prev.mc_state->get_shard_from_config(desc->shard() - 1, false);
     auto prev_desc_right = prev.mc_state->get_shard_from_config(desc->shard() + 1, false);
-    CHECK(prev_desc_left.is_null() == prev_desc_right.is_null());
+    TRY_BOOL(prev_desc_left.is_null() == prev_desc_right.is_null());
     if (prev_desc_left.is_null()) {
       // New workchain
       new_blocks = desc->top_block_id().seqno();
     } else if (prev_desc_left->shard() == desc->shard()) {
       new_blocks = desc->top_block_id().seqno() - prev_desc_left->top_block_id().seqno();
     } else if (prev_desc_left->shard() == prev_desc_right->shard()) {
-      CHECK(desc->shard().pfx_len() > 0 && prev_desc_left->shard() == shard_parent(desc->shard()));
+      TRY_BOOL(desc->shard().pfx_len() > 0 && prev_desc_left->shard() == shard_parent(desc->shard()));
       new_blocks = desc->top_block_id().seqno() - prev_desc_left->top_block_id().seqno();
     } else {
-      CHECK(prev_desc_left->shard() == shard_child(desc->shard(), true));
-      CHECK(prev_desc_right->shard() == shard_child(desc->shard(), false));
+      TRY_BOOL(prev_desc_left->shard() == shard_child(desc->shard(), true));
+      TRY_BOOL(prev_desc_right->shard() == shard_child(desc->shard(), false));
       new_blocks = desc->top_block_id().seqno() -
                    std::max(prev_desc_left->top_block_id().seqno(), prev_desc_right->top_block_id().seqno());
     }
     funds_created += (basechain_create_fee >> shard_prefix_length(desc->shard())) * new_blocks;
   }
-  CHECK(funds_created->is_valid());
+  TRY_BOOL(funds_created->is_valid());
 
   td::RefInt256 expected_next = prev.global_balance + funds_created - next.last_mc_block_burned;
-  CHECK(expected_next->is_valid());
+  TRY_BOOL(expected_next->is_valid());
   if (expected_next->cmp(*next.global_balance)) {
-    LOG(ERROR) << "Checked global balance at " << next.mc_state->get_seqno() << ", ERROR: prev=" << prev.global_balance
-               << " created=" << funds_created << " burned=" << next.last_mc_block_burned
-               << " next=" << next.global_balance << " expected_next=" << expected_next
-               << " (diff=" << next.global_balance - expected_next << ")";
-  } else {
+    return td::Status::Error(PSTRING() << "GLOBAL BALANCE DISCREPANCY at " << next.mc_state->get_block_id()
+                                       << " : prev=" << prev.global_balance << " created=" << funds_created
+                                       << " burned=" << next.last_mc_block_burned << " next=" << next.global_balance
+                                       << " expected_next=" << expected_next
+                                       << " (diff=" << next.global_balance - expected_next << ")");
+  }
+  if (log_success) {
     VLOG(validator, INFO) << "Checked global balance at " << next.mc_state->get_seqno()
                           << ", OK: prev=" << prev.global_balance << " created=" << funds_created
                           << " burned=" << next.last_mc_block_burned << " next=" << next.global_balance;
   }
+  return td::Status::OK();
 }
 
 class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
@@ -511,20 +524,45 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
 
   void start_up() override {
     run().start().detach_ensure();
+    alarm();
+  }
+  void tear_down() override {
+    auto waiters = std::move(waiters_);
+    for (auto& waiter : waiters) {
+      waiter.set_error(td::Status::Error(ErrorCode::cancelled, "GlobalBalanceCalculator destroyed"));
+    }
+  }
+  void alarm() override {
+    alarm_timestamp() = td::Timestamp::in(5.0);
+    awake_waiters();
   }
 
   td::actor::Task<> run() {
-    auto R = co_await run_inner().wrap();
-    LOG(ERROR) << "Global balance calculator ERROR: " << R.move_as_error();
-    stop();
-    co_return {};
-  }
-
-  td::actor::Task<> run_inner() {
-    co_await init();
     while (true) {
-      gc_blocker_->set_seqno(current_->mc_state->min_ref_masterchain_seqno());
-      co_await advance_mc_seqno();
+      auto R = co_await init().wrap();
+      if (R.is_error()) {
+        if (R.error().code() == ErrorCode::notready) {
+          VLOG(validator, WARNING) << "failed to init: " << R.move_as_error();
+        } else {
+          VLOG(validator, ERROR) << "failed to init: " << R.move_as_error();
+        }
+        co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+        continue;
+      }
+      break;
+    }
+    while (true) {
+      gc_blocker_->set_seqno(current_.mc_state->min_ref_masterchain_seqno());
+      awake_waiters();
+      auto R = co_await advance_mc_seqno().wrap();
+      if (R.is_error()) {
+        if (R.error().code() == ErrorCode::notready) {
+          VLOG(validator, WARNING) << "failed to advance: " << R.move_as_error();
+        } else {
+          VLOG(validator, ERROR) << "failed to advance: " << R.move_as_error();
+        }
+        co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+      }
     }
     co_return {};
   }
@@ -539,7 +577,8 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   }
 
   td::actor::Task<> advance_mc_seqno() {
-    BlockSeqno next_seqno = current_->mc_state->get_seqno() + 1;
+    td::Timer timer;
+    BlockSeqno next_seqno = current_.mc_state->get_seqno() + 1;
     co_await wait_for_mc_seqno(next_seqno);
     auto next_mc_block_id = (co_await td::actor::ask(manager_, &ValidatorManager::get_block_by_seqno_from_db,
                                                      AccountIdPrefixFull{masterchainId, shardIdAll}, next_seqno))
@@ -547,7 +586,10 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
     auto [mc_state, mc_block /* not null! */] = co_await load_mc_state_block(next_mc_block_id);
     current_global_version_ = mc_state->get_config()->get_global_version();
     auto next = co_await compute_global_balance(mc_state, mc_block->root_cell());
-    compare_global_balance(*current_, *next);
+    auto S = compare_global_balance(current_, next, true);
+    if (S.is_error()) {
+      LOG(ERROR) << "Advance mc seqno to " << next_seqno << " error: " << S;
+    }
     current_ = std::move(next);
     for (auto it = cached_shard_states_.begin(); it != cached_shard_states_.end();) {
       if (is_block_too_old(it->first)) {
@@ -556,26 +598,68 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
         ++it;
       }
     }
+    VLOG(validator, INFO) << "Advanced mc seqno to " << next_seqno << ", time=" << timer.elapsed();
     co_return {};
+  }
+
+  td::actor::Task<td::RefInt256> validate_global_balance(Ref<MasterchainState> mc_state, Ref<vm::Cell> block_root,
+                                                         td::CancellationToken cancellation_token) override {
+    // Called from ValidateQuery for masterchain
+    // Shard block signatures is already validated
+    CO_TRY_BOOL(mc_state->get_seqno() > 0);
+    CO_TRY_BOOL(block_root.not_null());
+    CO_TRY_BOOL(block_root->get_hash().as_bits256() == mc_state->get_block_id().root_hash);
+    while (true) {
+      CO_TRY(cancellation_token.check());
+      if (inited() && current_.mc_state->get_seqno() >= mc_state->get_seqno() - 1) {
+        break;
+      }
+      co_await wait();
+    }
+    if (current_.mc_state->get_seqno() >= mc_state->get_seqno()) {
+      co_return td::Status::Error(ErrorCode::cancelled, "masterchain already advanced past out block");
+    }
+    BlockIdExt prev_id;
+    CO_TRY_BOOL(mc_state->get_old_mc_block_id(mc_state->get_seqno() - 1, prev_id));
+    if (current_.mc_state->get_block_id() != prev_id) {
+      co_return td::Status::Error(ErrorCode::cancelled, "wrong previous masterchain block id");
+    }
+    GlobalInfo next;
+    while (true) {
+      auto r_next = co_await compute_global_balance(Ref<MasterchainStateQ>{mc_state}, block_root).wrap();
+      if (r_next.is_error() && r_next.error().code() == ErrorCode::notready) {
+        co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
+        CO_TRY(cancellation_token.check());
+        continue;
+      }
+      next = CO_TRY(std::move(r_next));
+      break;
+    }
+    CO_TRY(cancellation_token.check());
+    if (current_.mc_state->get_block_id() != prev_id) {
+      co_return td::Status::Error(ErrorCode::cancelled, "masterchain already advanced past out block");
+    }
+    CO_TRY(compare_global_balance(current_, next, false));
+    co_return next.global_balance;
   }
 
  private:
   BlockIdExt start_mc_block_;
   td::actor::ActorId<ValidatorManager> manager_;
   std::unique_ptr<GarbageCollectorBlocker> gc_blocker_;
-  std::shared_ptr<GlobalInfo> current_;
+  GlobalInfo current_;
 
-  // Global version does not need to be precise. It is used only for correct handing of ihr_fee in old blocks
+  // Global version does not need to be precise. It is used only for correct handling of ihr_fee and
+  // dispatch queue balances in old blocks
   int current_global_version_ = 0;
 
   std::map<BlockIdExt, td::actor::SharedFuture<std::shared_ptr<ParsedShardState>>> cached_shard_states_;
 
   bool inited() const {
-    return current_ != nullptr;
+    return current_.mc_state.not_null();
   }
 
-  td::actor::Task<std::shared_ptr<GlobalInfo>> compute_global_balance(Ref<MasterchainStateQ> mc_state,
-                                                                      Ref<vm::Cell> mc_block_root) {
+  td::actor::Task<GlobalInfo> compute_global_balance(Ref<MasterchainStateQ> mc_state, Ref<vm::Cell> mc_block_root) {
     auto all_states = co_await load_all_states(mc_state, mc_block_root);
     co_return co_await compute_global_balance_from_states(all_states, mc_state, mc_block_root, manager_,
                                                           current_global_version_);
@@ -599,6 +683,11 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
     if (!cached_shard_states_.contains(block_id)) {
       cached_shard_states_[block_id] =
           load_parsed_state_inner(block_id, std::move(state), std::move(block_root)).start();
+      auto R = co_await cached_shard_states_[block_id].get().wrap();
+      if (R.is_error() && R.error().code() == ErrorCode::notready) {
+        cached_shard_states_.erase(block_id);
+      }
+      co_return std::move(R);
     }
     co_return co_await cached_shard_states_[block_id].get();
   }
@@ -630,9 +719,9 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
       return false;
     }
     if (block_id.is_masterchain()) {
-      return block_id.seqno() < current_->mc_state->get_seqno();
+      return block_id.seqno() < current_.mc_state->get_seqno();
     }
-    auto prev_desc = current_->mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
+    auto prev_desc = current_.mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
     return prev_desc.not_null() && block_id.seqno() < prev_desc->top_block_id().seqno();
   }
 
@@ -649,18 +738,39 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   }
 
   td::actor::Task<std::pair<Ref<ShardState>, Ref<BlockData>>> load_state_block(BlockIdExt block_id) {
-    auto state = co_await td::actor::ask(manager_, &ValidatorManager::get_shard_state_from_db_short, block_id);
+    auto r_state = co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state_short, block_id, 0,
+                                           td::Timestamp::in(10.0), false)
+                       .wrap();
+    if (r_state.is_error()) {
+      co_return r_state.move_as_error_prefix(
+          td::Status::Error(ErrorCode::notready, PSTRING() << "cannot fetch state " << block_id.id << ": "));
+    }
     Ref<BlockData> block;
     if (block_id.seqno() != 0) {
       block = co_await td::actor::ask(manager_, &ValidatorManager::get_block_data_from_db_short, block_id);
     }
-    co_return {state, block};
+    co_return {r_state.move_as_ok(), block};
   }
 
   td::actor::Task<std::pair<Ref<MasterchainStateQ>, Ref<BlockData>>> load_mc_state_block(BlockIdExt block_id) {
     CHECK(block_id.is_masterchain());
     auto [state, block] = co_await load_state_block(block_id);
     co_return {Ref<MasterchainStateQ>{state}, block};
+  }
+
+  std::vector<td::Promise<>> waiters_;
+
+  td::actor::StartedTask<> wait() {
+    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+    waiters_.push_back(std::move(promise));
+    return std::move(task);
+  }
+  void awake_waiters() {
+    auto waiters = std::move(waiters_);
+    waiters_.clear();
+    for (auto& waiter : waiters) {
+      waiter.set_value(td::Unit{});
+    }
   }
 };
 

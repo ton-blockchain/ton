@@ -29,6 +29,7 @@ struct ParsedShardState {
   td::RefInt256 accounts_balance = td::zero_refint();
   td::RefInt256 dispatch_queue_balance = td::zero_refint();
   td::RefInt256 mc_total_validator_fees = td::zero_refint();
+  bool dispatch_queue_balance_stored = false;
 
   static td::actor::Task<std::shared_ptr<ParsedShardState>> fetch(
       td::Ref<ShardState> state, td::Ref<vm::Cell> block_root, int global_version,

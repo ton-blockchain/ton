@@ -894,7 +894,8 @@ validatorStats.validatedBlock
     work_time_real_stats:string
     work_time_cpu_stats:string
     storage_stat_cache:validatorStats.storageStatCacheStats
-    parallel_accounts_validation:Bool = validatorStats.ValidatedBlock;
+    parallel_accounts_validation:Bool
+    wait_validate_global_balance_time:double = validatorStats.ValidatedBlock;
 
 shardBlockVerifier.subscribed flags:# = shardBlockVerifier.Subscribed;
 shardBlockVerifier.confirmBlocks blocks:(vector tonNode.blockIdExt) = shardBlockVerifier.ConfirmBlocks;
