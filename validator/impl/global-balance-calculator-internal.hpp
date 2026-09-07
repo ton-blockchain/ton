@@ -36,17 +36,15 @@ struct ParsedShardState {
       std::vector<std::shared_ptr<ParsedShardState>> prev = {});
 };
 
-td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue,
-                                                           int global_version);
+td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue, int global_version);
 td::Result<td::RefInt256> calculate_dispatch_queue_balance_diff(vm::AugmentedDictionary& old_queue,
-                                                                vm::AugmentedDictionary& new_queue,
-                                                                int global_version);
+                                                                vm::AugmentedDictionary& new_queue, int global_version);
 td::Result<td::RefInt256> get_out_queue_message_balance(const block::EnqueuedMsgDescr& msg, int global_version);
 td::Result<std::unique_ptr<vm::AugmentedDictionary>> prune_message_queue(vm::AugmentedDictionary& msg_queue);
 td::Result<std::unique_ptr<vm::AugmentedDictionary>> update_message_queue(
     const std::vector<std::shared_ptr<ParsedShardState>>& prev, td::Ref<vm::Cell> block_root, BlockIdExt block_id);
-td::Result<td::RefInt256> get_dispatch_queue_balance(
-    vm::AugmentedDictionary& dispatch_queue, const std::vector<std::shared_ptr<ParsedShardState>>& prev,
-    BlockIdExt block_id, int global_version);
+td::Result<td::RefInt256> get_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue,
+                                                     const std::vector<std::shared_ptr<ParsedShardState>>& prev,
+                                                     BlockIdExt block_id, int global_version);
 
 }  // namespace ton::validator::detail
