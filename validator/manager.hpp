@@ -334,6 +334,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle gc_masterchain_handle_;
   td::Ref<MasterchainState> gc_masterchain_state_;
   bool gc_advancing_ = false;
+  std::map<td::uint64, std::shared_ptr<std::atomic<BlockSeqno>>> gc_blockers_;
+  td::uint64 next_gc_blocker_idx_ = 0;
 
   BlockIdExt last_rotate_block_id_;
 
@@ -351,6 +353,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void got_next_gc_masterchain_state(BlockHandle handle, td::Ref<MasterchainState> state);
   void advance_gc(BlockHandle handle, td::Ref<MasterchainState> state);
   void try_advance_gc_masterchain_block();
+  std::unique_ptr<GarbageCollectorBlocker> add_gc_blocker(BlockSeqno mc_seqno = 0);
+  void remove_gc_blocker(td::uint64 idx);
   void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
   void update_shard_client_block_handle(BlockHandle handle, td::Ref<MasterchainState> state,
                                         td::Promise<td::Unit> promise) override;

@@ -504,17 +504,26 @@ void compare_global_balance(const GlobalInfo& prev, const GlobalInfo& next) {
 
 class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
  public:
-  explicit GlobalBalanceCalculatorImpl(BlockIdExt start_mc_block, td::actor::ActorId<ValidatorManager> manager)
-      : start_mc_block_(start_mc_block), manager_(std::move(manager)) {
+  explicit GlobalBalanceCalculatorImpl(BlockIdExt start_mc_block, td::actor::ActorId<ValidatorManager> manager,
+                                       std::unique_ptr<GarbageCollectorBlocker> gc_blocker)
+      : start_mc_block_(start_mc_block), manager_(std::move(manager)), gc_blocker_(std::move(gc_blocker)) {
   }
 
   void start_up() override {
-    run().start().detach_ensure("GlobalBalance");
+    run().start().detach_ensure();
   }
 
   td::actor::Task<> run() {
+    auto R = co_await run_inner().wrap();
+    LOG(ERROR) << "Global balance calculator ERROR: " << R.move_as_error();
+    stop();
+    co_return {};
+  }
+
+  td::actor::Task<> run_inner() {
     co_await init();
     while (true) {
+      gc_blocker_->set_seqno(current_->mc_state->min_ref_masterchain_seqno());
       co_await advance_mc_seqno();
     }
     co_return {};
@@ -553,6 +562,7 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
  private:
   BlockIdExt start_mc_block_;
   td::actor::ActorId<ValidatorManager> manager_;
+  std::unique_ptr<GarbageCollectorBlocker> gc_blocker_;
   std::shared_ptr<GlobalInfo> current_;
 
   // Global version does not need to be precise. It is used only for correct handing of ihr_fee in old blocks
@@ -657,8 +667,10 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
 }  // namespace
 
 td::actor::ActorOwn<GlobalBalanceCalculator> GlobalBalanceCalculator::create(
-    BlockIdExt start_mc_block, td::actor::ActorId<ValidatorManager> manager) {
-  return td::actor::create_actor<GlobalBalanceCalculatorImpl>("GlobalBalance", start_mc_block, std::move(manager));
+    BlockIdExt start_mc_block, td::actor::ActorId<ValidatorManager> manager,
+    std::unique_ptr<GarbageCollectorBlocker> gc_blocker) {
+  return td::actor::create_actor<GlobalBalanceCalculatorImpl>("GlobalBalance", start_mc_block, std::move(manager),
+                                                              std::move(gc_blocker));
 }
 
 }  // namespace ton::validator
