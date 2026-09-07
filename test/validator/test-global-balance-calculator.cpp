@@ -32,8 +32,8 @@
 #include "block/block-auto.h"
 #include "crypto/block/block-parse.h"
 #include "crypto/block/block.h"
-#include "td/actor/actor.h"
 #include "td/actor/TestScheduler.h"
+#include "td/actor/actor.h"
 #include "td/utils/tests.h"
 #include "validator/fabric.h"
 #include "validator/impl/global-balance-calculator-internal.hpp"
@@ -98,8 +98,7 @@ td::Ref<vm::CellSlice> make_enqueued(LogicalTime enqueued_lt, td::Ref<vm::Cell> 
   return vm::CellBuilder{}.store_long(enqueued_lt, 64).store_ref(std::move(envelope)).as_cellslice_ref();
 }
 
-td::BitArray<352> make_out_queue_key(WorkchainId next_workchain, td::uint64 next_prefix,
-                                    td::Bits256 msg_hash) {
+td::BitArray<352> make_out_queue_key(WorkchainId next_workchain, td::uint64 next_prefix, td::Bits256 msg_hash) {
   td::BitArray<352> key;
   key.bits().store_int(next_workchain, 32);
   (key.bits() + 32).store_uint(next_prefix, 64);
@@ -124,9 +123,10 @@ void add_out_queue_entry(vm::AugmentedDictionary& queue, td::Ref<vm::Cell> msg, 
 size_t dictionary_size(vm::DictionaryFixed& dict) {
   size_t count = 0;
   CHECK(dict.check_for_each([&](td::Ref<vm::CellSlice>, td::ConstBitPtr, int) {
-    ++count;
-    return td::Status::OK();
-  }).is_ok());
+              ++count;
+              return td::Status::OK();
+            })
+            .is_ok());
   return count;
 }
 
@@ -185,13 +185,12 @@ vm::AugmentedDictionary make_fetch_dispatch_queue(const std::vector<FetchDispatc
           envelope, block::tlb::MsgEnvelope::Record_std{0, 0, td::make_refint(0), msg, {}, {}}));
       auto key = td::BitArray<64>::zero();
       key.bits().store_uint(message.lt, 64);
-      CHECK(account_queue.dict.set(key, make_enqueued(message.lt, std::move(envelope)),
-                                   vm::Dictionary::SetMode::Add));
+      CHECK(account_queue.dict.set(key, make_enqueued(message.lt, std::move(envelope)), vm::Dictionary::SetMode::Add));
       ++account_queue.dict_size;
       total += message.grams + message.fwd_fee;
     }
-    account_queue.total_balance = account_spec.store_total_balance ? block::CurrencyCollection{total}
-                                                                   : block::CurrencyCollection{};
+    account_queue.total_balance =
+        account_spec.store_total_balance ? block::CurrencyCollection{total} : block::CurrencyCollection{};
     td::Ref<vm::CellSlice> packed;
     CHECK(account_queue.pack(packed));
     CHECK(result.set(address, std::move(packed), vm::Dictionary::SetMode::Add));
@@ -238,7 +237,7 @@ td::Ref<vm::Cell> make_test_shard_accounts(ShardIdFull shard) {
 }
 
 td::Ref<vm::Cell> make_test_out_msg_queue_info(const vm::AugmentedDictionary& msg_queue,
-                                                const vm::AugmentedDictionary* dispatch_queue) {
+                                               const vm::AugmentedDictionary* dispatch_queue) {
   vm::CellBuilder cb;
   CHECK(cb.append_cellslice_bool(vm::load_cell_slice_ref(msg_queue.get_wrapped_dict_root())));
   CHECK(cb.store_zeroes_bool(1));  // empty ProcessedInfo
@@ -256,7 +255,7 @@ td::Ref<vm::Cell> make_test_out_msg_queue_info(const vm::AugmentedDictionary& ms
 }
 
 td::Ref<vm::Cell> make_test_shard_state_root(BlockIdExt block_id, const vm::AugmentedDictionary& msg_queue,
-                                              const vm::AugmentedDictionary* dispatch_queue) {
+                                             const vm::AugmentedDictionary* dispatch_queue) {
   vm::CellBuilder cb;
   CHECK(cb.store_long_bool(0x9023afe2, 32));
   CHECK(cb.store_long_bool(0, 32));  // global_id
@@ -289,14 +288,14 @@ td::Ref<ShardState> make_test_shard_state(BlockIdExt block_id, const vm::Augment
   return create_shard_state(block_id, make_test_shard_state_root(block_id, msg_queue, dispatch_queue)).move_as_ok();
 }
 
-std::shared_ptr<ParsedShardState> fetch_test_shard_state(
-    td::Ref<ShardState> state, td::Ref<vm::Cell> block_root, int global_version,
-    std::vector<std::shared_ptr<ParsedShardState>> prev = {}) {
+std::shared_ptr<ParsedShardState> fetch_test_shard_state(td::Ref<ShardState> state, td::Ref<vm::Cell> block_root,
+                                                         int global_version,
+                                                         std::vector<std::shared_ptr<ParsedShardState>> prev = {}) {
   td::Result<std::shared_ptr<ParsedShardState>> result{td::Status::Error("fetch task did not run")};
   td::actor::TestScheduler scheduler;
   scheduler.run([&]() -> td::actor::Task<> {
-    result = co_await ParsedShardState::fetch(std::move(state), std::move(block_root), global_version,
-                                              std::move(prev)).wrap();
+    result = co_await ParsedShardState::fetch(std::move(state), std::move(block_root), global_version, std::move(prev))
+                 .wrap();
     co_return td::Unit{};
   });
   if (result.is_error()) {
@@ -378,8 +377,8 @@ TEST(GlobalBalanceCalculator, FetchRegular) {
   auto new_dispatch = make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}, {20, 200, 11, 0, 2}}, false}});
   auto prev = make_parsed_state(prev_id, std::move(prev_msgs), copy_test_dispatch_queue(old_dispatch), 107);
   auto block = make_empty_test_block(1000);
-  auto parsed = fetch_test_shard_state(make_test_shard_state(current_id, *current_msgs, &new_dispatch), block,
-                                       version, {prev});
+  auto parsed =
+      fetch_test_shard_state(make_test_shard_state(current_id, *current_msgs, &new_dispatch), block, version, {prev});
   // No account funds; retain the 100 + 7 message and add 200 + 11:
   // cached 107 + delta 211 = 318. The empty OutMsgDescr keeps OutMsgQueue empty.
   expect_int(parsed->accounts_balance, 0);
@@ -389,8 +388,7 @@ TEST(GlobalBalanceCalculator, FetchRegular) {
 
   // A current state with the new augmentation obtains the same balance without
   // retaining the dispatch dictionary or consulting its predecessor.
-  auto stored_dispatch =
-      make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}, {20, 200, 11, 0, 2}}, true}});
+  auto stored_dispatch = make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}, {20, 200, 11, 0, 2}}, true}});
   auto stored = fetch_test_shard_state(make_test_shard_state(current_id, *current_msgs, &stored_dispatch), block,
                                        version, {prev});
   // The two stored message balances are again (100 + 7) + (200 + 11) = 318.
@@ -432,8 +430,7 @@ TEST(GlobalBalanceCalculator, FetchMerge) {
   auto right_msgs = make_out_queue();
   auto current_msgs = make_out_queue();
   auto left_dispatch = make_fetch_dispatch_queue({{1, {{10, 100, 7, 0, 1}}, false}});
-  auto right_dispatch =
-      make_fetch_dispatch_queue({{0x9000000000000000ULL, {{20, 200, 11, 0, 2}}, false}});
+  auto right_dispatch = make_fetch_dispatch_queue({{0x9000000000000000ULL, {{20, 200, 11, 0, 2}}, false}});
   auto current_dispatch = make_fetch_dispatch_queue({
       {1, {{10, 100, 7, 0, 1}}, false},
       {0x9000000000000000ULL, {{20, 200, 11, 0, 2}}, false},
@@ -487,18 +484,16 @@ td::Ref<vm::CellSlice> gbc_grams(td::uint64 amount) {
   return vm::load_cell_slice_ref(cb.finalize());
 }
 
-td::Ref<vm::Cell> gbc_internal_message(td::uint64 src_prefix, td::uint64 dest_prefix,
-                                       LogicalTime created_lt, unsigned discriminator) {
+td::Ref<vm::Cell> gbc_internal_message(td::uint64 src_prefix, td::uint64 dest_prefix, LogicalTime created_lt,
+                                       unsigned discriminator) {
   vm::CellBuilder cb;
   CHECK(cb.store_zeroes_bool(1));  // int_msg_info$0
   CHECK(cb.store_ones_bool(1));    // ihr_disabled
   CHECK(cb.store_zeroes_bool(2));  // bounce, bounced
-  CHECK(block::tlb::t_MsgAddressInt.store_std_address(
-      cb, basechainId, gbc_address(src_prefix, discriminator)));
-  CHECK(block::tlb::t_MsgAddressInt.store_std_address(
-      cb, basechainId, gbc_address(dest_prefix, discriminator + 1)));
+  CHECK(block::tlb::t_MsgAddressInt.store_std_address(cb, basechainId, gbc_address(src_prefix, discriminator)));
+  CHECK(block::tlb::t_MsgAddressInt.store_std_address(cb, basechainId, gbc_address(dest_prefix, discriminator + 1)));
   CHECK(block::CurrencyCollection{1000 + discriminator}.store(cb));
-  CHECK(block::tlb::t_Grams.store_integer_value(cb, *td::zero_refint()));  // extra_flags
+  CHECK(block::tlb::t_Grams.store_integer_value(cb, *td::zero_refint()));                   // extra_flags
   CHECK(block::tlb::t_Grams.store_integer_value(cb, *td::make_refint(3 + discriminator)));  // fwd_fee
   CHECK(cb.store_ulong_rchk_bool(created_lt, 64));
   CHECK(cb.store_ulong_rchk_bool(discriminator, 32));
@@ -517,11 +512,10 @@ td::BitArray<352> gbc_queue_key(AccountIdPrefixFull next_prefix, td::Bits256 msg
 }
 
 GbcMessage gbc_message(td::uint64 src_prefix, td::uint64 dest_prefix, int cur_addr, int next_addr,
-                       LogicalTime created_lt, unsigned discriminator,
-                       td::optional<LogicalTime> emitted_lt = {}) {
+                       LogicalTime created_lt, unsigned discriminator, td::optional<LogicalTime> emitted_lt = {}) {
   GbcMessage result;
   result.message = gbc_internal_message(src_prefix, dest_prefix, created_lt, discriminator);
-  block::tlb::MsgEnvelope::Record_std env{cur_addr, next_addr, td::make_refint(17 + discriminator),
+  block::tlb::MsgEnvelope::Record_std env{cur_addr,       next_addr,  td::make_refint(17 + discriminator),
                                           result.message, emitted_lt, {}};
   CHECK(block::tlb::t_MsgEnvelope.pack_cell(result.envelope, env));
   result.hash = result.message->get_hash().as_bits256();
@@ -541,8 +535,7 @@ void gbc_enqueue(vm::AugmentedDictionary& queue, const GbcMessage& msg, LogicalT
   CHECK(queue.set(msg.queue_key, gbc_enqueued(msg, enqueued_lt), vm::Dictionary::SetMode::Add));
 }
 
-void gbc_expect_enqueued(vm::AugmentedDictionary& queue, const GbcMessage& msg,
-                         LogicalTime expected_lt) {
+void gbc_expect_enqueued(vm::AugmentedDictionary& queue, const GbcMessage& msg, LogicalTime expected_lt) {
   auto value = queue.lookup(msg.queue_key);
   CHECK(value.not_null());
   block::EnqueuedMsgDescr descr;
@@ -599,8 +592,7 @@ td::Ref<vm::Cell> gbc_out_deq_short(const GbcMessage& msg) {
 
 td::Ref<vm::Cell> gbc_out_tr_req(const GbcMessage& msg, const GbcMessage& imported) {
   td::Ref<vm::Cell> result;
-  CHECK(block::gen::t_OutMsg.cell_pack_msg_export_tr_req(
-      result, msg.envelope, gbc_in_msg_tr(imported, msg.envelope)));
+  CHECK(block::gen::t_OutMsg.cell_pack_msg_export_tr_req(result, msg.envelope, gbc_in_msg_tr(imported, msg.envelope)));
   return result;
 }
 
@@ -667,8 +659,7 @@ BlockIdExt gbc_block_id(ShardIdFull shard, BlockSeqno seqno) {
   return BlockIdExt{BlockId{shard.workchain, shard.shard, seqno}};
 }
 
-std::shared_ptr<GbcParsedState> gbc_prev(ShardIdFull shard, BlockSeqno seqno,
-                                         vm::AugmentedDictionary queue) {
+std::shared_ptr<GbcParsedState> gbc_prev(ShardIdFull shard, BlockSeqno seqno, vm::AugmentedDictionary queue) {
   auto state = std::make_shared<GbcParsedState>();
   state->block_id = gbc_block_id(shard, seqno);
   state->msg_queue = std::make_unique<vm::AugmentedDictionary>(std::move(queue));
@@ -677,10 +668,12 @@ std::shared_ptr<GbcParsedState> gbc_prev(ShardIdFull shard, BlockSeqno seqno,
 
 std::size_t gbc_queue_size(vm::AugmentedDictionary& queue) {
   std::size_t result = 0;
-  CHECK(queue.check_for_each([&](td::Ref<vm::CellSlice>, td::ConstBitPtr, int) {
-    ++result;
-    return td::Status::OK();
-  }).is_ok());
+  CHECK(queue
+            .check_for_each([&](td::Ref<vm::CellSlice>, td::ConstBitPtr, int) {
+              ++result;
+              return td::Status::OK();
+            })
+            .is_ok());
   return result;
 }
 
@@ -761,7 +754,8 @@ TEST(GlobalBalanceCalculator, UpdateMessageQueueSplit) {
   gbc_add_out_msg(out_msgs, added.hash, gbc_out_new(added));
   std::vector<std::shared_ptr<GbcParsedState>> prev;
   prev.push_back(gbc_prev(parent_shard, 2, std::move(parent_queue)));
-  auto updated = detail::update_message_queue(prev, gbc_block(out_msgs, start_lt), gbc_block_id(left_shard, 3)).move_as_ok();
+  auto updated =
+      detail::update_message_queue(prev, gbc_block(out_msgs, start_lt), gbc_block_id(left_shard, 3)).move_as_ok();
 
   // The left child retains kept (prefix 0x20..., old enqueue time 601),
   // filters out the right child's 0xa0... entry, and adds the new message
@@ -791,7 +785,8 @@ TEST(GlobalBalanceCalculator, UpdateMessageQueueMerge) {
   std::vector<std::shared_ptr<GbcParsedState>> prev;
   prev.push_back(gbc_prev(left_shard, 3, std::move(left_queue)));
   prev.push_back(gbc_prev(right_shard, 3, std::move(right_queue)));
-  auto updated = detail::update_message_queue(prev, gbc_block(out_msgs, start_lt), gbc_block_id(parent_shard, 4)).move_as_ok();
+  auto updated =
+      detail::update_message_queue(prev, gbc_block(out_msgs, start_lt), gbc_block_id(parent_shard, 4)).move_as_ok();
 
   // The merged queue starts with removed + survivor. Dequeue removed and add
   // added: only survivor (old enqueue time 702) and added (created_lt=303)
@@ -861,7 +856,7 @@ td::Ref<vm::Cell> make_test_internal_message(const DispatchMessageSpec& spec, co
 }
 
 td::Ref<vm::CellSlice> make_test_enqueued_message(const DispatchMessageSpec& spec, const StdSmcAddress& src,
-                                                   td::Ref<vm::Cell>* message = nullptr) {
+                                                  td::Ref<vm::Cell>* message = nullptr) {
   auto msg = make_test_internal_message(spec, src);
   td::Ref<vm::Cell> envelope;
   CHECK(block::tlb::t_MsgEnvelope.pack_cell(
@@ -869,8 +864,7 @@ td::Ref<vm::CellSlice> make_test_enqueued_message(const DispatchMessageSpec& spe
   if (message != nullptr) {
     *message = msg;
   }
-  return vm::load_cell_slice_ref(
-      vm::CellBuilder{}.store_long(spec.lt, 64).store_ref(std::move(envelope)).finalize());
+  return vm::load_cell_slice_ref(vm::CellBuilder{}.store_long(spec.lt, 64).store_ref(std::move(envelope)).finalize());
 }
 
 vm::AugmentedDictionary make_test_dispatch_queue(const std::vector<DispatchAccountSpec>& accounts) {
@@ -953,8 +947,7 @@ TEST(GlobalBalanceCalculator, CalculateDispatchQueueBalanceDiff) {
   // Re-encoding an unchanged per-account dictionary from the old constructor
   // to the constructor with total_balance must not look like a balance change:
   // both contain (600 + 29) + (700 + 31) = 1360, so both deltas are zero.
-  const std::vector<DispatchMessageSpec> unchanged_messages{{60, 600, 29, 0, 60},
-                                                            {70, 700, 31, 0, 70}};
+  const std::vector<DispatchMessageSpec> unchanged_messages{{60, 600, 29, 0, 60}, {70, 700, 31, 0, 70}};
   auto old_encoding = make_test_dispatch_queue({{4, unchanged_messages, false}});
   auto new_encoding = make_test_dispatch_queue({{4, unchanged_messages, true}});
   CHECK(old_encoding.get_wrapped_dict_root()->get_hash() != new_encoding.get_wrapped_dict_root()->get_hash());
@@ -1023,8 +1016,7 @@ TEST(GlobalBalanceCalculator, GetDispatchQueueBalance) {
   auto shard = ShardIdFull{basechainId, shardIdAll};
 
   // Without a predecessor, scan both messages: (100 + 7) + (200 + 11) = 318.
-  auto no_prev_queue = make_test_dispatch_queue({{1, {{10, 100, 7, 0, 1}}, false},
-                                                  {2, {{20, 200, 11, 0, 2}}, true}});
+  auto no_prev_queue = make_test_dispatch_queue({{1, {{10, 100, 7, 0, 1}}, false}, {2, {{20, 200, 11, 0, 2}}, true}});
   CHECK(test_int_value(detail::get_dispatch_queue_balance(no_prev_queue, {}, make_block_id(shard, 1), 16)) == 318);
 
   // A regular block adds the new message's 200 + 11 = 211 to cached 107,
@@ -1057,13 +1049,13 @@ TEST(GlobalBalanceCalculator, GetDispatchQueueBalance) {
   auto right_prev = make_parsed_state(make_block_id(right_shard, 2), {},
                                       std::make_unique<vm::AugmentedDictionary>(std::move(right_queue)), 211);
   CHECK(test_int_value(detail::get_dispatch_queue_balance(merged_queue, {left_prev, right_prev},
-                                                           make_block_id(shard, 3), 16)) == 420);
+                                                          make_block_id(shard, 3), 16)) == 420);
 
   // With no retained predecessor dictionary, scan both current messages:
   // (100 + 7) + (300 + 13) = 420; the predecessor's zero cache is not used.
   auto unknown_prev = make_parsed_state(make_block_id(shard, 3), {}, {}, 0);
-  CHECK(test_int_value(detail::get_dispatch_queue_balance(merged_queue, {unknown_prev},
-                                                           make_block_id(shard, 4), 16)) == 420);
+  CHECK(test_int_value(detail::get_dispatch_queue_balance(merged_queue, {unknown_prev}, make_block_id(shard, 4), 16)) ==
+        420);
 }
 
 TEST(GlobalBalanceCalculator, QueueBalancesWithNonzeroIhrFee) {
@@ -1100,12 +1092,11 @@ TEST(GlobalBalanceCalculator, QueueBalancesWithNonzeroIhrFee) {
 
     // Initialization scans the old dispatch queue. The next fetch uses the
     // cached balance plus a dictionary diff; both must use the supplied version.
-    auto prev = fetch_test_shard_state(
-        make_test_shard_state(make_block_id(shard, 1), *msg_queue, &old_dispatch), {}, version);
+    auto prev =
+        fetch_test_shard_state(make_test_shard_state(make_block_id(shard, 1), *msg_queue, &old_dispatch), {}, version);
     expect_int(prev->dispatch_queue_balance, old_dispatch_balance);
-    auto parsed = fetch_test_shard_state(
-        make_test_shard_state(make_block_id(shard, 2), *msg_queue, &new_dispatch), make_empty_test_block(1000), version,
-        {prev});
+    auto parsed = fetch_test_shard_state(make_test_shard_state(make_block_id(shard, 2), *msg_queue, &new_dispatch),
+                                         make_empty_test_block(1000), version, {prev});
     expect_int(parsed->accounts_balance, 0);  // The fixture account has no funds.
     expect_int(parsed->dispatch_queue_balance, new_dispatch_balance);
 
@@ -1134,8 +1125,7 @@ TEST(GlobalBalanceCalculator, QueueBalancesWithNonzeroIhrFee) {
       // Combined queues: old = 318+368 / 323+372 = 686/695;
       // new = 318+732 / 323+735 = 1050/1058. No account funds are added.
       const bool old = state == prev;
-      expect_int(out_balance + state->dispatch_queue_balance,
-                 old ? (legacy ? 695 : 686) : (legacy ? 1058 : 1050));
+      expect_int(out_balance + state->dispatch_queue_balance, old ? (legacy ? 695 : 686) : (legacy ? 1058 : 1050));
     }
   }
 }
