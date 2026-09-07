@@ -60,6 +60,7 @@ set(VALIDATOR_HEADERS
   shard-block-verifier.hpp
   shard-block-retainer.hpp
   global-balance-calculator.hpp
+  impl/global-balance-calculator-internal.hpp
 
   manager-disk.h
   manager-disk.hpp
