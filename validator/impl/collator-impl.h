@@ -193,6 +193,7 @@ class Collator final : public td::actor::Actor {
   int block_limit_class_ = 0;
   ton::LogicalTime min_new_msg_lt{std::numeric_limits<td::uint64>::max()};
   block::CurrencyCollection total_balance_, old_total_balance_, total_validator_fees_;
+  td::RefInt256 calculated_prev_global_balance_;
   block::CurrencyCollection global_balance_, old_global_balance_, import_created_{0};
   Ref<vm::Cell> recover_create_msg_, mint_msg_;
   Ref<vm::Cell> new_block;
@@ -292,6 +293,7 @@ class Collator final : public td::actor::Actor {
   void got_neighbor_msg_queues(td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> R, td::PerfLogAction token);
   void got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res);
   void got_out_queue_size(size_t i, td::Result<td::uint64> res);
+  void got_prev_global_balance(td::Result<td::RefInt256> res, td::PerfLogAction token);
   bool adjust_shard_config();
   bool store_shard_fees(ShardIdFull shard, const block::CurrencyCollection& fees,
                         const block::CurrencyCollection& created);
@@ -330,6 +332,7 @@ class Collator final : public td::actor::Actor {
   bool check_this_shard_mc_info();
   bool request_neighbor_msg_queues();
   bool request_out_msg_queue_size();
+  bool request_prev_global_balance();
   void update_max_lt(ton::LogicalTime lt);
   bool is_masterchain() const {
     return shard_.is_masterchain();

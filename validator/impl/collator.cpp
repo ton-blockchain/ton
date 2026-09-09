@@ -1031,6 +1031,27 @@ bool Collator::request_out_msg_queue_size() {
 }
 
 /**
+ * Requests global balance of the previous masterchain state.
+ *
+* @returns True if the request was successful, false otherwise.
+ */
+bool Collator::request_prev_global_balance() {
+  if (params_.is_hardfork || params_.is_fake) {
+    calculated_prev_global_balance_ = old_global_balance_.grams;
+    LOG(INFO) << "Previous global balance = " << calculated_prev_global_balance_;
+    return true;
+  }
+  ++pending;
+  auto token = perf_log_.start_action("get_global_balance");
+  send_closure_later(manager, &ValidatorManager::get_global_balance, prev_blocks[0], timeout_,
+                     [self = get_self(), token = std::move(token)](td::Result<td::RefInt256> res) mutable {
+                       td::actor::send_closure(std::move(self), &Collator::got_prev_global_balance, std::move(res),
+                                               std::move(token));
+                     });
+  return true;
+}
+
+/**
  * Handles the result of obtaining the outbound queue for a neighbor.
  *
  * @param R The result of retrieving neighbor message queues (top block id -> queue).
@@ -1166,6 +1187,24 @@ void Collator::got_out_queue_size(size_t i, td::Result<td::uint64> res) {
   td::uint64 size = res.move_as_ok();
   LOG(WARNING) << "got outbound queue size from prev block #" << i << ": " << size;
   out_msg_queue_size_ += size;
+  check_pending();
+}
+
+/**
+ * Handles the result of obtaining global balance of the previous state.
+ *
+ * @param res The resulting balance.
+ */
+void Collator::got_prev_global_balance(td::Result<td::RefInt256> res, td::PerfLogAction token) {
+  CHECK(is_masterchain());
+  token.finish(res);
+  if (res.is_error()) {
+    fatal_error(res.move_as_error_prefix("failed to get global balance of the previous state: "));
+    return;
+  }
+  --pending;
+  calculated_prev_global_balance_ = res.move_as_ok();
+  LOG(INFO) << "Previous global balance = " << calculated_prev_global_balance_;
   check_pending();
 }
 
@@ -1784,6 +1823,9 @@ bool Collator::do_preinit() {
     return false;
   }
   if (!request_out_msg_queue_size()) {
+    return false;
+  }
+  if (is_masterchain() && global_version_ >= 17 && !request_prev_global_balance()) {
     return false;
   }
   return true;
@@ -5280,6 +5322,11 @@ bool Collator::create_mc_state_extra() {
   global_balance_ += value_flow_.created;
   global_balance_ += value_flow_.minted;
   global_balance_ += import_created_;
+  if (global_version_ >= 17) {
+    CHECK(calculated_prev_global_balance_.not_null());
+    global_balance_.grams =
+        calculated_prev_global_balance_ + value_flow_.created.grams + import_created_.grams - value_flow_.burned.grams;
+  }
   LOG(INFO) << "Global balance is " << global_balance_.to_str();
   if (!global_balance_.pack_to(state_extra.global_balance)) {
     return fatal_error("cannot store global_balance");
