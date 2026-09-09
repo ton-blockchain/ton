@@ -65,7 +65,6 @@ struct ValidateParams {
   bool is_fake = false;
 
   bool parallel_validation = false;
-  bool check_global_balance = false;
 
   // Optional - if empty, states are taken from manager
   // If not empty, should be the same size as prev
