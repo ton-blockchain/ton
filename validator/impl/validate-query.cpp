@@ -100,7 +100,6 @@ ValidateQuery::ValidateQuery(BlockCandidate candidate, ValidateParams params,
     , shard_pfx_(shard_.shard)
     , shard_pfx_len_(ton::shard_prefix_length(shard_))
     , preloaded_prev_block_state_roots_(std::move(params.prev_block_state_roots))
-    , check_global_balance_(params.check_global_balance && shard_.is_masterchain())
     , perf_timer_("validateblock", 0.1, [manager](double duration) {
       send_closure(manager, &ValidatorManager::add_perf_timer_stat, "validateblock", duration);
     }) {
@@ -1050,6 +1049,7 @@ bool ValidateQuery::try_unpack_mc_state() {
     global_version_ = config_->get_global_version();
     allow_same_timestamp_ = global_version_ >= 13;
     store_dispatch_queue_balance_ = global_version_ >= 16;
+    check_global_balance_ = global_version_ >= 17 && shard_.is_masterchain() && !is_fake_;
     prev_key_block_exists_ = config_->get_last_key_block(prev_key_block_, prev_key_block_lt_);
     if (prev_key_block_exists_) {
       prev_key_block_seqno_ = prev_key_block_.seqno();
