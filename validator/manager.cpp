@@ -2539,7 +2539,7 @@ void ValidatorManagerImpl::update_shards() {
         serializer_, &AsyncStateSerializer::auto_disable_serializer,
         (is_validator() || is_collator()) && last_masterchain_state_->get_global_id() == -239);  // mainnet only
   }
-  if (started_) {
+  if (started_ && last_masterchain_state_->get_global_version() >= 17) {
     init_global_balance_calculator();
   }
 }

@@ -339,3 +339,8 @@ __Enabled in mainnet on 2026-07-23__
 
 ### Other changes
 - Added total message value to dispatch queue augmentation data.
+
+## Version 17
+
+### Other changes
+- Masterchain validators check global balance of grams in the blockchain.
