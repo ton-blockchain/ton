@@ -2079,6 +2079,8 @@ td::Result<SizeLimitsConfig> Config::do_get_size_limits_config(td::Ref<vm::CellS
     unpack_v2(rec);
     limits.max_total_msg_bits = rec.max_total_msg_bits;
     limits.max_total_msg_cells = rec.max_total_msg_cells;
+    limits.out_msg_queue_size_hard_limit = rec.out_msg_queue_size_hard_limit;
+    limits.out_msg_queue_size_soft_limit = rec.out_msg_queue_size_soft_limit;
   };
   gen::SizeLimitsConfig::Record_size_limits_config rec_v1;
   gen::SizeLimitsConfig::Record_size_limits_config_v2 rec_v2;
