@@ -389,6 +389,10 @@ struct GlobalInfo {
   Ref<MasterchainStateQ> mc_state;
   td::RefInt256 global_balance = td::zero_refint();
   td::RefInt256 last_mc_block_burned = td::zero_refint();
+
+  BlockSeqno seqno() const {
+    return mc_state->get_seqno();
+  }
 };
 
 td::actor::Task<GlobalInfo> compute_global_balance_from_states(
@@ -509,9 +513,9 @@ td::Status compare_global_balance(const GlobalInfo& prev, const GlobalInfo& next
                                        << " (diff=" << next.global_balance - expected_next << ")");
   }
   if (log_success) {
-    VLOG(validator, INFO) << "Checked global balance at " << next.mc_state->get_seqno()
-                          << ", OK: prev=" << prev.global_balance << " created=" << funds_created
-                          << " burned=" << next.last_mc_block_burned << " next=" << next.global_balance;
+    VLOG(validator, INFO) << "Checked global balance at " << next.seqno() << ", OK: prev=" << prev.global_balance
+                          << " created=" << funds_created << " burned=" << next.last_mc_block_burned
+                          << " next=" << next.global_balance;
   }
   return td::Status::OK();
 }
@@ -553,8 +557,14 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
       break;
     }
     while (true) {
+      global_balance_history_[current_.mc_state->get_block_id()] = current_.global_balance;
+      while (!global_balance_history_.empty() &&
+             global_balance_history_.begin()->first.seqno() + 100 < current_.seqno()) {
+        global_balance_history_.erase(global_balance_history_.begin());
+      }
       gc_blocker_->set_seqno(current_.mc_state->min_ref_masterchain_seqno());
       awake_waiters();
+
       auto R = co_await advance_mc_seqno().wrap();
       if (R.is_error()) {
         if (R.error().code() == ErrorCode::notready) {
@@ -578,9 +588,9 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   }
 
   td::actor::Task<> advance_mc_seqno() {
-    td::Timer timer;
-    BlockSeqno next_seqno = current_.mc_state->get_seqno() + 1;
+    BlockSeqno next_seqno = current_.seqno() + 1;
     co_await wait_for_mc_seqno(next_seqno);
+    td::Timer timer;
     auto next_mc_block_id = (co_await td::actor::ask(manager_, &ValidatorManager::get_block_by_seqno_from_db,
                                                      AccountIdPrefixFull{masterchainId, shardIdAll}, next_seqno))
                                 ->id();
@@ -620,12 +630,12 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
     CO_TRY_BOOL(block_root->get_hash().as_bits256() == mc_state->get_block_id().root_hash);
     while (true) {
       CO_TRY(cancellation_token.check());
-      if (inited() && current_.mc_state->get_seqno() >= mc_state->get_seqno() - 1) {
+      if (inited() && current_.seqno() >= mc_state->get_seqno() - 1) {
         break;
       }
       co_await wait();
     }
-    if (current_.mc_state->get_seqno() >= mc_state->get_seqno()) {
+    if (current_.seqno() >= mc_state->get_seqno()) {
       co_return td::Status::Error(ErrorCode::cancelled, "masterchain already advanced past out block");
     }
     BlockIdExt prev_id;
@@ -654,6 +664,30 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
     co_return next.global_balance;
   }
 
+  td::actor::Task<td::RefInt256> get_global_balance(BlockIdExt mc_block_id, td::Timestamp timeout) override {
+    CHECK(mc_block_id.is_masterchain());
+    while (true) {
+      if (timeout && timeout.is_in_past()) {
+        co_return td::Status::Error(ErrorCode::timeout, "timeout");
+      }
+      if (inited()) {
+        if (current_.seqno() >= mc_block_id.seqno()) {
+          auto it = global_balance_history_.find(mc_block_id);
+          if (it != global_balance_history_.end()) {
+            co_return it->second;
+          }
+          if (!global_balance_history_.empty() &&
+              global_balance_history_.begin()->first.seqno() > mc_block_id.seqno()) {
+            co_return td::Status::Error(PSTRING()
+                                        << "cannot get global balance for " << mc_block_id.id << " : too old");
+          }
+          co_return td::Status::Error(PSTRING() << "cannot get global balance for " << mc_block_id);
+        }
+      }
+      co_await wait();
+    }
+  }
+
   void on_new_shard_block(BlockIdExt block_id) override {
     if (!inited() || is_block_too_old(block_id) || is_block_too_new(block_id)) {
       return;
@@ -673,6 +707,7 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
 
   std::map<BlockIdExt, td::actor::SharedFuture<std::shared_ptr<ParsedShardState>>> cached_shard_states_;
   td::LRUCache<BlockIdExt, GlobalInfo> mc_global_balance_cache_{20};
+  std::map<BlockIdExt, td::RefInt256> global_balance_history_;
 
   bool inited() const {
     return current_.mc_state.not_null();
@@ -738,7 +773,7 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
       return false;
     }
     if (block_id.is_masterchain()) {
-      return block_id.seqno() < current_.mc_state->get_seqno();
+      return block_id.seqno() < current_.seqno();
     }
     auto prev_desc_left = current_.mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
     auto prev_desc_right = current_.mc_state->get_shard_from_config(block_id.shard_full() + 1, false);
@@ -753,7 +788,7 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
       return false;
     }
     if (block_id.is_masterchain()) {
-      return block_id.seqno() > current_.mc_state->get_seqno() + 8;
+      return block_id.seqno() > current_.seqno() + 8;
     }
     auto prev_desc_left = current_.mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
     auto prev_desc_right = current_.mc_state->get_shard_from_config(block_id.shard_full() + 1, false);

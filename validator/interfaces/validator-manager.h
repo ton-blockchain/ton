@@ -481,6 +481,9 @@ class ValidatorManager : public ValidatorManagerInterface {
                                                                  td::CancellationToken cancellation_token) {
     co_return td::Status::Error("not implemented");
   }
+  virtual td::actor::Task<td::RefInt256> get_global_balance(BlockIdExt mc_block_id, td::Timestamp timeout) {
+    co_return td::Status::Error("not implemented");
+  }
 
   static bool is_persistent_state(UnixTime ts, UnixTime prev_ts) {
     return ts / (1 << 17) != prev_ts / (1 << 17);

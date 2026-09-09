@@ -715,6 +715,16 @@ class ValidatorManagerImpl : public ValidatorManager {
     co_return co_await td::actor::ask(global_balance_calculator_, &GlobalBalanceCalculator::validate_global_balance,
                                       std::move(mc_state), std::move(block_root), std::move(cancellation_token));
   }
+  td::actor::Task<td::RefInt256> get_global_balance(BlockIdExt mc_block_id, td::Timestamp timeout) override {
+    if (global_balance_calculator_.empty()) {
+      init_global_balance_calculator();
+      if (global_balance_calculator_.empty()) {
+        co_return td::Status::Error(ErrorCode::notready, "global balance calculator is not inited");
+      }
+    }
+    co_return co_await td::actor::ask(global_balance_calculator_, &GlobalBalanceCalculator::get_global_balance,
+                                      mc_block_id, timeout);
+  }
 
  private:
   td::Timestamp resend_shard_blocks_at_;
