@@ -274,6 +274,7 @@ class ValidateQuery : public td::actor::Actor {
 
   bool check_global_balance_ = false;
   td::actor::SharedFuture<td::RefInt256> validate_global_balance_future_;
+  td::Result<td::RefInt256> validate_global_balance_result_;
   td::CancellationTokenSource cancellation_;
 
   td::PerfWarningTimer perf_timer_;
@@ -482,6 +483,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_mc_block_extra();
 
   bool validate_global_balance();
+  bool finish_global_balance_check();
 
   Ref<vm::Cell> get_virt_state_root(const BlockIdExt& block_id);
 

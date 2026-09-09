@@ -254,21 +254,15 @@ bool ValidateQuery::fatal_error(std::string err_msg, int err_code) {
  * Finishes the query and sends the result to the promise.
  */
 td::actor::Task<> ValidateQuery::finish_query() {
-  if (check_global_balance_) {
-    td::Timer timer;
-    auto R = co_await validate_global_balance_future_.get().wrap();
-    stats_.wait_validate_global_balance_time = timer.elapsed();
-    if (R.is_error()) {
-      if (R.error().code() == ErrorCode::cancelled) {
-        abort_query(R.move_as_error());
-      } else {
-        // We check validate_global_balance result in finish_query instead of immediately when it finished
-        // This way invalid blocks will be rejected normally, not as confusing "global balance error"
-        reject_query("Validate global balance error", R.move_as_error());
-      }
+  if (is_masterchain()) {
+    if (check_global_balance_) {
+      td::Timer timer;
+      validate_global_balance_result_ = co_await validate_global_balance_future_.get().wrap();
+      stats_.wait_validate_global_balance_time = timer.elapsed();
+    }
+    if (!finish_global_balance_check()) {
       co_return {};
     }
-    LOG(INFO) << "Global balance checked: " << R.move_as_ok();
   }
   if (main_promise) {
     if (!storage_stat_cache_update_.empty()) {
@@ -7285,13 +7279,6 @@ bool ValidateQuery::check_mc_state_extra() {
   }
   REJECT_UNLESS(old_global_balance == ps_.global_balance_);
   REJECT_UNLESS(global_balance == ns_.global_balance_);
-  auto expected_global_balance = old_global_balance + value_flow_.minted + value_flow_.created + import_created_;
-  if (global_balance != expected_global_balance) {
-    return reject_query("global balance changed in unexpected way: expected old+minted+created+import_created = "s +
-                        old_global_balance.to_str() + "+" + value_flow_.minted.to_str() + "+" +
-                        value_flow_.created.to_str() + "+" + import_created_.to_str() + " = " +
-                        expected_global_balance.to_str() + ", found " + global_balance.to_str());
-  }
   // ...
   return true;
 }
@@ -7558,6 +7545,43 @@ bool ValidateQuery::validate_global_balance() {
   validate_global_balance_future_ =
       td::actor::ask(manager, &ValidatorManager::validate_global_balance, Ref<MasterchainState>{r_state.move_as_ok()},
                      block_root_, cancellation_.get_cancellation_token());
+  return true;
+}
+
+/**
+ * Check the result of validate_global_balance and global_balance stored in the state.
+ *
+ * @returns True if the operation was successful, false otherwise.
+ */
+bool ValidateQuery::finish_global_balance_check() {
+  if (check_global_balance_) {
+    if (validate_global_balance_result_.is_error()) {
+      if (validate_global_balance_result_.error().code() == ErrorCode::cancelled) {
+        abort_query(validate_global_balance_result_.move_as_error());
+      } else {
+        // We check validate_global_balance result in finish_query instead of immediately when it finished
+        // This way invalid blocks will be rejected normally, not as confusing "global balance error"
+        reject_query("Validate global balance error", validate_global_balance_result_.move_as_error());
+      }
+      return false;
+    }
+    LOG(INFO) << "Global balance checked: " << validate_global_balance_result_.ok();
+  }
+  auto expected_global_balance = ps_.global_balance_ + value_flow_.minted + value_flow_.created + import_created_;
+  if (global_version_ >= 17) {
+    if (check_global_balance_) {
+      expected_global_balance.grams = validate_global_balance_result_.ok();
+    } else {
+      CHECK(is_fake_);
+      expected_global_balance.grams =
+          ps_.global_balance_.grams + value_flow_.created.grams + import_created_.grams - value_flow_.burned.grams;
+    }
+  }
+  if (ns_.global_balance_ != expected_global_balance) {
+    return reject_query(PSTRING() << "stored global balance changed in unexpected way: " << "old="
+                                  << ps_.global_balance_.to_str() << " new=" << ns_.global_balance_.to_str()
+                                  << " expected=" << expected_global_balance.to_str());
+  }
   return true;
 }
 
