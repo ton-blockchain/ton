@@ -539,6 +539,15 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   }
   void alarm() override {
     alarm_timestamp() = td::Timestamp::in(5.0);
+    if (inited()) {
+      for (auto it = cached_shard_states_.begin(); it != cached_shard_states_.end();) {
+        if (!it->second.no_remove && it->second.remove_at && it->second.remove_at.is_in_past()) {
+          it = cached_shard_states_.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
     awake_waiters();
   }
 
@@ -583,7 +592,7 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
     auto [mc_state, mc_block] = co_await load_mc_state_block(start_mc_block_);
     auto mc_block_root = mc_block.not_null() ? mc_block->root_cell() : Ref<vm::Cell>{};
     current_global_version_ = mc_state->get_config()->get_global_version();
-    current_ = co_await compute_global_balance(mc_state, mc_block_root);
+    current_ = co_await compute_global_balance(mc_state, mc_block_root, true);
     co_return {};
   }
 
@@ -596,13 +605,9 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
                                 ->id();
     auto [mc_state, mc_block /* not null! */] = co_await load_mc_state_block(next_mc_block_id);
     current_global_version_ = mc_state->get_config()->get_global_version();
-    GlobalInfo next;
-    auto cached = mc_global_balance_cache_.get_if_exists(next_mc_block_id);
-    if (cached) {
-      next = *cached;
-      next.mc_state = mc_state;
-    } else {
-      next = co_await compute_global_balance(mc_state, mc_block->root_cell());
+    bool cached;
+    GlobalInfo next = co_await compute_global_balance(mc_state, mc_block->root_cell(), true, &cached);
+    if (!cached) {
       auto S = compare_global_balance(current_, next, true);
       if (S.is_error()) {
         LOG(ERROR) << "Advance mc seqno to " << next_seqno << " error: " << S;
@@ -705,7 +710,12 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   // dispatch queue balances in old blocks
   int current_global_version_ = 0;
 
-  std::map<BlockIdExt, td::actor::SharedFuture<std::shared_ptr<ParsedShardState>>> cached_shard_states_;
+  struct CachedState {
+    td::actor::SharedFuture<std::shared_ptr<ParsedShardState>> future;
+    td::Timestamp remove_at;
+    bool no_remove = false;
+  };
+  std::map<BlockIdExt, CachedState> cached_shard_states_;
   td::LRUCache<BlockIdExt, GlobalInfo> mc_global_balance_cache_{20};
   std::map<BlockIdExt, td::RefInt256> global_balance_history_;
 
@@ -713,37 +723,55 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
     return current_.mc_state.not_null();
   }
 
-  td::actor::Task<GlobalInfo> compute_global_balance(Ref<MasterchainStateQ> mc_state, Ref<vm::Cell> mc_block_root) {
-    auto all_states = co_await load_all_states(mc_state, mc_block_root);
+  td::actor::Task<GlobalInfo> compute_global_balance(Ref<MasterchainStateQ> mc_state, Ref<vm::Cell> mc_block_root,
+                                                     bool no_remove = false, bool* from_cache = nullptr) {
+    auto all_states = co_await load_all_states(mc_state, mc_block_root, no_remove);
+    auto cached = mc_global_balance_cache_.get_if_exists(mc_state->get_block_id());
+    if (from_cache) {
+      *from_cache = (bool)cached;
+    }
+    if (cached) {
+      auto result = *cached;
+      result.mc_state = std::move(mc_state);
+      co_return result;
+    }
     co_return co_await compute_global_balance_from_states(all_states, mc_state, mc_block_root, manager_,
                                                           current_global_version_);
   }
 
   td::actor::Task<std::vector<std::shared_ptr<ParsedShardState>>> load_all_states(Ref<MasterchainStateQ> mc_state,
-                                                                                  Ref<vm::Cell> mc_block_root) {
+                                                                                  Ref<vm::Cell> mc_block_root,
+                                                                                  bool no_remove = false) {
     std::vector<td::actor::StartedTask<std::shared_ptr<ParsedShardState>>> parse_tasks;
-    parse_tasks.push_back(load_parsed_state(mc_state->get_block_id(), mc_state, mc_block_root).start());
+    parse_tasks.push_back(load_parsed_state(mc_state->get_block_id(), mc_state, mc_block_root, no_remove).start());
     for (auto desc : mc_state->get_shards()) {
-      parse_tasks.push_back(load_parsed_state(desc->top_block_id()).start());
+      parse_tasks.push_back(load_parsed_state(desc->top_block_id(), {}, {}, no_remove).start());
     }
     co_return co_await td::actor::all(std::move(parse_tasks));
   }
 
   td::actor::Task<std::shared_ptr<ParsedShardState>> load_parsed_state(BlockIdExt block_id, Ref<ShardState> state = {},
-                                                                       Ref<vm::Cell> block_root = {}) {
+                                                                       Ref<vm::Cell> block_root = {},
+                                                                       bool no_remove = false) {
     if (is_block_too_old(block_id)) {
       co_return td::Status::Error(ErrorCode::cancelled, "block is older that the current tip");
     }
-    if (!cached_shard_states_.contains(block_id)) {
-      cached_shard_states_[block_id] =
+    bool is_new = !cached_shard_states_.contains(block_id);
+    if (no_remove) {
+      cached_shard_states_[block_id].no_remove = true;
+    }
+    if (is_new) {
+      cached_shard_states_[block_id].future =
           load_parsed_state_inner(block_id, std::move(state), std::move(block_root)).start();
-      auto R = co_await cached_shard_states_[block_id].get().wrap();
+      auto R = co_await cached_shard_states_[block_id].future.get().wrap();
       if (R.is_error() && R.error().code() == ErrorCode::notready) {
         cached_shard_states_.erase(block_id);
+      } else {
+        cached_shard_states_[block_id].remove_at = td::Timestamp::in(20.0);
       }
       co_return std::move(R);
     }
-    co_return co_await cached_shard_states_[block_id].get();
+    co_return co_await cached_shard_states_[block_id].future.get();
   }
 
   td::actor::Task<std::shared_ptr<ParsedShardState>> load_parsed_state_inner(BlockIdExt block_id, Ref<ShardState> state,
