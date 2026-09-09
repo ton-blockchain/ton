@@ -179,7 +179,7 @@ td::actor::Task<std::shared_ptr<ParsedShardState>> ParsedShardState::fetch(
 
     block::gen::OutMsgQueueInfo::Record qinfo;
     CO_TRY_BOOL(tlb::unpack_cell(state_rec.out_msg_queue_info, qinfo));
-    result->proc_info = qinfo.proc_info;
+    result->proc_info = vm::CellBuilder{}.append_cellslice(qinfo.proc_info).as_cellslice_ref();
 
     vm::AugmentedDictionary state_msg_queue{std::move(qinfo.out_queue), 352, block::tlb::aug_OutMsgQueue};
     if (prev.empty()) {
