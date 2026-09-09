@@ -339,6 +339,19 @@ __Enabled in mainnet on 2026-07-23__
 
 ### Other changes
 - Added total message value to dispatch queue augmentation data.
+- Out message queue in a shard is now limited in size.
+  - This is controlled by `out_msg_queue_size_hard_limit` (default `18000`) and `out_msg_queue_size_soft_limit`
+    (default `12000`) in `ConfigParam 43`.
+  - Queue size in a shard may never exceed hard limit (unless it was already exceeded when version 16 was enabled or
+    after forced merge). This is achieved by sending all excess messages to the dispatch queue.
+  - When queue size in the previous state exceeds soft limit, validation allows deferring all messages (including
+    first message in a transaction and messages from governance accounts).
+    - Note: processing dispatch queue before internal messages is already not required when queue size exceeds
+      `defer_out_queue_size_limit` (default `256`).
+  - When queue size exceeds `hard_limit / 2`, shard cannot be `want_merge` (and, therefore, cannot merge unless shard
+    depth exceeds `max_split`).
+  - Note: `hard_limit` and `soft_limit` should be set with enough gap between them so that one block cannot exceed
+    hard limit when soft limit was not reached in the previous state.
 
 ## Version 17
 

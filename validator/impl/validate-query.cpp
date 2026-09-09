@@ -2543,6 +2543,24 @@ void ValidateQuery::got_out_queue_size(size_t i, td::Result<td::uint64> res, td:
 }
 
 /**
+ * Initializes hard and soft limits for out msg queue size
+ */
+void ValidateQuery::init_msg_queue_size_limits() {
+  if (global_version_ < 16) {
+    return;
+  }
+  out_msg_queue_size_hard_limit_ = action_phase_cfg_.size_limits.out_msg_queue_size_hard_limit;
+  out_msg_queue_size_soft_limit_ = action_phase_cfg_.size_limits.out_msg_queue_size_soft_limit;
+  if (ps_.out_msg_queue_size_) {
+    if (old_out_msg_queue_size_ > out_msg_queue_size_soft_limit_) {
+      out_msg_queue_size_soft_limit_exceeded_ = true;
+      LOG(INFO) << "Outbound msg queue size " << old_out_msg_queue_size_ << " exceeds soft limit "
+                << out_msg_queue_size_soft_limit_;
+    }
+  }
+}
+
+/**
  * Handles the result of ValidatorManager::wait_verify_shard_blocks.
  *
  * This is called after new top shard blocks were confirmed by trusted nodes.
@@ -3621,6 +3639,15 @@ bool ValidateQuery::precheck_message_queue_update() {
                                     << new_out_msg_queue_size_ << ", found: " << ns_.out_msg_queue_size_.value()
                                     << ")");
     }
+    td::uint64 hard_limit = out_msg_queue_size_hard_limit_;
+    if (ps_.out_msg_queue_size_) {
+      hard_limit = std::max(hard_limit, old_out_msg_queue_size_);
+    }
+    if (new_out_msg_queue_size_ > hard_limit) {
+      return reject_query(PSTRING() << "outbound message queue size " << new_out_msg_queue_size_
+                                    << " exceeds hard limit " << out_msg_queue_size_hard_limit_
+                                    << ", old queue size is " << old_out_msg_queue_size_);
+    }
   } else {
     if (ns_.out_msg_queue_size_) {
       return reject_query("outbound message queue size in the new state is present, but shouldn't");
@@ -3688,9 +3715,6 @@ bool ValidateQuery::check_account_dispatch_queue_update(td::Bits256 addr, Ref<vm
       ++expected_dict_size;
       if (!block::tlb::csr_unpack(new_val, rec)) {
         return reject_query(PSTRING() << "invalid EnqueuedMsg in AccountDispatchQueue for " << addr.to_hex());
-      }
-      if (is_masterchain() && config_->is_special_smartcontract(addr)) {
-        return reject_query(PSTRING() << "cannot defer message from a special account -1:" << addr.to_hex());
       }
     }
     if (lt != rec.enqueued_lt) {
@@ -5901,11 +5925,17 @@ bool ValidateQuery::CheckAccountTxs::check_one_transaction(block::Account& accou
           return reject_query(PSTRING() << "outbound message #" << i + 1 << " on account " << vq_.workchain() << ":"
                                         << ss_addr.to_hex() << " is deferred, but deferring messages is disabled");
         }
-        if (i == 0 && !ctx_.defer_all_messages) {
+        if (i == 0 && !ctx_.defer_all_messages && !ctx_.always_allow_defer) {
           return reject_query(PSTRING() << "outbound message #1 on account " << vq_.workchain() << ":"
                                         << ss_addr.to_hex()
                                         << " must not be deferred (the first message cannot be deferred unless some "
-                                           "previous messages are deferred)");
+                                           "previous messages are deferred or soft msg queue limit is exceeded)");
+        }
+        if (account.is_masterchain() && account.is_special && !ctx_.defer_all_messages && !ctx_.always_allow_defer) {
+          return reject_query(
+              PSTRING() << "outbound message on account " << vq_.workchain() << ":" << ss_addr.to_hex()
+                        << " must not be deferred (message from special accounts cannot be deferred unless some "
+                           "previous messages are deferred or soft msg queue limit is exceeded)");
         }
         ctx_.defer_all_messages = true;
       }
@@ -6373,12 +6403,14 @@ bool ValidateQuery::CheckAccountTxs::fatal_error(std::string err_msg, int err_co
 ValidateQuery::CheckAccountTxs::Context ValidateQuery::load_check_account_transactions_context(
     const StdSmcAddress& address) {
   CheckAccountTxs::Context ctx{};
-  if (!accounts_with_dispatch_queue_diff_.contains(address) && ps_.dispatch_queue_->lookup(address).not_null()) {
+  auto dispatch_queue_was_non_empty = ps_.dispatch_queue_->lookup(address).not_null();
+  if (!accounts_with_dispatch_queue_diff_.contains(address) && dispatch_queue_was_non_empty) {
     account_expected_defer_all_messages_.insert(address);
   }
   if (account_expected_defer_all_messages_.contains(address)) {
     ctx.defer_all_messages = true;
   }
+  ctx.always_allow_defer = out_msg_queue_size_soft_limit_exceeded_ || dispatch_queue_was_non_empty;
   return ctx;
 }
 
@@ -6883,12 +6915,18 @@ bool ValidateQuery::check_new_state() {
   }
   bool expected_want_split = Collator::history_weight(ns_.overload_history_) >= 0;
   bool expected_want_merge = !expected_want_split && Collator::history_weight(ns_.underload_history_) >= 0;
+  bool queue_size_blocks_merge = false;
+  if (ns_.out_msg_queue_size_ && new_out_msg_queue_size_ > out_msg_queue_size_hard_limit_ / 2) {
+    expected_want_merge = false;
+    queue_size_blocks_merge = true;
+  }
   REJECT_UNLESS_MSG(want_split_ == expected_want_split,
                     PSTRING() << "new block's want_split=" << want_split_ << ", expected " << expected_want_split
                               << " based on overload history " << ns_.overload_history_);
   REJECT_UNLESS_MSG(want_merge_ == expected_want_merge,
                     PSTRING() << "new block's want_merge=" << want_merge_ << ", expected " << expected_want_merge
-                              << " based on underload history " << ns_.underload_history_);
+                              << " based on underload history " << ns_.underload_history_
+                              << (queue_size_blocks_merge ? " and queue size exceeding half of the hard_limit" : ""));
   // total_balance:CurrencyCollection
   // total_validator_fees:CurrencyCollection
   block::CurrencyCollection total_balance, total_validator_fees, old_total_validator_fees(ps_.total_validator_fees_);
@@ -7690,6 +7728,7 @@ bool ValidateQuery::try_validate() {
     if (stage_ == 1) {
       LOG(WARNING) << "try_validate stage 1";
       LOG(INFO) << "running automated validity checks for block candidate " << id_;
+      init_msg_queue_size_limits();
       if (!fix_all_processed_upto()) {
         return fatal_error("cannot adjust all ProcessedUpto of neighbor and previous blocks");
       }
