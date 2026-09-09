@@ -8,6 +8,7 @@
 
 #include "impl/global-balance-calculator-internal.hpp"
 #include "td/actor/SharedFuture.h"
+#include "td/utils/LRUCache.h"
 #include "ton/ton-io.hpp"
 #include "vm/cells/PrunnedCell.h"
 
@@ -585,10 +586,17 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
                                 ->id();
     auto [mc_state, mc_block /* not null! */] = co_await load_mc_state_block(next_mc_block_id);
     current_global_version_ = mc_state->get_config()->get_global_version();
-    auto next = co_await compute_global_balance(mc_state, mc_block->root_cell());
-    auto S = compare_global_balance(current_, next, true);
-    if (S.is_error()) {
-      LOG(ERROR) << "Advance mc seqno to " << next_seqno << " error: " << S;
+    GlobalInfo next;
+    auto cached = mc_global_balance_cache_.get_if_exists(next_mc_block_id);
+    if (cached) {
+      next = *cached;
+      next.mc_state = mc_state;
+    } else {
+      next = co_await compute_global_balance(mc_state, mc_block->root_cell());
+      auto S = compare_global_balance(current_, next, true);
+      if (S.is_error()) {
+        LOG(ERROR) << "Advance mc seqno to " << next_seqno << " error: " << S;
+      }
     }
     current_ = std::move(next);
     for (auto it = cached_shard_states_.begin(); it != cached_shard_states_.end();) {
@@ -598,14 +606,15 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
         ++it;
       }
     }
-    VLOG(validator, INFO) << "Advanced mc seqno to " << next_seqno << ", time=" << timer.elapsed();
+    VLOG(validator, INFO) << "Advanced mc seqno to " << next_seqno << ", time=" << timer.elapsed()
+                          << ", cached=" << (bool)cached;
     co_return {};
   }
 
   td::actor::Task<td::RefInt256> validate_global_balance(Ref<MasterchainState> mc_state, Ref<vm::Cell> block_root,
                                                          td::CancellationToken cancellation_token) override {
     // Called from ValidateQuery for masterchain
-    // Shard block signatures is already validated
+    // Shard block signatures and state root hash are already validated
     CO_TRY_BOOL(mc_state->get_seqno() > 0);
     CO_TRY_BOOL(block_root.not_null());
     CO_TRY_BOOL(block_root->get_hash().as_bits256() == mc_state->get_block_id().root_hash);
@@ -640,6 +649,8 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
       co_return td::Status::Error(ErrorCode::cancelled, "masterchain already advanced past out block");
     }
     CO_TRY(compare_global_balance(current_, next, false));
+    next.mc_state = {};
+    mc_global_balance_cache_.put(mc_state->get_block_id(), next);
     co_return next.global_balance;
   }
 
@@ -661,6 +672,7 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
   int current_global_version_ = 0;
 
   std::map<BlockIdExt, td::actor::SharedFuture<std::shared_ptr<ParsedShardState>>> cached_shard_states_;
+  td::LRUCache<BlockIdExt, GlobalInfo> mc_global_balance_cache_{20};
 
   bool inited() const {
     return current_.mc_state.not_null();
