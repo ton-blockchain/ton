@@ -21,10 +21,15 @@
 #include "crypto/Ed25519.h"
 #include "td/utils/BigNum.h"
 #include "td/utils/ScopeGuard.h"
+#include "td/utils/SeqlockCache.h"
 #include "td/utils/base64.h"
+#include "td/utils/int_types.h"
 #include "td/utils/misc.h"
 
 #if TD_HAVE_OPENSSL
+
+#include <cstdlib>
+#include <cstring>
 
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
@@ -34,6 +39,44 @@
 #include "td/utils/ThreadSafeCounter.h"
 
 namespace td {
+
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+namespace {
+
+constexpr size_t kCacheSlotCount = 16384;
+constexpr size_t kMaxCachedDataSize = 128;
+constexpr size_t kPublicKeySize = Ed25519::PublicKey::LENGTH;
+constexpr size_t kSignatureSize = 64;
+constexpr size_t kCacheKeyWords = (sizeof(uint64) * 2 + kPublicKeySize + kSignatureSize + kMaxCachedDataSize - 1) / sizeof(uint64);
+using SignatureCache = SeqlockCache<kCacheSlotCount, kCacheKeyWords>;
+
+SignatureCache::Key make_signature_cache_key(Slice public_key, Slice signature, Slice data) {
+  SignatureCache::Key key{};
+  key.front() = data.size();  // Distinguish a message from the same bytes with trailing zeros.
+  auto* bytes = reinterpret_cast<char*>(key.data() + 1);
+  std::memcpy(bytes, public_key.data(), kPublicKeySize);
+  std::memcpy(bytes + kPublicKeySize, signature.data(), kSignatureSize);
+  if (!data.empty()) {
+    std::memcpy(bytes + kPublicKeySize + kSignatureSize, data.data(), data.size());
+  }
+  return key;
+}
+
+SignatureCache& get_signature_cache() {
+  static SignatureCache cache;
+  return cache;
+}
+
+bool signature_cache_enabled() {
+  static const bool enabled = [] {
+    const char* value = std::getenv("TON_ED25519_CACHE");
+    return value == nullptr || Slice{value} != "0";
+  }();
+  return enabled;
+}
+
+}  // namespace
+#endif
 
 Ed25519::PublicKey::PublicKey(SecureString octet_string) : octet_string_(std::move(octet_string)) {
 }
@@ -270,6 +313,19 @@ Result<SecureString> Ed25519::PrivateKey::sign(Slice data) const {
 Status Ed25519::PublicKey::verify_signature(Slice data, Slice signature) const {
   TD_PERF_COUNTER(Ed25519_verify_signature);
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L
+  const bool cacheable = data.size() <= kMaxCachedDataSize && signature.size() == kSignatureSize &&
+                         octet_string_.size() == kPublicKeySize && signature_cache_enabled();
+  auto* cache = cacheable ? &get_signature_cache() : nullptr;
+  SignatureCache::Key cache_key;
+  size_t slot;
+  if (cache != nullptr) {
+    cache_key = make_signature_cache_key(octet_string_, signature, data);
+    slot = SignatureCache::key_to_slot(cache_key);
+    if (cache->contains(cache_key, slot)) {
+      TD_PERF_COUNTER(Ed25519_verify_signature_cache_hit);
+      return Status::OK();
+    }
+  }
   auto pkey = detail::X25519_key_to_PKEY(octet_string_, false);
   if (pkey == nullptr) {
     return Status::Error("Can't import public key");
@@ -291,6 +347,9 @@ Status Ed25519::PublicKey::verify_signature(Slice data, Slice signature) const {
   }
 
   if (EVP_DigestVerify(md_ctx, signature.ubegin(), signature.size(), data.ubegin(), data.size()) == 1) {
+    if (cache != nullptr) {
+      cache->insert(cache_key, slot);
+    }
     return Status::OK();
   }
   return Status::Error("Wrong signature");

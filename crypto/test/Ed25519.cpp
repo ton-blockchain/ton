@@ -16,7 +16,11 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <array>
+#include <atomic>
+#include <cstring>
 #include <string>
+#include <thread>
 #include <utility>
 
 #include "crypto/Ed25519.h"
@@ -147,6 +151,100 @@ TEST(Crypto, ed25519) {
   LOG(ERROR) << "secret21=" << td::buffer_to_hex(secret21);
   assert(!std::memcmp(secret12, secret21, 32));
 */
+}
+
+TEST(Crypto, signature_cache_inputs_and_lengths) {
+  auto private_key = td::Ed25519::PrivateKey(td::SecureString(td::Slice(fixed_privkey, 32)));
+  auto public_key = private_key.get_public_key().move_as_ok();
+  auto other_key = td::Ed25519::PrivateKey(td::SecureString(td::Slice(rfc8032_secret_key1, 32)))
+                       .get_public_key().move_as_ok();
+  for (size_t size : {0, 1, 31, 32, 33, 127, 128, 129, 1024}) {
+    std::string message(size, 'a');
+    auto signature = private_key.sign(message).move_as_ok();
+    for (int repeat = 0; repeat < 3; ++repeat) {
+      public_key.verify_signature(message, signature).ensure();
+      ASSERT_TRUE(other_key.verify_signature(message, signature).is_error());
+      auto bad_signature = signature.copy();
+      bad_signature.as_mutable_slice()[0] ^= 1;
+      ASSERT_TRUE(public_key.verify_signature(message, bad_signature).is_error());
+      ASSERT_TRUE(public_key.verify_signature(message, signature.as_slice().substr(0, 63)).is_error());
+      auto long_signature = signature.as_slice().str() + '\0';
+      ASSERT_TRUE(public_key.verify_signature(message, long_signature).is_error());
+      // Appending zero must not match the canonical zero padding in a cached key.
+      ASSERT_TRUE(public_key.verify_signature(message + '\0', signature).is_error());
+      if (!message.empty()) {
+        auto changed = message;
+        changed.back() ^= 1;
+        ASSERT_TRUE(public_key.verify_signature(changed, signature).is_error());
+      }
+    }
+    for (size_t key_size : {0, 31, 33}) {
+      std::string bad_key(key_size, 'x');
+      ASSERT_TRUE(td::Ed25519::PublicKey(td::SecureString(bad_key)).verify_signature(message, signature).is_error());
+    }
+  }
+}
+
+TEST(Crypto, signature_cache_slot_collision) {
+  auto private_key = td::Ed25519::PrivateKey(td::SecureString(td::Slice(fixed_privkey, 32)));
+  auto public_key = private_key.get_public_key().move_as_ok();
+  auto public_bytes = public_key.as_octet_string();
+  std::string message(32, 'c');
+  auto signature = private_key.sign(message).move_as_ok();
+  auto slot = [&](td::Slice data) {
+    std::array<td::uint64, 29> key{};
+    key.front() = data.size();
+    auto* bytes = reinterpret_cast<char*>(key.data() + 1);
+    std::memcpy(bytes, public_bytes.data(), 32);
+    std::memcpy(bytes + 32, signature.data(), 64);
+    std::memcpy(bytes + 96, data.data(), data.size());
+    return td::SliceHash{}(td::Slice(reinterpret_cast<const char*>(key.data()), sizeof(key))) % 16384;
+  };
+  const auto target = slot(message);
+  std::string collision = message;
+  bool found = false;
+  for (td::uint64 i = 0; i < 1000000; ++i) {
+    std::memcpy(collision.data(), &i, sizeof(i));
+    if (collision != message && slot(collision) == target) {
+      found = true;
+      break;
+    }
+  }
+  ASSERT_TRUE(found);
+  for (int repeat = 0; repeat < 10; ++repeat) {
+    public_key.verify_signature(message, signature).ensure();
+    ASSERT_TRUE(public_key.verify_signature(collision, signature).is_error());
+  }
+}
+
+TEST(Crypto, signature_cache_concurrent_verification) {
+  auto private_key = td::Ed25519::PrivateKey(td::SecureString(td::Slice(fixed_privkey, 32)));
+  auto public_key = private_key.get_public_key().move_as_ok();
+  std::vector<std::string> messages, signatures;
+  for (td::uint64 i = 0; i < 256; ++i) {
+    std::string message(i % 2 ? 32 : 128, '\0');
+    std::memcpy(message.data(), &i, sizeof(i));
+    signatures.push_back(private_key.sign(message).move_as_ok().as_slice().str());
+    messages.push_back(std::move(message));
+  }
+  std::atomic<bool> start{false};
+  std::vector<std::thread> workers;
+  for (size_t worker = 0; worker < 8; ++worker) {
+    workers.emplace_back([&, worker] {
+      while (!start.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+      }
+      for (size_t i = 0; i < 2048; ++i) {
+        auto index = (i + worker * 17) % messages.size();
+        public_key.verify_signature(messages[index], signatures[index]).ensure();
+        ASSERT_TRUE(public_key.verify_signature(messages[index], signatures[(index + 1) % signatures.size()]).is_error());
+      }
+    });
+  }
+  start.store(true, std::memory_order_release);
+  for (auto& worker : workers) {
+    worker.join();
+  }
 }
 
 TEST(Crypto, wycheproof) {
