@@ -978,7 +978,7 @@ td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty, boo
   return std::move(root);
 }
 
-td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data, int max_roots) {
+td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data, int max_roots, bool allow_nonzero_level) {
   if (data.empty()) {
     return std::vector<Ref<Cell>>{};
   }
@@ -994,7 +994,7 @@ td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data, int
     if (root.is_null()) {
       return td::Status::Error("bag of cells has a null root cell (?)");
     }
-    if (root->get_level() != 0) {
+    if (root->get_level() != 0 && !allow_nonzero_level) {
       return td::Status::Error("bag of cells has a root with non-zero level");
     }
     roots.emplace_back(std::move(root));

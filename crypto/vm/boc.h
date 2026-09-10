@@ -402,7 +402,8 @@ td::Result<Ref<Cell>> std_boc_deserialize(td::Slice data, bool can_be_empty = fa
 td::Result<td::BufferSlice> std_boc_serialize(Ref<Cell> root, int mode = 0);
 
 td::Result<std::vector<Ref<Cell>>> std_boc_deserialize_multi(td::Slice data,
-                                                             int max_roots = BagOfCells::default_max_roots);
+                                                             int max_roots = BagOfCells::default_max_roots,
+                                                             bool allow_nonzero_level = false);
 td::Result<td::BufferSlice> std_boc_serialize_multi(std::vector<Ref<Cell>> root, int mode = 0);
 
 td::Status std_boc_serialize_to_file(Ref<Cell> root, td::FileFd& fd, int mode = 0,

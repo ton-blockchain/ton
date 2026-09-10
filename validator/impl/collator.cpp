@@ -6442,32 +6442,44 @@ bool Collator::create_collated_data() {
   for (const auto& p : block_state_proofs_) {
     collated_roots_.push_back(p.second);
   }
+  bool new_collated_data_format = global_version_ >= 16;
+  std::vector<Ref<vm::Cell>> new_proof_roots;
   // 3. Previous state proof (only shardchains)
-  std::map<td::Bits256, Ref<vm::Cell>> proofs;
+  std::map<td::Bits256, Ref<vm::Cell>> old_proofs;
   if (!is_masterchain()) {
     if (!prepare_proofs()) {
       return fatal_error("cannot prepare proof for collated data");
     }
 
-    state_usage_tree_->set_use_mark_for_is_loaded(false);
-    auto r_state_proof = vm::MerkleProof::generate(
-        prev_state_root_, [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (r_state_proof.is_error()) {
-      return fatal_error("cannot generate Merkle proof for previous state");
-    }
-    auto state_proof = r_state_proof.move_as_ok();
-    if (after_merge_) {
-      bool special;
-      auto cs = vm::load_cell_slice_special(state_proof, special);
-      CHECK(cs.special_type() == vm::CellTraits::SpecialType::MerkleProof);
-      cs = vm::load_cell_slice(cs.prefetch_ref(0));
-      CHECK(cs.size_refs() == 2);
-      CHECK(cs.size() == 32);
-      CHECK(cs.prefetch_ulong(32) == 0x5f327da5U);
-      proofs[cs.prefetch_ref(0)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(0));
-      proofs[cs.prefetch_ref(1)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(1));
+    if (new_collated_data_format) {
+      for (auto prev_state : prev_states) {
+        new_proof_roots.push_back(prev_state->root_cell());
+        Ref<vm::Cell> cell;
+        CHECK(block::gen::t_CollatedDataRootState.cell_pack_collated_data_root_state(cell, prev_state->root_hash()));
+        collated_roots_.push_back(std::move(cell));
+      }
     } else {
-      proofs[prev_state_root_->get_hash().bits()] = std::move(state_proof);
+      state_usage_tree_->set_use_mark_for_is_loaded(false);
+      state_usage_tree_->set_ignore_loads(true);
+      auto r_state_proof = vm::MerkleProof::generate(
+          prev_state_root_, [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
+      if (r_state_proof.is_error()) {
+        return fatal_error("cannot generate Merkle proof for previous state");
+      }
+      auto state_proof = r_state_proof.move_as_ok();
+      if (after_merge_) {
+        bool special;
+        auto cs = vm::load_cell_slice_special(state_proof, special);
+        CHECK(cs.special_type() == vm::CellTraits::SpecialType::MerkleProof);
+        cs = vm::load_cell_slice(cs.prefetch_ref(0));
+        CHECK(cs.size_refs() == 2);
+        CHECK(cs.size() == 32);
+        CHECK(cs.prefetch_ulong(32) == 0x5f327da5U);
+        old_proofs[cs.prefetch_ref(0)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(0));
+        old_proofs[cs.prefetch_ref(1)->get_hash(0).bits()] = vm::CellBuilder::create_merkle_proof(cs.prefetch_ref(1));
+      } else {
+        old_proofs[prev_state_root_->get_hash().bits()] = std::move(state_proof);
+      }
     }
   }
   // 4. Proofs for message queues
@@ -6476,23 +6488,31 @@ bool Collator::create_collated_data() {
       // This was already generated in "3. Previous state proof"
       continue;
     }
-    auto r_proof = vm::MerkleProof::generate(
-        mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (r_proof.is_error()) {
-      return fatal_error("cannot generate Merkle proof for neighbor");
-    }
-    auto proof = r_proof.move_as_ok();
-    auto it = proofs.emplace(mpb.root()->get_hash().bits(), proof);
-    if (!it.second) {
-      auto r_combine = vm::MerkleProof::combine(it.first->second, std::move(proof));
-      if (r_combine.is_error()) {
-        return fatal_error("cannot combine merkle proofs");
+    if (new_collated_data_format) {
+      new_proof_roots.push_back(mpb.original_root());
+      Ref<vm::Cell> cell;
+      CHECK(block::gen::t_CollatedDataRootState.cell_pack_collated_data_root_state(
+          cell, mpb.root()->get_hash().as_bits256()));
+      collated_roots_.push_back(std::move(cell));
+    } else {
+      auto r_proof = vm::MerkleProof::generate(
+          mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
+      if (r_proof.is_error()) {
+        return fatal_error("cannot generate Merkle proof for neighbor");
       }
-      it.first->second = r_combine.move_as_ok();
+      auto proof = r_proof.move_as_ok();
+      auto it = old_proofs.emplace(mpb.root()->get_hash().bits(), proof);
+      if (!it.second) {
+        auto r_combine = vm::MerkleProof::combine(it.first->second, std::move(proof));
+        if (r_combine.is_error()) {
+          return fatal_error("cannot combine merkle proofs");
+        }
+        it.first->second = r_combine.move_as_ok();
+      }
     }
   }
 
-  for (auto& p : proofs) {
+  for (auto& p : old_proofs) {
     collated_roots_.push_back(std::move(p.second));
   }
 
@@ -6501,17 +6521,60 @@ bool Collator::create_collated_data() {
     if (!dict.add_to_collated_data) {
       continue;
     }
-    auto r_proof = vm::MerkleProof::generate(
-        dict.mpb.original_root(), [&](const Ref<vm::Cell>& c) { return !collated_data_stat.is_loaded(c->get_hash()); });
-    if (r_proof.is_error()) {
-      return fatal_error("cannot generate Merkle proof for neighbor");
+    if (new_collated_data_format) {
+      new_proof_roots.push_back(dict.mpb.original_root());
+      Ref<vm::Cell> cell;
+      CHECK(block::gen::t_CollatedDataRootStorageDict.cell_pack_collated_data_root_storage_dict(
+          cell, new_proof_roots.back()->get_hash().as_bits256()));
+      collated_roots_.push_back(std::move(cell));
+    } else {
+      auto r_proof = vm::MerkleProof::generate(dict.mpb.original_root(), [&](const Ref<vm::Cell>& c) {
+        return !collated_data_stat.is_loaded(c->get_hash());
+      });
+      if (r_proof.is_error()) {
+        return fatal_error("cannot generate Merkle proof for neighbor");
+      }
+      auto proof = r_proof.move_as_ok();
+      // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
+      collated_roots_.push_back(vm::CellBuilder()
+                                    .store_long(block::gen::AccountStorageDictProof::cons_tag[0], 32)
+                                    .store_ref(proof)
+                                    .finalize_novm());
     }
-    auto proof = r_proof.move_as_ok();
-    // account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
-    collated_roots_.push_back(vm::CellBuilder()
-                                  .store_long(block::gen::AccountStorageDictProof::cons_tag[0], 32)
-                                  .store_ref(proof)
-                                  .finalize_novm());
+  }
+
+  if (new_collated_data_format) {
+    Ref<vm::Cell> separator;
+    CHECK(block::gen::t_CollatedDataSeparator.cell_pack_collated_data_separator(separator));
+    collated_roots_.push_back(std::move(separator));
+    state_usage_tree_->set_ignore_loads(true);
+    td::HashMap<vm::CellHash, Ref<vm::Cell>> cache;
+    std::function<Ref<vm::Cell>(const Ref<vm::Cell>&)> dfs = [&](const Ref<vm::Cell>& cell) -> Ref<vm::Cell> {
+      auto it = cache.find(cell->get_hash());
+      if (it != cache.end()) {
+        return it->second;
+      }
+      if (!collated_data_stat.is_loaded(cell->get_hash())) {
+        return cache[cell->get_hash()] = vm::CellBuilder::create_pruned_branch(cell, vm::Cell::max_level);
+      }
+      vm::CellSlice cs(vm::NoVm(), cell);
+      vm::CellBuilder cb;
+      cb.store_bits(cs.fetch_bits(cs.size()));
+      for (unsigned i = 0; i < cs.size_refs(); i++) {
+        cb.store_ref(dfs(cs.prefetch_ref(i)));
+      }
+      auto hash_hint = [&](unsigned level, const vm::Cell::LevelMask&, vm::CellHash& hash) {
+        if (level <= cell->get_level()) {
+          hash = cell->get_hash(level);
+          return true;
+        }
+        return false;
+      };
+      return cache[cell->get_hash()] = cb.finalize(cs.is_special(), std::move(hash_hint));
+    };
+    for (const auto& root : new_proof_roots) {
+      collated_roots_.push_back(dfs(root));
+    }
   }
   return true;
 }

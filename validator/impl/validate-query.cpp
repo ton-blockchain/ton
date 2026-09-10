@@ -524,7 +524,7 @@ bool ValidateQuery::unpack_block_candidate() {
   }
   // ...
   // 8. deserialize collated data
-  auto res2 = vm::std_boc_deserialize_multi(block_candidate.collated_data);
+  auto res2 = vm::std_boc_deserialize_multi(block_candidate.collated_data, vm::BagOfCells::default_max_roots, true);
   if (res2.is_error()) {
     return reject_query("cannot deserialize collated data", res2.move_as_error());
   }
@@ -677,10 +677,15 @@ bool ValidateQuery::init_parse() {
  *
  * @param croot The root cell containing the collated data.
  * @param idx The index of the root.
+ * @param is_separator Write true here if the root is CollatedDataSeparator
  *
  * @returns True if the extraction is successful, false otherwise.
  */
-bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
+bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx, bool& is_separator) {
+  if (croot->get_level() > 0) {
+    return reject_query("collated root before a separator has a non-zero level");
+  }
+  is_separator = false;
   bool is_special = false;
   auto cs = vm::load_cell_slice_special(croot, is_special);
   if (!cs.is_valid()) {
@@ -747,6 +752,36 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
     LOG(DEBUG) << "collated datum # " << idx << " is a ConsensusExtraData, gen_utime_ms=" << rec.gen_utime_ms;
     return true;
   }
+  if (block::gen::t_CollatedDataRootState.has_valid_tag(cs)) {
+    if (!block::gen::t_CollatedDataRootState.validate_ref(10000, croot)) {
+      return reject_query("invalid CollatedDataRootState");
+    }
+    block::gen::CollatedDataRootState::Record rec;
+    REJECT_UNLESS(block::gen::unpack_cell(croot, rec));
+    full_collated_data_ = true;
+    collated_data_roots_state_.push_back(rec.hash);
+    LOG(DEBUG) << "collated datum # " << idx << " is a CollatedDataRootState with hash " << rec.hash.to_hex();
+    return true;
+  }
+  if (block::gen::t_CollatedDataRootStorageDict.has_valid_tag(cs)) {
+    if (!block::gen::t_CollatedDataRootStorageDict.validate_ref(10000, croot)) {
+      return reject_query("invalid CollatedDataRootStorageDict");
+    }
+    block::gen::CollatedDataRootStorageDict::Record rec;
+    REJECT_UNLESS(block::gen::unpack_cell(croot, rec));
+    full_collated_data_ = true;
+    collated_data_roots_storage_dict_.push_back(rec.hash);
+    LOG(DEBUG) << "collated datum # " << idx << " is a CollatedDataRootStorageDict with hash " << rec.hash.to_hex();
+    return true;
+  }
+  if (block::gen::t_CollatedDataSeparator.has_valid_tag(cs)) {
+    if (!block::gen::t_CollatedDataSeparator.validate_ref(10000, croot)) {
+      return reject_query("invalid CollatedDataSeparator");
+    }
+    is_separator = true;
+    LOG(DEBUG) << "collated datum # " << idx << " is a CollatedDataSeparator";
+    return true;
+  }
   LOG(WARNING) << "collated datum # " << idx << " has unknown type (magic " << cs.prefetch_ulong(32) << "), ignoring";
   return true;
 }
@@ -757,19 +792,46 @@ bool ValidateQuery::extract_collated_data_from(Ref<vm::Cell> croot, int idx) {
  * @returns True if the extraction is successful, False otherwise.
  */
 bool ValidateQuery::extract_collated_data() {
-  int i = -1;
-  for (auto croot : collated_roots_) {
-    ++i;
-    auto guard = error_ctx_add_guard(PSTRING() << "collated datum #" << i);
-    try {
-      if (!extract_collated_data_from(croot, i)) {
-        return reject_query("cannot unpack collated datum");
+  try {
+    int i = -1;
+    bool seen_separator = false;
+    std::map<td::Bits256, Ref<vm::Cell>> new_virt_roots;
+    for (auto croot : collated_roots_) {
+      ++i;
+      auto guard = error_ctx_add_guard(PSTRING() << "collated datum #" << i);
+      if (seen_separator) {
+        Ref<vm::Cell> virtualized = croot->virtualize(0);
+        new_virt_roots[virtualized->get_hash().as_bits256()] = virtualized;
+      } else {
+        if (!extract_collated_data_from(croot, i, seen_separator)) {
+          return reject_query("cannot unpack collated datum");
+        }
       }
-    } catch (vm::VmError& err) {
-      return reject_query(PSTRING() << "vm error " << err.get_msg());
-    } catch (vm::VmVirtError& err) {
-      return reject_query(PSTRING() << "virtualization error " << err.get_msg());
     }
+    for (const td::Bits256& hash : collated_data_roots_state_) {
+      auto it = new_virt_roots.find(hash);
+      if (it == new_virt_roots.end()) {
+        return reject_query(PSTRING() << "CollatedDataRootState has hash " << hash.to_hex()
+                                      << " not in collated roots");
+      }
+      if (!virt_roots_.emplace(hash, it->second).second) {
+        return reject_query("Merkle proof with duplicate virtual root hash "s + hash.to_hex());
+      }
+    }
+    for (const td::Bits256& hash : collated_data_roots_storage_dict_) {
+      auto it = new_virt_roots.find(hash);
+      if (it == new_virt_roots.end()) {
+        return reject_query(PSTRING() << "CollatedDataRootStorageDict has hash " << hash.to_hex()
+                                      << " not in collated roots");
+      }
+      if (!virt_account_storage_dicts_.emplace(hash, it->second).second) {
+        return reject_query("duplicate AccountStorageDictProof");
+      }
+    }
+  } catch (vm::VmError& err) {
+    return reject_query(PSTRING() << "vm error " << err.get_msg());
+  } catch (vm::VmVirtError& err) {
+    return reject_query(PSTRING() << "virtualization error " << err.get_msg());
   }
   if (full_collated_data_) {
     LOG(INFO) << "full_collated_data = true";

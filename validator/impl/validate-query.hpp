@@ -184,6 +184,8 @@ class ValidateQuery : public td::actor::Actor {
   std::map<RootHash, Ref<vm::Cell>> virt_roots_;
   std::unique_ptr<vm::Dictionary> top_shard_descr_dict_;
   std::map<td::Bits256, Ref<vm::Cell>> virt_account_storage_dicts_;
+  std::vector<td::Bits256> collated_data_roots_state_;
+  std::vector<td::Bits256> collated_data_roots_storage_dict_;
 
   Ref<vm::CellSlice> shard_hashes_;              // from McBlockExtra
   Ref<vm::CellSlice> blk_config_params_;         // from McBlockExtra
@@ -346,7 +348,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_this_shard_mc_info();
   bool init_parse();
   bool unpack_block_candidate();
-  bool extract_collated_data_from(Ref<vm::Cell> croot, int idx);
+  bool extract_collated_data_from(Ref<vm::Cell> croot, int idx, bool& is_separator);
   bool extract_collated_data();
   bool check_account_failures();
   bool try_validate();

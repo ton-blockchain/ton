@@ -64,7 +64,7 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_baseline_lz4(td::Slice
 
   TRY_RESULT(decompressed_size_int, td::narrow_cast_safe<int>(decompressed_size));
   TRY_RESULT(decompressed, td::lz4_decompress(compressed, decompressed_size_int));
-  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed));
+  TRY_RESULT(roots, vm::std_boc_deserialize_multi(decompressed, vm::BagOfCells::default_max_roots, true));
   return roots;
 }
 
@@ -979,9 +979,6 @@ td::Result<std::vector<td::Ref<vm::Cell>>> boc_decompress_improved_structure_lz4
   root_nodes.reserve(root_count);
   for (unsigned index : root_indexes) {
     root_nodes.push_back(nodes[index]);
-    if (root_nodes.back()->get_level() > 0) {
-      return td::Status::Error("root has non-zero level");
-    }
   }
 
   return root_nodes;
