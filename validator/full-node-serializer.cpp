@@ -194,6 +194,9 @@ static td::Result<BlockBroadcast> deserialize_block_broadcast(ton_api::tonNode_b
   if (roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
   }
+  if (roots[0]->get_level() > 0) {
+    return td::Status::Error("expected nonzero level root");
+  }
   TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(f.data_compressed_));
   VLOG(full_node, WARNING) << "Broadcast_benchmark deserialize_block_broadcast block_id=" << block_id
                            << " called_from=" << called_from
@@ -297,6 +300,9 @@ static td::Status deserialize_block_full(ton_api::tonNode_dataFullCompressedV2& 
   TRY_RESULT(roots, vm::boc_decompress(f.block_compressed_, max_decompressed_size, state));
   if (roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
+  }
+  if (roots[0]->get_level() > 0) {
+    return td::Status::Error("expected nonzero level root");
   }
   TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(f.block_compressed_));
   VLOG(full_node, WARNING) << "Broadcast_benchmark deserialize_block_full block_id=" << id
@@ -406,6 +412,9 @@ static td::Status deserialize_block_candidate_broadcast(ton_api::tonNode_newBloc
   TRY_RESULT(roots, vm::boc_decompress(obj.compressed_, max_decompressed_data_size));
   if (roots.size() != 1) {
     return td::Status::Error("expected 1 root in boc");
+  }
+  if (roots[0]->get_level() > 0) {
+    return td::Status::Error("expected nonzero level root");
   }
   TRY_RESULT(algorithm_name, vm::boc_get_algorithm_name(obj.compressed_));
   VLOG(full_node, WARNING) << "Broadcast_benchmark deserialize_block_candidate_broadcast block_id=" << block_id

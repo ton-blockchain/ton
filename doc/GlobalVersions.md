@@ -352,6 +352,7 @@ __Enabled in mainnet on 2026-07-23__
     depth exceeds `max_split`).
   - Note: `hard_limit` and `soft_limit` should be set with enough gap between them so that one block cannot exceed
     hard limit when soft limit was not reached in the previous state.
+- New format for proofs in collated data.
 
 ## Version 17
 

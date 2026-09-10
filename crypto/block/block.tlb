@@ -890,6 +890,9 @@ top_block_descr#d5 proof_for:BlockIdExt signatures:(Maybe ^BlockSignatures)
 top_block_descr_set#4ac789f3 collection:(HashmapE 96 ^TopBlockDescr) = TopBlockDescrSet;
 account_storage_dict_proof#37c1e3fc proof:^Cell = AccountStorageDictProof;
 consensus_extra_data#638eb292 flags:# gen_utime_ms:uint64 = ConsensusExtraData;
+collated_data_root_state#4b2f36ec hash:bits256 = CollatedDataRootState;
+collated_data_root_storage_dict#796eaeb6 hash:bits256 = CollatedDataRootStorageDict;
+collated_data_separator#fa8b2b92 = CollatedDataSeparator;
 
 //
 //  VALIDATOR MISBEHAVIOR COMPLAINTS
