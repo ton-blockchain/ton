@@ -441,8 +441,7 @@ td::Result<Fixture> build_fixture(const FixtureConfig& config) {
   auto sample_w5_data = build_w5_data(hot_wallets.front().pubkey, kWalletId);
   std::vector<td::Ref<vm::Cell>> w5_roots{contracts.w5_code, sample_w5_data};
   const auto w5_used = compute_account_storage_used(config.owner_balance, w5_roots);
-  auto sample_jw_data =
-      build_jw_data(config.jetton_initial_balance, hot_wallets.front().w5_addr, minter_addr, contracts.jw_code);
+  auto sample_jw_data = build_jw_data(config.jetton_initial_balance, hot_wallets.front().w5_addr, minter_addr);
   std::vector<td::Ref<vm::Cell>> jw_roots{contracts.jw_code, sample_jw_data};
   const auto jw_used = compute_account_storage_used(config.jetton_wallet_ton_balance, jw_roots);
   std::vector<td::Ref<vm::Cell>> minter_roots{contracts.minter_code, minter_data};
@@ -477,7 +476,7 @@ td::Result<Fixture> build_fixture(const FixtureConfig& config) {
 
   for (td::uint64 i = 0; i < total_jetton_wallets; ++i) {
     const auto& wallet = hot_wallets[i];
-    auto data = build_jw_data(config.jetton_initial_balance, wallet.w5_addr, minter_addr, contracts.jw_code);
+    auto data = build_jw_data(config.jetton_initial_balance, wallet.w5_addr, minter_addr);
     auto account = build_account(wallet.jw_addr, config.jetton_wallet_ton_balance, contracts.jw_code, std::move(data),
                                  jw_used, base_state_record.gen_utime);
     TRY_STATUS(add_account(accounts, wallet.jw_addr, account, PSLICE() << "jetton wallet #" << i));

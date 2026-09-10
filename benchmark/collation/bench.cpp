@@ -836,12 +836,8 @@ td::Result<JettonWalletObservation> observe_jetton_wallet(vm::AugmentedDictionar
   auto cs = vm::load_cell_slice(account->data);
   TRY_RESULT(jetton_balance, fetch_uint128_coins(cs));
   if (!unpack_expected_address(cs, expected_owner) || !unpack_expected_address(cs, expected_minter) ||
-      cs.size_refs() != 1) {
+      !cs.empty_ext()) {
     return td::Status::Error(PSLICE() << "jetton-wallet data has unexpected owner/master layout for " << address);
-  }
-  auto embedded_code = cs.fetch_ref();
-  if (embedded_code.is_null() || embedded_code->get_hash() != expected_code->get_hash() || !cs.empty_ext()) {
-    return td::Status::Error(PSLICE() << "jetton-wallet data has unexpected code/trailing data for " << address);
   }
   return JettonWalletObservation{account->balance.grams->to_long(), jetton_balance};
 }
