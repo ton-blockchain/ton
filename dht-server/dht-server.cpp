@@ -51,14 +51,9 @@
 #include "git.h"
 
 Config::Config() {
-  out_port = 3278;
 }
 
 Config::Config(const ton::ton_api::engine_validator_config &config) {
-  out_port = static_cast<td::uint16>(config.out_port_);
-  if (!out_port) {
-    out_port = 3278;
-  }
   for (auto &addr : config.addrs_) {
     td::IPAddress in_ip;
     td::IPAddress out_ip;
@@ -145,7 +140,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
     gc_vec->ids_.push_back(id.tl());
   }
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
-      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
+      std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
       ton::PublicKeyHash::zero().tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec), nullptr,
       nullptr, std::move(liteserver_vec), std::move(control_vec), std::move(shard_vec), std::move(gc_vec));
 }
@@ -621,7 +616,7 @@ void DhtServer::start() {
 }
 
 void DhtServer::start_adnl() {
-  adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create(config_.out_port);
+  adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create();
   adnl_ = ton::adnl::Adnl::create(db_root_, keyring_.get());
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
 

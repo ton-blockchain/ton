@@ -196,6 +196,7 @@ struct Candidate : td::CntObject {
   td::BufferSlice serialize() const;
   td::BufferSlice serialize_for_broadcast() const;
   bool is_empty() const;
+  adnl::AdnlNodeIdShort collated_by(const Bus& bus) const;
 
  private:
   static td::Result<td::Ref<Candidate>> deserialize_data(tl::CandidateDataRef data,
@@ -246,9 +247,15 @@ class Event {
   double ts() const {
     return ts_;
   }
+  double monotonic_ts() const {
+    return monotonic_ts_;
+  }
 
  protected:
   double ts_;
+  // Local-only clock for Prometheus duration arithmetic. `ts_` remains Unix time because it is
+  // serialized into consensus traces; carrying both avoids making NTP adjustment part of latency.
+  double monotonic_ts_;
 };
 
 template <typename Collector>

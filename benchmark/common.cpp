@@ -84,6 +84,11 @@ td::Result<ContractSet> load_contracts(td::CSlice dir) {
   TRY_RESULT_ASSIGN(res.w5_code, load_boc_file(PSTRING() << dir << "/wallet-v5.code.boc"));
   TRY_RESULT_ASSIGN(res.jw_code, load_boc_file(PSTRING() << dir << "/jetton-wallet.code.boc"));
   TRY_RESULT_ASSIGN(res.minter_code, load_boc_file(PSTRING() << dir << "/jetton-minter.code.boc"));
+  // Optional: only needed when generating fat accounts (--fats-count > 0).
+  auto fat_path = PSTRING() << dir << "/fat.code.boc";
+  if (td::stat(fat_path).is_ok()) {
+    TRY_RESULT_ASSIGN(res.fat_code, load_boc_file(fat_path));
+  }
   return res;
 }
 
@@ -198,13 +203,13 @@ Ref<vm::DataCell> build_w5_data(const td::Bits256 &pubkey, td::uint32 wallet_id)
   return cb.finalize_novm();
 }
 
-Ref<vm::DataCell> build_jw_data(Uint128 jetton_balance, const td::Bits256 &owner_addr, const td::Bits256 &minter_addr,
-                                Ref<vm::Cell> jw_code) {
+Ref<vm::DataCell> build_jw_data(Uint128 jetton_balance, const td::Bits256 &owner_addr, const td::Bits256 &minter_addr) {
+  // Prepaid Tolk WalletStorage: jettonBalance:coins | ownerAddress:address | minterAddress:address.
+  // No jetton-wallet-code ref in data (unlike the legacy FunC jetton).
   vm::CellBuilder cb;
   store_grams(cb, jetton_balance);
   store_addr_std(cb, owner_addr);
   store_addr_std(cb, minter_addr);
-  cb.store_ref(std::move(jw_code));
   return cb.finalize_novm();
 }
 
@@ -225,8 +230,15 @@ Ref<vm::DataCell> build_state_init(Ref<vm::Cell> code, Ref<vm::Cell> data) {
   return cb.finalize_novm();
 }
 
-std::vector<Ref<vm::DataCell>> build_ballast_chain(const td::Bits256 &addr, int num_cells) {
-  CHECK(num_cells >= 1);
+// Build `num_cells` unique cells (127 bytes of splitmix64 filler each, keyed by
+// (addr, cell index)) linked as a complete `fanout`-ary tree in heap array
+// layout: node k refs children fanout*k+1 .. fanout*k+fanout that exist. Element
+// 0 is the root. fanout=1 is a linear chain (depth = num_cells, so it dies at the
+// CellTraits::max_depth = 1024 wall, ~130 KB); fanout>1 keeps depth
+// ~log_fanout(num_cells), letting an account fill up to max_acc_state_cells
+// (65536) cells instead of stalling at ~1024.
+static std::vector<Ref<vm::DataCell>> build_cell_tree(const td::Bits256 &addr, int num_cells, int fanout) {
+  CHECK(num_cells >= 1 && fanout >= 1);
   std::vector<Ref<vm::DataCell>> cells(num_cells);
   td::uint64 addr64 = 0;
   for (int i = 0; i < 8; i++) {
@@ -243,12 +255,19 @@ std::vector<Ref<vm::DataCell>> build_ballast_chain(const td::Bits256 &addr, int 
     }
     vm::CellBuilder cb;
     cb.store_bits(filler, 127 * 8);
-    if (k + 1 < num_cells) {
-      cb.store_ref(cells[k + 1]);
+    for (int c = 1; c <= fanout; c++) {
+      long long child = 1LL * fanout * k + c;
+      if (child < num_cells) {
+        cb.store_ref(cells[child]);
+      }
     }
     cells[k] = cb.finalize_novm();
   }
   return cells;
+}
+
+std::vector<Ref<vm::DataCell>> build_ballast_chain(const td::Bits256 &addr, int num_cells) {
+  return build_cell_tree(addr, num_cells, 1);
 }
 
 Ref<vm::DataCell> build_ballast_code() {
@@ -259,6 +278,26 @@ Ref<vm::DataCell> build_ballast_code() {
 
 Ref<vm::DataCell> build_empty_cell() {
   return vm::CellBuilder{}.finalize_novm();
+}
+
+std::vector<Ref<vm::DataCell>> build_fat_storage(const td::Bits256 &addr, int fats_size) {
+  // ~fats_size bytes of unique cells (127 data bytes each), reusing the ballast filler keyed by addr
+  // so nothing dedups. bigDict is a 4-ary tree (not a linear chain) so its depth stays ~log4(cells)
+  // and fats_size can exceed the ~1024-cell / ~130 KB depth wall a chain hits (CellTraits::max_depth),
+  // up to the 65536-cell account-state cap. The storage root prefixes a zero nonce and refs the tree.
+  int num_cells = std::max(1, fats_size / 127);
+  auto chain = build_cell_tree(addr, num_cells, 4);
+  vm::CellBuilder cb;
+  cb.store_long(0, 64);    // nonce:uint64 = 0
+  cb.store_ref(chain[0]);  // ^bigDict
+  auto root = cb.finalize_novm();
+  std::vector<Ref<vm::DataCell>> cells;
+  cells.reserve(chain.size() + 1);
+  cells.push_back(std::move(root));
+  for (auto &c : chain) {
+    cells.push_back(c);
+  }
+  return cells;
 }
 
 // bits of the AccountStorage "root" (the part serialized inline in the Account cell)
@@ -526,6 +565,8 @@ std::string Manifest::to_json() const {
   obj("num_v5", static_cast<td::int64>(num_v5));
   obj("num_ballast", static_cast<td::int64>(num_ballast));
   obj("ballast_cells", ballast_cells);
+  obj("num_fats", static_cast<td::int64>(num_fats));
+  obj("fats_size", fats_size);
   obj("wallet_id", static_cast<td::int64>(wallet_id));
   obj("w5_code_hash_hex", td::hex_encode(w5_code_hash.as_slice()));
   obj("jw_code_hash_hex", td::hex_encode(jw_code_hash.as_slice()));
@@ -576,6 +617,10 @@ td::Result<Manifest> Manifest::from_json(td::Slice json) {
   TRY_RESULT(num_ballast, obj.get_required_long_field("num_ballast"));
   m.num_ballast = static_cast<td::uint64>(num_ballast);
   TRY_RESULT_ASSIGN(m.ballast_cells, obj.get_required_int_field("ballast_cells"));
+  // Optional (added later): old manifests without these parse as 0.
+  TRY_RESULT(num_fats, obj.get_optional_long_field("num_fats", 0));
+  m.num_fats = static_cast<td::uint64>(num_fats);
+  TRY_RESULT_ASSIGN(m.fats_size, obj.get_optional_int_field("fats_size", 0));
   TRY_RESULT(wallet_id, obj.get_required_long_field("wallet_id"));
   m.wallet_id = static_cast<td::uint32>(wallet_id);
   TRY_RESULT(w5_code_hash_hex, obj.get_required_string_field("w5_code_hash_hex"));
@@ -604,9 +649,9 @@ td::Result<WalletInfo> derive_wallet(const td::Bits256 &seed, td::uint64 index, 
   TRY_RESULT_ASSIGN(info.pubkey, derive_w5_pubkey(seed, index));
   auto w5_data = build_w5_data(info.pubkey, wallet_id);
   info.w5_addr = build_state_init(contracts.w5_code, w5_data)->get_hash().bits();
-  // Jetton wallet address is derived from the *zero-balance* initial data, as
-  // the jetton contracts do in calculate_user_jetton_wallet_address().
-  auto jw_data0 = build_jw_data(0, info.w5_addr, minter_addr, contracts.jw_code);
+  // Prepaid jetton wallet: the address is derived from the PREPAID_BALANCE initial data (matching
+  // calcDeployedJettonWallet in jetton-utils.tolk), and the live data is the same cell.
+  auto jw_data0 = build_jw_data(kPrepaidJettonBalance, info.w5_addr, minter_addr);
   info.jw_addr = build_state_init(contracts.jw_code, jw_data0)->get_hash().bits();
   return info;
 }

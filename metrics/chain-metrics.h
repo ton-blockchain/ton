@@ -21,6 +21,11 @@ struct ChainSnapshot {
     Results master;
     Results shard;
   };
+  // Collations are additionally split by whether the block was the first slot of our leader window.
+  struct CollatedBlocks {
+    Blocks later;
+    Blocks first;
+  };
   struct Groups {
     td::uint64 master{0};
     td::uint64 shard{0};
@@ -30,7 +35,7 @@ struct ChainSnapshot {
   std::optional<double> masterchain_block_age_seconds;
   std::optional<td::uint64> shardclient_seqno;
   std::optional<td::uint64> active_shards;
-  Blocks collated_blocks;
+  CollatedBlocks collated_blocks;
   Blocks validated_blocks;
   std::optional<Groups> validator_groups;
 
@@ -66,15 +71,23 @@ struct ChainSnapshot {
       }
     }
 
-    auto collect_blocks = [](Context family, const Blocks &blocks) {
-      family.open_family("counter", "total");
+    auto push_blocks = [](Context family, const Blocks &blocks) {
       family.with_label("chain", "master").with_label("result", "ok").push(double(blocks.master.ok));
       family.with_label("chain", "master").with_label("result", "error").push(double(blocks.master.error));
       family.with_label("chain", "shard").with_label("result", "ok").push(double(blocks.shard.ok));
       family.with_label("chain", "shard").with_label("result", "error").push(double(blocks.shard.error));
     };
-    collect_blocks(ctx.with_name("collated_blocks"), collated_blocks);
-    collect_blocks(ctx.with_name("validated_blocks"), validated_blocks);
+    {
+      auto family = ctx.with_name("collated_blocks");
+      family.open_family("counter", "total");
+      push_blocks(family.with_label("first", "0"), collated_blocks.later);
+      push_blocks(family.with_label("first", "1"), collated_blocks.first);
+    }
+    {
+      auto family = ctx.with_name("validated_blocks");
+      family.open_family("counter", "total");
+      push_blocks(family, validated_blocks);
+    }
 
     auto groups = ctx.with_name("validator_groups");
     groups.open_family("gauge");

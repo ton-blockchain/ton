@@ -38,6 +38,7 @@ struct ContractSet {
   Ref<vm::DataCell> w5_code;
   Ref<vm::DataCell> jw_code;
   Ref<vm::DataCell> minter_code;
+  Ref<vm::DataCell> fat_code;  // Fat load-target contract (fat.code.boc); null if the file is absent
 };
 
 td::Result<ContractSet> load_contracts(td::CSlice dir);
@@ -85,11 +86,15 @@ void append_dict_label(vm::CellBuilder &cb, td::ConstBitPtr label, int len, int 
 // Account cell builders
 // ---------------------------------------------------------------------------
 
+// Prepaid jetton wallet: every wallet is "born" with this jetton balance, and its ADDRESS is derived
+// from it (mirrors PREPAID_BALANCE in jetton-prepaid/contracts/jetton-utils.tolk). So the address-
+// defining data equals the live data — one cell for both.
+constexpr Uint128 kPrepaidJettonBalance = 1000000;
+
 // w5 data: is_signature_allowed=1, seqno=0, wallet_id, pubkey, empty extensions dict
 Ref<vm::DataCell> build_w5_data(const td::Bits256 &pubkey, td::uint32 wallet_id);
-// jetton-wallet data: balance:Coins owner:MsgAddressInt master:MsgAddressInt code:^Cell
-Ref<vm::DataCell> build_jw_data(Uint128 jetton_balance, const td::Bits256 &owner_addr, const td::Bits256 &minter_addr,
-                                Ref<vm::Cell> jw_code);
+// prepaid jetton-wallet data: balance:Coins owner:MsgAddressInt master:MsgAddressInt (NO code ref)
+Ref<vm::DataCell> build_jw_data(Uint128 jetton_balance, const td::Bits256 &owner_addr, const td::Bits256 &minter_addr);
 // jetton-minter data: total_supply:Coins admin:MsgAddress(none) content:^Cell code:^Cell
 Ref<vm::DataCell> build_minter_data(Uint128 total_supply, Ref<vm::Cell> content, Ref<vm::Cell> jw_code);
 // StateInit with code+data only (5 bits, 2 refs); its hash is the account address
@@ -100,6 +105,12 @@ std::vector<Ref<vm::DataCell>> build_ballast_chain(const td::Bits256 &addr, int 
 // Shared trivial ballast code cell
 Ref<vm::DataCell> build_ballast_code();
 Ref<vm::DataCell> build_empty_cell();
+// Fat load-target storage: nonce:uint64(=0) | ^bigDict, where bigDict is a 4-ary tree of unique cells
+// sized from `fats_size` bytes (~fats_size/127 cells). A tree, not a chain, so depth stays ~log4(cells)
+// and fats_size can pass the ~1024-cell / ~130 KB CellTraits::max_depth wall up to the 65536-cell account
+// cap. Returns [storage_root, tree...]; the caller emits [1..] and stand-ins [0]. Every cell is unique
+// per addr, so nothing dedups across fats or ballast.
+std::vector<Ref<vm::DataCell>> build_fat_storage(const td::Bits256 &addr, int fats_size);
 
 // StorageUsed of one account: cells/bits over the serialized AccountStorage
 // tree (the inline AccountStorage root + deduplicated code/data subtrees).
@@ -122,8 +133,6 @@ class CellSink {
  public:
   virtual ~CellSink() = default;
   virtual void emit(const Ref<vm::DataCell> &cell) = 0;
-  // Emit a record with a custom serialized value keyed by `hash`. The same hash may also be emitted as a plain cell.
-  virtual void emit_raw(const td::Bits256 &hash, std::string value) = 0;
 };
 
 struct StandinExtra {};
@@ -226,6 +235,8 @@ struct Manifest {
   td::uint64 num_v5{0};
   td::uint64 num_ballast{0};
   int ballast_cells{17};
+  td::uint64 num_fats{0};
+  int fats_size{0};
   td::uint32 wallet_id{0};
   td::Bits256 w5_code_hash{};
   td::Bits256 jw_code_hash{};

@@ -452,6 +452,10 @@ class TestManagerFacade : public ManagerFacade {
   td::actor::Task<td::Ref<vm::Cell>> wait_block_state_root(BlockIdExt block_id, td::Timestamp timeout) override;
   td::actor::Task<td::Ref<BlockData>> wait_block_data(BlockIdExt block_id, td::Timestamp timeout) override;
 
+  td::actor::Task<double> get_sync_delay() override {
+    co_return 0.0;
+  }
+
  private:
   size_t node_idx_;
   size_t instance_idx_;

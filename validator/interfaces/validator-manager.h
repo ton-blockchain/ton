@@ -24,6 +24,7 @@
 #include "block/signature-set.h"
 #include "crypto/vm/db/DynamicBagOfCellsDb.h"
 #include "impl/out-msg-queue-proof.hpp"
+#include "metrics/consensus-metrics.h"
 #include "td/actor/BackpressureQueue.h"
 #include "td/utils/logging.h"
 #include "validator/validator.h"
@@ -97,6 +98,8 @@ struct CollationStats {
   double collated_at = -1.0;
   td::uint32 actual_bytes = 0, actual_collated_data_bytes = 0;
   int attempt = 0;
+  // First slot of the producer's leader window; false for collations that cannot know their slot.
+  bool first_in_window = false;
   PublicKeyHash self = PublicKeyHash::zero();
   bool is_validator = false;
   td::uint32 estimated_bytes = 0, gas = 0, lt_delta = 0, estimated_collated_data_bytes = 0;
@@ -405,6 +408,9 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) = 0;
   virtual void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) = 0;
+  virtual void get_sync_delay(td::Promise<double> promise) {
+    promise.set_error(td::Status::Error("not supported"));
+  }
 
   virtual void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) = 0;
   virtual void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) = 0;
@@ -448,9 +454,9 @@ class ValidatorManager : public ValidatorManagerInterface {
 
   virtual void log_collate_query_stats(CollationStats stats) {
   }
-  virtual void log_collation_external_stats(ShardIdFull shard, CollationStats::ExternalMessages stats) {
-  }
   virtual void log_validate_query_stats(ValidationStats stats) {
+  }
+  virtual void add_consensus_metrics(metrics::ConsensusMetrics metrics) {
   }
 
   virtual void add_persistent_state_description(td::Ref<PersistentStateDescription> desc) = 0;

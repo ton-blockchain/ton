@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "metrics/consensus-metrics.h"
 #include "validator/fabric.h"
 
 namespace ton::validator::consensus {
@@ -30,6 +31,11 @@ class ManagerFacade : public td::actor::Actor {
   }
 
   virtual void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) {
+  }
+
+  virtual td::actor::Task<double> get_sync_delay() = 0;
+
+  virtual void report_consensus_metrics(metrics::ConsensusMetrics metrics) {
   }
 };
 

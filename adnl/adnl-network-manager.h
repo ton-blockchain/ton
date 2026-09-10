@@ -64,7 +64,7 @@ class AdnlNetworkManager : public td::actor::Actor {
     //virtual void receive_packet(td::IPAddress addr, ConnHandle conn_handle, td::BufferSlice data) = 0;
     virtual void receive_packet(td::IPAddress addr, AdnlCategoryMask cat_mask, td::BufferSlice data) = 0;
   };
-  static td::actor::ActorOwn<AdnlNetworkManager> create(td::uint16 out_port);
+  static td::actor::ActorOwn<AdnlNetworkManager> create();
 
   virtual ~AdnlNetworkManager() = default;
 

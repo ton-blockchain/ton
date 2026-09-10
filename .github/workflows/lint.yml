@@ -71,3 +71,18 @@ jobs:
         uv run ruff check
         uv run ruff format --check
         uv run basedpyright
+
+    - name: Check generated dashboards and their generator
+      run: |
+        python3 -m metrics.grafana.dashgen.build check
+        python3 -m metrics.grafana.dashgen.build validate
+        uv run python -m pytest metrics/grafana/dashgen/tests -q
+
+    - name: Check Prometheus rules
+      run: |
+        PROMTOOL_VERSION=3.6.0
+        curl -sSLo /tmp/prometheus.tar.gz \
+          "https://github.com/prometheus/prometheus/releases/download/v${PROMTOOL_VERSION}/prometheus-${PROMTOOL_VERSION}.linux-amd64.tar.gz"
+        tar -xzf /tmp/prometheus.tar.gz -C /tmp
+        /tmp/prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool check rules metrics/prometheus/rules/*.yml
+        /tmp/prometheus-${PROMTOOL_VERSION}.linux-amd64/promtool test rules metrics/prometheus/tests/*.yml

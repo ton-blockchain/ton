@@ -505,9 +505,9 @@ void DownloadShardState::written_shard_state(td::Ref<ShardState> state) {
   }
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this), handle = handle_](td::Result<td::Unit> R) {
+    R.ensure();
     CHECK(handle->handle_moved_to_archive());
     CHECK(handle->moved_to_archive())
-    R.ensure();
     td::actor::send_closure(SelfId, &DownloadShardState::written_block_handle);
   });
   td::actor::send_closure(manager_, &ValidatorManager::archive, handle_, std::move(P));
@@ -515,10 +515,18 @@ void DownloadShardState::written_shard_state(td::Ref<ShardState> state) {
 
 void DownloadShardState::written_block_handle() {
   LOG(WARNING) << "finished downloading and storing shard state " << block_id_;
-  finish_query();
+  if (handle_->need_flush()) {
+    handle_->flush(manager_, handle_, [SelfId = actor_id(this)](td::Result<td::Unit> R) {
+      R.ensure();
+      td::actor::send_closure(SelfId, &DownloadShardState::finish_query);
+    });
+  } else {
+    finish_query();
+  }
 }
 
 void DownloadShardState::finish_query() {
+  handle_->set_applied_stored();
   if (promise_) {
     promise_.set_value(std::move(state_));
   }

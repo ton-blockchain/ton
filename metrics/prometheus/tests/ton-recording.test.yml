@@ -1,0 +1,90 @@
+# Unit tests for the reporter-population guards in rules/ton-recording.yml.
+#
+# Both guarded rules only trust their preferred numerator while the two families come from exactly
+# the same reporters. A count comparison cannot express that: two equal-sized populations can be
+# disjoint, which is precisely the shape a rolling upgrade produces. Each rule therefore gets a
+# matching case and a disjoint case of the same size, and the disjoint one must not take the
+# guarded branch.
+#
+# Series are shaped so both branches are exact and distinguishable: the masterchain head advances
+# at 2 blocks/s while the applied-block counter runs at 1/s, so the value alone says which branch
+# produced it.
+
+rule_files:
+  - ../rules/ton-recording.yml
+
+evaluation_interval: 15s
+
+tests:
+  - interval: 15s
+    name: masterchain rate trusts the replicated head when both families share every reporter
+    input_series:
+      - series: 'ton_masterchain_seqno{job="ton", instance="a"}'
+        values: '1000+30x40'
+      - series: 'ton_first_received_total{job="ton", instance="a", workchain="-1"}'
+        values: '0+15x40'
+    promql_expr_test:
+      - expr: ton:masterchain_block_rate:1m
+        eval_time: 5m
+        exp_samples:
+          - labels: '{__name__="ton:masterchain_block_rate:1m", job="ton"}'
+            value: 2
+
+  - interval: 15s
+    name: masterchain rate falls back when equal-sized reporter sets are disjoint
+    input_series:
+      # One reporter each, so the old count comparison passed while the populations never met.
+      - series: 'ton_masterchain_seqno{job="ton", instance="a"}'
+        values: '1000+30x40'
+      - series: 'ton_first_received_total{job="ton", instance="b", workchain="-1"}'
+        values: '0+15x40'
+    promql_expr_test:
+      - expr: ton:masterchain_block_rate:1m
+        eval_time: 5m
+        exp_samples:
+          - labels: '{__name__="ton:masterchain_block_rate:1m", job="ton"}'
+            # rate() extrapolates to the window edges, so the exact double is one ulp under 1.
+            value: 0.9999999999999999
+
+  - interval: 15s
+    name: masterchain guard rejects an extra reporter on either side
+    input_series:
+      - series: 'ton_masterchain_seqno{job="ton", instance="a"}'
+        values: '1000+30x40'
+      - series: 'ton_masterchain_seqno{job="ton", instance="b"}'
+        values: '1000+30x40'
+      - series: 'ton_first_received_total{job="ton", instance="a", workchain="-1"}'
+        values: '0+15x40'
+    promql_expr_test:
+      - expr: ton:masterchain_block_rate:1m
+        eval_time: 5m
+        exp_samples:
+          - labels: '{__name__="ton:masterchain_block_rate:1m", job="ton"}'
+            # rate() extrapolates to the window edges, so the exact double is one ulp under 1.
+            value: 0.9999999999999999
+
+  - interval: 15s
+    name: shard discard ratio is published when both families share every reporter
+    input_series:
+      - series: 'ton_collated_blocks_total{job="ton", instance="a", chain="shard", result="ok"}'
+        values: '0+30x70'
+      - series: 'ton_first_received_total{job="ton", instance="a", workchain="0"}'
+        values: '0+15x70'
+    promql_expr_test:
+      - expr: ton:shard_discard_ratio:10m
+        eval_time: 15m
+        exp_samples:
+          - labels: '{__name__="ton:shard_discard_ratio:10m", job="ton"}'
+            value: 0.5
+
+  - interval: 15s
+    name: shard discard ratio publishes nothing when equal-sized reporter sets are disjoint
+    input_series:
+      - series: 'ton_collated_blocks_total{job="ton", instance="a", chain="shard", result="ok"}'
+        values: '0+30x70'
+      - series: 'ton_first_received_total{job="ton", instance="b", workchain="0"}'
+        values: '0+15x70'
+    promql_expr_test:
+      - expr: ton:shard_discard_ratio:10m
+        eval_time: 15m
+        exp_samples: []

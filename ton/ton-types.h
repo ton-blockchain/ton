@@ -459,10 +459,19 @@ struct BlockCandidate {
 
   // used only locally
   std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_proof_broadcasts = {};
+  // Monotonic completion time captured by the collator. This never crosses the wire; consensus
+  // uses it only to place local telemetry against the scheduled slot start. Zero means an older
+  // or synthetic producer did not provide the timestamp.
+  double collated_at_monotonic = 0.0;
 
   BlockCandidate clone() const {
-    return BlockCandidate{
-        pubkey, id, collated_file_hash, data.clone(), collated_data.clone(), out_msg_queue_proof_broadcasts};
+    return BlockCandidate{pubkey,
+                          id,
+                          collated_file_hash,
+                          data.clone(),
+                          collated_data.clone(),
+                          out_msg_queue_proof_broadcasts,
+                          collated_at_monotonic};
   }
 };
 
@@ -532,7 +541,9 @@ struct NewConsensusConfig {
   uint32_fn(12, candidate_resolve_rate_limit, 10)                       \
   duration_fn(13, min_block_interval, 0)                                \
   duration_fn(14, no_empty_blocks_on_error_timeout, 15'000)             \
-  uint32_fn(15, certificate_gossip_neighbors, 20)
+  uint32_fn(15, certificate_gossip_neighbors, 20)                       \
+  uint32_fn(17, collator_max_future_window, 4)                          \
+  duration_fn(18, collator_max_sync_delay, 10'000)
   // clang-format on
 
   struct NoncriticalParams {

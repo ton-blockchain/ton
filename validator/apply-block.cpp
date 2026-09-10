@@ -39,6 +39,7 @@ void ApplyBlock::abort_query(td::Status reason) {
 void ApplyBlock::finish_query() {
   VLOG(validator, DEBUG) << "successfully finishing apply block query in " << perf_timer_.elapsed() << " s";
   handle_->set_processed();
+  handle_->set_applied_stored();
   ValidatorInvariants::check_post_apply(handle_);
 
   if (promise_) {
@@ -75,12 +76,12 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
   VLOG(validator, DEBUG) << "got_block_handle";
   handle_ = std::move(handle);
 
-  if (handle_->is_applied() && (!handle_->id().is_masterchain() || handle_->processed())) {
+  if (handle_->is_applied() && handle_->applied_stored() && (!handle_->id().is_masterchain() || handle_->processed())) {
     finish_query();
     return;
   }
 
-  if (handle_->is_applied()) {
+  if (handle_->is_applied() && handle_->applied_stored()) {
     VLOG(validator, DEBUG) << "already applied";
     auto P =
         td::PromiseCreator::lambda([SelfId = actor_id(this), seqno = handle_->id().id.seqno](td::Result<BlockIdExt> R) {
@@ -99,12 +100,6 @@ void ApplyBlock::got_block_handle(BlockHandle handle) {
   if (handle_->id().id.seqno == 0) {
     VLOG(validator, DEBUG) << "seqno == 0";
     written_block_data();
-    return;
-  }
-
-  if (handle_->is_archived()) {
-    VLOG(validator, DEBUG) << "already archived";
-    finish_query();
     return;
   }
 
@@ -167,7 +162,7 @@ void ApplyBlock::written_block_data() {
     CHECK(handle_->inited_state_root_hash());
     CHECK(handle_->inited_logical_time());
   }
-  if (handle_->is_applied() && handle_->processed()) {
+  if (handle_->is_applied() && handle_->applied_stored() && handle_->processed()) {
     finish_query();
   } else {
     auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<td::Ref<ShardState>> R) {
@@ -193,7 +188,7 @@ void ApplyBlock::got_cur_state(td::Ref<ShardState> state) {
 
 void ApplyBlock::written_state() {
   VLOG(validator, DEBUG) << "written_state";
-  if (handle_->is_applied() && handle_->processed()) {
+  if (handle_->is_applied() && handle_->applied_stored() && handle_->processed()) {
     finish_query();
     return;
   }
@@ -224,7 +219,7 @@ void ApplyBlock::written_state() {
 
 void ApplyBlock::written_next() {
   VLOG(validator, DEBUG) << "written_next";
-  if (handle_->is_applied() && handle_->processed()) {
+  if (handle_->is_applied() && handle_->applied_stored() && handle_->processed()) {
     finish_query();
     return;
   }

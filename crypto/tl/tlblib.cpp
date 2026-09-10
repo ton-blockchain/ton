@@ -19,6 +19,8 @@
 #include <set>
 #include <tl/tlblib.hpp>
 
+#include "vm/dict.h"
+
 namespace tlb {
 
 const False t_False;
@@ -224,6 +226,97 @@ std::string TLB::as_string_ref(Ref<vm::Cell> cell_ref, int indent) const {
   std::ostringstream os;
   print_ref(os, std::move(cell_ref), indent);
   return os.str();
+}
+
+namespace {
+
+struct PrintAug : vm::dict::AugmentationData {
+  const TLB& aug_type;
+  explicit PrintAug(const TLB& aug_type) : aug_type(aug_type) {
+  }
+  bool skip_extra(vm::CellSlice& cs) const override {
+    return aug_type.skip(cs);
+  }
+  bool eval_leaf(vm::CellBuilder&, vm::CellSlice&) const override {
+    return false;
+  }
+  bool eval_fork(vm::CellBuilder&, vm::CellSlice&, vm::CellSlice&) const override {
+    return false;
+  }
+  bool eval_empty(vm::CellBuilder&) const override {
+    return false;
+  }
+  bool check_empty(vm::CellSlice& cs) const override {
+    return true;
+  }
+  bool check_fork(vm::CellSlice& cs, vm::CellSlice& left_cs, vm::CellSlice& right_cs) const override {
+    return true;
+  }
+  bool check_leaf(vm::CellSlice& cs, vm::CellSlice& val_cs) const override {
+    return true;
+  }
+};
+
+}  // namespace
+
+bool print_hashmap(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& dict_type, const TLB& value_type,
+                   bool non_empty) {
+  try {
+    vm::CellSlice dict_cs{cs};
+    if (!dict_type.skip(cs)) {
+      return pp.fail("invalid Hashmap");
+    }
+    dict_cs.cut_tail(cs);
+    vm::Dictionary dict{(int)n};
+    if (non_empty) {
+      dict = vm::Dictionary{vm::DictNonEmpty{}, dict_cs, (int)n, false};
+    } else {
+      dict = vm::Dictionary{dict_cs, (int)n, false};
+    }
+    pp.open(non_empty ? "Hashmap" : "HashmapE");
+    return dict.check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr key, int key_len) {
+      if (!pp.register_recursive_call()) {
+        return pp.fail("too many recursive calls while printing a TL-B value");
+      }
+      pp.mode_nl();
+      pp.os << "x" << key.to_hex(key_len) << ":";
+      return (value_type.print_skip(pp, value.write()) && value->empty_ext()) || pp.fail("invalid hashmap value");
+    }) && pp.close();
+  } catch (vm::VmError&) {
+    return pp.fail("invalid Hashmap");
+  }
+}
+
+bool print_hashmap_aug(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& dict_type, const TLB& value_type,
+                       const TLB& aug_type, bool non_empty) {
+  try {
+    vm::CellSlice dict_cs{cs};
+    if (!dict_type.skip(cs)) {
+      return pp.fail("invalid HashmapAug");
+    }
+    dict_cs.cut_tail(cs);
+    PrintAug aug{aug_type};
+    std::unique_ptr<vm::AugmentedDictionary> dict;
+    if (non_empty) {
+      dict = std::make_unique<vm::AugmentedDictionary>(vm::DictNonEmpty{}, Ref<vm::CellSlice>{true, std::move(dict_cs)},
+                                                       (int)n, aug, false);
+    } else {
+      dict =
+          std::make_unique<vm::AugmentedDictionary>(Ref<vm::CellSlice>{true, std::move(dict_cs)}, (int)n, aug, false);
+    }
+    pp.open(non_empty ? "HashmapAug" : "HashmapAugE");
+    return dict->check_for_each_extra([&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key,
+                                          int key_len) {
+      if (!pp.register_recursive_call()) {
+        return pp.fail("too many recursive calls while printing a TL-B value");
+      }
+      pp.mode_nl();
+      pp.os << "x" << key.to_hex(key_len) << ":";
+      return (value_type.print_skip(pp, value.write()) && value->empty_ext()) || pp.fail("invalid hashmapAug value");
+    }) && pp.close();
+  } catch (vm::VmError&) {
+    return pp.fail("invalid HashmapAug");
+  }
 }
 
 PrettyPrinter::~PrettyPrinter() {

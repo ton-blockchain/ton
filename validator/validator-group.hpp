@@ -66,6 +66,7 @@ struct GroupParams {
   bool is_collator = false;
   std::set<adnl::AdnlNodeIdShort> all_collators;
   td::actor::ActorId<CollatorScoreboard> collator_scoreboard;
+  td::Timestamp expected_start_time;
 };
 
 class IValidatorGroup : public td::actor::Actor {

@@ -71,7 +71,7 @@ class Resolver : public td::actor::Actor {
   }
 
   void run() {
-    network_manager_ = ton::adnl::AdnlNetworkManager::create(port_);
+    network_manager_ = ton::adnl::AdnlNetworkManager::create();
     keyring_ = ton::keyring::Keyring::create("");
     adnl_ = ton::adnl::Adnl::create("", keyring_.get());
     td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, network_manager_.get());

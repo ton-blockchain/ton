@@ -159,7 +159,7 @@ class StorageDaemon : public td::actor::Actor {
   void init_adnl() {
     CHECK(ip_addr_.is_valid());
 
-    adnl_network_manager_ = adnl::AdnlNetworkManager::create(static_cast<td::uint16>(ip_addr_.get_port()));
+    adnl_network_manager_ = adnl::AdnlNetworkManager::create();
     adnl_ = adnl::Adnl::create(db_root_, keyring_.get());
     td::actor::send_closure(adnl_, &adnl::Adnl::register_network_manager, adnl_network_manager_.get());
     adnl::AdnlCategoryMask cat_mask;

@@ -10,9 +10,11 @@
 */
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cinttypes>
 #include <condition_variable>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <queue>
 #include <unistd.h>
@@ -27,16 +29,15 @@
 #include "block/block-parse.h"
 #include "common/checksum.h"
 #include "common/io.hpp"
-
+// FIXME: Remove once RocksDB stops triggering this warning.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wimplicit-int-float-conversion"
 #include "rocksdb/db.h"
+#pragma GCC diagnostic pop
 #include "rocksdb/filter_policy.h"
 #include "rocksdb/sst_file_writer.h"
 #include "rocksdb/table.h"
 #include "rocksdb/utilities/checkpoint.h"
-#pragma GCC diagnostic pop
-
 #include "td/db/RocksDb.h"
 #include "td/utils/HashSet.h"
 #include "td/utils/OptionParser.h"
@@ -71,20 +72,35 @@ constexpr td::int32 kRefcnt = 1 << 30;
 // the python and C++ values matched on 2026-06-12.
 const char *kEmptyStateRootHashHex = "a6a1063927dd1fec6960f194d331835702b32f2dcac02711cd33938abd5917d1";
 
+// Hard cap on --fats-size, enforced at parse time. 8 MB / 127 ≈ 63k storage cells, comfortably under
+// the 65536 max_acc_state_cells limit, so a fat stays touchable (a bigger state has any nonce-mutating
+// message rejected by check_state_limits). Rejecting at parse time also stops an absurd value (e.g. 1 GB)
+// from making build_fat_storage allocate millions of cells before any diagnostic.
+static constexpr int kMaxFatsBytes = 8'000'000;
+
 struct Config {
   td::Bits256 seed = td::sha256_bits256("tonbench-default-seed");
   td::uint64 num_v5 = 1000000;
   td::uint64 num_ballast = 0;
   int ballast_cells = 17;
+  td::uint64 num_fats = 0;
+  int fats_size = 100000;  // target bytes of storage dict per fat account
   td::uint32 wallet_id = 0;
   td::uint32 gen_utime = 0;                   // 0 → now()
   Uint128 v5_balance = 100'000'000'000ULL;    // 100 TON
   Uint128 jw_balance = 1'000'000'000ULL;      // 1 TON
   Uint128 minter_balance = 1'000'000'000ULL;  // 1 TON
-  Uint128 jw_jetton_balance = 1'000'000'000'000'000ULL;
+  // Every generated jetton wallet is prepaid with kPrepaidJettonBalance (build_jw_data), so this —
+  // which feeds total_supply() and manifest.jw_jetton_balance — must match it, or the manifest
+  // publishes a per-wallet balance and a minter supply that disagree with the actual state.
+  Uint128 jw_jetton_balance = kPrepaidJettonBalance;
   std::string contracts_dir = "benchmark/contracts";
   std::string out_dir;
   std::string tmp_dir;
+  // Best-effort machine-readable progress snapshot (progress.json). Empty path disables the feature
+  // entirely (behavior then byte-identical to before); interval is the snapshot cadence in seconds.
+  std::string progress_file;
+  double progress_interval = 3.0;
   int threads = static_cast<int>(td::thread::hardware_concurrency());
   int merge_shards = 0;  // 0 → derived from threads; power of two in [1, 256]
   bool overwrite = false;
@@ -93,6 +109,9 @@ struct Config {
 
   Uint128 total_supply() const {
     return jw_jetton_balance * num_v5;
+  }
+  td::uint64 num_accounts() const {
+    return 2 * num_v5 + num_ballast + (num_v5 > 0 ? 1 : 0);
   }
 };
 
@@ -108,12 +127,41 @@ struct Progress {
   std::atomic<const char *> phase{"init"};
 };
 
+// Ticks ~every `interval` seconds off a single background thread. Besides the existing
+// human-readable LOG line it (when `progress_file` is non-empty) atomically rewrites a
+// machine-readable progress.json snapshot per PROGRESS_CONTRACT.md §1. Emission is strictly
+// best-effort side output: every file op is wrapped so it can never throw/fail/slow generation,
+// and it never touches any generation state, so the produced CellDB is unaffected (deterministic).
 class ProgressPrinter {
  public:
-  explicit ProgressPrinter(Progress &progress) : progress_(progress) {
+  ProgressPrinter(Progress &progress, std::string progress_file, double interval_sec, td::uint64 accounts_total)
+      : progress_(progress)
+      , progress_file_(std::move(progress_file))
+      , interval_ms_(std::max<td::int64>(1, static_cast<td::int64>((interval_sec > 0 ? interval_sec : 3.0) * 1000)))
+      , accounts_total_(accounts_total) {
+    start_ = td::Timestamp::now().at();
+    prev_tick_time_ = start_;
     thread_ = td::thread([this] { run(); });
   }
   ~ProgressPrinter() {
+    stop_thread();
+  }
+
+  // Stop the background thread and write the terminal snapshot (phase "done", global_pct 1.0,
+  // done_flag true). Idempotent; safe to call once at pipeline completion. Best-effort like the rest.
+  void finish() {
+    stop_thread();
+    if (!progress_file_.empty()) {
+      write_snapshot(/*final_snapshot=*/true);
+    }
+  }
+
+ private:
+  void stop_thread() {
+    if (stopped_) {
+      return;
+    }
+    stopped_ = true;
     {
       std::lock_guard<std::mutex> lock(mutex_);
       stop_ = true;
@@ -122,30 +170,209 @@ class ProgressPrinter {
     thread_.join();
   }
 
- private:
   void run() {
-    auto start = td::Timestamp::now();
-    td::uint64 prev_accounts = 0;
     std::unique_lock<std::mutex> lock(mutex_);
     while (!stop_) {
-      cv_.wait_for(lock, std::chrono::seconds(3));
+      cv_.wait_for(lock, std::chrono::milliseconds(interval_ms_));
       if (stop_) {
         break;
       }
       auto accounts = progress_.accounts.load();
-      auto elapsed = td::Timestamp::now().at() - start.at();
-      LOG(INFO) << "[" << progress_.phase.load() << "] accounts=" << accounts << " (" << (accounts - prev_accounts) / 3
+      auto elapsed = td::Timestamp::now().at() - start_;
+      // account rate over the ACTUAL elapsed since the last tick, not a hardcoded 3 s: a non-default
+      // --progress-interval otherwise misreports throughput (a 60 s cadence would read ~20x high).
+      double dt = elapsed - prev_log_elapsed_;
+      td::uint64 rate =
+          dt > 1e-6 ? static_cast<td::uint64>(static_cast<double>(accounts - prev_log_accounts_) / dt) : 0;
+      LOG(INFO) << "[" << progress_.phase.load() << "] accounts=" << accounts << " (" << rate
                 << "/s) cells=" << progress_.cells.load()
                 << " run_bytes=" << td::format::as_size(progress_.run_bytes.load())
                 << " merged_bytes=" << td::format::as_size(progress_.merged_bytes.load()) << " elapsed=" << elapsed
                 << "s";
-      prev_accounts = accounts;
+      prev_log_accounts_ = accounts;
+      prev_log_elapsed_ = elapsed;
+      if (!progress_file_.empty()) {
+        write_snapshot(/*final_snapshot=*/false);
+      }
     }
   }
+
+  // Compose and atomically write progress.json (<path>.tmp then rename). Wrapped so it can never
+  // throw or otherwise perturb generation. Called only from the printer thread (under mutex_) and
+  // from finish() after the thread has been joined, so its members need no extra locking.
+  void write_snapshot(bool final_snapshot) {
+    try {
+      static constexpr double kWDerive = 0.05, kWBuild = 0.35, kWMerge = 0.55, kWIngest = 0.05;
+
+      const char *raw_phase = progress_.phase.load();
+      if (raw_phase == nullptr) {
+        raw_phase = "init";
+      }
+      auto is = [&](const char *s) { return std::strcmp(raw_phase, s) == 0; };
+
+      td::uint64 accounts = progress_.accounts.load();
+      td::uint64 run_bytes = progress_.run_bytes.load();
+      td::uint64 merged_bytes = progress_.merged_bytes.load();
+      double now = td::Timestamp::now().at();
+      double elapsed = now - start_;
+
+      const char *phase_name;
+      int phase_index;
+      const char *unit;
+      td::uint64 done, total;
+      std::string phase_label;
+      if (final_snapshot) {
+        phase_name = "done";
+        phase_index = 4;
+        unit = "accounts";
+        done = accounts;
+        total = accounts_total_;
+        phase_label = "done";
+      } else if (is("phase2-build")) {
+        phase_name = "build";
+        phase_index = 2;
+        unit = "accounts";
+        done = accounts;
+        total = accounts_total_;
+        phase_label = raw_phase;
+      } else if (is("phase3-merge")) {
+        phase_name = "merge";
+        phase_index = 3;
+        unit = "bytes";
+        // total = total run bytes produced by phase 2, captured once at the first merge tick.
+        if (!merge_total_captured_) {
+          merge_total_ = run_bytes;
+          merge_total_captured_ = true;
+        }
+        done = merged_bytes;
+        total = merge_total_;
+        phase_label = raw_phase;
+      } else if (is("phase3-ingest")) {
+        phase_name = "ingest";
+        phase_index = 4;
+        unit = "bytes";
+        done = merged_bytes;
+        total = 0;  // no per-cell ingest counter → phase_pct best-effort 0
+        phase_label = raw_phase;
+      } else {
+        // "init" and "phase1-derive"
+        phase_name = "derive";
+        phase_index = 1;
+        unit = "accounts";
+        done = accounts;
+        total = accounts_total_;
+        phase_label = raw_phase;
+      }
+
+      double phase_pct;
+      if (final_snapshot) {
+        phase_pct = 1.0;
+      } else if (total > 0) {
+        phase_pct = static_cast<double>(done) / static_cast<double>(total);
+        phase_pct = std::min(1.0, std::max(0.0, phase_pct));
+      } else {
+        phase_pct = 0.0;
+      }
+
+      double global_pct;
+      if (final_snapshot) {
+        global_pct = 1.0;
+      } else {
+        switch (phase_index) {
+          case 1:
+            global_pct = kWDerive * phase_pct;
+            break;
+          case 2:
+            global_pct = kWDerive + kWBuild * phase_pct;
+            break;
+          case 3:
+            global_pct = kWDerive + kWBuild + kWMerge * phase_pct;
+            break;
+          default:
+            global_pct = kWDerive + kWBuild + kWMerge + kWIngest * phase_pct;
+            break;
+        }
+      }
+      // Enforce monotonic non-decreasing global_pct across the whole run.
+      if (global_pct < last_global_pct_) {
+        global_pct = last_global_pct_;
+      }
+      last_global_pct_ = global_pct;
+
+      // rate = units/sec of the current phase; reset across phase boundaries (unit/counter changes).
+      double dt = now - prev_tick_time_;
+      double rate = 0.0;
+      if (phase_index == prev_phase_index_ && dt > 1e-6 && done >= prev_done_) {
+        rate = static_cast<double>(done - prev_done_) / dt;
+      }
+      prev_phase_index_ = phase_index;
+      prev_done_ = done;
+      prev_tick_time_ = now;
+
+      td::int64 eta_sec;
+      if (final_snapshot) {
+        eta_sec = 0;
+      } else if (global_pct > 1e-9) {
+        eta_sec = static_cast<td::int64>(elapsed * (1.0 - global_pct) / global_pct);
+        if (eta_sec < 0) {
+          eta_sec = 0;
+        }
+      } else {
+        eta_sec = -1;
+      }
+
+      td::int64 seq = static_cast<td::int64>(++seq_);
+      td::int64 ts_unix = static_cast<td::int64>(td::Clocks::system());
+
+      char buf[1024];
+      int n = std::snprintf(
+          buf, sizeof(buf),
+          "{\"schema\":1,\"phase\":\"%s\",\"phase_name\":\"%s\",\"phase_index\":%d,\"phase_count\":4,"
+          "\"done\":%llu,\"total\":%llu,\"unit\":\"%s\",\"phase_pct\":%.6f,\"global_pct\":%.6f,"
+          "\"rate\":%.3f,\"eta_sec\":%lld,\"elapsed_sec\":%lld,\"accounts\":%llu,\"accounts_total\":%llu,"
+          "\"seq\":%lld,\"ts_unix\":%lld,\"done_flag\":%s}\n",
+          phase_label.c_str(), phase_name, phase_index, static_cast<unsigned long long>(done),
+          static_cast<unsigned long long>(total), unit, phase_pct, global_pct, rate, static_cast<long long>(eta_sec),
+          static_cast<long long>(elapsed), static_cast<unsigned long long>(accounts),
+          static_cast<unsigned long long>(accounts_total_), static_cast<long long>(seq),
+          static_cast<long long>(ts_unix), final_snapshot ? "true" : "false");
+      if (n <= 0 || n >= static_cast<int>(sizeof(buf))) {
+        return;
+      }
+      std::string tmp_path = progress_file_ + ".tmp";
+      std::FILE *f = std::fopen(tmp_path.c_str(), "wb");
+      if (f == nullptr) {
+        return;
+      }
+      bool ok = std::fwrite(buf, 1, static_cast<size_t>(n), f) == static_cast<size_t>(n);
+      // fflush is implied by fclose; ignore its result — this is best-effort.
+      if (std::fclose(f) != 0 || !ok) {
+        return;
+      }
+      std::rename(tmp_path.c_str(), progress_file_.c_str());
+    } catch (...) {
+      // Best-effort side output: never let progress emission affect generation.
+    }
+  }
+
   Progress &progress_;
+  std::string progress_file_;
+  td::int64 interval_ms_;
+  td::uint64 accounts_total_;
+  double start_ = 0.0;
+  double prev_tick_time_ = 0.0;
+  double prev_log_elapsed_ = 0.0;
+  td::uint64 prev_log_accounts_ = 0;
+  td::uint64 prev_done_ = 0;
+  int prev_phase_index_ = 0;
+  double last_global_pct_ = 0.0;
+  td::uint64 merge_total_ = 0;
+  bool merge_total_captured_ = false;
+  td::uint64 seq_ = 0;
   std::mutex mutex_;
   std::condition_variable cv_;
   bool stop_ = false;
+  bool stopped_ = false;
   td::thread thread_;
 };
 
@@ -159,15 +386,18 @@ class CountingSink : public CellSink {
   explicit CountingSink(Progress *progress = nullptr) : progress_(progress) {
   }
   void emit(const Ref<vm::DataCell> &cell) override {
+    count_++;
     if (progress_ != nullptr) {
       progress_->cells.fetch_add(1, std::memory_order_relaxed);
     }
   }
-  void emit_raw(const td::Bits256 &hash, std::string value) override {
+  td::uint64 count() const {
+    return count_;
   }
 
  private:
   Progress *progress_;
+  td::uint64 count_{0};
 };
 
 // Merge shards: cells are routed to a shard by the top bits of their hash, so a
@@ -231,13 +461,12 @@ class RunFileSink : public CellSink {
       , shard_bits_(merge_shard_bits(registry.shards()))
       , recs_(registry.shards()) {
   }
-  ~RunFileSink() override {
+  ~RunFileSink() {
     CHECK(n_recs_ == 0);  // flush() must be called explicitly
   }
   void emit(const Ref<vm::DataCell> &cell) override {
-    emit_raw(td::Bits256{cell->get_hash().bits()}, vm::CellStorer::serialize_value(kRefcnt, cell, false));
-  }
-  void emit_raw(const td::Bits256 &hash, std::string value) override {
+    auto hash = td::Bits256{cell->get_hash().bits()};
+    auto value = vm::CellStorer::serialize_value(kRefcnt, cell, false);
     Rec rec;
     rec.hash = hash;
     rec.offset = buf_.size();
@@ -300,7 +529,7 @@ class RunFileSink : public CellSink {
 // Phase 1: parallel derivation into 256 bucket files
 // ---------------------------------------------------------------------------
 
-enum class AccountType : td::uint8 { W5 = 0, JW = 1, Ballast = 2, Minter = 3 };
+enum class AccountType : td::uint8 { W5 = 0, JW = 1, Ballast = 2, Minter = 3, Fat = 4 };
 
 #pragma pack(push, 1)
 struct DeriveRecord {
@@ -391,9 +620,10 @@ struct GenContext {
   td::Bits256 minter_addr{};
   // shared stand-ins (cells emitted once globally)
   Ref<vm::Cell> w5_code_standin, jw_code_standin, minter_code_standin, ballast_code_standin, empty_cell_standin;
+  Ref<vm::Cell> fat_code_standin;
   Ref<vm::DataCell> ballast_code, empty_cell;
   // storage_used per account shape
-  StorageUsedStat w5_used, jw_used, ballast_used, minter_used;
+  StorageUsedStat w5_used, jw_used, ballast_used, minter_used, fat_used;
 };
 
 td::Result<GenContext> make_gen_context(const Config &cfg) {
@@ -416,7 +646,7 @@ td::Result<GenContext> make_gen_context(const Config &cfg) {
   auto w5_data = build_w5_data(sample.pubkey, cfg.wallet_id);
   std::vector<Ref<vm::Cell>> w5_roots{ctx.contracts.w5_code, w5_data};
   ctx.w5_used = compute_account_storage_used(cfg.v5_balance, w5_roots);
-  auto jw_data = build_jw_data(cfg.jw_jetton_balance, sample.w5_addr, ctx.minter_addr, ctx.contracts.jw_code);
+  auto jw_data = build_jw_data(kPrepaidJettonBalance, sample.w5_addr, ctx.minter_addr);
   std::vector<Ref<vm::Cell>> jw_roots{ctx.contracts.jw_code, jw_data};
   ctx.jw_used = compute_account_storage_used(cfg.jw_balance, jw_roots);
   auto ballast_chain = build_ballast_chain(tagged_sha256(cfg.seed, "bl", 0), cfg.ballast_cells);
@@ -424,6 +654,16 @@ td::Result<GenContext> make_gen_context(const Config &cfg) {
   ctx.ballast_used = compute_account_storage_used(cfg.jw_balance, ballast_roots);
   std::vector<Ref<vm::Cell>> minter_roots{ctx.contracts.minter_code, minter_data};
   ctx.minter_used = compute_account_storage_used(cfg.minter_balance, minter_roots);
+  if (cfg.num_fats > 0) {
+    LOG_CHECK(!ctx.contracts.fat_code.is_null()) << "fat.code.boc is required for --fats-count > 0";
+    LOG_CHECK(cfg.fats_size >= 1) << "--fats-size must be >= 1 when --fats-count > 0";
+    ctx.fat_code_standin = make_standin(ctx.contracts.fat_code);
+    // fats_size is capped at parse time (kMaxFatsBytes), so this stays well under
+    // max_acc_state_cells and never over-allocates for an absurd value.
+    auto fat_cells = build_fat_storage(tagged_sha256(cfg.seed, "fat", 0), cfg.fats_size);
+    std::vector<Ref<vm::Cell>> fat_roots{ctx.contracts.fat_code, fat_cells[0]};
+    ctx.fat_used = compute_account_storage_used(cfg.jw_balance, fat_roots);
+  }
   return std::move(ctx);
 }
 
@@ -433,6 +673,7 @@ void derive_phase(const GenContext &ctx, BucketWriter &writer, Progress &progres
   constexpr td::uint64 kChunk = 4096;
   std::atomic<td::uint64> next_v5{0};
   std::atomic<td::uint64> next_ballast{0};
+  std::atomic<td::uint64> next_fat{0};
   auto worker = [&] {
     BucketBuffer buf(writer);
     while (true) {
@@ -474,6 +715,22 @@ void derive_phase(const GenContext &ctx, BucketWriter &writer, Progress &progres
         progress.accounts.fetch_add(1, std::memory_order_relaxed);
       }
     }
+    while (true) {
+      auto begin = next_fat.fetch_add(kChunk);
+      if (begin >= cfg.num_fats) {
+        break;
+      }
+      auto end = std::min(begin + kChunk, cfg.num_fats);
+      for (td::uint64 i = begin; i < end; i++) {
+        DeriveRecord rec{};
+        auto addr = tagged_sha256(cfg.seed, "fat", i);
+        td::MutableSlice(rec.addr, 32).copy_from(addr.as_slice());
+        rec.type = static_cast<td::uint8>(AccountType::Fat);
+        rec.index = i;
+        buf.add(rec);
+        progress.accounts.fetch_add(1, std::memory_order_relaxed);
+      }
+    }
     buf.flush_all();
   };
   std::vector<td::thread> threads;
@@ -502,10 +759,7 @@ void derive_phase(const GenContext &ctx, BucketWriter &writer, Progress &progres
 // the Account cell, returns the Account cell stand-in + balance.
 std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, const DeriveRecord &rec, CellSink &sink) {
   const auto &cfg = ctx.cfg;
-  auto emit_retain_standin = [&](const Ref<vm::DataCell> &cell) {
-    sink.emit(cell);
-    return make_standin(cell);
-  };
+  auto emit_retain_standin = [&](const Ref<vm::DataCell> &cell) { return emit_and_standin(sink, cell); };
   td::Bits256 addr;
   addr.as_slice().copy_from(td::Slice(rec.addr, 32));
   td::Bits256 payload;
@@ -522,7 +776,8 @@ std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, con
       used = &ctx.w5_used;
       break;
     case AccountType::JW:
-      data = emit_retain_standin(build_jw_data(cfg.jw_jetton_balance, payload, ctx.minter_addr, ctx.jw_code_standin));
+      // Prepaid: live data == address-defining data (balance = kPrepaidJettonBalance, no code ref).
+      data = emit_retain_standin(build_jw_data(kPrepaidJettonBalance, payload, ctx.minter_addr));
       code = ctx.jw_code_standin;
       balance = cfg.jw_balance;
       used = &ctx.jw_used;
@@ -536,6 +791,17 @@ std::pair<Ref<vm::Cell>, Uint128> build_account_cells(const GenContext &ctx, con
       code = ctx.ballast_code_standin;
       balance = cfg.jw_balance;
       used = &ctx.ballast_used;
+      break;
+    }
+    case AccountType::Fat: {
+      auto cells = build_fat_storage(addr, cfg.fats_size);
+      for (size_t i = 1; i < cells.size(); i++) {
+        sink.emit(cells[i]);
+      }
+      data = emit_retain_standin(cells[0]);
+      code = ctx.fat_code_standin;
+      balance = cfg.jw_balance;
+      used = &ctx.fat_used;
       break;
     }
     case AccountType::Minter:
@@ -716,6 +982,8 @@ MergeStats merge_shard_to_sst(const std::vector<std::string> &runs, const std::s
     heap.pop();
     auto &cur = *cursors[idx];
     if (have_prev && cur.hash() == prev_hash) {
+      // Equal hashes must carry byte-identical values (serialize_value is
+      // deterministic); anything else is a genuine hash collision.
       LOG_CHECK(cur.value() == prev_value) << "hash collision with different values: " << prev_hash.to_hex();
     } else {
       if (have_prev) {
@@ -897,7 +1165,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
 
   TRY_RESULT(ctx, make_gen_context(cfg));
   Progress progress;
-  ProgressPrinter printer(progress);
+  ProgressPrinter printer(progress, cfg.progress_file, cfg.progress_interval, cfg.num_accounts());
 
   // ---- phase 1 ----
   {
@@ -967,6 +1235,9 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
     if (cfg.num_ballast > 0) {
       main_sink->emit(ctx.ballast_code);
     }
+    if (cfg.num_fats > 0) {
+      emit_subtree(*main_sink, ctx.contracts.fat_code);
+    }
     ShardAccountsStreamBuilder top_builder(*main_sink);
     for (int b = 0; b < 256; b++) {
       if (pendings[b].type != DictNode::Type::Empty) {
@@ -997,6 +1268,8 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   res.manifest.num_v5 = cfg.num_v5;
   res.manifest.num_ballast = cfg.num_ballast;
   res.manifest.ballast_cells = cfg.ballast_cells;
+  res.manifest.num_fats = cfg.num_fats;
+  res.manifest.fats_size = cfg.fats_size;
   res.manifest.wallet_id = cfg.wallet_id;
   res.manifest.w5_code_hash = td::Bits256{ctx.contracts.w5_code->get_hash().bits()};
   res.manifest.jw_code_hash = td::Bits256{ctx.contracts.jw_code->get_hash().bits()};
@@ -1007,6 +1280,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   res.manifest.celldb_path = celldb_path;
 
   if (!write_db) {
+    printer.finish();
     TRY_STATUS(td::rmrf(cfg.tmp_dir));
     return res;
   }
@@ -1021,6 +1295,26 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
   write_celldb(celldb_path, stats, res.root_hash, res.file_hash);
 
   TRY_STATUS(td::write_file(cfg.out_dir + "/manifest.json", res.manifest.to_json()));
+
+  // fats.addrs (+ .sizes sidecar): the raw addresses of the fat load-targets, for go-spam --mode fats.
+  // Re-derived here (they aren't retained after phase 1); deterministic from the seed, so every host
+  // that regenerates the same state writes the identical file.
+  if (cfg.num_fats > 0) {
+    std::string fats_addrs;
+    std::string fats_sizes;
+    for (td::uint64 i = 0; i < cfg.num_fats; i++) {
+      auto addr = tagged_sha256(cfg.seed, "fat", i);
+      fats_addrs += PSTRING() << "0:" << addr.to_hex() << "\n";
+      fats_sizes += PSTRING() << "0:" << addr.to_hex() << "\t" << cfg.fats_size << "\n";
+    }
+    TRY_STATUS(td::write_file(cfg.out_dir + "/fats.addrs", fats_addrs));
+    TRY_STATUS(td::write_file(cfg.out_dir + "/fats.sizes", fats_sizes));
+  } else {
+    // Regenerating without fats into a dir that had them (--overwrite only drops celldb): remove the
+    // stale sidecars so go-spam --mode fats can't target fat accounts that no longer exist.
+    td::unlink(cfg.out_dir + "/fats.addrs").ignore();
+    td::unlink(cfg.out_dir + "/fats.sizes").ignore();
+  }
 
   // verify: the DB opens and the root cell loads via vm::CellLoader
   {
@@ -1038,6 +1332,7 @@ td::Result<GenResult> run_pipeline(Config cfg, bool write_db) {
 
   LOG(INFO) << "gen done in " << timer.elapsed() << "s; root_hash=" << res.root_hash.to_hex()
             << " file_hash=" << res.file_hash.to_hex() << " total_balance=" << u128_to_dec(res.total_balance);
+  printer.finish();
   return res;
 }
 
@@ -1096,8 +1391,7 @@ std::vector<TestAccount> make_test_accounts(const GenContext &ctx, size_t count)
         break;
       case 1:
         code = ctx.contracts.jw_code;
-        data = build_jw_data(cfg.jw_jetton_balance, tagged_sha256(cfg.seed, "to", i), ctx.minter_addr,
-                             ctx.contracts.jw_code);
+        data = build_jw_data(kPrepaidJettonBalance, tagged_sha256(cfg.seed, "to", i), ctx.minter_addr);
         acc.balance = cfg.jw_balance;
         used = &ctx.jw_used;
         break;
@@ -1219,73 +1513,12 @@ class StandinCellCreator : public vm::ExtCellCreator {
   }
 };
 
-// Walk the accounts dictionary from the state root down to wallet `addr`'s
-// account data cell, loading by hash exactly where an ExtCell boundary would
-// force a DB read. Returns {db_loads, cells_visited}.
-std::pair<td::uint64, td::uint64> count_descent_loads(vm::CellLoader &loader, vm::ExtCellCreator &creator,
-                                                      const td::Bits256 &root_hash, const td::Bits256 &addr) {
-  td::uint64 loads = 0;
-  td::uint64 cells = 0;
-  auto resolve = [&](const Ref<vm::Cell> &cell) -> Ref<vm::DataCell> {
-    cells++;
-    if (cell->is_loaded()) {
-      return cell->load_cell().move_as_ok().data_cell;
-    }
-    loads++;
-    auto r = loader.load(cell->get_hash().as_slice(), true, creator).move_as_ok();
-    LOG_CHECK(r.status == vm::CellLoader::LoadResult::Ok) << "missing cell " << cell->get_hash().to_hex();
-    return r.cell();
-  };
-  // the state root itself
-  loads++;
-  cells++;
-  auto root = loader.load(root_hash.as_slice(), true, creator).move_as_ok().cell();
-  auto accounts_wrap = resolve(root->get_ref(1));  // ^ShardAccounts
-  vm::CellSlice wrap_cs(vm::NoVm{}, accounts_wrap);
-  CHECK(wrap_cs.fetch_ulong(1) == 1);  // ahme_root$1
-  auto cur = resolve(wrap_cs.fetch_ref());
-  int pos = 0;
-  while (true) {
-    vm::CellSlice cs(vm::NoVm{}, cur);
-    int rem = 256 - pos;
-    int k = 32 - td::count_leading_zeroes32(rem);
-    int len;
-    if (cs.fetch_ulong(1) == 0) {  // hml_short$0: unary length
-      len = 0;
-      while (cs.fetch_ulong(1) == 1) {
-        len++;
-      }
-      cs.advance(len);
-    } else if (cs.fetch_ulong(1) == 0) {  // hml_long$10
-      len = static_cast<int>(cs.fetch_ulong(k));
-      cs.advance(len);
-    } else {  // hml_same$11
-      cs.advance(1);
-      len = static_cast<int>(cs.fetch_ulong(k));
-    }
-    pos += len;
-    CHECK(pos <= 256);
-    if (pos == 256) {
-      break;  // leaf
-    }
-    bool bit = addr.bits()[pos];
-    pos++;
-    auto left = cs.fetch_ref();
-    auto right = cs.fetch_ref();
-    cur = resolve(bit ? right : left);
-  }
-  // leaf: extra:DepthBalanceInfo then account:^Account; Account ref1 = data root
-  vm::CellSlice leaf_cs(vm::NoVm{}, cur);
-  auto account = resolve(leaf_cs.fetch_ref());
-  CHECK(account->get_refs_cnt() == 2);
-  resolve(account->get_ref(1));
-  return {loads, cells};
-}
-
 td::Bits256 self_test_celldb(const Config &base_cfg) {
   Config cfg = base_cfg;
   cfg.num_v5 = 2000;
   cfg.num_ballast = 100;
+  cfg.num_fats = 20;
+  cfg.fats_size = 4000;  // small fat dicts keep the self-test fast while exercising AccountType::Fat
   cfg.out_dir = PSTRING() << "/tmp/bench-state-gen-selftest." << getpid();
   cfg.tmp_dir = cfg.out_dir + "/tmp";
   cfg.overwrite = true;
@@ -1323,23 +1556,6 @@ td::Bits256 self_test_celldb(const Config &base_cfg) {
     }
   }
   LOG_CHECK(visited == res.distinct_cells) << "traversed " << visited << " cells, db has " << res.distinct_cells;
-
-  // dictionary descent cost: with bundling, descending to an account's data cell
-  // must take far fewer DB reads than the number of cells on the path
-  {
-    auto ctx = make_gen_context(cfg).move_as_ok();
-    td::uint64 total_loads = 0;
-    td::uint64 total_cells = 0;
-    for (td::uint64 i = 0; i < 8; i++) {
-      auto wallet = derive_wallet(cfg.seed, i, cfg.wallet_id, ctx.minter_addr, ctx.contracts).move_as_ok();
-      auto [loads, cells] = count_descent_loads(loader, creator, res.root_hash, wallet.w5_addr);
-      total_loads += loads;
-      total_cells += cells;
-    }
-    CHECK(total_loads == total_cells);
-    LOG(INFO) << "self-test (c) descent cost: " << total_loads << " loads / " << total_cells
-              << " cells over 8 descents";
-  }
 
   // V2 dynamic BoC reader (the validator's celldb path): full DFS through the shared cache
   {
@@ -1400,7 +1616,14 @@ td::Bits256 self_test_celldb(const Config &base_cfg) {
   CHECK(manifest.file_hash == res.file_hash);
   CHECK(manifest.total_balance == res.total_balance);
   CHECK(manifest.num_v5 == cfg.num_v5 && manifest.num_ballast == cfg.num_ballast);
+  CHECK(manifest.num_fats == cfg.num_fats && manifest.fats_size == cfg.fats_size);
   CHECK(manifest.seed == cfg.seed);
+
+  // fats.addrs: one raw address per fat, matching the deterministic derivation
+  auto fats_addrs = td::read_file_str(cfg.out_dir + "/fats.addrs").move_as_ok();
+  size_t fats_lines = std::count(fats_addrs.begin(), fats_addrs.end(), '\n');
+  CHECK(fats_lines == cfg.num_fats);
+  CHECK(fats_addrs.find("0:" + tagged_sha256(cfg.seed, "fat", 0).to_hex()) != std::string::npos);
 
   LOG(INFO) << "self-test (c) celldb round-trip: OK (" << visited << " cells, root " << res.root_hash.to_hex() << ")";
   return res.root_hash;
@@ -1457,6 +1680,7 @@ void self_test_empty_root(const Config &base_cfg) {
   Config cfg = base_cfg;
   cfg.num_v5 = 0;
   cfg.num_ballast = 0;
+  cfg.num_fats = 0;  // else a `self-test --fats-count N` run generates fats here and total_balance != 0
   cfg.gen_utime = 1700000000;
   cfg.tmp_dir = PSTRING() << "/tmp/bench-state-gen-selftest-e." << getpid();
   auto res = run_pipeline(cfg, false).move_as_ok();
@@ -1487,6 +1711,7 @@ int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   bench::Config cfg;
   std::string src, dst;
+  td::uint64 derive_index = 0;
 
   td::OptionParser p;
   p.set_description("bench-state-gen <gen|root-only|self-test|checkpoint> [options] (see benchmark/DESIGN.md)");
@@ -1512,6 +1737,27 @@ int main(int argc, char *argv[]) {
     }
     return td::Status::OK();
   });
+  p.add_checked_option('\0', "fats-count", "number of fat load-target accounts (large storage dict)",
+                       [&](td::Slice arg) {
+                         TRY_RESULT_ASSIGN(cfg.num_fats, td::to_integer_safe<td::uint64>(arg));
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "fats-size", "approx bytes of storage dict per fat account (ignored if fats-count=0)",
+                       [&](td::Slice arg) {
+                         // Accept 0 so callers can pass --fats-size unconditionally alongside --fats-count 0
+                         // (the remote regeneration script does). It only has to be >= 1 when fats exist,
+                         // which make_gen_context enforces.
+                         TRY_RESULT_ASSIGN(cfg.fats_size, td::to_integer_safe<int>(arg));
+                         if (cfg.fats_size < 0) {
+                           return td::Status::Error("--fats-size must be >= 0");
+                         }
+                         if (cfg.fats_size > bench::kMaxFatsBytes) {
+                           return td::Status::Error(PSTRING() << "--fats-size must be <= " << bench::kMaxFatsBytes
+                                                              << " (a bigger fat exceeds max_acc_state_cells "
+                                                                 "and would be untouchable)");
+                         }
+                         return td::Status::OK();
+                       });
   p.add_checked_option('\0', "gen-utime", "state generation unixtime (default: now)", [&](td::Slice arg) {
     TRY_RESULT_ASSIGN(cfg.gen_utime, td::to_integer_safe<td::uint32>(arg));
     return td::Status::OK();
@@ -1526,6 +1772,18 @@ int main(int argc, char *argv[]) {
                [&](td::Slice arg) { cfg.out_dir = arg.str(); });
   p.add_option('\0', "tmp-dir", "scratch directory for bucket/run files (default: <out-dir>/tmp)",
                [&](td::Slice arg) { cfg.tmp_dir = arg.str(); });
+  p.add_option('\0', "progress-file", "path for a machine-readable progress.json snapshot (default: empty = disabled)",
+               [&](td::Slice arg) { cfg.progress_file = arg.str(); });
+  p.add_checked_option('\0', "progress-interval", "seconds between progress.json snapshots (default 3)",
+                       [&](td::Slice arg) {
+                         int v = 0;
+                         TRY_RESULT_ASSIGN(v, td::to_integer_safe<int>(arg));
+                         if (v < 1) {
+                           return td::Status::Error("--progress-interval must be >= 1");
+                         }
+                         cfg.progress_interval = v;
+                         return td::Status::OK();
+                       });
   p.add_checked_option('\0', "merge-shards", "parallel phase-3 merge shards, power of two <= 256 (default: threads)",
                        [&](td::Slice arg) {
                          TRY_RESULT_ASSIGN(cfg.merge_shards, td::to_integer_safe<int>(arg));
@@ -1540,6 +1798,10 @@ int main(int argc, char *argv[]) {
     return td::Status::OK();
   });
   p.add_option('\0', "overwrite", "overwrite an existing celldb", [&] { cfg.overwrite = true; });
+  p.add_checked_option('\0', "index", "wallet index for the `derive` command", [&](td::Slice arg) {
+    TRY_RESULT_ASSIGN(derive_index, td::to_integer_safe<td::uint64>(arg));
+    return td::Status::OK();
+  });
   p.add_option('\0', "src", "checkpoint source celldb", [&](td::Slice arg) { src = arg.str(); });
   p.add_option('\0', "dst", "checkpoint destination", [&](td::Slice arg) { dst = arg.str(); });
   p.add_option('v', "verbosity", "verbosity level",
@@ -1567,6 +1829,25 @@ int main(int argc, char *argv[]) {
              res.ok().distinct_cells ? res.ok().distinct_cells : res.ok().emitted_cells);
     } else {
       status = res.move_as_error();
+    }
+  } else if (command == "derive") {
+    // Golden-vector dump for the Go cross-toolchain parity test: prints the deterministic W5 pubkey +
+    // address, its prepaid jetton-wallet address, the minter address, and the fat address for `--index`.
+    auto r_ctx = bench::make_gen_context(cfg);
+    if (r_ctx.is_error()) {
+      status = r_ctx.move_as_error();
+    } else {
+      auto ctx = r_ctx.move_as_ok();
+      auto r_w = bench::derive_wallet(cfg.seed, derive_index, cfg.wallet_id, ctx.minter_addr, ctx.contracts);
+      if (r_w.is_error()) {
+        status = r_w.move_as_error();
+      } else {
+        auto w = r_w.move_as_ok();
+        auto fat_addr = bench::tagged_sha256(cfg.seed, "fat", derive_index);
+        printf("index=%" PRIu64 "\nwallet_id=%u\npubkey=%s\nw5_addr=%s\njw_addr=%s\nminter_addr=%s\nfat_addr=%s\n",
+               derive_index, cfg.wallet_id, w.pubkey.to_hex().c_str(), w.w5_addr.to_hex().c_str(),
+               w.jw_addr.to_hex().c_str(), ctx.minter_addr.to_hex().c_str(), fat_addr.to_hex().c_str());
+      }
     }
   } else if (command == "self-test") {
     status = bench::do_self_test(cfg);

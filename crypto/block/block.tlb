@@ -801,11 +801,8 @@ _ NewConsensusConfigAll = ConfigParam 30;
 
 _ fundamental_smc_addr:(HashmapE 256 True) = ConfigParam 31;
 _ prev_validators:ValidatorSet = ConfigParam 32;
-_ prev_temp_validators:ValidatorSet = ConfigParam 33;
 _ cur_validators:ValidatorSet = ConfigParam 34;
-_ cur_temp_validators:ValidatorSet = ConfigParam 35;
 _ next_validators:ValidatorSet = ConfigParam 36;
-_ next_temp_validators:ValidatorSet = ConfigParam 37;
 
 validator_temp_key#3 adnl_addr:bits256 temp_public_key:SigPubKey seqno:# valid_until:uint32 = ValidatorTempKey;
 signed_temp_key#4 key:^ValidatorTempKey signature:CryptoSignature = ValidatorSignedTempKey;

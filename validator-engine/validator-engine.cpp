@@ -106,16 +106,11 @@ static td::Result<ton::adnl::AdnlNodeIdShort> parse_adnl_id_hex(td::Slice value)
 }
 
 Config::Config() {
-  out_port = 3278;
   full_node = ton::PublicKeyHash::zero();
 }
 
 Config::Config(const ton::ton_api::engine_validator_config &config) {
   full_node = ton::PublicKeyHash::zero();
-  out_port = static_cast<td::uint16>(config.out_port_);
-  if (!out_port) {
-    out_port = 3278;
-  }
   for (auto &addr : config.addrs_) {
     td::IPAddress ip;
     std::vector<AdnlCategory> categories;
@@ -337,7 +332,7 @@ ton::tl_object_ptr<ton::ton_api::engine_validator_config> Config::tl() const {
   }
 
   return ton::create_tl_object<ton::ton_api::engine_validator_config>(
-      out_port, std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
+      std::move(addrs_vec), std::move(adnl_vec), std::move(dht_vec), std::move(val_vec), std::move(col_vec),
       full_node.tl(), std::move(full_node_slaves_vec), std::move(full_node_masters_vec),
       std::move(full_node_config_obj), std::move(extra_config_obj), std::move(liteserver_vec), std::move(control_vec),
       std::move(shards_vec), std::move(gc_vec));
@@ -2178,7 +2173,7 @@ void ValidatorEngine::start() {
 }
 
 void ValidatorEngine::start_adnl() {
-  adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create(config_.out_port);
+  adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create();
   adnl_ = ton::adnl::Adnl::create(db_root_, keyring_.get());
   td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::adnl::AdnlNetworkManager>,
@@ -2341,6 +2336,12 @@ void ValidatorEngine::start_validator() {
     }
   }
 
+  // The last collector any configuration registers is the one above: start_adnl -> ... ->
+  // start_validator runs unconditionally in one turn, and the start-up steps after it register
+  // none. They can also wait on the full node coming up, so sealing at the end of the chain would
+  // keep /metrics answering 503 for the whole database warm-up instead of just for start-up.
+  td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::ready);
+
   started_validator();
 }
 
@@ -2351,9 +2352,6 @@ void ValidatorEngine::started_validator() {
 void ValidatorEngine::start_full_node() {
   if (!config_.full_node.is_zero() || !config_.full_node_slaves.empty()) {
     full_node_id_ = ton::adnl::AdnlNodeIdShort{config_.full_node};
-    auto pk = ton::PrivateKey{ton::privkeys::Ed25519::random()};
-    auto short_id = pk.compute_short_id();
-    td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(pk), true, [](td::Result<>) {});
     if (config_.full_node_slaves.size() > 0) {
       std::vector<std::pair<ton::adnl::AdnlNodeIdFull, td::IPAddress>> vec;
       for (auto &x : config_.full_node_slaves) {
@@ -2375,8 +2373,8 @@ void ValidatorEngine::start_full_node() {
     ton::validator::fullnode::FullNodeOptions full_node_options = full_node_options_;
     full_node_options.config_ = config_.full_node_config;
     full_node_ = ton::validator::fullnode::FullNode::create(
-        short_id, full_node_id_, validator_options_->zero_block_id().file_hash, full_node_options, keyring_.get(),
-        adnl_.get(), rldp2_.get(), quic_.get(),
+        full_node_id_, validator_options_->zero_block_id().file_hash, full_node_options, keyring_.get(), adnl_.get(),
+        rldp2_.get(), quic_.get(),
         default_dht_node_.is_zero() ? td::actor::ActorId<ton::dht::Dht>{} : dht_nodes_[default_dht_node_].get(),
         overlay_manager_.get(), validator_manager_.get(), full_node_client_.get(), db_root_, std::move(P));
     for (auto &v : config_.validators) {
@@ -3412,6 +3410,34 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
   }
   opts.force_full_collated_data = f.force_full_collated_data_;
   opts.ignore_collated_data_limits = f.ignore_collated_data_limits_;
+
+  static auto parse_param_limits =
+      [](const ton::tl_object_ptr<ton::ton_api::engine_validator_collatorOptions_paramLimits> &l)
+      -> td::Result<std::optional<block::ParamLimits>> {
+    if (!l) {
+      return std::nullopt;
+    }
+    if (l->underload_ < 0) {
+      return td::Status::Error("invalid underload value");
+    }
+    if (l->soft_limit_ < 0) {
+      return td::Status::Error("invalid soft_limit value");
+    }
+    if (l->hard_limit_ < 0) {
+      return td::Status::Error("invalid hard_limit value");
+    }
+    if (l->underload_ > l->soft_limit_) {
+      return td::Status::Error("underload should not be greater than soft_limit");
+    }
+    if (l->soft_limit_ > l->hard_limit_) {
+      return td::Status::Error("soft_limit should not be greater than hard_limit");
+    }
+    return block::ParamLimits(l->underload_, l->soft_limit_, l->hard_limit_);
+  };
+  TRY_RESULT_ASSIGN(opts.block_limits_bytes, parse_param_limits(f.block_limits_bytes_));
+  TRY_RESULT_ASSIGN(opts.block_limits_gas, parse_param_limits(f.block_limits_gas_));
+  TRY_RESULT_ASSIGN(opts.block_limits_lt_delta, parse_param_limits(f.block_limits_lt_delta_));
+  TRY_RESULT_ASSIGN(opts.block_limits_collated_data, parse_param_limits(f.block_limits_collated_data_));
 
   return ref;
 }

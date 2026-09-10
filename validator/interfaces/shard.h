@@ -69,6 +69,7 @@ class MasterchainState : virtual public ShardState {
   virtual td::Ref<block::ValidatorSet> get_next_validator_set(ShardIdFull shard) const = 0;
   virtual td::Ref<block::ValidatorSet> get_total_validator_set(
       int next) const = 0;  // next = -1 -> prev, next = 0 -> cur
+  virtual td::Ref<block::ValidatorSet> get_validator_set(ShardIdFull shard, CatchainSeqno cc_seqno) const = 0;
   virtual bool rotated_all_shards() const = 0;
   virtual std::vector<td::Ref<McShardHash>> get_shards() const = 0;
   virtual td::Ref<McShardHash> get_shard_from_config(ShardIdFull shard, bool exact = true) const = 0;
@@ -80,6 +81,7 @@ class MasterchainState : virtual public ShardState {
   virtual BlockSeqno min_ref_masterchain_seqno() const = 0;
   virtual bool ancestor_is_valid(BlockIdExt id) const = 0;
   virtual NewConsensusConfig get_new_consensus_config(WorkchainId wc) const = 0;
+  virtual block::CatchainValidatorsConfig get_catchain_validators_config() const = 0;
   virtual BlockIdExt last_key_block_id() const = 0;
   virtual BlockIdExt next_key_block_id(BlockSeqno seqno) const = 0;
   virtual BlockIdExt prev_key_block_id(BlockSeqno seqno) const = 0;
