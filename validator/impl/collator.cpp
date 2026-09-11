@@ -40,6 +40,7 @@
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
 #include "top-shard-descr.hpp"
+#include "transaction.h"
 
 namespace ton {
 
@@ -3049,73 +3050,37 @@ bool Collator::process_account_storage_dict(block::Account& account) {
  * @returns True if the operation is successful, false otherwise.
  */
 bool Collator::combine_account_transactions() {
+  // The estimator contains each account's first changed state. Only later or unestimated changes need updating.
+  account_dict = std::make_unique<vm::AugmentedDictionary>(*account_dict_estimator_);
   vm::AugmentedDictionary dict{256, block::tlb::aug_ShardAccountBlocks};
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> account_blocks, account_updates;
+  account_blocks.reserve(accounts.size());
   for (auto& z : accounts) {
     block::Account& acc = *(z.second);
     CHECK(acc.addr == z.first);
     if (!acc.transactions.empty()) {
       // have transactions for this account
-      vm::CellBuilder cb;
-      if (!acc.create_account_block(cb)) {
+      auto block_cb = td::make_ref<vm::CellBuilder>();
+      if (!acc.create_account_block(block_cb.write())) {
         return fatal_error("cannot create AccountBlock for account "s + z.first.to_hex());
       }
-      auto cell = cb.finalize();
-      auto csr = vm::load_cell_slice_ref(cell);
-      if (verbosity > 2) {
-        FLOG(INFO) {
-          sb << "new AccountBlock for " << z.first.to_hex() << ": ";
-          block::gen::t_AccountBlock.print_ref(sb, cell);
-          csr->print_rec(sb);
-        };
-      }
-      if (!dict.set(z.first, csr, vm::Dictionary::SetMode::Add)) {
-        return fatal_error(std::string{"new AccountBlock for "} + z.first.to_hex() +
-                           " could not be added to ShardAccountBlocks");
-      }
-      // update account_dict
-      if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
-        // account changed
-        if (acc.orig_status == block::Account::acc_nonexist) {
-          // account created
-          CHECK(acc.status != block::Account::acc_nonexist);
-          vm::CellBuilder cb;
-          if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
-                && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
-                && cb.store_long_bool(acc.last_trans_lt_, 64)  // last_trans_lt:uint64
-                && account_dict->set_builder(acc.addr, cb, vm::Dictionary::SetMode::Add))) {
-            return fatal_error(std::string{"cannot add newly-created account "} + acc.addr.to_hex() +
-                               " into ShardAccounts");
-          }
-        } else if (acc.status == block::Account::acc_nonexist) {
-          // account deleted
-          if (verbosity > 2) {
-            FLOG(INFO) {
-              sb << "deleting account " << acc.addr.to_hex() << " with empty new value ";
-              block::gen::t_Account.print_ref(sb, acc.total_state);
-            };
-          }
-          if (account_dict->lookup_delete(acc.addr).is_null()) {
-            return fatal_error(std::string{"cannot delete account "} + acc.addr.to_hex() + " from ShardAccounts");
+      account_blocks.emplace_back(z.first.bits(), std::move(block_cb));
+      const bool estimated = account_dict_estimator_added_accounts_.contains(acc.addr);
+      if (acc.transactions.size() > 1 || !estimated) {
+        if (acc.status == block::Account::acc_nonexist) {
+          if (account_dict->lookup(acc.addr).not_null()) {
+            account_updates.emplace_back(z.first.bits(), Ref<vm::CellBuilder>{});
           }
         } else {
-          // existing account modified
-          if (verbosity > 4) {
-            FLOG(INFO) {
-              sb << "modifying account " << acc.addr.to_hex() << " to ";
-              block::gen::t_Account.print_ref(sb, acc.total_state);
-            };
+          auto account_cb = td::make_ref<vm::CellBuilder>();
+          auto& cb = account_cb.write();
+          if (!(cb.store_ref_bool(acc.total_state)                 // account_descr$_ account:^Account
+                && cb.store_bits_bool(acc.last_trans_hash_)        // last_trans_hash:bits256
+                && cb.store_long_bool(acc.last_trans_lt_, 64))) {  // last_trans_lt:uint64
+            return fatal_error("cannot serialize final ShardAccount for "s + acc.addr.to_hex());
           }
-          if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
-                && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
-                && cb.store_long_bool(acc.last_trans_lt_, 64)  // last_trans_lt:uint64
-                && account_dict->set_builder(acc.addr, cb, vm::Dictionary::SetMode::Replace))) {
-            return fatal_error(std::string{"cannot modify existing account "} + acc.addr.to_hex() +
-                               " in ShardAccounts");
-          }
+          account_updates.emplace_back(z.first.bits(), std::move(account_cb));
         }
-      }
-      if (!process_account_storage_dict(acc)) {
-        return false;
       }
     } else {
       if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
@@ -3124,7 +3089,18 @@ bool Collator::combine_account_transactions() {
       }
     }
   }
+  if (!account_dict->multiset(account_updates)) {
+    return fatal_error("cannot update final ShardAccounts");
+  }
+  for (auto& [_, acc] : accounts) {
+    if (!acc->transactions.empty() && !process_account_storage_dict(*acc)) {
+      return false;
+    }
+  }
   vm::CellBuilder cb;
+  if (!dict.multiset(account_blocks, vm::Dictionary::SetMode::Add)) {
+    return fatal_error("cannot build ShardAccountBlocks");
+  }
   if (!(cb.append_cellslice_bool(std::move(dict).extract_root()) && cb.finalize_to(shard_account_blocks_))) {
     return fatal_error("cannot serialize ShardAccountBlocks");
   }
@@ -5761,7 +5737,7 @@ bool Collator::register_dispatch_queue_op(bool force) {
 /**
  * Update size estimation for the account dictionary.
  * This is required to count the depth of the ShardAccounts dictionary in the block size estimation.
- * account_dict_estimator_ is used for block limits only.
+ * The estimator can also be reused as the final dictionary in combine_account_transactions.
  *
  * @param trans Newly-created transaction.
  *
