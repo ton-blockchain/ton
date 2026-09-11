@@ -2518,6 +2518,10 @@ td::actor::Task<> Collator::do_collate_inner() {
   }
   {
     td::ScopedRealCpuTimer::Guard timer{work_timer_, &stats_.work_time.create_shard_state};
+    // B-. compute total balance of the shardchain
+    if (!compute_total_balance()) {
+      co_return td::Status::Error("failed to compute total balance of the shardchain");
+    }
     // B. serialize McStateExtra
     LOG(DEBUG) << "serialize McStateExtra";
     if (!create_mc_state_extra()) {
@@ -5927,7 +5931,6 @@ bool Collator::create_shard_state() {
         && cb.store_ref_bool(cb2.finalize())            // ...
         && cb2.store_long_bool(overload_history_, 64)   // ^[ overload_history:uint64
         && cb2.store_long_bool(underload_history_, 64)  //    underload_history:uint64
-        && compute_total_balance()                      //    -> total_balance, total_validator_fees
         && total_balance_.store(cb2)                    //  total_balance:CurrencyCollection
         && total_validator_fees_.store(cb2)             //  total_validator_fees:CurrencyCollection
         && shard_libraries_->append_dict_to_bool(cb2)   //    libraries:(HashmapE 256 LibDescr)
