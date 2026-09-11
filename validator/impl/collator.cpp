@@ -3703,19 +3703,23 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
   CHECK(src_wc == workchain());
   bool is_special_account = is_masterchain() && config_->is_special_smartcontract(src_addr);
   bool defer = false;
+  const char* defer_reason = "";
   if (!from_dispatch_queue) {
     if (deferring_messages_enabled_ && params_.collator_opts->deferring_enabled && !is_special && !is_special_account &&
         !params_.collator_opts->whitelist.count({src_wc, src_addr}) && msg.msg_idx != 0) {
       if (++sender_generated_messages_count_[src_addr] >= params_.collator_opts->defer_messages_after ||
           out_msg_queue_size_ > defer_out_queue_size_limit_) {
         defer = true;
+        defer_reason = " because account sent too many messages in this block";
       }
     }
-    if (dispatch_queue_->lookup(src_addr).not_null() || unprocessed_deferred_messages_.count(src_addr)) {
+    if (!defer && (dispatch_queue_->lookup(src_addr).not_null() || unprocessed_deferred_messages_.count(src_addr))) {
       defer = true;
+      defer_reason = " because account dispatch queue is not empty";
     }
-    if (out_msg_queue_size_ + new_msgs.size() >= out_msg_queue_size_hard_limit_ && !is_special) {
+    if (!defer && out_msg_queue_size_ + new_msgs_from_dispatch >= out_msg_queue_size_hard_limit_ && !is_special) {
       defer = true;
+      defer_reason = " due to out msg queue overflow";
     }
   } else {
     auto& x = unprocessed_deferred_messages_[src_addr];
@@ -3737,6 +3741,10 @@ int Collator::process_one_new_message(block::NewOutMsg msg, bool enqueue_only, R
       ok = enqueue_transit_message(std::move(msg.msg), std::move(msg_env), src_prefix, src_prefix, dest_prefix,
                                    std::move(env.fwd_fee_remaining), std::move(env.metadata), msg.lt, true);
     } else {
+      if (defer) {
+        LOG(INFO) << "deferring new message from account " << workchain() << ":" << src_addr.to_hex()
+                  << ", lt=" << msg.lt << defer_reason;
+      }
       ok = enqueue_message(std::move(msg), std::move(fwd_fees), src_addr, defer);
     }
     return ok ? 0 : -1;
@@ -4489,7 +4497,7 @@ bool Collator::process_dispatch_queue() {
     auto prioritylist = params_.collator_opts->prioritylist;
     auto prioritylist_iter = prioritylist.begin();
     while (!cur_dispatch_queue.is_empty()) {
-      if (out_msg_queue_size_ + new_msgs.size() >= out_msg_queue_size_hard_limit_) {
+      if (out_msg_queue_size_ + new_msgs_from_dispatch >= out_msg_queue_size_hard_limit_) {
         LOG(INFO) << "out msg queue size too big, stop processing dispatch queue";
         return true;
       }
@@ -4885,7 +4893,6 @@ bool Collator::enqueue_message(block::NewOutMsg msg, td::RefInt256 fwd_fees_rema
 
   // 6. insert EnqueuedMsg into OutMsgQueue (or DispatchQueue)
   if (defer) {
-    LOG(INFO) << "deferring new message from account " << workchain() << ":" << src_addr.to_hex() << ", lt=" << msg.lt;
     block::AccountDispatchQueue account_queue;
     if (!account_queue.unpack(dispatch_queue_->lookup(src_addr))) {
       return fatal_error(PSTRING() << "cannot unpack AccountDispatchQueue for account " << src_addr.to_hex());
@@ -4956,6 +4963,9 @@ bool Collator::process_new_messages(bool& enqueue_only) {
     }
     block::NewOutMsg msg = new_msgs.top();
     new_msgs.pop();
+    if (msg.msg_env_from_dispatch_queue.not_null()) {
+      --new_msgs_from_dispatch;
+    }
     block_limit_status_->extra_out_msgs--;
     if ((block_full_ || have_unprocessed_account_dispatch_queue_) && !enqueue_only) {
       LOG(INFO) << "BLOCK FULL, enqueue all remaining new messages";
@@ -4988,6 +4998,9 @@ bool Collator::process_new_messages(bool& enqueue_only) {
 void Collator::register_new_msg(block::NewOutMsg new_msg) {
   if (new_msg.lt < min_new_msg_lt) {
     min_new_msg_lt = new_msg.lt;
+  }
+  if (new_msg.msg_env_from_dispatch_queue.not_null()) {
+    ++new_msgs_from_dispatch;
   }
   new_msgs.push(std::move(new_msg));
   block_limit_status_->extra_out_msgs++;

@@ -206,6 +206,7 @@ class Collator final : public td::actor::Actor {
   td::CancellationTokenSource ext_msg_cancellation_;
 
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
+  size_t new_msgs_from_dispatch = 0;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
   block::tlb::Aug_InMsgDescr aug_InMsgDescr{0};
   block::tlb::Aug_OutMsgDescr aug_OutMsgDescr{0};
