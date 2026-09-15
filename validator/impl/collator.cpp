@@ -2372,6 +2372,7 @@ td::actor::Task<> Collator::do_collate_inner() {
   LOG(DEBUG) << "config parameters fetched, creating message dictionaries";
   aug_InMsgDescr.global_version = aug_OutMsgDescr.global_version = global_version_;
   in_msg_dict = std::make_unique<vm::AugmentedDictionary>(256, aug_InMsgDescr);
+  pending_in_msg_descriptors_.reserve(64);
   out_msg_dict = std::make_unique<vm::AugmentedDictionary>(256, aug_OutMsgDescr);
   LOG(DEBUG) << "message dictionaries created";
   if (max_lt == start_lt) {
@@ -2436,6 +2437,10 @@ td::actor::Task<> Collator::do_collate_inner() {
     co_await process_external_and_new_messages();
   }
   auto post_ext_token = perf_log_.start_action("post_ext_processing");
+  // All InMsg descriptors are collected; tock outputs below are only enqueued.
+  if (!flush_in_msg_descriptors()) {
+    co_return td::Status::Error("cannot build final InMsgDescr");
+  }
   if (before_split_) {
     // 7. split prepare / split install
     LOG(DEBUG) << "create split prepare/install transactions (NOT IMPLEMENTED YET)";
@@ -4668,9 +4673,33 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
     }
     msg = cs2.prefetch_ref();  // use hash of (Message Any)
   }
+  auto value = td::make_ref<vm::CellBuilder>();
+  if (!value.write().append_cellslice_bool(cs)) {
+    return fatal_error("cannot add an InMsg into InMsgDescr dictionary");
+  }
+  pending_in_msg_descriptors_.emplace_back(td::Bits256{msg->get_hash().bits()}, std::move(value));
+  ++in_descr_cnt_;
+  if (!block_limit_status_->add_cell(std::move(in_msg))) {
+    return false;
+  }
+  if (in_descr_cnt_ & 63) {
+    return true;
+  }
+  return flush_in_msg_descriptors() && block_limit_status_->add_cell(in_msg_dict->get_root_cell());
+}
+
+bool Collator::flush_in_msg_descriptors() {
+  if (pending_in_msg_descriptors_.empty()) {
+    return true;
+  }
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> updates;
+  updates.reserve(pending_in_msg_descriptors_.size());
+  for (const auto& [key, value] : pending_in_msg_descriptors_) {
+    updates.emplace_back(key.bits(), value);
+  }
   bool ok;
   try {
-    ok = in_msg_dict->set(msg->get_hash().bits(), 256, cs, vm::Dictionary::SetMode::Add);
+    ok = in_msg_dict->multiset(updates, vm::Dictionary::SetMode::Add);
   } catch (vm::VmError&) {
     LOG(ERROR) << "cannot add an InMsg into InMsgDescr dictionary!";
     ok = false;
@@ -4678,9 +4707,8 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
   if (!ok) {
     return fatal_error("cannot add an InMsg into InMsgDescr dictionary");
   }
-  ++in_descr_cnt_;
-  return block_limit_status_->add_cell(std::move(in_msg)) &&
-         ((in_descr_cnt_ & 63) || block_limit_status_->add_cell(in_msg_dict->get_root_cell()));
+  pending_in_msg_descriptors_.clear();
+  return true;
 }
 
 /**
