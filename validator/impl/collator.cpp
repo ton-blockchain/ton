@@ -2374,6 +2374,7 @@ td::actor::Task<> Collator::do_collate_inner() {
   in_msg_dict = std::make_unique<vm::AugmentedDictionary>(256, aug_InMsgDescr);
   pending_in_msg_descriptors_.reserve(64);
   out_msg_dict = std::make_unique<vm::AugmentedDictionary>(256, aug_OutMsgDescr);
+  pending_out_msg_descriptors_.reserve(64);
   LOG(DEBUG) << "message dictionaries created";
   if (max_lt == start_lt) {
     ++max_lt;
@@ -2460,6 +2461,10 @@ td::actor::Task<> Collator::do_collate_inner() {
     if (!process_new_messages(enqueue_only)) {
       co_return td::Status::Error("cannot process newly-generated outbound messages");
     }
+  }
+  // All OutMsg descriptors, including tock outputs, are collected.
+  if (!flush_out_msg_descriptors()) {
+    co_return td::Status::Error("cannot build final OutMsgDescr");
   }
   // 10. check block overload/underload
   LOG(DEBUG) << "check block overload/underload";
@@ -4751,9 +4756,34 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg) {
  * @returns True if the insertion was successful, false otherwise.
  */
 bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
+  auto value = td::make_ref<vm::CellBuilder>();
+  if (!value.write().append_cellslice_bool(load_cell_slice(out_msg))) {
+    LOG(ERROR) << "cannot add an OutMsg into OutMsgDescr dictionary!";
+    return false;
+  }
+  pending_out_msg_descriptors_.emplace_back(td::Bits256{msg_hash}, std::move(value));
+  ++out_descr_cnt_;
+  if (!block_limit_status_->add_cell(std::move(out_msg))) {
+    return false;
+  }
+  if (out_descr_cnt_ & 63) {
+    return true;
+  }
+  return flush_out_msg_descriptors() && block_limit_status_->add_cell(out_msg_dict->get_root_cell());
+}
+
+bool Collator::flush_out_msg_descriptors() {
+  if (pending_out_msg_descriptors_.empty()) {
+    return true;
+  }
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> updates;
+  updates.reserve(pending_out_msg_descriptors_.size());
+  for (const auto& [key, value] : pending_out_msg_descriptors_) {
+    updates.emplace_back(key.bits(), value);
+  }
   bool ok;
   try {
-    ok = out_msg_dict->set(msg_hash, 256, load_cell_slice(out_msg), vm::Dictionary::SetMode::Add);
+    ok = out_msg_dict->multiset(updates, vm::Dictionary::SetMode::Add);
   } catch (vm::VmError&) {
     ok = false;
   }
@@ -4761,9 +4791,8 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
     LOG(ERROR) << "cannot add an OutMsg into OutMsgDescr dictionary!";
     return false;
   }
-  ++out_descr_cnt_;
-  return block_limit_status_->add_cell(std::move(out_msg)) &&
-         ((out_descr_cnt_ & 63) || block_limit_status_->add_cell(out_msg_dict->get_root_cell()));
+  pending_out_msg_descriptors_.clear();
+  return true;
 }
 
 /**
