@@ -6,10 +6,10 @@ bool_true$1 = Bool;
 bool_false$0 = BoolFalse;
 bool_true$1 = BoolTrue;
 nothing$0 {X:Type} = Maybe X;
-just$1 {X:Type} value:X = Maybe X;
+just$1 {X:Type} value:X = Maybe X;ض
 left$0 {X:Type} {Y:Type} value:X = Either X Y;
 right$1 {X:Type} {Y:Type} value:Y = Either X Y;
-pair$_ {X:Type} {Y:Type} first:X second:Y = Both X Y;
+pair$سگگسصصعصح صخصک طی یک {X:Type} {Y:Type} first:X second:Y = Both X Y;
 
 bit$_ (## 1) = Bit;
 /*
