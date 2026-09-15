@@ -16,24 +16,25 @@
 */
 #pragma once
 
-#include "td/utils/Slice.h"
-#include "td/utils/algorithm.h"
-#include "td/utils/check.h"
-#include "td/utils/common.h"
-
 #include <array>
 #include <atomic>
 #include <limits>
+#include <type_traits>
+
+#include "td/utils/Slice.h"
+#include "td/utils/check.h"
+#include "td/utils/common.h"
 
 namespace td {
 
 // Fixed-size concurrent cache of keys.
 // Operations never wait for a busy slot: contains may miss and insert may skip.
-template <size_t SlotCount, size_t KeyWords>
+template <size_t SlotCount, size_t KeyWords, typename Word = uint64>
 class SeqlockCache {
  public:
   static_assert(SlotCount > 0 && KeyWords > 0);
-  using Key = std::array<uint64, KeyWords>;
+  static_assert(std::is_integral_v<Word> && std::has_unique_object_representations_v<Word>);
+  using Key = std::array<Word, KeyWords>;
 
   bool contains(const Key& key, size_t slot) const {
     DCHECK(slot < SlotCount);
@@ -65,7 +66,7 @@ class SeqlockCache {
     // Acquire orders this writer's payload stores after the previous writer's.
     if ((sequence & 1) || sequence == std::numeric_limits<uint64>::max() - 1 ||
         !entry.sequence.compare_exchange_strong(sequence, sequence + 1, std::memory_order_acquire,
-                                               std::memory_order_relaxed)) {
+                                                std::memory_order_relaxed)) {
       return;
     }
     std::atomic_thread_fence(std::memory_order_release);
@@ -80,14 +81,15 @@ class SeqlockCache {
   }
 
   static size_t key_to_slot(const Key& key) {
-    return SliceHash{}(Slice{reinterpret_cast<const char*>(key.data()), sizeof(Key)}) % SlotCount;
+    return SliceHash{}(Slice{reinterpret_cast<const char*>(key.data()), key.size() * sizeof(Word)}) % SlotCount;
   }
 
  private:
   static_assert(std::atomic<uint64>::is_always_lock_free);
+  static_assert(std::atomic<Word>::is_always_lock_free);
   struct Entry {
     std::atomic<uint64> sequence{0};
-    std::array<std::atomic<uint64>, KeyWords> key{};
+    std::array<std::atomic<Word>, KeyWords> key{};
   };
   std::array<Entry, SlotCount> entries_{};
 };
