@@ -28,9 +28,7 @@
 
 #if TD_HAVE_OPENSSL
 
-#include <cstdlib>
 #include <cstring>
-
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
 #include <openssl/pem.h>
@@ -43,17 +41,18 @@ namespace td {
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L
 namespace {
 
-constexpr size_t kCacheSlotCount = 16384;
+constexpr size_t kCacheSlotCount = 65536;  // 15 MiB
 constexpr size_t kMaxCachedDataSize = 128;
 constexpr size_t kPublicKeySize = Ed25519::PublicKey::LENGTH;
 constexpr size_t kSignatureSize = 64;
-constexpr size_t kCacheKeyWords = (sizeof(uint64) * 2 + kPublicKeySize + kSignatureSize + kMaxCachedDataSize - 1) / sizeof(uint64);
-using SignatureCache = SeqlockCache<kCacheSlotCount, kCacheKeyWords>;
+constexpr size_t kCacheKeyWords =
+    (sizeof(uint64) * 2 + kPublicKeySize + kSignatureSize + kMaxCachedDataSize - 1) / sizeof(uint64);
+using SignatureCache = SeqlockCache<kCacheSlotCount, kCacheKeyWords, uint64>;
 
 SignatureCache::Key make_signature_cache_key(Slice public_key, Slice signature, Slice data) {
   SignatureCache::Key key{};
   key.front() = data.size();  // Distinguish a message from the same bytes with trailing zeros.
-  auto* bytes = reinterpret_cast<char*>(key.data() + 1);
+  auto *bytes = reinterpret_cast<char *>(key.data() + 1);
   std::memcpy(bytes, public_key.data(), kPublicKeySize);
   std::memcpy(bytes + kPublicKeySize, signature.data(), kSignatureSize);
   if (!data.empty()) {
@@ -62,17 +61,14 @@ SignatureCache::Key make_signature_cache_key(Slice public_key, Slice signature, 
   return key;
 }
 
-SignatureCache& get_signature_cache() {
+SignatureCache *get_signature_cache(Slice public_key, Slice signature, Slice data) {
+  const bool cacheable =
+      data.size() <= kMaxCachedDataSize && signature.size() == kSignatureSize && public_key.size() == kPublicKeySize;
+  if (!cacheable) {
+    return nullptr;
+  }
   static SignatureCache cache;
-  return cache;
-}
-
-bool signature_cache_enabled() {
-  static const bool enabled = [] {
-    const char* value = std::getenv("TON_ED25519_CACHE");
-    return value == nullptr || Slice{value} != "0";
-  }();
-  return enabled;
+  return &cache;
 }
 
 }  // namespace
@@ -313,9 +309,7 @@ Result<SecureString> Ed25519::PrivateKey::sign(Slice data) const {
 Status Ed25519::PublicKey::verify_signature(Slice data, Slice signature) const {
   TD_PERF_COUNTER(Ed25519_verify_signature);
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L
-  const bool cacheable = data.size() <= kMaxCachedDataSize && signature.size() == kSignatureSize &&
-                         octet_string_.size() == kPublicKeySize && signature_cache_enabled();
-  auto* cache = cacheable ? &get_signature_cache() : nullptr;
+  auto *cache = get_signature_cache(octet_string_, signature, data);
   SignatureCache::Key cache_key;
   size_t slot;
   if (cache != nullptr) {

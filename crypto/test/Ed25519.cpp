@@ -156,8 +156,8 @@ TEST(Crypto, ed25519) {
 TEST(Crypto, signature_cache_inputs_and_lengths) {
   auto private_key = td::Ed25519::PrivateKey(td::SecureString(td::Slice(fixed_privkey, 32)));
   auto public_key = private_key.get_public_key().move_as_ok();
-  auto other_key = td::Ed25519::PrivateKey(td::SecureString(td::Slice(rfc8032_secret_key1, 32)))
-                       .get_public_key().move_as_ok();
+  auto other_key =
+      td::Ed25519::PrivateKey(td::SecureString(td::Slice(rfc8032_secret_key1, 32))).get_public_key().move_as_ok();
   for (size_t size : {0, 1, 31, 32, 33, 127, 128, 129, 1024}) {
     std::string message(size, 'a');
     auto signature = private_key.sign(message).move_as_ok();
@@ -194,11 +194,11 @@ TEST(Crypto, signature_cache_slot_collision) {
   auto slot = [&](td::Slice data) {
     std::array<td::uint64, 29> key{};
     key.front() = data.size();
-    auto* bytes = reinterpret_cast<char*>(key.data() + 1);
+    auto *bytes = reinterpret_cast<char *>(key.data() + 1);
     std::memcpy(bytes, public_bytes.data(), 32);
     std::memcpy(bytes + 32, signature.data(), 64);
     std::memcpy(bytes + 96, data.data(), data.size());
-    return td::SliceHash{}(td::Slice(reinterpret_cast<const char*>(key.data()), sizeof(key))) % 16384;
+    return td::SliceHash{}(td::Slice(reinterpret_cast<const char *>(key.data()), sizeof(key))) % 65536;
   };
   const auto target = slot(message);
   std::string collision = message;
@@ -221,7 +221,7 @@ TEST(Crypto, signature_cache_concurrent_verification) {
   auto private_key = td::Ed25519::PrivateKey(td::SecureString(td::Slice(fixed_privkey, 32)));
   auto public_key = private_key.get_public_key().move_as_ok();
   std::vector<std::string> messages, signatures;
-  for (td::uint64 i = 0; i < 256; ++i) {
+  for (td::uint64 i = 0; i < 512; ++i) {
     std::string message(i % 2 ? 32 : 128, '\0');
     std::memcpy(message.data(), &i, sizeof(i));
     signatures.push_back(private_key.sign(message).move_as_ok().as_slice().str());
@@ -237,12 +237,13 @@ TEST(Crypto, signature_cache_concurrent_verification) {
       for (size_t i = 0; i < 2048; ++i) {
         auto index = (i + worker * 17) % messages.size();
         public_key.verify_signature(messages[index], signatures[index]).ensure();
-        ASSERT_TRUE(public_key.verify_signature(messages[index], signatures[(index + 1) % signatures.size()]).is_error());
+        ASSERT_TRUE(
+            public_key.verify_signature(messages[index], signatures[(index + 1) % signatures.size()]).is_error());
       }
     });
   }
   start.store(true, std::memory_order_release);
-  for (auto& worker : workers) {
+  for (auto &worker : workers) {
     worker.join();
   }
 }

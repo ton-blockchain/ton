@@ -14,18 +14,19 @@
     You should have received a copy of the GNU Lesser General Public License
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
-#include "td/utils/SeqlockCache.h"
-#include "td/utils/tests.h"
-
+#include <array>
 #include <barrier>
 #include <thread>
 #include <vector>
 
+#include "td/utils/SeqlockCache.h"
+#include "td/utils/tests.h"
+
 namespace {
 
-template <size_t Slots, size_t Words>
+template <size_t Slots, size_t Words, class Word = td::uint64>
 void check_parameters() {
-  using Cache = td::SeqlockCache<Slots, Words>;
+  using Cache = td::SeqlockCache<Slots, Words, Word>;
   using Key = typename Cache::Key;
   Cache cache;
   const auto& reader = cache;
@@ -33,7 +34,7 @@ void check_parameters() {
   std::array<bool, Slots> occupied{};
   Key key{};
   ASSERT_TRUE(!reader.contains(key));  // An empty slot must not match the zero key.
-  for (td::uint64 value = 0; value < 128; ++value) {
+  for (Word value = 0; value < 128; ++value) {
     if (value != 0) {
       key[(value - 1) % Words] = value;
     }
@@ -60,6 +61,10 @@ TEST(SeqlockCache, Parameters) {
   check_parameters<3, 9>();
   check_parameters<4, 29>();
   check_parameters<2, 41>();
+  check_parameters<3, 9, td::uint8>();
+  check_parameters<3, 9, td::uint16>();
+  check_parameters<3, 9, td::uint32>();
+  check_parameters<3, 9, td::int32>();
 }
 
 TEST(SeqlockCache, ConstantInitialization) {
