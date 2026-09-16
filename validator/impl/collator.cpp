@@ -4684,13 +4684,8 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
   }
   pending_in_msg_descriptors_.emplace_back(td::Bits256{msg->get_hash().bits()}, std::move(value));
   ++in_descr_cnt_;
-  if (!block_limit_status_->add_cell(std::move(in_msg))) {
-    return false;
-  }
-  if (in_descr_cnt_ & 63) {
-    return true;
-  }
-  return flush_in_msg_descriptors() && block_limit_status_->add_cell(in_msg_dict->get_root_cell());
+  return block_limit_status_->add_cell(std::move(in_msg)) &&
+         ((in_descr_cnt_ & 63) || flush_in_msg_descriptors());
 }
 
 bool Collator::flush_in_msg_descriptors() {
@@ -4713,7 +4708,7 @@ bool Collator::flush_in_msg_descriptors() {
     return fatal_error("cannot add an InMsg into InMsgDescr dictionary");
   }
   pending_in_msg_descriptors_.clear();
-  return true;
+  return block_limit_status_->add_cell(in_msg_dict->get_root_cell());
 }
 
 /**
@@ -4763,13 +4758,8 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
   }
   pending_out_msg_descriptors_.emplace_back(td::Bits256{msg_hash}, std::move(value));
   ++out_descr_cnt_;
-  if (!block_limit_status_->add_cell(std::move(out_msg))) {
-    return false;
-  }
-  if (out_descr_cnt_ & 63) {
-    return true;
-  }
-  return flush_out_msg_descriptors() && block_limit_status_->add_cell(out_msg_dict->get_root_cell());
+  return block_limit_status_->add_cell(std::move(out_msg)) &&
+         ((out_descr_cnt_ & 63) || flush_out_msg_descriptors());
 }
 
 bool Collator::flush_out_msg_descriptors() {
@@ -4792,7 +4782,7 @@ bool Collator::flush_out_msg_descriptors() {
     return false;
   }
   pending_out_msg_descriptors_.clear();
-  return true;
+  return block_limit_status_->add_cell(out_msg_dict->get_root_cell());
 }
 
 /**
