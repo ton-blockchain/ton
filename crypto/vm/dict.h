@@ -266,6 +266,9 @@ class DictionaryFixed : public DictionaryBase {
   }
 
  protected:
+  // Sorts new_values in place. Null builders delete existing keys in Set/Replace and are forbidden in Add.
+  // Duplicate keys or deletion of a missing key return false.
+  // Applies the entire batch or leaves the root unchanged. Keys must contain at least get_key_bits() bits.
   bool multiset(td::MutableSpan<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> new_values, SetMode mode);
   virtual int label_mode() const {
     return dict::LabelParser::chk_all;
@@ -533,9 +536,6 @@ class Dictionary final : public DictionaryFixed {
   auto range(bool rev = false, bool sgnd = false) {
     return dict_range(*this, rev, sgnd);
   }
-  // Sorts new_values in place. Null builders delete existing keys in Set/Replace and are forbidden in Add.
-  // Duplicate keys or deletion of a missing key return false.
-  // Applies the entire batch or leaves the root unchanged. Keys must contain at least get_key_bits() bits.
   bool multiset(td::MutableSpan<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> new_values, SetMode mode = SetMode::Set);
 
  private:
@@ -598,9 +598,6 @@ class AugmentedDictionary final : public DictionaryFixed {
   bool set(td::ConstBitPtr key, int key_len, Ref<CellSlice> value, SetMode mode = SetMode::Set);
   bool set_ref(td::ConstBitPtr key, int key_len, Ref<Cell> val_ref, SetMode mode = SetMode::Set);
   bool set_builder(td::ConstBitPtr key, int key_len, const CellBuilder& value, SetMode mode = SetMode::Set);
-  // Sorts new_values in place. Null builders delete existing keys in Set/Replace and are forbidden in Add.
-  // Duplicate keys or deletion of a missing key return false.
-  // Applies the entire batch or leaves the root unchanged. Keys must contain at least get_key_bits() bits.
   bool multiset(td::MutableSpan<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> new_values, SetMode mode = SetMode::Set);
   bool check_for_each_extra(const foreach_extra_func_t& foreach_extra_func, bool invert_first = false);
   std::pair<Ref<CellSlice>, Ref<CellSlice>> traverse_extra(td::BitPtr key_buffer, int key_len,
