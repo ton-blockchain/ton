@@ -24,6 +24,7 @@
 #include "crypto/ellcurve/p256.h"
 #include "crypto/ellcurve/secp256k1.h"
 #include "openssl/digest.hpp"
+#include "td/utils/SeqlockCache.h"
 #include "vm/Hasher.h"
 #include "vm/boc.h"
 #include "vm/dict.h"
@@ -41,6 +42,27 @@
 namespace vm {
 
 namespace {
+
+constexpr size_t kCacheSlotCount = 65536;  // 15 MiB
+constexpr size_t kMaxCachedDataSize = 128;
+constexpr size_t kPublicKeySize = td::Ed25519::PublicKey::LENGTH;
+constexpr size_t kSignatureSize = 64;
+constexpr size_t kCacheKeyWords =
+    (sizeof(td::uint64) * 2 + kPublicKeySize + kSignatureSize + kMaxCachedDataSize - 1) / sizeof(td::uint64);
+using SignatureCache = td::SeqlockCache<kCacheSlotCount, kCacheKeyWords, td::uint64>;
+
+SignatureCache::Key make_signature_cache_key(const unsigned char* public_key, const unsigned char* signature,
+                                             const unsigned char* data, size_t data_size) {
+  SignatureCache::Key key{};
+  key.front() = data_size;  // Distinguish a message from the same bytes with trailing zeros.
+  auto* bytes = reinterpret_cast<char*>(key.data() + 1);
+  std::memcpy(bytes, public_key, kPublicKeySize);
+  std::memcpy(bytes + kPublicKeySize, signature, kSignatureSize);
+  if (data_size != 0) {
+    std::memcpy(bytes + kPublicKeySize + kSignatureSize, data, data_size);
+  }
+  return key;
+}
 
 bool debug(const char* str) TD_UNUSED;
 bool debug(const char* str) {
@@ -751,12 +773,13 @@ std::string dump_hash_ext(CellSlice& cs, unsigned args) {
 }
 
 int exec_ed25519_check_signature(VmState* st, bool from_slice) {
+  TD_PERF_COUNTER(VM_check_signature);
   VM_LOG(st) << "execute CHKSIGN" << (from_slice ? 'S' : 'U');
   Stack& stack = st->get_stack();
   stack.check_underflow(3);
   auto key_int = stack.pop_int();
   auto signature_cs = stack.pop_cellslice();
-  unsigned char data[128], key[32], signature[64];
+  unsigned char data[kMaxCachedDataSize], key[kPublicKeySize], signature[kSignatureSize];
   unsigned data_len;
   if (from_slice) {
     auto cs = stack.pop_cellslice();
@@ -773,10 +796,10 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
       throw VmError{Excno::range_chk, "data hash must fit in an unsigned 256-bit integer"};
     }
   }
-  if (!signature_cs->prefetch_bytes(signature, 64)) {
+  if (!signature_cs->prefetch_bytes(signature, kSignatureSize)) {
     throw VmError{Excno::cell_und, "Ed25519 signature must contain at least 512 data bits"};
   }
-  if (!key_int->export_bytes(key, 32, false)) {
+  if (!key_int->export_bytes(key, kPublicKeySize, false)) {
     throw VmError{Excno::range_chk, "Ed25519 public key must fit in an unsigned 256-bit integer"};
   }
   st->register_chksgn_call();
@@ -787,7 +810,7 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
   // using pubkey with publicly known private key and hard to set by accident
   if (st->get_global_version() >= 14) {
     bool reject = (key[0] == 0x00 || key[0] == 0x01);
-    for (unsigned int i = 1; reject && i < 32; ++i) {
+    for (unsigned int i = 1; reject && i < kPublicKeySize; ++i) {
       reject = (key[i] == 0x00);
     }
     if (reject) {
@@ -795,9 +818,20 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
       return 0;
     }
   }
-  td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, 32})};
-  auto res = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, 64});
-  stack.push_bool(res.is_ok() || st->get_chksig_always_succeed());
+  static SignatureCache cache;
+  auto cache_key = make_signature_cache_key(key, signature, data, data_len);
+  auto slot = SignatureCache::key_to_slot(cache_key);
+  bool signature_ok = cache.contains(cache_key, slot);
+  if (signature_ok) {
+    TD_PERF_COUNTER(VM_check_signature_cache_hit);
+  } else {
+    td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, kPublicKeySize})};
+    signature_ok = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, kSignatureSize}).is_ok();
+    if (signature_ok) {
+      cache.insert(cache_key, slot);
+    }
+  }
+  stack.push_bool(signature_ok || st->get_chksig_always_succeed());
   return 0;
 }
 
