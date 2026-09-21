@@ -24,14 +24,15 @@
 
 namespace {
 
-template <size_t Slots, size_t Words, class Word = td::uint64>
-void check_parameters() {
-  using Cache = td::SeqlockCache<Slots, Words, Word>;
+template <size_t Words, class Word = td::uint64>
+void check_parameters(size_t slots) {
+  using Cache = td::SeqlockCache<Words, Word>;
   using Key = typename Cache::Key;
-  Cache cache;
+  Cache cache(slots);
   const auto& reader = cache;
-  std::array<Key, Slots> expected{};
-  std::array<bool, Slots> occupied{};
+  ASSERT_EQ(reader.size(), slots);
+  std::vector<Key> expected(slots);
+  std::vector<bool> occupied(slots);
   Key key{};
   ASSERT_TRUE(!reader.contains(key));  // An empty slot must not match the zero key.
   for (Word value = 0; value < 128; ++value) {
@@ -39,6 +40,7 @@ void check_parameters() {
       key[(value - 1) % Words] = value;
     }
     auto index = cache.key_to_slot(key);
+    ASSERT_TRUE(index < slots);
     ASSERT_TRUE(!reader.contains(key));
     ASSERT_TRUE(cache.insert(key));
     if (occupied[index]) {
@@ -46,7 +48,7 @@ void check_parameters() {
     }
     expected[index] = key;
     occupied[index] = true;
-    for (size_t slot = 0; slot < Slots; ++slot) {
+    for (size_t slot = 0; slot < slots; ++slot) {
       if (occupied[slot]) {
         ASSERT_TRUE(reader.contains(expected[slot]));  // Other slots retain their keys.
       }
@@ -57,25 +59,20 @@ void check_parameters() {
 }  // namespace
 
 TEST(SeqlockCache, Parameters) {
-  check_parameters<1, 1>();
-  check_parameters<3, 9>();
-  check_parameters<4, 29>();
-  check_parameters<2, 41>();
-  check_parameters<3, 9, td::uint8>();
-  check_parameters<3, 9, td::uint16>();
-  check_parameters<3, 9, td::uint32>();
-  check_parameters<3, 9, td::int32>();
-}
-
-TEST(SeqlockCache, ConstantInitialization) {
-  static constinit td::SeqlockCache<2, 3> cache;
-  ASSERT_TRUE(cache.insert({1, 2, 3}));
-  ASSERT_TRUE(cache.contains({1, 2, 3}));
-  ASSERT_TRUE(!cache.contains({1, 2, 4}));
+  check_parameters<1>(1);
+  check_parameters<9>(3);
+  check_parameters<29>(4);
+  check_parameters<41>(2);
+  check_parameters<9, td::uint8>(3);
+  check_parameters<9, td::uint16>(3);
+  check_parameters<9, td::uint32>(3);
+  check_parameters<9, td::int32>(3);
+  check_parameters<9>(16);
+  check_parameters<9>(17);
 }
 
 TEST(SeqlockCache, ConcurrentReplacement) {
-  td::SeqlockCache<1, 2> cache;
+  td::SeqlockCache<2> cache(1);
   decltype(cache)::Key a{}, b{}, mixed{};
   a.fill(0x1111111111111111ULL);
   b.fill(0x2222222222222222ULL);
