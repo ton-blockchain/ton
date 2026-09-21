@@ -656,9 +656,6 @@ void ValidatorManagerImpl::add_shard_block_description(td::Ref<ShardTopBlockDesc
   if (!desc->may_be_valid(last_masterchain_block_handle_, last_masterchain_state_)) {
     return;
   }
-  for (auto &[_, actor] : shard_block_retainers_) {
-    td::actor::send_closure(actor, &ShardBlockRetainer::new_shard_block_description, desc);
-  }
   if (!is_validator() && !opts_->nonfinal_ls_queries_enabled()) {
     return;
   }
@@ -2464,13 +2461,6 @@ void ValidatorManagerImpl::new_masterchain_block() {
     td::actor::send_closure(shard_client_, &ShardClient::new_masterchain_block_notification);
   }
 
-  if (!shard_block_verifier_.empty()) {
-    td::actor::send_closure(shard_block_verifier_, &ShardBlockVerifier::update_masterchain_state,
-                            last_masterchain_state_);
-  }
-  for (auto &[_, actor] : shard_block_retainers_) {
-    td::actor::send_closure(actor, &ShardBlockRetainer::update_masterchain_state, last_masterchain_state_);
-  }
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::update_last_masterchain_state, last_masterchain_state_);
   for (auto &[_, actor] : validator_registry_watchers_) {
     td::actor::send_closure(actor, &ValidatorRegistryWatcher::update, last_masterchain_state_, opts_);
@@ -2539,7 +2529,6 @@ void ValidatorManagerImpl::update_shards() {
     auto descr = mc_val_set->get_validator(mc_validator_id.bits256_value());
     mc_validator_adnl_id = adnl::AdnlNodeIdShort{descr->addr.is_zero() ? mc_validator_id.bits256_value() : descr->addr};
   }
-  init_shard_block_verifier(mc_validator_adnl_id);
 }
 
 void ValidatorManagerImpl::update_shard_blocks() {
@@ -3293,9 +3282,6 @@ void ValidatorManagerImpl::update_options(td::Ref<ValidatorManagerOptions> opts)
   if (network_state_ != nullptr) {
     network_state_->update_options(opts);
   }
-  if (!shard_block_verifier_.empty()) {
-    td::actor::send_closure(shard_block_verifier_, &ShardBlockVerifier::update_options, opts);
-  }
   td::actor::send_closure(ext_message_pool_, &ExtMessagePool::update_options, opts);
   opts_ = std::move(opts);
 }
@@ -3364,10 +3350,10 @@ td::Ref<PersistentStateDescription> ValidatorManagerImpl::get_block_persistent_s
 
 td::actor::ActorOwn<ValidatorManagerInterface> ValidatorManagerFactory::create(
     td::Ref<ValidatorManagerOptions> opts, std::string db_root, td::actor::ActorId<keyring::Keyring> keyring,
-    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
-    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays) {
+    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<quic::QuicSender> quic,
+    td::actor::ActorId<overlay::Overlays> overlays) {
   return td::actor::create_actor<validator::ValidatorManagerImpl>("manager", std::move(opts), db_root, keyring, adnl,
-                                                                  rldp2, quic, overlays);
+                                                                  quic, overlays);
 }
 
 void ValidatorManagerImpl::log_collate_query_stats(CollationStats stats) {
@@ -3486,30 +3472,14 @@ void ValidatorManagerImpl::write_session_stats(const T &obj) {
   file.close();
 }
 
-void ValidatorManagerImpl::init_shard_block_verifier(adnl::AdnlNodeIdShort local_id) {
-  if (local_id != shard_block_verifier_local_id_) {
-    shard_block_verifier_local_id_ = local_id;
-    if (local_id.is_zero()) {
-      shard_block_verifier_ = {};
-    } else {
-      shard_block_verifier_ = td::actor::create_actor<ShardBlockVerifier>(
-          "shardblockverifier", local_id, last_masterchain_state_, opts_, actor_id(this), adnl_, rldp2_);
-    }
-  }
-}
-
 void ValidatorManagerImpl::wait_verify_shard_blocks(std::vector<BlockIdExt> blocks, td::Promise<td::Unit> promise) {
-  if (shard_block_verifier_.empty()) {
-    promise.set_error(td::Status::Error(ErrorCode::notready, "shard block verifier not inited"));
-    return;
-  }
-  td::actor::send_closure(shard_block_verifier_, &ShardBlockVerifier::wait_shard_blocks, std::move(blocks),
-                          std::move(promise));
+  // Shard block verifier/retainer are currently unused. They were designed for validators that do not monitor shards,
+  // this is not supported right now
+  promise.set_value(td::Unit{});
 }
 
 void ValidatorManagerImpl::add_shard_block_retainer(adnl::AdnlNodeIdShort id) {
-  shard_block_retainers_[id] = td::actor::create_actor<ShardBlockRetainer>(
-      "shardblockretainer", id, last_masterchain_state_, opts_, actor_id(this), adnl_, rldp2_);
+  // See comment in wait_verify_shard_blocks
 }
 
 void ValidatorManagerImpl::iterate_temp_block_handles(std::function<void(const BlockHandleInterface &)> f) {

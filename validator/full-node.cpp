@@ -294,7 +294,7 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
   }
   fast_sync_overlays_.update_overlays(state, std::move(my_adnl_ids), std::move(monitoring_shards),
                                       zero_state_file_hash_, opts_.fast_sync_broadcast_speed_multiplier_, keyring_,
-                                      adnl_, rldp2_, quic_, overlays_, validator_manager_, actor_id(this));
+                                      adnl_, quic_, overlays_, validator_manager_, actor_id(this));
   update_validator_telemetry_collector();
   update_plumtree_stats_collector();
 }

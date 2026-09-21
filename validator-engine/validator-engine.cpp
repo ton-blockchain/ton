@@ -2313,7 +2313,7 @@ void ValidatorEngine::start_validator() {
   load_collator_options();
 
   validator_manager_ = ton::validator::ValidatorManagerFactory::create(
-      validator_options_, db_root_, keyring_.get(), adnl_.get(), rldp2_.get(), quic_.get(), overlay_manager_.get());
+      validator_options_, db_root_, keyring_.get(), adnl_.get(), quic_.get(), overlay_manager_.get());
   td::actor::send_closure(exporter_.get(), &ton::PrometheusExporter::add<ton::validator::ValidatorManagerInterface>,
                           validator_manager_.get(), &ton::validator::ValidatorManagerInterface::collect);
 

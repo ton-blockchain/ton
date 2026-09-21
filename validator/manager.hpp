@@ -32,7 +32,6 @@
 #include "metrics/chain-metrics.h"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
-#include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
@@ -47,8 +46,6 @@
 #include "collator-scoreboard.hpp"
 #include "manager-init.h"
 #include "queue-size-counter.hpp"
-#include "shard-block-retainer.hpp"
-#include "shard-block-verifier.hpp"
 #include "shard-client.hpp"
 #include "state-serializer.hpp"
 #include "storage-stat-cache.hpp"
@@ -286,8 +283,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     }
   };
   // DATA FOR COLLATOR
-  // Shard block will not be used until it is confirmed by trusted nodes (see ShardBlockVerifier) and
-  // msg queue to masterchain is ready (to avoid too long masterchain collation)
   // latest_desc - latest known block
   // ready_desc - block ready to be used (may be null)
   struct ShardTopBlock {
@@ -612,15 +607,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                       td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
-                       td::actor::ActorId<overlay::Overlays> overlays)
-      : opts_(std::move(opts))
-      , db_root_(db_root)
-      , keyring_(keyring)
-      , adnl_(adnl)
-      , rldp2_(rldp2)
-      , quic_(quic)
-      , overlays_(overlays) {
+                       td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays)
+      : opts_(std::move(opts)), db_root_(db_root), keyring_(keyring), adnl_(adnl), quic_(quic), overlays_(overlays) {
   }
 
  public:
@@ -743,7 +731,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::string db_root_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
 
@@ -819,12 +806,6 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   template <typename T>
   void write_session_stats(const T &obj);
-
-  td::actor::ActorOwn<ShardBlockVerifier> shard_block_verifier_;
-  adnl::AdnlNodeIdShort shard_block_verifier_local_id_ = adnl::AdnlNodeIdShort::zero();
-  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<ShardBlockRetainer>> shard_block_retainers_;
-
-  void init_shard_block_verifier(adnl::AdnlNodeIdShort local_id);
 
   td::actor::ActorOwn<DbEventPublisher> db_event_publisher_;
 
