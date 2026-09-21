@@ -58,7 +58,7 @@ class SeqlockCache {
     return contains(key, key_to_slot(key));
   }
 
-  void insert(const Key& key, size_t slot) {
+  bool insert(const Key& key, size_t slot) {
     DCHECK(slot < SlotCount);
     auto& entry = entries_[slot];
     auto sequence = entry.sequence.load(std::memory_order_relaxed);
@@ -67,17 +67,18 @@ class SeqlockCache {
     if ((sequence & 1) || sequence == std::numeric_limits<uint64>::max() - 1 ||
         !entry.sequence.compare_exchange_strong(sequence, sequence + 1, std::memory_order_acquire,
                                                 std::memory_order_relaxed)) {
-      return;
+      return false;
     }
     std::atomic_thread_fence(std::memory_order_release);
     for (size_t i = 0; i < KeyWords; ++i) {
       entry.key[i].store(key[i], std::memory_order_relaxed);
     }
     entry.sequence.store(sequence + 2, std::memory_order_release);
+    return true;
   }
 
-  void insert(const Key& key) {
-    insert(key, key_to_slot(key));
+  bool insert(const Key& key) {
+    return insert(key, key_to_slot(key));
   }
 
   static size_t key_to_slot(const Key& key) {

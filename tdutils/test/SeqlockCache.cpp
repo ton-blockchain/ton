@@ -40,7 +40,7 @@ void check_parameters() {
     }
     auto index = cache.key_to_slot(key);
     ASSERT_TRUE(!reader.contains(key));
-    cache.insert(key);
+    ASSERT_TRUE(cache.insert(key));
     if (occupied[index]) {
       ASSERT_TRUE(!reader.contains(expected[index]));  // A collision evicts the previous key.
     }
@@ -69,7 +69,7 @@ TEST(SeqlockCache, Parameters) {
 
 TEST(SeqlockCache, ConstantInitialization) {
   static constinit td::SeqlockCache<2, 3> cache;
-  cache.insert({1, 2, 3});
+  ASSERT_TRUE(cache.insert({1, 2, 3}));
   ASSERT_TRUE(cache.contains({1, 2, 3}));
   ASSERT_TRUE(!cache.contains({1, 2, 4}));
 }
@@ -107,7 +107,7 @@ TEST(SeqlockCache, ConcurrentReplacement) {
   for (auto& worker : workers) {
     worker.join();
   }
-  cache.insert(a);
+  ASSERT_TRUE(cache.insert(a, 0));
   ASSERT_TRUE(cache.contains(a));
   ASSERT_TRUE(!cache.contains(b));
 }

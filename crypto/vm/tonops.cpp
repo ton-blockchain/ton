@@ -827,8 +827,8 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
   } else {
     td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, kPublicKeySize})};
     signature_ok = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, kSignatureSize}).is_ok();
-    if (signature_ok) {
-      cache.insert(cache_key, slot);
+    if (signature_ok && cache.insert(cache_key, slot)) {
+      TD_PERF_COUNTER(VM_check_signature_cache_insert);
     }
   }
   stack.push_bool(signature_ok || st->get_chksig_always_succeed());
