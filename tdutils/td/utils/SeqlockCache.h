@@ -20,24 +20,39 @@
 #include <atomic>
 #include <limits>
 #include <type_traits>
+#include <vector>
 
-#include "td/utils/Slice.h"
+#include "td/utils/Hash.h"
 #include "td/utils/check.h"
 #include "td/utils/common.h"
+
+#if !TD_HAVE_ABSL
+#include "td/utils/Slice.h"
+#endif
 
 namespace td {
 
 // Fixed-size concurrent cache of keys.
 // Operations never wait for a busy slot: contains may miss and insert may skip.
-template <size_t SlotCount, size_t KeyWords, typename Word = uint64>
+template <size_t KeyWords, typename Word = uint64>
 class SeqlockCache {
  public:
-  static_assert(SlotCount > 0 && KeyWords > 0);
+  static_assert(KeyWords > 0);
   static_assert(std::is_integral_v<Word> && std::has_unique_object_representations_v<Word>);
   using Key = std::array<Word, KeyWords>;
 
+  explicit SeqlockCache(size_t slot_count) : slot_count_(slot_count), entries_(slot_count) {
+    CHECK(slot_count > 0);
+  }
+  SeqlockCache(const SeqlockCache&) = delete;
+  SeqlockCache& operator=(const SeqlockCache&) = delete;
+
+  size_t size() const {
+    return slot_count_;
+  }
+
   bool contains(const Key& key, size_t slot) const {
-    DCHECK(slot < SlotCount);
+    DCHECK(slot < slot_count_);
     const auto& entry = entries_[slot];
     auto sequence = entry.sequence.load(std::memory_order_acquire);
     if (sequence == 0 || (sequence & 1)) {
@@ -59,7 +74,7 @@ class SeqlockCache {
   }
 
   bool insert(const Key& key, size_t slot) {
-    DCHECK(slot < SlotCount);
+    DCHECK(slot < slot_count_);
     auto& entry = entries_[slot];
     auto sequence = entry.sequence.load(std::memory_order_relaxed);
     // Refuse a busy slot and prevent version wraparound (ABA).
@@ -81,8 +96,13 @@ class SeqlockCache {
     return insert(key, key_to_slot(key));
   }
 
-  static size_t key_to_slot(const Key& key) {
-    return SliceHash{}(Slice{reinterpret_cast<const char*>(key.data()), key.size() * sizeof(Word)}) % SlotCount;
+  size_t key_to_slot(const Key& key) const {
+#if TD_HAVE_ABSL
+    return Hash<Key>{}(key) % slot_count_;
+#else
+    // Remove when non-Abseil Hash implementation add support for std::array.
+    return SliceHash{}(Slice{reinterpret_cast<const char*>(key.data()), key.size() * sizeof(Word)}) % slot_count_;
+#endif
   }
 
  private:
@@ -92,7 +112,8 @@ class SeqlockCache {
     std::atomic<uint64> sequence{0};
     std::array<std::atomic<Word>, KeyWords> key{};
   };
-  std::array<Entry, SlotCount> entries_{};
+  const size_t slot_count_;
+  std::vector<Entry> entries_;
 };
 
 }  // namespace td

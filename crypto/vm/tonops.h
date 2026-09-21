@@ -28,6 +28,10 @@ class OpcodeTable;
 
 void register_ton_ops(OpcodeTable& cp0);
 
+constexpr size_t kDefaultSignatureCacheSlots = 65536;  // 15 MiB
+
+td::Status init_signature_cache(size_t slot_count);
+
 namespace util {
 
 // "_q" functions throw on error if not quiet, return false if quiet (leaving cs unchanged)

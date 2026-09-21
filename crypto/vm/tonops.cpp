@@ -17,6 +17,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 #include <functional>
+#include <optional>
 #include <sodium.h>
 
 #include "block/block-auto.h"
@@ -25,6 +26,7 @@
 #include "crypto/ellcurve/secp256k1.h"
 #include "openssl/digest.hpp"
 #include "td/utils/SeqlockCache.h"
+#include "td/utils/ThreadSafeCounter.h"
 #include "vm/Hasher.h"
 #include "vm/boc.h"
 #include "vm/dict.h"
@@ -43,13 +45,18 @@ namespace vm {
 
 namespace {
 
-constexpr size_t kCacheSlotCount = 65536;  // 15 MiB
 constexpr size_t kMaxCachedDataSize = 128;
 constexpr size_t kPublicKeySize = td::Ed25519::PublicKey::LENGTH;
 constexpr size_t kSignatureSize = 64;
 constexpr size_t kCacheKeyWords =
     (sizeof(td::uint64) * 2 + kPublicKeySize + kSignatureSize + kMaxCachedDataSize - 1) / sizeof(td::uint64);
-using SignatureCache = td::SeqlockCache<kCacheSlotCount, kCacheKeyWords, td::uint64>;
+using SignatureCache = td::SeqlockCache<kCacheKeyWords, td::uint64>;
+
+SignatureCache* get_signature_cache(size_t slot_count = kDefaultSignatureCacheSlots) {
+  static auto cache = slot_count == 0 ? std::optional<SignatureCache>{}
+                                     : std::optional<SignatureCache>{std::in_place, slot_count};
+  return cache ? &*cache : nullptr;
+}
 
 SignatureCache::Key make_signature_cache_key(const unsigned char* public_key, const unsigned char* signature,
                                              const unsigned char* data, size_t data_size) {
@@ -80,6 +87,18 @@ bool debug(int x) {
   return true;
 }
 }  // namespace
+
+td::Status init_signature_cache(size_t slot_count) {
+  try {
+    auto* cache = get_signature_cache(slot_count);
+    if ((cache ? cache->size() : 0) != slot_count) {
+      return td::Status::Error("VM signature cache is already initialized with a different size");
+    }
+  } catch (const std::exception& e) {
+    return td::Status::Error(PSLICE() << "Failed to initialize VM signature cache: " << e.what());
+  }
+  return td::Status::OK();
+}
 
 #define DBG_START int dbg = 0;
 #define DBG debug(++dbg) &&
@@ -818,17 +837,28 @@ int exec_ed25519_check_signature(VmState* st, bool from_slice) {
       return 0;
     }
   }
-  static SignatureCache cache;
+  auto verify_signature = [&] {
+    td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, kPublicKeySize})};
+    return pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, kSignatureSize}).is_ok();
+  };
+  auto* cache = get_signature_cache();
+  if (!cache) {
+    stack.push_bool(verify_signature() || st->get_chksig_always_succeed());
+    return 0;
+  }
   auto cache_key = make_signature_cache_key(key, signature, data, data_len);
-  auto slot = SignatureCache::key_to_slot(cache_key);
-  bool signature_ok = cache.contains(cache_key, slot);
+  auto slot = cache->key_to_slot(cache_key);
+  bool signature_ok = cache->contains(cache_key, slot);
   if (signature_ok) {
     TD_PERF_COUNTER(VM_check_signature_cache_hit);
   } else {
-    td::Ed25519::PublicKey pub_key{td::SecureString(td::Slice{key, kPublicKeySize})};
-    signature_ok = pub_key.verify_signature(td::Slice{data, data_len}, td::Slice{signature, kSignatureSize}).is_ok();
-    if (signature_ok && cache.insert(cache_key, slot)) {
-      TD_PERF_COUNTER(VM_check_signature_cache_insert);
+    signature_ok = verify_signature();
+    if (signature_ok) {
+      if (cache->insert(cache_key, slot)) {
+        TD_PERF_COUNTER(VM_check_signature_cache_insert);
+      } else {
+        TD_PERF_COUNTER(VM_check_signature_cache_insert_skipped);
+      }
     }
   }
   stack.push_bool(signature_ok || st->get_chksig_always_succeed());

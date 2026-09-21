@@ -33,6 +33,7 @@
 #include "auto/tl/ton_api.h"
 #include "common/errorlog.h"
 #include "crypto/fift/utils.h"
+#include "crypto/vm/tonops.h"
 #include "crypto/vm/vm.h"
 #include "dht/dht.hpp"
 #include "keys/keys.hpp"
@@ -5946,6 +5947,15 @@ int main(int argc, char *argv[]) {
       "enable deprecated control queries (createElectionBid, createProposalVote, createComplaintVote)", [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_enable_deprecated_control_queries); });
       });
+  size_t signature_cache_slots = vm::kDefaultSignatureCacheSlots;
+  p.add_checked_option(
+      '\0', "vm-signature-cache-slots",
+      PSTRING() << "number of slots in the shared VM signature cache (default: " << signature_cache_slots
+                << "; 0 disables caching)",
+      [&](td::Slice s) -> td::Status {
+        TRY_RESULT_ASSIGN(signature_cache_slots, td::to_integer_safe<size_t>(s));
+        return td::Status::OK();
+      });
   p.add_checked_option(
       '\0', "celldb-cache-size", "block cache size for RocksDb in CellDb, in bytes (default: 1G)",
       [&](td::Slice s) -> td::Status {
@@ -6244,6 +6254,11 @@ int main(int argc, char *argv[]) {
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
   td::set_runtime_signal_handler(2, need_scheduler_status).ensure();
+
+  if (auto status = vm::init_signature_cache(signature_cache_slots); status.is_error()) {
+    LOG(ERROR) << status;
+    return 2;
+  }
 
   td::actor::set_debug(true);
   td::actor::Scheduler scheduler({threads});
