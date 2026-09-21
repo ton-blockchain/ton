@@ -120,9 +120,8 @@ void FullNodeShardImpl::create_overlay() {
                                     << ", \"workchain_id\": " << get_workchain() << " }",
                           opts);
 
-  // Do not register full-node shard ADNL IDs with legacy RLDP.
-  // RLDP2 remains the only inbound full-node transport.
   td::actor::send_closure(rldp2_, &rldp2::Rldp::add_id, adnl_id_);
+  td::actor::send_closure(quic_, &quic::QuicSender::add_id, adnl_id_);
   if (cert_) {
     td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, local_id_, cert_);
   }
@@ -687,8 +686,14 @@ td::actor::Task<QuerySender> FullNodeShardImpl::get_query_sender() {
     }
     peer_id = peers[0];
   }
-  co_return std::make_shared<QuerySenderImpl>(peer_id, adnl_id_, overlay_id_, overlays_, rldp2_, actor_id(this),
-                                              peer.version());
+  td::actor::ActorId<adnl::AdnlSenderInterface> adnl_sender;
+  if (peer.version() >= std::make_pair<td::uint32, td::uint32>(3, 3)) {
+    adnl_sender = quic_;
+  } else {
+    adnl_sender = rldp2_;
+  }
+  co_return std::make_shared<QuerySenderImpl>(peer_id, adnl_id_, overlay_id_, overlays_, std::move(adnl_sender),
+                                              actor_id(this), peer.version());
 }
 
 void FullNodeShardImpl::update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) {
