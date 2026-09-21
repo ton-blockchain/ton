@@ -433,12 +433,16 @@ td::actor::Task<GlobalInfo> compute_global_balance_from_states(
     }
     size_t total_messages = 0;
     {
-      TD_PERF_COUNTER(global_balance_compute_total_out_queue_balance);
-      for (auto& state : all_states) {
+      auto process_state =
+          [&](std::shared_ptr<ParsedShardState> state) -> td::actor::Task<std::pair<td::RefInt256, size_t>> {
+        co_await td::actor::detach_from_actor();
+        TD_PERF_COUNTER(global_balance_compute_total_out_queue_balance);
+        td::RefInt256 sum = td::zero_refint();
+        size_t messages = 0;
         CO_TRY(state->msg_queue->check_for_each_extra(
             [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
               CHECK(key_len == 352);
-              ++total_messages;
+              ++messages;
               block::EnqueuedMsgDescr enq_msg_descr;
               TRY_BOOL(enq_msg_descr.unpack(value.write()) && enq_msg_descr.check_key(key));
               for (auto& proc : processed_upto) {
@@ -447,9 +451,18 @@ td::actor::Task<GlobalInfo> compute_global_balance_from_states(
                 }
               }
               TRY_RESULT(balance, detail::get_out_queue_message_balance(enq_msg_descr, global_version));
-              result.global_balance += balance;
+              sum += balance;
               return td::Status::OK();
             }));
+        co_return std::make_pair(sum, messages);
+      };
+      std::vector<td::actor::StartedTask<std::pair<td::RefInt256, size_t>>> tasks;
+      for (auto& state : all_states) {
+        tasks.push_back(process_state(state).start());
+      }
+      for (auto& [sum, messages] : co_await td::actor::all(std::move(tasks))) {
+        result.global_balance += sum;
+        total_messages += messages;
       }
     }
 
@@ -463,8 +476,8 @@ td::actor::Task<GlobalInfo> compute_global_balance_from_states(
 
     CO_TRY_BOOL(result.global_balance->is_valid());
     VLOG(validator, INFO) << "Calculated global balance at " << mc_state->get_block_id().seqno()
-                          << ": balance=" << result.global_balance << " messages=" << total_messages
-                          << " time=" << timer.elapsed();
+                          << ": balance=" << result.global_balance << " states=" << all_states.size()
+                          << " messages=" << total_messages << " time=" << timer.elapsed();
     co_return result;
   } catch (vm::VmError& e) {
     co_return e.as_status();
