@@ -2372,9 +2372,7 @@ td::actor::Task<> Collator::do_collate_inner() {
   LOG(DEBUG) << "config parameters fetched, creating message dictionaries";
   aug_InMsgDescr.global_version = aug_OutMsgDescr.global_version = global_version_;
   in_msg_dict = std::make_unique<vm::AugmentedDictionary>(256, aug_InMsgDescr);
-  pending_in_msg_descriptors_.reserve(64);
   out_msg_dict = std::make_unique<vm::AugmentedDictionary>(256, aug_OutMsgDescr);
-  pending_out_msg_descriptors_.reserve(64);
   LOG(DEBUG) << "message dictionaries created";
   if (max_lt == start_lt) {
     ++max_lt;
@@ -4683,9 +4681,8 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
     return fatal_error("cannot add an InMsg into InMsgDescr dictionary");
   }
   pending_in_msg_descriptors_.emplace_back(td::Bits256{msg->get_hash().bits()}, std::move(value));
-  ++in_descr_cnt_;
-  return block_limit_status_->add_cell(std::move(in_msg)) &&
-         ((in_descr_cnt_ & 63) || flush_in_msg_descriptors());
+  block_limit_status_->pending_msg_descrs++;
+  return block_limit_status_->add_cell(std::move(in_msg));
 }
 
 bool Collator::flush_in_msg_descriptors() {
@@ -4707,6 +4704,7 @@ bool Collator::flush_in_msg_descriptors() {
   if (!ok) {
     return fatal_error("cannot add an InMsg into InMsgDescr dictionary");
   }
+  block_limit_status_->pending_msg_descrs -= pending_in_msg_descriptors_.size();
   pending_in_msg_descriptors_.clear();
   return block_limit_status_->add_cell(in_msg_dict->get_root_cell());
 }
@@ -4757,9 +4755,8 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
     return false;
   }
   pending_out_msg_descriptors_.emplace_back(td::Bits256{msg_hash}, std::move(value));
-  ++out_descr_cnt_;
-  return block_limit_status_->add_cell(std::move(out_msg)) &&
-         ((out_descr_cnt_ & 63) || flush_out_msg_descriptors());
+  block_limit_status_->pending_msg_descrs++;
+  return block_limit_status_->add_cell(std::move(out_msg));
 }
 
 bool Collator::flush_out_msg_descriptors() {
@@ -4781,6 +4778,7 @@ bool Collator::flush_out_msg_descriptors() {
     LOG(ERROR) << "cannot add an OutMsg into OutMsgDescr dictionary!";
     return false;
   }
+  block_limit_status_->pending_msg_descrs -= pending_out_msg_descriptors_.size();
   pending_out_msg_descriptors_.clear();
   return block_limit_status_->add_cell(out_msg_dict->get_root_cell());
 }

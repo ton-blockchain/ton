@@ -286,6 +286,7 @@ struct BlockLimitStatus {
   td::uint64 gas_used{};
   vm::NewCellStorageStat st_stat;
   unsigned accounts{}, transactions{}, extra_out_msgs{};
+  td::uint64 pending_msg_descrs = 0;
   td::uint64 collated_data_size_estimate = 0;
   unsigned public_library_diff{};
   BlockLimitStatus(const BlockLimits& limits_, ton::LogicalTime lt = 0)
@@ -297,6 +298,7 @@ struct BlockLimitStatus {
     transactions = accounts = 0;
     gas_used = 0;
     extra_out_msgs = 0;
+    pending_msg_descrs = 0;
     public_library_diff = 0;
     collated_data_size_estimate = 0;
   }
