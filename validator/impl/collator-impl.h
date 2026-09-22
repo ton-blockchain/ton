@@ -178,7 +178,14 @@ class Collator final : public td::actor::Actor {
   std::vector<Ref<ShardTopBlockDescrQ>> used_shard_block_descr_;
   std::unique_ptr<vm::Dictionary> shard_libraries_;
   Ref<vm::Cell> mc_state_extra_;
-  std::unique_ptr<vm::AugmentedDictionary> account_dict, old_account_dict;
+  std::unique_ptr<vm::AugmentedDictionary> old_account_dict;
+
+  // Only each account's first state change is applied during processing for size estimation.
+  // Remaining updates are applied in combine_account_transactions().
+  std::unique_ptr<vm::AugmentedDictionary> account_dict;
+  std::set<td::Bits256> account_dict_updated_accounts_;
+  unsigned account_dict_ops_{0};
+
   std::map<ton::StdSmcAddress, std::unique_ptr<block::Account>> accounts;
   std::vector<block::StoragePrices> storage_prices_;
   block::StoragePhaseConfig storage_phase_cfg_{&storage_prices_};
@@ -246,10 +253,6 @@ class Collator final : public td::actor::Actor {
   bool dispatch_queue_total_limit_reached_ = false;
   td::uint64 defer_out_queue_size_limit_;
   td::uint64 hard_defer_out_queue_size_limit_;
-
-  std::unique_ptr<vm::AugmentedDictionary> account_dict_estimator_;
-  std::set<td::Bits256> account_dict_estimator_added_accounts_;
-  unsigned account_dict_ops_{0};
 
   bool msg_metadata_enabled_ = false;
   bool deferring_messages_enabled_ = false;
@@ -376,7 +379,7 @@ class Collator final : public td::actor::Actor {
   bool flush_out_msg_descriptors();
   bool register_out_msg_queue_op(bool force = false);
   bool register_dispatch_queue_op(bool force = false);
-  bool update_account_dict_estimation(const block::transaction::Transaction& trans);
+  bool update_account_dict(const block::transaction::Transaction& trans);
   void update_account_storage_dict_info(const block::transaction::Transaction& trans);
   bool update_min_mc_seqno(ton::BlockSeqno some_mc_seqno);
   bool process_account_storage_dict(block::Account& account);

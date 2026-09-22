@@ -1303,7 +1303,7 @@ bool Collator::split_last_state(block::ShardState& ss) {
 /**
  * Imports the shard state data into the Collator object.
  *
- * SETS: account_dict = account_dict_estimator_, shard_libraries_, mc_state_extra
+ * SETS: account_dict, old_account_dict, shard_libraries_, mc_state_extra
  *    total_balance_ = old_total_balance_, total_validator_fees_
  * SETS: overload_history_, underload_history_
  * SETS: prev_state_utime_, prev_state_lt_, prev_vert_seqno_
@@ -1317,7 +1317,6 @@ bool Collator::import_shard_state_data(block::ShardState& ss) {
   account_dict = std::move(ss.account_dict_);
   old_account_dict =
       std::make_unique<vm::AugmentedDictionary>(account_dict->get_root(), 256, block::tlb::aug_ShardAccounts);
-  account_dict_estimator_ = std::make_unique<vm::AugmentedDictionary>(*account_dict);
   shard_libraries_ = std::move(ss.shard_libraries_);
   mc_state_extra_ = std::move(ss.mc_state_extra_);
   overload_history_ = ss.overload_history_;
@@ -2855,7 +2854,7 @@ td::Result<block::Account*> Collator::make_account(td::ConstBitPtr addr, bool fo
   if (found) {
     return found;
   }
-  auto dict_entry = account_dict->lookup_extra(addr, 256);
+  auto dict_entry = old_account_dict->lookup_extra(addr, 256);
   if (dict_entry.first.is_null()) {
     if (!force_create) {
       return nullptr;
@@ -3058,8 +3057,6 @@ bool Collator::process_account_storage_dict(block::Account& account) {
  * @returns True if the operation is successful, false otherwise.
  */
 bool Collator::combine_account_transactions() {
-  // The estimator contains each account's first changed state. Only later or unestimated changes need updating.
-  account_dict = std::make_unique<vm::AugmentedDictionary>(*account_dict_estimator_);
   vm::AugmentedDictionary dict{256, block::tlb::aug_ShardAccountBlocks};
   std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> account_blocks, account_updates;
   account_blocks.reserve(accounts.size());
@@ -3073,8 +3070,10 @@ bool Collator::combine_account_transactions() {
         return fatal_error("cannot create AccountBlock for account "s + z.first.to_hex());
       }
       account_blocks.emplace_back(z.first.bits(), std::move(block_cb));
-      const bool estimated = account_dict_estimator_added_accounts_.contains(acc.addr);
-      if (acc.transactions.size() > 1 || !estimated) {
+      const bool updated = account_dict_updated_accounts_.contains(acc.addr);
+      // account_dict contains the first changed state of each updated account.
+      // So we apply remaining account updates.
+      if (acc.transactions.size() > 1 || !updated) {
         if (acc.status == block::Account::acc_nonexist) {
           if (account_dict->lookup(acc.addr).not_null()) {
             account_updates.emplace_back(z.first.bits(), Ref<vm::CellBuilder>{});
@@ -3262,8 +3261,8 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
     return fatal_error(
         td::Status::Error(-666, std::string{"cannot commit new transaction for smart contract "} + smc_addr.to_hex()));
   }
-  if (!update_account_dict_estimation(*trans)) {
-    return fatal_error(-666, "cannot update account dict size estimation");
+  if (!update_account_dict(*trans)) {
+    return fatal_error(-666, "cannot update account dictionary and size estimate");
   }
   update_account_storage_dict_info(*trans);
   update_max_lt(acc->last_trans_end_lt_);
@@ -3366,8 +3365,8 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
     fatal_error("cannot commit new transaction for smart contract "s + addr.to_hex());
     return {};
   }
-  if (!update_account_dict_estimation(*trans)) {
-    fatal_error("cannot update account dict size estimation");
+  if (!update_account_dict(*trans)) {
+    fatal_error("cannot update account dictionary and size estimate");
     return {};
   }
   update_account_storage_dict_info(*trans);
@@ -5780,34 +5779,34 @@ bool Collator::register_dispatch_queue_op(bool force) {
 }
 
 /**
- * Update size estimation for the account dictionary.
+ * Stores each account's first changed state in ShardAccounts and estimates its proof size.
+ * Other changes are applied in combine_account_transactions.
  * This is required to count the depth of the ShardAccounts dictionary in the block size estimation.
- * The estimator can also be reused as the final dictionary in combine_account_transactions.
  *
  * @param trans Newly-created transaction.
  *
  * @returns True on success, false otherwise.
  */
-bool Collator::update_account_dict_estimation(const block::transaction::Transaction& trans) {
+bool Collator::update_account_dict(const block::transaction::Transaction& trans) {
   const block::Account& acc = trans.account;
   if (acc.orig_total_state->get_hash() != acc.total_state->get_hash() &&
-      account_dict_estimator_added_accounts_.insert(acc.addr).second) {
+      account_dict_updated_accounts_.insert(acc.addr).second) {
     // see combine_account_transactions
     if (acc.status == block::Account::acc_nonexist) {
-      account_dict_estimator_->lookup_delete(acc.addr);
+      account_dict->lookup_delete(acc.addr);
     } else {
       vm::CellBuilder cb;
       if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
             && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
             && cb.store_long_bool(acc.last_trans_lt_, 64)  // last_trans_lt:uint64
-            && account_dict_estimator_->set_builder(acc.addr, cb))) {
+            && account_dict->set_builder(acc.addr, cb))) {
         return false;
       }
     }
   }
   ++account_dict_ops_;
   if (!(account_dict_ops_ & 15)) {
-    return block_limit_status_->add_proof(account_dict_estimator_->get_root_cell());
+    return block_limit_status_->add_proof(account_dict->get_root_cell());
   }
   return true;
 }
