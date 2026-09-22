@@ -640,6 +640,11 @@ td::actor::Task<ReceivedBlock> FullNodeImpl::download_block(BlockIdExt id, td::u
 
 td::actor::Task<td::BufferSlice> FullNodeImpl::download_zero_state(BlockIdExt id, td::uint32 priority,
                                                                    td::Timestamp timeout) {
+  if (client_.empty() && last_masterchain_state_.is_null()) {
+    // The validator set cannot be classified before the first masterchain state is available.
+    // If the zerostate is not stored locally, public overlays are the bootstrap path to obtain it.
+    set_public_overlays_enabled(true);
+  }
   auto query_sender = co_await get_query_sender(id.shard_full());
   auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id, id, BlockIdExt{}, UnsplitStateType{},
