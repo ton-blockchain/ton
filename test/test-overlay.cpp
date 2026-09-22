@@ -26,6 +26,7 @@
     Copyright 2017-2020 Telegram Systems LLP
 */
 
+#include <atomic>
 #include <memory>
 #include <vector>
 
@@ -74,7 +75,7 @@ struct Node {
   ton::PublicKey id_full;
   ton::adnl::AdnlNodeIdShort adnl_id;
   ton::adnl::AdnlNodeIdFull adnl_id_full;
-  bool can_receive;
+  bool has_dnr_flag;
 };
 
 static std::vector<Node> root_nodes;
@@ -82,13 +83,11 @@ static std::vector<Node> slave_nodes;
 static std::vector<Node *> all_nodes;
 static td::uint32 total_nodes = 4;
 static td::int32 node_slaves_cnt = 3;
-static size_t remaining = 0;
+static std::atomic<size_t> remaining{0};
 static td::Bits256 bcast_hash;
 
 class Callback : public ton::overlay::Overlays::Callback {
  public:
-  Callback(bool can_receive) : can_receive_(can_receive) {
-  }
   void receive_message(ton::adnl::AdnlNodeIdShort src, ton::overlay::OverlayIdShort overlay_id,
                        td::BufferSlice data) override {
     UNREACHABLE();
@@ -99,14 +98,9 @@ class Callback : public ton::overlay::Overlays::Callback {
   }
   void receive_broadcast(ton::PublicKeyHash src, ton::overlay::OverlayIdShort overlay_id,
                          td::BufferSlice data) override {
-    CHECK(can_receive_);
     CHECK(td::sha256_bits256(data.as_slice()) == bcast_hash);
-    CHECK(remaining > 0);
-    remaining--;
+    CHECK(remaining.fetch_sub(1, std::memory_order_relaxed) > 0);
   }
-
- private:
-  bool can_receive_;
 };
 
 int main(int argc, char *argv[]) {
@@ -148,7 +142,7 @@ int main(int argc, char *argv[]) {
 
     ton::overlay::OverlayOptions opts;
     opts.max_slaves_in_semiprivate_overlay_ = node_slaves_cnt;
-    opts.default_permanent_members_flags_ = ton::overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
+    opts.default_permanent_members_flags_ = ton::overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
 
     ton::overlay::OverlayPrivacyRules rules(
         20 << 20, ton::overlay::CertificateFlags::AllowFec | ton::overlay::CertificateFlags::Trusted, {});
@@ -156,17 +150,14 @@ int main(int argc, char *argv[]) {
     std::vector<ton::PublicKeyHash> root_keys;
     std::vector<ton::adnl::AdnlNodeIdShort> root_adnl;
 
-    size_t real_members = 0;
+    size_t node_index = 0;
 
     scheduler.run_in_context([&] {
       auto addr = ton::adnl::TestLoopbackNetworkManager::generate_dummy_addr_list();
 
       for (auto &n : root_nodes) {
-        bool receive_bcasts = (real_members == 0) ? true : (td::Random::fast_uint32() & 1);
-        if (receive_bcasts) {
-          real_members++;
-        }
-        n.can_receive = receive_bcasts;
+        // DNR must not exclude a peer from legacy gossip dissemination.
+        n.has_dnr_flag = node_index++ % 2 != 0;
 
         auto pk1 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
         auto pub1 = pk1.compute_public_key();
@@ -193,11 +184,7 @@ int main(int argc, char *argv[]) {
       }
 
       for (auto &n : slave_nodes) {
-        bool receive_bcasts = (real_members == 0) ? true : (td::Random::fast_uint32() & 1);
-        if (receive_bcasts) {
-          real_members++;
-        }
-        n.can_receive = receive_bcasts;
+        n.has_dnr_flag = node_index++ % 2 != 0;
 
         auto pk1 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
         auto pub1 = pk1.compute_public_key();
@@ -228,16 +215,16 @@ int main(int argc, char *argv[]) {
 
       for (auto &n1 : root_nodes) {
         opts.local_overlay_member_flags_ =
-            (n1.can_receive ? 0 : ton::overlay::OverlayMemberFlags::DoNotReceiveBroadcasts);
+            (n1.has_dnr_flag ? ton::overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts : 0);
         td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::create_semiprivate_overlay, n1.adnl_id,
                                 ton::overlay::OverlayIdFull(overlay_id_full.clone()), root_adnl, root_keys,
-                                ton::overlay::OverlayMemberCertificate{}, std::make_unique<Callback>(n1.can_receive),
-                                rules, "", opts);
+                                ton::overlay::OverlayMemberCertificate{}, std::make_unique<Callback>(), rules, "",
+                                opts);
       }
       for (size_t i = 0; i < slave_nodes.size(); i++) {
         auto &n1 = slave_nodes[i];
         opts.local_overlay_member_flags_ =
-            (n1.can_receive ? 0 : ton::overlay::OverlayMemberFlags::DoNotReceiveBroadcasts);
+            (n1.has_dnr_flag ? ton::overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts : 0);
 
         ton::overlay::OverlayMemberCertificate cert(root_nodes[i / node_slaves_cnt].id_full, 0, i % node_slaves_cnt,
                                                     2000000000, td::BufferSlice());
@@ -250,13 +237,13 @@ int main(int argc, char *argv[]) {
 
         td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::create_semiprivate_overlay, n1.adnl_id,
                                 ton::overlay::OverlayIdFull(overlay_id_full.clone()), root_adnl, root_keys, cert,
-                                std::make_unique<Callback>(n1.can_receive), rules, "", opts);
+                                std::make_unique<Callback>(), rules, "", opts);
       }
     });
 
     td::BufferSlice broadcast(1 << 20);
     td::Random::secure_bytes(broadcast.as_slice());
-    remaining = real_members;
+    remaining = all_nodes.size();
     bcast_hash = td::sha256_bits256(broadcast.as_slice());
 
     auto t = td::Timestamp::in(20.0);
@@ -293,16 +280,17 @@ int main(int argc, char *argv[]) {
       if (t.is_in_past()) {
         break;
       }
-      if (!remaining) {
+      if (remaining.load(std::memory_order_relaxed) == 0) {
         break;
       }
     }
 
-    LOG_CHECK(!remaining) << "remaining=" << remaining << " all=" << real_members;
+    LOG_CHECK(remaining.load(std::memory_order_relaxed) == 0)
+        << "remaining=" << remaining.load(std::memory_order_relaxed) << " all=" << all_nodes.size();
 
     broadcast = td::BufferSlice(700);
     td::Random::secure_bytes(broadcast.as_slice());
-    remaining = real_members;
+    remaining = all_nodes.size();
     bcast_hash = td::sha256_bits256(broadcast.as_slice());
     scheduler.run_in_context([&] {
       td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::send_broadcast_ex, root_nodes[0].adnl_id,
@@ -314,12 +302,13 @@ int main(int argc, char *argv[]) {
       if (t.is_in_past()) {
         break;
       }
-      if (!remaining) {
+      if (remaining.load(std::memory_order_relaxed) == 0) {
         break;
       }
     }
 
-    LOG_CHECK(!remaining) << "remaining=" << remaining;
+    LOG_CHECK(remaining.load(std::memory_order_relaxed) == 0)
+        << "remaining=" << remaining.load(std::memory_order_relaxed);
 
     scheduler.run_in_context([&] {
       root_nodes.clear();
@@ -385,7 +374,7 @@ int main(int argc, char *argv[]) {
       for (auto &n1 : root_nodes) {
         td::actor::send_closure(overlay_manager, &ton::overlay::Overlays::create_private_overlay_ex, n1.adnl_id,
                                 ton::overlay::OverlayIdFull(overlay_id_full.clone()), root_adnl,
-                                std::make_unique<Callback>(true), rules, "", opts);
+                                std::make_unique<Callback>(), rules, "", opts);
       }
     });
 
@@ -411,12 +400,13 @@ int main(int argc, char *argv[]) {
       if (t.is_in_past()) {
         break;
       }
-      if (!remaining) {
+      if (remaining.load(std::memory_order_relaxed) == 0) {
         break;
       }
     }
 
-    LOG_CHECK(!remaining) << "remaining=" << remaining;
+    LOG_CHECK(remaining.load(std::memory_order_relaxed) == 0)
+        << "remaining=" << remaining.load(std::memory_order_relaxed);
 
     broadcast = td::BufferSlice(700);
     td::Random::secure_bytes(broadcast.as_slice());
@@ -432,12 +422,13 @@ int main(int argc, char *argv[]) {
       if (t.is_in_past()) {
         break;
       }
-      if (!remaining) {
+      if (remaining.load(std::memory_order_relaxed) == 0) {
         break;
       }
     }
 
-    LOG_CHECK(!remaining) << "remaining=" << remaining;
+    LOG_CHECK(remaining.load(std::memory_order_relaxed) == 0)
+        << "remaining=" << remaining.load(std::memory_order_relaxed);
 
     scheduler.run_in_context([&] {
       root_nodes.clear();

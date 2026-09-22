@@ -78,7 +78,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void set_validators(std::vector<PublicKeyHash> root_public_keys,
                       std::vector<adnl::AdnlNodeIdShort> current_validators_adnl);
   void set_member_certificate(overlay::OverlayMemberCertificate member_certificate);
-  void set_params(bool receive_broadcasts, bool send_twostep_broadcasts, bool enable_plumtree_broadcast,
+  void set_params(bool receive_plumtree_broadcasts, bool send_twostep_broadcasts, bool enable_plumtree_broadcast,
                   td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender);
 
   td::actor::Task<QuerySender> get_query_sender();
@@ -86,7 +86,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   FullNodeFastSyncOverlay(adnl::AdnlNodeIdShort local_id, ShardIdFull shard, FileHash zero_state_file_hash,
                           std::vector<PublicKeyHash> root_public_keys,
                           std::vector<adnl::AdnlNodeIdShort> current_validators_adnl,
-                          overlay::OverlayMemberCertificate member_certificate, bool receive_broadcasts,
+                          overlay::OverlayMemberCertificate member_certificate, bool receive_plumtree_broadcasts,
                           bool send_twostep_broadcasts, bool enable_plumtree_broadcast,
                           double broadcast_speed_multiplier, td::actor::ActorId<keyring::Keyring> keyring,
                           td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender,
@@ -98,7 +98,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
       , root_public_keys_(std::move(root_public_keys))
       , current_validators_adnl_(std::move(current_validators_adnl))
       , member_certificate_(std::move(member_certificate))
-      , receive_broadcasts_(receive_broadcasts)
+      , receive_plumtree_broadcasts_(receive_plumtree_broadcasts)
       , send_twostep_broadcasts_(send_twostep_broadcasts)
       , enable_plumtree_broadcast_(enable_plumtree_broadcast)
       , broadcast_speed_multiplier_(broadcast_speed_multiplier)
@@ -118,7 +118,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   std::vector<PublicKeyHash> root_public_keys_;
   std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
   overlay::OverlayMemberCertificate member_certificate_;
-  bool receive_broadcasts_;
+  bool receive_plumtree_broadcasts_;
   bool send_twostep_broadcasts_;
   bool enable_plumtree_broadcast_;
   double broadcast_speed_multiplier_;
