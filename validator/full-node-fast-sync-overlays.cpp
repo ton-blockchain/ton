@@ -850,9 +850,10 @@ void FullNodeFastSyncOverlays::send_plumtree_stats(td::actor::ActorId<FullNodeFa
   }
 }
 
-void FullNodeFastSyncOverlays::update_overlays(
-    td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
-    std::set<ShardIdFull> monitoring_shards, const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
+double FullNodeFastSyncOverlays::update_overlays(
+    td::Ref<MasterchainState> state, const std::set<PublicKeyHash> &local_keys,
+    std::set<adnl::AdnlNodeIdShort> my_adnl_ids, std::set<ShardIdFull> monitoring_shards,
+    const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
     const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
     const td::actor::ActorId<rldp2::Rldp> &rldp2, const td::actor::ActorId<quic::QuicSender> &quic,
     const td::actor::ActorId<overlay::Overlays> &overlays,
@@ -868,6 +869,65 @@ void FullNodeFastSyncOverlays::update_overlays(
       shard = shard_prefix(shard, monitor_min_split);
     }
     all_shards.insert(shard);
+  }
+
+  // On new keyblock - update validator set
+  bool updated_validators = false;
+  if (!last_key_block_seqno_ || last_key_block_seqno_.value() != state->last_key_block_id().seqno()) {
+    updated_validators = true;
+    last_key_block_seqno_ = state->last_key_block_id().seqno();
+    root_public_keys_.clear();
+    current_validators_adnl_.clear();
+    validator_key_to_adnl_ids_.clear();
+    validator_authority_until_.clear();
+
+    UnixTime current_until = 0;
+    UnixTime next_until = 0;
+    auto config = state->get_config_holder();
+    if (config.is_error()) {
+      LOG(ERROR) << "Failed to read validator-set lifetimes: " << config.move_as_error();
+    } else {
+      auto config_holder = config.move_as_ok();
+      current_until = config_holder->get_validator_set_start_stop(0).second;
+      next_until = config_holder->get_validator_set_start_stop(1).second;
+    }
+    // Previous validators remain authorized through the current set, and current validators through the next set.
+    // The next set's own end is the last horizon known for next validators in this state.
+    UnixTime set_authority_until[3] = {current_until, std::max(current_until, next_until), next_until};
+
+    // Previous, current and next validator sets
+    for (int i = -1; i <= 1; ++i) {
+      auto val_set = state->get_total_validator_set(i);
+      if (val_set.is_null()) {
+        continue;
+      }
+      for (const ValidatorDescr &val : val_set->export_vector()) {
+        PublicKeyHash public_key_hash = ValidatorFullId{val.key}.compute_short_id();
+        adnl::AdnlNodeIdShort adnl_id{val.addr.is_zero() ? public_key_hash.bits256_value() : val.addr};
+        root_public_keys_.push_back(public_key_hash);
+        current_validators_adnl_.push_back(adnl_id);
+        validator_key_to_adnl_ids_.emplace(public_key_hash, adnl_id);
+        validator_authority_until_[public_key_hash] =
+            std::max(validator_authority_until_[public_key_hash], set_authority_until[i + 1]);
+      }
+    }
+    std::sort(root_public_keys_.begin(), root_public_keys_.end());
+    root_public_keys_.erase(std::unique(root_public_keys_.begin(), root_public_keys_.end()), root_public_keys_.end());
+    std::sort(current_validators_adnl_.begin(), current_validators_adnl_.end());
+    current_validators_adnl_.erase(std::unique(current_validators_adnl_.begin(), current_validators_adnl_.end()),
+                                   current_validators_adnl_.end());
+  }
+
+  double authority_until = 0.0;
+  for (const PublicKeyHash &key : local_keys) {
+    auto [begin, end] = validator_key_to_adnl_ids_.equal_range(key);
+    for (auto it = begin; it != end; ++it) {
+      my_adnl_ids.insert(it->second);
+    }
+    auto authority = validator_authority_until_.find(key);
+    if (authority != validator_authority_until_.end()) {
+      authority_until = std::max(authority_until, static_cast<double>(authority->second));
+    }
   }
 
   // Remove overlays for removed adnl ids and shards
@@ -887,35 +947,11 @@ void FullNodeFastSyncOverlays::update_overlays(
     }
   }
 
-  // On new keyblock - update validator set
-  bool updated_validators = false;
-  if (!last_key_block_seqno_ || last_key_block_seqno_.value() != state->last_key_block_id().seqno()) {
-    updated_validators = true;
-    last_key_block_seqno_ = state->last_key_block_id().seqno();
-    root_public_keys_.clear();
-    current_validators_adnl_.clear();
-    // Previous, current and next validator sets
-    for (int i = -1; i <= 1; ++i) {
-      auto val_set = state->get_total_validator_set(i);
-      if (val_set.is_null()) {
-        continue;
-      }
-      for (const ValidatorDescr &val : val_set->export_vector()) {
-        PublicKeyHash public_key_hash = ValidatorFullId{val.key}.compute_short_id();
-        root_public_keys_.push_back(public_key_hash);
-        current_validators_adnl_.emplace_back(val.addr.is_zero() ? public_key_hash.bits256_value() : val.addr);
-      }
-    }
-    std::sort(root_public_keys_.begin(), root_public_keys_.end());
-    root_public_keys_.erase(std::unique(root_public_keys_.begin(), root_public_keys_.end()), root_public_keys_.end());
-    std::sort(current_validators_adnl_.begin(), current_validators_adnl_.end());
-    current_validators_adnl_.erase(std::unique(current_validators_adnl_.begin(), current_validators_adnl_.end()),
-                                   current_validators_adnl_.end());
-
+  if (updated_validators) {
     for (auto &[local_id, overlays_info] : id_to_overlays_) {
       overlays_info.is_validator_ =
           std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
-      for (auto &[shard, overlay] : overlays_info.overlays_) {
+      for (auto &[_, overlay] : overlays_info.overlays_) {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_validators, root_public_keys_,
                                 current_validators_adnl_);
       }
@@ -972,6 +1008,17 @@ void FullNodeFastSyncOverlays::update_overlays(
       continue;
     }
 
+    if (!overlays_info.current_certificate_.empty()) {
+      const auto &certificate = overlays_info.current_certificate_;
+      auto issuer = validator_authority_until_.find(certificate.issued_by().compute_short_id());
+      if (issuer != validator_authority_until_.end()) {
+        // Member certificates allow three seconds of clock skew. Recheck in the first whole second in which
+        // update_overlays() is guaranteed to consider the certificate expired and can select another one.
+        double certificate_until = static_cast<double>(certificate.expire_at()) + 4.0;
+        authority_until = std::max(authority_until, std::min(certificate_until, static_cast<double>(issuer->second)));
+      }
+    }
+
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
       bool enable_plumtree_broadcast = state->get_new_consensus_config(shard.workchain).enable_plumtree_broadcast();
@@ -999,6 +1046,8 @@ void FullNodeFastSyncOverlays::update_overlays(
       }
     }
   }
+
+  return authority_until;
 }
 
 void FullNodeFastSyncOverlays::add_member_certificate(adnl::AdnlNodeIdShort local_id,
