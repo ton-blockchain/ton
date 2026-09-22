@@ -171,14 +171,15 @@ class FullNodeFastSyncOverlays {
       ShardIdFull shard, bool require_validator = false);
   td::actor::ActorId<FullNodeFastSyncOverlay> get_masterchain_overlay_for(adnl::AdnlNodeIdShort adnl_id);
   void send_plumtree_stats(td::actor::ActorId<FullNodeFastSyncOverlay> collector, std::size_t overlays_limit) const;
-  void update_overlays(td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
-                       std::set<ShardIdFull> monitoring_shards, const FileHash& zero_state_file_hash,
-                       double broadcast_speed_multiplier, const td::actor::ActorId<keyring::Keyring>& keyring,
-                       const td::actor::ActorId<adnl::Adnl>& adnl, const td::actor::ActorId<rldp2::Rldp>& rldp2,
-                       const td::actor::ActorId<quic::QuicSender>& quic,
-                       const td::actor::ActorId<overlay::Overlays>& overlays,
-                       const td::actor::ActorId<ValidatorManagerInterface>& validator_manager,
-                       const td::actor::ActorId<FullNode>& full_node);
+  double update_overlays(td::Ref<MasterchainState> state, const std::set<PublicKeyHash>& local_keys,
+                         std::set<adnl::AdnlNodeIdShort> my_adnl_ids, std::set<ShardIdFull> monitoring_shards,
+                         const FileHash& zero_state_file_hash, double broadcast_speed_multiplier,
+                         const td::actor::ActorId<keyring::Keyring>& keyring,
+                         const td::actor::ActorId<adnl::Adnl>& adnl, const td::actor::ActorId<rldp2::Rldp>& rldp2,
+                         const td::actor::ActorId<quic::QuicSender>& quic,
+                         const td::actor::ActorId<overlay::Overlays>& overlays,
+                         const td::actor::ActorId<ValidatorManagerInterface>& validator_manager,
+                         const td::actor::ActorId<FullNode>& full_node);
   void add_member_certificate(adnl::AdnlNodeIdShort local_id, overlay::OverlayMemberCertificate member_certificate);
 
  private:
@@ -194,6 +195,8 @@ class FullNodeFastSyncOverlays {
   td::optional<BlockSeqno> last_key_block_seqno_;
   std::vector<PublicKeyHash> root_public_keys_;
   std::vector<adnl::AdnlNodeIdShort> current_validators_adnl_;
+  std::multimap<PublicKeyHash, adnl::AdnlNodeIdShort> validator_key_to_adnl_ids_;
+  std::map<PublicKeyHash, UnixTime> validator_authority_until_;
 };
 
 }  // namespace ton::validator::fullnode

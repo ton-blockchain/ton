@@ -120,7 +120,9 @@ class FullNodeImpl : public FullNode {
                            << cert.issued_by().compute_short_id() << " expires in "
                            << (double)cert.expire_at() - td::Clocks::system();
     fast_sync_overlays_.add_member_certificate(local_id, std::move(cert));
+    update_fast_sync_and_public_overlays();
   }
+  void initial_config_loaded() override;
 
   td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
                                                 QuerySource source) override;
@@ -145,6 +147,9 @@ class FullNodeImpl : public FullNode {
   };
 
   void update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast);
+  void set_public_overlays_enabled(bool enabled);
+  void update_public_overlay_mode(double fast_sync_authority_until);
+  void update_fast_sync_and_public_overlays();
 
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
@@ -153,6 +158,11 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorId<FullNodeShard> get_shard_overlay_actor(ShardIdFull shard, bool historical = false);
   std::map<ShardIdFull, ShardInfo> shards_;
   int wc_monitor_min_split_ = 0;
+  bool public_overlays_enabled_ = false;
+  bool initial_config_loaded_ = false;
+  td::Ref<MasterchainState> last_masterchain_state_;
+  std::set<ShardIdFull> last_monitoring_shards_;
+  td::Timestamp enable_public_overlays_at_ = td::Timestamp::never();
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
