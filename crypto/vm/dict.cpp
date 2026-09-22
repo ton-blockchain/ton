@@ -218,11 +218,8 @@ Ref<Cell> DictionaryFixed::finish_create_leaf(CellBuilder& cb, const CellSlice& 
   return cb.finalize();
 }
 
-Ref<Cell> DictionaryFixed::finish_create_leaf(CellBuilder& cb, const CellBuilder& value, bool replace) const {
+Ref<Cell> DictionaryFixed::finish_create_leaf(CellBuilder& cb, const CellBuilder& value) const {
   if (!cb.append_builder_bool(value)) {
-    if (replace) {
-      throw CellBuilder::CellCreateError{};
-    }
     throw VmError{Excno::cell_ov, "cannot store new value into a dictionary cell"};
   }
   return cb.finalize();
@@ -1820,7 +1817,7 @@ Ref<Cell> DictionaryFixed::dict_build(td::Span<std::pair<td::ConstBitPtr, Ref<Ce
     }
     CellBuilder cb;
     append_dict_label(cb, values[0].first + prefix_len, key_bits - prefix_len, key_bits - prefix_len);
-    return finish_create_leaf(cb, *values[0].second, false);
+    return finish_create_leaf(cb, *values[0].second);
   }
   size_t common_prefix_len_s;
   td::bitstring::bits_memcmp(values.front().first + prefix_len, values.back().first + prefix_len, key_bits - prefix_len,
@@ -1915,7 +1912,7 @@ Ref<Cell> DictionaryFixed::dict_multiset(Ref<Cell> dict1,
         // alas, the two values did not combine, this key will be absent from resulting dictionary
         return {};
       }
-      return finish_create_leaf(cb, *values2[0].second, true);
+      return finish_create_leaf(cb, *values2[0].second);
     }
     assert(c < n);
     key_buffer += c + 1;
@@ -2989,7 +2986,7 @@ Ref<Cell> AugmentedDictionary::finish_create_leaf(CellBuilder& cb, const CellSli
   return cb.finalize();
 }
 
-Ref<Cell> AugmentedDictionary::finish_create_leaf(CellBuilder& cb, const CellBuilder& value, bool replace) const {
+Ref<Cell> AugmentedDictionary::finish_create_leaf(CellBuilder& cb, const CellBuilder& value) const {
   return finish_create_leaf(cb, value.as_cellslice());
 }
 

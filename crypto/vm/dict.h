@@ -277,7 +277,7 @@ class DictionaryFixed : public DictionaryBase {
     return leaf;
   }
   virtual Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellSlice& value) const;
-  virtual Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellBuilder& value, bool replace) const;
+  virtual Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellBuilder& value) const;
   virtual Ref<Cell> finish_create_fork(CellBuilder& cb, Ref<Cell> c1, Ref<Cell> c2, int n) const;
   virtual bool check_fork(CellSlice& cs, Ref<Cell> c1, Ref<Cell> c2, int n) const {
     return true;
@@ -652,7 +652,7 @@ class AugmentedDictionary final : public DictionaryFixed {
   bool check_leaf(CellSlice& cs, td::ConstBitPtr key, int key_len) const override;
   bool check_fork(CellSlice& cs, Ref<Cell> c1, Ref<Cell> c2, int n) const override;
   Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellSlice& value) const override;
-  Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellBuilder& value, bool replace) const override;
+  Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellBuilder& value) const override;
   Ref<Cell> finish_create_fork(CellBuilder& cb, Ref<Cell> c1, Ref<Cell> c2, int n) const override;
   std::pair<Ref<Cell>, bool> dict_set(Ref<Cell> dict, td::ConstBitPtr key, int n, const CellSlice& value,
                                       SetMode mode = SetMode::Set) const;
