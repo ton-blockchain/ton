@@ -430,6 +430,15 @@ void FullNodeCustomOverlay::init() {
   overlay_options.broadcast_speed_multiplier_ = opts_.private_broadcast_speed_multiplier_;
   overlay_options.send_twostep_broadcast_ = true;
   overlay_options.twostep_broadcast_sender_ = adnl_sender_;
+
+  // Allow receiving messages from both quic and rldp2
+  // This is a temporary solution for transitioning from rldp2 to quic before completely removing rldp2
+  auto other_sender = (use_quic_ ? td::actor::ActorId<adnl::AdnlSenderEx>{rldp2_} : quic_);
+  td::actor::send_closure(other_sender, &adnl::AdnlSenderEx::add_id, local_id_);
+  td::uint64 mtu = rules.max_broadcast_size() + 1024;
+  std::vector<adnl::AdnlNodeIdShort> peers;
+  peers_mtu_guard_ = adnl::PeersMtuGuard{other_sender, local_id_, nodes_, mtu, true};
+
   td::actor::send_closure(
       overlays_, &overlay::Overlays::create_private_overlay_ex, local_id_, overlay_id_full_.clone(), nodes_,
       std::make_unique<Callback>(actor_id(this)), rules,
