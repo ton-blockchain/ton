@@ -294,7 +294,7 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
   }
   fast_sync_overlays_.update_overlays(state, std::move(my_adnl_ids), std::move(monitoring_shards),
                                       zero_state_file_hash_, opts_.fast_sync_broadcast_speed_multiplier_, keyring_,
-                                      adnl_, rldp2_, quic_, overlays_, validator_manager_, actor_id(this));
+                                      adnl_, quic_, overlays_, validator_manager_, actor_id(this));
   update_validator_telemetry_collector();
   update_plumtree_stats_collector();
 }
@@ -1110,9 +1110,8 @@ void FullNodeImpl::update_custom_overlay(CustomOverlayInfo &overlay) {
         overlay.actors_[local_id] = std::move(it->second);
         old_actors.erase(it);
       } else {
-        auto adnl_sender = (params.use_quic_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_} : rldp2_);
         overlay.actors_[local_id] = td::actor::create_actor<FullNodeCustomOverlay>(
-            "CustomOverlay", local_id, params, zero_state_file_hash_, opts_, keyring_, adnl_, adnl_sender, overlays_,
+            "CustomOverlay", local_id, params, zero_state_file_hash_, opts_, keyring_, adnl_, quic_, rldp2_, overlays_,
             validator_manager_, actor_id(this));
       }
     }

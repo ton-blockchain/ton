@@ -184,7 +184,7 @@ class FullNode : public td::actor::Actor {
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
   static constexpr td::uint32 PROTO_VERSION_MAJOR = 3;
-  static constexpr td::uint32 PROTO_VERSION_MINOR = 2;
+  static constexpr td::uint32 PROTO_VERSION_MINOR = 3;
 
   static td::actor::ActorOwn<FullNode> create(
       adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
