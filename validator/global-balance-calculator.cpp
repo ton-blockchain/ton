@@ -1,0 +1,901 @@
+/*
+* Copyright (c) 2026, TON CORE TECHNOLOGIES CO. L.L.C
+ *
+ * SPDX-License-Identifier: LGPL-2.0-or-later
+ */
+
+#include <algorithm>
+
+#include "impl/global-balance-calculator-internal.hpp"
+#include "td/actor/SharedFuture.h"
+#include "td/utils/LRUCache.h"
+#include "ton/ton-io.hpp"
+#include "vm/cells/PrunnedCell.h"
+
+#include "block-auto.h"
+#include "block-parse.h"
+#include "global-balance-calculator.hpp"
+#include "shard.hpp"
+
+namespace ton::validator {
+
+/*
+ * Global balance (only grams, no extra currencies) of the blockchain at a specific masterchain block consists of:
+ * 1. For each top shard state and masterchain state, total balance of ShardAccounts
+ * 2. For each top shard state and masterchain state, total balance of DispatchQueue
+ * 3. For each top shard state and masterchain state, sum of balances of unprocessed messages in OutMsgQueue
+ *    Balance of a message in queue is: value + fwd_fee_remaining (+ legacy ihr_fee for old global versions)
+ * 4. total_validator_fees in masterchain state - fees that have not been recovered yet
+ *
+ * Invariant: global balance at masterchain block X+1 is equal to:
+ * 1. Global balance at masterchain block X
+ * 2. + funds created for all new blocks
+ * 3. - funds burned in masterchain block X+1
+ */
+
+namespace detail {
+
+td::Result<td::RefInt256> get_out_queue_message_balance(const block::EnqueuedMsgDescr& msg, int global_version) {
+  vm::CellSlice msg_cs = vm::load_cell_slice(msg.msg_);
+  block::gen::CommonMsgInfo::Record_int_msg_info info;
+  block::CurrencyCollection cc;
+  TRY_BOOL(tlb::unpack(msg_cs, info) && cc.unpack(info.value));
+  auto balance = cc.grams + msg.fwd_fee_remaining_;
+  if (global_version < 12) {
+    td::RefInt256 ihr_fee;
+    TRY_BOOL(block::tlb::t_Grams.as_integer_to(info.extra_flags, ihr_fee));
+    balance += ihr_fee;
+  }
+  return balance;
+}
+
+// Dispatch queue operations does not to be efficient like msg queue operations because we'll normally use
+// total dispatch queue balance from shard state. calculate_dispatch_queue_balance is only for historical blocks
+// without total balance stored.
+td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue,
+                                                           int global_version) {
+  size_t cnt = 0;
+  td::RefInt256 result = td::zero_refint();
+  TRY_STATUS(
+      dispatch_queue.check_for_each_extra([&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr, int) {
+        block::AccountDispatchQueue account_queue;
+        TRY_BOOL(account_queue.unpack(value));
+        return account_queue.dict.check_for_each([&](Ref<vm::CellSlice> value, td::ConstBitPtr, int) {
+          auto balance = block::get_message_balance_for_dispatch_queue(value, global_version);
+          TRY_BOOL(balance.is_valid());
+          result += balance.grams;
+          ++cnt;
+          return td::Status::OK();
+          ;
+        });
+      }));
+  if (!result->is_valid()) {
+    return td::Status::Error("failed to calculate dispatch queue balance");
+  }
+  VLOG(validator, DEBUG) << "calculate_dispatch_queue_balance: balance=" << result << " cnt=" << cnt;
+  return result;
+}
+
+td::Result<td::RefInt256> calculate_dispatch_queue_balance_diff(vm::AugmentedDictionary& old_queue,
+                                                                vm::AugmentedDictionary& new_queue,
+                                                                int global_version) {
+  size_t cnt_added = 0, cnt_removed = 0;
+  td::RefInt256 result = td::zero_refint();
+  bool ok = old_queue.scan_diff(
+      new_queue,
+      [&](td::ConstBitPtr, int, Ref<vm::CellSlice> old_val_extra, Ref<vm::CellSlice> new_val_extra) {
+        block::AccountDispatchQueue old_account_queue, new_account_queue;
+        if (!old_account_queue.unpack(old_queue.extract_value(old_val_extra))) {
+          return false;
+        }
+        if (!new_account_queue.unpack(new_queue.extract_value(new_val_extra))) {
+          return false;
+        }
+        return old_account_queue.dict.scan_diff(
+            new_account_queue.dict, [&](td::ConstBitPtr, int, Ref<vm::CellSlice> old_val, Ref<vm::CellSlice> new_val) {
+              if (old_val.not_null()) {
+                auto balance = block::get_message_balance_for_dispatch_queue(old_val, global_version);
+                if (!balance.is_valid()) {
+                  return false;
+                }
+                result -= balance.grams;
+                ++cnt_removed;
+              }
+              if (new_val.not_null()) {
+                auto balance = block::get_message_balance_for_dispatch_queue(new_val, global_version);
+                if (!balance.is_valid()) {
+                  return false;
+                }
+                result += balance.grams;
+                ++cnt_added;
+              }
+              return true;
+            });
+      },
+      vm::DictionaryFixed::check_new_aug);
+  if (!ok || !result->is_valid()) {
+    return td::Status::Error("failed to calculate dispatch queue balance diff");
+  }
+  VLOG(validator, DEBUG) << "calculate_dispatch_queue_balance_diff: diff=" << result << " added=" << cnt_added
+                         << " removed=" << cnt_removed;
+  return result;
+}
+
+// prune_message_queue converts msg queue from shard state to an identical in-memory msg queue
+// with unneeded branches pruned (message contents). This speeds up its processing while keeping memory usage low.
+static td::Result<vm::CellSlice> prune_message_queue_entry(vm::CellSlice cs) {
+  // _ enqueued_lt:uint64 out_msg:^MsgEnvelope = EnqueuedMsg;
+  TRY_BOOL(cs.size_refs() == 1);
+  vm::CellSlice env_cs = vm::load_cell_slice(cs.fetch_ref());
+  // msg_envelope#4 ... msg:^(Message Any) = MsgEnvelope;
+  // msg_envelope_v2#5 ... msg:^(Message Any) ... = MsgEnvelope;
+  TRY_BOOL(env_cs.size_refs() >= 1);
+  vm::CellSlice msg_cs = vm::load_cell_slice(env_cs.fetch_ref());
+  vm::CellBuilder msg_cb;
+  while (msg_cs.size_refs() > 0) {
+    TRY_RESULT(prunned, vm::PrunnedCell<td::Unit>::create(msg_cs.fetch_ref(), td::Unit{}));
+    msg_cb.store_ref(prunned);
+  }
+  msg_cb.append_cellslice(msg_cs);
+  vm::CellBuilder env_cb;
+  env_cb.store_ref(msg_cb.finalize()).append_cellslice(env_cs);
+  return vm::CellBuilder{}.store_ref(env_cb.finalize()).append_cellslice(cs).as_cellslice();
+}
+
+td::Result<std::unique_ptr<vm::AugmentedDictionary>> prune_message_queue(vm::AugmentedDictionary& msg_queue) {
+  size_t cnt = 0;
+  auto new_msg_queue = std::make_unique<vm::AugmentedDictionary>(352, block::tlb::aug_OutMsgQueue);
+  TRY_STATUS(msg_queue.check_for_each_extra(
+      [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
+        CHECK(key_len == 352);
+        TRY_RESULT(pruned, prune_message_queue_entry(*value));
+        TRY_BOOL(new_msg_queue->set(key, key_len, std::move(pruned)));
+        ++cnt;
+        return td::Status::OK();
+      }));
+  VLOG(validator, DEBUG) << "prune_message_queue: cnt=" << cnt;
+  return std::move(new_msg_queue);
+}
+
+td::actor::Task<std::shared_ptr<ParsedShardState>> ParsedShardState::fetch(
+    Ref<ShardState> state, Ref<vm::Cell> block_root, int global_version,
+    std::vector<std::shared_ptr<ParsedShardState>> prev) {
+  co_await td::actor::detach_from_actor();
+  TD_PERF_COUNTER(global_balance_fetch_shard_state);
+  try {
+    td::Timer timer;
+    auto result = std::make_shared<ParsedShardState>();
+    result->block_id = state->get_block_id();
+    block::gen::ShardStateUnsplit::Record state_rec;
+    CO_TRY_BOOL(tlb::unpack_cell(state->root_cell(), state_rec));
+
+    vm::AugmentedDictionary accounts_dict{vm::load_cell_slice_ref(state_rec.accounts), 256,
+                                          block::tlb::aug_ShardAccounts};
+    block::gen::DepthBalanceInfo::Record extra;
+    block::CurrencyCollection accounts_cc;
+    CO_TRY_BOOL(tlb::csr_unpack_safe(accounts_dict.get_root_extra(), extra));
+    CO_TRY_BOOL(accounts_cc.unpack(extra.balance));
+    result->accounts_balance = accounts_cc.grams;
+
+    block::gen::OutMsgQueueInfo::Record qinfo;
+    CO_TRY_BOOL(tlb::unpack_cell(state_rec.out_msg_queue_info, qinfo));
+    result->proc_info = vm::CellBuilder{}.append_cellslice(qinfo.proc_info).as_cellslice_ref();
+
+    vm::AugmentedDictionary state_msg_queue{std::move(qinfo.out_queue), 352, block::tlb::aug_OutMsgQueue};
+    if (prev.empty()) {
+      result->msg_queue = CO_TRY(prune_message_queue(state_msg_queue));
+    } else {
+      result->msg_queue = CO_TRY(update_message_queue(prev, block_root, state->get_block_id()));
+    }
+    CO_TRY_BOOL(result->msg_queue->get_wrapped_dict_root()->get_hash() ==
+                state_msg_queue.get_wrapped_dict_root()->get_hash());
+
+    if (qinfo.extra.write().fetch_long(1) != 0) {
+      block::gen::OutMsgQueueExtra::Record queue_extra;
+      CO_TRY_BOOL(tlb::csr_unpack(qinfo.extra, queue_extra));
+      vm::AugmentedDictionary dispatch_queue{queue_extra.dispatch_queue, 256, block::tlb::aug_DispatchQueue};
+      block::tlb::DispatchQueueAugData::Record aug_data;
+      CO_TRY_BOOL(tlb::csr_unpack_safe(dispatch_queue.get_root_extra(), aug_data));
+      if (aug_data.total_balance.is_valid()) {
+        result->dispatch_queue_balance = aug_data.total_balance.grams;
+        result->dispatch_queue_balance_stored = true;
+      } else if (dispatch_queue.is_empty()) {
+        result->dispatch_queue_balance_stored = true;
+      } else {
+        if (global_version >= 16 && !prev.empty() &&
+            std::all_of(prev.begin(), prev.end(), [](const std::shared_ptr<ParsedShardState>& state) {
+              return state->dispatch_queue_balance_stored;
+            })) {
+          // This is to avoid expensive computation on an invalid masterchain block candidate
+          co_return td::Status::Error("dispatch queue does not have total balance stored, but prevoius states had it");
+        }
+        result->dispatch_queue_balance =
+            CO_TRY(get_dispatch_queue_balance(dispatch_queue, prev, state->get_block_id(), global_version));
+        result->dispatch_queue = std::make_unique<vm::AugmentedDictionary>(std::move(dispatch_queue));
+      }
+    } else {
+      result->dispatch_queue_balance_stored = true;
+    }
+
+    if (state->get_shard().is_masterchain()) {
+      block::CurrencyCollection total_validator_fees;
+      CO_TRY_BOOL(total_validator_fees.unpack(state_rec.r1.total_validator_fees));
+      result->mc_total_validator_fees = total_validator_fees.grams;
+    }
+
+    VLOG(validator, INFO) << "Parsed shard state " << state->get_block_id().id
+                          << ": accounts_balance=" << result->accounts_balance
+                          << " dispatch_queue_balance=" << result->dispatch_queue_balance
+                          << " mc_total_validator_fees=" << result->mc_total_validator_fees
+                          << " time=" << timer.elapsed();
+    co_return result;
+  } catch (vm::VmError& e) {
+    co_return e.as_status();
+  }
+}
+
+static td::Result<td::BitArray<352>> get_out_queue_key_from_msg_env(Ref<vm::CellSlice> env_csr,
+                                                                    td::Bits256 expected_msg_hash);
+
+td::Result<std::unique_ptr<vm::AugmentedDictionary>> update_message_queue(
+    const std::vector<std::shared_ptr<ParsedShardState>>& prev, Ref<vm::Cell> block_root, BlockIdExt block_id) {
+  TD_PERF_COUNTER(global_balance_update_message_queue);
+  ShardIdFull shard = block_id.shard_full();
+  TRY_BOOL(!prev.empty());
+  auto msg_queue =
+      std::make_unique<vm::AugmentedDictionary>(prev[0]->msg_queue->get_root(), 352, block::tlb::aug_OutMsgQueue);
+  if (prev.size() == 1) {
+    if (prev[0]->block_id.shard_full() != shard) {
+      TRY_BOOL(shard.pfx_len() > 0 && prev[0]->block_id.shard_full() == shard_parent(shard));
+      TRY_BOOL(block::filter_out_msg_queue(*msg_queue, prev[0]->block_id.shard_full(), shard) >= 0);
+    }
+  } else {
+    TRY_BOOL(prev.size() == 2);
+    TRY_BOOL(prev[0]->block_id.shard_full() == shard_child(shard, true));
+    TRY_BOOL(prev[1]->block_id.shard_full() == shard_child(shard, false));
+    TRY_BOOL(msg_queue->combine_with(*prev[1]->msg_queue));
+  }
+
+  block::gen::Block::Record block_rec;
+  block::gen::BlockInfo::Record block_info;
+  block::gen::BlockExtra::Record block_extra;
+  TRY_BOOL(tlb::unpack_cell(block_root, block_rec) && tlb::unpack_cell(block_rec.info, block_info) &&
+           tlb::unpack_cell(block_rec.extra, block_extra));
+  vm::AugmentedDictionary out_msg_dict{vm::load_cell_slice_ref(block_extra.out_msg_descr), 256,
+                                       block::tlb::aug_OutMsgDescrDefault};
+  // out_msg_dict reflects changes in out msg queue:
+  // - msg_export_new: add entry, enqueued_lt = message created_lt
+  // - msg_export_tr: add entry, enqueued_lt = block started_lt
+  // - msg_export_deferred_tr: add entry, enqueued_lt = message emitted_lt
+  // - msg_export_deq_short: delete entry
+  // - msg_export_deq_short: delete entry
+  // - msg_export_deq: delete entry
+  // - msg_export_tr_req: delete entry with old prefix, add entry with new prefix, enqueued_lt = block started_lt
+  size_t cnt_added = 0, cnt_deleted = 0;
+  TRY_STATUS(out_msg_dict.check_for_each_extra(
+      [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
+        CHECK(key_len == 256);
+        int tag = block::gen::t_OutMsg.get_tag(*value);
+        if (tag == block::gen::OutMsg::msg_export_deq_short) {
+          block::gen::OutMsg::Record_msg_export_deq_short out_msg;
+          TRY_BOOL(tlb::csr_unpack(value, out_msg));
+          td::BitArray<352> msg_queue_key;
+          msg_queue_key.bits().store_int(out_msg.next_workchain, 32);
+          (msg_queue_key.bits() + 32).store_int(out_msg.next_addr_pfx, 64);
+          (msg_queue_key.bits() + 96).copy_from(key, 256);
+          TRY_BOOL(msg_queue->lookup_delete(msg_queue_key).not_null());
+          ++cnt_deleted;
+          return td::Status::OK();
+        }
+        if (tag != block::gen::OutMsg::msg_export_deq && tag != block::gen::OutMsg::msg_export_deq_imm &&
+            tag != block::gen::OutMsg::msg_export_tr && tag != block::gen::OutMsg::msg_export_tr_req &&
+            tag != block::gen::OutMsg::msg_export_new && tag != block::gen::OutMsg::msg_export_deferred_tr) {
+          return td::Status::OK();
+        }
+        Ref<vm::Cell> env_cell = value->prefetch_ref();
+        TRY_BOOL(env_cell.not_null());
+        auto env_csr = vm::load_cell_slice_ref(env_cell);
+        TRY_RESULT(msg_queue_key, get_out_queue_key_from_msg_env(env_csr, key));
+        if (tag == block::gen::OutMsg::msg_export_tr_req) {
+          block::gen::OutMsg::Record_msg_export_tr_req out_msg;
+          block::gen::InMsg::Record_msg_import_tr in_msg;
+          TRY_BOOL(tlb::csr_unpack(value, out_msg) && tlb::unpack_cell(out_msg.imported, in_msg));
+          TRY_RESULT(old_msg_queue_key, get_out_queue_key_from_msg_env(vm::load_cell_slice_ref(in_msg.in_msg), key));
+          TRY_BOOL(msg_queue->lookup_delete(old_msg_queue_key).not_null());
+          ++cnt_deleted;
+        }
+        if (tag == block::gen::OutMsg::msg_export_deq || tag == block::gen::OutMsg::msg_export_deq_imm) {
+          TRY_BOOL(msg_queue->lookup_delete(msg_queue_key).not_null());
+          ++cnt_deleted;
+        }
+        if (tag == block::gen::OutMsg::msg_export_new || tag == block::gen::OutMsg::msg_export_tr ||
+            tag == block::gen::OutMsg::msg_export_tr_req || tag == block::gen::OutMsg::msg_export_deferred_tr) {
+          unsigned long long enqueued_lt;
+          if (tag == block::gen::OutMsg::msg_export_tr || tag == block::gen::OutMsg::msg_export_tr_req) {
+            enqueued_lt = block_info.start_lt;
+          } else {
+            TRY_BOOL(block::tlb::t_MsgEnvelope.get_emitted_lt(*env_csr, enqueued_lt));
+          }
+          TRY_RESULT(cs, prune_message_queue_entry(
+                             vm::CellBuilder{}.store_long(enqueued_lt, 64).store_ref(env_cell).as_cellslice()));
+          TRY_BOOL(msg_queue->set(msg_queue_key, std::move(cs), vm::Dictionary::SetMode::Add));
+          ++cnt_added;
+        }
+        return td::Status::OK();
+      }));
+  VLOG(validator, DEBUG) << "update_message_queue " << block_id.id << ": added=" << cnt_added
+                         << " deleted=" << cnt_deleted;
+
+  return std::move(msg_queue);
+}
+
+static td::Result<td::BitArray<352>> get_out_queue_key_from_msg_env(Ref<vm::CellSlice> env_csr,
+                                                                    td::Bits256 expected_msg_hash) {
+  block::tlb::MsgEnvelope::Record_std env;
+  block::gen::CommonMsgInfo::Record_int_msg_info info;
+  if (!tlb::csr_unpack(env_csr, env) || !tlb::unpack_cell_inexact(env.msg, info) ||
+      env.msg->get_hash().as_bits256() != expected_msg_hash) {
+    return td::Status::Error("failed to unpack MsgEnvelope");
+  }
+  AccountIdPrefixFull src_prefix, dest_prefix;
+  if (!block::tlb::t_MsgAddressInt.get_prefix_to(info.src, src_prefix) ||
+      !block::tlb::t_MsgAddressInt.get_prefix_to(info.dest, dest_prefix)) {
+    return td::Status::Error("failed to unpack msg addresses");
+  }
+  AccountIdPrefixFull next_prefix = block::interpolate_addr(src_prefix, dest_prefix, env.next_addr);
+  td::BitArray<352> key;
+  key.bits().store_int(next_prefix.workchain, 32);
+  (key.bits() + 32).store_int(next_prefix.account_id_prefix, 64);
+  (key.bits() + 96).copy_from(expected_msg_hash);
+  return key;
+}
+
+td::Result<td::RefInt256> get_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue,
+                                                     const std::vector<std::shared_ptr<ParsedShardState>>& prev,
+                                                     BlockIdExt block_id, int global_version) {
+  TD_PERF_COUNTER(global_balance_dispatch_queue);
+  if (prev.empty() || (prev.size() == 1 && prev[0]->block_id.shard_full() != block_id.shard_full()) ||
+      std::any_of(prev.begin(), prev.end(),
+                  [](const std::shared_ptr<ParsedShardState>& state) { return state->dispatch_queue == nullptr; })) {
+    return calculate_dispatch_queue_balance(dispatch_queue, global_version);
+  }
+  ShardIdFull shard = block_id.shard_full();
+  vm::AugmentedDictionary prev_dispatch_queue{prev[0]->dispatch_queue->get_root(), 256, block::tlb::aug_DispatchQueue};
+  if (prev.size() == 1) {
+    TRY_BOOL(prev[0]->block_id.shard_full() == shard);
+  } else {
+    TRY_BOOL(prev.size() == 2);
+    TRY_BOOL(prev[0]->block_id.shard_full() == shard_child(shard, true));
+    TRY_BOOL(prev[1]->block_id.shard_full() == shard_child(shard, false));
+    TRY_BOOL(prev_dispatch_queue.combine_with(*prev[1]->dispatch_queue));
+  }
+  TRY_RESULT(result, calculate_dispatch_queue_balance_diff(prev_dispatch_queue, dispatch_queue, global_version));
+  for (const auto& state : prev) {
+    result += state->dispatch_queue_balance;
+  }
+  if (!result->is_valid() || result->sgn() < 0) {
+    return td::Status::Error("dispatch queue balance is invalid");
+  }
+  return result;
+}
+
+}  // namespace detail
+
+namespace {
+
+using detail::ParsedShardState;
+
+struct GlobalInfo {
+  Ref<MasterchainStateQ> mc_state;
+  td::RefInt256 global_balance = td::zero_refint();
+  td::RefInt256 last_mc_block_burned = td::zero_refint();
+
+  BlockSeqno seqno() const {
+    return mc_state->get_seqno();
+  }
+};
+
+td::actor::Task<GlobalInfo> compute_global_balance_from_states(
+    std::vector<std::shared_ptr<ParsedShardState>> all_states, Ref<MasterchainStateQ> mc_state,
+    Ref<vm::Cell> mc_block_root, td::actor::ActorId<ValidatorManager> manager, int global_version) {
+  co_await td::actor::detach_from_actor();
+  try {
+    td::Timer timer;
+    GlobalInfo result;
+    result.mc_state = mc_state;
+    for (auto& state : all_states) {
+      result.global_balance += state->accounts_balance;
+      result.global_balance += state->dispatch_queue_balance;
+      result.global_balance += state->mc_total_validator_fees;
+    }
+
+    std::map<BlockSeqno, Ref<MasterchainStateQ>> aux_mc_states;
+    aux_mc_states[mc_state->get_seqno()] = mc_state;
+    auto get_aux_mc_state = [&](BlockSeqno aux_mc_seqno) -> td::actor::Task<Ref<MasterchainStateQ>> {
+      auto it = aux_mc_states.find(aux_mc_seqno);
+      if (it != aux_mc_states.end()) {
+        co_return it->second;
+      }
+      BlockIdExt block_id;
+      CO_TRY_BOOL(mc_state->get_old_mc_block_id(aux_mc_seqno, block_id));
+      co_return aux_mc_states[aux_mc_seqno] = Ref<MasterchainStateQ>{
+          co_await td::actor::ask(manager, &ValidatorManager::get_shard_state_from_db_short, block_id)};
+    };
+    std::vector<std::unique_ptr<block::MsgProcessedUptoCollection>> processed_upto;
+    for (auto& state : all_states) {
+      processed_upto.push_back(
+          block::MsgProcessedUptoCollection::unpack(state->block_id.shard_full(), state->proc_info));
+      CO_TRY_BOOL(processed_upto.back());
+      for (auto& proc : processed_upto.back()->list) {
+        auto aux_state = co_await get_aux_mc_state(std::min(proc.mc_seqno, mc_state->get_seqno()));
+        proc.compute_shard_end_lt = aux_state->get_config()->get_compute_shard_end_lt_func();
+      }
+    }
+    size_t total_messages = 0;
+    {
+      auto process_state =
+          [&](std::shared_ptr<ParsedShardState> state) -> td::actor::Task<std::pair<td::RefInt256, size_t>> {
+        co_await td::actor::detach_from_actor();
+        TD_PERF_COUNTER(global_balance_compute_total_out_queue_balance);
+        td::RefInt256 sum = td::zero_refint();
+        size_t messages = 0;
+        CO_TRY(state->msg_queue->check_for_each_extra(
+            [&](Ref<vm::CellSlice> value, Ref<vm::CellSlice>, td::ConstBitPtr key, int key_len) {
+              CHECK(key_len == 352);
+              ++messages;
+              block::EnqueuedMsgDescr enq_msg_descr;
+              TRY_BOOL(enq_msg_descr.unpack(value.write()) && enq_msg_descr.check_key(key));
+              for (auto& proc : processed_upto) {
+                if (proc->already_processed(enq_msg_descr)) {
+                  return td::Status::OK();
+                }
+              }
+              TRY_RESULT(balance, detail::get_out_queue_message_balance(enq_msg_descr, global_version));
+              sum += balance;
+              return td::Status::OK();
+            }));
+        co_return std::make_pair(sum, messages);
+      };
+      std::vector<td::actor::StartedTask<std::pair<td::RefInt256, size_t>>> tasks;
+      for (auto& state : all_states) {
+        tasks.push_back(process_state(state).start());
+      }
+      for (auto& [sum, messages] : co_await td::actor::all(std::move(tasks))) {
+        result.global_balance += sum;
+        total_messages += messages;
+      }
+    }
+
+    if (mc_state->get_seqno() != 0) {
+      block::gen::Block::Record block_rec;
+      CO_TRY_BOOL(tlb::unpack_cell(mc_block_root, block_rec));
+      block::ValueFlow value_flow;
+      CO_TRY_BOOL(value_flow.unpack(vm::load_cell_slice_ref(block_rec.value_flow)));
+      result.last_mc_block_burned = value_flow.burned.grams;
+    }
+
+    CO_TRY_BOOL(result.global_balance->is_valid());
+    VLOG(validator, INFO) << "Calculated global balance at " << mc_state->get_block_id().seqno()
+                          << ": balance=" << result.global_balance << " states=" << all_states.size()
+                          << " messages=" << total_messages << " time=" << timer.elapsed();
+    co_return result;
+  } catch (vm::VmError& e) {
+    co_return e.as_status();
+  }
+}
+
+td::Status compare_global_balance(const GlobalInfo& prev, const GlobalInfo& next, bool log_success) {
+  td::RefInt256 masterchain_create_fee = td::zero_refint(), basechain_create_fee = td::zero_refint();
+  if (auto param = prev.mc_state->get_config()->get_config_param(14); param.not_null()) {
+    block::gen::BlockCreateFees::Record create_fees;
+    TRY_BOOL(tlb::unpack_cell(param, create_fees));
+    TRY_BOOL(block::tlb::t_Grams.as_integer_to(create_fees.masterchain_block_fee, masterchain_create_fee));
+    TRY_BOOL(block::tlb::t_Grams.as_integer_to(create_fees.basechain_block_fee, basechain_create_fee));
+  }
+  td::RefInt256 funds_created = masterchain_create_fee;
+  for (auto desc : next.mc_state->get_shards()) {
+    int new_blocks = 0;
+    auto prev_desc_left = prev.mc_state->get_shard_from_config(desc->shard() - 1, false);
+    auto prev_desc_right = prev.mc_state->get_shard_from_config(desc->shard() + 1, false);
+    TRY_BOOL(prev_desc_left.is_null() == prev_desc_right.is_null());
+    if (prev_desc_left.is_null()) {
+      // New workchain
+      new_blocks = desc->top_block_id().seqno();
+    } else if (prev_desc_left->shard() == desc->shard()) {
+      new_blocks = desc->top_block_id().seqno() - prev_desc_left->top_block_id().seqno();
+    } else if (prev_desc_left->shard() == prev_desc_right->shard()) {
+      TRY_BOOL(desc->shard().pfx_len() > 0 && prev_desc_left->shard() == shard_parent(desc->shard()));
+      new_blocks = desc->top_block_id().seqno() - prev_desc_left->top_block_id().seqno();
+    } else {
+      TRY_BOOL(prev_desc_left->shard() == shard_child(desc->shard(), true));
+      TRY_BOOL(prev_desc_right->shard() == shard_child(desc->shard(), false));
+      new_blocks = desc->top_block_id().seqno() -
+                   std::max(prev_desc_left->top_block_id().seqno(), prev_desc_right->top_block_id().seqno());
+    }
+    funds_created += (basechain_create_fee >> shard_prefix_length(desc->shard())) * new_blocks;
+  }
+  TRY_BOOL(funds_created->is_valid());
+
+  td::RefInt256 expected_next = prev.global_balance + funds_created - next.last_mc_block_burned;
+  TRY_BOOL(expected_next->is_valid());
+  if (expected_next->cmp(*next.global_balance)) {
+    return td::Status::Error(PSTRING() << "GLOBAL BALANCE DISCREPANCY at " << next.mc_state->get_block_id()
+                                       << " : prev=" << prev.global_balance << " created=" << funds_created
+                                       << " burned=" << next.last_mc_block_burned << " next=" << next.global_balance
+                                       << " expected_next=" << expected_next
+                                       << " (diff=" << next.global_balance - expected_next << ")");
+  }
+  if (log_success) {
+    VLOG(validator, INFO) << "Checked global balance at " << next.seqno() << ", OK: prev=" << prev.global_balance
+                          << " created=" << funds_created << " burned=" << next.last_mc_block_burned
+                          << " next=" << next.global_balance;
+  }
+  return td::Status::OK();
+}
+
+class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
+ public:
+  explicit GlobalBalanceCalculatorImpl(BlockIdExt start_mc_block, td::actor::ActorId<ValidatorManager> manager,
+                                       std::unique_ptr<GarbageCollectorBlocker> gc_blocker)
+      : start_mc_block_(start_mc_block), manager_(std::move(manager)), gc_blocker_(std::move(gc_blocker)) {
+  }
+
+  void start_up() override {
+    run().start().detach_silent();
+    alarm();
+  }
+  void tear_down() override {
+    auto waiters = std::move(waiters_);
+    for (auto& waiter : waiters) {
+      waiter.set_error(td::Status::Error(ErrorCode::cancelled, "GlobalBalanceCalculator destroyed"));
+    }
+  }
+  void alarm() override {
+    alarm_timestamp() = td::Timestamp::in(5.0);
+    if (inited()) {
+      for (auto it = cached_shard_states_.begin(); it != cached_shard_states_.end();) {
+        if (!it->second.no_remove && it->second.remove_at && it->second.remove_at.is_in_past()) {
+          it = cached_shard_states_.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+    awake_waiters();
+  }
+
+  td::actor::Task<> run() {
+    while (true) {
+      auto R = co_await init().wrap();
+      if (R.is_error()) {
+        if (R.error().code() == ErrorCode::notready) {
+          VLOG(validator, WARNING) << "failed to init: " << R.move_as_error();
+        } else {
+          VLOG(validator, ERROR) << "failed to init: " << R.move_as_error();
+        }
+        co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+        continue;
+      }
+      break;
+    }
+    while (true) {
+      global_balance_history_[current_.mc_state->get_block_id()] = current_.global_balance;
+      while (!global_balance_history_.empty() &&
+             global_balance_history_.begin()->first.seqno() + 100 < current_.seqno()) {
+        global_balance_history_.erase(global_balance_history_.begin());
+      }
+      gc_blocker_->set_seqno(current_.mc_state->min_ref_masterchain_seqno());
+      awake_waiters();
+
+      auto R = co_await advance_mc_seqno().wrap();
+      if (R.is_error()) {
+        if (R.error().code() == ErrorCode::notready) {
+          VLOG(validator, WARNING) << "failed to advance: " << R.move_as_error();
+        } else {
+          VLOG(validator, ERROR) << "failed to advance: " << R.move_as_error();
+        }
+        co_await td::actor::coro_sleep(td::Timestamp::in(1.0));
+      }
+    }
+    co_return {};
+  }
+
+  td::actor::Task<> init() {
+    co_await wait_for_mc_seqno(start_mc_block_.seqno());
+    auto [mc_state, mc_block] = co_await load_mc_state_block(start_mc_block_);
+    auto mc_block_root = mc_block.not_null() ? mc_block->root_cell() : Ref<vm::Cell>{};
+    current_global_version_ = mc_state->get_config()->get_global_version();
+    current_ = co_await compute_global_balance(mc_state, mc_block_root, true);
+    co_return {};
+  }
+
+  td::actor::Task<> advance_mc_seqno() {
+    BlockSeqno next_seqno = current_.seqno() + 1;
+    co_await wait_for_mc_seqno(next_seqno);
+    td::Timer timer;
+    auto next_mc_block_id = (co_await td::actor::ask(manager_, &ValidatorManager::get_block_by_seqno_from_db,
+                                                     AccountIdPrefixFull{masterchainId, shardIdAll}, next_seqno))
+                                ->id();
+    auto [mc_state, mc_block /* not null! */] = co_await load_mc_state_block(next_mc_block_id);
+    current_global_version_ = mc_state->get_config()->get_global_version();
+    bool cached;
+    GlobalInfo next = co_await compute_global_balance(mc_state, mc_block->root_cell(), true, &cached);
+    if (!cached) {
+      auto S = compare_global_balance(current_, next, true);
+      if (S.is_error()) {
+        LOG(ERROR) << "Advance mc seqno to " << next_seqno << " error: " << S;
+      }
+    }
+    current_ = std::move(next);
+    for (auto it = cached_shard_states_.begin(); it != cached_shard_states_.end();) {
+      if (is_block_too_old(it->first)) {
+        it = cached_shard_states_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    VLOG(validator, INFO) << "Advanced mc seqno to " << next_seqno << ", time=" << timer.elapsed()
+                          << ", cached=" << (bool)cached;
+    co_return {};
+  }
+
+  td::actor::Task<td::RefInt256> validate_global_balance(Ref<MasterchainState> mc_state, Ref<vm::Cell> block_root,
+                                                         td::CancellationToken cancellation_token) override {
+    // Called from ValidateQuery for masterchain
+    // Shard block signatures and state root hash are already validated
+    CO_TRY_BOOL(mc_state->get_seqno() > 0);
+    CO_TRY_BOOL(block_root.not_null());
+    CO_TRY_BOOL(block_root->get_hash().as_bits256() == mc_state->get_block_id().root_hash);
+    while (true) {
+      CO_TRY(cancellation_token.check());
+      if (inited() && current_.seqno() >= mc_state->get_seqno() - 1) {
+        break;
+      }
+      co_await wait();
+    }
+    if (current_.seqno() >= mc_state->get_seqno()) {
+      co_return td::Status::Error(ErrorCode::cancelled, "masterchain already advanced past out block");
+    }
+    BlockIdExt prev_id;
+    CO_TRY_BOOL(mc_state->get_old_mc_block_id(mc_state->get_seqno() - 1, prev_id));
+    if (current_.mc_state->get_block_id() != prev_id) {
+      co_return td::Status::Error(ErrorCode::cancelled, "wrong previous masterchain block id");
+    }
+    GlobalInfo next;
+    while (true) {
+      auto r_next = co_await compute_global_balance(Ref<MasterchainStateQ>{mc_state}, block_root).wrap();
+      if (r_next.is_error() && r_next.error().code() == ErrorCode::notready) {
+        co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
+        CO_TRY(cancellation_token.check());
+        continue;
+      }
+      next = CO_TRY(std::move(r_next));
+      break;
+    }
+    CO_TRY(cancellation_token.check());
+    if (current_.mc_state->get_block_id() != prev_id) {
+      co_return td::Status::Error(ErrorCode::cancelled, "masterchain already advanced past out block");
+    }
+    CO_TRY(compare_global_balance(current_, next, false));
+    next.mc_state = {};
+    mc_global_balance_cache_.put(mc_state->get_block_id(), next);
+    co_return next.global_balance;
+  }
+
+  td::actor::Task<td::RefInt256> get_global_balance(BlockIdExt mc_block_id, td::Timestamp timeout) override {
+    CHECK(mc_block_id.is_masterchain());
+    while (true) {
+      if (timeout && timeout.is_in_past()) {
+        co_return td::Status::Error(ErrorCode::timeout, "timeout");
+      }
+      if (inited()) {
+        if (current_.seqno() >= mc_block_id.seqno()) {
+          auto it = global_balance_history_.find(mc_block_id);
+          if (it != global_balance_history_.end()) {
+            co_return it->second;
+          }
+          if (!global_balance_history_.empty() &&
+              global_balance_history_.begin()->first.seqno() > mc_block_id.seqno()) {
+            co_return td::Status::Error(PSTRING()
+                                        << "cannot get global balance for " << mc_block_id.id << " : too old");
+          }
+          co_return td::Status::Error(PSTRING() << "cannot get global balance for " << mc_block_id);
+        }
+      }
+      co_await wait();
+    }
+  }
+
+  void on_new_shard_block(BlockIdExt block_id) override {
+    if (!inited() || is_block_too_old(block_id) || is_block_too_new(block_id)) {
+      return;
+    }
+    load_parsed_state(block_id).start().detach_silent();
+  }
+
+ private:
+  BlockIdExt start_mc_block_;
+  td::actor::ActorId<ValidatorManager> manager_;
+  std::unique_ptr<GarbageCollectorBlocker> gc_blocker_;
+  GlobalInfo current_;
+
+  // Global version does not need to be precise. It is used only for correct handling of ihr_fee and
+  // dispatch queue balances in old blocks
+  int current_global_version_ = 0;
+
+  struct CachedState {
+    td::actor::SharedFuture<std::shared_ptr<ParsedShardState>> future;
+    td::Timestamp remove_at;
+    bool no_remove = false;
+  };
+  std::map<BlockIdExt, CachedState> cached_shard_states_;
+  td::LRUCache<BlockIdExt, GlobalInfo> mc_global_balance_cache_{20};
+  std::map<BlockIdExt, td::RefInt256> global_balance_history_;
+
+  bool inited() const {
+    return current_.mc_state.not_null();
+  }
+
+  td::actor::Task<GlobalInfo> compute_global_balance(Ref<MasterchainStateQ> mc_state, Ref<vm::Cell> mc_block_root,
+                                                     bool no_remove = false, bool* from_cache = nullptr) {
+    auto all_states = co_await load_all_states(mc_state, mc_block_root, no_remove);
+    auto cached = mc_global_balance_cache_.get_if_exists(mc_state->get_block_id());
+    if (from_cache) {
+      *from_cache = (bool)cached;
+    }
+    if (cached) {
+      auto result = *cached;
+      result.mc_state = std::move(mc_state);
+      co_return result;
+    }
+    co_return co_await compute_global_balance_from_states(all_states, mc_state, mc_block_root, manager_,
+                                                          current_global_version_);
+  }
+
+  td::actor::Task<std::vector<std::shared_ptr<ParsedShardState>>> load_all_states(Ref<MasterchainStateQ> mc_state,
+                                                                                  Ref<vm::Cell> mc_block_root,
+                                                                                  bool no_remove = false) {
+    std::vector<td::actor::StartedTask<std::shared_ptr<ParsedShardState>>> parse_tasks;
+    parse_tasks.push_back(load_parsed_state(mc_state->get_block_id(), mc_state, mc_block_root, no_remove).start());
+    for (auto desc : mc_state->get_shards()) {
+      parse_tasks.push_back(load_parsed_state(desc->top_block_id(), {}, {}, no_remove).start());
+    }
+    co_return co_await td::actor::all(std::move(parse_tasks));
+  }
+
+  td::actor::Task<std::shared_ptr<ParsedShardState>> load_parsed_state(BlockIdExt block_id, Ref<ShardState> state = {},
+                                                                       Ref<vm::Cell> block_root = {},
+                                                                       bool no_remove = false) {
+    if (is_block_too_old(block_id)) {
+      co_return td::Status::Error(ErrorCode::cancelled, "block is older that the current tip");
+    }
+    bool is_new = !cached_shard_states_.contains(block_id);
+    if (no_remove) {
+      cached_shard_states_[block_id].no_remove = true;
+    }
+    if (is_new) {
+      cached_shard_states_[block_id].future =
+          load_parsed_state_inner(block_id, std::move(state), std::move(block_root)).start();
+      auto R = co_await cached_shard_states_[block_id].future.get().wrap();
+      if (R.is_error() && R.error().code() == ErrorCode::notready) {
+        cached_shard_states_.erase(block_id);
+      } else {
+        cached_shard_states_[block_id].remove_at = td::Timestamp::in(20.0);
+      }
+      co_return std::move(R);
+    }
+    co_return co_await cached_shard_states_[block_id].future.get();
+  }
+
+  td::actor::Task<std::shared_ptr<ParsedShardState>> load_parsed_state_inner(BlockIdExt block_id, Ref<ShardState> state,
+                                                                             Ref<vm::Cell> block_root) {
+    Ref<BlockData> loaded_block_data;
+    if (state.is_null()) {
+      std::tie(state, loaded_block_data) = co_await load_state_block(block_id);
+      if (loaded_block_data.not_null()) {
+        block_root = loaded_block_data->root_cell();
+      }
+    }
+    std::vector<std::shared_ptr<ParsedShardState>> prev;
+    if (inited() && block_id.seqno() > 0) {
+      std::vector<td::actor::StartedTask<std::shared_ptr<ParsedShardState>>> tasks;
+      for (BlockIdExt prev_block_id : CO_TRY(block::get_block_header_info(block_root, block_id)).prev) {
+        tasks.push_back(load_parsed_state(prev_block_id).start());
+      }
+      prev = co_await td::actor::all(std::move(tasks));
+    }
+    co_return co_await ParsedShardState::fetch(std::move(state), std::move(block_root), current_global_version_,
+                                               std::move(prev))
+        .trace("parse state " + block_id.to_str());
+  }
+
+  bool is_block_too_old(BlockIdExt block_id) const {
+    if (!inited()) {
+      return false;
+    }
+    if (block_id.is_masterchain()) {
+      return block_id.seqno() < current_.seqno();
+    }
+    auto prev_desc_left = current_.mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
+    auto prev_desc_right = current_.mc_state->get_shard_from_config(block_id.shard_full() + 1, false);
+    if (prev_desc_left.is_null() || prev_desc_right.is_null()) {
+      return false;
+    }
+    return block_id.seqno() < std::max(prev_desc_left->top_block_id().seqno(), prev_desc_right->top_block_id().seqno());
+  }
+
+  bool is_block_too_new(BlockIdExt block_id) const {
+    if (!inited()) {
+      return false;
+    }
+    if (block_id.is_masterchain()) {
+      return block_id.seqno() > current_.seqno() + 8;
+    }
+    auto prev_desc_left = current_.mc_state->get_shard_from_config(block_id.shard_full() - 1, false);
+    auto prev_desc_right = current_.mc_state->get_shard_from_config(block_id.shard_full() + 1, false);
+    if (prev_desc_left.is_null() || prev_desc_right.is_null()) {
+      return true;
+    }
+    return block_id.seqno() >
+           std::max(prev_desc_left->top_block_id().seqno(), prev_desc_right->top_block_id().seqno()) + 8;
+  }
+
+  td::actor::Task<> wait_for_mc_seqno(BlockSeqno mc_seqno) {
+    while (true) {
+      auto R = co_await td::actor::ask(manager_, &ValidatorManager::wait_shard_client_state, mc_seqno,
+                                       td::Timestamp::in(10.0))
+                   .wrap();
+      if (R.is_ok()) {
+        co_return {};
+      }
+      co_await td::actor::coro_sleep(td::Timestamp::in(0.1));
+    }
+  }
+
+  td::actor::Task<std::pair<Ref<ShardState>, Ref<BlockData>>> load_state_block(BlockIdExt block_id) {
+    auto r_state = co_await td::actor::ask(manager_, &ValidatorManager::wait_block_state_short, block_id, 0,
+                                           td::Timestamp::in(10.0), false)
+                       .wrap();
+    if (r_state.is_error()) {
+      co_return r_state.move_as_error_prefix(
+          td::Status::Error(ErrorCode::notready, PSTRING() << "cannot fetch state " << block_id.id << ": "));
+    }
+    Ref<BlockData> block;
+    if (block_id.seqno() != 0) {
+      block = co_await td::actor::ask(manager_, &ValidatorManager::get_block_data_from_db_short, block_id);
+    }
+    co_return {r_state.move_as_ok(), block};
+  }
+
+  td::actor::Task<std::pair<Ref<MasterchainStateQ>, Ref<BlockData>>> load_mc_state_block(BlockIdExt block_id) {
+    CHECK(block_id.is_masterchain());
+    auto [state, block] = co_await load_state_block(block_id);
+    co_return {Ref<MasterchainStateQ>{state}, block};
+  }
+
+  std::vector<td::Promise<>> waiters_;
+
+  td::actor::StartedTask<> wait() {
+    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+    waiters_.push_back(std::move(promise));
+    return std::move(task);
+  }
+  void awake_waiters() {
+    auto waiters = std::move(waiters_);
+    waiters_.clear();
+    for (auto& waiter : waiters) {
+      waiter.set_value(td::Unit{});
+    }
+  }
+};
+
+}  // namespace
+
+td::actor::ActorOwn<GlobalBalanceCalculator> GlobalBalanceCalculator::create(
+    BlockIdExt start_mc_block, td::actor::ActorId<ValidatorManager> manager,
+    std::unique_ptr<GarbageCollectorBlocker> gc_blocker) {
+  return td::actor::create_actor<GlobalBalanceCalculatorImpl>("GlobalBalance", start_mc_block, std::move(manager),
+                                                              std::move(gc_blocker));
+}
+
+}  // namespace ton::validator

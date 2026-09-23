@@ -29,6 +29,7 @@
 #include "block/transaction.h"
 #include "common/global-version.h"
 #include "interfaces/validator-manager.h"
+#include "td/actor/SharedFuture.h"
 #include "vm/cells.h"
 #include "vm/dict.h"
 
@@ -204,6 +205,7 @@ class ValidateQuery : public td::actor::Actor {
   int global_id_{0};
   int global_version_{0};
   bool allow_same_timestamp_{false};
+  bool store_dispatch_queue_balance_{false};
   ton::BlockSeqno vert_seqno_{~0U};
   bool ihr_enabled_{false};
   bool create_stats_enabled_{false};
@@ -269,6 +271,14 @@ class ValidateQuery : public td::actor::Actor {
 
   td::uint64 processed_account_dispatch_queues_ = 0;
   bool have_unprocessed_account_dispatch_queue_ = false;
+  td::uint64 out_msg_queue_size_hard_limit_ = std::numeric_limits<td::uint64>::max();
+  td::uint64 out_msg_queue_size_soft_limit_ = std::numeric_limits<td::uint64>::max();
+  bool out_msg_queue_size_soft_limit_exceeded_ = false;
+
+  bool check_global_balance_ = false;
+  td::actor::SharedFuture<td::RefInt256> validate_global_balance_future_;
+  td::Result<td::RefInt256> validate_global_balance_result_;
+  td::CancellationTokenSource cancellation_;
 
   td::PerfWarningTimer perf_timer_;
   td::PerfLog perf_log_;
@@ -280,7 +290,7 @@ class ValidateQuery : public td::actor::Actor {
     return shard_.workchain;
   }
 
-  void finish_query();
+  td::actor::Task<> finish_query();
   void abort_query(td::Status error);
   bool reject_query(std::string error, td::BufferSlice reason = {});
   bool reject_query(std::string err_msg, td::Status error, td::BufferSlice reason = {});
@@ -364,6 +374,7 @@ class ValidateQuery : public td::actor::Actor {
   bool check_utime_lt();
   bool prepare_out_msg_queue_size();
   void got_out_queue_size(size_t i, td::Result<td::uint64> res, td::PerfLogAction token);
+  void init_msg_queue_size_limits();
   void verified_shard_blocks(td::Status S, td::PerfLogAction token);
 
   bool fix_one_processed_upto(block::MsgProcessedUpto& proc, ton::ShardIdFull owner, bool allow_cur = false);
@@ -412,6 +423,7 @@ class ValidateQuery : public td::actor::Actor {
       block::CurrencyCollection total_burned{0};
       std::vector<std::tuple<Bits256, Bits256, bool>> lib_publishers{};
       bool defer_all_messages = false;
+      bool always_allow_defer = false;
       std::vector<std::pair<td::Ref<vm::Cell>, td::uint32>> storage_stat_cache_update{};
       ValidationStats::WorkTimeStats work_time{};
 
@@ -474,6 +486,9 @@ class ValidateQuery : public td::actor::Actor {
   bool check_one_shard_fee(ShardIdFull shard, const block::CurrencyCollection& fees,
                            const block::CurrencyCollection& create);
   bool check_mc_block_extra();
+
+  bool validate_global_balance();
+  bool finish_global_balance_check();
 
   Ref<vm::Cell> get_virt_state_root(const BlockIdExt& block_id);
 

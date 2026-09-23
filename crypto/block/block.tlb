@@ -250,9 +250,13 @@ ihr_pending$_ import_lt:uint64 = IhrPendingSince;
 _ (HashmapE 320 IhrPendingSince) = IhrPendingInfo;
 
 // key - created_lt
-_ messages:(HashmapE 64 EnqueuedMsg) count:uint48 = AccountDispatchQueue;
-// key - sender address, aug - min created_lt
-_ (HashmapAugE 256 AccountDispatchQueue uint64) = DispatchQueue;
+account_dispatch_queue_old$1 messages:^(Hashmap 64 EnqueuedMsg) count:uint48 = AccountDispatchQueue;
+account_dispatch_queue$000 messages:^(Hashmap 64 EnqueuedMsg) count:uint48 total_balance:CurrencyCollection = AccountDispatchQueue;
+
+dispatch_queue_aug_old$0 min_created_lt:uint63 = DispatchQueueAugData;
+dispatch_queue_aug$10 min_created_lt:uint64 total_balance:CurrencyCollection = DispatchQueueAugData;
+// key - sender address
+_ (HashmapAugE 256 AccountDispatchQueue DispatchQueueAugData) = DispatchQueue;
 
 out_msg_queue_extra#0 dispatch_queue:DispatchQueue out_queue_size:(Maybe uint48) = OutMsgQueueExtra;
 
@@ -829,7 +833,8 @@ size_limits_config_v3#03 max_msg_bits:uint32 max_msg_cells:uint32 max_library_ce
   max_acc_public_libraries:uint32 defer_out_queue_size_limit:uint32 max_msg_extra_currencies:uint32
   max_acc_fixed_prefix_length:uint8 acc_state_cells_for_storage_dict:uint32
   max_transaction_library_loads:(Maybe uint32)
-  max_total_msg_bits:uint32 max_total_msg_cells:uint32 = SizeLimitsConfig;
+  max_total_msg_bits:uint32 max_total_msg_cells:uint32
+  out_msg_queue_size_hard_limit:uint32 out_msg_queue_size_soft_limit:uint32 = SizeLimitsConfig;
 _ SizeLimitsConfig = ConfigParam 43;
 
 // key is [ wc:int32 addr:uint256 ]

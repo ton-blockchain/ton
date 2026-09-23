@@ -346,11 +346,12 @@ td::Status MasterchainStateQ::mc_init() {
 }
 
 td::Status MasterchainStateQ::mc_reinit() {
-  auto res = block::ConfigInfo::extract_config(
-      root_cell(), blkid,
-      block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet | block::ConfigInfo::needShardHashes |
-          block::ConfigInfo::needPrevBlocks | block::ConfigInfo::needWorkchainInfo |
-          block::ConfigInfo::needAccountsRoot | block::ConfigInfo::needSpecialSmc);
+  auto res =
+      block::ConfigInfo::extract_config(root_cell(), blkid,
+                                        block::ConfigInfo::needStateRoot | block::ConfigInfo::needValidatorSet |
+                                            block::ConfigInfo::needShardHashes | block::ConfigInfo::needPrevBlocks |
+                                            block::ConfigInfo::needWorkchainInfo | block::ConfigInfo::needAccountsRoot |
+                                            block::ConfigInfo::needSpecialSmc | block::ConfigInfo::needCapabilities);
   cur_validators_.reset();
   next_validators_.reset();
   if (res.is_error()) {
@@ -417,6 +418,20 @@ Ref<block::ValidatorSet> MasterchainStateQ::get_validator_set(ShardIdFull shard,
     return {};
   }
   return Ref<block::ValidatorSet>{true, cc_seqno, shard, std::move(nodes)};
+}
+
+bool MasterchainStateQ::is_current_or_next_masterchain_validator(const PublicKeyHash& key) const {
+  for (auto& total_set : {cur_validators_, next_validators_}) {
+    if (!total_set) {
+      continue;
+    }
+    for (int idx = 0; idx < total_set->main; ++idx) {
+      if (PublicKey{pubkeys::Ed25519{total_set->list[idx].pubkey}}.compute_short_id() == key) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 Ref<block::ValidatorSet> MasterchainStateQ::get_next_validator_set(ShardIdFull shard, CatchainSeqno cc_seqno) const {

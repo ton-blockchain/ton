@@ -171,6 +171,7 @@ class Collator final : public td::actor::Actor {
   bool skip_extmsg_{false};
   bool short_dequeue_records_{false};
   bool allow_same_timestamp_{false};
+  bool store_dispatch_queue_balance_{false};
   td::uint64 overload_history_{0}, underload_history_{0};
   td::uint64 block_size_estimate_{};
   Ref<block::WorkchainInfo> wc_info_;
@@ -192,6 +193,7 @@ class Collator final : public td::actor::Actor {
   int block_limit_class_ = 0;
   ton::LogicalTime min_new_msg_lt{std::numeric_limits<td::uint64>::max()};
   block::CurrencyCollection total_balance_, old_total_balance_, total_validator_fees_;
+  td::RefInt256 calculated_prev_global_balance_;
   block::CurrencyCollection global_balance_, old_global_balance_, import_created_{0};
   Ref<vm::Cell> recover_create_msg_, mint_msg_;
   Ref<vm::Cell> new_block;
@@ -204,6 +206,7 @@ class Collator final : public td::actor::Actor {
   td::CancellationTokenSource ext_msg_cancellation_;
 
   std::priority_queue<NewOutMsg, std::vector<NewOutMsg>, std::greater<NewOutMsg>> new_msgs;
+  size_t new_msgs_from_dispatch = 0;
   std::pair<ton::LogicalTime, ton::Bits256> last_proc_int_msg_, first_unproc_int_msg_;
   block::tlb::Aug_InMsgDescr aug_InMsgDescr{0};
   block::tlb::Aug_OutMsgDescr aug_OutMsgDescr{0};
@@ -212,6 +215,7 @@ class Collator final : public td::actor::Actor {
   std::map<StdSmcAddress, size_t> unprocessed_deferred_messages_;  // number of messages from dispatch queue in new_msgs
   td::uint64 out_msg_queue_size_ = 0;
   td::uint64 old_out_msg_queue_size_ = 0;
+  td::uint64 out_msg_queue_size_hard_limit_ = std::numeric_limits<td::uint64>::max();
   bool have_out_msg_queue_size_in_state_ = false;
   std::unique_ptr<vm::Dictionary> ihr_pending;
   std::shared_ptr<block::MsgProcessedUptoCollection> processed_upto_, sibling_processed_upto_;
@@ -291,6 +295,7 @@ class Collator final : public td::actor::Actor {
   void got_neighbor_msg_queues(td::Result<std::map<BlockIdExt, Ref<OutMsgQueueProof>>> R, td::PerfLogAction token);
   void got_neighbor_msg_queue(unsigned i, Ref<OutMsgQueueProof> res);
   void got_out_queue_size(size_t i, td::Result<td::uint64> res);
+  void got_prev_global_balance(td::Result<td::RefInt256> res, td::PerfLogAction token);
   bool adjust_shard_config();
   bool store_shard_fees(ShardIdFull shard, const block::CurrencyCollection& fees,
                         const block::CurrencyCollection& created);
@@ -329,6 +334,7 @@ class Collator final : public td::actor::Actor {
   bool check_this_shard_mc_info();
   bool request_neighbor_msg_queues();
   bool request_out_msg_queue_size();
+  bool request_prev_global_balance();
   void update_max_lt(ton::LogicalTime lt);
   bool is_masterchain() const {
     return shard_.is_masterchain();

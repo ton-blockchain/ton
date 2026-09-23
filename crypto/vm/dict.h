@@ -33,12 +33,13 @@ namespace dict {
 struct LabelParser {
   enum { chk_none = 0, chk_min = 1, chk_size = 2, chk_all = 3 };
   Ref<CellSlice> remainder;
+  int l_type;
   int l_offs;
   int l_same;
   int l_bits;
   unsigned s_bits;
-  LabelParser(Ref<CellSlice> cs, int max_label_len, int auto_validate = chk_all);
-  LabelParser(Ref<Cell> cell, int max_label_len, int auto_validate = chk_all);
+  LabelParser(Ref<CellSlice> cs, int max_label_len, int auto_validate = chk_all, bool check_canonical = false);
+  LabelParser(Ref<Cell> cell, int max_label_len, int auto_validate = chk_all, bool check_canonical = false);
   int is_valid() const {
     return l_offs;
   }
@@ -65,6 +66,7 @@ struct LabelParser {
 
  private:
   bool parse_label(CellSlice& cs, int max_label_len);
+  bool is_canonical(int max_len) const;
 };
 
 struct AugmentationData {
@@ -185,7 +187,14 @@ class DictionaryFixed : public DictionaryBase {
   typedef std::function<bool(CellBuilder&, Ref<CellSlice>, Ref<CellSlice>)> simple_combine_func_t;
   typedef std::function<bool(CellBuilder&, Ref<CellSlice>, Ref<CellSlice>, td::ConstBitPtr, int)> combine_func_t;
   typedef std::function<bool(Ref<CellSlice>, td::ConstBitPtr, int)> foreach_func_t;
+  typedef std::function<td::Status(Ref<CellSlice>, td::ConstBitPtr, int)> foreach_func_status_t;
   typedef std::function<bool(td::ConstBitPtr, int, Ref<CellSlice>, Ref<CellSlice>)> scan_diff_func_t;
+
+  enum ScanDiffMode : int {
+    check_old_aug = 1,
+    check_new_aug = 2,
+    check_new_canonical_labels = 8,
+  };
 
   DictionaryFixed(int _n, bool validate = true) : DictionaryBase(_n, validate) {
   }
@@ -225,11 +234,12 @@ class DictionaryFixed : public DictionaryBase {
   bool cut_prefix_subdict(td::ConstBitPtr prefix, int prefix_len, bool remove_prefix = false);
   Ref<vm::Cell> extract_prefix_subdict_root(td::ConstBitPtr prefix, int prefix_len, bool remove_prefix = false);
   bool check_for_each(const foreach_func_t& foreach_func, bool invert_first = false, bool shuffle = false);
+  td::Status check_for_each(const foreach_func_status_t& foreach_func, bool invert_first = false, bool shuffle = false);
   int filter(filter_func_t check);
   bool combine_with(DictionaryFixed& dict2, const combine_func_t& combine_func, int mode = 0);
   bool combine_with(DictionaryFixed& dict2, const simple_combine_func_t& simple_combine_func, int mode = 0);
   bool combine_with(DictionaryFixed& dict2);
-  bool scan_diff(DictionaryFixed& dict2, const scan_diff_func_t& diff_func, int check_augm = 0);
+  bool scan_diff(DictionaryFixed& dict2, const scan_diff_func_t& diff_func, int check_mode = 0);
   bool validate_check(const foreach_func_t& foreach_func, bool invert_first = false);
   bool validate_all();
   DictIterator null_iterator();
@@ -563,6 +573,7 @@ class AugmentedDictionary final : public DictionaryFixed {
 
  public:
   typedef std::function<bool(Ref<CellSlice>, Ref<CellSlice>, td::ConstBitPtr, int)> foreach_extra_func_t;
+  typedef std::function<td::Status(Ref<CellSlice>, Ref<CellSlice>, td::ConstBitPtr, int)> foreach_extra_func_status_t;
   // return value of traverse_func: < 0 = error, 0 = skip, 1 = visit only left, 2 = visit only right, 5 = visit right, then left, 6 = visit left, then right
   // for leaf nodes, all >0 values mean accept and return node as the final result, 0 = skip (continue scanning)
   typedef std::function<int(td::ConstBitPtr key_prefix, int key_pfx_len, Ref<CellSlice> extra, Ref<CellSlice> value)>
@@ -593,6 +604,7 @@ class AugmentedDictionary final : public DictionaryFixed {
   bool set_ref(td::ConstBitPtr key, int key_len, Ref<Cell> val_ref, SetMode mode = SetMode::Set);
   bool set_builder(td::ConstBitPtr key, int key_len, const CellBuilder& value, SetMode mode = SetMode::Set);
   bool check_for_each_extra(const foreach_extra_func_t& foreach_extra_func, bool invert_first = false);
+  td::Status check_for_each_extra(const foreach_extra_func_status_t& foreach_extra_func, bool invert_first = false);
   std::pair<Ref<CellSlice>, Ref<CellSlice>> traverse_extra(td::BitPtr key_buffer, int key_len,
                                                            const traverse_func_t& traverse_node);
   bool validate_check_extra(const foreach_extra_func_t& foreach_extra_func, bool invert_first = false);

@@ -33,6 +33,7 @@ struct CollateParams {
   BlockIdExt min_masterchain_block_id;
   std::vector<BlockIdExt> prev;
   bool is_hardfork = false;
+  bool is_fake = false;
   Ed25519_PublicKey creator{td::Bits256::zero()};
   td::Ref<block::ValidatorSet> validator_set = {};
   td::Ref<CollatorOptions> collator_opts = {};

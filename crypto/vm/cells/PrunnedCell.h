@@ -45,6 +45,23 @@ class PrunnedCell final : public Cell {
     }
   }
 
+  static td::Result<Ref<PrunnedCell<ExtraT>>> create(const Ref<Cell>& original_cell, ExtraT&& extra) {
+    LevelMask level_mask = original_cell->get_level_mask();
+    td::uint8 hashes[(1 + max_level) * 32];
+    td::uint8 depths[(1 + max_level) * 2];
+    size_t n = 0;
+    for (td::uint32 i = 0; i <= level_mask.get_level(); ++i) {
+      if (level_mask.is_significant(i)) {
+        memcpy(hashes + n * 32, original_cell->get_hash(i).as_slice().data(), 32);
+        DataCell::store_depth(depths + n * 2, original_cell->get_depth(i));
+        ++n;
+      }
+    }
+    return create(
+        PrunnedCellInfo{.level_mask = level_mask, .hash = td::Slice(hashes, n * 32), .depth = td::Slice(depths, n * 2)},
+        std::move(extra));
+  }
+
   static td::Result<Ref<PrunnedCell<ExtraT>>> create(const PrunnedCellInfo& prunned_cell_info, ExtraT&& extra) {
     auto allocator = [](size_t bytes) { return ::operator new(bytes); };
     return create(allocator, true, prunned_cell_info, std::move(extra));

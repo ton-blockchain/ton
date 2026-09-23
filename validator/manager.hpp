@@ -45,6 +45,7 @@
 #include "ton/ton-io.hpp"
 
 #include "collator-scoreboard.hpp"
+#include "global-balance-calculator.hpp"
 #include "manager-init.h"
 #include "queue-size-counter.hpp"
 #include "shard-block-retainer.hpp"
@@ -333,6 +334,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle gc_masterchain_handle_;
   td::Ref<MasterchainState> gc_masterchain_state_;
   bool gc_advancing_ = false;
+  std::map<td::uint64, std::shared_ptr<std::atomic<BlockSeqno>>> gc_blockers_;
+  td::uint64 next_gc_blocker_idx_ = 0;
 
   BlockIdExt last_rotate_block_id_;
 
@@ -344,12 +347,15 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_masterchain_block();
   void update_shard_overlays();
   void update_shards();
+  void init_global_balance_calculator();
   void update_shard_blocks();
   void updated_init_block(BlockIdExt last_rotate_block_id);
   void got_next_gc_masterchain_handle(BlockHandle handle);
   void got_next_gc_masterchain_state(BlockHandle handle, td::Ref<MasterchainState> state);
   void advance_gc(BlockHandle handle, td::Ref<MasterchainState> state);
   void try_advance_gc_masterchain_block();
+  std::unique_ptr<GarbageCollectorBlocker> add_gc_blocker(BlockSeqno mc_seqno = 0);
+  void remove_gc_blocker(td::uint64 idx);
   void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
   void update_shard_client_block_handle(BlockHandle handle, td::Ref<MasterchainState> state,
                                         td::Promise<td::Unit> promise) override;
@@ -698,6 +704,28 @@ class ValidatorManagerImpl : public ValidatorManager {
     td::actor::send_closure(storage_stat_cache_, &StorageStatCache::update, std::move(data));
   }
 
+  td::actor::Task<td::RefInt256> validate_global_balance(Ref<MasterchainState> mc_state, Ref<vm::Cell> block_root,
+                                                         td::CancellationToken cancellation_token) override {
+    if (global_balance_calculator_.empty()) {
+      init_global_balance_calculator();
+      if (global_balance_calculator_.empty()) {
+        co_return td::Status::Error(ErrorCode::notready, "global balance calculator is not inited");
+      }
+    }
+    co_return co_await td::actor::ask(global_balance_calculator_, &GlobalBalanceCalculator::validate_global_balance,
+                                      std::move(mc_state), std::move(block_root), std::move(cancellation_token));
+  }
+  td::actor::Task<td::RefInt256> get_global_balance(BlockIdExt mc_block_id, td::Timestamp timeout) override {
+    if (global_balance_calculator_.empty()) {
+      init_global_balance_calculator();
+      if (global_balance_calculator_.empty()) {
+        co_return td::Status::Error(ErrorCode::notready, "global balance calculator is not inited");
+      }
+    }
+    co_return co_await td::actor::ask(global_balance_calculator_, &GlobalBalanceCalculator::get_global_balance,
+                                      mc_block_id, timeout);
+  }
+
  private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
@@ -843,6 +871,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::actor::Task<> collect(metrics::Context ctx) override;
   void update_block_receive_stats(BlockIdExt block_id, BlockSource type);
+
+  td::actor::ActorOwn<GlobalBalanceCalculator> global_balance_calculator_;
 };
 
 }  // namespace validator

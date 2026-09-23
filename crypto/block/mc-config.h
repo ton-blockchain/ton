@@ -414,6 +414,10 @@ struct SizeLimitsConfig {
   // enabled in global version 15
   td::uint32 max_total_msg_bits = (1 << 21) * 5 / 2;
   td::uint32 max_total_msg_cells = (1 << 13) * 5 / 2;
+
+  // enabled in global version 16, see GlobalVersions.md for details
+  td::uint32 out_msg_queue_size_hard_limit = 18000;
+  td::uint32 out_msg_queue_size_soft_limit = 12000;
 };
 
 struct ValidatorRegistryConfig {

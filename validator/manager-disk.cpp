@@ -150,6 +150,7 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   run_collate_query(CollateParams{.shard = shard_id,
                                   .min_masterchain_block_id = last_masterchain_block_id_,
                                   .prev = prev,
+                                  .is_fake = true,
                                   .creator = created_by,
                                   .validator_set = val_set},
                     actor_id(this), {}, std::move(P));
