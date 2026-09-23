@@ -129,9 +129,9 @@ void ValidatorManagerImpl::sync_complete(td::Promise<td::Unit> promise) {
   //LOG(DEBUG) << "after get_validator_set: addr=" << (const void*)val_set.get();
 
   auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), last = last_masterchain_block_id_, val_set, prev](td::Result<BlockCandidate> R) {
+      [SelfId = actor_id(this), last = last_masterchain_block_id_, val_set, prev](td::Result<GeneratedCandidate> R) {
         if (R.is_ok()) {
-          auto v = R.move_as_ok();
+          auto v = std::move(R.ok_ref().candidate);
           LOG(ERROR) << "created block " << v.id;
           td::actor::send_closure(SelfId, &ValidatorManagerImpl::validate_fake, std::move(v), std::move(prev), last,
                                   val_set);
@@ -562,10 +562,6 @@ void ValidatorManagerImpl::get_shard_blocks_for_collator(
     // LOG(DEBUG) << "postponed get_shard_blocks query because pending_new_shard_block_descr_=" << pending_new_shard_block_descr_;
     waiting_new_shard_block_descr_.push_back(std::move(promise));
   }
-}
-
-void ValidatorManagerImpl::complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
-                                                      std::vector<ExtMessage::Hash> to_delete) {
 }
 
 void ValidatorManagerImpl::cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) {

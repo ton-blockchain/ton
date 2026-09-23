@@ -22,6 +22,7 @@
 #include <cinttypes>
 
 #include "crypto/common/bitstring.h"
+#include "td/utils/PersistentTreap.h"
 #include "td/utils/Slice.h"
 #include "td/utils/UInt.h"
 #include "td/utils/Variant.h"
@@ -457,21 +458,24 @@ struct BlockCandidate {
   td::BufferSlice data;
   td::BufferSlice collated_data;
 
-  // used only locally
-  std::vector<td::Ref<OutMsgQueueProofBroadcast>> out_msg_queue_proof_broadcasts = {};
-  // Monotonic completion time captured by the collator. This never crosses the wire; consensus
-  // uses it only to place local telemetry against the scheduled slot start. Zero means an older
-  // or synthetic producer did not provide the timestamp.
-  double collated_at_monotonic = 0.0;
-
   BlockCandidate clone() const {
-    return BlockCandidate{pubkey,
-                          id,
-                          collated_file_hash,
-                          data.clone(),
-                          collated_data.clone(),
-                          out_msg_queue_proof_broadcasts,
-                          collated_at_monotonic};
+    return BlockCandidate{pubkey, id, collated_file_hash, data.clone(), collated_data.clone()};
+  }
+};
+
+struct GeneratedCandidate {
+  BlockCandidate candidate;
+  // Monotonic completion time captured by the collator.
+  // Zero means an older or synthetic producer did not provide the timestamp.
+  double collated_at_monotonic = 0.0;
+  td::PersistentTreap<td::Bits256, td::Unit> processed_external_messages = {};
+
+  GeneratedCandidate clone() const {
+    return GeneratedCandidate{
+        .candidate = candidate.clone(),
+        .collated_at_monotonic = collated_at_monotonic,
+        .processed_external_messages = processed_external_messages,
+    };
   }
 };
 

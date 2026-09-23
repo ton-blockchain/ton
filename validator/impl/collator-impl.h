@@ -79,7 +79,7 @@ class Collator final : public td::actor::Actor {
   td::actor::ActorId<ValidatorManager> manager;
   td::Timestamp timeout_;
   td::Timestamp queue_cleanup_timeout_, external_msg_timeout_, internal_msg_timeout_;
-  td::Promise<BlockCandidate> main_promise;
+  td::Promise<GeneratedCandidate> main_promise;
   bool allow_repeat_collation_ = false;
   ton::BlockSeqno last_block_seqno{0};
   ton::BlockSeqno prev_mc_block_seqno{0};
@@ -97,7 +97,7 @@ class Collator final : public td::actor::Actor {
 
  public:
   Collator(CollateParams params, td::actor::ActorId<ValidatorManager> manager, td::CancellationToken cancellation_token,
-           td::Promise<BlockCandidate> promise);
+           td::Promise<GeneratedCandidate> promise);
   ~Collator() override = default;
   bool is_busy() const {
     return busy_;
@@ -198,7 +198,7 @@ class Collator final : public td::actor::Actor {
   block::ValueFlow value_flow_{block::ValueFlow::SetZero()};
   std::unique_ptr<vm::AugmentedDictionary> fees_import_dict_;
 
-  std::set<td::Bits256> registered_ext_msgs_;
+  td::PersistentTreap<td::Bits256, td::Unit> processed_external_messages_;
   ExtMsgQueue ext_msg_queue_;
   std::optional<std::pair<td::Ref<ExtMessage>, int>> pending_ext_msg_;
   td::CancellationTokenSource ext_msg_cancellation_;
@@ -218,7 +218,7 @@ class Collator final : public td::actor::Actor {
   std::unique_ptr<vm::Dictionary> block_create_stats_;
   std::map<td::Bits256, int> block_create_count_;
   unsigned block_create_total_{0};
-  std::vector<ExtMessage::Hash> bad_ext_msgs_, delay_ext_msgs_;
+  std::vector<ExtMessage::Hash> bad_ext_msgs_;
   Ref<vm::Cell> shard_account_blocks_;  // ShardAccountBlocks
 
   std::map<td::Bits256, Ref<vm::Cell>> block_state_proofs_;

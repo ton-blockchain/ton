@@ -28,6 +28,13 @@ namespace ton::validator {
 td::actor::Task<ExtMessageChecker::CheckOutcome> ExtMessageChecker::check(td::BufferSlice data,
                                                                           block::SizeLimitsConfig::ExtMsgLimits limits,
                                                                           td::Ref<MasterchainState> mc_state) {
+  ++inflight_checks_;
+  SCOPE_EXIT {
+    --inflight_checks_;
+    if (inflight_checks_ == 0 && destroying_) {
+      stop();
+    }
+  };
   auto failure = Failure::invalid;
   auto r_checked = co_await check_inner(std::move(data), limits, std::move(mc_state), failure).wrap();
   if (r_checked.is_error()) {
@@ -172,6 +179,14 @@ td::actor::Task<ExtMessageChecker::ResolvedState> ExtMessageChecker::resolve_sta
   }
   alarm_timestamp().relax(td::Timestamp::in(60.0));
   co_return make_resolved(entry);
+}
+
+void ExtMessageChecker::destroy() {
+  if (inflight_checks_ == 0) {
+    stop();
+  } else {
+    destroying_ = true;
+  }
 }
 
 void ExtMessageChecker::alarm() {
