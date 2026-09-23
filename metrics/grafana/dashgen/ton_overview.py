@@ -42,6 +42,7 @@ from .lib import (
     worker_occupancy,
     worst_node_stat,
 )
+from .lib.quic import confirmation_rate
 
 ACTORS, BLOCKCHAIN, NETWORK = "ton-actors", "ton-blockchain", "ton-network"
 RATE = "$__rate_interval"
@@ -125,6 +126,13 @@ def failure_ratio(name, failed, attempted, **labels):
     failures = rate(failed, by, **labels)
     guarded = ratio(f"({failures}) or 0 * ({attempts})", attempts)
     return agg_line(guarded, name=name)
+
+
+def confirmation_failure_ratio():
+    attempts = confirmation_rate("seconds_count", "job, instance")
+    failures = confirmation_rate("failed_total", "job, instance")
+    guarded = ratio(f"({failures}) or 0 * ({attempts})", attempts)
+    return agg_line(guarded, name="quic confirmation")
 
 
 def synced_applied(over):
@@ -681,8 +689,7 @@ ROWS = [
         ),
         agg_timeseries(
             "Transport failure ratios",
-            failure_ratio("quic delivery", "ton_quic_message_delivery_failed_total",
-                          "ton_quic_message_delivery_seconds_count"),
+            confirmation_failure_ratio(),
             failure_ratio("quic roundtrip", "ton_quic_query_roundtrip_failed_total",
                           "ton_quic_query_roundtrip_seconds_count"),
             failure_ratio("adnl roundtrip", "ton_adnl_query_roundtrip_failed_total",
@@ -697,9 +704,11 @@ ROWS = [
             description=(
                 "Each line is one node's failure share for that transport, collapsed across nodes "
                 "by the Node aggregation switch — worst by default, so a single bad node is not "
-                "diluted by the fleet, and the hidden ⇒ row names it. Delivery ratios cover "
-                "fire-and-forget messages whose confirmation never came; roundtrip ratios cover "
-                "queries that errored or timed out. Inbound failures include explicit errors and "
+                "diluted by the fleet, and the hidden ⇒ row names it. QUIC confirmation ratios cover "
+                "stream-based fire-and-forget messages whose transport acknowledgement or legacy "
+                "empty receipt never came; DATAGRAM messages have no confirmation sample. RLDP2 "
+                "delivery and query roundtrip ratios retain their transport-specific meanings. "
+                "Inbound failures include explicit errors and "
                 "abandoned answer promises; DHT is excluded because client-mode nodes "
                 "intentionally reject inbound DHT requests. A node contributes a healthy zero when "
                 "it has attempts but no failures, so median and p95 describe the whole active fleet "

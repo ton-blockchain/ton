@@ -16,6 +16,7 @@
 #include "metrics/well-known.h"
 #include "td/actor/ActorOwn.h"
 #include "td/actor/core/Actor.h"
+#include "td/utils/HashMap.h"
 #include "td/utils/Heap.h"
 #include "td/utils/buffer.h"
 #include "td/utils/port/IPAddress.h"
@@ -40,6 +41,8 @@ struct StreamOptions {
   double timeout_seconds = 0.0;
   td::uint64 query_size = 0;
   td::int32 query_magic = 0;  // 0 on inbound streams: no query of ours to describe
+  // A unidirectional stream has no application receipt or response half to process.
+  StreamDirection direction = StreamDirection::Bidirectional;
 };
 
 struct StreamShutdownList {
@@ -59,6 +62,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     CongestionControlAlgo cc_algo = CongestionControlAlgo::Bbr;
     std::optional<size_t> flood_control = DEFAULT_FLOOD_CONTROL;
     std::optional<size_t> max_streams_bidi = std::nullopt;
+    std::optional<size_t> max_streams_uni = std::nullopt;
     std::optional<size_t> ack_thresh = std::nullopt;
     std::optional<double> max_ack_delay_seconds = std::nullopt;
     td::uint32 new_connection_rate_limit_capacity = 10;
@@ -66,6 +70,12 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
     td::uint32 global_new_connection_rate_limit_capacity = 100000;
     double global_new_connection_rate_limit_period = 0.00001;
     bool stateless_retry = true;
+    // Messages ride bidirectional streams and confirmation is the peer's empty receipt -- the
+    // pre-unidirectional wire behaviour, kept for measurement and old-peer comparison. Consumed by
+    // send_message(); nothing outside this server chooses a message's stream kind.
+    bool message_streams_bidi = false;
+    // RFC 9221 DATAGRAM frame size; 0 keeps messages on streams.
+    td::uint32 max_datagram_frame_size = 0;
   };
   class Callback {
    public:
@@ -73,7 +83,9 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
                                     td::SecureString peer_public_key, bool is_outbound) = 0;
     virtual td::Status on_stream(QuicConnectionId cid, QuicStreamID sid, td::BufferSlice data, bool is_end) = 0;
     virtual void on_closed(QuicConnectionId cid) = 0;
-    virtual void on_stream_closed(QuicConnectionId cid, QuicStreamID sid) = 0;
+    // Each peer-initiated unidirectional close must eventually be matched by exactly one
+    // release_peer_uni_stream_credit() call, after its payload has been processed.
+    virtual void on_stream_closed(QuicConnectionId cid, StreamCloseEvent event) = 0;
     virtual void set_stream_options(QuicConnectionId cid, QuicStreamID sid, StreamOptions options) {
     }
     virtual void loop(td::Timestamp now, StreamShutdownList &streams_to_shutdown) {
@@ -92,10 +104,15 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   td::Result<QuicStreamID> send_stream(QuicConnectionId cid, std::variant<QuicStreamID, StreamOptions> stream,
                                        td::BufferSlice data, bool is_end);
 
+  // Uses a DATAGRAM when enabled, negotiated, and small enough; otherwise a stream. Returns -1 for a DATAGRAM.
+  td::Result<QuicStreamID> send_message(QuicConnectionId cid, td::BufferSlice data);
+
   td::Result<QuicConnectionId> connect(td::Slice host, int port, td::Ed25519::PrivateKey client_key, td::Slice alpn,
                                        td::Slice sni);
 
   void shutdown_stream(QuicConnectionId cid, QuicStreamID sid);
+  // Releases exactly one peer-opened unidirectional stream after the callback has processed it.
+  void release_peer_uni_stream_credit(QuicConnectionId cid);
   void on_connection_closed(QuicConnectionId cid);
   void log_stats(std::string reason = "stats");
 
@@ -217,10 +234,12 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   void drain_ingress();
   void flush_egress();
   bool flush_pending();
-  bool produce_next_egress(size_t batch_index);
+  size_t produce_next_egress(size_t batch_index);
   void send_connection_close(ConnectionState &state, const UdpMessageBuffer &msg);
 
   std::shared_ptr<ConnectionState> find_connection(const QuicConnectionId &cid);
+  td::Result<QuicStreamID> send_stream_on(ConnectionState &state, std::variant<QuicStreamID, StreamOptions> stream,
+                                          td::BufferSlice data, bool is_end);
   td::Result<std::shared_ptr<ConnectionState>> get_or_create_connection(const UdpMessageBuffer &msg_in);
   td::Result<std::shared_ptr<ConnectionState>> create_inbound_connection(const UdpMessageBuffer &msg_in,
                                                                          const VersionCid &initial_packet,
@@ -247,9 +266,13 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   std::unique_ptr<Callback> callback_;
   td::actor::ActorId<QuicServer> self_id_;
 
-  std::map<QuicConnectionId, QuicConnectionId> cid_to_primary_cid_;
+  // Hashed, not ordered: both are looked up once per inbound datagram, and an ordered lookup costs a
+  // 20-byte memcmp per tree level -- 40 ns against 19 at a thousand connections, 68 against 23 at
+  // ten thousand, and it keeps growing while the hashed one does not. Hashing is also what makes the
+  // keyed hash necessary: an ordered map has no buckets to flood.
+  td::HashMap<QuicConnectionId, QuicConnectionId> cid_to_primary_cid_;
   std::map<BootstrapRouteKey, QuicConnectionId> bootstrap_routes_;
-  std::map<QuicConnectionId, std::shared_ptr<ConnectionState>> connections_;
+  td::HashMap<QuicConnectionId, std::shared_ptr<ConnectionState>> connections_;
   std::deque<QuicConnectionId> active_connections_;
   std::vector<QuicConnectionId> to_erase_connections_;
   td::KHeap<double> timeout_heap_;
@@ -263,7 +286,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
   // Pre-allocated egress buffers
   std::array<std::array<char, DEFAULT_MTU * kMaxBurst>, kEgressBatch> egress_buffers_;
   std::array<UdpMessageBuffer, kEgressBatch> egress_batches_;
-  std::array<std::shared_ptr<ConnectionState>, kEgressBatch> egress_batch_owners_;
+  std::array<std::shared_ptr<ConnectionState>, kEgressBatch> egress_message_owners_;
   std::array<td::UdpSocketFd::OutboundMessage, kEgressBatch> egress_messages_;
 
   // Pending batch state (for handling blocked sends)
@@ -272,6 +295,7 @@ class QuicServer : public td::actor::Actor, public td::ObserverBase {
 
   // Stats
   td::uint64 rx_queue_drops_reflected_ = 0;
+  BatchingStats batching_;
   TransportStats transport_stats_;
   QuicConnectionMetricsAggregate closed_conn_stats_;
   metrics::UdpWireStats udp_wire_ = {.dir = {}, .listening_sockets = 1};

@@ -8,6 +8,7 @@
 #include "adnl/adnl-node-id.hpp"
 #include "crypto/Ed25519.h"
 #include "td/utils/Random.h"
+#include "td/utils/SipHash.h"
 #include "td/utils/Slice.h"
 #include "td/utils/Status.h"
 #include "td/utils/StringBuilder.h"
@@ -16,6 +17,25 @@
 
 namespace ton::quic {
 using QuicStreamID = int64_t;
+
+enum class StreamDirection : uint8_t {
+  Bidirectional,
+  Unidirectional,
+};
+
+// Relative to the endpoint emitting the event.
+enum class StreamInitiator : uint8_t {
+  Local,
+  Peer,
+};
+
+struct StreamCloseEvent {
+  QuicStreamID sid;
+  StreamInitiator initiator;
+  StreamDirection direction;
+  // The stream completed without an application error such as RESET_STREAM or STOP_SENDING.
+  bool clean;
+};
 
 struct ServerIdentity {
   [[nodiscard]] static std::string sni(adnl::AdnlNodeIdShort local_id) {
@@ -119,18 +139,12 @@ inline td::StringBuilder& operator<<(td::StringBuilder& sb, CongestionControlAlg
   return sb << "unknown";
 }
 
-}  // namespace ton::quic
+// Keyed: the ids we store are our own random ones, but a lookup key comes straight off the wire, and
+// an unkeyed hash there is a bucket-flooding DoS. Found by ADL, so every hash table of connection
+// ids gets it without naming a hasher -- there is no way to end up with the unkeyed default.
+template <class H>
+H AbslHashValue(H state, const QuicConnectionId& cid) {
+  return H::combine(std::move(state), td::sip_hash13(cid.as_slice()));
+}
 
-namespace std {
-template <>
-struct hash<ton::quic::QuicConnectionId> {
-  size_t operator()(const ton::quic::QuicConnectionId& cid) const noexcept {
-    auto slice = cid.as_slice();
-    size_t h = 0;
-    for (size_t i = 0; i < slice.size(); ++i) {
-      h = h * 31 + static_cast<uint8_t>(slice[i]);
-    }
-    return h;
-  }
-};
-}  // namespace std
+}  // namespace ton::quic

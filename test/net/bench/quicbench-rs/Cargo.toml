@@ -1,0 +1,25 @@
+[package]
+name = "quicmsgbench-rs"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "quicmsgbench-rs"
+path = "src/main.rs"
+
+[features]
+# Opt-in: quinn-udp's macOS sendmsg_x/recvmsg_x batched datapath. OFF by default,
+# which is what the reported numbers use.
+fast-apple = ["dep:quinn-udp"]
+
+[dependencies]
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
+quinn-udp = { version = "0.5", optional = true, features = ["fast-apple-datapath"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+rcgen = "0.14"
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
