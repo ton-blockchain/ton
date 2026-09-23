@@ -1939,7 +1939,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
   if (precompiled) {
     td::uint64 gas_usage = precompiled.value().gas_usage;
     cp.precompiled_gas_usage = gas_usage;
-    if (gas_usage > cp.gas_limit) {
+    if (gas_usage > (in_msg_extern ? cp.gas_max : cp.gas_limit)) {
       cp.skip_reason = ComputePhase::sk_no_gas;
       return true;
     }
@@ -1953,7 +1953,7 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
     LOG(INFO) << "Unknown precompiled contract (code_hash=" << new_code->get_hash().to_hex()
               << ", gas_usage=" << gas_usage << "), running VM";
     long long limit = account.is_special ? cfg.special_gas_limit : cfg.gas_limit;
-    gas = vm::GasLimits{limit, limit, gas.gas_credit ? limit : 0};
+    gas = vm::GasLimits{gas.gas_credit ? 0 : limit, limit, gas.gas_credit ? limit : 0};
   }
 
   // initialize VM
