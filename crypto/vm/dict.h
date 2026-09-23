@@ -266,6 +266,10 @@ class DictionaryFixed : public DictionaryBase {
   }
 
  protected:
+  // Sorts new_values in place. Null builders delete existing keys in Set/Replace and are forbidden in Add.
+  // Duplicate keys or deletion of a missing key return false.
+  // Applies the entire batch or leaves the root unchanged. Keys must contain at least get_key_bits() bits.
+  bool multiset(td::MutableSpan<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> new_values, SetMode mode);
   virtual int label_mode() const {
     return dict::LabelParser::chk_all;
   }
@@ -273,6 +277,7 @@ class DictionaryFixed : public DictionaryBase {
     return leaf;
   }
   virtual Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellSlice& value) const;
+  virtual Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellBuilder& value) const;
   virtual Ref<Cell> finish_create_fork(CellBuilder& cb, Ref<Cell> c1, Ref<Cell> c2, int n) const;
   virtual bool check_fork(CellSlice& cs, Ref<Cell> c1, Ref<Cell> c2, int n) const {
     return true;
@@ -287,6 +292,9 @@ class DictionaryFixed : public DictionaryBase {
   friend class DictIterator;
 
  private:
+  Ref<Cell> dict_build(td::Span<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> values, int prefix_len) const;
+  Ref<Cell> dict_multiset(Ref<Cell> dict, td::Span<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> values,
+                          td::BitPtr key_buffer, int n, int skip, SetMode mode) const;
   std::pair<Ref<CellSlice>, Ref<Cell>> dict_lookup_delete(Ref<Cell> dict, td::ConstBitPtr key, int n) const;
   Ref<CellSlice> dict_lookup_minmax(Ref<Cell> dict, td::BitPtr key_buffer, int n, int mode) const;
   Ref<CellSlice> dict_lookup_nearest(Ref<Cell> dict, td::BitPtr key_buffer, int n, bool allow_eq, int mode) const;
@@ -528,15 +536,13 @@ class Dictionary final : public DictionaryFixed {
   auto range(bool rev = false, bool sgnd = false) {
     return dict_range(*this, rev, sgnd);
   }
-  bool multiset(td::MutableSpan<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> new_values);
+  bool multiset(td::MutableSpan<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> new_values, SetMode mode = SetMode::Set);
 
  private:
   bool check_fork(CellSlice& cs, Ref<Cell> c1, Ref<Cell> c2, int n) const override {
     return cs.empty_ext();
   }
   static Ref<Cell> extract_value_ref(Ref<CellSlice> cs);
-  static Ref<Cell> dict_multiset(Ref<Cell> dict1, td::Span<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> values2,
-                                 td::BitPtr key_buffer, int n, int total_key_len, int skip1);
 };
 
 class PrefixDictionary final : public DictionaryBase {
@@ -592,6 +598,7 @@ class AugmentedDictionary final : public DictionaryFixed {
   bool set(td::ConstBitPtr key, int key_len, Ref<CellSlice> value, SetMode mode = SetMode::Set);
   bool set_ref(td::ConstBitPtr key, int key_len, Ref<Cell> val_ref, SetMode mode = SetMode::Set);
   bool set_builder(td::ConstBitPtr key, int key_len, const CellBuilder& value, SetMode mode = SetMode::Set);
+  bool multiset(td::MutableSpan<std::pair<td::ConstBitPtr, Ref<CellBuilder>>> new_values, SetMode mode = SetMode::Set);
   bool check_for_each_extra(const foreach_extra_func_t& foreach_extra_func, bool invert_first = false);
   std::pair<Ref<CellSlice>, Ref<CellSlice>> traverse_extra(td::BitPtr key_buffer, int key_len,
                                                            const traverse_func_t& traverse_node);
@@ -645,6 +652,7 @@ class AugmentedDictionary final : public DictionaryFixed {
   bool check_leaf(CellSlice& cs, td::ConstBitPtr key, int key_len) const override;
   bool check_fork(CellSlice& cs, Ref<Cell> c1, Ref<Cell> c2, int n) const override;
   Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellSlice& value) const override;
+  Ref<Cell> finish_create_leaf(CellBuilder& cb, const CellBuilder& value) const override;
   Ref<Cell> finish_create_fork(CellBuilder& cb, Ref<Cell> c1, Ref<Cell> c2, int n) const override;
   std::pair<Ref<Cell>, bool> dict_set(Ref<Cell> dict, td::ConstBitPtr key, int n, const CellSlice& value,
                                       SetMode mode = SetMode::Set) const;

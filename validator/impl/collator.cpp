@@ -40,6 +40,7 @@
 #include "fabric.h"
 #include "storage-stat-cache.hpp"
 #include "top-shard-descr.hpp"
+#include "transaction.h"
 
 namespace ton {
 
@@ -1302,7 +1303,7 @@ bool Collator::split_last_state(block::ShardState& ss) {
 /**
  * Imports the shard state data into the Collator object.
  *
- * SETS: account_dict = account_dict_estimator_, shard_libraries_, mc_state_extra
+ * SETS: account_dict, old_account_dict, shard_libraries_, mc_state_extra
  *    total_balance_ = old_total_balance_, total_validator_fees_
  * SETS: overload_history_, underload_history_
  * SETS: prev_state_utime_, prev_state_lt_, prev_vert_seqno_
@@ -1316,7 +1317,6 @@ bool Collator::import_shard_state_data(block::ShardState& ss) {
   account_dict = std::move(ss.account_dict_);
   old_account_dict =
       std::make_unique<vm::AugmentedDictionary>(account_dict->get_root(), 256, block::tlb::aug_ShardAccounts);
-  account_dict_estimator_ = std::make_unique<vm::AugmentedDictionary>(*account_dict);
   shard_libraries_ = std::move(ss.shard_libraries_);
   mc_state_extra_ = std::move(ss.mc_state_extra_);
   overload_history_ = ss.overload_history_;
@@ -2435,6 +2435,10 @@ td::actor::Task<> Collator::do_collate_inner() {
     co_await process_external_and_new_messages();
   }
   auto post_ext_token = perf_log_.start_action("post_ext_processing");
+  // All InMsg descriptors are collected; tock outputs below are only enqueued.
+  if (!flush_in_msg_descriptors()) {
+    co_return td::Status::Error("cannot build final InMsgDescr");
+  }
   if (before_split_) {
     // 7. split prepare / split install
     LOG(DEBUG) << "create split prepare/install transactions (NOT IMPLEMENTED YET)";
@@ -2454,6 +2458,10 @@ td::actor::Task<> Collator::do_collate_inner() {
     if (!process_new_messages(enqueue_only)) {
       co_return td::Status::Error("cannot process newly-generated outbound messages");
     }
+  }
+  // All OutMsg descriptors, including tock outputs, are collected.
+  if (!flush_out_msg_descriptors()) {
+    co_return td::Status::Error("cannot build final OutMsgDescr");
   }
   // 10. check block overload/underload
   LOG(DEBUG) << "check block overload/underload";
@@ -2846,7 +2854,7 @@ td::Result<block::Account*> Collator::make_account(td::ConstBitPtr addr, bool fo
   if (found) {
     return found;
   }
-  auto dict_entry = account_dict->lookup_extra(addr, 256);
+  auto dict_entry = old_account_dict->lookup_extra(addr, 256);
   if (dict_entry.first.is_null()) {
     if (!force_create) {
       return nullptr;
@@ -3050,72 +3058,36 @@ bool Collator::process_account_storage_dict(block::Account& account) {
  */
 bool Collator::combine_account_transactions() {
   vm::AugmentedDictionary dict{256, block::tlb::aug_ShardAccountBlocks};
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> account_blocks, account_updates;
+  account_blocks.reserve(accounts.size());
   for (auto& z : accounts) {
     block::Account& acc = *(z.second);
     CHECK(acc.addr == z.first);
     if (!acc.transactions.empty()) {
       // have transactions for this account
-      vm::CellBuilder cb;
-      if (!acc.create_account_block(cb)) {
+      auto block_cb = td::make_ref<vm::CellBuilder>();
+      if (!acc.create_account_block(block_cb.write())) {
         return fatal_error("cannot create AccountBlock for account "s + z.first.to_hex());
       }
-      auto cell = cb.finalize();
-      auto csr = vm::load_cell_slice_ref(cell);
-      if (verbosity > 2) {
-        FLOG(INFO) {
-          sb << "new AccountBlock for " << z.first.to_hex() << ": ";
-          block::gen::t_AccountBlock.print_ref(sb, cell);
-          csr->print_rec(sb);
-        };
-      }
-      if (!dict.set(z.first, csr, vm::Dictionary::SetMode::Add)) {
-        return fatal_error(std::string{"new AccountBlock for "} + z.first.to_hex() +
-                           " could not be added to ShardAccountBlocks");
-      }
-      // update account_dict
-      if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
-        // account changed
-        if (acc.orig_status == block::Account::acc_nonexist) {
-          // account created
-          CHECK(acc.status != block::Account::acc_nonexist);
-          vm::CellBuilder cb;
-          if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
-                && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
-                && cb.store_long_bool(acc.last_trans_lt_, 64)  // last_trans_lt:uint64
-                && account_dict->set_builder(acc.addr, cb, vm::Dictionary::SetMode::Add))) {
-            return fatal_error(std::string{"cannot add newly-created account "} + acc.addr.to_hex() +
-                               " into ShardAccounts");
-          }
-        } else if (acc.status == block::Account::acc_nonexist) {
-          // account deleted
-          if (verbosity > 2) {
-            FLOG(INFO) {
-              sb << "deleting account " << acc.addr.to_hex() << " with empty new value ";
-              block::gen::t_Account.print_ref(sb, acc.total_state);
-            };
-          }
-          if (account_dict->lookup_delete(acc.addr).is_null()) {
-            return fatal_error(std::string{"cannot delete account "} + acc.addr.to_hex() + " from ShardAccounts");
+      account_blocks.emplace_back(z.first.bits(), std::move(block_cb));
+      const bool updated = account_dict_updated_accounts_.contains(acc.addr);
+      // account_dict contains the first changed state of each updated account.
+      // So we apply remaining account updates.
+      if (acc.transactions.size() > 1 || !updated) {
+        if (acc.status == block::Account::acc_nonexist) {
+          if (account_dict->lookup(acc.addr).not_null()) {
+            account_updates.emplace_back(z.first.bits(), Ref<vm::CellBuilder>{});
           }
         } else {
-          // existing account modified
-          if (verbosity > 4) {
-            FLOG(INFO) {
-              sb << "modifying account " << acc.addr.to_hex() << " to ";
-              block::gen::t_Account.print_ref(sb, acc.total_state);
-            };
+          auto account_cb = td::make_ref<vm::CellBuilder>();
+          auto& cb = account_cb.write();
+          if (!(cb.store_ref_bool(acc.total_state)                 // account_descr$_ account:^Account
+                && cb.store_bits_bool(acc.last_trans_hash_)        // last_trans_hash:bits256
+                && cb.store_long_bool(acc.last_trans_lt_, 64))) {  // last_trans_lt:uint64
+            return fatal_error("cannot serialize final ShardAccount for "s + acc.addr.to_hex());
           }
-          if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
-                && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
-                && cb.store_long_bool(acc.last_trans_lt_, 64)  // last_trans_lt:uint64
-                && account_dict->set_builder(acc.addr, cb, vm::Dictionary::SetMode::Replace))) {
-            return fatal_error(std::string{"cannot modify existing account "} + acc.addr.to_hex() +
-                               " in ShardAccounts");
-          }
+          account_updates.emplace_back(z.first.bits(), std::move(account_cb));
         }
-      }
-      if (!process_account_storage_dict(acc)) {
-        return false;
       }
     } else {
       if (acc.total_state->get_hash() != acc.orig_total_state->get_hash()) {
@@ -3124,7 +3096,18 @@ bool Collator::combine_account_transactions() {
       }
     }
   }
+  if (!account_dict->multiset(account_updates)) {
+    return fatal_error("cannot update final ShardAccounts");
+  }
+  for (auto& [_, acc] : accounts) {
+    if (!acc->transactions.empty() && !process_account_storage_dict(*acc)) {
+      return false;
+    }
+  }
   vm::CellBuilder cb;
+  if (!dict.multiset(account_blocks, vm::Dictionary::SetMode::Add)) {
+    return fatal_error("cannot build ShardAccountBlocks");
+  }
   if (!(cb.append_cellslice_bool(std::move(dict).extract_root()) && cb.finalize_to(shard_account_blocks_))) {
     return fatal_error("cannot serialize ShardAccountBlocks");
   }
@@ -3278,8 +3261,8 @@ bool Collator::create_ticktock_transaction(const ton::StdSmcAddress& smc_addr, t
     return fatal_error(
         td::Status::Error(-666, std::string{"cannot commit new transaction for smart contract "} + smc_addr.to_hex()));
   }
-  if (!update_account_dict_estimation(*trans)) {
-    return fatal_error(-666, "cannot update account dict size estimation");
+  if (!update_account_dict(*trans)) {
+    return fatal_error(-666, "cannot update account dictionary and size estimate");
   }
   update_account_storage_dict_info(*trans);
   update_max_lt(acc->last_trans_end_lt_);
@@ -3382,8 +3365,8 @@ Ref<vm::Cell> Collator::create_ordinary_transaction(Ref<vm::Cell> msg_root,
     fatal_error("cannot commit new transaction for smart contract "s + addr.to_hex());
     return {};
   }
-  if (!update_account_dict_estimation(*trans)) {
-    fatal_error("cannot update account dict size estimation");
+  if (!update_account_dict(*trans)) {
+    fatal_error("cannot update account dictionary and size estimate");
     return {};
   }
   update_account_storage_dict_info(*trans);
@@ -4692,9 +4675,27 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
     }
     msg = cs2.prefetch_ref();  // use hash of (Message Any)
   }
+  auto value = td::make_ref<vm::CellBuilder>();
+  if (!value.write().append_cellslice_bool(cs)) {
+    return fatal_error("cannot add an InMsg into InMsgDescr dictionary");
+  }
+  pending_in_msg_descriptors_.emplace_back(td::Bits256{msg->get_hash().bits()}, std::move(value));
+  block_limit_status_->pending_msg_descrs++;
+  return block_limit_status_->add_cell(std::move(in_msg));
+}
+
+bool Collator::flush_in_msg_descriptors() {
+  if (pending_in_msg_descriptors_.empty()) {
+    return true;
+  }
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> updates;
+  updates.reserve(pending_in_msg_descriptors_.size());
+  for (const auto& [key, value] : pending_in_msg_descriptors_) {
+    updates.emplace_back(key.bits(), value);
+  }
   bool ok;
   try {
-    ok = in_msg_dict->set(msg->get_hash().bits(), 256, cs, vm::Dictionary::SetMode::Add);
+    ok = in_msg_dict->multiset(updates, vm::Dictionary::SetMode::Add);
   } catch (vm::VmError&) {
     LOG(ERROR) << "cannot add an InMsg into InMsgDescr dictionary!";
     ok = false;
@@ -4702,9 +4703,9 @@ bool Collator::insert_in_msg(Ref<vm::Cell> in_msg) {
   if (!ok) {
     return fatal_error("cannot add an InMsg into InMsgDescr dictionary");
   }
-  ++in_descr_cnt_;
-  return block_limit_status_->add_cell(std::move(in_msg)) &&
-         ((in_descr_cnt_ & 63) || block_limit_status_->add_cell(in_msg_dict->get_root_cell()));
+  block_limit_status_->pending_msg_descrs -= pending_in_msg_descriptors_.size();
+  pending_in_msg_descriptors_.clear();
+  return block_limit_status_->add_cell(in_msg_dict->get_root_cell());
 }
 
 /**
@@ -4747,9 +4748,28 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg) {
  * @returns True if the insertion was successful, false otherwise.
  */
 bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
+  auto value = td::make_ref<vm::CellBuilder>();
+  if (!value.write().append_cellslice_bool(load_cell_slice(out_msg))) {
+    LOG(ERROR) << "cannot add an OutMsg into OutMsgDescr dictionary!";
+    return false;
+  }
+  pending_out_msg_descriptors_.emplace_back(td::Bits256{msg_hash}, std::move(value));
+  block_limit_status_->pending_msg_descrs++;
+  return block_limit_status_->add_cell(std::move(out_msg));
+}
+
+bool Collator::flush_out_msg_descriptors() {
+  if (pending_out_msg_descriptors_.empty()) {
+    return true;
+  }
+  std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> updates;
+  updates.reserve(pending_out_msg_descriptors_.size());
+  for (const auto& [key, value] : pending_out_msg_descriptors_) {
+    updates.emplace_back(key.bits(), value);
+  }
   bool ok;
   try {
-    ok = out_msg_dict->set(msg_hash, 256, load_cell_slice(out_msg), vm::Dictionary::SetMode::Add);
+    ok = out_msg_dict->multiset(updates, vm::Dictionary::SetMode::Add);
   } catch (vm::VmError&) {
     ok = false;
   }
@@ -4757,9 +4777,9 @@ bool Collator::insert_out_msg(Ref<vm::Cell> out_msg, td::ConstBitPtr msg_hash) {
     LOG(ERROR) << "cannot add an OutMsg into OutMsgDescr dictionary!";
     return false;
   }
-  ++out_descr_cnt_;
-  return block_limit_status_->add_cell(std::move(out_msg)) &&
-         ((out_descr_cnt_ & 63) || block_limit_status_->add_cell(out_msg_dict->get_root_cell()));
+  block_limit_status_->pending_msg_descrs -= pending_out_msg_descriptors_.size();
+  pending_out_msg_descriptors_.clear();
+  return block_limit_status_->add_cell(out_msg_dict->get_root_cell());
 }
 
 /**
@@ -5759,34 +5779,34 @@ bool Collator::register_dispatch_queue_op(bool force) {
 }
 
 /**
- * Update size estimation for the account dictionary.
+ * Stores each account's first changed state in ShardAccounts and estimates its proof size.
+ * Other changes are applied in combine_account_transactions.
  * This is required to count the depth of the ShardAccounts dictionary in the block size estimation.
- * account_dict_estimator_ is used for block limits only.
  *
  * @param trans Newly-created transaction.
  *
  * @returns True on success, false otherwise.
  */
-bool Collator::update_account_dict_estimation(const block::transaction::Transaction& trans) {
+bool Collator::update_account_dict(const block::transaction::Transaction& trans) {
   const block::Account& acc = trans.account;
   if (acc.orig_total_state->get_hash() != acc.total_state->get_hash() &&
-      account_dict_estimator_added_accounts_.insert(acc.addr).second) {
+      account_dict_updated_accounts_.insert(acc.addr).second) {
     // see combine_account_transactions
     if (acc.status == block::Account::acc_nonexist) {
-      account_dict_estimator_->lookup_delete(acc.addr);
+      account_dict->lookup_delete(acc.addr);
     } else {
       vm::CellBuilder cb;
       if (!(cb.store_ref_bool(acc.total_state)             // account_descr$_ account:^Account
             && cb.store_bits_bool(acc.last_trans_hash_)    // last_trans_hash:bits256
             && cb.store_long_bool(acc.last_trans_lt_, 64)  // last_trans_lt:uint64
-            && account_dict_estimator_->set_builder(acc.addr, cb))) {
+            && account_dict->set_builder(acc.addr, cb))) {
         return false;
       }
     }
   }
   ++account_dict_ops_;
   if (!(account_dict_ops_ & 15)) {
-    return block_limit_status_->add_proof(account_dict_estimator_->get_root_cell());
+    return block_limit_status_->add_proof(account_dict->get_root_cell());
   }
   return true;
 }
