@@ -190,9 +190,10 @@ class FullNodeFastSyncOverlays {
   void send_plumtree_stats(td::actor::ActorId<FullNodeFastSyncOverlay> collector, std::size_t overlays_limit) const;
   void set_config(FullNodeConfig config);
   double update_overlays(td::Ref<MasterchainState> state, const std::set<PublicKeyHash>& local_keys,
-                         std::set<adnl::AdnlNodeIdShort> my_adnl_ids, std::set<ShardIdFull> monitoring_shards,
-                         const FileHash& zero_state_file_hash, double broadcast_speed_multiplier,
-                         const td::actor::ActorId<keyring::Keyring>& keyring,
+                         std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
+                         const std::set<adnl::AdnlNodeIdShort>& local_collator_adnl_ids,
+                         std::set<ShardIdFull> monitoring_shards, const FileHash& zero_state_file_hash,
+                         double broadcast_speed_multiplier, const td::actor::ActorId<keyring::Keyring>& keyring,
                          const td::actor::ActorId<adnl::Adnl>& adnl, const td::actor::ActorId<rldp2::Rldp>& rldp2,
                          const td::actor::ActorId<quic::QuicSender>& quic,
                          const td::actor::ActorId<overlay::Overlays>& overlays,
@@ -205,6 +206,7 @@ class FullNodeFastSyncOverlays {
     std::map<ShardIdFull, td::actor::ActorOwn<FullNodeFastSyncOverlay>> overlays_;
     overlay::OverlayMemberCertificate current_certificate_;
     bool is_validator_{false};
+    bool is_collator_{false};
   };
 
   std::map<adnl::AdnlNodeIdShort, Overlays> id_to_overlays_;  // local_id -> overlays
