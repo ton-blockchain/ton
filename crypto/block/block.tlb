@@ -648,7 +648,7 @@ _ ConfigVotingSetup = ConfigParam 11;
 cfg_proposal#f3 param_id:int32 param_value:(Maybe ^Cell) if_hash_equal:(Maybe uint256)
   = ConfigProposal;
 cfg_proposal_status#ce expires:uint32 proposal:^ConfigProposal is_critical:Bool
-  voters:(HashmapE 16 True) remaining_weight:int64 validator_set_id:uint256
+  voters:(HashmapE 16 uint32) remaining_weight:int64 validator_set_id:uint256
   rounds_remaining:uint8 wins:uint8 losses:uint8 = ConfigProposalStatus;
 
 wfmt_basic#1 vm_version:int32 vm_mode:uint64 = WorkchainFormat 1;
@@ -894,7 +894,7 @@ prod_info#34 utime:uint32 mc_blk_ref:ExtBlkRef state_proof:^(MERKLE_PROOF Block)
 no_blk_gen from_utime:uint32 prod_info:^ProducerInfo = ComplaintDescr;
 no_blk_gen_diff prod_info_old:^ProducerInfo prod_info_new:^ProducerInfo = ComplaintDescr;
 validator_complaint#bc validator_pubkey:bits256 description:^ComplaintDescr created_at:uint32 severity:uint8 reward_addr:uint256 paid:Grams suggested_fine:Grams suggested_fine_part:uint32 = ValidatorComplaint;
-complaint_status#2d complaint:^ValidatorComplaint voters:(HashmapE 16 True) vset_id:uint256 weight_remaining:int64 = ValidatorComplaintStatus;
+complaint_status#2d complaint:^ValidatorComplaint voters:(HashmapE 16 uint32) vset_id:uint256 weight_remaining:int64 = ValidatorComplaintStatus;
 
 //
 //  TVM REFLECTION
