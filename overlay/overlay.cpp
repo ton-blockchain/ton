@@ -235,9 +235,6 @@ void OverlayImpl::receive_query(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api
 
 td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                                  tl_object_ptr<ton_api::overlay_broadcast> bcast) {
-  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
-    co_return {};
-  }
   if (!opts_.allow_old_broadcasts_) {
     co_return td::Status::Error("overlay.broadcast not allowed");
   }
@@ -247,9 +244,6 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
 
 td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                                  tl_object_ptr<ton_api::overlay_broadcastFec> b) {
-  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
-    co_return {};
-  }
   if (!opts_.allow_old_broadcasts_) {
     co_return td::Status::Error("overlay.broadcastFec not allowed");
   }
@@ -259,9 +253,6 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
 
 td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_from,
                                                  tl_object_ptr<ton_api::overlay_broadcastFecShort> b) {
-  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
-    co_return {};
-  }
   if (!opts_.allow_old_broadcasts_) {
     co_return td::Status::Error("overlay.broadcastFecShort not allowed");
   }
@@ -315,7 +306,7 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
   if (!opts_.enable_plumtree_broadcast_) {
     co_return td::Status::Error("Plumtree broadcasts are not enabled");
   }
-  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts) {
     co_return td::Unit{};
   }
   co_await broadcasts_plumtree_.process_fec_payload(this, message_from, std::move(bcast));
@@ -327,7 +318,7 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
   if (!opts_.enable_plumtree_broadcast_) {
     co_return td::Status::Error("Plumtree broadcasts are not enabled");
   }
-  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts) {
     co_return td::Unit{};
   }
   co_await broadcasts_plumtree_.process_simple_payload(this, message_from, std::move(bcast));
@@ -339,7 +330,7 @@ td::actor::Task<> OverlayImpl::process_broadcast(adnl::AdnlNodeIdShort message_f
   if (!opts_.enable_plumtree_broadcast_) {
     co_return td::Status::Error("Plumtree broadcasts are not enabled");
   }
-  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts) {
     co_return td::Unit{};
   }
   co_await broadcasts_plumtree_.process_ihave(this, message_from, std::move(msg));
@@ -567,7 +558,7 @@ void OverlayImpl::set_plumtree_eager_mtu_peers(std::vector<adnl::AdnlNodeIdShort
     plumtree_eager_mtu_guard_ = {};
     return;
   }
-  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceiveBroadcasts) {
+  if (peer_list_.local_member_flags_ & OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts) {
     plumtree_eager_mtu_guard_ = {};
     return;
   }

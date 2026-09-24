@@ -189,6 +189,10 @@ void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash s
                           BroadcastSource::fast_sync_overlay, true);
 }
 
+void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query) {
+  process_external_message_broadcast(query, [](td::Result<td::Unit>) {});
+}
+
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast &query) {
   // Not supported yet
   /*if (src == local_id_.pubkey_hash()) {
@@ -315,10 +319,56 @@ void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSli
   ton_api::downcast_call(*B.move_as_ok(), [src, Self = this](auto &obj) { Self->process_broadcast(src, obj); });
 }
 
+void FullNodeFastSyncOverlay::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast,
+                                              td::Promise<td::Unit> promise) {
+  TRY_RESULT_PROMISE(promise, message,
+                     fetch_tl_object<ton_api::tonNode_externalMessageBroadcast>(std::move(broadcast), true));
+  if (config_.ext_messages_broadcast_disabled_) {
+    promise.set_error(td::Status::Error("rebroadcasting external messages is disabled"));
+    promise = [](td::Result<td::Unit>) {};
+  }
+  process_external_message_broadcast(*message, std::move(promise));
+}
+
+void FullNodeFastSyncOverlay::process_external_message_broadcast(ton_api::tonNode_externalMessageBroadcast &message,
+                                                                 td::Promise<td::Unit> promise) {
+  auto hash = td::sha256_bits256(message.message_->data_);
+  if (!processed_ext_msg_broadcasts_.insert(hash).second) {
+    return promise.set_error(td::Status::Error("duplicate external message broadcast"));
+  }
+  if (my_ext_msg_broadcasts_.contains(hash)) {
+    promise.set_result(td::Unit());
+    return;
+  }
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
+                          std::move(message.message_->data_), 0, std::move(promise));
+}
+
 void FullNodeFastSyncOverlay::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
                                             td::Promise<td::BufferSlice> promise) {
   td::actor::send_closure(full_node_, &FullNode::handle_query, std::move(query), src, QuerySource::fast_sync_overlay,
                           std::move(promise));
+}
+
+void FullNodeFastSyncOverlay::send_external_message(td::BufferSlice data) {
+  if (!inited_ || config_.ext_messages_broadcast_disabled_) {
+    return;
+  }
+  td::Bits256 hash = td::sha256_bits256(data);
+  if (processed_ext_msg_broadcasts_.contains(hash)) {
+    return;
+  }
+  my_ext_msg_broadcasts_.insert(hash);
+  auto B = create_serialize_tl_object<ton_api::tonNode_externalMessageBroadcast>(
+      create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)));
+  if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
+                            local_id_.pubkey_hash(), 0, std::move(B));
+  } else {
+    td::actor::send_closure(
+        overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_, local_id_.pubkey_hash(),
+        overlay::Overlays::BroadcastFlagFixedNeighbours() | overlay::Overlays::BroadcastFlagNoTwostep(), std::move(B));
+  }
 }
 
 void FullNodeFastSyncOverlay::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
@@ -516,6 +566,7 @@ void FullNodeFastSyncOverlay::start_up() {
   b.as_slice().copy_from(as_slice(X));
   overlay_id_full_ = overlay::OverlayIdFull{std::move(b)};
   overlay_id_ = overlay_id_full_.compute_short_id();
+  cleanup_processed_ext_msg_at_ = td::Timestamp::now();
 
   try_init();
 }
@@ -548,6 +599,8 @@ void FullNodeFastSyncOverlay::init() {
     }
     void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
                          td::Promise<td::Unit> promise) override {
+      td::actor::send_closure(node_, &FullNodeFastSyncOverlay::check_broadcast, src, std::move(data),
+                              std::move(promise));
     }
     void get_stats_extra(td::Promise<std::string> promise) override {
       td::actor::send_closure(node_, &FullNodeFastSyncOverlay::get_stats_extra, std::move(promise));
@@ -564,21 +617,22 @@ void FullNodeFastSyncOverlay::init() {
   td::actor::send_closure(quic_, &quic::QuicSender::add_id, local_id_);
 
   std::map<PublicKeyHash, td::uint32> authorized_keys;
-  // FIXME: allow broadcasts from non-validators when needed
   for (auto id : current_validators_adnl_) {
     authorized_keys[id.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
   }
-  overlay::OverlayPrivacyRules rules{0, 0, std::move(authorized_keys)};
+  overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), overlay::CertificateFlags::AllowFec,
+                                     std::move(authorized_keys)};
   std::string scope = PSTRING() << R"({ "type": "fast-sync", "shard_id": )" << shard_.shard
                                 << ", \"workchain_id\": " << shard_.workchain << " }";
   auto local_validator_it = std::find(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id_);
   bool is_original_sender = local_validator_it != current_validators_adnl_.end();
   overlay::OverlayOptions options;
   options.name_ = "fast-sync" + shard_.to_str();
-  if (enable_plumtree_broadcast_ || !shard_.is_masterchain()) {
-    options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
+  if (enable_plumtree_broadcast_) {
+    options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
+    options.local_overlay_member_flags_ =
+        receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
   }
-  options.local_overlay_member_flags_ = receive_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceiveBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
   options.twostep_broadcast_sender_ = adnl_sender_;
@@ -644,18 +698,17 @@ void FullNodeFastSyncOverlay::set_member_certificate(overlay::OverlayMemberCerti
   }
 }
 
-void FullNodeFastSyncOverlay::set_params(bool receive_broadcasts, bool send_twostep_broadcasts,
+void FullNodeFastSyncOverlay::set_params(bool receive_plumtree_broadcasts, bool send_twostep_broadcasts,
                                          bool enable_plumtree_broadcast,
                                          td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender) {
-  if (receive_broadcasts == receive_broadcasts_ && send_twostep_broadcasts == send_twostep_broadcasts_ &&
-      enable_plumtree_broadcast == enable_plumtree_broadcast_ && adnl_sender == adnl_sender_) {
-    return;
-  }
-  receive_broadcasts_ = receive_broadcasts;
+  bool recreate_overlay = send_twostep_broadcasts != send_twostep_broadcasts_ ||
+                          enable_plumtree_broadcast != enable_plumtree_broadcast_ || adnl_sender != adnl_sender_ ||
+                          (enable_plumtree_broadcast && receive_plumtree_broadcasts != receive_plumtree_broadcasts_);
+  receive_plumtree_broadcasts_ = receive_plumtree_broadcasts;
   send_twostep_broadcasts_ = send_twostep_broadcasts;
   enable_plumtree_broadcast_ = enable_plumtree_broadcast;
   adnl_sender_ = adnl_sender;
-  if (inited_) {
+  if (inited_ && recreate_overlay) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
   }
@@ -733,13 +786,18 @@ void FullNodeFastSyncOverlay::get_stats_extra(td::Promise<std::string> promise) 
   if (!member_certificate_.empty()) {
     res->member_certificate_ = member_certificate_.tl();
   }
-  res->receive_broadcasts_ = receive_broadcasts_;
+  res->receive_broadcasts_ = receive_plumtree_broadcasts_;
   promise.set_result(td::json_encode<std::string>(td::ToJson(*res), true));
 }
 
 void FullNodeFastSyncOverlay::alarm() {
   CHECK(inited_);
   alarm_timestamp() = td::Timestamp::in(td::Random::fast(1.0, 2.0));
+  if (cleanup_processed_ext_msg_at_.is_in_past()) {
+    processed_ext_msg_broadcasts_.clear();
+    my_ext_msg_broadcasts_.clear();
+    cleanup_processed_ext_msg_at_ = td::Timestamp::in(60.0);
+  }
   if (current_validators_adnl_.empty()) {
     return;
   }
@@ -850,8 +908,18 @@ void FullNodeFastSyncOverlays::send_plumtree_stats(td::actor::ActorId<FullNodeFa
   }
 }
 
-void FullNodeFastSyncOverlays::update_overlays(
-    td::Ref<MasterchainState> state, std::set<adnl::AdnlNodeIdShort> my_adnl_ids,
+void FullNodeFastSyncOverlays::set_config(FullNodeConfig config) {
+  config_ = config;
+  for (auto &[_, overlays_info] : id_to_overlays_) {
+    for (auto &[_, overlay] : overlays_info.overlays_) {
+      td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_config, config);
+    }
+  }
+}
+
+double FullNodeFastSyncOverlays::update_overlays(
+    td::Ref<MasterchainState> state, const std::set<PublicKeyHash> &local_keys,
+    std::set<adnl::AdnlNodeIdShort> my_adnl_ids, const std::set<adnl::AdnlNodeIdShort> &local_collator_adnl_ids,
     std::set<ShardIdFull> monitoring_shards, const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
     const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
     const td::actor::ActorId<rldp2::Rldp> &rldp2, const td::actor::ActorId<quic::QuicSender> &quic,
@@ -868,6 +936,65 @@ void FullNodeFastSyncOverlays::update_overlays(
       shard = shard_prefix(shard, monitor_min_split);
     }
     all_shards.insert(shard);
+  }
+
+  // On new keyblock - update validator set
+  bool updated_validators = false;
+  if (!last_key_block_seqno_ || last_key_block_seqno_.value() != state->last_key_block_id().seqno()) {
+    updated_validators = true;
+    last_key_block_seqno_ = state->last_key_block_id().seqno();
+    root_public_keys_.clear();
+    current_validators_adnl_.clear();
+    validator_key_to_adnl_ids_.clear();
+    validator_authority_until_.clear();
+
+    UnixTime current_until = 0;
+    UnixTime next_until = 0;
+    auto config = state->get_config_holder();
+    if (config.is_error()) {
+      LOG(ERROR) << "Failed to read validator-set lifetimes: " << config.move_as_error();
+    } else {
+      auto config_holder = config.move_as_ok();
+      current_until = config_holder->get_validator_set_start_stop(0).second;
+      next_until = config_holder->get_validator_set_start_stop(1).second;
+    }
+    // Previous validators remain authorized through the current set, and current validators through the next set.
+    // The next set's own end is the last horizon known for next validators in this state.
+    UnixTime set_authority_until[3] = {current_until, std::max(current_until, next_until), next_until};
+
+    // Previous, current and next validator sets
+    for (int i = -1; i <= 1; ++i) {
+      auto val_set = state->get_total_validator_set(i);
+      if (val_set.is_null()) {
+        continue;
+      }
+      for (const ValidatorDescr &val : val_set->export_vector()) {
+        PublicKeyHash public_key_hash = ValidatorFullId{val.key}.compute_short_id();
+        adnl::AdnlNodeIdShort adnl_id{val.addr.is_zero() ? public_key_hash.bits256_value() : val.addr};
+        root_public_keys_.push_back(public_key_hash);
+        current_validators_adnl_.push_back(adnl_id);
+        validator_key_to_adnl_ids_.emplace(public_key_hash, adnl_id);
+        validator_authority_until_[public_key_hash] =
+            std::max(validator_authority_until_[public_key_hash], set_authority_until[i + 1]);
+      }
+    }
+    std::sort(root_public_keys_.begin(), root_public_keys_.end());
+    root_public_keys_.erase(std::unique(root_public_keys_.begin(), root_public_keys_.end()), root_public_keys_.end());
+    std::sort(current_validators_adnl_.begin(), current_validators_adnl_.end());
+    current_validators_adnl_.erase(std::unique(current_validators_adnl_.begin(), current_validators_adnl_.end()),
+                                   current_validators_adnl_.end());
+  }
+
+  double authority_until = 0.0;
+  for (const PublicKeyHash &key : local_keys) {
+    auto [begin, end] = validator_key_to_adnl_ids_.equal_range(key);
+    for (auto it = begin; it != end; ++it) {
+      my_adnl_ids.insert(it->second);
+    }
+    auto authority = validator_authority_until_.find(key);
+    if (authority != validator_authority_until_.end()) {
+      authority_until = std::max(authority_until, static_cast<double>(authority->second));
+    }
   }
 
   // Remove overlays for removed adnl ids and shards
@@ -887,35 +1014,11 @@ void FullNodeFastSyncOverlays::update_overlays(
     }
   }
 
-  // On new keyblock - update validator set
-  bool updated_validators = false;
-  if (!last_key_block_seqno_ || last_key_block_seqno_.value() != state->last_key_block_id().seqno()) {
-    updated_validators = true;
-    last_key_block_seqno_ = state->last_key_block_id().seqno();
-    root_public_keys_.clear();
-    current_validators_adnl_.clear();
-    // Previous, current and next validator sets
-    for (int i = -1; i <= 1; ++i) {
-      auto val_set = state->get_total_validator_set(i);
-      if (val_set.is_null()) {
-        continue;
-      }
-      for (const ValidatorDescr &val : val_set->export_vector()) {
-        PublicKeyHash public_key_hash = ValidatorFullId{val.key}.compute_short_id();
-        root_public_keys_.push_back(public_key_hash);
-        current_validators_adnl_.emplace_back(val.addr.is_zero() ? public_key_hash.bits256_value() : val.addr);
-      }
-    }
-    std::sort(root_public_keys_.begin(), root_public_keys_.end());
-    root_public_keys_.erase(std::unique(root_public_keys_.begin(), root_public_keys_.end()), root_public_keys_.end());
-    std::sort(current_validators_adnl_.begin(), current_validators_adnl_.end());
-    current_validators_adnl_.erase(std::unique(current_validators_adnl_.begin(), current_validators_adnl_.end()),
-                                   current_validators_adnl_.end());
-
+  if (updated_validators) {
     for (auto &[local_id, overlays_info] : id_to_overlays_) {
       overlays_info.is_validator_ =
           std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
-      for (auto &[shard, overlay] : overlays_info.overlays_) {
+      for (auto &[_, overlay] : overlays_info.overlays_) {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_validators, root_public_keys_,
                                 current_validators_adnl_);
       }
@@ -935,11 +1038,12 @@ void FullNodeFastSyncOverlays::update_overlays(
   for (adnl::AdnlNodeIdShort local_id : my_adnl_ids) {
     bool is_new = !id_to_overlays_.count(local_id);
     auto &overlays_info = id_to_overlays_[local_id];
-    // Update is_validator and current_certificate
+    // Update local roles and current_certificate
     if (is_new) {
       overlays_info.is_validator_ =
           std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
     }
+    overlays_info.is_collator_ = local_collator_adnl_ids.contains(local_id);
     bool changed_certificate = false;
     // Check if certificate is outdated or no longer authorized by current root keys
     if (!overlays_info.current_certificate_.empty() && overlays_info.current_certificate_.is_expired(now)) {
@@ -972,25 +1076,40 @@ void FullNodeFastSyncOverlays::update_overlays(
       continue;
     }
 
+    auto account_certificate_authority = [&](const overlay::OverlayMemberCertificate &certificate) {
+      if (certificate.empty()) {
+        return;
+      }
+      auto issuer = validator_authority_until_.find(certificate.issued_by().compute_short_id());
+      if (issuer != validator_authority_until_.end()) {
+        // Member certificates allow three seconds of clock skew. Recheck in the first whole second in which
+        // update_overlays() is guaranteed to consider the certificate expired and can select another one.
+        double certificate_until = static_cast<double>(certificate.expire_at()) + 4.0;
+        authority_until = std::max(authority_until, std::min(certificate_until, static_cast<double>(issuer->second)));
+      }
+    };
+    account_certificate_authority(overlays_info.current_certificate_);
+    if (auto it = member_certificates_.find(local_id); it != member_certificates_.end()) {
+      for (const auto &certificate : it->second) {
+        account_certificate_authority(certificate);
+      }
+    }
+
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
       bool enable_plumtree_broadcast = state->get_new_consensus_config(shard.workchain).enable_plumtree_broadcast();
-      bool receive_broadcasts;
-      if (enable_plumtree_broadcast) {
-        receive_broadcasts = !overlays_info.is_validator_ && monitoring_shards.contains(shard);
-      } else {
-        receive_broadcasts = monitoring_shards.contains(shard);
-      }
+      bool receive_plumtree_broadcasts =
+          !overlays_info.is_validator_ && !overlays_info.is_collator_ && monitoring_shards.contains(shard);
       bool send_twostep_broadcasts = true;
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
-            current_validators_adnl_, overlays_info.current_certificate_, receive_broadcasts, send_twostep_broadcasts,
-            enable_plumtree_broadcast, broadcast_speed_multiplier, keyring, adnl, quic, quic, overlays,
-            validator_manager, full_node);
+            current_validators_adnl_, overlays_info.current_certificate_, receive_plumtree_broadcasts,
+            send_twostep_broadcasts, enable_plumtree_broadcast, config_, broadcast_speed_multiplier, keyring, adnl,
+            quic, quic, overlays, validator_manager, full_node);
       } else {
-        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_broadcasts,
+        td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_plumtree_broadcasts,
                                 send_twostep_broadcasts, enable_plumtree_broadcast, quic);
         if (changed_certificate) {
           td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_member_certificate,
@@ -999,6 +1118,8 @@ void FullNodeFastSyncOverlays::update_overlays(
       }
     }
   }
+
+  return authority_until;
 }
 
 void FullNodeFastSyncOverlays::add_member_certificate(adnl::AdnlNodeIdShort local_id,

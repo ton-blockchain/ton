@@ -46,6 +46,7 @@ namespace validator {
 namespace fullnode {
 
 static const double INACTIVE_SHARD_TTL = (double)overlay::Overlays::overlay_peer_ttl() + 60.0;
+static constexpr double PUBLIC_OVERLAY_WARMUP_PERIOD = 600.0;
 
 void FullNodeImpl::add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) {
   if (local_keys_.count(key)) {
@@ -58,22 +59,20 @@ void FullNodeImpl::add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
     update_custom_overlay(p.second);
   }
 
-  if (!sign_cert_by_.is_zero()) {
-    promise.set_value(td::Unit());
-    return;
-  }
+  if (sign_cert_by_.is_zero()) {
+    for (auto &x : all_validators_) {
+      if (x == key) {
+        sign_cert_by_ = key;
+      }
+    }
 
-  for (auto &x : all_validators_) {
-    if (x == key) {
-      sign_cert_by_ = key;
+    for (auto &shard : shards_) {
+      if (!shard.second.actor.empty()) {
+        td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+      }
     }
   }
-
-  for (auto &shard : shards_) {
-    if (!shard.second.actor.empty()) {
-      td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
-    }
-  }
+  update_fast_sync_and_public_overlays();
   promise.set_value(td::Unit());
 }
 
@@ -88,34 +87,43 @@ void FullNodeImpl::del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
     update_custom_overlay(p.second);
   }
 
-  if (sign_cert_by_ != key) {
-    promise.set_value(td::Unit());
-    return;
-  }
-  sign_cert_by_ = PublicKeyHash::zero();
+  if (sign_cert_by_ == key) {
+    sign_cert_by_ = PublicKeyHash::zero();
 
-  for (auto &x : all_validators_) {
-    if (local_keys_.count(x)) {
-      sign_cert_by_ = x;
+    for (auto &x : all_validators_) {
+      if (local_keys_.count(x)) {
+        sign_cert_by_ = x;
+      }
+    }
+
+    for (auto &shard : shards_) {
+      if (!shard.second.actor.empty()) {
+        td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+      }
     }
   }
-
-  for (auto &shard : shards_) {
-    if (!shard.second.actor.empty()) {
-      td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
-    }
-  }
+  update_fast_sync_and_public_overlays();
   promise.set_value(td::Unit());
 }
 
 void FullNodeImpl::add_collator_adnl_id(adnl::AdnlNodeIdShort id) {
-  ++local_collator_nodes_[id];
+  if (++local_collator_nodes_[id] == 1) {
+    update_fast_sync_and_public_overlays();
+  }
 }
 
 void FullNodeImpl::del_collator_adnl_id(adnl::AdnlNodeIdShort id) {
-  if (--local_collator_nodes_[id] == 0) {
-    local_collator_nodes_.erase(id);
+  auto it = local_collator_nodes_.find(id);
+  if (it == local_collator_nodes_.end() || --it->second != 0) {
+    return;
   }
+  local_collator_nodes_.erase(it);
+  update_fast_sync_and_public_overlays();
+}
+
+void FullNodeImpl::initial_config_loaded() {
+  initial_config_loaded_ = true;
+  update_fast_sync_and_public_overlays();
 }
 
 void FullNodeImpl::sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key, td::uint32 expiry_at,
@@ -143,6 +151,7 @@ void FullNodeImpl::import_shard_overlay_certificate(ShardIdFull shard_id, Public
 
 void FullNodeImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {
   adnl_id_ = adnl_id;
+  update_fast_sync_and_public_overlays();
 
   td::MultiPromise mp;
   auto ig = mp.init_guard();
@@ -171,6 +180,7 @@ void FullNodeImpl::set_config(FullNodeConfig config) {
       td::actor::send_closure(actor.second, &FullNodeCustomOverlay::set_config, config);
     }
   }
+  fast_sync_overlays_.set_config(std::move(config));
 }
 
 void FullNodeImpl::add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) {
@@ -218,6 +228,7 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
     return;
   }
   CHECK(shards_to_monitor.count(ShardIdFull(masterchainId)));
+  last_masterchain_state_ = state;
   bool join_all_overlays = !sign_cert_by_.is_zero();
   std::set<ShardIdFull> all_shards;
   std::set<ShardIdFull> new_active;
@@ -277,24 +288,11 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
     }
   }
 
-  std::set<adnl::AdnlNodeIdShort> my_adnl_ids;
-  my_adnl_ids.insert(adnl_id_);
-  for (const auto &[adnl_id, _] : local_collator_nodes_) {
-    my_adnl_ids.insert(adnl_id);
-  }
-  for (auto key : local_keys_) {
-    auto it = current_validators_.find(key);
-    if (it != current_validators_.end()) {
-      my_adnl_ids.insert(it->second);
-    }
-  }
-  std::set<ShardIdFull> monitoring_shards;
+  last_monitoring_shards_.clear();
   for (ShardIdFull shard : shards_to_monitor) {
-    monitoring_shards.insert(cut_shard(shard));
+    last_monitoring_shards_.insert(cut_shard(shard));
   }
-  fast_sync_overlays_.update_overlays(state, std::move(my_adnl_ids), std::move(monitoring_shards),
-                                      zero_state_file_hash_, opts_.fast_sync_broadcast_speed_multiplier_, keyring_,
-                                      adnl_, rldp2_, quic_, overlays_, validator_manager_, actor_id(this));
+  update_fast_sync_and_public_overlays();
   update_validator_telemetry_collector();
   update_plumtree_stats_collector();
 }
@@ -302,6 +300,12 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
 void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast) {
   CHECK(client_.empty());
   ShardInfo &info = shards_[shard];
+  if (!public_overlays_enabled_) {
+    info.active = active;
+    info.enable_plumtree_broadcast = enable_plumtree_broadcast;
+    info.delete_at = active ? td::Timestamp::never() : td::Timestamp::in(INACTIVE_SHARD_TTL);
+    return;
+  }
   if (info.actor.empty()) {
     if (info.local_id.is_zero()) {
       auto private_key = ton::PrivateKey{ton::privkeys::Ed25519::random()};
@@ -321,6 +325,73 @@ void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active, bool enabl
   info.active = active;
   info.enable_plumtree_broadcast = enable_plumtree_broadcast;
   info.delete_at = active ? td::Timestamp::never() : td::Timestamp::in(INACTIVE_SHARD_TTL);
+}
+
+void FullNodeImpl::set_public_overlays_enabled(bool enabled) {
+  if (public_overlays_enabled_ == enabled) {
+    return;
+  }
+  public_overlays_enabled_ = enabled;
+  LOG(WARNING) << (enabled ? "Enabling" : "Disabling") << " public overlays based on fast-sync eligibility";
+  if (!enabled) {
+    for (auto &[_, shard] : shards_) {
+      shard.actor = {};
+    }
+    return;
+  }
+
+  ShardIdFull masterchain{masterchainId};
+  bool enable_plumtree_broadcast = shards_[masterchain].enable_plumtree_broadcast;
+  update_shard_actor(masterchain, true, enable_plumtree_broadcast);
+  for (auto &[shard_id, shard] : shards_) {
+    if (!shard_id.is_masterchain() && (shard.active || !sign_cert_by_.is_zero())) {
+      update_shard_actor(shard_id, shard.active, shard.enable_plumtree_broadcast);
+    }
+  }
+}
+
+void FullNodeImpl::update_public_overlay_mode(double fast_sync_authority_until) {
+  if (!client_.empty()) {
+    return;
+  }
+  enable_public_overlays_at_ = td::Timestamp::never();
+  bool is_validator_or_collator = !local_keys_.empty() || !local_collator_nodes_.empty();
+  if (!is_validator_or_collator) {
+    set_public_overlays_enabled(true);
+    return;
+  }
+  if (last_masterchain_state_.is_null()) {
+    return;
+  }
+
+  double enable_public_overlays_at = fast_sync_authority_until - PUBLIC_OVERLAY_WARMUP_PERIOD;
+  if (enable_public_overlays_at > td::Clocks::system()) {
+    set_public_overlays_enabled(false);
+    enable_public_overlays_at_ = td::Timestamp::at_unix(enable_public_overlays_at);
+    alarm_timestamp().relax(enable_public_overlays_at_);
+  } else {
+    set_public_overlays_enabled(true);
+  }
+}
+
+void FullNodeImpl::update_fast_sync_and_public_overlays() {
+  if (!initial_config_loaded_) {
+    return;
+  }
+  double authority_until = 0.0;
+  if (last_masterchain_state_.not_null()) {
+    std::set<adnl::AdnlNodeIdShort> my_adnl_ids{adnl_id_};
+    std::set<adnl::AdnlNodeIdShort> local_collator_adnl_ids;
+    for (const auto &[adnl_id, _] : local_collator_nodes_) {
+      my_adnl_ids.insert(adnl_id);
+      local_collator_adnl_ids.insert(adnl_id);
+    }
+    authority_until = fast_sync_overlays_.update_overlays(
+        last_masterchain_state_, local_keys_, std::move(my_adnl_ids), local_collator_adnl_ids, last_monitoring_shards_,
+        zero_state_file_hash_, opts_.fast_sync_broadcast_speed_multiplier_, keyring_, adnl_, rldp2_, quic_, overlays_,
+        validator_manager_, actor_id(this));
+  }
+  update_public_overlay_mode(authority_until);
 }
 
 void FullNodeImpl::sync_completed() {
@@ -348,12 +419,18 @@ td::actor::Task<> FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::Bu
       }
     }
   }
+  if (!opts_.config_.ext_messages_broadcast_disabled_) {
+    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(dst.as_leaf_shard()).first;
+    if (!fast_sync_overlay.empty()) {
+      td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_external_message, data.clone());
+    }
+  }
   if (skip_public || opts_.config_.ext_messages_broadcast_disabled_) {
     co_return {};
   }
   auto shard = get_shard_overlay_actor(dst);
   if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping OUT ext message to unknown shard";
+    VLOG_IF(full_node, WARNING, public_overlays_enabled_) << "dropping OUT ext message to unknown shard";
     co_return {};
   }
   td::actor::send_closure(shard, &FullNodeShard::send_external_message, std::move(data));
@@ -366,15 +443,15 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
     return;
   }
   send_shard_block_info_to_custom_overlays(block_id, cc_seqno, data);
-  auto shard = get_shard_overlay_actor(ShardIdFull{masterchainId});
-  if (shard.empty()) {
-    VLOG(full_node, WARNING) << "dropping OUT shard block info message to unknown shard";
-    return;
-  }
   auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull(masterchainId), true).first;
   if (!fast_sync_overlay.empty()) {
     td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_shard_block_info, block_id, cc_seqno,
                             data.clone());
+  }
+  auto shard = get_shard_overlay_actor(ShardIdFull{masterchainId});
+  if (shard.empty()) {
+    VLOG_IF(full_node, WARNING, public_overlays_enabled_) << "dropping OUT shard block info message to unknown shard";
+    return;
   }
   td::actor::send_closure(shard, &FullNodeShard::send_shard_block_info, block_id, cc_seqno, std::move(data));
 }
@@ -398,7 +475,8 @@ void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_se
   if (mode & broadcast_mode_public) {
     auto shard = get_shard_overlay_actor(block_id.shard_full());
     if (shard.empty()) {
-      VLOG(full_node, WARNING) << "dropping OUT Plumtree block candidate message to unknown shard";
+      VLOG_IF(full_node, WARNING, public_overlays_enabled_)
+          << "dropping OUT Plumtree block candidate message to unknown shard";
     } else {
       td::actor::send_closure(shard, &FullNodeShard::send_block_candidate, block_id, cc_seqno, validator_set_hash,
                               std::move(data));
@@ -431,7 +509,7 @@ void FullNodeImpl::send_broadcast(BlockBroadcast broadcast, int mode) {
   if (mode & broadcast_mode_public) {
     auto shard = get_shard_overlay_actor(broadcast.block_id.shard_full());
     if (shard.empty()) {
-      VLOG(full_node, WARNING) << "dropping OUT block broadcast to unknown shard";
+      VLOG_IF(full_node, WARNING, public_overlays_enabled_) << "dropping OUT block broadcast to unknown shard";
       return;
     }
     td::actor::send_closure(shard, &FullNodeShard::send_broadcast, std::move(broadcast));
@@ -452,7 +530,7 @@ void FullNodeImpl::send_block_finality_broadcast(BlockFinalityBroadcast finality
   if (mode & broadcast_mode_public) {
     auto shard = get_shard_overlay_actor(finality.block_id.shard_full());
     if (shard.empty()) {
-      VLOG(full_node, WARNING) << "dropping OUT block finality broadcast to unknown shard";
+      VLOG_IF(full_node, WARNING, public_overlays_enabled_) << "dropping OUT block finality broadcast to unknown shard";
       return;
     }
     td::actor::send_closure(shard, &FullNodeShard::send_block_finality_broadcast, std::move(finality));
@@ -571,6 +649,11 @@ td::actor::Task<ReceivedBlock> FullNodeImpl::download_block(BlockIdExt id, td::u
 
 td::actor::Task<td::BufferSlice> FullNodeImpl::download_zero_state(BlockIdExt id, td::uint32 priority,
                                                                    td::Timestamp timeout) {
+  if (client_.empty() && last_masterchain_state_.is_null()) {
+    // The validator set cannot be classified before the first masterchain state is available.
+    // If the zerostate is not stored locally, public overlays are the bootstrap path to obtain it.
+    set_public_overlays_enabled(true);
+  }
   auto query_sender = co_await get_query_sender(id.shard_full());
   auto [task, promise] = td::actor::StartedTask<td::BufferSlice>::make_bridge();
   td::actor::create_actor<DownloadState>(PSTRING() << "downloadstatereq" << id.id, id, BlockIdExt{}, UnsplitStateType{},
@@ -694,7 +777,7 @@ td::actor::Task<> FullNodeImpl::get_next_blocks_loop() {
 }
 
 td::actor::ActorId<FullNodeShard> FullNodeImpl::get_shard_overlay_actor(ShardIdFull shard, bool historical) {
-  if (!client_.empty()) {
+  if (!client_.empty() || !public_overlays_enabled_) {
     return {};
   }
   if (shard.is_masterchain()) {
@@ -899,6 +982,9 @@ void FullNodeImpl::update_plumtree_stats_collector() {
 
 void FullNodeImpl::alarm() {
   alarm_timestamp() = td::Timestamp::never();
+  if (enable_public_overlays_at_ && enable_public_overlays_at_.is_in_past()) {
+    update_fast_sync_and_public_overlays();
+  }
   schedule_plumtree_stats_exchange();
   if (sync_completed_at_ && sync_completed_at_.is_in_past()) {
     if (sync_promise_) {
@@ -907,6 +993,7 @@ void FullNodeImpl::alarm() {
     sync_completed_at_ = td::Timestamp::never();
   }
   alarm_timestamp().relax(sync_completed_at_);
+  alarm_timestamp().relax(enable_public_overlays_at_);
 }
 
 void FullNodeImpl::schedule_plumtree_stats_exchange() {
@@ -1216,6 +1303,7 @@ FullNodeImpl::FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_fi
     , db_root_(db_root)
     , started_promise_(std::move(started_promise))
     , opts_(opts)
+    , fast_sync_overlays_(opts.config_)
     , query_handler_public_(validator_manager, make_rate_limiter(opts.rate_limit_public_))
     , query_handler_fast_sync_(validator_manager, make_rate_limiter(opts.rate_limit_fast_sync_))
     , query_handler_custom_(validator_manager, make_rate_limiter(opts.rate_limit_custom_)) {

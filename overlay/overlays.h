@@ -97,7 +97,7 @@ struct CertificateFlags {
 };
 
 struct OverlayMemberFlags {
-  enum Values : td::uint32 { DoNotReceiveBroadcasts = 1 };
+  enum Values : td::uint32 { DoNotReceivePlumtreeBroadcasts = 1 };
 };
 
 enum BroadcastCheckResult { Forbidden = 1, NeedCheck = 2, Allowed = 3 };
