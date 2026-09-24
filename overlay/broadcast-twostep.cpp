@@ -121,6 +121,24 @@ struct BroadcastTwostepDataFec {
   td::BufferSlice extra;
 };
 
+static void gc_oldest_incomplete_broadcast(
+    OverlayImpl *overlay, td::ListNode &lru,
+    std::map<Overlay::BroadcastHash, std::unique_ptr<BroadcastTwostep>> &broadcasts, td::Slice reason) {
+  auto bcast = static_cast<BroadcastTwostep *>(lru.prev);
+  CHECK(bcast);
+  auto broadcast_id = bcast->broadcast_id;
+
+  if (!bcast->delivered) {
+    FLOG(INFO) {
+      sb << "twostep " << reason << " receiver " << *bcast << " decoded=false elapsed=" << bcast->debug.elapsed()
+         << " ";
+      bcast->debug.print_senders(sb);
+    };
+  }
+  CHECK(broadcasts.erase(broadcast_id));
+  overlay->register_delivered_broadcast(broadcast_id);
+}
+
 BroadcastsTwostep::BroadcastsTwostep() = default;
 
 BroadcastsTwostep::~BroadcastsTwostep() = default;
@@ -409,6 +427,14 @@ td::actor::Task<> BroadcastsTwostep::process_broadcast(OverlayImpl *overlay, adn
     }
   }
   if (it == broadcasts_.end()) {
+    auto max_fec_bcasts = static_cast<size_t>(overlay->max_fec_bcasts());
+    if (max_fec_bcasts == 0) {
+      co_return td::Status::Error(ErrorCode::error, "twostep cache disabled");
+    }
+    gc(overlay);
+    while (broadcasts_.size() >= max_fec_bcasts) {
+      gc_oldest_incomplete_broadcast(overlay, lru_, broadcasts_, "GC_MAX_FEC_BCASTS");
+    }
     CO_TRY(overlay->get_broadcasts_limiter(src_keyhash, cert.get()).try_register_broadcast(data_size));
     td::Result<std::unique_ptr<td::raptorq::Decoder>> R;
     if (part_size == 0 ||
@@ -468,16 +494,11 @@ void BroadcastsTwostep::gc(OverlayImpl *overlay) {
     if (bcast->date > td::Clocks::system() - 25) {  // see OverlayImpl::check_date
       break;
     }
-    auto broadcast_id = bcast->broadcast_id;
-
-    if (!bcast->delivered) {
-      FLOG(INFO) {
-        sb << "twostep GC_INCOMPLETE receiver " << *bcast << " decoded=false elapsed=" << bcast->debug.elapsed() << " ";
-        bcast->debug.print_senders(sb);
-      };
-    }
-    CHECK(broadcasts_.erase(broadcast_id));
-    overlay->register_delivered_broadcast(broadcast_id);
+    gc_oldest_incomplete_broadcast(overlay, lru_, broadcasts_, "GC_INCOMPLETE");
+  }
+  auto max_fec_bcasts = static_cast<size_t>(overlay->max_fec_bcasts());
+  while (broadcasts_.size() > max_fec_bcasts) {
+    gc_oldest_incomplete_broadcast(overlay, lru_, broadcasts_, "GC_MAX_FEC_BCASTS");
   }
 }
 
