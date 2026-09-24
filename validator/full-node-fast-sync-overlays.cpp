@@ -189,6 +189,10 @@ void FullNodeFastSyncOverlay::process_block_broadcast_with_state(PublicKeyHash s
                           BroadcastSource::fast_sync_overlay, true);
 }
 
+void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_externalMessageBroadcast &query) {
+  process_external_message_broadcast(query, [](td::Result<td::Unit>) {});
+}
+
 void FullNodeFastSyncOverlay::process_broadcast(PublicKeyHash src, ton_api::tonNode_outMsgQueueProofBroadcast &query) {
   // Not supported yet
   /*if (src == local_id_.pubkey_hash()) {
@@ -315,10 +319,56 @@ void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSli
   ton_api::downcast_call(*B.move_as_ok(), [src, Self = this](auto &obj) { Self->process_broadcast(src, obj); });
 }
 
+void FullNodeFastSyncOverlay::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast,
+                                              td::Promise<td::Unit> promise) {
+  TRY_RESULT_PROMISE(promise, message,
+                     fetch_tl_object<ton_api::tonNode_externalMessageBroadcast>(std::move(broadcast), true));
+  if (config_.ext_messages_broadcast_disabled_) {
+    promise.set_error(td::Status::Error("rebroadcasting external messages is disabled"));
+    promise = [](td::Result<td::Unit>) {};
+  }
+  process_external_message_broadcast(*message, std::move(promise));
+}
+
+void FullNodeFastSyncOverlay::process_external_message_broadcast(ton_api::tonNode_externalMessageBroadcast &message,
+                                                                 td::Promise<td::Unit> promise) {
+  auto hash = td::sha256_bits256(message.message_->data_);
+  if (!processed_ext_msg_broadcasts_.insert(hash).second) {
+    return promise.set_error(td::Status::Error("duplicate external message broadcast"));
+  }
+  if (my_ext_msg_broadcasts_.contains(hash)) {
+    promise.set_result(td::Unit());
+    return;
+  }
+  td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
+                          std::move(message.message_->data_), 0, std::move(promise));
+}
+
 void FullNodeFastSyncOverlay::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query,
                                             td::Promise<td::BufferSlice> promise) {
   td::actor::send_closure(full_node_, &FullNode::handle_query, std::move(query), src, QuerySource::fast_sync_overlay,
                           std::move(promise));
+}
+
+void FullNodeFastSyncOverlay::send_external_message(td::BufferSlice data) {
+  if (!inited_ || config_.ext_messages_broadcast_disabled_) {
+    return;
+  }
+  td::Bits256 hash = td::sha256_bits256(data);
+  if (processed_ext_msg_broadcasts_.contains(hash)) {
+    return;
+  }
+  my_ext_msg_broadcasts_.insert(hash);
+  auto B = create_serialize_tl_object<ton_api::tonNode_externalMessageBroadcast>(
+      create_tl_object<ton_api::tonNode_externalMessage>(std::move(data)));
+  if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
+    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, local_id_, overlay_id_,
+                            local_id_.pubkey_hash(), 0, std::move(B));
+  } else {
+    td::actor::send_closure(
+        overlays_, &overlay::Overlays::send_broadcast_fec_ex, local_id_, overlay_id_, local_id_.pubkey_hash(),
+        overlay::Overlays::BroadcastFlagFixedNeighbours() | overlay::Overlays::BroadcastFlagNoTwostep(), std::move(B));
+  }
 }
 
 void FullNodeFastSyncOverlay::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
@@ -516,6 +566,7 @@ void FullNodeFastSyncOverlay::start_up() {
   b.as_slice().copy_from(as_slice(X));
   overlay_id_full_ = overlay::OverlayIdFull{std::move(b)};
   overlay_id_ = overlay_id_full_.compute_short_id();
+  cleanup_processed_ext_msg_at_ = td::Timestamp::now();
 
   try_init();
 }
@@ -548,6 +599,8 @@ void FullNodeFastSyncOverlay::init() {
     }
     void check_broadcast(PublicKeyHash src, overlay::OverlayIdShort overlay_id, td::BufferSlice data,
                          td::Promise<td::Unit> promise) override {
+      td::actor::send_closure(node_, &FullNodeFastSyncOverlay::check_broadcast, src, std::move(data),
+                              std::move(promise));
     }
     void get_stats_extra(td::Promise<std::string> promise) override {
       td::actor::send_closure(node_, &FullNodeFastSyncOverlay::get_stats_extra, std::move(promise));
@@ -564,11 +617,11 @@ void FullNodeFastSyncOverlay::init() {
   td::actor::send_closure(quic_, &quic::QuicSender::add_id, local_id_);
 
   std::map<PublicKeyHash, td::uint32> authorized_keys;
-  // FIXME: allow broadcasts from non-validators when needed
   for (auto id : current_validators_adnl_) {
     authorized_keys[id.pubkey_hash()] = overlay::Overlays::max_fec_broadcast_size();
   }
-  overlay::OverlayPrivacyRules rules{0, 0, std::move(authorized_keys)};
+  overlay::OverlayPrivacyRules rules{overlay::Overlays::max_fec_broadcast_size(), overlay::CertificateFlags::AllowFec,
+                                     std::move(authorized_keys)};
   std::string scope = PSTRING() << R"({ "type": "fast-sync", "shard_id": )" << shard_.shard
                                 << ", \"workchain_id\": " << shard_.workchain << " }";
   auto local_validator_it = std::find(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id_);
@@ -742,6 +795,11 @@ void FullNodeFastSyncOverlay::get_stats_extra(td::Promise<std::string> promise) 
 void FullNodeFastSyncOverlay::alarm() {
   CHECK(inited_);
   alarm_timestamp() = td::Timestamp::in(td::Random::fast(1.0, 2.0));
+  if (cleanup_processed_ext_msg_at_.is_in_past()) {
+    processed_ext_msg_broadcasts_.clear();
+    my_ext_msg_broadcasts_.clear();
+    cleanup_processed_ext_msg_at_ = td::Timestamp::in(60.0);
+  }
   if (current_validators_adnl_.empty()) {
     return;
   }
@@ -848,6 +906,15 @@ void FullNodeFastSyncOverlays::send_plumtree_stats(td::actor::ActorId<FullNodeFa
       }
       ++selected_overlays;
       td::actor::send_closure(overlay.get(), &FullNodeFastSyncOverlay::send_plumtree_stats_to, collector);
+    }
+  }
+}
+
+void FullNodeFastSyncOverlays::set_config(FullNodeConfig config) {
+  config_ = config;
+  for (auto &[_, overlays_info] : id_to_overlays_) {
+    for (auto &[_, overlay] : overlays_info.overlays_) {
+      td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_config, config);
     }
   }
 }
@@ -1036,8 +1103,8 @@ double FullNodeFastSyncOverlays::update_overlays(
         overlay = td::actor::create_actor<FullNodeFastSyncOverlay>(
             PSTRING() << "FastSyncOv" << shard, local_id, shard, zero_state_file_hash, root_public_keys_,
             current_validators_adnl_, overlays_info.current_certificate_, receive_plumtree_broadcasts,
-            send_twostep_broadcasts, enable_plumtree_broadcast, broadcast_speed_multiplier, keyring, adnl, quic, quic,
-            overlays, validator_manager, full_node);
+            send_twostep_broadcasts, enable_plumtree_broadcast, config_, broadcast_speed_multiplier, keyring, adnl,
+            quic, quic, overlays, validator_manager, full_node);
       } else {
         td::actor::send_closure(overlay, &FullNodeFastSyncOverlay::set_params, receive_plumtree_broadcasts,
                                 send_twostep_broadcasts, enable_plumtree_broadcast, quic);

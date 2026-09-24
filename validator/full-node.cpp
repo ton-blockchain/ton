@@ -180,6 +180,7 @@ void FullNodeImpl::set_config(FullNodeConfig config) {
       td::actor::send_closure(actor.second, &FullNodeCustomOverlay::set_config, config);
     }
   }
+  fast_sync_overlays_.set_config(std::move(config));
 }
 
 void FullNodeImpl::add_custom_overlay(CustomOverlayParams params, td::Promise<td::Unit> promise) {
@@ -414,6 +415,12 @@ td::actor::Task<> FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::Bu
           }
         }
       }
+    }
+  }
+  if (!opts_.config_.ext_messages_broadcast_disabled_) {
+    auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(dst.as_leaf_shard()).first;
+    if (!fast_sync_overlay.empty()) {
+      td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_external_message, data.clone());
     }
   }
   if (skip_public || opts_.config_.ext_messages_broadcast_disabled_) {
@@ -1294,6 +1301,7 @@ FullNodeImpl::FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_fi
     , db_root_(db_root)
     , started_promise_(std::move(started_promise))
     , opts_(opts)
+    , fast_sync_overlays_(opts.config_)
     , query_handler_public_(validator_manager, make_rate_limiter(opts.rate_limit_public_))
     , query_handler_fast_sync_(validator_manager, make_rate_limiter(opts.rate_limit_fast_sync_))
     , query_handler_custom_(validator_manager, make_rate_limiter(opts.rate_limit_custom_)) {
