@@ -775,6 +775,17 @@ if (NOT NIX)
     endif()
 
     add_test(
+      NAME test-func-large-tensor
+      COMMAND ${CMAKE_COMMAND}
+        -DFUNC_EXECUTABLE=$<TARGET_FILE:func>
+        -DSOURCE_FILE=${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/test/large-tensor.fc
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/test/check-large-tensor.cmake)
+
+    add_test(
+      NAME test-func-max-tensor
+      COMMAND $<TARGET_FILE:func> ${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/test/max-tensor.fc)
+
+    add_test(
       NAME test-func-legacy
       COMMAND ${PYTHON_VER} legacy_tester.py
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/crypto/func/auto-tests)
