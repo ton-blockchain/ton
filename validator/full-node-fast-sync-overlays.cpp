@@ -1076,14 +1076,22 @@ double FullNodeFastSyncOverlays::update_overlays(
       continue;
     }
 
-    if (!overlays_info.current_certificate_.empty()) {
-      const auto &certificate = overlays_info.current_certificate_;
+    auto account_certificate_authority = [&](const overlay::OverlayMemberCertificate &certificate) {
+      if (certificate.empty()) {
+        return;
+      }
       auto issuer = validator_authority_until_.find(certificate.issued_by().compute_short_id());
       if (issuer != validator_authority_until_.end()) {
         // Member certificates allow three seconds of clock skew. Recheck in the first whole second in which
         // update_overlays() is guaranteed to consider the certificate expired and can select another one.
         double certificate_until = static_cast<double>(certificate.expire_at()) + 4.0;
         authority_until = std::max(authority_until, std::min(certificate_until, static_cast<double>(issuer->second)));
+      }
+    };
+    account_certificate_authority(overlays_info.current_certificate_);
+    if (auto it = member_certificates_.find(local_id); it != member_certificates_.end()) {
+      for (const auto &certificate : it->second) {
+        account_certificate_authority(certificate);
       }
     }
 
