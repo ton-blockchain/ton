@@ -628,11 +628,11 @@ void FullNodeFastSyncOverlay::init() {
   bool is_original_sender = local_validator_it != current_validators_adnl_.end();
   overlay::OverlayOptions options;
   options.name_ = "fast-sync" + shard_.to_str();
-  if (enable_plumtree_broadcast_ || !shard_.is_masterchain()) {
+  if (enable_plumtree_broadcast_) {
     options.default_permanent_members_flags_ = overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
+    options.local_overlay_member_flags_ =
+        receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
   }
-  options.local_overlay_member_flags_ =
-      receive_plumtree_broadcasts_ ? 0 : overlay::OverlayMemberFlags::DoNotReceivePlumtreeBroadcasts;
   options.max_slaves_in_semiprivate_overlay_ = FullNode::MAX_FAST_SYNC_OVERLAY_CLIENTS;
   options.broadcast_speed_multiplier_ = broadcast_speed_multiplier_;
   options.twostep_broadcast_sender_ = adnl_sender_;
@@ -701,16 +701,14 @@ void FullNodeFastSyncOverlay::set_member_certificate(overlay::OverlayMemberCerti
 void FullNodeFastSyncOverlay::set_params(bool receive_plumtree_broadcasts, bool send_twostep_broadcasts,
                                          bool enable_plumtree_broadcast,
                                          td::actor::ActorId<adnl::AdnlSenderEx> adnl_sender) {
-  if (receive_plumtree_broadcasts == receive_plumtree_broadcasts_ &&
-      send_twostep_broadcasts == send_twostep_broadcasts_ && enable_plumtree_broadcast == enable_plumtree_broadcast_ &&
-      adnl_sender == adnl_sender_) {
-    return;
-  }
+  bool recreate_overlay = send_twostep_broadcasts != send_twostep_broadcasts_ ||
+                          enable_plumtree_broadcast != enable_plumtree_broadcast_ || adnl_sender != adnl_sender_ ||
+                          (enable_plumtree_broadcast && receive_plumtree_broadcasts != receive_plumtree_broadcasts_);
   receive_plumtree_broadcasts_ = receive_plumtree_broadcasts;
   send_twostep_broadcasts_ = send_twostep_broadcasts;
   enable_plumtree_broadcast_ = enable_plumtree_broadcast;
   adnl_sender_ = adnl_sender;
-  if (inited_) {
+  if (inited_ && recreate_overlay) {
     td::actor::send_closure(overlays_, &overlay::Overlays::delete_overlay, local_id_, overlay_id_);
     init();
   }
@@ -921,8 +919,8 @@ void FullNodeFastSyncOverlays::set_config(FullNodeConfig config) {
 
 double FullNodeFastSyncOverlays::update_overlays(
     td::Ref<MasterchainState> state, const std::set<PublicKeyHash> &local_keys,
-    std::set<adnl::AdnlNodeIdShort> my_adnl_ids, std::set<ShardIdFull> monitoring_shards,
-    const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
+    std::set<adnl::AdnlNodeIdShort> my_adnl_ids, const std::set<adnl::AdnlNodeIdShort> &local_collator_adnl_ids,
+    std::set<ShardIdFull> monitoring_shards, const FileHash &zero_state_file_hash, double broadcast_speed_multiplier,
     const td::actor::ActorId<keyring::Keyring> &keyring, const td::actor::ActorId<adnl::Adnl> &adnl,
     const td::actor::ActorId<rldp2::Rldp> &rldp2, const td::actor::ActorId<quic::QuicSender> &quic,
     const td::actor::ActorId<overlay::Overlays> &overlays,
@@ -1040,11 +1038,12 @@ double FullNodeFastSyncOverlays::update_overlays(
   for (adnl::AdnlNodeIdShort local_id : my_adnl_ids) {
     bool is_new = !id_to_overlays_.count(local_id);
     auto &overlays_info = id_to_overlays_[local_id];
-    // Update is_validator and current_certificate
+    // Update local roles and current_certificate
     if (is_new) {
       overlays_info.is_validator_ =
           std::binary_search(current_validators_adnl_.begin(), current_validators_adnl_.end(), local_id);
     }
+    overlays_info.is_collator_ = local_collator_adnl_ids.contains(local_id);
     bool changed_certificate = false;
     // Check if certificate is outdated or no longer authorized by current root keys
     if (!overlays_info.current_certificate_.empty() && overlays_info.current_certificate_.is_expired(now)) {
@@ -1091,12 +1090,8 @@ double FullNodeFastSyncOverlays::update_overlays(
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
       bool enable_plumtree_broadcast = state->get_new_consensus_config(shard.workchain).enable_plumtree_broadcast();
-      bool receive_plumtree_broadcasts;
-      if (enable_plumtree_broadcast) {
-        receive_plumtree_broadcasts = !overlays_info.is_validator_ && monitoring_shards.contains(shard);
-      } else {
-        receive_plumtree_broadcasts = monitoring_shards.contains(shard);
-      }
+      bool receive_plumtree_broadcasts =
+          !overlays_info.is_validator_ && !overlays_info.is_collator_ && monitoring_shards.contains(shard);
       bool send_twostep_broadcasts = true;
       auto &overlay = overlays_info.overlays_[shard];
       if (overlay.empty()) {
