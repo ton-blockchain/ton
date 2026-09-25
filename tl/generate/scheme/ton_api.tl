@@ -562,16 +562,6 @@ validator.telemetry flags:# timestamp:double adnl_id:int256
 ---types---
 
 
-id.config.local id:PrivateKey = id.config.Local;
-dht.config.local id:adnl.id.short = dht.config.Local;
-dht.config.random.local cnt:int = dht.config.Local;
-liteserver.config.local id:PrivateKey port:int = liteserver.config.Local;
-liteserver.config.random.local port:int = liteserver.config.Local;
-validator.config.local id:adnl.id.short = validator.config.Local;
-validator.config.random.local addr_list:adnl.addressList = validator.config.Local;
-control.config.local priv:PrivateKey pub:int256 port:int = control.config.Local;
-config.local local_ids:(vector id.config.local) dht:(vector dht.config.Local) validators:(vector validator.config.Local) liteservers:(vector liteserver.config.Local) control:(vector control.config.local) = config.Local;
-
 dht.config.global static_nodes:dht.nodes k:int a:int = dht.config.Global;
 dht.config.global_v2 static_nodes:dht.nodes k:int a:int network_id:int = dht.config.Global;
 adnl.config.global static_nodes:adnl.nodes = adnl.config.Global;
