@@ -92,5 +92,6 @@ std::string get_abi_description(const DocCommentLines& doc_lines);
 
 // shared to_json overloads used by ABI/symbol-types emitters via ADL
 void to_json(JsonPrettyOutput& json, const JsonTypeExporter::ConstValJson& v);
+void to_json(JsonPrettyOutput& json, SrcRange range);
 
 } // namespace tolk

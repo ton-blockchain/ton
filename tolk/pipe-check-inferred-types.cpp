@@ -25,13 +25,28 @@ namespace tolk {
 
 static bool expect_integer(AnyExprV v_inferred);
 
-static std::string expression_as_string(AnyExprV v) {
-  if (auto v_ref = v->try_as<ast_reference>()) {
-    if (v_ref->sym->try_as<LocalVarPtr>() || v_ref->sym->try_as<GlobalVarPtr>()) {
-      return "variable `" + static_cast<std::string>(v_ref->get_identifier()->name) + "`";
+struct TypePatternVariantMatch {
+  int variant_idx;
+  bool is_subtype_violated;
+  TypePtr variant_type;
+};
+
+// given `type MyUnion = IntAlias | slice`, we can use `v is IntAlias` and `v is int` (narrowed subtype)
+// but for `int | slice`, we can NOT use `v is IntAlias` (subtype extension is violated)
+static TypePatternVariantMatch calculate_type_pattern_variant_match(TypePtr subject_type, TypePtr pattern_type) {
+  if (const TypeDataUnion* subject_union = subject_type->unwrap_alias()->try_as<TypeDataUnion>()) {
+    int variant_idx = subject_union->get_variant_equal_to(pattern_type);   // it's runtime equality
+    if (variant_idx == -1) {
+      return {-1, false, nullptr};
     }
+    TypePtr variant_type = subject_union->variants[variant_idx];
+    return {variant_idx, !SubtypeDistance::calc_between(variant_type, pattern_type).is_applicable(), variant_type};
   }
-  return "expression";
+
+  if (!subject_type->equal_to(pattern_type)) {
+    return {-1, false, nullptr};
+  }
+  return {0, !SubtypeDistance::calc_between(subject_type, pattern_type).is_applicable(), subject_type};
 }
 
 // make a general error on type mismatch; for example, "can not assign `cell` to `slice`";
@@ -99,15 +114,6 @@ static Error err_not_bool_in_unary_not(AnyExprV unary_expr) {
   return err_cannot_apply_operator("!", unary_expr);
 }
 
-GNU_ATTRIBUTE_NOINLINE
-static void warning_condition_always_true_or_false(FunctionPtr cur_f, SrcRange keyword_range, AnyExprV cond, const char* operator_name) {
-  bool no_warning = cond->kind == ast_bool_const || cond->kind == ast_int_const;
-  if (no_warning) {     // allow `while(true)` without a warning
-    return;
-  }
-  err("condition of {} is always {}", operator_name, cond->is_always_true).warning(keyword_range, cur_f);
-}
-
 // given fun `f` and a call `f(a,b,c)`, check that argument count is expected;
 // (parameters may have default values, so it's not as trivial as to compare params and args size)
 static void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_call> v, FunctionPtr called_f, AnyExprV self_obj) {
@@ -128,10 +134,26 @@ static void check_arguments_count_at_fun_call(FunctionPtr cur_f, V<ast_function_
   if (!called_f->does_accept_self() && self_obj) {   // static method `Point.create(...)` called as `p.create()`
     err("method `{}` can not be called via dot\n(it's a static method, it does not accept `self`)", called_f).collect(v->get_callee(), cur_f);
   } else if (n_max_params < n_arguments) {
-    err("too many arguments in call to `{}`, expected {}, have {}", called_f, n_max_params - delta_self, n_arguments - delta_self).collect(v->get_arg_list(), cur_f);
+    err("too many arguments in call to `{}`, expected {}, have {}", called_f, n_max_params - delta_self, n_arguments - delta_self)
+      .with_secondary(called_f, "function declared here")
+      .collect(v->get_arg(n_max_params - delta_self), cur_f);
   } else if (n_arguments < n_min_params) {
-    err("too few arguments in call to `{}`, expected {}, have {}", called_f, n_min_params - delta_self, n_arguments - delta_self).collect(v->get_arg_list(), cur_f);
+    err("too few arguments in call to `{}`, expected {}, have {}", called_f, n_min_params - delta_self, n_arguments - delta_self)
+      .with_secondary(called_f, "function declared here")
+      .collect(v->get_arg_list(), cur_f);
   }
+}
+
+// mutate writeback uses equal_to(), plus alias identity when both sides are aliases
+static bool mutate_types_compatible(TypePtr from, TypePtr to) {
+  if (!from->equal_to(to)) {
+    return false;
+  }
+  if (from->try_as<TypeDataAlias>() && to->try_as<TypeDataAlias>()) {
+    // only when both aliases: `tuple.push` is okay for `array<T>.push`, even though distance == 1
+    return SubtypeDistance::calc_between(from, to).get_distance() == 0;
+  }
+  return true;
 }
 
 // given `f(x: mutate int?)` and a call `f(expr)`, check that `int?` is assignable to expr_type
@@ -149,14 +171,14 @@ static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr arg_t
   }
 
   // here, in checking mutations, we will emit an error if this back-assignment is incompatible;
-  // we don't allow passing `int` to mutate `coins` and similar: not can_rhs_be_assigned(), but equal_to()
-  bool ok = arg_type_orig->equal_to(param_type);
+  // we don't allow passing `int` to mutate `coins` and similar: not can_rhs_be_assigned(), but mutate_types_compatible()
+  bool ok = mutate_types_compatible(arg_type_orig, param_type);
   if (!ok) {
     // the only exception, if we originally have `var x: int|builder`, and `x` is smart-cast to `builder`,
     // we allow calling method for `builder`; we also don't allow intersection between unions
     if (const TypeDataUnion* orig_union = arg_type_orig->unwrap_alias()->try_as<TypeDataUnion>()) {
       TypePtr only_t = orig_union->calculate_exact_variant_to_fit_rhs(param_type);
-      ok = only_t != nullptr && only_t->equal_to(param_type) && arg_type_before_mutate->equal_to(param_type);
+      ok = only_t != nullptr && mutate_types_compatible(only_t, param_type) && mutate_types_compatible(arg_type_before_mutate, param_type);
     }
   }
 
@@ -172,9 +194,8 @@ static void check_function_argument_mutate_back(FunctionPtr cur_f, TypePtr arg_t
 // make an error on `var n = null`
 // technically it's correct, type of `n` is TypeDataNullLiteral, but it's not what the user wanted
 // so, it's better to see an error on assignment, that later, on `n` usage and types mismatch
-// (most common is situation above, but generally, `var (x,n) = xn` where xn is a tensor with 2-nd always-null, can be)
-static Error err_assign_always_null_to_variable(LocalVarPtr assigned_var, bool is_assigned_null_literal) {
-  return err("can not infer type of `{}`, it's always null\nspecify its type with `{}: <type>`{}", assigned_var, assigned_var, (is_assigned_null_literal ? " or use `null as <type>`" : ""));
+static Error err_assign_null_literal_to_variable(LocalVarPtr assigned_var) {
+  return err("can not infer type of `{}`, it's always null\n""hint: specify its type with `{}: <type>` or use `null as <type>`", assigned_var, assigned_var);
 }
 
 // handle __expect_type(expr, "type") call
@@ -184,7 +205,7 @@ static void handle_possible_compiler_internal_call(FunctionPtr cur_f, V<ast_func
   FunctionPtr fun_ref = v->fun_maybe;
   tolk_assert(fun_ref && fun_ref->is_builtin());
 
-  // prohibit calling built-ins `__dict.XXX`, `builder.__storeVarInt`, etc.
+  // prohibit calling compiler-only built-ins like `__dict.XXX` and `__storeVarInt`
   if (!fun_ref->name.starts_with("__expect")) {
     err("internal compiler functions are not allowed to be called").fire(v, cur_f);
   }
@@ -262,16 +283,16 @@ static bool check_eq_neq_operator(TypePtr lhs_type, TypePtr rhs_type, bool& not_
 
 // given `fun Some.packToBuilder`, check that it's declared correctly
 static void check_declared_packToBuilder(FunctionPtr f_pack) {
-  bool declared_correctly = f_pack->does_accept_self() && !f_pack->does_mutate_self()
+  bool declared_correctly = f_pack->does_accept_self() && !f_pack->does_mutate_self() && !f_pack->does_return_self()
                          && f_pack->get_num_params() == 2 && f_pack->has_mutate_params()
                          && f_pack->get_param(1).declared_type == TypeDataBuilder::create()
                          && f_pack->inferred_return_type->equal_to(TypeDataVoid::create());
   if (!declared_correctly) {
-    err("method `{}` is declared incorrectly\n""hint: it must accept 2 parameters and return nothing:\n""> fun {}(self, mutate b: builder)", f_pack, f_pack).collect(f_pack->ident_anchor, f_pack);
+    err("method `{}` is declared incorrectly\n""hint: it must accept 2 parameters and return nothing:\n""> fun {}(self, mutate b: builder)", f_pack, f_pack).collect(f_pack);
   }
   bool is_receiver_ok = f_pack->receiver_type->try_as<TypeDataAlias>() || f_pack->receiver_type->try_as<TypeDataStruct>() || f_pack->receiver_type->try_as<TypeDataEnum>();
   if (!is_receiver_ok) {
-    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_pack->receiver_type).collect(f_pack->ident_anchor, f_pack);
+    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_pack->receiver_type).collect(f_pack);
   }
 }
 
@@ -282,11 +303,11 @@ static void check_declared_unpackFromSlice(FunctionPtr f_unpack) {
                          && f_unpack->get_param(0).declared_type == TypeDataSlice::create()
                          && f_unpack->inferred_return_type->equal_to(f_unpack->receiver_type);
   if (!declared_correctly) {
-    err("method `{}` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n""> fun {}(mutate s: slice): {}", f_unpack, f_unpack, f_unpack->receiver_type).collect(f_unpack->ident_anchor, f_unpack);
+    err("method `{}` is declared incorrectly\n""hint: it must accept 1 parameter and return an object:\n""> fun {}(mutate s: slice): {}", f_unpack, f_unpack, f_unpack->receiver_type).collect(f_unpack);
   }
   bool is_receiver_ok = f_unpack->receiver_type->try_as<TypeDataAlias>() || f_unpack->receiver_type->try_as<TypeDataStruct>() || f_unpack->receiver_type->try_as<TypeDataEnum>();
   if (!is_receiver_ok) {
-    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_unpack->receiver_type).collect(f_unpack->ident_anchor, f_unpack);
+    err("this method can not be declared for type `{}`\n""hint: custom pack/unpack can be declared only for type aliases and structures", f_unpack->receiver_type).collect(f_unpack);
   }
 }
 
@@ -405,7 +426,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       std::string hint = "";
       const TypeDataUnion* to_union = cast_to->unwrap_alias()->try_as<TypeDataUnion>();
       if (to_union && to_union->or_null && cast_from->can_be_casted_with_as_operator(to_union->or_null)) {
-        hint = "\n""use an intermediate cast: `xxx as " + to_union->or_null->as_human_readable() + " as " + cast_to->as_human_readable() + "`";
+        hint = "\n""hint: use an intermediate cast: `xxx as " + to_union->or_null->as_human_readable() + " as " + cast_to->as_human_readable() + "`";
       }
       err("type `{}` can not be cast to `{}`{}", cast_from, cast_to, hint).collect(v, cur_f);
     }
@@ -416,18 +437,19 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     TypePtr rhs_type = v->type_node->resolved_type;
 
     if (rhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {   // `v is T1 | T2` / `v is T?` is disallowed
-      err("union types are not allowed, use concrete types in `is`").collect(v, cur_f);
+      err("union types are not allowed, use concrete types in `is`").collect(v->type_node, cur_f);
       return;
     }
 
-    if ((v->is_always_true && !v->is_negated) || (v->is_always_false && v->is_negated)) {
-      err("{} is always `{}`, this condition is always {}", expression_as_string(v->get_expr()), rhs_type, v->is_always_true).warning(v, cur_f);
+    TypePtr expr_type = v->get_expr()->inferred_type;
+    TypePatternVariantMatch match = calculate_type_pattern_variant_match(expr_type, rhs_type);
+    if (match.is_subtype_violated) {
+      err("wrong pattern matching: use `{}` instead of `{}`", match.variant_type, rhs_type).collect(v, cur_f);
     }
+
     if ((v->is_always_false && !v->is_negated) || (v->is_always_true && v->is_negated)) {
       if (v->get_expr()->inferred_type == TypeDataUnknown::create()) {
         err("operator `is` does not work for `unknown`, it works for union types only").collect(v, cur_f);
-      } else {
-        err("{} of type `{}` can never be `{}`, this condition is always {}", expression_as_string(v->get_expr()), v->get_expr()->inferred_type, rhs_type, v->is_always_true).warning(v, cur_f);
       }
     }
   }
@@ -439,7 +461,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       // operator `!` used for always-null (proven by smart casts, for example), it's an error
       err("operator `!` used for always null expression").collect(v, cur_f);
     }
-    // if operator `!` used for non-nullable, probably a warning should be printed
   }
 
   void visit(V<ast_function_call> v) override {
@@ -486,7 +507,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       V<ast_argument> arg_i = v->get_arg(i);
       TypePtr param_type = param_i.declared_type;
       if (!param_type->can_rhs_be_assigned(arg_i->inferred_type)) {
-        err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type).collect(arg_i, cur_f);
+        err_type_mismatch("can not pass {src} to {dst}", arg_i->inferred_type, param_type)
+          .with_secondary(&param_i, "parameter declared here")
+          .collect(arg_i, cur_f);
       }
       if (param_i.is_mutate_parameter()) {
         check_function_argument_mutate_back(cur_f, arg_i->inferred_type, arg_i->get_expr(), false);
@@ -526,8 +549,8 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, declared_type).collect(err_loc, cur_f);
         }
       } else {
-        if (rhs_type == TypeDataNullLiteral::create()) {
-          err_assign_always_null_to_variable(lhs_var->var_ref->try_as<LocalVarPtr>(), corresponding_maybe_rhs && corresponding_maybe_rhs->kind == ast_null_keyword).collect(err_loc, cur_f);
+        if (rhs_type == TypeDataNullLiteral::create() && corresponding_maybe_rhs && corresponding_maybe_rhs->kind == ast_null_keyword) {
+          err_assign_null_literal_to_variable(lhs_var->var_ref->try_as<LocalVarPtr>()).collect(err_loc, cur_f);
         }
       }
       return;
@@ -549,7 +572,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
       for (int i = 0; i < lhs_tensor->size(); ++i) {
         process_assignment_lhs(lhs_tensor->get_item(i), rhs_type_tensor->items[i], rhs_tensor_maybe ? rhs_tensor_maybe->get_item(i) : nullptr);
       }
-      return;
     }
 
     // `[v1, v2] = rhs` / `var [v1, v2] = rhs` (rhs may be `[1,2]` or `shapedTupleVar`)
@@ -559,19 +581,27 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         err("can not assign `{}` to `[...]`", rhs_type).collect(err_loc, cur_f);
         return;
       }
-      // i-th component compatibility will be checked automatically below
+      V<ast_square_brackets> rhs_shaped_maybe = corresponding_maybe_rhs ? corresponding_maybe_rhs->try_as<ast_square_brackets>() : nullptr;
+      for (int i = 0; i < lhs_shaped->size(); ++i) {
+        process_assignment_lhs(lhs_shaped->get_item(i), rhs_type_shaped->items[i], rhs_shaped_maybe ? rhs_shaped_maybe->get_item(i) : nullptr);
+      }
     }
 
     // here is `v = rhs` (just assignment, not `var v = rhs`) / `a.0 = rhs` / `getObj(z=f()).0 = rhs` etc.
     // types were already inferred, so just check their compatibility
     // for strange lhs like `f() = rhs` type checking will pass, but will fail lvalue check later
     if (!lhs->inferred_type->can_rhs_be_assigned(rhs_type)) {
-      if (lhs->try_as<ast_reference>()) {
-        err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, lhs->inferred_type).collect(err_loc, cur_f);
-      } else if (lhs->try_as<ast_dot_access>()) {
-        err_type_mismatch("can not assign {src} to field of type {dst}", rhs_type, lhs->inferred_type).collect(err_loc, cur_f);
+      if (auto as_ref = lhs->try_as<ast_reference>()) {
+        err_type_mismatch("can not assign {src} to variable of type {dst}", rhs_type, lhs->inferred_type)
+          .with_secondary(as_ref->sym, "variable declared here")
+          .collect(err_loc, cur_f);
+      } else if (auto as_dot = lhs->try_as<ast_dot_access>(); as_dot && as_dot->is_target_struct_field()) {
+        err_type_mismatch("can not assign {src} to field of type {dst}", rhs_type, lhs->inferred_type)
+          .with_secondary(std::get<StructFieldPtr>(as_dot->target), "field declared here")
+          .collect(err_loc, cur_f);
       } else {
-        err_type_mismatch("can not assign {src} to {dst}", rhs_type, lhs->inferred_type).collect(err_loc, cur_f);
+        err_type_mismatch("can not assign {src} to {dst}", rhs_type, lhs->inferred_type)
+          .collect(err_loc, cur_f);
       }
     }
   }
@@ -588,7 +618,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
 
     TypePtr expr_type = v->get_return_value()->inferred_type;
     if (!cur_f->inferred_return_type->can_rhs_be_assigned(expr_type)) {
-      err_type_mismatch("can not convert type {src} to return type {dst}", expr_type, cur_f->inferred_return_type).collect(v->get_return_value(), cur_f);
+      err_type_mismatch("can not convert type {src} to return type {dst}", expr_type, cur_f->inferred_return_type)
+        .with_secondary(cur_f->return_type_node, "return type declared here")
+        .collect(v->get_return_value(), cur_f);
     }
   }
 
@@ -614,20 +646,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     AnyExprV cond = v->get_cond();
     if (!expect_boolean(cond)) {
       err_not_bool_as_condition("if", cond).collect(cond, cur_f);
-    }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, cond->range, cond, "ternary operator");
-      return;
-    }
-
-    AnyExprV when_true = v->get_when_true();
-    AnyExprV when_false = v->get_when_false();
-    if (!v->inferred_type->can_rhs_be_assigned(when_true->inferred_type)) {
-      err_type_mismatch("can not convert type {src} to ternary result type {dst}", when_true->inferred_type, v->inferred_type).collect(when_true, cur_f);
-    }
-    if (!v->inferred_type->can_rhs_be_assigned(when_false->inferred_type)) {
-      err_type_mismatch("can not convert type {src} to ternary result type {dst}", when_false->inferred_type, v->inferred_type).collect(when_false, cur_f);
     }
   }
 
@@ -659,7 +677,7 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
         // for `map`, every item must be `[k,v]`, e.g. `map<int32, bool> [ [1,true], [2,false] ]`
         auto ith_square = ith_v->try_as<ast_square_brackets>();
         if (!ith_square || ith_square->size() != 2) {
-          err("invalid `[...]` constructor for `map`: each item must be `[key, value]`\n""example:\n""> var m: map<int32, bool> = [ [1,true], [2,false] ];").collect(ith_v, cur_f);
+          err("invalid `[...]` constructor for `map`: each item must be `[key, value]`\n""hint: for example:\n""> var m: map<int32, bool> = [ [1,true], [2,false] ];").collect(ith_v, cur_f);
         } else {
           if (!h_map->TKey->can_rhs_be_assigned(ith_square->get_item(0)->inferred_type)) {
             err_type_mismatch("invalid `[...]` constructor: can not convert {src} to {dst}", ith_square->get_item(0)->inferred_type, h_map->TKey).collect(ith_square->get_item(0), cur_f);
@@ -703,15 +721,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     const TypeDataEnum* subject_enum = subject_type->unwrap_alias()->try_as<TypeDataEnum>();
     const TypeDataUnion* subject_union = subject_type->unwrap_alias()->try_as<TypeDataUnion>();
 
-    if (!v->is_statement()) {
-      for (int i = 0; i < v->get_arms_count(); ++i) {
-        AnyExprV arm_body = v->get_arm(i)->get_body();
-        if (!v->inferred_type->can_rhs_be_assigned(arm_body->inferred_type)) {
-          err_type_mismatch("can not convert type {src} to match result type {dst}", arm_body->inferred_type, v->inferred_type).collect(arm_body, cur_f);
-        }
-      }
-    }
-
     std::vector<int> covered_variants;        // union variant indexes; for non-union, the only matching type is 0
     std::vector<EnumMemberPtr> covered_enum;  // for `match` over an enum, we want it to be exhaustive
 
@@ -731,8 +740,11 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
           if (lhs_type->unwrap_alias()->try_as<TypeDataUnion>()) {
             err("wrong pattern matching: union types are not allowed, use concrete types in `match`").collect(v_arm->get_pattern_expr(), cur_f);
           }
-          int variant_idx = subject_union ? subject_union->get_variant_idx(lhs_type) : (subject_type->equal_to(lhs_type) ? 0 : -1);
-          if (variant_idx == -1) {
+          TypePatternVariantMatch match = calculate_type_pattern_variant_match(subject_type, lhs_type);
+          int variant_idx = match.is_subtype_violated ? -1 : match.variant_idx;
+          if (match.is_subtype_violated) {
+            err("wrong pattern matching: use `{}` instead of `{}`", match.variant_type, lhs_type).collect(v_arm->get_pattern_expr(), cur_f);
+          } else if (variant_idx == -1) {
             err("wrong pattern matching: `{}` is not a variant of `{}`", lhs_type, subject_type).collect(v_arm->get_pattern_expr(), cur_f);
           }
           bool is_duplicated = variant_idx != -1 && std::find(covered_variants.begin(), covered_variants.end(), variant_idx) != covered_variants.end();
@@ -839,7 +851,9 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     parent::visit(v->get_init_val());
 
     if (!v->field_ref->declared_type->can_rhs_be_assigned(v->get_init_val()->inferred_type)) {
-      err_type_mismatch("can not assign {src} to field of type {dst}", v->get_init_val()->inferred_type, v->field_ref->declared_type).collect(v->get_init_val(), cur_f);
+      err_type_mismatch("can not assign {src} to field of type {dst}", v->get_init_val()->inferred_type, v->field_ref->declared_type)
+        .with_secondary(v->field_ref, "field declared here")
+        .collect(v->get_init_val(), cur_f);
     }
   }
 
@@ -849,10 +863,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     AnyExprV cond = v->get_cond();
     if (!expect_boolean(cond)) {
       err_not_bool_as_condition("if", cond).collect(cond, cur_f);
-    }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`if`");
     }
   }
 
@@ -872,10 +882,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     if (!expect_boolean(cond)) {
       err_not_bool_as_condition("while", cond).collect(cond, cur_f);
     }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`while`");
-    }
   }
 
   void visit(V<ast_do_while_statement> v) override {
@@ -884,10 +890,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     AnyExprV cond = v->get_cond();
     if (!expect_boolean(cond)) {
       err_not_bool_as_condition("while", cond).collect(cond, cur_f);
-    }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`do while`");
     }
   }
 
@@ -911,22 +913,6 @@ class CheckInferredTypesVisitor final : public ASTVisitorFunctionBody {
     }
     if (!expect_thrown_code(v->get_thrown_code()->inferred_type)) {
       err("thrown excNo of `assert` must be an integer, got `{}`", v->get_thrown_code()->inferred_type).collect(v->get_thrown_code(), cur_f);
-    }
-
-    if (cond->is_always_true || cond->is_always_false) {
-      warning_condition_always_true_or_false(cur_f, v->keyword_range(), cond, "`assert`");
-    }
-  }
-
-  void visit(V<ast_block_statement> v) override {
-    parent::visit(v);
-
-    if (v->first_unreachable) {
-      // it's essential to print "unreachable code" warning AFTER type checking
-      // (printing it while inferring might be a false positive if types are incorrect, due to smart casts for example)
-      // a more correct approach would be to access cfg here somehow, but since cfg is now available only while inferring,
-      // a special v->first_unreachable was set specifically for this warning (again, which is correct if types match)
-      err("unreachable code").warning(v->first_unreachable, cur_f);
     }
   }
 

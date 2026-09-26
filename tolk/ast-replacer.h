@@ -97,7 +97,6 @@ protected:
   virtual AnyExprV replace(V<ast_empty_expression> v)          { return replace_children(v); }
   virtual AnyExprV replace(V<ast_braced_expression> v)         { return replace_children(v); }
   virtual AnyExprV replace(V<ast_braced_yield_result> v)       { return replace_children(v); }
-  virtual AnyExprV replace(V<ast_artificial_aux_vertex> v)     { return replace_children(v); }
   virtual AnyExprV replace(V<ast_tensor> v)                    { return replace_children(v); }
   virtual AnyExprV replace(V<ast_square_brackets> v)           { return replace_children(v); }
   virtual AnyExprV replace(V<ast_reference> v)                 { return replace_children(v); }
@@ -136,6 +135,8 @@ protected:
   virtual AnyV replace(V<ast_repeat_statement> v)              { return replace_children(v); }
   virtual AnyV replace(V<ast_while_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_do_while_statement> v)            { return replace_children(v); }
+  virtual AnyV replace(V<ast_break_statement> v)               { return replace_children(v); }
+  virtual AnyV replace(V<ast_continue_statement> v)            { return replace_children(v); }
   virtual AnyV replace(V<ast_throw_statement> v)               { return replace_children(v); }
   virtual AnyV replace(V<ast_assert_statement> v)              { return replace_children(v); }
   virtual AnyV replace(V<ast_try_catch_statement> v)           { return replace_children(v); }
@@ -145,7 +146,6 @@ protected:
       case ast_empty_expression:                return replace(v->as<ast_empty_expression>());
       case ast_braced_expression:               return replace(v->as<ast_braced_expression>());
       case ast_braced_yield_result:             return replace(v->as<ast_braced_yield_result>());
-      case ast_artificial_aux_vertex:           return replace(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return replace(v->as<ast_tensor>());
       case ast_square_brackets:                 return replace(v->as<ast_square_brackets>());
       case ast_reference:                       return replace(v->as<ast_reference>());
@@ -190,6 +190,8 @@ protected:
       case ast_repeat_statement:                return replace(v->as<ast_repeat_statement>());
       case ast_while_statement:                 return replace(v->as<ast_while_statement>());
       case ast_do_while_statement:              return replace(v->as<ast_do_while_statement>());
+      case ast_break_statement:                 return replace(v->as<ast_break_statement>());
+      case ast_continue_statement:              return replace(v->as<ast_continue_statement>());
       case ast_throw_statement:                 return replace(v->as<ast_throw_statement>());
       case ast_assert_statement:                return replace(v->as<ast_assert_statement>());
       case ast_try_catch_statement:             return replace(v->as<ast_try_catch_statement>());
@@ -221,16 +223,15 @@ public:
 };
 
 
-const std::vector<FunctionPtr>& get_all_builtin_functions();
-const std::vector<FunctionPtr>& get_all_not_builtin_functions();
+const std::vector<FunctionPtr>& get_all_functions();
 const std::vector<GlobalConstPtr>& get_all_declared_constants();
 const std::vector<StructPtr>& get_all_declared_structs();
 const std::vector<EnumDefPtr>& get_all_declared_enums();
 
 template<class BodyReplacerT>
 void replace_ast_of_all_functions(BodyReplacerT& replacer) {
-  for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
-    if (replacer.should_visit_function(fun_ref)) {
+  for (FunctionPtr fun_ref : get_all_functions()) {
+    if (fun_ref->ast_root && replacer.should_visit_function(fun_ref)) {
       replacer.start_replacing_in_function(fun_ref, fun_ref->ast_root->as<ast_function_declaration>());
     }
   }

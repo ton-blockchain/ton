@@ -75,15 +75,6 @@ static SrcRange get_function_body_end(FunctionPtr fun_ref) {
   return SrcRange::span_at_end(fun_ref->ast_root->range, 1);
 }
 
-static void to_json(JsonPrettyOutput& json, SrcRange range) {
-  SrcRange::DecodedRange r = range.decode_offsets();
-  json << '['
-      << r.file_id << ',' << ' '
-      << r.start_line_no << ',' << r.start_char_no << ',' << ' '
-      << r.end_line_no << ',' << r.end_char_no
-      << ']';
-}
-
 static void to_json(JsonPrettyOutput& out, const std::vector<var_idx_t>& ir_idx_arr) {
   out << '[';
   bool first = true;
@@ -236,8 +227,9 @@ void DebugMarksCollecting::to_pretty_json(std::ostream& os, const SymbolTypesCol
     } else if (const DebugMarkScopeStart* m_scope = std::get_if<DebugMarkScopeStart>(&mark)) {
       json.key_value("kind", "scope_start");
       json.key_value("range", m_scope->range);
-    } else if (std::get_if<DebugMarkScopeEnd>(&mark)) {
+    } else if (const DebugMarkScopeEnd* m_end = std::get_if<DebugMarkScopeEnd>(&mark)) {
       json.key_value("kind", "scope_end");
+      json.key_value("range", m_end->range);
     } else if (const DebugMarkSmartCast* m_sc = std::get_if<DebugMarkSmartCast>(&mark)) {
       json.key_value("kind", "smart_cast");
       json.key_value("var_name", m_sc->local_ref->name);

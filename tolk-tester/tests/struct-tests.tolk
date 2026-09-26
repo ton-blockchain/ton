@@ -97,7 +97,7 @@ fun test2() {
     __expect_type(i1.value, "int");
     __expect_type(i1.value + i2.value + i3.value, "int");
     __expect_type(i3, "JustIntAlias2");
-    __expect_type([i2, i3], "array<JustInt>");
+    __expect_type(array<JustInt> [i2, i3], "array<JustInt>");
     __expect_type([i2] as [JustIntAlias], "[JustIntAlias]");
     return (i1, i2, i3, [i1, JustInt{value:5}]);
 }
@@ -347,10 +347,10 @@ fun test22(x: JustInt) {
 
 @method_id(123)
 fun test23(p: Point) {
-    var complex = p as Point | (JustInt | Storage);
+    var complex = p as PointAlias | (JustInt | Storage);
     return match (complex) {
         JustInt => 10 * complex.value,
-        PointAlias => 20,
+        Point => 20,
         Storage => 30 + complex.lastPoint.x,
     };
 }
@@ -508,8 +508,8 @@ fun test34() {
     return o1;
 }
 
-@pure @noinline fun getXPure() { return 1; }
-@pure @noinline fun getYPure() { return 2; }
+@noinline fun getX1() { return 1; }
+@noinline fun getY2() { return 2; }
 global t_impure: tuple;
 @noinline fun getXImpure() { t_impure.push(1); return 1; }
 @noinline fun getYImpure() { t_impure.push(2); return 2; }
@@ -517,8 +517,8 @@ global t_impure: tuple;
 @method_id(135)
 fun test35() {
     var p: Point = {
-        y: getYPure(),
-        x: getXPure(),
+        y: getY2(),
+        x: getX1(),
     };
     return p;
 }
@@ -789,9 +789,10 @@ type PointAlias = Point;
 
 @fif_codegen
 """
-  test35() PROC:<{              //
-    getXPure() CALLDICT         //  '0
-    getYPure() CALLDICT         //  p.x p.y
+  test35() PROC:<{
+    getY2() CALLDICT
+    getX1() CALLDICT
+    SWAP
   }>
 """
 

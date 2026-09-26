@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.4.2
+tolk 1.5
 
 enum ExoticCellType: int8 {
     Ordinary = -1
@@ -46,7 +46,6 @@ fun cell.loadSpecial(self): cell
 
 /// Transforms an ordinary or exotic cell into a library reference
 /// (into an exotic cell with contents "8 bits cell type" + "256 bits lib hash").
-@pure
 fun cell.toLibraryReference(self): cell {
     return beginCell()
         .storeInt(ExoticCellType.LibraryReference, 8)

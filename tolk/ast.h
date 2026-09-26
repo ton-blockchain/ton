@@ -77,7 +77,6 @@ enum ASTNodeKind {
   ast_empty_expression,
   ast_braced_expression,
   ast_braced_yield_result,
-  ast_artificial_aux_vertex,
   ast_tensor,
   ast_square_brackets,
   ast_reference,
@@ -116,6 +115,8 @@ enum ASTNodeKind {
   ast_repeat_statement,
   ast_while_statement,
   ast_do_while_statement,
+  ast_break_statement,
+  ast_continue_statement,
   ast_throw_statement,
   ast_assert_statement,
   ast_try_catch_statement,
@@ -160,10 +161,6 @@ enum class MatchArmKind {    // for `match` expression, each of arms `pattern =>
   const_expression,          // `-1 => body` / `SOME_CONST + grams("0.05") => body` (any expr at parsing, resulting in const)
   exact_type,                // `int => body` / `User | slice => body`
   else_branch,               // `else => body`
-};
-
-struct ASTAuxData {          // base class for data in ast_artificial_aux_vertex, see ast-aux-data.h
-  virtual ~ASTAuxData() = default;
 };
 
 template<ASTNodeKind node_kind>
@@ -542,22 +539,6 @@ struct Vertex<ast_braced_yield_result> final : ASTExprUnary {
 
   Vertex(SrcRange range, AnyExprV expr)
     : ASTExprUnary(ast_braced_yield_result, range, expr) {}
-};
-
-template<>
-// ast_artificial_aux_vertex is a compiler-inserted vertex that can't occur in source code
-// example: implicitly inserted loads after `lazy` operator
-// example: `msg.isBounced` / `msg.xxx` in onInternalMessage are handled specially
-struct Vertex<ast_artificial_aux_vertex> final : ASTExprUnary {
-  const ASTAuxData* aux_data;     // custom payload, see ast-aux-data.h
-
-  AnyExprV get_wrapped_expr() const { return child; }
-
-  Vertex(AnyExprV wrapped_expr, const ASTAuxData* aux_data, TypePtr inferred_type)
-    : ASTExprUnary(ast_artificial_aux_vertex, wrapped_expr->range, wrapped_expr)
-    , aux_data(aux_data) {
-    assign_inferred_type(inferred_type);
-  }
 };
 
 template<>
@@ -960,6 +941,7 @@ template<>
 // example: `match (var c = getIntOrSlice()) { int => return 0, slice => throw 123 }`
 struct Vertex<ast_match_expression> final : ASTExprVararg {
   bool is_exhaustive = false;   // if it has `else` or covers all cases without `else`; can be used as expression
+  bool is_lazy_match = false;   // if it's `match (lazyVar)`, lowered as SDBEGINSQ without constructing union on a stack
 
   AnyExprV get_subject() const { return child(0); }
   int get_arms_count() const { return size() - 1; }
@@ -971,6 +953,7 @@ struct Vertex<ast_match_expression> final : ASTExprVararg {
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_is_exhaustive(bool is_exhaustive);
+  void assign_is_lazy_match();
 
   Vertex(SrcRange range, std::vector<AnyExprV>&& subject_and_arms)
     : ASTExprVararg(ast_match_expression, range, std::move(subject_and_arms)) {}
@@ -1102,14 +1085,8 @@ template<>
 // example: function body is a block
 // example: do while body is a block
 struct Vertex<ast_block_statement> final : ASTStatementVararg {
-  AnyV first_unreachable = nullptr;
-
   const std::vector<AnyV>& get_items() const { return children; }
   AnyV get_item(int i) const { return children.at(i); }
-
-  Vertex* mutate() const { return const_cast<Vertex*>(this); }
-  void assign_first_unreachable(AnyV first_unreachable);
-  void assign_new_children(std::vector<AnyV>&& children);
 
   Vertex(SrcRange range, std::vector<AnyV>&& items)
     : ASTStatementVararg(ast_block_statement, range, std::move(items)) {}
@@ -1180,6 +1157,20 @@ struct Vertex<ast_do_while_statement> final : ASTStatementVararg {
 
   Vertex(SrcRange range, V<ast_block_statement> body, AnyExprV cond)
     : ASTStatementVararg(ast_do_while_statement, range, {body, cond}) {}
+};
+
+template<>
+// ast_break_statement is `break;` — exit the nearest enclosing loop
+struct Vertex<ast_break_statement> final : ASTStatementVararg {
+  explicit Vertex(SrcRange range)
+    : ASTStatementVararg(ast_break_statement, range, {}) {}
+};
+
+template<>
+// ast_continue_statement is `continue;` — skip to the next iteration of the nearest enclosing loop
+struct Vertex<ast_continue_statement> final : ASTStatementVararg {
+  explicit Vertex(SrcRange range)
+    : ASTStatementVararg(ast_continue_statement, range, {}) {}
 };
 
 template<>
@@ -1318,13 +1309,13 @@ template<>
 // methods are still global functions, just accepting "self" first parameter
 // example: `fun f() { ... }`
 // functions can be generic, `fun f<T>(params) { ... }`
-// their body is either sequence (regular code function), or `asm`, or `builtin`
+// their body is either sequence (regular code function), `asm`, `builtin`, or a get method prototype
 struct Vertex<ast_function_declaration> final : ASTOtherVararg {
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   int get_num_params()  const { return children.at(1)->as<ast_parameter_list>()->size(); }
   auto get_param_list() const { return children.at(1)->as<ast_parameter_list>(); }
   auto get_param(int i) const { return children.at(1)->as<ast_parameter_list>()->get_param(i); }
-  AnyV get_body() const { return children.at(2); }   // ast_block_statement / ast_asm_body
+  AnyV get_body() const { return children.at(2); }   // ast_block_statement / ast_asm_body / ast_empty_statement
 
   FunctionPtr fun_ref = nullptr;          // filled after register
   AnyTypeV receiver_type_node;            // for `fun builder.storeInt`, here is `builder`
@@ -1337,7 +1328,8 @@ struct Vertex<ast_function_declaration> final : ASTOtherVararg {
 
   bool is_asm_function() const { return children.at(2)->kind == ast_asm_body; }
   bool is_code_function() const { return children.at(2)->kind == ast_block_statement; }
-  bool is_builtin_function() const { return children.at(2)->kind == ast_empty_statement; }
+  bool is_get_prototype() const { return children.at(2)->kind == ast_empty_statement && (flags & FunctionData::flagContractGetter) != 0; }
+  bool is_builtin_function() const { return children.at(2)->kind == ast_empty_statement && (flags & FunctionData::flagContractGetter) == 0; }
 
   Vertex* mutate() const { return const_cast<Vertex*>(this); }
   void assign_fun_ref(FunctionPtr fun_ref);
@@ -1507,7 +1499,7 @@ struct Vertex<ast_enum_declaration> final : ASTOtherVararg {
 template<>
 // ast_tolk_required_version is a preamble fixating compiler's version at the top of the file
 // example: `tolk 0.6`
-// when compiler version mismatches, it means, that another compiler was earlier for that sources, a warning is emitted
+// when compiler version mismatches, it means that another compiler was used for these sources, so compilation fails
 struct Vertex<ast_tolk_required_version> final : ASTOtherLeaf {
   std::string semver;
 
@@ -1543,6 +1535,8 @@ struct Vertex<ast_contract_directive> final : ASTOtherVararg {
   int size_items() const { return size() - 1; }
   auto get_identifier() const { return children.at(0)->as<ast_identifier>(); }
   auto get_ith_item(int i) const { return children.at(i + 1)->as<ast_contract_directive_item>(); }
+
+  SrcRange keyword_range() const { return SrcRange::span(range, 8); }
 
   Vertex(SrcRange range, std::vector<AnyV>&& name_and_items)
     : ASTOtherVararg(ast_contract_directive, range, std::move(name_and_items)) {}

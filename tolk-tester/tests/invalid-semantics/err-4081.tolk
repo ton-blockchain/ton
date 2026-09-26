@@ -27,4 +27,6 @@ fun main(x: int, s: slice) {
 @stderr too few arguments in call to `f6<void, int>`, expected 4, have 1
 @stderr too few arguments in call to `address`, expected 1, have 0
 @stderr too few arguments in call to `string.crc32`, expected 1, have 0
+@stderr note: parameter declared here
+@stderr note: function declared here
  */

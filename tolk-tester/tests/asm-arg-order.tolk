@@ -131,10 +131,8 @@ fun asmAPlus1TimesB(a: int, b: int): int
 fun int.plus1TimesB(self, b: int): int
     asm(b self) "1 ADDCONST MUL";
 
-@pure
 @noinline
 fun get2Pure() { return 2; }
-@pure
 @noinline
 fun get10Pure() { return 10; }
 
@@ -270,8 +268,9 @@ fun main() {
 @fif_codegen
 """
   test28() PROC:<{
-    get10Pure() CALLDICT
     get2Pure() CALLDICT
+    get10Pure() CALLDICT
+    SWAP
     1 ADDCONST MUL
   }>
 """
@@ -316,5 +315,5 @@ fun main() {
   }>
 """
 
-@code_hash 98112237312599117361360505207413290833928615253348061305894339367683016107491
+@code_hash 34599016008274478064245614023722066100591789877753712714557731858383043392662
 */

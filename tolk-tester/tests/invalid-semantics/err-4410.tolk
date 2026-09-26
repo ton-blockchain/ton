@@ -10,4 +10,7 @@ fun main(v: int32 | int64): array<unknown> {
 /**
 @compilation_should_fail
 @stderr type of `match` was inferred as `int32 | int64`; probably, it's not what you expected
+@stderr note: this branch is `int32`
+@stderr note: this branch is `int64`
+@stderr ^^^^^
  */

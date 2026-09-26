@@ -1,14 +1,14 @@
 import "@stdlib/tvm-dicts"
 
-fun prepareDict_3_30_4_40_5_x(valueAt5: int): cell? {
-    var dict: cell? = createEmptyDict();
+fun prepareDict_3_30_4_40_5_x(valueAt5: int): dict {
+    var dict: dict = createEmptyDict();
     dict.iDictSetBuilder(32, 3, beginCell().storeInt(30, 32));
     dict.iDictSetBuilder(32, 4, beginCell().storeInt(40, 32));
     dict.iDictSetBuilder(32, 5, beginCell().storeInt(valueAt5, 32));
     return dict;
 }
 
-fun lookupIdxByValue(idict32: cell?, value: int): int {
+fun lookupIdxByValue(idict32: dict, value: int): int {
     var cur_key: int? = -1;
     var cur_found: bool;
     do {

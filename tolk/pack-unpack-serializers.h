@@ -18,6 +18,7 @@
 
 #include "fwd-declarations.h"
 #include "tolk.h"
+#include <functional>
 
 namespace tolk {
 
@@ -57,6 +58,14 @@ struct PackSize {
 enum class PrefixWriteMode {
   WritePrefixOfStruct,
   DoNothingAlreadyWritten,
+};
+
+// Operation-liveness for compiler-emitted load/skip calls inside unpack.
+// Not a property of `slice.loadUint` itself: preserved for `fromSlice` but removable in `lazy fromSlice`.
+// Pack always preserves generated `builder.storeXXX` (no policy there).
+enum class GeneratedLoadPolicy {
+  AllowRemoving,
+  Preserve,
 };
 
 class PackContext {
@@ -102,18 +111,14 @@ enum class PrefixReadMode {
 struct LazyMatchOptions {
   struct MatchBlock {
     TypePtr arm_variant;          // left of `V => ...`; nullptr for `else => ...`
-    AnyExprV v_body;              // right of `V => ...`
-    TypePtr block_expr_type;      // for match expression, if `V => expr`, it's expr's inferred_type
+    AnyV v_arm;                   // ast_match_arm `V => ...`
   };
 
-  TypePtr match_expr_type;        // type of `match` expression, `void` for statement
-  bool is_statement;              // it's `match` statement, not expression, so it does not return any result
-  bool add_return_to_all_arms;    // it's the last statement in a function, add "return" to its cases for better Fift code
   std::vector<MatchBlock> match_blocks;
   LocalVarPtr lazy_var_ref = nullptr; // for emitting MARK_SMART_CAST at the start of each arm
+  std::function<void(AnyV v_arm, CodeBlob& code)> lower_match_arm;
 
   const MatchBlock* find_match_block(TypePtr variant) const;
-  void save_match_result_on_arm_end(CodeBlob& code, AnyV origin, const MatchBlock* arm_block, std::vector<var_idx_t>&& ir_arm_result, const std::vector<var_idx_t>& ir_match_expr_result) const;
 };
 
 class UnpackContext {
@@ -128,18 +133,21 @@ public:
   const std::vector<var_idx_t> ir_options;    // struct UnpackOptions from stdlib
   const std::vector<var_idx_t> ir_slice;
   const var_idx_t ir_slice0;
+  const GeneratedLoadPolicy generated_load_policy;
 
-  UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, std::vector<var_idx_t> ir_options);
+  UnpackContext(CodeBlob& code, AnyV origin, std::vector<var_idx_t> ir_slice, std::vector<var_idx_t> ir_options,
+                GeneratedLoadPolicy generated_load_policy = GeneratedLoadPolicy::Preserve);
 
   PrefixReadMode get_prefix_mode() const { return prefix_mode; }
+  bool force_keep_arg() const { return generated_load_policy == GeneratedLoadPolicy::Preserve; }
 
   var_idx_t option_assertEndAfterReading() const { return ir_options[0]; }
   var_idx_t option_throwIfOpcodeDoesNotMatch() const { return ir_options[1]; }
 
-  std::vector<var_idx_t> loadInt(int len, const char* debug_desc) const;
-  std::vector<var_idx_t> loadUint(int len, const char* debug_desc) const;
-  std::vector<var_idx_t> loadRef(const char* debug_desc) const;
-  std::vector<var_idx_t> loadMaybeRef(const char* debug_desc) const;
+  std::vector<var_idx_t> loadInt(int len, const char* purpose) const;
+  std::vector<var_idx_t> loadUint(int len, const char* purpose) const;
+  std::vector<var_idx_t> loadRef(const char* purpose) const;
+  std::vector<var_idx_t> loadMaybeRef(const char* purpose) const;
   void loadAndCheckOpcode(PackOpcode opcode) const;
   void skipBits(int len) const;
   void skipBits_var(var_idx_t ir_len) const;
@@ -150,7 +158,7 @@ public:
 
   std::vector<var_idx_t> generate_unpack_any(TypePtr any_type, PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck) const;
   void generate_skip_any(TypePtr any_type, PrefixReadMode prefix_mode = PrefixReadMode::LoadAndCheck) const;
-  std::vector<var_idx_t> generate_lazy_match_any(TypePtr any_type, const LazyMatchOptions& options) const;
+  void generate_lazy_match_any(TypePtr any_type, const LazyMatchOptions& options) const;
 };
 
 

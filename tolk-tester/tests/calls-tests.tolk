@@ -200,14 +200,11 @@ fun test12() {
     catch (ex) { return ex; }
 }
 
-@pure
 fun int.increment(mutate self) { self += 1 }
-@pure
 fun int.clone(self): int { return self }
 
 global g113: int
 
-@pure
 fun pure113(mutate p113: int) {
     var l113 = 0;
     l113.increment();

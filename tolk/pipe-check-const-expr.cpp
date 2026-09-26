@@ -29,6 +29,12 @@
 
 namespace tolk {
 
+static Error err_duplicate_enum_value(const td::RefInt256& dup_val, EnumDefPtr enum_ref, EnumMemberPtr prev_member_ref) {
+  std::string val_str = dup_val->to_dec_string();
+  return err("duplicate value `{}` in enum `{}`", val_str, enum_ref)
+    .with_secondary(prev_member_ref, "this member also equals to {}", val_str);
+}
+
 class ConstantExpressionsChecker final : public ASTVisitorFunctionBody {
 
   void visit(V<ast_function_call> v) override {
@@ -74,7 +80,7 @@ void pipeline_check_constant_expressions() {
     }
   }
   // and for default values of parameters
-  for (FunctionPtr fun_ref : get_all_not_builtin_functions()) {
+  for (FunctionPtr fun_ref : get_all_functions()) {
     for (int i = 0; i < fun_ref->get_num_params(); ++i) {
       LocalVarPtr param_ref = &fun_ref->get_param(i);
       if (param_ref->has_default_value() && !fun_ref->is_generic_function()) {
@@ -86,8 +92,14 @@ void pipeline_check_constant_expressions() {
   // assign `enum` members values (either auto-compute sequentially or use manual initializers)
   for (EnumDefPtr enum_ref : get_all_declared_enums()) {
     std::vector<td::RefInt256> values = calculate_enum_members_with_values(enum_ref);
-    for (EnumMemberPtr member_ref : enum_ref->members) {
-      member_ref->mutate()->assign_computed_value(values[member_ref->member_idx]);
+    for (size_t i = 0; i < enum_ref->members.size(); ++i) {
+      td::RefInt256 cur_val = values[i];
+      for (size_t j = 0; j < i; ++j) {
+        if (td::cmp(cur_val, enum_ref->members[j]->computed_value) == 0) {
+          err_duplicate_enum_value(cur_val, enum_ref, enum_ref->members[j]).collect(enum_ref->members[i]);
+        }
+      }
+      enum_ref->members[i]->mutate()->assign_computed_value(std::move(cur_val));
     }
   }
 

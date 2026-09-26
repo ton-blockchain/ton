@@ -106,24 +106,20 @@ fun test2(c: Wrapper<int>) {
     return (c, c2, c3, c4);
 }
 
-@pure
 @noinline
 fun getWrappervalue1<T>(c: Wrapper<T>) {
     return c.value;
 }
 
-@pure
 fun Wrapper<T>.getWrappervalue1(self) {
     return self.value;
 }
 
-@pure
 @noinline
 fun getWrappervalue2<T>(c: T) {
     return c.value;
 }
 
-@pure
 fun T.getWrappervalue2(self) {
     return self.value;
 }
@@ -378,7 +374,7 @@ fun test19() {
     var i2: StrangeInt<slice> = 30;
     var i3: StrangeInt<StrangeInt<int>> = 40;
     i1 = i2 as StrangeInt<builder>; i1 = i3 as StrangeInt<builder>;
-    return (i1 as StrangeInt<()>, i3 as StrangeAlsoInt, i1 is StrangeInt, i1 is StrangeInt<cell>, i3 is StrangeInt, i3 is StrangeAlsoInt);
+    return (i1 as StrangeInt<()>, i3 as StrangeAlsoInt, i1 is StrangeInt, i3 is StrangeInt);
 }
 
 @method_id(120)
@@ -419,12 +415,12 @@ fun test21(w: AnotherWrapper<builder>) {
 fun test22(w: int | WrapperAlias<int> | slice) {
     match (w) {
         int => {}
-        WrapperAlias<MyInt> => {}
+        WrapperAlias<int> => {}
         slice => {}
     }
     __expect_type(w, "int | WrapperAlias<int> | slice");
     match (w) {
-        MyInt => {}
+        int => {}
         slice => {}
         WrapperAlias<int> => {}
     }
@@ -573,7 +569,7 @@ fun getValueOfAlias<T>(w: WrapperAlias<T>): T { return w.value }
 fun test31(w1: Wrapper<int>, w2: WrapperAlias<int>) {
   __expect_type(getValueOfAlias(w1), "int");
   __expect_type(getValueOfAlias(w2), "int");
-  __expect_type((w1).getValueOfAlias(), "int");
+  __expect_type((w1 as WrapperAlias<int>).getValueOfAlias(), "int");
   __expect_type((w2).getValueOfAlias(), "int");
 }
 
@@ -597,8 +593,8 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
     __expect_type(d.value, "int");
     __expect_type(Wrapper<int> { value: 200 } as WrappedInt, "WrappedInt");
     __expect_type(Wrapper<slice>{ value: c.value }, "Wrapper<slice>");
-    __expect_type(Wrapper<bytes32>{ value: c.value as bytes32 }, "Wrapper<bytes32>");
-    __expect_type(Wrapper<bytes32>{ value: Wrapper<bytes32> { value: (c.value as bytes32 as bytes32?)! }.value }, "Wrapper<bytes32>");
+    __expect_type(Wrapper<bits256>{ value: c.value as bits256 }, "Wrapper<bits256>");
+    __expect_type(Wrapper<bits256>{ value: Wrapper<bits256> { value: (c.value as bits256 as bits256?)! }.value }, "Wrapper<bits256>");
     __expect_type(Wrapper{ value: c.value }, "Wrapper<slice>");
     __expect_type(Wrapper{ value: c.value.loadInt(32) }, "Wrapper<int>");
     __expect_type(Wrapper{ value: 10 }, "Wrapper<int>");
@@ -614,27 +610,27 @@ fun main(c: Wrapper<slice>, d: WrappedInt) {
 @testcase | 104 |         | 11 11 13 13 13 2
 @testcase | 105 | 0       | 80
 @testcase | 105 | -1      | (null)
-@testcase | 106 |         | (null) (null) 0 777 1 2 typeid-17
+@testcase | 106 |         | (null) (null) 0 777 1 2 typeid-1
 @testcase | 107 | 5       | 20 20 5 5 20 777 (null) (null) (null) 0
-@testcase | 108 | 0       | 777 typeid-1 777 typeid-1
+@testcase | 108 | 0       | 777 typeid-2 777 typeid-2
 @testcase | 108 | -1      | 777 0 777 0
 @testcase | 109 |         | 40 40 70
 @testcase | 110 |         | 20 1 20 42
-@testcase | 111 |         | 5 1 typeid-2 5 1 typeid-2 5 1 typeid-2 5 1 typeid-2
-@testcase | 112 | -1      | 10 1 777 10 1 typeid-3
-@testcase | 112 | 0       | 20 1 777 (null) 0 typeid-4
+@testcase | 111 |         | 5 1 typeid-3 5 1 typeid-3 5 1 typeid-3 5 1 typeid-3
+@testcase | 112 | -1      | 10 1 777 10 1 typeid-4
+@testcase | 112 | 0       | 20 1 777 (null) 0 typeid-5
 @testcase | 113 |         | 30 -1
 @testcase | 114 |         | 999 (null) 2
 @testcase | 115 |         | 10 0 200 1 -1 200 1 -1
 @testcase | 116 |         | 1 2 3 4
 @testcase | 117 |         | 100 123
 @testcase | 118 |         | 123 1 777 123 1 -1 2
-@testcase | 119 |         | 40 40 -1 0 -1 0
-@testcase | 120 |         | (null) typeid-9 777 (null) (null) 0 typeid-10 -1 -1
+@testcase | 119 |         | 40 40 -1 -1
+@testcase | 120 |         | (null) typeid-10 777 (null) (null) 0 typeid-11 -1 -1
 @testcase | 123 |         | 10 10 10 10 10
-@testcase | 126 |         | 0 0 0 (null) 777 0 typeid-12 (null) typeid-12 (null) 0
+@testcase | 126 |         | 0 0 0 (null) 777 0 typeid-13 (null) typeid-13 (null) 0
 @testcase | 128 |         | 0 -1 0 -1 -1
-@testcase | 129 |         | -1 typeid-15 (null) typeid-16
+@testcase | 129 |         | -1 typeid-14 (null) typeid-15
 @testcase | 132 |         | [ [ 2 3 ] 4 ]
 
 

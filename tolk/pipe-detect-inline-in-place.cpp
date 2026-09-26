@@ -17,11 +17,15 @@
 #include "ast.h"
 #include "ast-visitor.h"
 #include "compilation-errors.h"
+#include "inline-return-analysis.h"
+#include "pack-unpack-api.h"
+#include <algorithm>
 #include <functional>
+#include <unordered_map>
 #include <unordered_set>
 
 /*
- *   This pipe detects whether each function can be inlined in-place or not.
+ *   This pipe detects whether each function should be inlined in-place or not.
  * Outcome: call `fun_ref->assign_inline_mode_in_place()` for "lightweight" or "called only once" functions,
  * and they will be inlined in-place while converting AST to IR (to Ops), and won't be generated to Fift.
  *
@@ -31,40 +35,30 @@
  *   - if a function is tiny, inline it always
  *   - if a function is called only once, inline it (only there, obviously)
  *   - if a function is marked `@inline` (intended by the user), inline it in place (if possible)
- *   - see `should_auto_inline_if_not_prevented()`
+ *   - see `should_auto_inline_if_not_annotated()`
  *
- *   What can prevent a function from inlining? Several reasons:
+ *   What can prevent a function from inlining? For example:
  *   - it's recursive
  *   - it's used as non-call (a reference to it is taken)
- *   - see `is_inlining_prevented_even_if_annotated()`
+ *   - it has non-primitive control flow with return statements (e.g. `return` from a loop)
+ *   - all reasons are in `build_inlining_plan_for_function()`, both this pipe and lowering ask it
  *
- *   About `@inline` annotation. It means "user intention", so the compiler tries to inline it in-place
- * without considering AST metrics. But anyway, something may prevent inlining (middle returns, for example).
- * In this case, the desired flag is just not set; inline_mode remains inlineViaFif, we'll generate `PROCINLINE`.
+ *   The `@inline` annotation means "user intention", so the compiler tries to inline it in-place
+ * without considering AST metrics. If any reason prevents inlining, an error is shown.
+ * So, `@inline` is either inlined or fired, it's not silently skipped if impossible.
  *
  *   Besides inline detection, this pipe populates `fun_ref->n_times_called` (while building call graph).
  * It's used in Fift output inside comments.
+ *
+ *   The same call graph is reused to assign `requires_callxargs`: a function needs CALLXARGS if it
+ * contains `try/catch`, or inlines in-place another function that does.
  */
 
 namespace tolk {
 
-static bool is_called_implicitly_by_compiler(FunctionPtr f) {
-  if (f->name == "onBouncedMessage") {
-    return true;
-  }
-  if (f->is_packToBuilder()) {
-    return f->does_accept_self() && !f->does_mutate_self() && f->get_num_params() == 2 && f->has_mutate_params();
-  }
-  if (f->is_unpackFromSlice()) {
-    return !f->does_accept_self() && f->get_num_params() == 1 && f->has_mutate_params();
-  }
-  return false;
-}
-
 // when traversing a function, collect some AST metrics used to detect whether it's lightweight
 struct StateWhileTraversingFunction {
   FunctionPtr fun_ref;
-  bool has_returns_in_the_middle = false;
   int n_statements = 0;
   int n_function_calls = 0;
   int n_binary_operators = 0;
@@ -80,14 +74,25 @@ struct StateWhileTraversingFunction {
          + n_control_flow * 10 + n_globals * 5 + (max_block_depth - 1) * 10;
   }
 
-  bool is_inlining_prevented_even_if_annotated() const {
-    // even if user specified `@inline`, we can't do anything about recursions, for example;
-    // in this case, in-place inlining won't happen, we'll generate `PROCINLINE` to Fift
-    bool is_inside_recursion = fun_ref->n_times_called >= 9999;
-    return has_returns_in_the_middle || is_inside_recursion || fun_ref->is_used_as_noncall() || !fun_ref->is_code_function();
+  // if a user specified `@inline`, check that it's possible; if not, show an error why
+  void try_inline_or_collect_error() const {
+    InlineReturnPlan inlining_plan = build_inlining_plan_for_function(fun_ref);
+    if (!inlining_plan.ok()) {
+      Error diagnostic = err("function `{}` can't be inlined\n""hint: `@inline` is impossible, {}", fun_ref, inlining_plan.cant_inline_because);
+      if (inlining_plan.cant_inline_at.is_defined()) {
+        diagnostic.with_secondary(inlining_plan.cant_inline_at, "this prevents inlining");
+      }
+      diagnostic.collect(fun_ref);
+    }
   }
 
-  bool should_auto_inline_if_not_prevented() const {
+  // if no annotation specified, detect whether to auto-inline a function
+  bool should_auto_inline_if_not_annotated() const {
+    // a function can not be inlined (for example, it's recursive or contains `return` in a loop)
+    if (!build_inlining_plan_for_function(fun_ref).ok()) {
+      return false;
+    }
+
     // if a function is called only once, inline it regardless of its size
     // (to prevent this, `@inline_ref` can be used, for example)
     if (fun_ref->n_times_called == 1) {
@@ -182,29 +187,24 @@ class DetectIfToInlineFunctionInPlaceVisitor final : public ASTVisitorFunctionBo
     parent::visit(v);
   }
 
-  void visit(V<ast_return_statement> v) override {
-    // detect if `return` the last return statement in a function's body
-    // (currently in-place inlining for functions with returns in the middle is not supported)
-    auto body_block = cur_state.fun_ref->ast_root->as<ast_function_declaration>()->get_body()->as<ast_block_statement>();
-    bool is_last_statement = body_block->get_item(body_block->size() - 1) == v;
-    cur_state.has_returns_in_the_middle |= !is_last_statement;
-    parent::visit(v);
-  }
-
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
-    // unsupported or no-sense cases
-    if (fun_ref->is_builtin() || fun_ref->is_asm_function() || fun_ref->is_generic_function() ||
-        fun_ref->has_tvm_method_id() || !fun_ref->arg_order.empty() || !fun_ref->ret_order.empty() ||
-        fun_ref->is_used_as_noncall()) {
+    if (!fun_ref->is_code_function() || fun_ref->is_generic_function()) {
       return false;
     }
-    // disabled by the user
-    if (fun_ref->inline_mode == FunctionInlineMode::noInline || fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
+    // has `@inline` annotation: we should check it can be inlined actually
+    if (fun_ref->inline_mode == FunctionInlineMode::inlineInPlace) {
+      return true;
+    }
+    // has other annotations, e.g. `@inline_ref` or `@noinline`
+    if (fun_ref->inline_mode != FunctionInlineMode::notAnnotated) {
       return false;
     }
-    // okay, start auto-detection;
-    // for functions marked `@inline` (inlineViaFif), probably we'll change to inlineInPlace
+    // okay, we need to auto-detect whether to inline this function; filter out obviously false
+    if (fun_ref->has_tvm_method_id() || fun_ref->is_used_as_noncall() || fun_ref->is_lambda()) {
+      return false;
+    }
+    // start auto-detection
     return true;
   }
 
@@ -213,20 +213,9 @@ public:
   }
 
   void on_exit_function(V<ast_function_declaration> v_function) override {
-    bool prevented_anyway = cur_state.is_inlining_prevented_even_if_annotated();
-    bool will_inline = false;
-    if (cur_f->inline_mode == FunctionInlineMode::inlineViaFif) {
-      // if a function is marked `@inline`, so the user requested in to be inlined;
-      // if it's possible, do it; otherwise, leave it as `PROCINLINE` to Fift
-      will_inline = !prevented_anyway;
-    } else {
-      // a function is not marked `@inline` / `@inline_ref` / etc., so automatically decide
-      will_inline = !prevented_anyway && cur_state.should_auto_inline_if_not_prevented();
-    }
-
-    // okay, this function will be inlined, mark the flag
-    bool is_called = cur_f->n_times_called || is_called_implicitly_by_compiler(cur_f);
-    if (will_inline && is_called) {
+    if (cur_f->inline_mode == FunctionInlineMode::inlineInPlace) {
+      cur_state.try_inline_or_collect_error();
+    } else if (cur_state.should_auto_inline_if_not_annotated()) {
       cur_f->mutate()->assign_inline_mode_in_place();
     }
   }
@@ -235,23 +224,46 @@ public:
 // this visitor (called once for a function):
 // 1) fills call_graph[cur_f] (all function calls from cur_f)
 // 2) increments n_times_called
+// 3) records functions that contain `try/catch`
 // as a result of applying it to every function, we get a full call graph and how many times each function was called;
 // we'll use this call graph to detect recursive components (functions within recursions can not be inlined)
+// and to propagate `requires_callxargs` through in-place inline edges
 class CallGraphBuilderVisitor final : public ASTVisitorFunctionBody {
+
+  void register_call(FunctionPtr called_f) {
+    tolk_assert(!called_f->is_generic_function());
+    if (called_f->is_code_function()) {
+      call_graph[cur_f].emplace_back(called_f);
+    }
+    called_f->mutate()->n_times_called++;
+  }
 
   void visit(V<ast_function_call> v) override {
     if (FunctionPtr called_f = v->fun_maybe) {
-      if (called_f->is_code_function()) {
-        call_graph[cur_f].emplace_back(called_f);
+      register_call(called_f);
+
+      // calling `SomeStruct.toCell()` implicitly calls custom `packToBuilder()` serializers for nested fields;
+      // include them in call graph to detect recursive serializers and try/catch within them
+      if (called_f->is_compile_time_special_gen() && called_f->is_instantiation_of_generic_function()) {
+        std::vector<FunctionPtr> implicit_pack_unpack;
+        collect_recursive_pack_unpack_when_f_called(called_f, nullptr, &implicit_pack_unpack);
+        for (FunctionPtr implicit_f : implicit_pack_unpack) {
+          register_call(implicit_f);
+        }
       }
-      called_f->mutate()->n_times_called++;
     }
+    parent::visit(v);
+  }
+
+  void visit(V<ast_try_catch_statement> v) override {
+    functions_with_try_catch.insert(cur_f);
     parent::visit(v);
   }
 
 public:
   // populated while visiting: maps [ fun_ref -> list of functions it calls ]
   std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph;
+  std::unordered_set<FunctionPtr> functions_with_try_catch;
 
   bool should_visit_function(FunctionPtr fun_ref) override {
     // don't include asm functions, we don't need them in calculations
@@ -263,18 +275,13 @@ public:
   }
 };
 
-static void detect_recursive_functions() {
-  // 1) build call_graph (and calculate n_times_called also)
-  CallGraphBuilderVisitor visitor;
-  visit_ast_of_all_functions(visitor);
-  std::unordered_map<FunctionPtr, std::vector<FunctionPtr>> call_graph = std::move(visitor.call_graph);
-
-  // 2) using call_graph, detect cycles (the smallest, non-optimized algorithm, okay for our needs)
+static void detect_recursive_functions(const std::unordered_map<FunctionPtr, std::vector<FunctionPtr>>& call_graph) {
+  // using call_graph, detect cycles (the smallest, non-optimized algorithm, okay for our needs)
   for (const auto& it : call_graph) {
     FunctionPtr f_start_from = it.first;
     std::unordered_set<FunctionPtr> visited;
     std::function<bool(FunctionPtr)> is_recursive_dfs = [&](FunctionPtr cur) -> bool {
-      for (FunctionPtr f_called : call_graph[cur]) {
+      for (FunctionPtr f_called : call_graph.at(cur)) {
         if (f_called == f_start_from)
           return true;
         if (!visited.insert(f_called).second)
@@ -286,7 +293,31 @@ static void detect_recursive_functions() {
     };
     if (!it.second.empty() && is_recursive_dfs(f_start_from)) {
       f_start_from->mutate()->n_times_called = 9999;      // means "recursive"
+      if (f_start_from->is_packToBuilder() || f_start_from->is_unpackFromSlice()) {
+        err("function `{}` is recursive and leads to infinite serialization", f_start_from).collect(f_start_from);
+      }
     }
+  }
+}
+
+static void detect_requires_callxargs(const std::unordered_map<FunctionPtr, std::vector<FunctionPtr>>& call_graph,
+                                      const std::unordered_set<FunctionPtr>& functions_with_try_catch) {
+  std::unordered_set<FunctionPtr> requires_callxargs = functions_with_try_catch;
+  bool changed;
+  do {
+    changed = false;
+    for (const auto& [caller, callees] : call_graph) {
+      if (!requires_callxargs.contains(caller)) {
+        bool inlines_callxargs = std::any_of(callees.begin(), callees.end(), [&](FunctionPtr callee) {
+          return callee->is_inlined_in_place() && requires_callxargs.contains(callee);
+        });
+        changed |= inlines_callxargs && requires_callxargs.insert(caller).second;
+      }
+    }
+  } while (changed);
+
+  for (FunctionPtr fun_ref : requires_callxargs) {
+    fun_ref->mutate()->assign_requires_callxargs();
   }
 }
 
@@ -312,11 +343,19 @@ public:
 };
 
 void pipeline_detect_inline_in_place() {
-  detect_recursive_functions();
+  // 1) we need call graph to detect recursive functions, BEFORE calculating inline
+  CallGraphBuilderVisitor graph_visitor;
+  visit_ast_of_all_functions(graph_visitor);
+  detect_recursive_functions(graph_visitor.call_graph);
+
+  // 2) not auto-detect inline and check `@inline` annotations
   DetectIfToInlineFunctionInPlaceVisitor visitor;
   visit_ast_of_all_functions(visitor);
   CheckExpectInlineAssertionsVisitor checker;
   visit_ast_of_all_functions(checker);
+
+  // 3) assign callxargs by THE SAME call graph, strictly AFTER calculating inline
+  detect_requires_callxargs(graph_visitor.call_graph, graph_visitor.functions_with_try_catch);
 }
 
 } // namespace tolk

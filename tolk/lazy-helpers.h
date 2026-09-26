@@ -17,12 +17,13 @@
 #pragma once
 
 #include "fwd-declarations.h"
+#include <unordered_map>
 #include <vector>
 
 namespace tolk {
 
 // LazyStructLoadInfo describes how to load a struct: which fields to load, which to skip.
-// It's calculated based on variable usages and passed through the pipeline carried by auxiliary AST vertices.
+// It's calculated based on variable usages and stored in LazyLoadPlan for the function.
 // Based on it, lazy loading Ops are generated in pack-unpack api.
 // To understand `hidden_struct`, read pipe-lazy-load-insertions.cpp.
 struct LazyStructLoadInfo {
@@ -44,9 +45,33 @@ struct LazyStructLoadInfo {
   }
 };
 
-// LazyStructLoadedState represents state (which fields were already loaded) while generating AST to Ops.
-// For example, variable `var p = lazy Point.fromSlice(s); aux "load x"; return p.x` is initially "nothing loaded",
-// and after "load x" ith_field_action[0] becomes true (and `p` is updated on a stack and becomes `valueX null`).
+// LazyLoadAction is one prelude operation: load/skip fields of a lazy object immediately before a statement.
+struct LazyLoadAction {
+  LocalVarPtr var_ref;              // comes from `lazy`
+  TypePtr union_variant;            // not just `o` but `match(o) { V1 => here }`
+  StructFieldPtr field_ref;         // not just `o` but `match(o.field) { V1 => here }`
+  LazyStructLoadInfo load_info;     // instructions, which fields to load, which to skip, etc.
+
+  LazyLoadAction(LocalVarPtr var_ref, TypePtr union_variant, StructFieldPtr field_ref, LazyStructLoadInfo load_info)
+    : var_ref(var_ref), union_variant(union_variant), field_ref(field_ref), load_info(std::move(load_info)) {
+  }
+};
+
+// LazyLoadPlan is an immutable per-function side table: which lazy-load actions to emit before which statement.
+// Built by pipe-lazy-load-insertions, consumed by AST->IR lowering.
+struct LazyLoadPlan {
+  std::unordered_map<AnyV, std::vector<LazyLoadAction>> loads_before_statement;
+
+  const std::vector<LazyLoadAction>& loads_before(AnyV stmt) const {
+    static const std::vector<LazyLoadAction> empty;
+    auto it = loads_before_statement.find(stmt);
+    return it != loads_before_statement.end() ? it->second : empty;
+  }
+};
+
+// LazyStructLoadedState represents state (which fields were already loaded) while lowering AST->IR.
+// For example, variable `var p = lazy Point.fromSlice(s)` is initially "nothing loaded",
+// and after the planned "load x" ith_field_action[0] becomes true (and `p` is updated on a stack and becomes `valueX null`).
 struct LazyStructLoadedState {
   StructPtr original_struct;                      // original (e.g. `Point`)
   StructPtr hidden_struct = nullptr;              // "lazy Point" — only requested fields, matching binary shape

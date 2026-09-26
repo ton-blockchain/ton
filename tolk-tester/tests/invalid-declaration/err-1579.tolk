@@ -16,6 +16,6 @@ fun main(flag: bool, t: P256): int {
 @stderr generated TVM stack is too deep while compiling function `main`
 @stderr TVM can not store more than 255 elements on the stack
 @stderr hint: try splitting very wide tensors/structs, storing parts in cells/tuples
-@stderr in function `main`
-@stderr              ^^^^
+@stderr fun main
+@stderr     ^^^^
  */

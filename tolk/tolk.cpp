@@ -38,7 +38,7 @@ thread_local CompilerSettings G_settings;
 thread_local CompilerState G;
 
 // prototypes of functions initializing/resetting global state and pointers
-void define_builtins();
+void attach_builtins_implementation();
 void type_system_init();
 void lexer_init();
 void clear_computed_constants_cache();
@@ -56,7 +56,6 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
   // reset per-compilation mutable state to allow successive compilation within each thread
   G = CompilerState{};
   clear_computed_constants_cache();
-  define_builtins();    // add built-in functions into G.symtable
   G.symbol_types_pool.seed_primitive_types();
 
   // enable error collecting for check stages (multiple errors can be reported):
@@ -70,13 +69,14 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
     pipeline_register_global_symbols();
     pipeline_resolve_identifiers_and_assign_symbols();
     pipeline_resolve_types_and_aliases();
+    attach_builtins_implementation();
     pipeline_calculate_rvalue_lvalue();
     pipeline_infer_types_and_calls_and_fields();
     pipeline_check_inferred_types();
     pipeline_refine_lvalue_for_mutate_arguments();
+    pipeline_check_loop_break_continue();
     pipeline_check_rvalue_lvalue();
     pipeline_check_private_fields_usage();
-    pipeline_check_pure_impure_operations();
     pipeline_check_constant_expressions();
     pipeline_mini_borrow_checker_for_mutate();
     pipeline_optimize_boolean_expressions();
@@ -94,19 +94,11 @@ TolkCompilationResult tolk_proceed(const std::string &entrypoint_filename) {
         .marks_json = "",
       };
     }
-    // output warnings to console, if any collected
-    if (!G_settings.show_errors_as_json) {
-      for (const ThrownParseError& err : error_collector.flush()) {
-        if (err.is_warning) {
-          err.output_to_console(std::cerr);
-        }
-      }
-    }
     G.error_collector = nullptr;
 
     // the following pipes can't operate if any previous errors exist
     pipeline_lazy_load_insertions();
-    pipeline_transform_onInternalMessage();
+    pipeline_check_onInternalMessage();
 
     // for IDE in background: all checks passed, skip codegen
     if (G_settings.check_only_no_output) {

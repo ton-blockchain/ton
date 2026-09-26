@@ -36,14 +36,17 @@ namespace tolk {
 
 static Error err_modifying_immutable_variable(LocalVarPtr var_ref) {
   if (var_ref->param_idx == 0 && var_ref->name == "self") {
-    return err("modifying `self`, which is immutable by default; probably, you want to declare `mutate self`");
+    return err("modifying `self`, which is immutable by default")
+      .with_secondary(var_ref, "probably, you want to declare `mutate self`");
   } else {
-    return err("modifying immutable variable `{}`\n""hint: it's declared `val {}`, keyword 'val' means 'immutable'\n""hint: declare `var {}` to allow modifications", var_ref, var_ref, var_ref);
+    return err("modifying immutable variable `{}`\n""hint: it's declared `val {}`, keyword 'val' means 'immutable'", var_ref, var_ref)
+      .with_secondary(var_ref, "declared as `val` here; use `var` to allow modifications");
   }
 }
 
 static Error err_modifying_readonly_field(StructPtr struct_ref, StructFieldPtr field_ref) {
-  return err("modifying readonly field `{}.{}`", struct_ref, field_ref);
+  return err("modifying readonly field `{}.{}`", struct_ref, field_ref)
+    .with_secondary(field_ref, "field declared here");
 }
 
 // validate a function used as rvalue, like `var cb = f`
@@ -57,6 +60,9 @@ static void validate_function_used_as_noncall(FunctionPtr cur_f, AnyExprV v, Fun
   }
   if (fun_ref->does_return_self()) {
     err("saving `{}` into a variable is impossible, since it returns `self` and should be used as a method", fun_ref).collect(v, cur_f);
+  }
+  if (fun_ref->is_builtin() && fun_ref->name.find("__") != std::string::npos) {
+    err("internal compiler functions are not allowed to be called").collect(v, cur_f);
   }
 }
 
@@ -74,14 +80,7 @@ class CheckRValueLvalueVisitor final : public ASTVisitorFunctionBody {
 
     } else if (GlobalConstPtr const_ref = sym->try_as<GlobalConstPtr>()) {
       // deny `SOME_CONST = rhs` / `mutate CONST_TENSOR.0` / etc.
-      err("modifying immutable constant `{}`", const_ref->name).collect(range, cur_f);
-
-    } else if (GlobalVarPtr glob_ref = sym->try_as<GlobalVarPtr>()) {
-      // fire on `global = rhs` in a @pure function: it's easier to do this check here,
-      // because it's very similar to checking immutable variables, especially `(global!).field = rhs`
-      if (cur_f->is_marked_as_pure()) {
-        err("modifying a global `{}` in a pure function", glob_ref->name).collect(range, cur_f);
-      }
+      err("modifying immutable constant `{}`", const_ref).collect(range, cur_f);
 
     } else if (sym->try_as<const TypeReferenceUsedAsSymbol*>() || sym->try_as<FunctionPtr>()) {
       // `Point.create = f` or `Enum.value = v`

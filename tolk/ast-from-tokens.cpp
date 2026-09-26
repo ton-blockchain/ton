@@ -51,7 +51,6 @@ static bool is_add_or_sub_binary_op(TokenType tok) {
 }
 
 // make an error for a case "flags & 0xFF != 0" (equivalent to "flags & 1", probably unexpected)
-// it would better be a warning, but we decided to make it a strict error
 static Error err_lower_precedence(std::string_view op_lower, std::string_view op_higher) {
   return err("{} has lower precedence than {}"
               ", probably this code won't work as you expected.  "
@@ -471,9 +470,10 @@ struct AnnotationsAbove {
   std::vector<V<ast_annotation>> above;
   std::string_view doc_lines_buf[100];
   int n_doc_lines = 0;
+  bool has_ignored_custom = false;  // @custom/@test/@deprecated are not stored in `above`
 
   bool empty() const {
-    return above.empty();
+    return above.empty() && !has_ignored_custom;
   }
 
   void collect_doc_comment(Lexer& lex) {
@@ -491,6 +491,7 @@ struct AnnotationsAbove {
     }
     above.clear();
     n_doc_lines = 0;
+    has_ignored_custom = false;
     return result;
   }
 
@@ -506,9 +507,11 @@ struct AnnotationsAbove {
       }
     }
 
-    if (v_annotation->kind != AnnotationKind::custom) {   // totally ignore @custom, @deprecated, etc.
+    if (v_annotation->kind != AnnotationKind::custom) {   // don't store @custom, @deprecated, etc. in AST
       above.push_back(v_annotation);                      // allow any arguments, don't analyze
-    }                                                     // don't even store them in AST tree
+    } else {
+      has_ignored_custom = true;                          // but still remember them (e.g. for EOF check)
+    }
   }
 };
 
@@ -756,7 +759,7 @@ static AnyExprV parse_var_declaration_lhs(Lexer& lex, bool is_immutable, bool al
     }
     if (lex.tok() == tok_semicolon && allow_lateinit) {
       if (declared_type == nullptr) {
-        lex.error("provide a type for a variable, because its default value is omitted:\n> var " + static_cast<std::string>(v_ident->name) + ": <type>;");
+        lex.error("provide a type for a variable, because its default value is omitted\n""hint:\n> var " + static_cast<std::string>(v_ident->name) + ": <type>;");
       }
       is_lateinit = true;
     }
@@ -1042,7 +1045,8 @@ static V<ast_match_arm> parse_match_arm(Lexer& lex) {
 
   range.end(body->range);
   if (pattern_expr == nullptr) {  // for match by type / default case, empty vertex, not nullptr
-    pattern_expr = createV<ast_empty_expression>(SrcRange::span(range, 4));
+    SrcRange range_before_arrow = exact_type ? exact_type->range : SrcRange::span(range, 4);
+    pattern_expr = createV<ast_empty_expression>(range_before_arrow);
   }
   return createV<ast_match_arm>(range, pattern_kind, exact_type, pattern_expr, body);
 }
@@ -1485,6 +1489,20 @@ AnyExprV parse_expr(Lexer& lex) {
   return parse_expr10(lex);
 }
 
+static AnyV parse_break_statement(Lexer& lex) {
+  lex.check(tok_break, "`break`");
+  SrcRange range = lex.cur_range();
+  lex.next();
+  return createV<ast_break_statement>(range);
+}
+
+static AnyV parse_continue_statement(Lexer& lex) {
+  lex.check(tok_continue, "`continue`");
+  SrcRange range = lex.cur_range();
+  lex.next();
+  return createV<ast_continue_statement>(range);
+}
+
 static AnyV parse_return_statement(Lexer& lex) {
   lex.check(tok_return, "`return`");
   SrcRange range = lex.cur_range();
@@ -1660,8 +1678,9 @@ AnyV parse_statement(Lexer& lex) {
     case tok_semicolon:
       return createV<ast_empty_statement>(lex.cur_range());
     case tok_break:
+      return parse_break_statement(lex);
     case tok_continue:
-      lex.error("break/continue from loops are not supported yet");
+      return parse_continue_statement(lex);
     default:
       return parse_expr(lex);
   }
@@ -1774,11 +1793,13 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
     }
   }
   bool is_code_function = lex.tok() == tok_opbrace;
+  // `get fun name(): T` without `{` is an ABI-only prototype (only with `--allow-empty-get-fun`, checked later)
+  bool is_get_prototype_only = is_contract_getter && !is_code_function && lex.tok() != tok_asm && lex.tok() != tok_builtin;
 
   if (is_entrypoint && (is_contract_getter || genericsT_list || n_mutate_params || !is_code_function)) {
     err("invalid declaration of a reserved function").fire(v_ident);
   }
-  if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type || !is_code_function)) {
+  if (is_contract_getter && (genericsT_list || n_mutate_params || receiver_type || (!is_code_function && !is_get_prototype_only))) {
     err("invalid declaration of a get method").fire(v_ident);
   }
 
@@ -1794,6 +1815,11 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
       lex.error("asm function must specify return type");
     }
     v_body = parse_asm_func_body(lex, v_ident, v_param_list);
+  } else if (is_get_prototype_only) {
+    if (!ret_type) {
+      err("get method prototype must declare return type").fire(v_ident);
+    }
+    v_body = createV<ast_empty_statement>(lex.cur_range());
   } else {
     lex.unexpected("{ function body }");
   }
@@ -1813,14 +1839,14 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
   }
 
   int tvm_method_id = FunctionData::EMPTY_TVM_METHOD_ID;
-  FunctionInlineMode inline_mode = FunctionInlineMode::notCalculated;
+  FunctionInlineMode inline_mode = FunctionInlineMode::notAnnotated;
   for (auto v_annotation : annotations.above) {
     switch (v_annotation->kind) {
       case AnnotationKind::inline_simple:
         if (v_body->kind == ast_asm_body) {
           err("inline annotations are not applicable to asm functions").fire(v_annotation);
         }
-        inline_mode = FunctionInlineMode::inlineViaFif;   // maybe will be replaced by inlineInPlace later
+        inline_mode = FunctionInlineMode::inlineInPlace;   // will be checked in detect-inline-in-place.cpp
         break;
       case AnnotationKind::inline_ref:
         if (v_body->kind == ast_asm_body) {
@@ -1835,7 +1861,10 @@ static AnyV parse_function_declaration(Lexer& lex, AnnotationsAbove& annotations
         inline_mode = FunctionInlineMode::noInline;
         break;
       case AnnotationKind::pure:
-        flags |= FunctionData::flagMarkedAsPure;
+        if (v_body->kind == ast_block_statement) {
+          err("@pure has no effect on a regular function since user calls are now always preserved\n""hint: remove `@pure`").fire(v_annotation);
+        }
+        flags |= FunctionData::flagRemovableIfUnused;
         break;
       case AnnotationKind::method_id: {
         if (is_contract_getter || genericsT_list || receiver_type || is_entrypoint || n_mutate_params || accepts_self || !is_code_function) {
@@ -2127,7 +2156,7 @@ static AnyV parse_tolk_required_version(Lexer& lex) {
 
   // for simplicity, there is no syntax ">= version" and so on, just strict compare
   if (TOLK_VERSION != semver && TOLK_VERSION != semver + ".0") {    // 0.6 = 0.6.0
-    err("the contract is written in Tolk v{}, but you use Tolk compiler v{}; probably, it will lead to compilation errors or hash changes", semver, TOLK_VERSION).warning(range, nullptr);
+    err("the contract is written in Tolk v{}, but you use Tolk compiler v{}\n""hint: replace this line with `tolk {}`", semver, TOLK_VERSION, TOLK_VERSION).fire(range, nullptr);
   }
 
   return createV<ast_tolk_required_version>(range, std::move(semver));

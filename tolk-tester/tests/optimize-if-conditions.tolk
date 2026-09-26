@@ -603,6 +603,25 @@ fun test54AssertNegatedConstFalse(): int {
     assert(!true, 5);
 }
 
+// --- 55. Regression: condition folding can revive an op disabled by an earlier DCE pass. ---
+
+@method_id(155)
+fun test55AssertSixFoldedAnds(x: int): int {
+    try {
+        assert (
+            x > 0 &&
+            x > 1 &&
+            x > 2 &&
+            x > 3 &&
+            x > 4 &&
+            x > 5
+        ) throw 813;
+        return 1;
+    } catch (err) {
+        return err;
+    }
+}
+
 fun main(): int {
     return 0;
 }
@@ -722,6 +741,8 @@ fun main(): int {
 @testcase | 153 | 0               | 123
 @testcase | 153 | 5               | 5
 @testcase | 153 | -3              | -3
+@testcase | 155 | 9               | 1
+@testcase | 155 | 4               | 813
 
 @fif_codegen
 """
@@ -883,12 +904,12 @@ test22TernaryInlEq() PROC:<{
 """
 test23TernaryNested() PROC:<{
     s0 s4 XCHG
-    IF:<{
+    IFJMP:<{
       s3 POP
       s1 s2 XCHG
       CONDSEL
-    }>ELSE<{
-      3 BLKDROP
+    }>
+    3 BLKDROP
 """
 
 @fif_codegen
@@ -960,10 +981,10 @@ test31TernaryZeroOnLeft() PROC:<{
 @fif_codegen
 """
 test41MatchZero() PROC:<{
-    IF:<{
+    IFJMP:<{
       20 PUSHINT
-    }>ELSE<{
-      10 PUSHINT
+    }>
+    10 PUSHINT
 """
 
 @fif_codegen

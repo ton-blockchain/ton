@@ -10,7 +10,6 @@ fun main(x: int): (int, int) {
     return (x + 1, y)
 }
 
-@inline
 fun foo1(x: int): int {
     if (x < 0) {
         x *= 2;

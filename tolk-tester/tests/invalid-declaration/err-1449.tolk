@@ -1,8 +1,6 @@
-@pure
 get fun secret(): int {
     return 0;
 }
-@pure
 get fun balanced(): int {
     return 1;
 }

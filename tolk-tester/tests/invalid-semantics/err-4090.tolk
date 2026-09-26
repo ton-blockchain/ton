@@ -17,4 +17,6 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr field `value` missed in initialization of struct `TryHackCompilerByNever` 
+@stderr note: field declared here
+@stderr value: never
  */

@@ -3,7 +3,7 @@ struct (0x03) CounterDecrementBy1 {}
 type CounterMsg = CounterIncrement | CounterDecrementBy1;
 
 struct SomeBytesFields {
-    f1: bytes1;
+    f1: bits8;
 }
 
 @method_id(101)
@@ -43,18 +43,18 @@ fun test4() {
 
 @method_id(105)
 fun test5() {
-    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell().hash() & 0xFFFF;
+    return SomeBytesFields { f1: stringHexToSlice("11") as bits8 }.toCell().hash() & 0xFFFF;
 }
 
 @method_id(106)
 fun test6() {
-    return SomeBytesFields { f1: stringHexToSlice("11") as bytes1 }.toCell({skipBitsNValidation: true}).hash() & 0xFFFF;
+    return SomeBytesFields { f1: stringHexToSlice("11") as bits8 }.toCell({skipBitsNValidation: true}).hash() & 0xFFFF;
 }
 
 @method_id(107)
 fun test7(believe: bool) {
     try {
-        return SomeBytesFields { f1: stringHexToSlice("ffff") as bytes1 }.toCell({skipBitsNValidation: believe}).hash() & 0xFFFF;
+        return SomeBytesFields { f1: stringHexToSlice("ffff") as bits8 }.toCell({skipBitsNValidation: believe}).hash() & 0xFFFF;
     } catch (excno) {
         return excno;
     }
@@ -142,6 +142,7 @@ RETALT
 @fif_codegen
 """
 IF:<{
+  8 PLDI
   DROP
   129 PUSHINT
 }>ELSE<{
@@ -179,14 +180,14 @@ IF:<{
 @fif_codegen
 """
   test8() PROC:<{               //
-    x{010f} PUSHSLICE           //  '0
-    16 PUSHPOW2DEC              //  s '2=65535
-    SWAP                        //  '2=65535 s
-    x{01} SDBEGINSQ             //  '2=65535 s '4
-    s1 s2 XCHG                  //  s '2=65535 '4
+    x{010f} PUSHSLICE           //  '1
+    16 PUSHPOW2DEC              //  s '3=65535
+    SWAP                        //  '3=65535 s
+    x{01} SDBEGINSQ             //  '3=65535 s '5
+    s1 s2 XCHG                  //  s '3=65535 '5
     THROWANYIFNOT               //  s
-    8 LDI                       //  '8 s
-    ENDS                        //  '8
+    8 LDI                       //  '9 s
+    ENDS                        //  '9
   }>
 """
 
@@ -196,6 +197,7 @@ IF:<{
     x{010f} PUSHSLICE
     x{01} SDBEGINSQ
     IF:<{
+      8 PLDI
       DROP
       129 PUSHINT
     }>ELSE<{

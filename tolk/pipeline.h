@@ -39,16 +39,16 @@ void pipeline_calculate_rvalue_lvalue();
 void pipeline_infer_types_and_calls_and_fields();
 void pipeline_check_inferred_types();
 void pipeline_refine_lvalue_for_mutate_arguments();
+void pipeline_check_loop_break_continue();
 void pipeline_check_rvalue_lvalue();
 void pipeline_check_private_fields_usage();
-void pipeline_check_pure_impure_operations();
 void pipeline_check_constant_expressions();
 void pipeline_mini_borrow_checker_for_mutate();
 void pipeline_optimize_boolean_expressions();
 void pipeline_detect_inline_in_place();
 void pipeline_check_serialized_fields();
 void pipeline_lazy_load_insertions();
-void pipeline_transform_onInternalMessage();
+void pipeline_check_onInternalMessage();
 void pipeline_convert_ast_to_legacy_Expr_Op();
 
 void pipeline_find_unused_symbols();

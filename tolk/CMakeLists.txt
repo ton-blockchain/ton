@@ -15,6 +15,8 @@ set(TOLK_SOURCE
         pack-unpack-serializers.cpp
         send-message-api.cpp
         maps-kv-api.cpp
+        inline-return-analysis.cpp
+        loop-control-analysis.cpp
         pipe-discover-parse-sources.cpp
         pipe-register-symbols.cpp
         pipe-resolve-identifiers.cpp
@@ -23,16 +25,16 @@ set(TOLK_SOURCE
         pipe-infer-types-and-calls.cpp
         pipe-check-inferred-types.cpp
         pipe-refine-lvalue-for-mutate.cpp
+        pipe-loop-break-continue.cpp
         pipe-check-rvalue-lvalue.cpp
         pipe-check-private-fields.cpp
-        pipe-check-pure-impure.cpp
         pipe-check-const-expr.cpp
         pipe-mini-borrow-checker.cpp
         pipe-optimize-boolean-expr.cpp
         pipe-detect-inline-in-place.cpp
         pipe-check-serialized-fields.cpp
         pipe-lazy-load-insertions.cpp
-        pipe-transform-on-message.cpp
+        pipe-check-on-message.cpp
         pipe-ast-to-legacy.cpp
         pipe-find-unused-symbols.cpp
         pipe-collect-symbol-types.cpp

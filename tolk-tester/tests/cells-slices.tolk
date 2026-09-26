@@ -280,7 +280,7 @@ fun test19() {
 fun test20() {
   var x = false;
   var n = 4;
-  var b = true ? beginCell() : null;
+  var b = (true ? beginCell() : null)!;
   b.storeBool(true).storeBool(x);
   b = b.storeBool(true).storeUint(0, n *= 2).storeBool(!!true).storeCoins(0);
   var s = b.toSlice();
@@ -850,7 +850,7 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     NEWC                    	//  x b
     SWAP                    	//  b x
     0 GTINT                 	//  b '4
-    IF:<{                   	//  b
+    IFJMP:<{                	//  b
       5 PUSHINT
       8 STUR                 	//  b
     }>                      	//  b
@@ -863,13 +863,12 @@ We test that consequtive storeInt/storeUint with constants are joined into a sin
     NEWC
     s3 POP
     42 EQINT
-    IF:<{
+    IFJMP:<{
       SWAP
       b{000} STSLICECONST
       8 STU                 	//  b
-    }>ELSE<{
-      DROP                  	//  b
     }>
+    DROP                    	//  b
   }>
 """
 

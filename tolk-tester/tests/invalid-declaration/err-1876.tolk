@@ -8,4 +8,6 @@ struct Pair<T1, T2> {
 @compilation_should_fail
 @stderr redeclaration of field `first`
 @stderr first: int
+@stderr note: previous declaration is here
+@stderr first: T1
  */

@@ -26,8 +26,6 @@
 
 namespace tolk {
 
-void patch_builtins_after_stdlib_loaded();
-
 /*
  *   This pipe transforms AST of types into TypePtr.
  *   It happens after all global symbols were registered, and all local references were bound.
@@ -90,14 +88,14 @@ static TypePtr parse_intN_uintN(std::string_view strN, bool is_unsigned) {
   return TypeDataIntN::create(n, is_unsigned, false);
 }
 
-static TypePtr parse_bytesN_bitsN(std::string_view strN, bool is_bits) {
+static TypePtr parse_bitsN(std::string_view strN) {
   int n;
   auto result = std::from_chars(strN.data(), strN.data() + strN.size(), n);
   bool parsed = result.ec == std::errc() && result.ptr == strN.data() + strN.size();
   if (!parsed || n <= 0 || n > 1023) {
-    return nullptr;   // `bytes9999`, maybe it's user-defined alias, let it be unresolved
+    return nullptr;   // `bits9999`, maybe it's user-defined alias, let it be unresolved
   }
-  return TypeDataBitsN::create(n, is_bits);
+  return TypeDataBitsN::create(n);
 }
 
 static TypePtr try_parse_predefined_type(std::string_view str) {
@@ -153,13 +151,8 @@ static TypePtr try_parse_predefined_type(std::string_view str) {
     }
   }
   if (str.starts_with("bits")) {
-    if (TypePtr bitsN = parse_bytesN_bitsN(str.substr(4), true)) {
+    if (TypePtr bitsN = parse_bitsN(str.substr(4))) {
       return bitsN;
-    }
-  }
-  if (str.starts_with("bytes")) {
-    if (TypePtr bytesN = parse_bytesN_bitsN(str.substr(5), false)) {
-      return bytesN;
     }
   }
 
@@ -199,7 +192,8 @@ class TypeNodesVisitorResolver {
         if (const Symbol* sym = lookup_global_symbol(text)) {
           if (TypePtr custom_type = try_resolve_user_defined_type(cur_f, v->range, sym, allow_without_type_arguments)) {
             bool already_resolved = v->resolved_type != nullptr;
-            bool allow_no_import = sym->is_builtin() || sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
+            bool allow_no_import = sym->ident_anchor == nullptr ||
+                                   sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
             if (!allow_no_import && !already_resolved) {
               sym->check_import_exists_when_used_from(cur_f, v);
             }
@@ -278,7 +272,7 @@ class TypeNodesVisitorResolver {
       if (!struct_ref->genericTs) {
         bool contains = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
         if (contains) {
-          err("type `{}` circularly references itself", struct_ref).fire(struct_ref->ident_anchor);
+          err("type `{}` circularly references itself", struct_ref).fire(struct_ref);
         }
         called_stack.push_back(struct_ref);
         RecursionGuard guard([&] {
@@ -443,7 +437,7 @@ public:
     // prevent recursion like `type A = B; type B = A` (we can't create TypeDataAlias without a resolved underlying type)
     if (!inserted) {
       if (!it_visited->second) {
-        err("type `{}` circularly references itself", alias_ref).fire(alias_ref->ident_anchor);
+        err("type `{}` circularly references itself", alias_ref).fire(alias_ref);
       }
       return;
     }
@@ -537,8 +531,6 @@ class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   }
 
   void visit(V<ast_reference> v) override {
-    tolk_assert(v->sym != nullptr);
-
     // for `f<int, MyAlias>` / `f<T>`, resolve "MyAlias" and "T"
     // (for function call `f<T>()`, this v (ast_reference `f<T>`) is callee)
     if (auto v_instantiationTs = v->get_instantiationTs()) {
@@ -636,7 +628,7 @@ class ResolveTypesInsideFunctionVisitor final : public ASTVisitorFunctionBody {
 
 public:
   bool should_visit_function(FunctionPtr fun_ref) override {
-    return !fun_ref->is_builtin();
+    return true;
   }
 
   void on_enter_function(V<ast_function_declaration> v) override {
@@ -774,7 +766,7 @@ class InfiniteStructSizeDetector {
 
     bool contains = std::find(called_stack.begin(), called_stack.end(), struct_ref) != called_stack.end();
     if (contains) {
-      err("struct `{}` size is infinity due to recursive fields", struct_ref).fire(struct_ref->ident_anchor);
+      err("struct `{}` size is infinity due to recursive fields", struct_ref).fire(struct_ref);
     }
 
     // Some nominal references intentionally defer struct fields until a later top-level pass.
@@ -853,8 +845,6 @@ void pipeline_resolve_types_and_aliases() {
   }
 
   InfiniteStructSizeDetector::detect_and_fire_if_any_struct_is_infinite();
-
-  patch_builtins_after_stdlib_loaded();
 }
 
 void pipeline_resolve_types_and_aliases(FunctionPtr fun_ref) {

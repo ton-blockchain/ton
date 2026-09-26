@@ -101,8 +101,8 @@ fun test5() {
 fun test6() {
     var a: int? = 5;
     __expect_type(a, "int");
-    __expect_type(a != null ? a : null, "int");
-    __expect_type(a == null ? "" : a, "int");
+    __expect_type(a != null ? a : null, "int?");
+    __expect_type((a == null ? "" : a) as string | int, "string | int");
     takeNullableInt(a);
     __expect_type(a, "int");
     if (rand() != 0) {
@@ -113,7 +113,7 @@ fun test6() {
     }
     __expect_type(a, "null");
     takeNullableSlice(a);   // ok, `slice?` is `slice | null`, here a definitely null
-    var b: int? = true ? null : "sl";
+    var b: int? = null;
     __expect_type(b, "null");
     takeNullableInt(b);
     takeNullableSlice(b);   // same reason
@@ -702,6 +702,7 @@ fun test63() {
 type BalanceDict = dict
 
 fun cell.myDepth(self): int1 { return 0 }
+fun dict.myDepth(self): int2 { return 0 }
 fun BalanceDict.myDepth(self): int3 { return 0 }
 fun null.myDepth(self): int4 { return 0 }
 
@@ -711,7 +712,7 @@ fun test64(d: dict, b: BalanceDict) {
         cell => { __expect_type(d.myDepth(), "int1") }
     }
     __expect_type(d, "dict");
-    __expect_type(d.myDepth(), "int3");
+    __expect_type(d.myDepth(), "int2");
     
     match (b) {
         null => { __expect_type(b.myDepth(), "int4") }
@@ -917,6 +918,266 @@ fun test83(case: int) {
     };
 }
 
+struct ReanchorMsg1 {
+    value: int
+}
+
+struct ReanchorMsg2 {
+    value: int
+}
+
+type OneMessage = ReanchorMsg1
+type AllowedMessages = ReanchorMsg1 | ReanchorMsg2
+type MaybeCell = cell?
+
+struct ReanchorHolder {
+    maybeCell: MaybeCell
+    oneMessage: OneMessage
+}
+
+struct OtherHolder {
+    other: int
+}
+
+struct DeepLeaf {
+    before1: int
+    before2: int
+    before3: int
+    sub: MaybeCell
+}
+
+struct DeepOtherLeaf {
+    other: int
+}
+
+type DeepNode = DeepLeaf | DeepOtherLeaf
+type DeepField = (DeepNode, int)?
+
+struct DeepHolder {
+    before1: int
+    before2: int
+    field: DeepField
+    after: int
+}
+
+type AnyDeepHolder = DeepHolder | OtherHolder
+
+struct DictTensorHolder {
+    before: int
+    pair: (dict, BalanceDict)
+}
+
+fun ReanchorMsg1.kind(self): int1 { return 1 }
+fun OneMessage.kind(self): int2 { return 2 }
+fun cell.kind(self): int3 { return 3 }
+
+fun testIfReanchor(d: MaybeCell, msg: OneMessage) {
+    // d recovers to an alias
+    if (d == null) {
+        __expect_type(d, "null");
+    } else {
+        __expect_type(d, "cell");
+    }
+    __expect_type(d, "MaybeCell");
+
+    // msg recovers to an alias
+    if (msg is ReanchorMsg1) {
+        __expect_type(msg, "ReanchorMsg1");
+    } else {
+        __expect_type(msg, "never");
+    }
+    __expect_type(msg, "OneMessage");
+
+    match (msg) {
+        ReanchorMsg1 => {
+            __expect_type(msg, "ReanchorMsg1");
+            __expect_type(msg.kind(), "int1");
+        }
+    }
+    __expect_type(msg, "OneMessage");
+    __expect_type(msg.kind(), "int2");
+}
+
+fun testUnionMatchReanchor(msg: AllowedMessages) {
+    match (msg) {
+        ReanchorMsg1 => { __expect_type(msg, "ReanchorMsg1"); }
+        ReanchorMsg2 => { __expect_type(msg, "ReanchorMsg2"); }
+    }
+    __expect_type(msg, "AllowedMessages");
+
+    match (msg) {
+        ReanchorMsg1 => { return }
+        ReanchorMsg2 => { __expect_type(msg, "ReanchorMsg2"); }
+    }
+    __expect_type(msg, "ReanchorMsg2");
+}
+
+fun testLogicalReanchor(d: MaybeCell, flag: bool) {
+    d == null && false;
+    __expect_type(d, "MaybeCell");
+
+    d != null || true;
+    __expect_type(d, "MaybeCell");
+
+    if (d != null && flag) {
+        __expect_type(d, "cell");
+    } else {
+        __expect_type(d, "MaybeCell");
+    }
+    __expect_type(d, "MaybeCell");
+
+    if (d == null || flag) {
+        __expect_type(d, "MaybeCell");
+    } else {
+        __expect_type(d, "cell");
+    }
+    __expect_type(d, "MaybeCell");
+}
+
+fun testTernaryReanchor(d: MaybeCell, msg: OneMessage) {
+    d == null ? 1 : 2;
+    __expect_type(d, "MaybeCell");
+
+    (msg is ReanchorMsg1) ? 1 : 2;
+    __expect_type(msg, "OneMessage");
+}
+
+fun testNullCoalesceReanchor(d: MaybeCell) {
+    d ?? beginCell().endCell();
+    __expect_type(d, "MaybeCell");
+    __expect_type(d ?? createEmptyCell(), "cell");
+}
+
+fun testFieldReanchor(holder: ReanchorHolder) {
+    if (holder.maybeCell == null) {
+        __expect_type(holder.maybeCell, "null");
+    } else {
+        __expect_type(holder.maybeCell, "cell");
+    }
+    __expect_type(holder.maybeCell, "MaybeCell");
+
+    match (holder.oneMessage) {
+        ReanchorMsg1 => { __expect_type(holder.oneMessage, "ReanchorMsg1"); }
+    }
+    __expect_type(holder.oneMessage, "OneMessage");
+}
+
+fun testFieldOfSmartCastedParent(holder: ReanchorHolder | OtherHolder) {
+    if (holder is ReanchorHolder) {
+        if (holder.maybeCell == null) {
+            __expect_type(holder.maybeCell, "null");
+        } else {
+            __expect_type(holder.maybeCell, "cell");
+        }
+        __expect_type(holder.maybeCell, "MaybeCell");
+    }
+}
+
+fun testFieldNarrowingSurvivesWithParent(holder: ReanchorHolder | OtherHolder) {
+    if (holder is ReanchorHolder) {
+        if (holder.maybeCell == null) {
+            return;
+        }
+    } else {
+        return;
+    }
+    __expect_type(holder, "ReanchorHolder");
+    __expect_type(holder.maybeCell, "cell");
+}
+
+fun testDeepIndexPath(obj: AnyDeepHolder) {
+    if (obj is DeepHolder) {
+        __expect_type(obj, "DeepHolder");
+        if (obj.field != null) {
+            __expect_type(obj.field, "(DeepNode, int)");
+            if (obj.field.0 is DeepLeaf) {
+                __expect_type(obj.field.0, "DeepLeaf");
+                if (obj.field.0.sub == null) {
+                    __expect_type(obj.field.0.sub, "null");
+                } else {
+                    __expect_type(obj.field.0.sub, "cell");
+                }
+                __expect_type(obj.field.0.sub, "MaybeCell");
+                __expect_type(obj.field.0, "DeepLeaf");
+                __expect_type(obj.field, "(DeepNode, int)");
+                __expect_type(obj, "DeepHolder");
+            } else {
+                __expect_type(obj.field.0, "DeepOtherLeaf");
+            }
+            __expect_type(obj.field.0, "DeepNode");
+            __expect_type(obj.field, "(DeepNode, int)");
+            __expect_type(obj, "DeepHolder");
+        } else {
+            __expect_type(obj.field, "null");
+        }
+        __expect_type(obj.field, "DeepField");
+        __expect_type(obj, "DeepHolder");
+    } else {
+        __expect_type(obj, "OtherHolder");
+    }
+    __expect_type(obj, "AnyDeepHolder");
+}
+
+fun testNestedReanchor(msg: OneMessage, flag: bool) {
+    if (msg is ReanchorMsg1) {
+        __expect_type(msg, "ReanchorMsg1");
+        if (flag) {
+        } else {
+        }
+        __expect_type(msg, "ReanchorMsg1");
+    }
+    __expect_type(msg, "OneMessage");
+}
+
+fun testTryCatchReanchor(d: MaybeCell) {
+    try {
+        d = null;
+    } catch (_) {
+        d = beginCell().endCell();
+    }
+    __expect_type(d, "MaybeCell");
+}
+
+fun testTensorAssignmentAfterEarlyReturns(d: dict, b: BalanceDict) {
+    if (d == null) { return; }
+    __expect_type(d, "cell");
+    __expect_type(b, "BalanceDict");
+    if (b != null) { return; }
+    __expect_type(d, "cell");
+    __expect_type(b, "null");
+
+    if (10 > 3) {
+        (b, d) = (beginCell().endCell(), null);
+    }
+    __expect_type(b, "BalanceDict");
+    __expect_type(d, "dict");
+}
+
+fun testNestedAssignmentAfterEarlyReturns(holder: DictTensorHolder) {
+    if (holder.pair.0 == null) { return; }
+    if (holder.pair.1 != null) { return; }
+
+    if (10 > 3) {
+        (holder.pair.1, holder.pair.0) = (beginCell().endCell(), null);
+    }
+    __expect_type(holder.pair.1, "BalanceDict");
+    __expect_type(holder.pair.0, "dict");
+}
+
+@method_id(184)
+fun test84(x: int?, stopAt: int): int {
+    while (x != null) {
+        __expect_type(x, "int");
+        if (x == stopAt) {
+            break;
+        }
+        x = x > 1 ? x - 1 : null;
+    }
+    // without `break`, x would be `null` here; the break path keeps `int`
+    __expect_type(x, "int?");
+    return x == null ? -1 : x;
+}
+
 fun main(x: int?): int {
     // mark used to codegen them
     test55;
@@ -961,8 +1222,10 @@ fun main(x: int?): int {
 @testcase | 182 | 0     | 8
 @testcase | 183 | 0     | 11
 @testcase | 183 | 1     | 34
-
-@stderr warning: expression of type `int` can never be `null`, this condition is always true
+@testcase | 184 | 5 3   | 3
+@testcase | 184 | 5 0   | -1
+@testcase | 184 | null 1 | -1
+@testcase | 184 | 2 2   | 2
 
 @fif_codegen        eq55<int?>() PROC:<{
 @fif_codegen_avoid  eq55<int>() PROC:<{

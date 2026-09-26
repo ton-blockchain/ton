@@ -167,12 +167,12 @@ global t107_2: int
 
 @method_id(107)
 fun testMutableTensor() {
-    var t = (40, 50);
+    var t: Pair2 = (40, 50);
     t.updateTwoItems(10);
     updateTwoItems(mutate t, 10);
     t107_1 = 1;
     t107_2 = 2;
-    var globalsPair = (t107_1, t107_2);
+    var globalsPair = (t107_1, t107_2) as Pair2;
     globalsPair.updateTwoItems(10);
     updateTwoItems(mutate globalsPair, 10);
     val before = t107_1;
@@ -191,11 +191,9 @@ fun myStoreUint(mutate b: builder, x: int, len: int): void
 fun storeUint(mutate b: builder, x: int, len: int): void
     asm(x b len) "STUX";
 
-@pure
 fun builder.myStoreU32(mutate self, x: int): self {
     return self.storeUint(x, 32);
 }
-@pure
 fun myStoreU32(mutate b: builder, x: int) {
     b.storeUint(x, 32);
 }
@@ -491,28 +489,35 @@ fun main(){
 @fif_codegen
 """
   testStoreUintPureUnusedResult() PROC:<{
-    0 PUSHINT	//  '10=0
+    NEWC
+    STIX
+    BTOS
+    32 PLDU
+    DROP
+    0 PUSHINT
   }>
 """
 
 @fif_codegen
 """
   testStoreUintImpureUnusedResult() PROC:<{
-    NEWC	//  b
-    STIX	//  '2
-    DROP	//
-    0 PUSHINT	//  '10=0
+    NEWC
+    STIX
+    BTOS
+    32 PLDU
+    DROP
+    0 PUSHINT
   }>
 """
 
 @fif_codegen
 """
   testReceiverAndNot() PROC:<{  //
-    30 PUSHINT                  //  '2=30
-    40 PUSHINT                  //  obj.f1=30 obj.f2=40
+    30 PUSHINT
+    40 PUSHINT
     OVER
-    0 PUSHINT                   //  a1.f1=30 a2.f2=40 a2.f1=30 a1.f2=0
-    s0 s2 XCHG                  //  a1.f1=30 a1.f2=0 a2.f1=30 a2.f2=40
+    0 PUSHINT
+    s0 s2 XCHG
   }>
 """
 

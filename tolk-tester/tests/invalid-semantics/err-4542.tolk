@@ -3,7 +3,7 @@ fun tuple.tupleMut(mutate self): int
     asm "TLEN";
 
 fun main() {
-    var t = createEmptyTuple();
+    var t: tuple = createEmptyTuple();
     return [[t.tupleMut]];
 }
 
