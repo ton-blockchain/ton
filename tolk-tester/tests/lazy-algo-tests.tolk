@@ -78,8 +78,9 @@ fun Point.getX(self) {
     return self.x;
 }
 
+@noinline
 fun Point.getXNoInline(self) {
-    __expect_inline(false);    // due to returns in the middle
+    __expect_inline(false);
     if (10>3) {
         return self.x;
     }
@@ -223,7 +224,8 @@ fun loadWalletStorage() {
 }
 
 fun WalletStorage.load() {
-    return WalletStorage.fromCell(createEmptyCell());
+    val emptyCell = createEmptyCell();
+    return WalletStorage.fromCell(emptyCell);
 }
 
 // Uses only `other`, not `self`.
@@ -1111,8 +1113,8 @@ fun algo130() {
                 return o.a1 + excno;
             }
             B => {
-                __expect_lazy("[o] load b1 b2");
-                if (o.b1 > 0) { o.b2 = B { b1: 1, b2: 2, b3: 3 }.b2 }
+                __expect_lazy("[o] load b1 b2 b3");
+                if (o.b1 > 0) { o = B { b1: 1, b2: 2, b3: 3 } }
                 return o.b2 as int;
             }
         }
@@ -1504,6 +1506,13 @@ fun algo308() {
     c.toCell();
 }
 
+fun algo309() {
+    var c = lazy ComplexWithPoint.fromSlice(S0);
+    __expect_lazy("[c] load f1 p f3");  // object used for writing and toCell, load all for safety
+    c = { f1: 10, p: {x:0,y:0}, f3: c.f3 };
+    c.toCell();
+}
+
 fun algo310() {
     var c = lazy ComplexWithPoint.fromSlice(S0);
     if (true) {
@@ -1565,7 +1574,7 @@ fun algo316() {
 fun algo317(s: slice): int8 {
     val a = lazy A.fromSlice(s);
     __expect_lazy("[a] load a1 a2 a3");
-    return a.getSecondField();
+    return (a as AOrB).getSecondField();
 }
 
 

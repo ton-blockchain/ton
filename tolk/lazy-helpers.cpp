@@ -23,7 +23,7 @@ namespace tolk {
 
 /*
  *   This file contains "lazy" state across multiple files.
- *   They all are used after `lazy` operators have been processed and "load xxx" vertices have been inserted.
+ *   They all are used after `lazy` operators have been processed and LazyLoadPlan has been built.
  * Particularly, while transforming AST to Ops.
  *   For comments about laziness, see pipe-lazy-load-insertions.cpp.
  */
@@ -83,7 +83,7 @@ void LazyStructLoadedState::on_started_loading(StructPtr hidden_struct) {
 
 void LazyStructLoadedState::on_original_field_loaded(StructFieldPtr hidden_field) {
   this->ith_field_was_loaded[hidden_field->field_idx] = true;
-  // for example, `var p = lazy Point; aux "load x"; return p.x`;
+  // for example, `var p = lazy Point; /* plan: load x */ return p.x`;
   // we are at "load x", it exists in Point, here just save it was loaded (for assertions and debugging);
   // apart from saving, stack is also updated when loading, `p` becomes `valueX null`
 }
@@ -91,12 +91,12 @@ void LazyStructLoadedState::on_original_field_loaded(StructFieldPtr hidden_field
 void LazyStructLoadedState::on_aside_field_loaded(StructFieldPtr hidden_field, std::vector<var_idx_t>&& ir_field_gap) {
   this->ith_field_was_loaded[hidden_field->field_idx] = true;
   this->aside_gaps_and_tail.emplace_back(hidden_field, std::move(ir_field_gap));
-  // for example, `var st = lazy Storage; aux "load gap, load seqno"; st.seqno += 1; st.toCell()`;
+  // for example, `var st = lazy Storage; /* plan: load gap, load seqno */ st.seqno += 1; st.toCell()`;
   // we are at "load gap", it does not exist in Storage, so save loaded value separately
 }
 
 std::vector<var_idx_t> LazyStructLoadedState::get_ir_loaded_aside_field(StructFieldPtr hidden_field) const {
-  // for example, `var st = lazy Storage; aux "load gap, load seqno"; st.seqno += 1; st.toCell()`;
+  // for example, `var st = lazy Storage; /* plan: load gap, load seqno */ st.seqno += 1; st.toCell()`;
   // we are at "st.toCell()" that stores immutable gap before modified "seqno"
   for (const auto& [gap_field, ir_field_gap] : this->aside_gaps_and_tail) {
     if (gap_field == hidden_field) {

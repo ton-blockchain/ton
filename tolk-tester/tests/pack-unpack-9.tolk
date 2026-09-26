@@ -394,6 +394,32 @@ fun test18() {
     return list.toCell().load().calculateSize();
 }
 
+type ShiftedUint8 = uint8
+
+fun ShiftedUint8.packToBuilder(self, mutate b: builder) {
+    b.storeUint(self + 1, 8);
+}
+
+fun ShiftedUint8.unpackFromSlice(mutate s: slice): ShiftedUint8 {
+    return (s.loadUint(8) - 1) as ShiftedUint8;
+}
+
+fun makeCellWithRawSix(): cell {
+    return beginCell()
+        .storeRef(beginCell().storeRef(createEmptyCell()).storeUint(6, 8).endCell())
+        .endCell();
+}
+
+@method_id(119)
+fun test19() {
+    val c = makeCellWithRawSix();
+    val asShifted = lisp_list<ShiftedUint8>.fromCell(c).getHead();
+    val asRaw = lisp_list<uint8>.fromCell(c).getHead();
+    val c2 = makeCellWithRawSix();
+    val asRawFirst = lisp_list<uint8>.fromCell(c2).getHead();
+    val asShiftedAfter = lisp_list<ShiftedUint8>.fromCell(c2).getHead();
+    return (asShifted, asRaw, asRawFirst, asShiftedAfter);
+}
 
 fun main() {
     return (
@@ -424,4 +450,5 @@ fun main() {
 @testcase | 116 |     | 2 [ 3 (null) ] [ 4 (null) ]
 @testcase | 117 |     | -1 (null) 0 5 18792
 @testcase | 118 |     | 3
+@testcase | 119 |     | 5 6 6 5
  */

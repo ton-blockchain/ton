@@ -81,7 +81,7 @@ FALSE
 }>
 """
 
-@fif_codegen NOT //  '9
+@fif_codegen NOT //  '8
 @fif_codegen main() PROC:<{
 
 @fif_codegen_avoid PROCINLINE

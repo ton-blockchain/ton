@@ -180,15 +180,6 @@ fun test_destructuring_assignment_expression_result() {
     return (got, a, b);
 }
 
-@method_id(33)
-fun test_assignment_union_widened_rhs_result(x: int, y: int): (int, int) {
-    var u: int | (int, int) = (x, y);
-    __expect_type(u, "(int, int)");
-    var got = (u = u.0);
-    __expect_type(u, "int");
-    return (got, u);
-}
-
 fun main() {
 }
 
@@ -217,7 +208,6 @@ fun main() {
 @testcase | 30 |     | [ 1 [ 3 [ 3 [ 10 [ 10 (null) ] ] ] ] ]
 @testcase | 31 |     | 2 1 2 1
 @testcase | 32 |     | 2 1 2 1
-@testcase | 33 | 7 9 | 7 7
 
 @fif_codegen
 """
@@ -231,5 +221,5 @@ fun main() {
   test_assign_tensor_global() PROC:<{   // x.0 x.1
 """
 
-@code_hash 20080797589952318300606475129096868558134739770176038298694375311393096064727
+@code_hash 17898199156000752763810513209526180010632285036368787784392835308293247365245
 */

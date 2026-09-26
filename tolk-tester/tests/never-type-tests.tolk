@@ -44,6 +44,23 @@ fun test2(): int {
     }
 }
 
+@noinline
+fun abortWith42() {
+    throw 42;
+}
+
+@method_id(103)
+fun testPreservedNeverCall(cond: bool): int {
+    var x = 0;
+    if (cond) {
+        abortWith42();
+    } else {
+        x = 1;
+    }
+    return x;
+}
+
+
 fun main() {
     __expect_type(test1, "(int?) -> int");
     __expect_type(alwaysThrows(), "never");
@@ -54,6 +71,7 @@ fun main() {
 /**
 @testcase | 101 | null    | 123
 @testcase | 102 |         | 101
+@testcase | 103 | 0       | 1
 
 @fif_codegen
 """

@@ -32,6 +32,8 @@
 
 namespace tolk {
 
+struct InlineReturnPlan;
+struct LoopContinuePlan;
 
 /*
  * 
@@ -270,6 +272,7 @@ struct OpList {
   VarDescrList fwd_analyze(VarDescrList values) const;
   bool mark_noreturn();
   bool prune_unreachable();
+  bool has_reachable_direct_break() const;
   bool optimize_conditional_branches();
   void mark_function_used_dfs() const;
   void show(std::ostream& os, const std::vector<TmpVar>& vars, const std::string& indent, int mode = 0) const;
@@ -294,13 +297,14 @@ struct Op {
     _Until,
     _Repeat,
     _Again,
+    _BreakFromLoop,
     _TryCatch,
     _SliceConst,
     _SnakeStringConst,
     _DebugMark,
   };
   OpKind cl;
-  enum { _Disabled = 1, _NoReturn = 2, _Impure = 4, _ArgOrderAlreadyEqualsAsm = 8 };
+  enum { _Disabled = 1, _NoReturn = 2, _KeepEvenIfUnused = 4, _ArgOrderAlreadyEqualsAsm = 8 };
   int flags;
   FunctionPtr f_sym = nullptr;
   GlobalVarPtr g_sym = nullptr;
@@ -330,8 +334,8 @@ struct Op {
   bool set_noreturn() { flags |= _NoReturn; return true; }
   bool set_noreturn(bool flag);
 
-  bool impure() const { return flags & _Impure; }
-  void set_impure_flag();
+  bool keep_even_if_unused() const { return flags & _KeepEvenIfUnused; }
+  void set_keep_flag(bool flag);
 
   bool arg_order_already_equals_asm() const { return flags & _ArgOrderAlreadyEqualsAsm; }
   void set_arg_order_already_equals_asm_flag();
@@ -376,6 +380,9 @@ inline const VarDescrList& OpList::exit_var_info() const {
 struct FunctionBodyCode {
   CodeBlob* code = nullptr;
   void set_code(CodeBlob* code);
+};
+
+struct FunctionBodyPrototype {
 };
 
 /*
@@ -856,7 +863,7 @@ struct Stack {
   AsmOpList& o;
   std::vector<td::RefInt256>& unique_constants;
   const std::vector<TmpVar>& named_vars;
-  enum { _DisableOut = 128, _InsideLet = 256, _InlineFunc = 512, _InlineAny = 1024, _NeedRetAlt = 2048 };
+  enum { _DisableOut = 128, _InsideLet = 256, _InlineRef = 1024, _NeedRetAlt = 2048 };
   int mode;
   Stack(AsmOpList& _o, std::vector<td::RefInt256>& constants, const std::vector<TmpVar>& named_vars, int _mode)
     : o(_o), unique_constants(constants), named_vars(named_vars), mode(_mode) {
@@ -900,6 +907,8 @@ struct Stack {
   void assign_var(var_idx_t new_idx, var_idx_t old_idx);
   void do_copy_var(var_idx_t new_idx, var_idx_t old_idx);
   void enforce_state(const StackLayoutVars& req_stack);
+  void assume_state(const StackLayoutVars& req_stack);
+  void assume_state(Stack&& other);
   void rearrange_top(const StackLayoutVars& top, std::vector<bool> last);
   void rearrange_top(var_idx_t top_var_idx, bool last);
   void merge_const(const Stack& req_stack);
@@ -955,19 +964,31 @@ struct LazyVarRefAtCodegen {
     : var_ref(var_ref), var_state(var_state) {}
 };
 
+// a function being inlined right now; nullptr while lowering a real function body
+struct InliningFrameLowering {
+  FunctionPtr f_inlined;              // which function is being inlined
+  AnyV call_origin;                   // the call site it was expanded at
+  const InlineReturnPlan* plan;       // branching at if/else/match to carry FallthroughTail
+  std::vector<var_idx_t> rvect_out;   // `return x` writes here
+};
+
+// a loop being lowered right now; nullptr outside any loop
+struct LoopFrameLowering {
+  const LoopContinuePlan* plan;       // branching at if/else/match to carry FallthroughTail
+  AnyV body;                          // loop body block; its range is the MARK_SCOPE_END target
+};
+
 struct CodeBlob {
   int var_cnt, in_var_cnt;
   FunctionPtr fun_ref;
   std::vector<TmpVar> vars;
   std::vector<LazyVarRefAtCodegen> lazy_variables;
   std::vector<LocalVarPtr> ever_smart_casted;
-  std::vector<var_idx_t>* inline_rvect_out = nullptr;
-  AnyV inline_return_stmt_out = nullptr;
-  bool inlining_before_immediate_return = false;
+  const InliningFrameLowering* inlining = nullptr;
+  const LoopFrameLowering* current_loop = nullptr;
   OpList ops;
   OpList* cur_ops;
   std::stack<OpList*> cur_ops_stack;
-  bool require_callxargs = false;
   explicit CodeBlob(FunctionPtr fun_ref)
     : var_cnt(0), in_var_cnt(0), fun_ref(fun_ref), cur_ops(&ops) {
   }
@@ -975,21 +996,22 @@ struct CodeBlob {
     cur_ops->push_back(std::make_unique<Op>(origin, Op::_Nop));
   }
   void add_call(AnyV origin, std::vector<var_idx_t> ret, std::vector<var_idx_t> args, FunctionPtr called_f,
-                bool arg_order_already_equals_asm = false) {
+                bool force_keep = false, bool arg_order_already_equals_asm = false) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Call, std::move(ret)));
     op.right = std::move(args);
     op.f_sym = called_f;
-    if (!called_f->is_marked_as_pure()) op.set_impure_flag();
+    if (force_keep || !called_f->is_removable_if_unused()) op.set_keep_flag(true);
     if (arg_order_already_equals_asm) op.set_arg_order_already_equals_asm_flag();
   }
   void add_indirect_invoke(AnyV origin, std::vector<var_idx_t> ret, std::vector<var_idx_t> args) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_CallInd, std::move(ret)));
     op.right = std::move(args);
-    op.set_impure_flag();
+    op.set_keep_flag(true);
   }
-  void add_let(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
+  void add_let(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src, bool force_keep = false) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Let, std::move(dst)));
     op.right = std::move(src);
+    if (force_keep) op.set_keep_flag(true);
   }
   void add_int_const(AnyV origin, std::vector<var_idx_t> dst, td::RefInt256 value) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_IntConst, std::move(dst)));
@@ -1015,21 +1037,18 @@ struct CodeBlob {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_SetGlob));
     op.right = std::move(src);
     op.g_sym = g;
-    op.set_impure_flag();
     op.debug_mark = DebugMarkSetGlob{g, op.right};
   }
   void add_setcontargs(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_SetContArgs, std::move(dst)));
     op.right = std::move(src);
   }
-  void add_import_fun_params(AnyV origin, std::vector<var_idx_t> ir_params, FunctionPtr f_entered, DebugMarkInfo mark_enter_fun) {
+  void add_import_fun_params(AnyV origin, std::vector<var_idx_t> ir_params, DebugMarkInfo mark_enter_fun) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Import, std::move(ir_params)));
-    op.f_sym = f_entered;
     op.debug_mark = std::move(mark_enter_fun);
   }
   void add_return(AnyV origin, std::vector<var_idx_t> ir_return, FunctionPtr f_return_from) {
     Op& op = cur_ops->push_back(std::make_unique<Op>(origin, Op::_Return, std::move(ir_return)));
-    op.f_sym = f_return_from;
     op.debug_mark = create_mark_leave_fun(f_return_from, origin, op.left);
   }
   void add_to_tuple(AnyV origin, std::vector<var_idx_t> dst, std::vector<var_idx_t> src) {
@@ -1055,6 +1074,9 @@ struct CodeBlob {
   }
   Op& add_repeat_loop(AnyV origin, std::vector<var_idx_t> count) {
     return cur_ops->push_back(std::make_unique<Op>(origin, Op::_Repeat, std::move(count)));
+  }
+  void add_break_from_loop(AnyV origin) {
+    cur_ops->push_back(std::make_unique<Op>(origin, Op::_BreakFromLoop));
   }
   Op& add_try_catch(AnyV origin) {
     return cur_ops->push_back(std::make_unique<Op>(origin, Op::_TryCatch));
@@ -1096,6 +1118,7 @@ struct CodeBlob {
   void prune_unreachable_code();
   void fwd_analyze();
   void mark_noreturn();
+  void materialize_immediate_returns();
   bool optimize_conditional_branches();
 
   std::vector<AsmOp> generate_asm_code(int mode) const;

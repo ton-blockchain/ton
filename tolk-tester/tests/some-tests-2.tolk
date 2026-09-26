@@ -44,7 +44,7 @@ fun test89(last: int): (unknown, unknown, unknown, unknown) {
     return (t.get(0), t.get(t.size() - 1), t.first(), t.last());
 }
 
-@pure @noinline fun get10() { return 10; }
+@noinline fun get10() { return 10; }
 
 @method_id(91)
 fun touchCodegen2() {
@@ -125,7 +125,8 @@ fun test96(p: Point) {
     ...
     DUMPSTK
     x{6d79} PUSHSLICE
-    STRDUMP DROP        //  f s
+    STRDUMP
+    DROP                //  f s
     CTOS                //  f '6
     SBITS	            //  f '7
   }>
@@ -152,11 +153,11 @@ fun test96(p: Point) {
   test95() PROC:<{
     ...
     $next GETGLOB	//  g_next
-    3 PUSHINT	    //  g_next '14=3
-    4 PUSHINT	    //  g_next '14=3 '15=4
-    5 PUSHINT	    //  g_next '14=3 '15=4 '16=5
-    3 TUPLE	        //  g_cur '18
-    SWAP            //  '18 g_cur
+    3 PUSHINT	    //  g_next '12=3
+    4 PUSHINT	    //  g_next '12=3 '13=4
+    5 PUSHINT	    //  g_next '12=3 '13=4 '14=5
+    3 TUPLE	        //  g_cur '16
+    SWAP            //  '16 g_cur
     $cur SETGLOB    //  g_next
     $next SETGLOB   //
     $cur GETGLOB    //  g_cur

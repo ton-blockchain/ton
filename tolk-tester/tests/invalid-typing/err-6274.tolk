@@ -15,5 +15,6 @@ fun cantMatchAgainstNotVariant(a: int | slice | MBuilder) {
 /**
 @compilation_should_fail
 @stderr wrong pattern matching: `MCell` is not a variant of `int | slice | MBuilder`
-@stderr MCell
+@stderr wrong pattern matching: use `int` instead of `MInt2`
+@stderr wrong pattern matching: use `slice` instead of `MSlice`
  */

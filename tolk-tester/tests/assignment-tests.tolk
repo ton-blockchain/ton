@@ -311,8 +311,8 @@ fun main(value: int, ) {
     2 PUSHINT	    //  '9=1 '10=2
     3 PUSHINT	    //  '9=1 '10=2 '11=3
     4 PUSHINT	    //  '9=1 '10=2 '11=3 '12=4
-    4 TUPLE	        //  '14
-    DUP	            //  '14 '14
+    4 TUPLE	        //  rhs
+    DUP	            //  rhs rhs
     4 UNTUPLE	    //  rhs2 a b c d
     4 ROLL	        //  a b c d rhs2
   }>

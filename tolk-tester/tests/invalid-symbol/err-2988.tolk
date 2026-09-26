@@ -12,7 +12,7 @@ fun main(): int {
 
 /**
 @compilation_should_fail
-@stderr in function `valueViaContract4`
+@stderr in function valueViaContract4
 @stderr `sharedValue4` is a contract getter in `imported-contract-4.tolk` and is not accessible when imported
 @stderr return sharedValue4()
  */

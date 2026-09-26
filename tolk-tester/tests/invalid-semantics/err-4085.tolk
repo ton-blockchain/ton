@@ -17,6 +17,6 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr can not detect struct name
-@stderr use either `var v: StructName = { ... }` or `var v = StructName { ... }`
+@stderr hint: use `var v = StructName { ... }`
 @stderr { value: 20 }
  */

@@ -31,7 +31,7 @@ fun errMutateConstant() {
 
 // @stderr modifying immutable variable `myVal`
 // @stderr hint: it's declared `val myVal`, keyword 'val' means 'immutable'
-// @stderr hint: declare `var myVal` to allow modifications
+// @stderr declared as `val` here
 fun errMutateVal() {
     val myVal = 10;
     increment(mutate myVal);

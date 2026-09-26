@@ -23,6 +23,8 @@
 namespace tolk {
 
 struct ContractDirective {
+  AnyV v_contract;      // ast_contract_directive
+
   std::string contractName;
   std::string author;
   std::string version;

@@ -68,8 +68,8 @@ type WrapperAlias<TTT> = Wrapper<TTT>;
 // @stderr wrong pattern matching: duplicated `WrapperAlias<int>`
 fun duplicateInStrangeUnion(w: int | WrapperAlias<int> | WrapperAlias<int8>) {
     match (w) {
-        MyInt => {}
-        Wrapper<MyInt> => {}
+        int => {}
+        WrapperAlias<int> => {}
         WrapperAlias<int> => {}
     }
 }
@@ -83,17 +83,18 @@ type AView2 = AForMatch
 type AView3 = AForMatch
 type AView4 = AForMatch
 
-// @stderr wrong pattern matching: duplicated `AView2`
+// @stderr wrong pattern matching: duplicated `AForMatch`
 // @stderr `match` does not cover all possible types; missing types are: `BForMatch`
 fun duplicateUnionVariantViaDifferentAliases(s: slice) {
     var msg: MessageForMatch = lazy MessageForMatch.fromSlice(s);
     match (msg) {
-        AView1 => {}
-        AView2 => {}
+        AForMatch => {}
+        AForMatch => {}
     }
 }
 
-// @stderr wrong pattern matching: duplicated `AView4`
+// @stderr wrong pattern matching: use `AForMatch` instead of `AView3`
+// @stderr wrong pattern matching: use `AForMatch` instead of `AView4`
 fun duplicateNonUnionVariantViaDifferentAliases(msg: AForMatch) {
     match (msg) {
         AView3 => {}

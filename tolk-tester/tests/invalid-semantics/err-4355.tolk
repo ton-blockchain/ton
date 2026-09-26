@@ -16,6 +16,6 @@ fun cantModifyValDeclaredInMatch() {
 /**
 @compilation_should_fail
 @stderr modifying immutable variable `b`
-@stderr in function `cantModifyValDeclaredInMatch`
+@stderr in function cantModifyValDeclaredInMatch
 @stderr increment(mutate b)
  */

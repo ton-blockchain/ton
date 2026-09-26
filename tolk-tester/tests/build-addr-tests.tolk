@@ -304,7 +304,7 @@ fun test15() {
         (any as address) == addr, any == (addr as any_address),
         (any as slice).bitsEqual(addr as slice),
         (any as bits123 as any_address as slice).remainingBitsCount(),
-        (addr as bytes1 as address as slice).remainingBitsCount(),
+        (addr as bits8 as address as slice).remainingBitsCount(),
     )
 }
 

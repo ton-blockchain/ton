@@ -54,18 +54,12 @@ struct BorrowedVarOrField {
 // without this, a chain of mutate-self will not fire, since `x.inc()` is not is_valid_mutation_path
 static AnyExprV get_leftmost_chained_mutate_self(AnyExprV v) {
   auto as_call = v->try_as<ast_function_call>();
-  FunctionPtr fun_ref = as_call ? as_call->fun_maybe : nullptr;
-  if (!fun_ref || !fun_ref->does_return_self() || !fun_ref->does_mutate_self()) {
+  if (!as_call || !as_call->fun_maybe || !as_call->dot_obj_is_self ||
+      !as_call->fun_maybe->does_return_self() || !as_call->fun_maybe->does_mutate_self()) {
     return nullptr;
   }
 
   AnyExprV self_obj = as_call->get_self_obj();
-  if (!self_obj && fun_ref->does_accept_self()) {
-    self_obj = as_call->get_arg(0)->get_expr();    // static call `Name.method(mutate obj)`, self=obj
-  }
-  if (!self_obj) {
-    return nullptr;
-  }
   return is_valid_mutation_path(self_obj) ? self_obj : get_leftmost_chained_mutate_self(self_obj);
 }
 

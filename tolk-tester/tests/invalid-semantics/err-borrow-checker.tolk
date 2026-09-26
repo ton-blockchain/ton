@@ -21,19 +21,6 @@ fun int.incAndReturn(mutate self): self {
     return self;
 }
 
-type PairShape = [int, int];
-
-fun PairShape.incFirst(mutate self): self {
-    self.0 += 1;
-    return self;
-}
-
-fun PairShape.addFirstAndOther(mutate self, mutate other: int): self {
-    self.0 += 10;
-    other += 100;
-    return self;
-}
-
 // @stderr can not borrow `x001` for mutation once again, it is already being mutated by `int.add`
 // @stderr hint: split a complex expression into several simple ones
 fun errCantBorrow1() {
@@ -92,12 +79,6 @@ fun errCantBorrowReceiverAndMutate() {
 fun errCantBorrowChainedReceiverAndMutate() {
     var x004 = 0;
     x004.incAndReturn().incSelfWithOther(mutate x004);
-}
-
-// @stderr can not borrow `box.0.0` for mutation, because `box.0` is already being mutated by `PairShape.addFirstAndOther`
-fun errCantBorrowStaticQualifiedChainedReceiverAndMutate() {
-    var box: [PairShape] = [[1, 2]];
-    PairShape.incFirst(mutate box.0).addFirstAndOther(mutate box.0.0);
 }
 
 global d13: Demo;

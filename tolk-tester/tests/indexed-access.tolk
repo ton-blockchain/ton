@@ -70,7 +70,7 @@ fun testCodegenSimple() {
 
 @method_id(101)
 fun test101() {
-    var t = (1, (2, 3), [4, 5, [6, 7]] as [int, int, [int, int]], 8);
+    var t = (1, (2, 3), [4, 5, [6, 7]] as [int, int, [int, int]], 8 as MInt);
     (t.0, t.1.0, t.2.0) = (2, 3, 5);
     t.3.increment();
     t.2.1 += (t.1.1 += 1) - t.1.1 + 1;
@@ -142,13 +142,13 @@ fun test107() {
     return (ab.get(0), getBuilderBitsCount(ab.get(1) as builder));
 }
 
-global t108: [int, [int, [int]]];
+global t108: [int, [int, [MInt]]];
 
 @method_id(108)
 fun test108(last: int) {
     t108 = [1, [2, [last]]];
     t108.1.1.0.increment();
-    var t: [int, [int, [int]]] = [1, [2, [last]]];
+    var t: [int, [int, [MInt]]] = [1, [2, [last]]];
     t.1.1.0.increment();
     return (t108, t);
 }
@@ -180,7 +180,6 @@ fun test112(f: int, s: int) {
     return (yy, yy.1, yy.1.plus(yy.1 / 20), eq(yy.1 += (yy.0 *= 0)), yy.1 = yy.1 * 2, yy.1, yy.1 += 1, yy.1, yy);
 }
 
-@pure
 @noinline
 fun getConstTuple(): Tup2Int {
     return [1,2];
@@ -216,7 +215,7 @@ fun test116() {
 }
 
 @method_id(117)
-fun test117() {
+fun test117(): int {
     var t = createEmptyTuple();
     t.push(1);
     try {
@@ -358,32 +357,35 @@ fun main(){
   testCodegenSimple() PROC:<{
     1 PUSHINT                   //  '1=1
     1 TUPLE                     //  t1
-    2 PUSHINT                   //  t1 '8=2
+    2 PUSHINT                   //  t1 '7=2
     0 SETINDEX                  //  t1
     x{} PUSHSLICE
-    STRDUMP DROP                //  t1
-    1 PUSHINT                   //  t1 '12=1
-    1 TUPLE                     //  t1 '11
+    STRDUMP
+    DROP                        //  t1
+    1 PUSHINT                   //  t1 '11=1
+    1 TUPLE                     //  t1 '10
     1 TUPLE                     //  t1 t2
-    2 PUSHINT                   //  t1 t2 '19=2
-    OVER                        //  t1 t2 '19=2 t2
-    0 INDEX                     //  t1 t2 '23=2 '21
-    SWAP                        //  t1 t2 '21 '23=2
-    0 SETINDEX                  //  t1 t2 '25
+    2 PUSHINT                   //  t1 t2 '17=2
+    OVER                        //  t1 t2 '17=2 t2
+    0 INDEX                     //  t1 t2 '21=2 '19
+    SWAP                        //  t1 t2 '19 '21=2
+    0 SETINDEX                  //  t1 t2 '23
     0 SETINDEX                  //  t1 t2
     x{} PUSHSLICE
-    STRDUMP DROP                //  t1 t2
-    1 PUSHINT                   //  t1 t2 '28=1
+    STRDUMP
+    DROP                        //  t1 t2
+    1 PUSHINT                   //  t1 t2 '26=1
     1 TUPLE                     //  t1 t2 g_gTup
     $gTup SETGLOB               //  t1 t2
-    2 PUSHINT                   //  t1 t2 '35=2
-    $gTup GETGLOB               //  t1 t2 '38=2 g_gTup
-    SWAP                        //  t1 t2 g_gTup '38=2
+    2 PUSHINT                   //  t1 t2 '31=2
+    $gTup GETGLOB               //  t1 t2 '34=2 g_gTup
+    SWAP                        //  t1 t2 g_gTup '34=2
     0 SETINDEX                  //  t1 t2 g_gTup
     $gTup SETGLOB               //  t1 t2
     x{} PUSHSLICE
-    STRDUMP DROP                //  t1 t2
-    1 PUSHINT                   //  t1 t2 '40=1
+    STRDUMP
+    DROP                        //  t1 t2
+    1 PUSHINT                   //  t1 t2 '36=1
     2 PUSHINT                   //  t1 t2 g_gTens.0=1 g_gTens.1=2
     2 TUPLE
     $gTens SETGLOB              //  t1 t2
@@ -395,7 +397,8 @@ fun main(){
     2 TUPLE
     $gTens SETGLOB              //  t1 t2
     x{} PUSHSLICE
-    STRDUMP DROP                //  t1 t2
+    STRDUMP
+    DROP                        //  t1 t2
     $gTup GETGLOB               //  t1 t2 g_gTup
     $gTens GETGLOB
     2 UNTUPLE                   //  t1 t2 g_gTup g_gTens.0 g_gTens.1
