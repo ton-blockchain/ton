@@ -561,35 +561,6 @@ PublicKeyHash FullNodeShardImpl::choose_outbound_source(td::uint32 payload_size,
   return local_id_;
 }
 
-void FullNodeShardImpl::sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expire_at, td::uint32 max_size,
-                                                 td::Promise<td::BufferSlice> promise) {
-  auto sign_by = sign_cert_by_;
-  if (sign_by.is_zero()) {
-    promise.set_error(td::Status::Error("Node has no key with signing authority"));
-    return;
-  }
-
-  ton::overlay::Certificate cert{sign_by, static_cast<td::int32>(expire_at), max_size,
-                                 overlay::CertificateFlags::Trusted | overlay::CertificateFlags::AllowFec,
-                                 td::BufferSlice{}};
-  auto to_sign = cert.to_sign(overlay_id_, signed_key);
-
-  auto P = td::PromiseCreator::lambda(
-      [SelfId = actor_id(this), expire_at = expire_at, max_size = max_size,
-       promise = std::move(promise)](td::Result<std::pair<td::BufferSlice, PublicKey>> R) mutable {
-        if (R.is_error()) {
-          promise.set_error(R.move_as_error_prefix("failed to create certificate: failed to sign: "));
-        } else {
-          auto p = R.move_as_ok();
-          auto c = ton::create_serialize_tl_object<ton::ton_api::overlay_certificate>(
-              p.second.tl(), static_cast<td::int32>(expire_at), max_size, std::move(p.first));
-          promise.set_value(std::move(c));
-        }
-      });
-  td::actor::send_closure(keyring_, &ton::keyring::Keyring::sign_add_get_public_key, sign_by, std::move(to_sign),
-                          std::move(P));
-}
-
 void FullNodeShardImpl::import_overlay_certificate(PublicKeyHash signed_key,
                                                    std::shared_ptr<ton::overlay::Certificate> cert,
                                                    td::Promise<td::Unit> promise) {
