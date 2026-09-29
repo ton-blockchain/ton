@@ -128,13 +128,36 @@ void FullNodeImpl::initial_config_loaded() {
 
 void FullNodeImpl::sign_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key, td::uint32 expiry_at,
                                                   td::uint32 max_size, td::Promise<td::BufferSlice> promise) {
-  auto it = shards_.find(shard_id);
-  if (it == shards_.end() || it->second.actor.empty()) {
+  if (!shards_.contains(shard_id)) {
     promise.set_error(td::Status::Error(ErrorCode::error, "shard not found"));
     return;
   }
-  td::actor::send_closure(it->second.actor, &FullNodeShard::sign_overlay_certificate, signed_key, expiry_at, max_size,
-                          std::move(promise));
+  if (sign_cert_by_.is_zero()) {
+    promise.set_error(td::Status::Error("Node has no key with signing authority"));
+    return;
+  }
+
+  auto id = create_hash_tl_object<ton_api::tonNode_shardPublicOverlayId>(shard_id.workchain, shard_id.shard,
+                                                                         zero_state_file_hash_);
+  td::BufferSlice id_data{32};
+  id_data.as_slice().copy_from(as_slice(id));
+  auto overlay_id = overlay::OverlayIdFull{std::move(id_data)}.compute_short_id();
+  ton::overlay::Certificate cert{sign_cert_by_, static_cast<td::int32>(expiry_at), max_size,
+                                 overlay::CertificateFlags::Trusted | overlay::CertificateFlags::AllowFec,
+                                 td::BufferSlice{}};
+  auto to_sign = cert.to_sign(overlay_id, signed_key);
+  td::actor::send_closure(
+      keyring_, &ton::keyring::Keyring::sign_add_get_public_key, sign_cert_by_, std::move(to_sign),
+      [expiry_at, max_size,
+       promise = std::move(promise)](td::Result<std::pair<td::BufferSlice, PublicKey>> result) mutable {
+        if (result.is_error()) {
+          promise.set_error(result.move_as_error_prefix("failed to create certificate: failed to sign: "));
+          return;
+        }
+        auto [signature, public_key] = result.move_as_ok();
+        promise.set_value(create_serialize_tl_object<ton_api::overlay_certificate>(
+            public_key.tl(), static_cast<td::int32>(expiry_at), max_size, std::move(signature)));
+      });
 }
 
 void FullNodeImpl::import_shard_overlay_certificate(ShardIdFull shard_id, PublicKeyHash signed_key,
