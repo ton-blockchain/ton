@@ -19,8 +19,8 @@
 #include <array>
 #include <atomic>
 #include <limits>
+#include <memory>
 #include <type_traits>
-#include <vector>
 
 #include "td/utils/Hash.h"
 #include "td/utils/check.h"
@@ -41,7 +41,7 @@ class SeqlockCache {
   static_assert(std::is_integral_v<Word> && std::has_unique_object_representations_v<Word>);
   using Key = std::array<Word, KeyWords>;
 
-  explicit SeqlockCache(size_t slot_count) : slot_count_(slot_count), entries_(slot_count) {
+  explicit SeqlockCache(size_t slot_count) : slot_count_(slot_count), entries_(std::make_unique<Entry[]>(slot_count)) {
     CHECK(slot_count > 0);
   }
   SeqlockCache(const SeqlockCache&) = delete;
@@ -108,12 +108,12 @@ class SeqlockCache {
  private:
   static_assert(std::atomic<uint64>::is_always_lock_free);
   static_assert(std::atomic<Word>::is_always_lock_free);
-  struct Entry {
+  struct alignas(64) Entry {
     std::atomic<uint64> sequence{0};
     std::array<std::atomic<Word>, KeyWords> key{};
   };
   const size_t slot_count_;
-  std::vector<Entry> entries_;
+  std::unique_ptr<Entry[]> entries_;
 };
 
 }  // namespace td
