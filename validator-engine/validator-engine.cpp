@@ -2388,6 +2388,7 @@ void ValidatorEngine::start_full_node() {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::import_fast_sync_member_certificate,
                               x.first, x.second);
     }
+    td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::initial_config_loaded);
     if (!validator_telemetry_filename_.empty()) {
       td::actor::send_closure(full_node_, &ton::validator::fullnode::FullNode::set_validator_telemetry_filename,
                               validator_telemetry_filename_);
