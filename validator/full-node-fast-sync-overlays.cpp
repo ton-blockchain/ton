@@ -1056,16 +1056,25 @@ double FullNodeFastSyncOverlays::update_overlays(
       changed_certificate = true;
       overlays_info.current_certificate_ = {};
     }
-    if (overlays_info.current_certificate_.empty()) {
-      auto it = member_certificates_.find(local_id);
-      if (it != member_certificates_.end()) {
-        for (const overlay::OverlayMemberCertificate &certificate : it->second) {
-          if (std::binary_search(root_public_keys_.begin(), root_public_keys_.end(),
-                                 certificate.issued_by().compute_short_id())) {
-            changed_certificate = true;
-            overlays_info.current_certificate_ = certificate;
-            break;
-          }
+    auto certificate_authority_until = [&](const overlay::OverlayMemberCertificate &certificate) {
+      auto issuer = validator_authority_until_.find(certificate.issued_by().compute_short_id());
+      return issuer == validator_authority_until_.end()
+                 ? 0.0
+                 : std::min(static_cast<double>(certificate.expire_at()), static_cast<double>(issuer->second));
+    };
+    double current_certificate_authority_until = overlays_info.current_certificate_.empty()
+                                                     ? 0.0
+                                                     : certificate_authority_until(overlays_info.current_certificate_);
+    auto it = member_certificates_.find(local_id);
+    if (it != member_certificates_.end()) {
+      for (const overlay::OverlayMemberCertificate &certificate : it->second) {
+        double candidate_authority_until = certificate_authority_until(certificate);
+        if (candidate_authority_until > current_certificate_authority_until ||
+            (candidate_authority_until == current_certificate_authority_until &&
+             certificate.is_newer(overlays_info.current_certificate_))) {
+          changed_certificate = true;
+          overlays_info.current_certificate_ = certificate;
+          current_certificate_authority_until = candidate_authority_until;
         }
       }
     }
@@ -1075,25 +1084,7 @@ double FullNodeFastSyncOverlays::update_overlays(
       id_to_overlays_.erase(local_id);
       continue;
     }
-
-    auto account_certificate_authority = [&](const overlay::OverlayMemberCertificate &certificate) {
-      if (certificate.empty()) {
-        return;
-      }
-      auto issuer = validator_authority_until_.find(certificate.issued_by().compute_short_id());
-      if (issuer != validator_authority_until_.end()) {
-        // Member certificates allow three seconds of clock skew. Recheck in the first whole second in which
-        // update_overlays() is guaranteed to consider the certificate expired and can select another one.
-        double certificate_until = static_cast<double>(certificate.expire_at()) + 4.0;
-        authority_until = std::max(authority_until, std::min(certificate_until, static_cast<double>(issuer->second)));
-      }
-    };
-    account_certificate_authority(overlays_info.current_certificate_);
-    if (auto it = member_certificates_.find(local_id); it != member_certificates_.end()) {
-      for (const auto &certificate : it->second) {
-        account_certificate_authority(certificate);
-      }
-    }
+    authority_until = std::max(authority_until, current_certificate_authority_until);
 
     // Update shard overlays
     for (ShardIdFull shard : all_shards) {
