@@ -359,6 +359,7 @@ ton::NewConsensusConfig Config::get_new_consensus_config(ton::WorkchainId wc) co
   if (auto cc = get_config_param(29); cc.not_null()) {
     read_block_limits(config, cc);
   }
+  config.full_collated_data_enabled = (capabilities_ & ton::capFullCollatedData);
 
   auto c1 = get_config_param(30);
   if (c1.is_null()) {
