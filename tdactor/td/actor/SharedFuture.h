@@ -56,6 +56,37 @@ class SharedFuture {
   CancellationTokenSource cancellation_;
 };
 
+template <typename T>
+class AsyncValue {
+ public:
+  AsyncValue() {
+    auto [task, promise] = StartedTask<T>::make_bridge();
+    future_ = SharedFuture<T>(std::move(task));
+    promise_ = std::move(promise);
+  }
+
+  AsyncValue(const AsyncValue&) = delete;
+  AsyncValue(AsyncValue&&) = delete;
+  AsyncValue& operator=(const AsyncValue&) = delete;
+  AsyncValue& operator=(AsyncValue&&) = delete;
+
+  Task<T> get() {
+    return future_.get();
+  }
+
+  void set(T value) {
+    promise_.set_value(std::move(value));
+  }
+
+  void cancel() {
+    promise_.set_error(Status::Error(653, "cancelled"));
+  }
+
+ private:
+  SharedFuture<T> future_;
+  Promise<T> promise_;
+};
+
 constexpr int AWAIT_TIMEOUT_CODE = 6520;
 
 template <typename T>
