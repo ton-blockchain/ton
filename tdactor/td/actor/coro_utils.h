@@ -131,6 +131,41 @@ Task<std::vector<await_result_t<Wrapped<TaskType>>>> all_wrap(std::vector<TaskTy
   co_return results;
 }
 
+template <CoroTask TaskType>
+Task<await_result_t<TaskType>> any(std::vector<TaskType> tasks, std::vector<bool> ignore_errors = {}) {
+  using T = await_result_t<TaskType>;
+  co_await become_lightweight();
+  if (tasks.empty()) {
+    co_return Status::Error("no tasks");
+  }
+  auto [result_task, promise] = StartedTask<T>::make_bridge();
+  struct Data {
+    Promise<T> promise;
+    std::atomic_flag resolved;
+    explicit Data(Promise<T> promise) : promise(std::move(promise)) {
+    }
+  };
+  auto promise_ptr = std::make_shared<Data>(std::move(promise));
+  size_t i = 0;
+  for (auto& task : tasks) {
+    [](TaskType task, std::shared_ptr<Data> promise_ptr, bool ignore_errors) -> Task<> {
+      auto R = co_await std::move(task).wrap();
+      if (ignore_errors && R.is_error()) {
+        co_return {};
+      }
+      if (!promise_ptr->resolved.test_and_set()) {
+        promise_ptr->promise.set_result(std::move(R));
+      }
+      co_return {};
+    }(std::move(task), promise_ptr, i < ignore_errors.size() ? ignore_errors[i] : false)
+                                                                                    .start()
+                                                                                    .detach_silent();
+    ++i;
+  }
+  promise_ptr = {};
+  co_return co_await std::move(result_task);
+}
+
 enum class UnifiedKind : uint8_t { None, Void, TaskReturn, PromiseArgument, ReturnValue };
 
 template <class M>
