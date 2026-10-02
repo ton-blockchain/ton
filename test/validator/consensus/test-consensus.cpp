@@ -360,7 +360,6 @@ class TestManagerFacade : public ManagerFacade {
     uint32_t prev_seqno = params.prev[0].seqno();
     LOG(WARNING) << "Collate block #" << prev_seqno + 1;
     CHECK(params.shard == SHARD);
-    CHECK(params.min_masterchain_block_id == MIN_MC_BLOCK_ID);
 
     CHECK(params.prev_block_state_roots.size() == 1 &&
           params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash());
@@ -442,8 +441,9 @@ class TestManagerFacade : public ManagerFacade {
     CHECK(params.prev[0].shard_full() == SHARD);
     CHECK(candidate.id.shard_full() == SHARD);
     CHECK(candidate.id.seqno() == prev_seqno + 1);
-    CHECK(params.prev_block_state_roots.size() == 1 &&
-          params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash());
+    CHECK(!candidate.id.is_masterchain() ||
+          (params.prev_block_state_roots.size() == 1 &&
+           params.prev_block_state_roots[0]->get_hash() == gen_shard_state(prev_seqno)->get_hash()));
     auto creator = PublicKey{pubkeys::Ed25519{candidate.pubkey}}.compute_short_id();
     CHECK(params.candidate_roots.not_null() == (params.local_validator_id != creator));
     if (params.candidate_roots.not_null()) {
@@ -709,6 +709,7 @@ class TestConsensus : public td::actor::Actor {
         .max_block_size = 1 << 20,
         .max_collated_data_size = 1 << 20,
         .slots_per_leader_window = SLOTS_PER_LEADER_WINDOW,
+        .full_collated_data_enabled = true,
         .noncritical_params = {.target_rate{TARGET_RATE_MS}},
     };
     bus->session_id = SESSION_ID;
@@ -719,8 +720,7 @@ class TestConsensus : public td::actor::Actor {
                              PSTRING() << "consensus." << node_idx << "." << instance_idx);
     inst.status = Instance::Running;
     inst.bus.publish<BlockFinalizedInMasterchain>(last_accepted_block_);
-    inst.bus.publish<Start>(
-        td::make_ref<ChainState>(ChainState::ZerostateTip{FIRST_PARENT, gen_shard_state(0)}, MIN_MC_BLOCK_ID));
+    inst.bus.publish<Start>(td::make_ref<ChainState>(ChainState::ZerostateTip{FIRST_PARENT, gen_shard_state(0)}));
     LOG(ERROR) << "Starting node #" << node_idx << "." << instance_idx;
   }
 
