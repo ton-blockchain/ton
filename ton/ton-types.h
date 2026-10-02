@@ -510,6 +510,8 @@ struct NewConsensusConfig {
   td::uint32 protocol_version = 0;
   td::uint32 slots_per_leader_window = 4;
 
+  bool full_collated_data_enabled = false;
+
   bool enable_block_sync() const {
     return protocol_version == 1;
   }

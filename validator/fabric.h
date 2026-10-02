@@ -68,7 +68,7 @@ struct ValidateParams {
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
 
   bool is_fake = false;
-
+  bool require_full_collated_data = false;
   bool parallel_validation = false;
 
   // Optional - if empty, states are taken from manager

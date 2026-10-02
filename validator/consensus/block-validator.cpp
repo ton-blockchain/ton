@@ -97,6 +97,7 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
           .shard = bus.shard,
           .prev = event->state->block_ids(),
           .local_validator_id = bus.local_id->short_id,
+          .require_full_collated_data = bus.config.full_collated_data_enabled,
           .prev_block_state_roots = event->state->state(),
       };
       auto result = co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
