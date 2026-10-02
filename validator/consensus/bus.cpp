@@ -102,7 +102,9 @@ std::string CandidateReceived::contents_to_string() const {
 }
 
 std::string ValidationRequest::contents_to_string() const {
-  return PSTRING() << "{state=" << state << ", candidate=" << candidate_to_string(candidate) << "}";
+  return PSTRING() << "{candidate=" << candidate_to_string(candidate) << ", prev_block_ids=" << prev_block_ids
+                   << ", with_prev_state_roots=" << !prev_state_roots.empty()
+                   << ", is_prev_normal_tip=" << is_prev_normal_tip << "}";
 }
 
 std::string ValidationRequest::response_to_string(const ReturnType& result) {
