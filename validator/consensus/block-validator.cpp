@@ -70,7 +70,7 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     owning_bus().publish<TraceEvent>(stats::ValidationStarted::create(event->candidate->id));
 
     auto empty_fn = [&](BlockIdExt block) -> td::actor::Task<ValidateCandidateResult> {
-      if (block != event->state->as_normal()) {
+      if (!event->is_prev_normal_tip || event->prev_block_ids.size() != 1 || block != event->prev_block_ids[0]) {
         co_return CandidateReject{
             .reason = "Wrong referenced block in empty candidate",
             .proof = td::BufferSlice(),
@@ -80,25 +80,32 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     };
     auto block_fn = [&](const BlockCandidate& block) -> td::actor::Task<ValidateCandidateResult> {
       if (bus.shard.is_masterchain()) {
-        auto expected_seqno = event->state->as_normal();
-        while (last_accepted_block_ < expected_seqno) {
+        if (event->prev_block_ids.size() != 1) {
+          co_return td::Status::Error(PSTRING() << "Invalid prev blocks for candidate " << event->candidate->id);
+        }
+        std::optional<BlockIdExt> expected =
+            event->is_prev_normal_tip ? std::optional{event->prev_block_ids[0]} : std::nullopt;
+        while (last_accepted_block_ < expected) {
           auto [awaiter, promise] = td::actor::StartedTask<>::make_bridge();
           next_block_promises_.push_back(std::move(promise));
           co_await std::move(awaiter);
         }
-        if (expected_seqno < last_accepted_block_) {
-          co_return td::Status::Error(PSTRING()
-                                      << "Candidate " << event->candidate->id << " builds upon " << expected_seqno
-                                      << " but we already finalized " << last_accepted_block_);
+        if (expected < last_accepted_block_) {
+          co_return td::Status::Error(PSTRING() << "Candidate " << event->candidate->id << " builds upon " << expected
+                                                << " but we already finalized " << last_accepted_block_);
         }
       }
 
+      if (event->prev_state_roots.empty() && (bus.is_masterchain() || !bus.config.full_collated_data_enabled)) {
+        co_return td::Status::Error(PSTRING()
+                                    << "No prev_state_roots are present for candidate " << event->candidate->id);
+      }
       ValidateParams validate_params{
           .shard = bus.shard,
-          .prev = event->state->block_ids(),
+          .prev = event->prev_block_ids,
           .local_validator_id = bus.local_id->short_id,
           .require_full_collated_data = bus.config.full_collated_data_enabled,
-          .prev_block_state_roots = event->state->state(),
+          .prev_block_state_roots = event->prev_state_roots,
       };
       auto result = co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
                                             std::move(validate_params), td::Timestamp::in(60.0));
