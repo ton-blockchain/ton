@@ -481,6 +481,8 @@ struct NewConsensusConfig {
   td::uint32 protocol_version = 2;
   td::uint32 slots_per_leader_window = 4;
 
+  bool full_collated_data_enabled = false;
+
   // When adding a new noncritical parameters, also add it to consensus.simplex.noncriticalParams TL scheme
   // clang-format off
 #define ENUMERATE_NONCRITICAL_PARAMS(uint32_fn, double_fn, duration_fn) \
