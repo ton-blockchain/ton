@@ -7,6 +7,7 @@
 #include "consensus/simplex/state.h"
 #include "consensus/stats.h"
 #include "consensus/utils.h"
+#include "td/actor/SharedFuture.h"
 #include "td/actor/coro_utils.h"
 
 #include "bus.h"
@@ -96,6 +97,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     start_up_cont().start().detach();
   }
 
+  void tear_down() override {
+    our_validated_blocks_.clear();
+  }
+
   td::actor::Task<> start_up_cont() {
     auto& bus = *owning_bus();
     if (bus.first_nonannounced_window == 0 && bus.collator_schedule->is_expected_collator(bus.local_id->idx, 0)) {
@@ -158,6 +163,10 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       timeout_slot_ = event->start_slot + 1;
       timeout_base_ = td::Timestamp::in(std::chrono::round<std::chrono::nanoseconds>(first_block_timeout_));
       alarm_timestamp() = td::Timestamp::in(params_.target_rate, timeout_base_);
+    }
+
+    while (!our_validated_blocks_.empty() && our_validated_blocks_.begin()->first < event->start_slot) {
+      our_validated_blocks_.erase(our_validated_blocks_.begin());
     }
   }
 
@@ -240,13 +249,15 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     const auto& candidate = *slot.state->pending_block;
     auto store_candidate = owning_bus().publish<StoreCandidate>(candidate).start();
 
-    auto maybe_misbehavior = co_await owning_bus().publish<WaitForParent>(candidate);
-    if (maybe_misbehavior) {
-      owning_bus().publish<MisbehaviorReport>(candidate->leader, *maybe_misbehavior);
+    std::vector<td::actor::Task<ChainStateData>> tasks;
+    tasks.push_back(wait_for_parent_normal(candidate));
+    tasks.push_back(wait_for_parent_optimistic(candidate));
+    auto parent = co_await td::actor::any(std::move(tasks),
+                                          /* ignore_errors = */ {false, true});
+    if (parent.maybe_misbehavior) {
+      owning_bus().publish<MisbehaviorReport>(candidate->leader, *parent.maybe_misbehavior);
       co_return {};
     }
-
-    auto parent = co_await owning_bus().publish<ResolveState>(candidate->parent_id);
 
     if (!candidate->is_empty() && parent.gen_utime_exact.has_value()) {
       auto earliest = td::Timestamp::at_unix(*parent.gen_utime_exact) + params_.min_block_interval;
@@ -255,7 +266,8 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       }
     }
 
-    auto validation_result = co_await owning_bus().publish<ValidationRequest>(parent.state, candidate);
+    auto validation_result = co_await owning_bus().publish<ValidationRequest>(
+        candidate, parent.prev_block_ids, parent.prev_state_roots, parent.is_prev_normal_tip);
 
     if (validation_result.has<CandidateReject>()) {
       LOG(WARNING) << "Candidate " << candidate->id
@@ -263,13 +275,72 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       // FIXME: Report misbehavior
       co_return {};
     }
+    our_validated_blocks_[slot.i].set(ValidatedBlockInfo{
+        .candidate_id = candidate->id,
+        .block_id = candidate->block_id(),
+        .gen_utime_exact =
+            candidate->is_empty() ? parent.gen_utime_exact : validation_result.get<CandidateAccept>().ok_from_utime,
+    });
     co_await std::move(store_candidate);
+
+    // When we validated block after wait_for_parent_optimistic, we still need WaitForParent before voting
+    if (auto maybe_misbehavior = co_await owning_bus().publish<WaitForParent>(candidate)) {
+      owning_bus().publish<MisbehaviorReport>(candidate->leader, *maybe_misbehavior);
+      co_return {};
+    }
 
     slot.state->voted_notar = candidate->id;
 
     owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id}).start().detach();
     try_vote_final(slot);  // If we've observed NotarCert already, it might be possible to vote final.
     co_return {};
+  }
+
+  struct ChainStateData {
+    std::optional<MisbehaviorRef> maybe_misbehavior = std::nullopt;
+    std::vector<BlockIdExt> prev_block_ids = {};
+    std::vector<Ref<vm::Cell>> prev_state_roots = {};  // optional - not required in basechain with full collated data
+    bool is_prev_normal_tip = false;
+    std::optional<double> gen_utime_exact = std::nullopt;
+  };
+
+  td::actor::Task<ChainStateData> wait_for_parent_normal(CandidateRef candidate) {
+    auto maybe_misbehavior = co_await owning_bus().publish<WaitForParent>(candidate);
+    if (maybe_misbehavior) {
+      co_return ChainStateData{.maybe_misbehavior = std::move(maybe_misbehavior)};
+    }
+    auto parent = co_await owning_bus().publish<ResolveState>(candidate->parent_id);
+    co_return ChainStateData{
+        .prev_block_ids = parent.state->block_ids(),
+        .prev_state_roots = parent.state->state(),
+        .is_prev_normal_tip = parent.state->as_normal().has_value(),
+        .gen_utime_exact = parent.gen_utime_exact,
+    };
+  }
+
+  td::actor::Task<ChainStateData> wait_for_parent_optimistic(CandidateRef candidate) {
+    // Wait for validation of the previous block
+    // This does not work in masterchain and without full_collated_data because we don't want to process shard states
+    if (owning_bus()->is_masterchain() || !owning_bus()->config.full_collated_data_enabled) {
+      co_return td::Status::Error("not supported");
+    }
+    if (candidate->id.slot % slots_per_leader_window_ == 0) {
+      co_return td::Status::Error("first slot in window");
+    }
+    td::uint32 parent_slot = candidate->id.slot - 1;
+    if (parent_slot < current_window_ * slots_per_leader_window_) {
+      co_return td::Status::Error("too old");
+    }
+    auto parent = co_await our_validated_blocks_[parent_slot].get();
+    if (parent.candidate_id != candidate->parent_id) {
+      // Maybe report misbehavior?
+      co_return td::Status::Error("wrong parent id");
+    }
+    co_return ChainStateData{
+        .prev_block_ids = {parent.block_id},
+        .is_prev_normal_tip = true,
+        .gen_utime_exact = parent.gen_utime_exact,
+    };
   }
 
   td::actor::Task<> process_notarization_observed(BusHandle, std::shared_ptr<const NotarizationObserved> event) {
@@ -319,6 +390,13 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
   bool previous_window_had_skip_ = false;
   std::optional<State> state_;
   td::uint32 current_window_ = 0;
+
+  struct ValidatedBlockInfo {
+    CandidateId candidate_id;
+    BlockIdExt block_id;
+    std::optional<double> gen_utime_exact;
+  };
+  std::map<td::uint32, td::actor::AsyncValue<ValidatedBlockInfo>> our_validated_blocks_;
 
   static constexpr double UPCOMING_FIRST_WINDOW_BEFORE = 5.0;
 };
