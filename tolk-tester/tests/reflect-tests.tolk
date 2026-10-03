@@ -146,6 +146,27 @@ fun optionalVoidArgs() {
     )
 }
 
+fun failNever(): never {
+    throw 123;
+}
+
+fun assignTypeNameOfNever(mutate name: string) {
+    name = reflect.typeNameOfObject(failNever());
+}
+
+@method_id(113)
+fun typeNameOfNeverArg() {
+    var name: string = "";
+    var excNo = 0;
+    try {
+        assignTypeNameOfNever(mutate name);
+    } catch (e) {
+        excNo = e;
+    }
+    // failNever() must throw before the assignment; name stays empty
+    return (excNo, name.calculateLength());
+}
+
 fun main() {
     __expect_type(reflect.sourceLocation(), "SourceLocation");
 }
@@ -161,4 +182,5 @@ fun main() {
 @testcase | 110 | | 1 9999 0 4 101 9999 0 4
 @testcase | 111 | | 0 1 4 12 12 13
 @testcase | 112 | | -1 -1 -1 -1 -1 -1
+@testcase | 113 | | 123 0
  */

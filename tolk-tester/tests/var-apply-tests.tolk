@@ -28,7 +28,6 @@ fun testVarApply1() {
     return (s.loadInt(32), s.loadInt(32));
 }
 
-@inline
 fun my_throw_always() {
     throw 1000;
 }
@@ -49,13 +48,11 @@ fun testVarApplyWithoutSavingResult() {
     }
 }
 
-@inline
 fun sum(a: int, b: int) {
     assert(a + b < 24, 1000);
     return a + b;
 }
 
-@inline
 fun mul(a: int, b: int) {
     assert(a * b < 24, 1001);
     return a * b;

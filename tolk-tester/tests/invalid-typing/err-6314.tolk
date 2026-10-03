@@ -22,5 +22,5 @@ fun main(b: builder) {
 
 /**
 @compilation_should_fail
-@stderr method `endCell` not found for type `cell | int`
+@stderr can not call method for `builder` with object of type `cell | int`
  */

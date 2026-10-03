@@ -10,5 +10,8 @@ fun cantReturnVoidAndNonVoid(a: int | slice | builder) {
 
 /**
 @compilation_should_fail
-@stderr mixing void and non-void returns in function
+@stderr mixing void and non-void returns
+@stderr int => { return; }
+@stderr note: this return has a value
+@stderr return 123;
  */

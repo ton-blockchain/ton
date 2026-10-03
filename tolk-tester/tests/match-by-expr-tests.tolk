@@ -231,12 +231,12 @@ fun test16(x: int) {
 type asdf = int;
 
 fun main() {
-    match (10) {
+    match (10 as asdf) {
         asdf => 1,      // it's match by type
     };
 
     var asdf = 5;
-    return match (10) {
+    return match (10 as asdf) {
         asdf => 2,      // also match by type, regardless of local var
     };
 }
@@ -283,24 +283,21 @@ fun main() {
   test1() PROC:<{ //  x
     DUP         //  x x
     1 EQINT     //  x '3
-    IF:<{       //  x
+    IFJMP:<{    //  x
       DROP      //
       100 PUSHINT       //  '1=100
-    }>ELSE<{    //  x
-      DUP       //  x x
-      2 EQINT   //  x '6
-      IF:<{     //  x
-        DROP    //
-        200 PUSHINT     //  '1=200
-      }>ELSE<{  //  x
-        3 EQINT //  '11
-        IF:<{   //
-          300 PUSHINT   //  '1=300
-        }>ELSE<{        //
-          400 PUSHINT   //  '1=400
-        }>
-      }>
-    }>
+    }>          //  x
+    DUP         //  x x
+    2 EQINT     //  x '6
+    IFJMP:<{    //  x
+      DROP      //
+      200 PUSHINT       //  '1=200
+    }>          //  x
+    3 EQINT     //  '11
+    IFJMP:<{    //
+      300 PUSHINT       //  '1=300
+    }>          //
+    400 PUSHINT         //  '1=400
   }>
 """
 
@@ -327,6 +324,7 @@ fun main() {
 @fif_codegen
 """
   test8() PROC:<{   // x
+    0 MULCONST
     DROP            //
     30 PUSHINT      // r1
   }>
@@ -363,10 +361,10 @@ fun main() {
 @fif_codegen
 """
       1 EQINT                   //  '6
-      IFNOTJMP:<{               // 
-        5 THROW
+      IFJMP:<{                  // 
+        200 PUSHINT             //  '1=200
       }>                        // 
-      200 PUSHINT               //  '1=200
+      5 THROW
 """
 
  */

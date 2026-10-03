@@ -9,5 +9,5 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr method `demo` not found, but there is a global function named `demo`
-@stderr (a function should be called `foo(arg)`, not `arg.foo()`)
+@stderr a function should be called `foo(arg)`, not `arg.foo()`
  */

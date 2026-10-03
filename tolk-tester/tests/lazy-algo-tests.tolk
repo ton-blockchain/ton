@@ -78,8 +78,9 @@ fun Point.getX(self) {
     return self.x;
 }
 
+@noinline
 fun Point.getXNoInline(self) {
-    __expect_inline(false);    // due to returns in the middle
+    __expect_inline(false);
     if (10>3) {
         return self.x;
     }
@@ -223,7 +224,8 @@ fun loadWalletStorage() {
 }
 
 fun WalletStorage.load() {
-    return WalletStorage.fromCell(createEmptyCell());
+    val emptyCell = createEmptyCell();
+    return WalletStorage.fromCell(emptyCell);
 }
 
 // Uses only `other`, not `self`.
@@ -1572,7 +1574,7 @@ fun algo316() {
 fun algo317(s: slice): int8 {
     val a = lazy A.fromSlice(s);
     __expect_lazy("[a] load a1 a2 a3");
-    return a.getSecondField();
+    return (a as AOrB).getSecondField();
 }
 
 

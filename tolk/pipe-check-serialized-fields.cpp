@@ -29,7 +29,8 @@ namespace tolk {
 // make an error on overflow 1023 bits or 4 cells
 static Error err_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) {
   bool exceeds_in_bits = size.max_bits > 1023;
-  return err("struct `{}` can exceed {} {} in serialization (estimated size: {}..{} {})\n\n"
+  return err("struct `{}` can exceed {} {} in serialization (estimated size: {}..{} {})\n"
+                  "hint:\n"
                   "1) either suppress it by adding an annotation:\n"
                   ">     @overflow1023_policy(\"suppress\")\n"
                   ">     struct {} {\n"
@@ -40,7 +41,7 @@ static Error err_theoretical_overflow_1023(StructPtr struct_ref, PackSize size) 
                   ">     struct {} {\n"
                   ">         ...\n"
                   ">         more: Cell<ExtraFields>;\n"
-                  ">     }\n",
+                  ">     }",
                   struct_ref,
                   exceeds_in_bits ? 1023 : 4,
                   exceeds_in_bits ? "bits" : "refs",
@@ -137,7 +138,7 @@ static bool check_enum_colon_type_to_be_intN(EnumDefPtr enum_ref, AnyTypeV colon
   if (const TypeDataIntN* t_intN = colon_type_node->resolved_type->try_as<TypeDataIntN>(); t_intN && !t_intN->is_variadic) {
     for (EnumMemberPtr member_ref : enum_ref->members) {
       if (!member_ref->computed_value->fits_bits(t_intN->n_bits, !t_intN->is_unsigned)) {
-        err("member `{}` = {} does not fit into `{}`", member_ref->name, member_ref->computed_value->to_dec_string(), t_intN).collect(enum_ref->ident_anchor);
+        err("member `{}` = {} does not fit into `{}`", member_ref, member_ref->computed_value->to_dec_string(), t_intN).collect(enum_ref);
         colon_valid = false;
       }
     }
@@ -173,7 +174,7 @@ class CheckSerializedFieldsAndTypesVisitor final : public ASTVisitorFunctionBody
     PackSize size = estimate_serialization_size(t_struct);
     if ((size.max_bits > 1023 || size.max_refs > 4) && !size.is_unpredictable_infinity()) {
       if (struct_ref->overflow1023_policy == StructData::Overflow1023Policy::not_specified) {
-        err_theoretical_overflow_1023(struct_ref, size).collect(struct_ref->ident_anchor);
+        err_theoretical_overflow_1023(struct_ref, size).collect(struct_ref);
       }
     }
     // don't check Cell<T> fields for overflow of T: it would be checked on load() or other interaction with T

@@ -35,5 +35,28 @@ type MInt = int
 type Pair2_v1 = | (int, int)
 type Pair2_v2 = (MInt, MInt)
 
-// @stderr can not convert type `Pair2_v2` to ternary result type `Pair2_v1`
-const INVALID_TERNARY = 10>3 ? (1, 2) as Pair2_v1 : (1, 2) as Pair2_v2
+type V15UserIdInUnion = int
+type V15OwnerIdInUnion = int
+type V15SomeThing = V15UserIdInUnion | slice
+
+// @stderr wrong pattern matching: use `V15UserIdInUnion` instead of `V15OwnerIdInUnion`
+fun aliasV15UnionIsSpelling(v: V15SomeThing) {
+    return v is V15OwnerIdInUnion;
+}
+
+struct V15MsgA {
+    value: int
+}
+
+type V15A1 = V15MsgA
+type V15A2 = V15A1
+type V15A3 = V15A2
+type V15SomeMsg = V15A2 | slice
+
+// @stderr wrong pattern matching: use `V15A2` instead of `V15A3`
+fun aliasV15UnionMatchChain(v: V15SomeMsg) {
+    return match (v) {
+        V15A3 => 1,
+        slice => 2,
+    };
+}

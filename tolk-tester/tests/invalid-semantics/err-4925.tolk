@@ -7,7 +7,7 @@ type WrapperAlias<TTT> = Wrapper<TTT>;
 
 fun main(w: int | WrapperAlias<int> | WrapperAlias<slice>) {
     match (w) {
-        MyInt => {}
+        int => {}
         WrapperAlias => {}
         WrapperAlias<slice> => {}
     }

@@ -53,6 +53,7 @@ ContractDirective* parse_contract_directive(AnyV v) {
 
   // an object is allocated on a heap (and is present only for files having `contract` within)
   ContractDirective* d = new ContractDirective;
+  d->v_contract = v_contract;
   d->contractName = static_cast<std::string>(v_contract->get_identifier()->name);
 
   std::vector<std::string_view> occurred;
