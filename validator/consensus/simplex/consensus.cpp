@@ -7,7 +7,9 @@
 #include "consensus/simplex/state.h"
 #include "consensus/stats.h"
 #include "consensus/utils.h"
+#include "td/actor/coro_task.h"
 #include "td/actor/coro_utils.h"
+#include "td/utils/int_types.h"
 
 #include "bus.h"
 
@@ -22,6 +24,7 @@ struct SlotState {
   std::optional<CandidateRef> pending_block;
   std::optional<CandidateId> voted_notar;
   std::optional<CandidateId> notar_cert;
+  td::Promise<> validation_start_promise;
   bool voted_skip = false;
   bool voted_final = false;
 };
@@ -109,6 +112,9 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
+    state_->for_each_slot([&] (State::SlotRef slot) {
+      slot.state->validation_start_promise.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+    });
     stop();
   }
 
@@ -236,15 +242,60 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
     co_return {};
   }
 
+  td::actor::StartedTask<> prepare_validation_start(const State::SlotRef& slot, const CandidateRef& candidate) {
+    auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
+    slot.state->validation_start_promise = std::move(promise);
+
+    if (auto parent_id = candidate->parent_id) {
+      auto parent_slot = state_->find_slot(parent_id->slot);
+      if (parent_slot && parent_slot->state->voted_notar == parent_id && !owning_bus()->shard.is_masterchain()) {
+        slot.state->validation_start_promise.set_value({});
+      }
+    }
+
+    return std::move(task);
+  }
+
+  void maybe_start_child_validation(td::uint32 child_slot, const CandidateRef& parent) {
+    if (owning_bus()->shard.is_masterchain()) {
+      return;
+    }
+    auto child = state_->find_slot(child_slot);
+    if (!child || !child->state->pending_block || (*child->state->pending_block)->parent_id != parent->id ||
+        !child->state->validation_start_promise) {
+      return;
+    }
+    child->state->validation_start_promise.set_value(td::Unit{});
+  }
+
+  td::actor::Task<bool> wait_for_parent(State::SlotRef slot) {
+    auto candidate = *slot.state->pending_block;
+
+    auto result = co_await owning_bus().publish<WaitForParent>(candidate).wrap();
+    if (result.is_error()) {
+      slot.state->validation_start_promise.set_error(result.move_as_error());
+      co_return false;
+    }
+
+    auto maybe_misbehavior = result.move_as_ok();
+    if (maybe_misbehavior) {
+      slot.state->validation_start_promise.set_error(td::Status::Error("Parent is misbehaving"));
+      owning_bus().publish<MisbehaviorReport>(candidate->leader, *maybe_misbehavior);
+      co_return false;
+    }
+
+    slot.state->validation_start_promise.set_value(td::Unit{});
+    co_return true;
+  }
+
   td::actor::Task<> try_notarize(State::SlotRef slot) {
     const auto& candidate = *slot.state->pending_block;
     auto store_candidate = owning_bus().publish<StoreCandidate>(candidate).start();
 
-    auto maybe_misbehavior = co_await owning_bus().publish<WaitForParent>(candidate);
-    if (maybe_misbehavior) {
-      owning_bus().publish<MisbehaviorReport>(candidate->leader, *maybe_misbehavior);
-      co_return {};
-    }
+    auto validation_start = prepare_validation_start(slot, candidate);
+    auto parent_check = wait_for_parent(slot).start();
+
+    co_await std::move(validation_start);
 
     auto parent = co_await owning_bus().publish<ResolveState>(candidate->parent_id);
 
@@ -263,12 +314,18 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
       // FIXME: Report misbehavior
       co_return {};
     }
+    const bool parent_allowed = co_await std::move(parent_check);
+    if (!parent_allowed) {
+      co_return {};
+    }
     co_await std::move(store_candidate);
 
     slot.state->voted_notar = candidate->id;
 
     owning_bus().publish<BroadcastVote>(NotarizeVote{candidate->id}).start().detach();
     try_vote_final(slot);  // If we've observed NotarCert already, it might be possible to vote final.
+
+    maybe_start_child_validation(slot.i + 1, candidate);
     co_return {};
   }
 

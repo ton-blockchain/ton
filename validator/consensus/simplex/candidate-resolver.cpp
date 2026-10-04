@@ -167,6 +167,11 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       co_return state.candidate_and_cert.as_resolution_result();
     }
 
+    if (!request->need_cert && state.candidate_and_cert.candidate.has_value()) {
+      co_return ResolveCandidate::Result{*state.candidate_and_cert.candidate,
+                                        state.candidate_and_cert.notar_cert};
+    }
+
     auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
     state.resolve_awaiters.push_back(std::move(promise));
 

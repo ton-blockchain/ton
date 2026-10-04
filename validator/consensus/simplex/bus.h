@@ -54,12 +54,13 @@ struct WaitForParent {
 struct ResolveCandidate {
   struct Result {
     CandidateRef candidate;
-    NotarCertRef notar;
+    std::optional<NotarCertRef> notar;
   };
 
   using ReturnType = Result;
 
   CandidateId id;
+  bool need_cert = true;
 
   std::string contents_to_string() const;
 };

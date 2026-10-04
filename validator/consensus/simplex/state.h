@@ -45,6 +45,21 @@ class ConsensusState {
     };
   }
 
+  std::optional<SlotRef> find_slot(td::uint32 slot) const {
+    auto it = slots_.find(slot);
+    if (it == slots_.end()) {
+      return std::nullopt;
+    }
+    return SlotRef{slot, it->second};
+  }
+
+  template <typename F>
+  void for_each_slot(F&& f) const {
+    for (auto& [slot, state] : slots_) {
+      f(SlotRef{slot, state});
+    }
+  }
+
   void notify_finalized(td::uint32 slot) {
     first_non_finalized_slot_ = std::max(first_non_finalized_slot_, slot + 1);
     while (!slots_.empty() && slots_.begin()->first < first_non_finalized_slot_) {

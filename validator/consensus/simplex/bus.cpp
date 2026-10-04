@@ -45,7 +45,7 @@ std::string WaitForParent::contents_to_string() const {
 }
 
 std::string ResolveCandidate::contents_to_string() const {
-  return PSTRING() << "{id=" << id << "}";
+  return PSTRING() << "{id=" << id << ", need_cert=" << need_cert << "}";
 }
 
 std::string StoreCandidate::contents_to_string() const {

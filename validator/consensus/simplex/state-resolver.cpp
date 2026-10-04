@@ -127,7 +127,7 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       co_return ResolvedState{state, std::nullopt};
     }
 
-    auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id)).candidate;
+    auto candidate = (co_await owning_bus().publish<ResolveCandidate>(*id, false)).candidate;
     if (candidate->is_empty()) {
       co_return co_await resolve_state(candidate->parent_id);
     }
@@ -189,6 +189,7 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     }
 
     auto [candidate, notar_cert] = co_await owning_bus().publish<ResolveCandidate>(id);
+    CHECK(notar_cert);
     if (final_cert && !final_candidate) {
       CHECK((*final_cert)->vote.id == id);
       final_candidate = candidate;
@@ -203,7 +204,7 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       if (final_cert) {
         sig_set = (*final_cert)->to_signature_set(*final_candidate, bus);
       } else {
-        sig_set = notar_cert->to_signature_set(candidate, bus);
+        sig_set = (*notar_cert)->to_signature_set(candidate, bus);
       }
       co_await owning_bus().publish<FinalizeBlock>(candidate, sig_set);
     } else {
