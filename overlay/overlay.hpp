@@ -206,6 +206,9 @@ struct AuthorizedKeyLimiter {
 
 class OverlayImpl : public Overlay {
  public:
+  template <class T>
+  friend void process_broadcast_helper(OverlayImpl *self, adnl::AdnlNodeIdShort src, tl_object_ptr<T> obj);
+
   OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
               td::actor::ActorId<OverlayManager> manager, td::actor::ActorId<dht::Dht> dht_node,
               adnl::AdnlNodeIdShort local_id, OverlayIdFull overlay_id, OverlayType overlay_type,

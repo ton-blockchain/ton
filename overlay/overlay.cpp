@@ -378,6 +378,20 @@ void OverlayImpl::get_plumtree_stats_records(
   promise.set_value(broadcasts_plumtree_.collect_stats_records());
 }
 
+static td::actor::Task<> await_broadcast_task(td::actor::Task<> task, int id, adnl::AdnlNodeIdShort src) {
+  auto status = (co_await std::move(task).wrap()).move_as_status();
+  LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready)
+      << "Failed to process broadcast (type=" << id << ") from " << src << ": " << status;
+  co_return td::Unit{};
+}
+
+template <class T>
+void process_broadcast_helper(OverlayImpl *self, adnl::AdnlNodeIdShort src, tl_object_ptr<T> obj) {
+  auto id = obj->get_id();
+  auto task = self->process_broadcast(src, std::move(obj));
+  await_broadcast_task(std::move(task), id, src).start().detach();
+}
+
 void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_api::overlay_messageExtra> extra,
                                   td::BufferSlice data) {
   if (!check_src_peer(src, extra ? extra->certificate_.get() : nullptr)) {
@@ -393,15 +407,8 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_a
   }
   auto Q = X.move_as_ok();
   ton_api::downcast_call(*Q, [self = this, &Q, &src](auto &object) {
-    [](OverlayImpl *self, adnl::AdnlNodeIdShort src, auto obj) -> td::actor::Task<> {
-      auto id = obj->get_id();
-      auto status = (co_await self->process_broadcast(src, std::move(obj)).wrap()).move_as_status();
-      LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready)
-          << "Failed to process broadcast (type=" << id << ") from " << src << ": " << status;
-      co_return {};
-    }(self, src, move_tl_object_as<std::remove_reference_t<decltype(object)>>(Q))
-                                                                      .start()
-                                                                      .detach();
+    using ObjectType = std::remove_reference_t<decltype(object)>;
+    process_broadcast_helper(self, src, move_tl_object_as<ObjectType>(Q));
   });
 }
 
