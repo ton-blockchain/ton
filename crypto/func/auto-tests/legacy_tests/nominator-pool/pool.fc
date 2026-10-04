@@ -470,29 +470,31 @@ cell distribute_share(int reward, cell nominators) inline_ref {
             accept_message();
 
             if (op == op::recover_stake_ok()) {
-                state = 0;
+                if (msg_value >= stake_amount_sent) {
+                    state = 0;
 
-                int reward = msg_value - stake_amount_sent;
-                int nominators_reward = 0;
+                    int reward = msg_value - stake_amount_sent;
+                    int nominators_reward = 0;
 
-                if (reward <= 0) {
-                    validator_amount += reward;
-                    if (validator_amount < 0) {
-                        ;; even this should never happen
-                        nominators_reward = validator_amount;
-                        validator_amount = 0;
+                    if (reward <= 0) {
+                        validator_amount += reward;
+                        if (validator_amount < 0) {
+                            ;; even this should never happen
+                            nominators_reward = validator_amount;
+                            validator_amount = 0;
+                        }
+                    } else {
+                        int validator_reward = (reward * validator_reward_share) / 10000;
+                        if (validator_reward > reward) { ;; Theoretical invalid case if validator_reward_share > 10000
+                            validator_reward = reward;
+                        }
+                        validator_amount += validator_reward;
+                        nominators_reward = reward - validator_reward;
                     }
-                } else {
-                    int validator_reward = (reward * validator_reward_share) / 10000;
-                    if (validator_reward > reward) { ;; Theoretical invalid case if validator_reward_share > 10000
-                        validator_reward = reward;
-                    }
-                    validator_amount += validator_reward;
-                    nominators_reward = reward - validator_reward;
+
+                    nominators = distribute_share(nominators_reward, nominators); ;; call even if there was no reward to process deposit requests
+                    stake_amount_sent = 0;
                 }
-
-                nominators = distribute_share(nominators_reward, nominators); ;; call even if there was no reward to process deposit requests
-                stake_amount_sent = 0;
             }
 
             if (state == 1) {
@@ -564,6 +566,7 @@ cell distribute_share(int reward, cell nominators) inline_ref {
             }
 
             if (op == op::recover_stake()) { ;; send recover_stake to elector (anyone can send)
+                throw_unless(77, state == 0);
 
                 ;; We need to take all credits from the elector at once,
                 ;; because if we do not take all at once, then it will be processed as a fine by pool.
