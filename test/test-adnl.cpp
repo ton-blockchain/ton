@@ -31,6 +31,7 @@
 #include <thread>
 
 #include "adnl/adnl-network-manager.h"
+#include "adnl/adnl-packet.h"
 #include "adnl/adnl-test-loopback-implementation.h"
 #include "adnl/adnl.h"
 #include "keys/encryptor.h"
@@ -62,6 +63,7 @@ int main() {
 
   ton::adnl::AdnlNodeIdShort src;
   ton::adnl::AdnlNodeIdShort dst;
+  ton::PublicKey dst_public;
 
   td::actor::Scheduler scheduler({7});
 
@@ -78,6 +80,7 @@ int main() {
 
     auto pk2 = ton::PrivateKey{ton::privkeys::Ed25519::random()};
     auto pub2 = pk2.compute_public_key();
+    dst_public = pub2;
     dst = ton::adnl::AdnlNodeIdShort{pub2.compute_short_id()};
     td::actor::send_closure(keyring, &ton::keyring::Keyring::add_key, std::move(pk2), true, [](td::Result<>) {});
 
@@ -195,6 +198,69 @@ int main() {
     };
     td::actor::send_closure(adnl, &ton::adnl::Adnl::subscribe, dst, "1", std::make_unique<Callback>(remaining));
   });
+
+  auto test_setup_timeout = td::Timestamp::in(1.0);
+  while (scheduler.run(1) && !test_setup_timeout.is_in_past()) {
+  }
+
+  LOG(ERROR) << "testing forged inbound peers do not poison the per-IP limiter";
+  auto destination_encryptor = dst_public.create_encryptor().move_as_ok();
+  auto encode_inbound_packet = [&](ton::adnl::AdnlPacket packet) {
+    auto serialized = serialize_tl_object(packet.tl(), true);
+    auto encrypted = destination_encryptor->encrypt(serialized.as_slice()).move_as_ok();
+
+    td::BufferSlice datagram{encrypted.size() + 32};
+    auto output = datagram.as_slice();
+    output.copy_from(dst.as_slice());
+    output.remove_prefix(32);
+    output.copy_from(encrypted.as_slice());
+    return datagram;
+  };
+
+  td::IPAddress shared_source_addr;
+  shared_source_addr.init_host_port("127.0.0.1", 12345).ensure();
+
+  // Fill the old limiter's per-IP capacity with unauthenticated source IDs.
+  std::set<ton::adnl::AdnlNodeIdShort> forged_ids;
+  while (forged_ids.size() < 60) {
+    auto forged_key = ton::PrivateKey{ton::privkeys::Ed25519::random()};
+    forged_ids.emplace(forged_key.compute_public_key().compute_short_id());
+  }
+  scheduler.run_in_context([&] {
+    for (const auto &forged_id : forged_ids) {
+      ton::adnl::AdnlPacket packet;
+      packet.set_source(forged_id);
+      packet.init_random();
+      td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::inject_packet,
+                              shared_source_addr, encode_inbound_packet(std::move(packet)));
+    }
+  });
+
+  auto forged_packets_processed_at = td::Timestamp::in(2.0);
+  while (scheduler.run(1) && !forged_packets_processed_at.is_in_past()) {
+  }
+
+  auto legitimate_key = ton::PrivateKey{ton::privkeys::Ed25519::random()};
+  auto legitimate_public = legitimate_key.compute_public_key();
+  ton::adnl::AdnlPacket legitimate_packet;
+  legitimate_packet.set_source(ton::adnl::AdnlNodeIdFull{legitimate_public});
+  legitimate_packet.add_message(
+      ton::adnl::AdnlMessage{ton::adnl::adnlmessage::AdnlMessageCustom{send_packet(1)}});
+  legitimate_packet.init_random();
+  auto signer = legitimate_key.create_decryptor().move_as_ok();
+  legitimate_packet.set_signature(signer->sign(legitimate_packet.to_sign().as_slice()).move_as_ok());
+
+  remaining++;
+  scheduler.run_in_context([&] {
+    td::actor::send_closure(network_manager, &ton::adnl::TestLoopbackNetworkManager::inject_packet,
+                            shared_source_addr, encode_inbound_packet(std::move(legitimate_packet)));
+  });
+
+  auto legitimate_packet_timeout = td::Timestamp::in(5.0);
+  while (scheduler.run(1) && remaining != 0 && !legitimate_packet_timeout.is_in_past()) {
+  }
+  CHECK(remaining == 0);
+  LOG(ERROR) << "successfully ignored forged inbound peer IDs without blocking an authenticated peer";
 
   LOG(ERROR) << "Ed25519 version is " << td::Ed25519::version();
   LOG(ERROR) << "testing delivering of all packets";
