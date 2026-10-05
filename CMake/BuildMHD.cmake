@@ -141,6 +141,8 @@ else()
       list(APPEND MHD_POST_INSTALL_COMMANDS COMMAND ${MHD_RANLIB} ${MHD_LIBRARY})
     endif()
 
+    # Generated Makefiles override environment variables. Pass Autotools
+    # overrides to make directly so recursive builds use the bundled files.
     add_custom_command(
       WORKING_DIRECTORY ${MHD_BINARY_DIR}
       COMMAND ${CMAKE_COMMAND} -E rm -rf ${MHD_BUILD_DIR}
@@ -159,33 +161,33 @@ else()
         AR=${MHD_AR}
         RANLIB=${MHD_RANLIB}
         CFLAGS=${MHD_CFLAGS}
-        ACLOCAL=:
-        AUTOMAKE=:
-        AUTOCONF=:
-        AUTOHEADER=:
         make clean
+        ACLOCAL=:
+        AUTOMAKE=:
+        AUTOCONF=:
+        AUTOHEADER=:
       COMMAND ${CMAKE_COMMAND} -E chdir ${MHD_BUILD_DIR} ${CMAKE_COMMAND} -E env
         CC=${MHD_CC}
         CXX=${MHD_CXX}
         AR=${MHD_AR}
         RANLIB=${MHD_RANLIB}
         CFLAGS=${MHD_CFLAGS}
-        ACLOCAL=:
-        AUTOMAKE=:
-        AUTOCONF=:
-        AUTOHEADER=:
         make -j16
+        ACLOCAL=:
+        AUTOMAKE=:
+        AUTOCONF=:
+        AUTOHEADER=:
       COMMAND ${CMAKE_COMMAND} -E chdir ${MHD_BUILD_DIR} ${CMAKE_COMMAND} -E env
         CC=${MHD_CC}
         CXX=${MHD_CXX}
         AR=${MHD_AR}
         RANLIB=${MHD_RANLIB}
         CFLAGS=${MHD_CFLAGS}
+        make install
         ACLOCAL=:
         AUTOMAKE=:
         AUTOCONF=:
         AUTOHEADER=:
-        make install
       ${MHD_POST_INSTALL_COMMANDS}
       COMMENT "Build libmicrohttpd"
       DEPENDS ${MHD_SOURCE_DIR}
