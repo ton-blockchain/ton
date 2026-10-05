@@ -118,7 +118,6 @@ class FullNodeShardImpl : public FullNodeShard {
   void remove_neighbour(adnl::AdnlNodeIdShort id);
 
   void send_external_message(td::BufferSlice data) override;
-  void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) override;
   void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                             td::BufferSlice data) override;
   void send_broadcast(BlockBroadcast broadcast) override;

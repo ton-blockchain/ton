@@ -469,14 +469,8 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
   auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull(masterchainId), true).first;
   if (!fast_sync_overlay.empty()) {
     td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_shard_block_info, block_id, cc_seqno,
-                            data.clone());
+                            std::move(data));
   }
-  auto shard = get_shard_overlay_actor(ShardIdFull{masterchainId});
-  if (shard.empty()) {
-    VLOG_IF(full_node, WARNING, public_overlays_enabled_) << "dropping OUT shard block info message to unknown shard";
-    return;
-  }
-  td::actor::send_closure(shard, &FullNodeShard::send_shard_block_info, block_id, cc_seqno, std::move(data));
 }
 
 void FullNodeImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,

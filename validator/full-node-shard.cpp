@@ -393,21 +393,6 @@ void FullNodeShardImpl::send_external_message(td::BufferSlice data) {
   }
 }
 
-void FullNodeShardImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) {
-  VLOG(full_node, DEBUG) << "Sending newShardBlockBroadcast: " << block_id;
-  auto B = create_serialize_tl_object<ton_api::tonNode_newShardBlockBroadcast>(
-      create_tl_object<ton_api::tonNode_newShardBlock>(create_tl_block_id(block_id), cc_seqno, std::move(data)));
-  auto source = choose_outbound_source(static_cast<td::uint32>(B.size()),
-                                       B.size() > overlay::Overlays::max_simple_broadcast_size());
-  if (B.size() <= overlay::Overlays::max_simple_broadcast_size()) {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_ex, adnl_id_, overlay_id_, source, 0,
-                            std::move(B));
-  } else {
-    td::actor::send_closure(overlays_, &overlay::Overlays::send_broadcast_fec_ex, adnl_id_, overlay_id_, source,
-                            overlay::Overlays::BroadcastFlagAnySender(), std::move(B));
-  }
-}
-
 void FullNodeShardImpl::send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                              td::BufferSlice data) {
   if (!enable_plumtree_broadcast_) {
