@@ -1038,6 +1038,99 @@ fun while_break_before_unused_copy(v: int): int {
     return 0;
 }
 
+@method_id(179)
+fun break_in_loop_inside_try(n: int): int {
+    var i = 0;
+    try {
+        while (true) {
+            i += 1;
+            if (i == n) {
+                break;
+            }
+        }
+    } catch {
+        i = -1;
+    }
+    return i;
+}
+
+@method_id(180)
+fun continue_in_loop_inside_try(n: int): int {
+    var s = 0;
+    try {
+        var i = 0;
+        while (i < n) {
+            i += 1;
+            if (i % 2 == 0) {
+                continue;
+            }
+            s += i;
+        }
+    } catch {
+        s = -1;
+    }
+    return s;
+}
+
+@method_id(181)
+fun break_in_loop_inside_catch(n: int): int {
+    var c = 0;
+    try {
+        throw 5;
+    } catch (excNo) {
+        repeat (10) {
+            c += excNo;
+            if (c >= n) {
+                break;
+            }
+        }
+    }
+    return c;
+}
+
+@method_id(182)
+fun throw_after_break_in_loop_inside_try(n: int): int {
+    var i = 0;
+    try {
+        do {
+            i += 1;
+            if (i == 3) {
+                break;
+            }
+        } while (i < 10);
+        if (n != 0) {
+            throw 7;
+        }
+    } catch (excNo) {
+        return i * 100 + excNo;
+    }
+    return i;
+}
+
+@method_id(183)
+fun loop_in_try_inside_breakable_loop(n: int): int {
+    var outer = 0;
+    var inner = 0;
+    while (true) {
+        outer += 1;
+        try {
+            var j = 0;
+            while (true) {
+                j += 1;
+                inner += 1;
+                if (j == outer) {
+                    break;
+                }
+            }
+        } catch {
+        }
+        if (outer == n) {
+            break;
+        }
+    }
+    return outer * 100 + inner;
+}
+
 /**
 @testcase | 101 | | 0
 @testcase | 102 | | 7
@@ -1140,6 +1233,12 @@ fun while_break_before_unused_copy(v: int): int {
 @testcase | 177 | 1 | -1
 @testcase | 178 | 5 | 0
 @testcase | 178 | 15 | 0
+@testcase | 179 | 4 | 4
+@testcase | 180 | 7 | 16
+@testcase | 181 | 12 | 15
+@testcase | 182 | 0 | 3
+@testcase | 182 | 1 | 7
+@testcase | 183 | 3 | 306
 
 @fif_codegen
 """

@@ -79,8 +79,12 @@ class LoopBreakContinueValidator final : public ASTVisitorFunctionBody {
     parent::visit(condition);
     inside_loop_condition--;
 
+    // a loop nested in `try` owns its break/continue; only an enclosing `try` *inside* this loop matters
+    int outer_try_catch = inside_try_catch;
+    inside_try_catch = 0;
     loop_frames.push_back(LoopFrame{});
     parent::visit(body);
+    inside_try_catch = outer_try_catch;
     const LoopFrame& frame = loop_frames.back();
     if (frame.break_stmt && frame.return_stmt) {
       err("`return` is not allowed inside a loop that uses `break`")
