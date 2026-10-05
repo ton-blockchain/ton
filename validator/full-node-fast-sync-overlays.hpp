@@ -194,8 +194,7 @@ class FullNodeFastSyncOverlays {
                          const std::set<adnl::AdnlNodeIdShort>& local_collator_adnl_ids,
                          std::set<ShardIdFull> monitoring_shards, const FileHash& zero_state_file_hash,
                          double broadcast_speed_multiplier, const td::actor::ActorId<keyring::Keyring>& keyring,
-                         const td::actor::ActorId<adnl::Adnl>& adnl, const td::actor::ActorId<rldp2::Rldp>& rldp2,
-                         const td::actor::ActorId<quic::QuicSender>& quic,
+                         const td::actor::ActorId<adnl::Adnl>& adnl, const td::actor::ActorId<quic::QuicSender>& quic,
                          const td::actor::ActorId<overlay::Overlays>& overlays,
                          const td::actor::ActorId<ValidatorManagerInterface>& validator_manager,
                          const td::actor::ActorId<FullNode>& full_node);
