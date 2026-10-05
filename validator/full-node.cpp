@@ -448,7 +448,8 @@ td::actor::Task<> FullNodeImpl::send_ext_message(AccountIdPrefixFull dst, td::Bu
       td::actor::send_closure(fast_sync_overlay, &FullNodeFastSyncOverlay::send_external_message, data.clone());
     }
   }
-  if (skip_public || opts_.config_.ext_messages_broadcast_disabled_) {
+  bool is_validator_or_collator = !local_keys_.empty() || !local_collator_nodes_.empty();
+  if (skip_public || opts_.config_.ext_messages_broadcast_disabled_ || is_validator_or_collator) {
     co_return {};
   }
   auto shard = get_shard_overlay_actor(dst);
