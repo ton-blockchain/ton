@@ -208,8 +208,7 @@ class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::ac
       return;
     }
 
-    int mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync |
-               fullnode::FullNode::broadcast_mode_public;
+    int mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync;
     if (bus->is_collator) {
       mode = fullnode::FullNode::broadcast_mode_custom;
     }
