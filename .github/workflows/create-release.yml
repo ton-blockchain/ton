@@ -124,16 +124,6 @@ jobs:
 
       # create release
 
-      - name: Read Changelog.md and use it as a body of new release
-        id: read_release
-        shell: bash
-        run: |
-          r=$(cat recent_changelog.md)
-          r="${r//'%'/'%25'}"
-          r="${r//$'\n'/'%0A'}"
-          r="${r//$'\r'/'%0D'}"
-          echo "::set-output name=CHANGELOG_BODY::$r"
-
       - name: Get registration token
         id: getRegToken
         run: |
@@ -141,16 +131,15 @@ jobs:
 
       - name: Create release
         id: create_release
-        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # v1.1.4
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ inputs.tag }}
-          release_name: TON ${{ inputs.tag }}
-          body: |
-            ${{ steps.read_release.outputs.CHANGELOG_BODY }}
-          draft: false
-          prerelease: false
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "TON $RELEASE_TAG" \
+            --notes-file recent_changelog.md
 
       # upload
 
