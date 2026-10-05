@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -53,13 +54,6 @@ class ConsensusState {
     return SlotRef{slot, it->second};
   }
 
-  template <typename F>
-  void for_each_slot(F&& f) const {
-    for (auto& [slot, state] : slots_) {
-      f(SlotRef{slot, state});
-    }
-  }
-
   void notify_finalized(td::uint32 slot) {
     first_non_finalized_slot_ = std::max(first_non_finalized_slot_, slot + 1);
     while (!slots_.empty() && slots_.begin()->first < first_non_finalized_slot_) {
@@ -77,6 +71,14 @@ class ConsensusState {
         .begin = first_non_finalized_slot_,
         .end = slots_.empty() ? first_non_finalized_slot_ : slots_.rbegin()->first + 1,
     };
+  }
+
+  template <typename F>
+  void for_each_slot(F&& f, TrackedSlotsInterval interval = {.begin = 0,
+                                                             .end = std::numeric_limits<td::uint32>::max()}) const {
+    for (auto it = slots_.lower_bound(interval.begin); it != slots_.end() && it->first < interval.end; ++it) {
+      f(SlotRef{it->first, it->second});
+    }
   }
 
  private:

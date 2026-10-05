@@ -60,6 +60,7 @@ struct ResolveCandidate {
   using ReturnType = Result;
 
   CandidateId id;
+  // If false, don't wait for a certificate when the candidate is available locally.
   bool need_cert = true;
 
   std::string contents_to_string() const;

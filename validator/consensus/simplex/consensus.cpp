@@ -125,6 +125,11 @@ class ConsensusImpl : public td::actor::SpawnsWith<Bus>, public td::actor::Conne
 
   template <>
   void handle(BusHandle, std::shared_ptr<const FinalizationObserved> event) {
+    state_->for_each_slot(
+        [&](State::SlotRef slot) {
+          slot.state->validation_start_promise.set_error(td::Status::Error(ErrorCode::cancelled, "cancelled"));
+        },
+        {.begin = 0, .end = event->id.slot + 1});
     state_->notify_finalized(event->id.slot);
   }
 

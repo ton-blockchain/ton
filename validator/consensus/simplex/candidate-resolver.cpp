@@ -166,10 +166,13 @@ class CandidateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::acto
       publish_candidate_outcome_if_known(state);
       co_return state.candidate_and_cert.as_resolution_result();
     }
-
-    if (!request->need_cert && state.candidate_and_cert.candidate.has_value()) {
-      co_return ResolveCandidate::Result{*state.candidate_and_cert.candidate,
-                                        state.candidate_and_cert.notar_cert};
+    if (!request->need_cert) {
+      if (!state.candidate_and_cert.candidate.has_value()) {
+        co_await try_load_candidate_data_from_db(request->id, state);
+      }
+      if (state.candidate_and_cert.candidate.has_value()) {
+        co_return ResolveCandidate::Result{*state.candidate_and_cert.candidate, state.candidate_and_cert.notar_cert};
+      }
     }
 
     auto [task, promise] = td::actor::StartedTask<td::Unit>::make_bridge();
