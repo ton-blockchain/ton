@@ -53,7 +53,7 @@ jobs:
           git submodule update
           cp assembly/native/build-macos-shared.sh .
           chmod +x build-macos-shared.sh
-          ./build-macos-shared.sh -t -c -o 14.0
+          ./build-macos-shared.sh -t -c -o 15.0
 
       - name: Print ccache stats after TON build
         if: ${{ always() }}
