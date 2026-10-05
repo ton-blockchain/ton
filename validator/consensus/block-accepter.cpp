@@ -41,21 +41,15 @@ class BlockAccepterImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
     int finality_broadcast_mode = 0;
     bool send_shard_block_desc = true;
     if (bus.config.enable_plumtree_broadcast()) {
-      finality_broadcast_mode = fullnode::FullNode::broadcast_mode_custom |
-                                fullnode::FullNode::broadcast_mode_fast_sync |
-                                fullnode::FullNode::broadcast_mode_public;
-      if (is_leader) {
-        block_broadcast_mode |= fullnode::FullNode::broadcast_mode_public;
-      }
+      finality_broadcast_mode =
+          fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync;
       send_shard_block_desc = false;
     } else {
       if (is_leader) {
-        block_broadcast_mode |=
-            fullnode::FullNode::broadcast_mode_public | fullnode::FullNode::broadcast_mode_fast_sync;
+        block_broadcast_mode |= fullnode::FullNode::broadcast_mode_fast_sync;
       }
       if (sent_candidate_broadcasts_.contains(block.id)) {
-        block_broadcast_mode &=
-            ~(fullnode::FullNode::broadcast_mode_fast_sync | fullnode::FullNode::broadcast_mode_custom);
+        block_broadcast_mode = 0;
       }
     }
     if (last_mc_finalized_seqno_ >= 2 && block.id.seqno() < last_mc_finalized_seqno_ - 2) {
