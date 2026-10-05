@@ -1,4 +1,4 @@
-name: MacOS-14 TON build (portable, arm64)
+name: MacOS-15 TON build (portable, arm64)
 
 on:
   pull_request:
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
@@ -44,8 +44,8 @@ jobs:
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/.ccache
-          key: ${{ runner.os }}-${{ runner.arch }}-14-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
-          restore-keys: ${{ runner.os }}-${{ runner.arch }}-14-portable-ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-15-portable-ccache-${{ steps.date-stamp.outputs.timestamp }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-15-portable-ccache
 
       - name: Build TON
         run: |
@@ -53,7 +53,7 @@ jobs:
           git submodule update
           cp assembly/native/build-macos-portable.sh .
           chmod +x build-macos-portable.sh
-          ./build-macos-portable.sh -t -a -c -o 14.0
+          ./build-macos-portable.sh -t -a -c -o 15.0
 
       - name: Print ccache stats after TON build
         if: ${{ always() }}
