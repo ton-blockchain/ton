@@ -67,7 +67,7 @@ jobs:
       - name: Download Mac arm64 artifacts
         uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
         with:
-          workflow: build-ton-macos-14-arm64-portable.yml
+          workflow: build-ton-macos-15-arm64-portable.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -85,7 +85,7 @@ jobs:
       - name: Download and unzip arm64 artifacts
         uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
         with:
-          workflow: build-ton-macos-14-arm64-portable.yml
+          workflow: build-ton-macos-15-arm64-portable.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
