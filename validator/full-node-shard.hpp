@@ -127,15 +127,13 @@ class FullNodeShardImpl : public FullNodeShard {
   void tear_down() override;
   void alarm() override;
 
-  void update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) override;
+  void update_validators(std::vector<PublicKeyHash> public_key_hashes) override;
 
   void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert,
                                   td::Promise<td::Unit> promise) override;
 
   td::actor::Task<QuerySender> get_query_sender() override;
 
-  void sign_new_certificate(PublicKeyHash sign_by);
-  void signed_new_certificate(overlay::Certificate cert, PublicKeyHash local_id);
   PublicKeyHash choose_outbound_source(td::uint32 payload_size, bool is_fec) const;
   bool has_valid_certificate_for_source(const PublicKeyHash &source,
                                         const std::shared_ptr<ton::overlay::Certificate> &cert, td::uint32 payload_size,
@@ -150,9 +148,9 @@ class FullNodeShardImpl : public FullNodeShard {
   const Neighbour &choose_neighbour(td::uint32 required_version_major = 0, td::uint32 required_version_minor = 0) const;
 
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
-                    FileHash zero_state_file_hash, FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring,
-                    td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
-                    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
+                    FileHash zero_state_file_hash, FullNodeOptions opts, td::actor::ActorId<adnl::Adnl> adnl,
+                    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
+                    td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                     td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast);
 
@@ -167,7 +165,6 @@ class FullNodeShardImpl : public FullNodeShard {
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
 
-  td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
   td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<quic::QuicSender> quic_;
@@ -177,8 +174,6 @@ class FullNodeShardImpl : public FullNodeShard {
 
   overlay::OverlayIdFull overlay_id_full_;
   overlay::OverlayIdShort overlay_id_;
-  PublicKeyHash sign_cert_by_ = PublicKeyHash::zero();
-  td::Timestamp update_certificate_at_;
 
   std::shared_ptr<ton::overlay::Certificate> cert_;
   std::shared_ptr<ton::overlay::Certificate> adnl_source_cert_;
@@ -191,7 +186,6 @@ class FullNodeShardImpl : public FullNodeShard {
 
   bool active_;
   bool enable_plumtree_broadcast_;
-  bool is_original_sender_ = false;
 
   FullNodeOptions opts_;
 

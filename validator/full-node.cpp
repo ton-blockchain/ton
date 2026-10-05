@@ -65,12 +65,6 @@ void FullNodeImpl::add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
         sign_cert_by_ = key;
       }
     }
-
-    for (auto &shard : shards_) {
-      if (!shard.second.actor.empty()) {
-        td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
-      }
-    }
   }
   update_fast_sync_and_public_overlays();
   promise.set_value(td::Unit());
@@ -93,12 +87,6 @@ void FullNodeImpl::del_permanent_key(PublicKeyHash key, td::Promise<td::Unit> pr
     for (auto &x : all_validators_) {
       if (local_keys_.count(x)) {
         sign_cert_by_ = x;
-      }
-    }
-
-    for (auto &shard : shards_) {
-      if (!shard.second.actor.empty()) {
-        td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
       }
     }
   }
@@ -252,7 +240,6 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
   }
   CHECK(shards_to_monitor.count(ShardIdFull(masterchainId)));
   last_masterchain_state_ = state;
-  bool join_all_overlays = !sign_cert_by_.is_zero();
   std::set<ShardIdFull> all_shards;
   std::set<ShardIdFull> new_active;
   all_shards.insert(ShardIdFull(masterchainId));
@@ -298,14 +285,14 @@ void FullNodeImpl::on_new_masterchain_block(td::Ref<MasterchainState> state, std
   for (ShardIdFull shard : all_shards) {
     bool active = new_active.contains(shard);
     bool overlay_exists = !shards_[shard].actor.empty();
-    if (active || join_all_overlays || overlay_exists) {
+    if (active || overlay_exists || !public_overlays_enabled_) {
       bool enable_plumtree_broadcast = state->get_new_consensus_config(shard.workchain).enable_plumtree_broadcast();
       update_shard_actor(shard, active, enable_plumtree_broadcast);
     }
   }
 
   for (auto &[_, shard_info] : shards_) {
-    if (!shard_info.active && shard_info.delete_at && shard_info.delete_at.is_in_past() && !join_all_overlays) {
+    if (!shard_info.active && shard_info.delete_at && shard_info.delete_at.is_in_past()) {
       shard_info.actor = {};
       shard_info.delete_at = td::Timestamp::never();
     }
@@ -337,10 +324,10 @@ void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active, bool enabl
                               [](td::Result<>) {});
     }
     info.actor =
-        FullNodeShard::create(shard, info.local_id, adnl_id_, zero_state_file_hash_, opts_, keyring_, adnl_, rldp2_,
-                              quic_, overlays_, validator_manager_, actor_id(this), active, enable_plumtree_broadcast);
+        FullNodeShard::create(shard, info.local_id, adnl_id_, zero_state_file_hash_, opts_, adnl_, rldp2_, quic_,
+                              overlays_, validator_manager_, actor_id(this), active, enable_plumtree_broadcast);
     if (!all_validators_.empty()) {
-      td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+      td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_);
     }
   } else if (info.active != active || info.enable_plumtree_broadcast != enable_plumtree_broadcast) {
     td::actor::send_closure(info.actor, &FullNodeShard::set_params, active, enable_plumtree_broadcast);
@@ -367,7 +354,7 @@ void FullNodeImpl::set_public_overlays_enabled(bool enabled) {
   bool enable_plumtree_broadcast = shards_[masterchain].enable_plumtree_broadcast;
   update_shard_actor(masterchain, true, enable_plumtree_broadcast);
   for (auto &[shard_id, shard] : shards_) {
-    if (!shard_id.is_masterchain() && (shard.active || !sign_cert_by_.is_zero())) {
+    if (!shard_id.is_masterchain() && shard.active) {
       update_shard_actor(shard_id, shard.active, shard.enable_plumtree_broadcast);
     }
   }
@@ -871,7 +858,7 @@ void FullNodeImpl::got_key_block_config(td::Ref<ConfigHolder> config) {
 
   for (auto &shard : shards_) {
     if (!shard.second.actor.empty()) {
-      td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_, sign_cert_by_);
+      td::actor::send_closure(shard.second.actor, &FullNodeShard::update_validators, all_validators_);
     }
   }
 }

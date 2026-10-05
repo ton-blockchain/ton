@@ -47,16 +47,16 @@ class FullNodeShard : public td::actor::Actor {
   virtual void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert,
                                           td::Promise<td::Unit> promise) = 0;
 
-  virtual void update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) = 0;
+  virtual void update_validators(std::vector<PublicKeyHash> public_key_hashes) = 0;
 
   virtual td::actor::Task<QuerySender> get_query_sender() = 0;
 
   static td::actor::ActorOwn<FullNodeShard> create(
       ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-      FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
-      td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-      td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast);
+      FullNodeOptions opts, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
+      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
+      td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<FullNode> full_node,
+      bool active, bool enable_plumtree_broadcast);
 };
 
 }  // namespace fullnode
