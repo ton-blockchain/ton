@@ -445,8 +445,7 @@ class InMemoryManager final : public ton::validator::ValidatorManagerImpl {
         .detach();
   }
 
-  void complete_external_messages(std::vector<ton::validator::ExtMessage::Hash>,
-                                  std::vector<ton::validator::ExtMessage::Hash>) override {
+  void complete_external_messages(std::vector<ton::validator::ExtMessage::Hash>) override {
   }
 
   void get_storage_stat_cache(td::Promise<std::function<td::Ref<vm::Cell>(const td::Bits256&)>> promise) override {
@@ -534,8 +533,8 @@ struct Sample {
   ValidationVariant validation_variant{ValidationVariant::None};
   bool foreign_candidate{false};
   int iteration{0};
-  td::optional<ton::validator::CollationStats> collation;
-  td::optional<ton::validator::ValidationStats> validation;
+  td::optional<ton::validator::CollationStats> collation = {};
+  td::optional<ton::validator::ValidationStats> validation = {};
   double collate_wall_s{0.0};
   double validate_wall_s{0.0};
 };
@@ -1017,11 +1016,11 @@ td::Status verify_transfer_outcome(const ton::BlockCandidate& candidate, const F
 td::actor::Task<CollateOutcome> collate_once(td::actor::ActorId<InMemoryManager> manager, const Fixture& fixture,
                                              const Config& config) {
   auto stats_task = td::actor::ask(manager, &InMemoryManager::wait_collation_stats);
-  auto [candidate_task, candidate_promise] = td::actor::StartedTask<ton::BlockCandidate>::make_bridge();
+  auto [candidate_task, candidate_promise] = td::actor::StartedTask<ton::GeneratedCandidate>::make_bridge();
   auto params = make_collate_params(fixture, config);
   td::Timer wall;
   ton::validator::run_collate_query(std::move(params), manager, {}, std::move(candidate_promise));
-  auto candidate = co_await std::move(candidate_task);
+  auto candidate = (co_await std::move(candidate_task)).candidate;
   const double wall_s = wall.elapsed();
   auto stats = co_await std::move(stats_task);
   auto status = check_collation_stats(stats, fixture, config);
@@ -1066,10 +1065,10 @@ td::actor::Task<MasterchainBootstrapOutcome> bootstrap_masterchain_once(td::acto
     co_return params_result.move_as_error();
   }
   auto collation_stats_task = td::actor::ask(manager, &InMemoryManager::wait_collation_stats);
-  auto [candidate_task, candidate_promise] = td::actor::StartedTask<ton::BlockCandidate>::make_bridge();
+  auto [candidate_task, candidate_promise] = td::actor::StartedTask<ton::GeneratedCandidate>::make_bridge();
   td::Timer wall;
   ton::validator::run_collate_query(params_result.move_as_ok(), manager, {}, std::move(candidate_promise));
-  auto candidate = co_await std::move(candidate_task);
+  auto candidate = (co_await std::move(candidate_task)).candidate;
   auto collation_stats = co_await std::move(collation_stats_task);
   if (collation_stats.status.is_error()) {
     co_return collation_stats.status.clone();
