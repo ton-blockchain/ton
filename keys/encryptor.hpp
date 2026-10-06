@@ -31,7 +31,8 @@ class EncryptorNone : public Encryptor {
   td::Result<td::BufferSlice> encrypt(td::Slice data) override {
     return td::BufferSlice(data);
   }
-  td::Status check_signature(td::Slice message, td::Slice signature) override {
+  td::Status check_signature(td::Slice message, td::Slice signature,
+                             td::SignatureDomain domain = td::SignatureDomain::Generic) override {
     return td::Status::OK();
   }
 
@@ -56,7 +57,8 @@ class EncryptorFail : public Encryptor {
   td::Result<td::BufferSlice> encrypt(td::Slice data) override {
     return td::Status::Error("Fail encryptor");
   }
-  td::Status check_signature(td::Slice message, td::Slice signature) override {
+  td::Status check_signature(td::Slice message, td::Slice signature,
+                             td::SignatureDomain domain = td::SignatureDomain::Generic) override {
     return td::Status::Error("Fail encryptor");
   }
 
@@ -82,7 +84,8 @@ class EncryptorEd25519 : public Encryptor {
 
  public:
   td::Result<td::BufferSlice> encrypt(td::Slice data) override;
-  td::Status check_signature(td::Slice message, td::Slice signature) override;
+  td::Status check_signature(td::Slice message, td::Slice signature,
+                             td::SignatureDomain domain = td::SignatureDomain::Generic) override;
 
   EncryptorEd25519(const td::Bits256& key) : pub_(td::SecureString(as_slice(key))) {
   }
@@ -106,7 +109,8 @@ class EncryptorOverlay : public Encryptor {
   td::Result<td::BufferSlice> encrypt(td::Slice data) override {
     return td::Status::Error("overlay id can not be used for encryption");
   }
-  td::Status check_signature(td::Slice message, td::Slice signature) override {
+  td::Status check_signature(td::Slice message, td::Slice signature,
+                             td::SignatureDomain domain = td::SignatureDomain::Generic) override {
     auto R = fetch_tl_object<ton_api::dht_keyDescription>(message, true);
     if (R.is_error()) {
       return R.move_as_error();
@@ -134,7 +138,8 @@ class EncryptorAES : public Encryptor {
     shared_secret_.set_zero_s();
   }
   td::Result<td::BufferSlice> encrypt(td::Slice data) override;
-  td::Status check_signature(td::Slice message, td::Slice signature) override {
+  td::Status check_signature(td::Slice message, td::Slice signature,
+                             td::SignatureDomain domain = td::SignatureDomain::Generic) override {
     return td::Status::Error("can no sign channel messages");
   }
 
