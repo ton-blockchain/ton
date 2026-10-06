@@ -61,11 +61,11 @@ constexpr size_t kCacheKeyWords =
     (sizeof(uint64) + Ed25519::PublicKey::LENGTH + kSignatureSize + kMaxCachedDataSize + sizeof(uint64) - 1) /
     sizeof(uint64);
 struct CacheCounters {
-  using Counter = NamedThreadSafeCounter::CounterRef;
-  Counter hit;
-  Counter miss;
-  Counter insert;
-  Counter insert_skipped;
+  using CounterRef = NamedThreadSafeCounter::CounterRef;
+  CounterRef hit;
+  CounterRef miss;
+  CounterRef insert;
+  CounterRef insert_skipped;
   NamedPerfCounter::PerfCounterRef verify;
 
   explicit CacheCounters(SignatureDomain domain)
@@ -78,8 +78,8 @@ struct CacheCounters {
   }
 
  private:
-  static Counter get_counter(SignatureDomain domain, Slice event) {
-    return NamedThreadSafeCounter::get_default().get_counter(PSLICE() << "Ed25519_verify_signature_"
+  static CounterRef get_counter(SignatureDomain domain, Slice event) {
+    return NamedPerfCounter::get_default().get_count_counter(PSLICE() << "Ed25519_verify_signature_"
                                                                       << to_string(domain) << "_cache_" << event);
   }
 };
