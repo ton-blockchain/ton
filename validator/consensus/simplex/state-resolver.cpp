@@ -122,8 +122,8 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
   td::actor::Task<ResolvedState> resolve_state_inner(ParentId id) {
     if (!id.has_value()) {
       auto genesis = co_await genesis_.get();
-      auto state = co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard,
-                                                     genesis->state->block_ids(), genesis->state->min_mc_block_id());
+      auto state =
+          co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard, genesis->state->block_ids());
       co_return ResolvedState{state, std::nullopt};
     }
 
@@ -135,8 +135,8 @@ class StateResolverImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
 
     if (is_finalized(*id)) {
       auto genesis = co_await genesis_.get();
-      auto state = co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard,
-                                                     {candidate->block_id()}, genesis->state->min_mc_block_id());
+      auto state =
+          co_await ChainState::from_manager(owning_bus()->manager, owning_bus()->shard, {candidate->block_id()});
       co_return ResolvedState{state, gen_utime_exact};
     }
 

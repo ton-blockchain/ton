@@ -34,8 +34,12 @@ class ManagerFacadeImpl : public ManagerFacade {
 
   td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
                                                     td::CancellationToken cancellation_token) override {
+    if (!min_masterchain_block_id_.is_valid()) {
+      co_return td::Status::Error(ErrorCode::notready, "not inited");
+    }
     params.validator_set = validator_set_;
     params.collator_opts = opts_->get_collator_options();
+    params.min_masterchain_block_id = min_masterchain_block_id_;
     auto [task, promise] = td::actor::StartedTask<GeneratedCandidate>::make_bridge();
     run_collate_query(std::move(params), manager_, std::move(cancellation_token), std::move(promise));
     co_return co_await std::move(task);
@@ -43,8 +47,12 @@ class ManagerFacadeImpl : public ManagerFacade {
 
   td::actor::Task<ValidateCandidateResult> validate_block_candidate(BlockCandidate candidate, ValidateParams params,
                                                                     td::Timestamp timeout) override {
+    if (!min_masterchain_block_id_.is_valid()) {
+      co_return td::Status::Error(ErrorCode::notready, "not inited");
+    }
     params.validator_set = validator_set_;
     params.parallel_validation = opts_->get_parallel_validation();
+    params.min_masterchain_block_id = min_masterchain_block_id_;
     auto [task, promise] = td::actor::StartedTask<ValidateCandidateResult>::make_bridge();
     run_validate_query(std::move(candidate), std::move(params), manager_, timeout, std::move(promise));
     co_return co_await std::move(task);
@@ -105,10 +113,15 @@ class ManagerFacadeImpl : public ManagerFacade {
     co_return co_await td::actor::ask(manager_, &ValidatorManager::get_sync_delay);
   }
 
+  void init_min_masterchain_block_id(BlockIdExt id) {
+    min_masterchain_block_id_ = id;
+  }
+
  private:
   td::actor::ActorId<ValidatorManager> manager_;
   td::Ref<block::ValidatorSet> validator_set_;
   td::Ref<ValidatorManagerOptions> opts_;
+  BlockIdExt min_masterchain_block_id_;
 };
 
 class DbImpl : public Db {
@@ -375,10 +388,10 @@ class BridgeImpl final : public IValidatorGroup {
   }
 
   td::actor::Task<> resolve_state_and_start(std::vector<BlockIdExt> blocks, BlockIdExt min_mc_block_id) {
+    td::actor::send_closure(manager_facade_, &ManagerFacadeImpl::init_min_masterchain_block_id, min_mc_block_id);
     Ref<ChainState> state;
     while (true) {
-      auto r_state =
-          co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks, min_mc_block_id).wrap();
+      auto r_state = co_await ChainState::from_manager(manager_facade_.get(), params_.shard, blocks).wrap();
       if (!bus_) {
         co_return td::Status::Error("validator group already destroyed");
       }
