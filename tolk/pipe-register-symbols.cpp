@@ -18,6 +18,7 @@
 #include "src-file.h"
 #include "compilation-errors.h"
 #include "compiler-state.h"
+#include "compiler-settings.h"
 #include "generics-helpers.h"
 #include "pack-unpack-serializers.h"
 #include "contract-directive.h"
@@ -145,7 +146,9 @@ static EnumDefPtr register_enum(V<ast_enum_declaration> v) {
 
     for (EnumMemberPtr prev : members) {
       if (prev->name == member_name) {
-        err("redeclaration of member `{}`", member_name).fire(v_member);
+        err("redeclaration of member `{}`", member_name)
+          .with_secondary(prev, "previous declaration is here")
+          .fire(v_ident);
       }
     }
     members.emplace_back(new EnumMemberData(std::move(member_name), v_ident, i, v_member->init_value, DocCommentLines(v_member->doc_lines)));
@@ -172,7 +175,9 @@ static StructPtr register_struct(V<ast_struct_declaration> v, StructPtr base_str
 
     for (StructFieldPtr prev : fields) {
       if (prev->name == field_name) {
-        err("redeclaration of field `{}`", field_name).fire(v_field);
+        err("redeclaration of field `{}`", field_name)
+          .with_secondary(prev, "previous declaration is here")
+          .fire(v_ident);
       }
     }
     fields.emplace_back(new StructFieldData(std::move(field_name), v_ident, i, v_field->is_private, v_field->is_readonly, v_field->type_node, v_field->abi_type_node, v_field->default_value, DocCommentLines(v_field->doc_lines)));
@@ -239,12 +244,15 @@ static LocalVarData register_parameter(V<ast_parameter> v, int idx) {
 }
 
 static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr base_fun_ref = nullptr, std::string override_name = {}, const GenericsSubstitutions* substitutedTs = nullptr) {
-  if (v->is_builtin_function()) {
-    return nullptr;
-  }
-
   V<ast_identifier> v_ident = v->get_identifier();
   std::string_view f_identifier = v_ident->name;   // function or method name
+
+  // `builtin` is a compiler/stdlib contract, not a way for user code to declare new intrinsics
+  if (v->is_builtin_function() && !v->range.get_src_file()->is_stdlib_file) {
+    return nullptr;
+  }
+  // note that `builtin` from stdlib pass the pipeline, their names/params are registered,
+  // and later (after all symbols are registered) their implementation is redefined, see `setup_legacy_builtins`
 
   std::vector<LocalVarData> parameters;
   int n_mutate_params = 0;
@@ -265,7 +273,16 @@ static FunctionPtr register_function(V<ast_function_declaration> v, FunctionPtr 
   }
 
   const GenericsDeclaration* genericTs = nullptr;   // at registering it's null; will be assigned after types resolving
-  FunctionBody f_body = v->get_body()->kind == ast_block_statement ? static_cast<FunctionBody>(new FunctionBodyCode) : static_cast<FunctionBody>(new FunctionBodyAsm);
+  FunctionBody f_body = v->is_builtin_function()
+      ? static_cast<FunctionBody>(new FunctionBodyBuiltinStub)
+      : v->is_code_function()
+        ? static_cast<FunctionBody>(new FunctionBodyCode)
+        : v->is_get_prototype()
+          ? static_cast<FunctionBody>(new FunctionBodyPrototype)
+          : static_cast<FunctionBody>(new FunctionBodyAsm);
+  if (v->is_get_prototype() && !G_settings.allow_empty_get_fun) {
+    err("empty `get fun` is allowed only with --allow-empty-get-fun\n""hint: provide a function body `{ ... }`, or pass this flag for ABI-only prototypes").fire(v_ident);
+  }
   FunctionData* f_sym = new FunctionData(std::move(name), v_ident, std::move(method_name), v->receiver_type_node, v->return_type_node, std::move(parameters), 0, v->inline_mode, genericTs, substitutedTs, DocCommentLines(v->doc_lines), f_body, v);
   f_sym->base_fun_ref = base_fun_ref;   // for `f<int>`, here is `f<T>`; for a lambda, a containing function
 
@@ -325,17 +342,21 @@ static void iterate_through_file_symbols(SrcFilePtr file, FileSymbolsRegistratio
   }
   tolk_assert(file && file->ast);
 
-  // first pass: detect `contract XXX { ... }` anywhere in a file, before processing all declarations
-  for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
-    if (v->kind == ast_contract_directive && !file->has_contract_directive()) {
-      file->mutate()->assign_contract_directive(parse_contract_directive(v));
-      break;
-    }
-  }
-
   bool is_imported = !ctx.import_stack.empty();
   ctx.import_stack.push_back(file);
   bool should_register_symbols = ctx.registered_files.insert(file).second;
+
+  // first pass: detect `contract XXX { ... }` anywhere in a file, before processing all declarations
+  for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
+    if (v->kind == ast_contract_directive && should_register_symbols) {
+      auto v_contract = v->as<ast_contract_directive>();
+      if (file->has_contract_directive()) {
+        err("a file can have only one `contract` directive").fire(v_contract->get_identifier());
+      }
+      file->mutate()->assign_contract_directive(parse_contract_directive(v_contract));
+    }
+  }
+
   SrcFilePtr nearest_contract_file = ctx.find_nearest_contract_file();
   std::vector<V<ast_function_declaration>> skipped_get_fun;
 
@@ -366,7 +387,10 @@ static void iterate_through_file_symbols(SrcFilePtr file, FileSymbolsRegistratio
           // we do not allow `import "something"` having `get fun` inside;
           // we force the convention: all getters to be visible at a glance, in the contract file
           if (nearest_contract_file && file != nearest_contract_file) {
-            err("all contract entrypoints must be placed in the contract file `{}`\n""hint: keep `onInternalMessage` and `get fun` just below `contract`, not in other files", nearest_contract_file->extract_short_name()).fire(v_fun->get_identifier());
+            auto v_contract = nearest_contract_file->contract_directive->v_contract->as<ast_contract_directive>();
+            err("all contract entrypoints must be placed in the contract file `{}`\n""hint: keep `onInternalMessage` and `get fun` just below `contract`, not in other files", nearest_contract_file->extract_short_name())
+              .with_secondary(v_contract->keyword_range(), "`contract` is here")
+              .fire(v_fun->get_identifier());
           }
         }
         break;

@@ -1,5 +1,5 @@
 // A part of standard library for Tolk
-tolk 1.4.2
+tolk 1.5
 
 /**
     A string is a language primitive — a cell containing snake-formatted text data.
@@ -21,7 +21,6 @@ fun string.depth(self): int
 
 /// Calculates length of a string in bytes (not unicode symbols, just bytes).
 /// Since strings are stored in snake format (chain of cells), this requires traversing all cells.
-@pure
 @inline_ref
 fun string.calculateLength(self): int {
     var bits = 0;
@@ -38,7 +37,6 @@ fun string.calculateLength(self): int {
 /// The hash is the same regardless of snake layout:
 /// "abcd", "ab" + (ref "cd"), "a" + (ref "bcd" + (ref "")) all produce the same hash.
 /// Uses FNV-1a hashing with standard 128-bit parameters.
-@pure
 @inline_ref
 fun string.hash(self): uint256 {
     val FNV_PRIME = 309485009821345068724781371;
@@ -59,7 +57,6 @@ fun string.hash(self): uint256 {
 
 /// Compares two strings, considering snake cells.
 /// For example, "abcd" is equal to "ab" + (ref "cd") is equal to "a" + (ref "bc" + (ref "d")).
-@pure
 fun string.equalTo(self, another: string): bool {
     return self.depth() + another.depth() != 0
         // some is snake, so we have "ab->cd" / "a->bc->d" / etc., do full traverse

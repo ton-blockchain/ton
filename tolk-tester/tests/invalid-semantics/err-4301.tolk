@@ -12,4 +12,6 @@ fun main() {
 @compilation_should_fail
 @stderr using variable `i` before it's definitely assigned
 @stderr if (i == 0)
+@stderr note: variable declared here
+@stderr var i: int;
  */

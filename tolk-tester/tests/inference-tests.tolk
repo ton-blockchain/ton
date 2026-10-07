@@ -36,6 +36,8 @@ fun test1(x: int, y: int) {
     __expect_type((((1,)),), "int");
     __expect_type([((1, ), ), ], "array<int>");
     __expect_type([[[1, ], ], ], "array<array<array<int>>>");
+    __expect_type(true ? 5 : null, "int?");
+    __expect_type(false ? beginCell() : null, "builder?");
 }
 
 fun test2(x: int, y: bool) {
@@ -202,6 +204,80 @@ fun test14() {
     return (a, b, c, i);
 }
 
+type IntAlias1 = int
+type IntAlias2 = int
+
+fun int.method(self): int { return 0 }
+fun IntAlias1.method(self): int1 { return 1 }
+fun IntAlias2.method(self): int2 { return 2 }
+
+@method_id(115)
+fun test15(i: IntAlias1, j: IntAlias2) {
+    // all these are ok due to manual hint
+    var ok1: (int, IntAlias1, IntAlias2) = (i ?? j, i ?? j, i ?? j);
+    var ok2: (int?, IntAlias1?, IntAlias2?) = (i ?? j, i ?? j, i ?? j);
+    __expect_type(((i ?? j) as IntAlias1).method, "(IntAlias1) -> int1");
+    __expect_type(((i == 0 ? i : j) as IntAlias2).method, "(IntAlias2) -> int2");
+    if (i is int) {
+        __expect_type(i.method, "(int) -> int");
+    }
+    match (j) {
+        int => { __expect_type(j.method, "(int) -> int") }
+    }
+    match (j) {
+        IntAlias2 => { __expect_type(j.method, "(IntAlias2) -> int2") }
+    }
+    return (i is IntAlias1, i is int, match (i) { int => i.method() })
+}
+
+fun test16() {
+    var x: int? = 1;
+    while (true) {
+        if (x == null) {
+            __expect_type(x, "null");
+            break;
+        }
+        __expect_type(x, "int");
+        x = null;
+    }
+    __expect_type(x, "null");
+}
+
+fun test17(x: int?, y: int?) {
+    while (x != null) {
+        __expect_type(x, "int");
+        if (y == null) {
+            __expect_type(y, "null");
+            continue;
+        }
+        __expect_type(y, "int");
+        if (x > 0) {
+            break;
+        }
+        x = y;
+        y = null;
+    }
+    __expect_type(x, "int?");
+    __expect_type(y, "int?");
+}
+
+fun test18(x: int | slice | null) {
+    do {
+        if (x is int) {
+            __expect_type(x, "int");
+            break;
+        }
+        if (x is slice) {
+            __expect_type(x, "slice");
+            x = 0;
+            continue;
+        }
+        __expect_type(x, "null");
+        x = 1;
+    } while (true);
+    __expect_type(x, "int");
+}
+
 
 fun main() {
     return 0;
@@ -212,4 +288,5 @@ fun main() {
 @testcase | 108 | 1 10 | -1
 @testcase | 112 |      | 1
 @testcase | 114 |      | (null) (null) (null) 3
+@testcase | 115 | 0 0  | -1 -1 0
 */

@@ -1,10 +1,10 @@
 import "@stdlib/tvm-dicts"
 
-fun cell?.addIntToIDict(mutate self, key: int, number: int): void {
+fun dict.addIntToIDict(mutate self, key: int, number: int): void {
     return self.iDictSetBuilder(32, key, beginCell().storeInt(number, 32));
 }
 
-fun calculateDictLen(d: cell?) {
+fun calculateDictLen(d: dict) {
     var len = 0;
     var (k, v, f) = d.uDictGetFirst(32);
     while (f) {

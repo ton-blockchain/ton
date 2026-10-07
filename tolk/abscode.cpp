@@ -197,8 +197,8 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
   if (noreturn()) {
     dis += "<noret> ";
   }
-  if (impure()) {
-    dis += "<impure> ";
+  if (keep_even_if_unused()) {
+    dis += "<keep> ";
   }
   switch (cl) {
     case _Nop:
@@ -331,6 +331,9 @@ void Op::show(std::ostream& os, const std::vector<TmpVar>& vars, const std::stri
       os << ' ';
       block0.show(os, vars, indent, mode);
       os << std::endl;
+      break;
+    case _BreakFromLoop:
+      os << indent << dis << "BREAK" << std::endl;
       break;
     case _TryCatch:
       os << indent << dis << "TRYCATCH ";

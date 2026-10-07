@@ -6,4 +6,6 @@ fun main(x: int): int {
 /**
 @compilation_should_fail
 @stderr redeclaration of local variable `x`
+@stderr note: previous declaration is here
+@stderr fun main
  */
