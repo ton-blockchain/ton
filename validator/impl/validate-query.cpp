@@ -444,6 +444,7 @@ void ValidateQuery::start_up() {
 
 void ValidateQuery::tear_down() {
   record_stats();
+  cancellation_.cancel();
 }
 
 /**
