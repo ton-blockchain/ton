@@ -30,7 +30,7 @@ namespace validator {
 
 struct CollateParams {
   ShardIdFull shard;
-  BlockIdExt min_masterchain_block_id;
+  BlockIdExt min_masterchain_block_id = {};
   std::vector<BlockIdExt> prev;
   bool is_hardfork = false;
   bool is_fake = false;
@@ -62,7 +62,7 @@ struct CollateParams {
 
 struct ValidateParams {
   ShardIdFull shard;
-  BlockIdExt min_masterchain_block_id;
+  BlockIdExt min_masterchain_block_id = {};
   std::vector<BlockIdExt> prev;
   td::Ref<block::ValidatorSet> validator_set = {};
   PublicKeyHash local_validator_id = PublicKeyHash::zero();
