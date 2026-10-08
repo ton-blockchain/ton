@@ -53,6 +53,7 @@ namespace {
 
 constexpr const char *k_called_from_public = "public";
 constexpr size_t k_ed25519_signature_size = 64;
+constexpr td::uint32 k_public_plumtree_stats_store_limit = 3000;
 
 }  // namespace
 
@@ -113,6 +114,7 @@ void FullNodeShardImpl::create_overlay() {
   opts.enable_plumtree_broadcast_ = enable_plumtree_broadcast_;
   opts.plumtree_broadcast_sender_ = enable_plumtree_broadcast_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_}
                                                                : td::actor::ActorId<adnl::AdnlSenderEx>{};
+  opts.plumtree_fec_options_.stats_store_limit_ = k_public_plumtree_stats_store_limit;
   td::actor::send_closure(overlays_, &overlay::Overlays::create_public_overlay_ex, adnl_id_, overlay_id_full_.clone(),
                           std::make_unique<Callback>(actor_id(this)), rules_,
                           PSTRING() << "{ \"type\": \"shard\", \"shard_id\": " << get_shard()

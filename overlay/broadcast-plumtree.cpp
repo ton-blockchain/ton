@@ -1929,7 +1929,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_stats_push(OverlayImpl *over
   if (static_cast<td::uint32>(record->parts_in_p99_bcsts_) > options_.parts_) {
     co_return td::Unit{};
   }
-  if (stats_epoch_.store.size() >= PLUMTREE_STATS_STORE_LIMIT) {
+  if (stats_epoch_.store.size() >= options_.stats_store_limit_) {
     co_return td::Unit{};
   }
   auto src = record->src_;
