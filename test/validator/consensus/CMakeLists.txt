@@ -14,6 +14,8 @@ target_link_libraries(test-consensus PRIVATE
 add_executable(test-consensus-metrics
     test-candidate-resolver-metrics.cpp
     test-consensus-metrics.cpp
+    test-speculative-validation.cpp
+    test-speculative-validator.cpp
 )
 target_link_libraries(test-consensus-metrics PRIVATE
     adnl

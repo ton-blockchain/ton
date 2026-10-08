@@ -79,6 +79,18 @@ struct ValidationRequest {
   static std::string response_to_string(const ReturnType&);
 };
 
+struct SpeculativeValidationRequest {
+  using ReturnType = ValidateCandidateResult;
+
+  CandidateRef candidate;
+  CandidateId parent_id;
+  BlockIdExt parent_block_id;
+  BlockIdExt min_masterchain_block_id;
+
+  std::string contents_to_string() const;
+  static std::string response_to_string(const ReturnType&);
+};
+
 struct IncomingProtocolMessage {
   using LogToDebug = std::true_type;
 
@@ -199,11 +211,12 @@ class Db {
 
 class Bus : public td::actor::Bus {
  public:
-  using Events = td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowUpcoming,
-                              CandidateGenerated, CandidateReceived, ValidationRequest, IncomingProtocolMessage,
-                              OutgoingProtocolMessage, IncomingCandidateRequest, IncomingCollatorRequest,
-                              OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent,
-                              NoncriticalParamsUpdated, ValidatorOptionsUpdated, PrecheckCandidateBroadcast>;
+  using Events =
+      td::TypeList<Start, StopRequested, FinalizeBlock, OurLeaderWindowStarted, OurLeaderWindowUpcoming,
+                   CandidateGenerated, CandidateReceived, ValidationRequest, SpeculativeValidationRequest,
+                   IncomingProtocolMessage, OutgoingProtocolMessage, IncomingCandidateRequest, IncomingCollatorRequest,
+                   OutgoingOverlayRequest, BlockFinalizedInMasterchain, MisbehaviorReport, TraceEvent,
+                   NoncriticalParamsUpdated, ValidatorOptionsUpdated, PrecheckCandidateBroadcast>;
 
   Bus() = default;
   ~Bus() override {

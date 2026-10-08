@@ -45,6 +45,7 @@ namespace validator {
 
 struct CandidateAccept {
   double ok_from_utime = 0.0;
+  bool can_validate_child = false;
 };
 
 struct CandidateReject {
