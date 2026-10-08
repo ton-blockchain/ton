@@ -21,11 +21,14 @@
 #include "crypto/Ed25519.h"
 #include "td/utils/BigNum.h"
 #include "td/utils/ScopeGuard.h"
+#include "td/utils/SeqlockCache.h"
 #include "td/utils/base64.h"
 #include "td/utils/misc.h"
 
 #if TD_HAVE_OPENSSL
 
+#include <array>
+#include <cstring>
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
 #include <openssl/pem.h>
@@ -34,6 +37,114 @@
 #include "td/utils/ThreadSafeCounter.h"
 
 namespace td {
+
+std::string to_string(SignatureDomain domain) {
+  switch (domain) {
+    case SignatureDomain::Generic:
+      return "generic";
+    case SignatureDomain::Vm:
+      return "vm";
+    case SignatureDomain::Consensus:
+      return "consensus";
+    case SignatureDomain::Overlay:
+      return "overlay";
+    case SignatureDomain::COUNT:
+      break;
+  }
+  UNREACHABLE();
+}
+namespace {
+
+constexpr size_t kMaxCachedDataSize = 128;
+constexpr size_t kSignatureSize = 64;
+constexpr size_t kCacheKeyWords =
+    (sizeof(uint64) + Ed25519::PublicKey::LENGTH + kSignatureSize + kMaxCachedDataSize + sizeof(uint64) - 1) /
+    sizeof(uint64);
+struct CacheCounters {
+  using CounterRef = NamedThreadSafeCounter::CounterRef;
+  CounterRef hit;
+  CounterRef miss;
+  CounterRef insert;
+  CounterRef insert_skipped;
+  NamedPerfCounter::PerfCounterRef verify;
+
+  explicit CacheCounters(SignatureDomain domain)
+      : hit(get_counter(domain, "hit"))
+      , miss(get_counter(domain, "miss"))
+      , insert(get_counter(domain, "insert"))
+      , insert_skipped(get_counter(domain, "insert_skipped"))
+      , verify(
+            NamedPerfCounter::get_default().get_counter(PSLICE() << "Ed25519_verify_signature_" << to_string(domain))) {
+  }
+
+ private:
+  static CounterRef get_counter(SignatureDomain domain, Slice event) {
+    return NamedPerfCounter::get_default().get_count_counter(PSLICE() << "Ed25519_verify_signature_"
+                                                                      << to_string(domain) << "_cache_" << event);
+  }
+};
+static auto verify_no_cache_counter = NamedPerfCounter::get_default().get_counter("Ed25519_verify_signature_no_cache");
+
+struct SignatureCache {
+  using Cache = SeqlockCache<kCacheKeyWords, uint64>;
+  using Key = Cache::Key;
+
+  SignatureCache(size_t slot_count, SignatureDomain domain) : cache(slot_count), counters(domain) {
+  }
+
+  Cache cache;
+  CacheCounters counters;
+};
+
+using SignatureCaches = std::array<std::optional<SignatureCache>, static_cast<size_t>(SignatureDomain::COUNT)>;
+
+static SignatureCaches caches;
+static std::atomic<int> caches_initialized = 0;
+
+SignatureCache::Key make_signature_cache_key(Slice public_key, Slice signature, Slice data) {
+  SignatureCache::Key key{};
+  key.front() = data.size();  // Distinguish a message from the same bytes with trailing zeros.
+  auto *bytes = reinterpret_cast<char *>(key.data() + 1);
+  std::memcpy(bytes, public_key.data(), public_key.size());
+  std::memcpy(bytes + public_key.size(), signature.data(), signature.size());
+  if (!data.empty()) {
+    std::memcpy(bytes + public_key.size() + signature.size(), data.data(), data.size());
+  }
+  return key;
+}
+
+}  // namespace
+
+Status init_signature_caches(const SignatureCacheSizes &slot_counts) {
+  int expected = 0;
+  if (!caches_initialized.compare_exchange_strong(expected, 1)) {
+    return Status::Error("Signature caches are already initialized");
+  }
+  for (size_t i = 0; i < caches.size(); ++i) {
+    if (slot_counts[i] != 0) {
+      caches[i].emplace(slot_counts[i], static_cast<SignatureDomain>(i));
+    }
+  }
+  caches_initialized.store(2);
+  return Status::OK();
+}
+
+std::tuple<SignatureCache *, SignatureCache::Key, size_t> get_cache_data(const Slice &data,
+                                                                         const SecureString &public_key,
+                                                                         const Slice &signature,
+                                                                         SignatureDomain domain) {
+  if (data.size() > kMaxCachedDataSize || public_key.size() != Ed25519::PublicKey::LENGTH ||
+      signature.size() != kSignatureSize || caches_initialized.load(std::memory_order_acquire) != 2) {
+    return std::make_tuple(nullptr, SignatureCache::Key{}, 0);
+  }
+  size_t index = static_cast<size_t>(domain);
+  if (!caches[index]) {
+    return std::make_tuple(nullptr, SignatureCache::Key{}, 0);
+  }
+  auto key = make_signature_cache_key(public_key, signature, data);
+  size_t slot = caches[index]->cache.key_to_slot(key);
+  return std::make_tuple(&*caches[index], std::move(key), std::move(slot));
+}
 
 Ed25519::PublicKey::PublicKey(SecureString octet_string) : octet_string_(std::move(octet_string)) {
 }
@@ -267,9 +378,19 @@ Result<SecureString> Ed25519::PrivateKey::sign(Slice data) const {
 #endif
 }
 
-Status Ed25519::PublicKey::verify_signature(Slice data, Slice signature) const {
-  TD_PERF_COUNTER(Ed25519_verify_signature);
+Status Ed25519::PublicKey::verify_signature(Slice data, Slice signature, SignatureDomain domain) const {
 #if OPENSSL_VERSION_NUMBER >= 0x10101000L
+  auto [cache, cache_key, slot] = get_cache_data(data, octet_string_, signature, domain);
+  if (cache) {
+    if (cache->cache.contains(cache_key, slot)) {
+      cache->counters.hit.inc();
+      return Status::OK();
+    }
+    cache->counters.miss.inc();
+  }
+
+  NamedPerfCounter::ScopedPerfCounterRef verify_counter{.perf_counter =
+                                                            cache ? cache->counters.verify : verify_no_cache_counter};
   auto pkey = detail::X25519_key_to_PKEY(octet_string_, false);
   if (pkey == nullptr) {
     return Status::Error("Can't import public key");
@@ -291,6 +412,13 @@ Status Ed25519::PublicKey::verify_signature(Slice data, Slice signature) const {
   }
 
   if (EVP_DigestVerify(md_ctx, signature.ubegin(), signature.size(), data.ubegin(), data.size()) == 1) {
+    if (cache) {
+      if (cache->cache.insert(cache_key, slot)) {
+        cache->counters.insert.inc();
+      } else {
+        cache->counters.insert_skipped.inc();
+      }
+    }
     return Status::OK();
   }
   return Status::Error("Wrong signature");

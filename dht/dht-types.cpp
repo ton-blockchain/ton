@@ -303,7 +303,7 @@ td::Status DhtUpdateRuleOverlayNodes::check_value(const DhtValue &value) {
     }
     auto B = serialize_tl_object(obj, true);
     TRY_RESULT(E, pub.pubkey().create_encryptor());
-    TRY_STATUS(E->check_signature(B.as_slice(), sig.as_slice()));
+    TRY_STATUS(E->check_signature(B.as_slice(), sig.as_slice(), td::SignatureDomain::Overlay));
   }
   return td::Status::OK();
 }

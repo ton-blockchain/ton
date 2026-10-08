@@ -79,7 +79,7 @@ class OverlayNode {
           }
           auto enc = E.move_as_ok();
           TD_PERF_COUNTER(check_signature_overlay_node);
-          res = enc->check_signature(to_sign().as_slice(), signature_.as_slice());
+          res = enc->check_signature(to_sign().as_slice(), signature_.as_slice(), td::SignatureDomain::Overlay);
         }));
     return res;
   }

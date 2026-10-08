@@ -1072,7 +1072,7 @@ td::Status OverlayImpl::check_signature_from_peer(PublicKey key, td::Slice messa
     return td::Status::Error("peer is temporary banned");
   }
   TRY_RESULT(enc, get_encryptor(std::move(key)));
-  auto S = enc->check_signature(message, signature);
+  auto S = enc->check_signature(message, signature, td::SignatureDomain::Overlay);
   if (S.is_error() && !message_from.is_zero()) {
     reject_signatures_from_.insert(message_from);
     LOG(WARNING) << "ban signatures from peer " << message_from << " for " << REJECT_SIGNATURES_DURATION << " s";
