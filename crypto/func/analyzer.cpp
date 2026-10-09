@@ -44,7 +44,10 @@ int CodeBlob::split_vars(bool strict) {
     }
     std::vector<TypeExpr*> comp_types;
     int k = var.v_type->extract_components(comp_types);
-    func_assert(k <= 254 && n <= 0x7fff00);
+    if (k > 254) {
+      throw src::ParseError{var.where.get(), "tensor cannot contain more than 254 components"};
+    }
+    func_assert(n <= 0x7fff00);
     func_assert((unsigned)k == comp_types.size());
     if (k != 1) {
       var.coord = ~((n << 8) + k);
