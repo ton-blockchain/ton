@@ -88,6 +88,23 @@ SETCP0 DUP IFNOTRET // return if recv_internal
   return fift::compile_asm(code).move_as_ok();
 }
 
+TEST(Tonlib, VoterTimestampDictionary) {
+  auto voter_map = [](bool timestamp) {
+    vm::Dictionary voters{16};
+    vm::CellBuilder value;
+    if (timestamp) {
+      CHECK(value.store_ulong_rchk_bool(1234567890, 32));
+    }
+    CHECK(voters.set_builder(td::BitArray<16>{1}, value));
+    vm::CellBuilder map;
+    CHECK(std::move(voters).append_dict_to_bool(map));
+    return map.finalize();
+  };
+
+  CHECK(block::gen::t_HashmapE_16_uint32.validate_ref(voter_map(true)));
+  CHECK(!block::gen::t_HashmapE_16_uint32.validate_ref(voter_map(false)));
+}
+
 TEST(Tonlib, WalletV3) {
   LOG(ERROR) << td::base64_encode(std_boc_serialize(get_wallet_v3_source()).move_as_ok());
   CHECK(get_wallet_v3_source()->get_hash() == ton::WalletV3::get_init_code(2)->get_hash());
