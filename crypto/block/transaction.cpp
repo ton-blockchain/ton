@@ -4182,10 +4182,27 @@ bool Account::create_account_block(vm::CellBuilder& cb) {
     return false;
   }
   vm::AugmentedDictionary dict{64, block::tlb::aug_AccountTransactions};
-  for (auto& z : transactions) {
+  if (transactions.size() == 1) {
+    auto& z = transactions.front();
     if (!dict.set_ref(td::BitArray<64>{(long long)z.first}, z.second, vm::Dictionary::SetMode::Add)) {
       LOG(ERROR) << "error creating the list of transactions for account " << addr.to_hex()
                  << " : cannot add transaction with lt=" << z.first;
+      return false;
+    }
+  } else {
+    std::vector<td::BitArray<64>> keys(transactions.size());
+    std::vector<std::pair<td::ConstBitPtr, Ref<vm::CellBuilder>>> values;
+    values.reserve(transactions.size());
+    for (size_t i = 0; i < transactions.size(); ++i) {
+      keys[i].store_ulong(transactions[i].first);
+      auto value = td::make_ref<vm::CellBuilder>();
+      if (!value.write().store_ref_bool(transactions[i].second)) {
+        return false;
+      }
+      values.emplace_back(keys[i].bits(), std::move(value));
+    }
+    if (!dict.multiset(values, vm::Dictionary::SetMode::Add)) {
+      LOG(ERROR) << "error creating the list of transactions for account " << addr.to_hex();
       return false;
     }
   }
