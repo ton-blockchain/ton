@@ -570,11 +570,10 @@ TypePtr TypeDataUnion::replace_children_custom(const ReplacerCallbackT& callback
   return callback(create(std::move(mapped)));
 }
 
-   TypePtr TypeDataMapKV::replace_children_custom(const ReplacerCallbackT& callback) const {
-     TypePtr newKey = TKey->replace_children_custom(callback);
-     TypePtr newValue = TValue->replace_children_custom(callback);
-     return callback(create(newKey, newValue));
-   }
+TypePtr TypeDataMapKV::replace_children_custom(const ReplacerCallbackT& callback) const {
+  TypePtr newKey = TKey->replace_children_custom(callback);
+  TypePtr newValue = TValue->replace_children_custom(callback);
+  return callback(create(newKey, newValue));
 }
 
 
