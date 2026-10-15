@@ -23,7 +23,7 @@ class CandidateBroadcastRelayImpl : public td::actor::SpawnsWith<Bus>, public td
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
   static bool should_be_spawned(const Bus& bus) {
-    return bus.is_validator() || bus.config.observers_in_private_overlay();
+    return bus.config.observers_in_private_overlay();
   }
 
   template <>
@@ -33,8 +33,8 @@ class CandidateBroadcastRelayImpl : public td::actor::SpawnsWith<Bus>, public td
 
   template <>
   void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
-    if (!bus->config.enable_plumtree_broadcast()) {
-      return;
+    if (!bus->is_validator() && !bus->is_collator) {
+      bus.publish<StoreCandidate>(event->candidate).start().detach("store candidate");
     }
     if (event->candidate->is_empty()) {
       return;
