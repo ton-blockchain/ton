@@ -186,38 +186,6 @@ class BlockSyncObserver : public td::actor::SpawnsWith<Bus>, public td::actor::C
   }
 };
 
-class CandidateBroadcastRelay : public td::actor::SpawnsWith<Bus>, public td::actor::ConnectsTo<Bus> {
- public:
-  TON_RUNTIME_DEFINE_EVENT_HANDLER();
-
-  static bool should_be_spawned(const Bus& bus) {
-    return bus.is_validator() || bus.config.observers_in_private_overlay();
-  }
-
-  template <>
-  void handle(BusHandle, std::shared_ptr<const StopRequested>) {
-    stop();
-  }
-
-  template <>
-  void handle(BusHandle bus, std::shared_ptr<const CandidateReceived> event) {
-    if (!bus->config.enable_plumtree_broadcast()) {
-      return;
-    }
-    if (event->candidate->is_empty()) {
-      return;
-    }
-
-    int mode = fullnode::FullNode::broadcast_mode_custom | fullnode::FullNode::broadcast_mode_fast_sync;
-    if (bus->is_collator) {
-      mode = fullnode::FullNode::broadcast_mode_custom;
-    }
-    const auto& block = std::get<BlockCandidate>(event->candidate->block);
-    td::actor::send_closure(bus->manager, &ManagerFacade::send_block_candidate_broadcast, block.id, block.data.clone(),
-                            mode);
-  }
-};
-
 class BridgeImpl final : public IValidatorGroup {
  public:
   BridgeImpl(std::string name, GroupParams&& params) : name_(name), params_(std::move(params)) {
@@ -324,7 +292,7 @@ class BridgeImpl final : public IValidatorGroup {
     BlockAccepter::register_in(runtime);
     BlockProducer::register_in(runtime);
     runtime.register_actor<BlockSyncObserver>("BlockSyncObserver");
-    runtime.register_actor<CandidateBroadcastRelay>("CandidateBroadcastRelay");
+    simplex::CandidateBroadcastRelay::register_in(runtime);
     BlockSyncOverlay::register_in(runtime);
     BlockValidator::register_in(runtime);
     PrivateOverlay::register_in(runtime);

@@ -97,6 +97,7 @@ set(VALIDATOR_SOURCE
   validator-group.cpp
 
   consensus/simplex/bus.cpp
+  consensus/simplex/candidate-broadcast-relay.cpp
   consensus/simplex/candidate-resolver.cpp
   consensus/simplex/certificate.cpp
   consensus/simplex/collator-producer.cpp
