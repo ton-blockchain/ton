@@ -681,6 +681,7 @@ class Config {
     return cur_validators_;
   }
   std::pair<ton::UnixTime, ton::UnixTime> get_validator_set_start_stop(int next = 0) const;
+  td::Result<td::uint32> get_validator_elections_end_before() const;
   ton::NewConsensusConfig get_new_consensus_config(ton::WorkchainId wc) const;
   bool foreach_config_param(std::function<bool(int, Ref<vm::Cell>)> scan_func) const;
   Ref<WorkchainInfo> get_workchain_info(ton::WorkchainId workchain_id) const;

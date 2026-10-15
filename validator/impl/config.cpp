@@ -61,18 +61,6 @@ std::pair<UnixTime, UnixTime> ConfigHolderQ::get_validator_set_start_stop(int ne
   return config_->get_validator_set_start_stop(next);
 }
 
-td::Result<td::uint32> ConfigHolderQ::get_validator_elections_end_before() const {
-  if (!config_) {
-    return td::Status::Error("config not found");
-  }
-  auto param = config_->get_config_param(15);
-  block::gen::ConfigParam::Record_cons15 data;
-  if (param.is_null() || !block::gen::ConfigParam{15}.cell_unpack(std::move(param), data)) {
-    return td::Status::Error("invalid validator election configuration parameter");
-  }
-  return data.elections_end_before;
-}
-
 }  // namespace validator
 
 }  // namespace ton

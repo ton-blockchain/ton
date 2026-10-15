@@ -404,9 +404,7 @@ void FullNodeImpl::update_public_overlay_mode(double fast_sync_authority_until) 
   }
 
   double warmup_period = MAX_PUBLIC_OVERLAY_WARMUP_PERIOD;
-  auto config = last_masterchain_state_->get_config_holder();
-  td::Result<td::uint32> elections_end_before =
-      config.is_ok() ? config.move_as_ok()->get_validator_elections_end_before() : config.move_as_error();
+  auto elections_end_before = last_masterchain_state_->get_validator_elections_end_before();
   if (elections_end_before.is_error()) {
     LOG(ERROR) << "Failed to read validator election configuration: " << elections_end_before.move_as_error()
                << "; using default public overlay warmup period";
