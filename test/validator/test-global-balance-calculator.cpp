@@ -36,6 +36,7 @@
 #include "td/actor/actor.h"
 #include "td/utils/tests.h"
 #include "validator/fabric.h"
+#include "validator/global-balance-calculator.hpp"
 #include "validator/impl/global-balance-calculator-internal.hpp"
 
 namespace ton::validator {
@@ -334,6 +335,32 @@ td::Ref<vm::Cell> make_empty_test_block(LogicalTime start_lt) {
   CHECK(block.store_ref_bool(dummy));
   CHECK(block.store_ref_bool(extra.finalize()));
   return block.finalize();
+}
+
+TEST(GlobalBalanceCalculator, ReadOnlyComponentTotals) {
+  auto first =
+      make_parsed_state(make_block_id(ShardIdFull{masterchainId, shardIdAll}, 1), make_out_queue(), nullptr, 11);
+  first->accounts_balance = td::make_refint(100);
+  first->mc_total_validator_fees = td::make_refint(7);
+  auto second =
+      make_parsed_state(make_block_id(ShardIdFull{basechainId, shardIdAll}, 1), make_out_queue(), nullptr, 13);
+  second->accounts_balance = td::make_refint(200);
+  auto totals = detail::sum_state_balance_components({first, second});
+  expect_int(totals.accounts, 300);
+  expect_int(totals.dispatch_queue, 24);
+  expect_int(totals.unrecovered_validator_fees, 7);
+  expect_int(totals.unprocessed_messages, 0);
+  expect_int(totals.total, 331);
+}
+
+TEST(GlobalBalanceCalculator, ReadOnlyRejectsMissingState) {
+  td::Result<GlobalBalanceComponents> result{td::Status::Error("not run")};
+  td::actor::TestScheduler scheduler;
+  scheduler.run([&]() -> td::actor::Task<> {
+    result = co_await calculate_global_balance_at_anchor({}, {}, {}, {}).wrap();
+    co_return td::Unit{};
+  });
+  CHECK(result.is_error());
 }
 
 TEST(GlobalBalanceCalculator, FetchWithoutPrevWithAndWithoutStoredDispatchBalance) {
