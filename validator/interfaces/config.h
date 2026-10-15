@@ -37,6 +37,7 @@ class ConfigHolder : public td::CntObject {
       int next) const = 0;  // next = -1 -> prev, next = 0 -> cur
   virtual td::Ref<block::ValidatorSet> get_validator_set(ShardIdFull shard, CatchainSeqno seqno) const = 0;
   virtual std::pair<UnixTime, UnixTime> get_validator_set_start_stop(int next) const = 0;
+  virtual td::Result<td::uint32> get_validator_elections_end_before() const = 0;
 };
 
 }  // namespace validator

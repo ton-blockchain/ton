@@ -69,7 +69,13 @@ bool write_jsonl(std::ofstream &file, const T &value, const char *name) {
 }  // namespace
 
 static const double INACTIVE_SHARD_TTL = (double)overlay::Overlays::overlay_peer_ttl() + 60.0;
-static constexpr double PUBLIC_OVERLAY_WARMUP_PERIOD = 600.0;
+static constexpr double MAX_PUBLIC_OVERLAY_WARMUP_PERIOD = 600.0;
+static constexpr double PUBLIC_OVERLAY_WARMUP_ELECTION_FRACTION = 0.8;
+
+static constexpr double public_overlay_warmup_period(double elections_end_before) {
+  double election_aware_period = elections_end_before * PUBLIC_OVERLAY_WARMUP_ELECTION_FRACTION;
+  return std::min(MAX_PUBLIC_OVERLAY_WARMUP_PERIOD, election_aware_period);
+}
 
 void FullNodeImpl::add_permanent_key(PublicKeyHash key, td::Promise<td::Unit> promise) {
   if (local_keys_.count(key)) {
@@ -397,7 +403,19 @@ void FullNodeImpl::update_public_overlay_mode(double fast_sync_authority_until) 
     return;
   }
 
-  double enable_public_overlays_at = fast_sync_authority_until - PUBLIC_OVERLAY_WARMUP_PERIOD;
+  double warmup_period = MAX_PUBLIC_OVERLAY_WARMUP_PERIOD;
+  auto config = last_masterchain_state_->get_config_holder();
+  td::Result<td::uint32> elections_end_before =
+      config.is_ok() ? config.move_as_ok()->get_validator_elections_end_before() : config.move_as_error();
+  if (elections_end_before.is_error()) {
+    LOG(ERROR) << "Failed to read validator election configuration: " << elections_end_before.move_as_error()
+               << "; using default public overlay warmup period";
+  } else {
+    // elections_end_before is the interval from the election close to the validator-cycle boundary.
+    warmup_period = public_overlay_warmup_period(static_cast<double>(elections_end_before.move_as_ok()));
+  }
+
+  double enable_public_overlays_at = fast_sync_authority_until - warmup_period;
   if (enable_public_overlays_at > td::Clocks::system()) {
     set_public_overlays_enabled(false);
     enable_public_overlays_at_ = td::Timestamp::at_unix(enable_public_overlays_at);
