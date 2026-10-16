@@ -17,6 +17,7 @@ target_link_libraries(test-ext-message-expiry PRIVATE
 ton_test(test-ext-message-expiry)
 
 add_executable(test-global-balance-calculator test-global-balance-calculator.cpp)
+target_sources(test-global-balance-calculator PRIVATE $<TARGET_OBJECTS:validator-db>)
 target_include_directories(test-global-balance-calculator PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(test-global-balance-calculator PRIVATE
     adnl
@@ -29,5 +30,6 @@ target_link_libraries(test-global-balance-calculator PRIVATE
     tl_api
     ton_validator
     validator
+    validator-db
 )
 ton_test(test-global-balance-calculator)

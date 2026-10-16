@@ -506,7 +506,9 @@ class ShardConfig {
   static bool get_shard_hash_raw_from(vm::Dictionary& shard_hashes_dict, vm::CellSlice& cs, ton::ShardIdFull id,
                                       ton::ShardIdFull& true_id, bool exact = true, Ref<vm::Cell>* leaf = nullptr);
   std::vector<ton::BlockId> get_shard_hash_ids(bool skip_mc = false) const;
+  std::vector<ton::BlockIdExt> get_shard_hash_ids_ext(bool skip_mc = false) const;
   std::vector<ton::BlockId> get_shard_hash_ids(const std::function<bool(ton::ShardIdFull, bool)>& filter) const;
+  std::vector<ton::BlockIdExt> get_shard_hash_ids_ext(const std::function<bool(ton::ShardIdFull, bool)>& filter) const;
   std::vector<ton::BlockId> get_intersecting_shard_hash_ids(ton::ShardIdFull myself) const;
   std::vector<ton::BlockId> get_neighbor_shard_hash_ids(ton::ShardIdFull myself) const;
   std::vector<ton::BlockId> get_proper_neighbor_shard_hash_ids(ton::ShardIdFull myself) const;

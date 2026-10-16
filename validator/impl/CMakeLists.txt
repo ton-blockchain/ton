@@ -35,7 +35,7 @@ set(TON_VALIDATOR_SOURCE
   top-shard-descr.hpp
   validate-query.hpp)
 
-add_library(ton_validator STATIC ${TON_VALIDATOR_SOURCE})
+add_library(ton_validator OBJECT ${TON_VALIDATOR_SOURCE})
 
 target_include_directories(ton_validator PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>

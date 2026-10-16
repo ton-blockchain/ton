@@ -304,6 +304,88 @@ struct Account {
   Account() = default;
   Account(ton::WorkchainId wc, td::ConstBitPtr _addr) : workchain(wc), addr(_addr) {
   }
+  Account(const Account& other)
+      : status(other.status),
+        orig_status(other.orig_status),
+        is_special(other.is_special),
+        tick(other.tick),
+        tock(other.tock),
+        fixed_prefix_length(other.fixed_prefix_length),
+        verbosity(other.verbosity),
+        now_(other.now_),
+        workchain(other.workchain),
+        addr_rewrite(other.addr_rewrite),
+        addr_rewrite_length_set(other.addr_rewrite_length_set),
+        addr_rewrite_length(other.addr_rewrite_length),
+        addr(other.addr),
+        addr_orig(other.addr_orig),
+        my_addr(other.my_addr),
+        my_addr_exact(other.my_addr_exact),
+        last_trans_end_lt_(other.last_trans_end_lt_),
+        last_trans_lt_(other.last_trans_lt_),
+        last_trans_hash_(other.last_trans_hash_),
+        block_lt(other.block_lt),
+        last_paid(other.last_paid),
+        storage_used(other.storage_used),
+        storage_dict_hash(other.storage_dict_hash),
+        account_storage_stat(), // Explicitly initialize as empty
+        balance(other.balance),
+        due_payment(other.due_payment),
+        orig_total_state(other.orig_total_state),
+        total_state(other.total_state),
+        storage(other.storage),
+        inner_state(other.inner_state),
+        state_hash(other.state_hash),
+        code(other.code),
+        data(other.data),
+        library(other.library),
+        orig_library(other.orig_library),
+        transactions(other.transactions) {
+  }
+  Account& operator=(const block::Account& other) {
+    if (this != &other) {
+      status = other.status;
+      orig_status = other.orig_status;
+      is_special = other.is_special;
+      tick = other.tick;
+      tock = other.tock;
+      fixed_prefix_length = other.fixed_prefix_length;
+      verbosity = other.verbosity;
+      now_ = other.now_;
+      workchain = other.workchain;
+      addr_rewrite = other.addr_rewrite;
+      addr_rewrite_length_set = other.addr_rewrite_length_set;
+      addr_rewrite_length = other.addr_rewrite_length;
+      addr = other.addr;
+      addr_orig = other.addr_orig;
+      my_addr = other.my_addr;
+      my_addr_exact = other.my_addr_exact;
+      last_trans_end_lt_ = other.last_trans_end_lt_;
+      last_trans_lt_ = other.last_trans_lt_;
+      last_trans_hash_ = other.last_trans_hash_;
+      block_lt = other.block_lt;
+      last_paid = other.last_paid;
+      storage_used = other.storage_used;
+      storage_dict_hash = other.storage_dict_hash;
+      account_storage_stat = {}; // Explicitly initialize as empty
+      balance = other.balance;
+      due_payment = other.due_payment;
+      orig_total_state = other.orig_total_state;
+      total_state = other.total_state;
+      storage = other.storage;
+      inner_state = other.inner_state;
+      state_hash = other.state_hash;
+      code = other.code;
+      data = other.data;
+      library = other.library;
+      orig_library = other.orig_library;
+      transactions = other.transactions;
+    }
+    return *this;
+  }
+  Account(Account&& other) = default;
+  Account& operator=(Account&& other) = default;
+
   block::CurrencyCollection get_balance() const {
     return balance;
   }

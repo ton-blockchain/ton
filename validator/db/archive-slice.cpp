@@ -23,6 +23,8 @@
 #include "td/db/RocksDb.h"
 #include "td/utils/PathView.h"
 #include "td/utils/Random.h"
+#include "td/db/RocksDbSecondary.h"
+#include "td/db/RocksDbReadOnly.h"
 #include "td/utils/port/path.h"
 #include "validator/fabric.h"
 
@@ -691,6 +693,14 @@ void ArchiveSlice::get_slice(td::uint64 archive_id, td::uint64 offset, td::uint3
   td::actor::create_actor<db::ReadFile>("readfile", p->path, offset, limit, 0, std::move(promise)).release();
 }
 
+void ArchiveSlice::get_max_masterchain_seqno(td::Promise<BlockSeqno> promise) {
+  promise.set_result(max_masterchain_seqno());
+}
+
+void ArchiveSlice::get_min_masterchain_seqno(td::Promise<BlockSeqno> promise) {
+  promise.set_result(min_masterchain_seqno());
+}
+
 void ArchiveSlice::get_archive_id(BlockSeqno masterchain_seqno, ShardIdFull shard_prefix,
                                   td::Promise<td::uint64> promise) {
   before_query();
@@ -711,7 +721,22 @@ void ArchiveSlice::before_query() {
     LOG(DEBUG) << "Opening archive slice " << db_path_;
     td::RocksDbOptions db_options;
     db_options.statistics = statistics_.rocksdb_statistics;
-    kv_ = std::make_unique<td::RocksDb>(td::RocksDb::open(db_path_, std::move(db_options)).move_as_ok());
+    switch (mode_) {
+      case td::DbOpenMode::db_primary:
+        kv_ = std::make_unique<td::RocksDb>(td::RocksDb::open(db_path_, std::move(db_options)).move_as_ok());
+        break;
+      case td::DbOpenMode::db_readonly:
+        kv_ = std::make_unique<td::RocksDbReadOnly>(td::RocksDbReadOnly::open(db_path_, std::move(db_options)).move_as_ok());
+        break;
+      case td::DbOpenMode::db_secondary: {
+        kv_ = std::make_unique<td::RocksDbSecondary>(
+            td::RocksDbSecondary::open(db_path_, std::move(db_options)).move_as_ok());
+        last_catch_up_ = td::Timestamp::now();
+        break;
+      }
+      default:
+        UNREACHABLE();
+    }
     std::string value;
     auto R2 = kv_->get("status", value);
     R2.ensure();
@@ -762,7 +787,9 @@ void ArchiveSlice::before_query() {
             seqno = archive_id_ + slice_size_ * i;
             shard_prefix = ShardIdFull{masterchainId};
           }
-          add_package(seqno, shard_prefix, len, ver);
+          if (!add_package(seqno, shard_prefix, len, ver)) {
+            break;
+          }
         }
       } else {
         auto len = td::to_integer<td::uint64>(value);
@@ -798,6 +825,7 @@ void ArchiveSlice::before_query() {
     td::actor::send_closure(archive_lru_, &ArchiveLru::on_query, actor_id(this), p_id_,
                             packages_.size() + ESTIMATED_DB_OPEN_FILES);
   }
+  try_catch_up_with_primary_impl(CatchUpMode::Throttled).ensure();
 }
 
 void ArchiveSlice::open_files() {
@@ -925,6 +953,82 @@ void ArchiveSlice::end_async_query() {
   }
 }
 
+void ArchiveSlice::try_catch_up_with_primary(CatchUpMode mode, td::Promise<td::Unit> promise) {
+  td::Status status;
+  if (status_ == st_closed) {
+    before_query();
+    status = td::Status::OK();
+  } else {
+    status = try_catch_up_with_primary_impl(mode);
+  }
+  if (status.is_error()) {
+    promise.set_error(std::move(status));
+  } else {
+    promise.set_value(td::Unit());
+  }
+}
+
+td::Status ArchiveSlice::try_catch_up_with_primary_impl(CatchUpMode mode) {
+  if (mode_ != td::DbOpenMode::db_secondary || mode == CatchUpMode::None) {
+    return td::Status::OK();
+  }
+  if (mode == CatchUpMode::Throttled && td::Timestamp::now().at() - last_catch_up_.at() <= secondary_catch_up_interval_) {
+    return td::Status::OK();
+  }
+
+  CHECK(mode_ == td::DbOpenMode::db_secondary);
+  
+  TRY_STATUS(static_cast<td::RocksDbSecondary *>(kv_.get())->try_catch_up_with_primary());
+
+  std::string value;
+  auto R2 = kv_->get("status", value);
+  R2.ensure();
+  if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+    if (value == "sliced") {
+      R2 = kv_->get("slices", value);
+      R2.ensure();
+      auto tot = td::to_integer<td::uint32>(value);
+      if (tot == packages_.size()) {
+        last_catch_up_ = td::Timestamp::now();
+        return td::Status::OK();
+      }
+      R2 = kv_->get("slice_size", value);
+      R2.ensure();
+      slice_size_ = td::to_integer<td::uint32>(value);
+      CHECK(slice_size_ > 0);
+      for (td::uint64 i = packages_.size(); i < tot; i++) {
+        R2 = kv_->get(PSTRING() << "status." << i, value);
+        R2.ensure();
+        auto len = td::to_integer<td::uint64>(value);
+        R2 = kv_->get(PSTRING() << "version." << i, value);
+        R2.ensure();
+        td::uint32 ver = 0;
+        if (R2.move_as_ok() == td::KeyValue::GetStatus::Ok) {
+          ver = td::to_integer<td::uint32>(value);
+        }
+        td::uint32 seqno;
+        ShardIdFull shard_prefix;
+        if (shard_separated_) {
+          R2 = kv_->get(PSTRING() << "info." << i, value);
+          R2.ensure();
+          CHECK(R2.move_as_ok() == td::KeyValue::GetStatus::Ok);
+          unsigned long long shard;
+          CHECK(sscanf(value.c_str(), "%u.%d:%016llx", &seqno, &shard_prefix.workchain, &shard) == 3);
+          shard_prefix.shard = shard;
+        } else {
+          seqno = archive_id_ + slice_size_ * i;
+          shard_prefix = ShardIdFull{masterchainId};
+        }
+        if (!add_package(seqno, shard_prefix, len, ver)) {
+          break;
+        }
+      }
+    }
+  }
+  last_catch_up_ = td::Timestamp::now();
+  return td::Status::OK();
+}
+
 void ArchiveSlice::begin_transaction() {
   if (transaction_started_) {
     return;
@@ -986,7 +1090,8 @@ void ArchiveSlice::set_async_mode(bool mode, td::Promise<td::Unit> promise) {
 
 ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool temp, bool finalized,
                            td::uint32 shard_split_depth, std::string db_root,
-                           td::actor::ActorId<ArchiveLru> archive_lru, DbStatistics statistics)
+                           td::actor::ActorId<ArchiveLru> archive_lru, DbStatistics statistics,
+                           td::DbOpenMode mode, double secondary_catch_up_interval)
     : archive_id_(archive_id)
     , key_blocks_only_(key_blocks_only)
     , temp_(temp)
@@ -995,13 +1100,18 @@ ArchiveSlice::ArchiveSlice(td::uint32 archive_id, bool key_blocks_only, bool tem
     , shard_split_depth_(temp || key_blocks_only ? 0 : shard_split_depth)
     , db_root_(std::move(db_root))
     , archive_lru_(std::move(archive_lru))
-    , statistics_(statistics) {
+    , statistics_(statistics)
+    , mode_(mode)
+    , secondary_catch_up_interval_(secondary_catch_up_interval) {
   db_path_ = PSTRING() << db_root_ << p_id_.path() << p_id_.name() << ".index";
 }
 
 td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno masterchain_seqno,
                                                                      ShardIdFull shard_prefix, bool force) {
   if (temp_ || key_blocks_only_ || !sliced_mode_) {
+    if (packages_.empty()) {
+      return td::Status::Error(ErrorCode::notready, "archive package is not open yet");
+    }
     return packages_[0].get();
   }
   if (masterchain_seqno < archive_id_) {
@@ -1029,7 +1139,9 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(BlockSeqno 
       kv_->set(PSTRING() << "info." << v, package_info_to_str(masterchain_seqno, shard_prefix)).ensure();
     }
     commit_transaction_now();
-    add_package(masterchain_seqno, shard_prefix, 0, default_package_version());
+    if (!add_package(masterchain_seqno, shard_prefix, 0, default_package_version())) {
+      return td::Status::Error(ErrorCode::notready, "archive package is not open yet");
+    }
     return packages_[v].get();
   } else {
     return packages_[it->second].get();
@@ -1044,7 +1156,7 @@ td::Result<ArchiveSlice::PackageInfo *> ArchiveSlice::choose_package(const Const
   return choose_package(0, ShardIdFull{masterchainId}, true);
 }
 
-void ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::uint64 size, td::uint32 version) {
+bool ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::uint64 size, td::uint32 version) {
   PackageId p_id{seqno, key_blocks_only_, temp_};
   std::string path_legacy = PSTRING() << db_root_ << p_id.path() << get_package_file_name(p_id, shard_prefix, true);
   std::string path_new = PSTRING() << db_root_ << p_id.path() << get_package_file_name(p_id, shard_prefix, false);
@@ -1062,10 +1174,14 @@ void ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::u
   } else {
     path = path_new;
   }
-  auto R = Package::open(path, false, true);
+  auto R = Package::open(path, mode_ != td::DbOpenMode::db_primary, mode_ == td::DbOpenMode::db_primary);
   if (R.is_error()) {
-    LOG(FATAL) << "failed to open/create archive '" << path << "': " << R.move_as_error();
-    return;
+    if (mode_ == td::DbOpenMode::db_secondary) {
+      LOG(WARNING) << "archive package is not ready yet '" << path << "': " << R.move_as_error();
+    } else {
+      LOG(FATAL) << "failed to open/create archive '" << path << "': " << R.move_as_error();
+    }
+    return false;
   }
   if (statistics_.pack_statistics) {
     statistics_.pack_statistics->record_open();
@@ -1075,16 +1191,17 @@ void ArchiveSlice::add_package(td::uint32 seqno, ShardIdFull shard_prefix, td::u
   if (finalized_) {
     packages_.push_back(std::make_unique<PackageInfo>(nullptr, td::actor::ActorOwn<PackageWriter>(), seqno,
                                                       shard_prefix, path, idx, version));
-    return;
+    return true;
   }
   auto pack = std::make_shared<Package>(R.move_as_ok());
-  if (version >= 1) {
+  if (version >= 1 && mode_ == td::DbOpenMode::db_primary) {
     pack->truncate(size).ensure();
   }
   auto writer = td::actor::create_actor<PackageWriter>(PSTRING() << "writer." << td::PathView(path).file_name(), pack,
                                                        async_mode_, statistics_.pack_statistics);
   packages_.push_back(
       std::make_unique<PackageInfo>(std::move(pack), std::move(writer), seqno, shard_prefix, path, idx, version));
+  return true;
 }
 
 namespace {
@@ -1111,9 +1228,12 @@ void ArchiveSlice::destroy(td::Promise<td::Unit> promise) {
   before_query();
   destroyed_ = true;
 
-  for (auto &p : packages_) {
-    td::unlink(p->path).ensure();
+  if (mode_ == td::DbOpenMode::db_primary) {
+    for (auto &p : packages_) {
+      td::unlink(p->path).ensure();
+    }
   }
+  
   if (statistics_.pack_statistics) {
     statistics_.pack_statistics->record_close(packages_.size());
   }
@@ -1121,12 +1241,17 @@ void ArchiveSlice::destroy(td::Promise<td::Unit> promise) {
   id_to_package_.clear();
   kv_ = nullptr;
 
-  delay_action([name = db_path_, attempt = 0,
-                promise = std::move(promise)]() mutable { destroy_db(name, attempt, std::move(promise)); },
-               td::Timestamp::in(0.0));
+  if (mode_ == td::DbOpenMode::db_primary) {
+    delay_action([name = db_path_, attempt = 0,
+                  promise = std::move(promise)]() mutable { destroy_db(name, attempt, std::move(promise)); },
+                td::Timestamp::in(0.0));
+  } else {
+    promise.set_value(td::Unit());
+  }
 }
 
 BlockSeqno ArchiveSlice::max_masterchain_seqno() {
+  before_query();
   auto key = get_db_key_lt_desc(ShardIdFull{masterchainId});
   std::string value;
   auto F = kv_->get(key, value);
@@ -1142,6 +1267,33 @@ BlockSeqno ArchiveSlice::max_masterchain_seqno() {
   }
   auto last_idx = g->last_idx_ - 1;
   auto db_key = get_db_key_lt_el(ShardIdFull{masterchainId}, last_idx);
+  F = kv_->get(db_key, value);
+  F.ensure();
+  CHECK(F.move_as_ok() == td::KeyValue::GetStatus::Ok);
+  auto E = fetch_tl_object<ton_api::db_lt_el_value>(td::BufferSlice{value}, true);
+  E.ensure();
+  auto e = E.move_as_ok();
+  return e->id_->seqno_;
+}
+
+BlockSeqno ArchiveSlice::min_masterchain_seqno() {
+  before_query();
+  auto key = get_db_key_lt_desc(ShardIdFull{masterchainId});
+  std::string value;
+  auto F = kv_->get(key, value);
+  F.ensure();
+  if (F.move_as_ok() == td::KeyValue::GetStatus::NotFound) {
+    return 0;
+  }
+  auto G = fetch_tl_object<ton_api::db_lt_desc_value>(value, true);
+  G.ensure();
+  auto g = G.move_as_ok();
+  if (g->first_idx_ == g->last_idx_) {
+    return 0;
+  }
+
+  auto first_idx = g->first_idx_;
+  auto db_key = get_db_key_lt_el(ShardIdFull{masterchainId}, first_idx);
   F = kv_->get(db_key, value);
   F.ensure();
   CHECK(F.move_as_ok() == td::KeyValue::GetStatus::Ok);
@@ -1255,6 +1407,7 @@ void ArchiveSlice::truncate_shard(BlockSeqno masterchain_seqno, ShardIdFull shar
 }
 
 void ArchiveSlice::truncate(BlockSeqno masterchain_seqno, ConstBlockHandle handle, td::Promise<td::Unit> promise) {
+  CHECK(mode_ == td::DbOpenMode::db_primary);
   if (temp_ || archive_id_ > masterchain_seqno) {
     destroy(std::move(promise));
     return;

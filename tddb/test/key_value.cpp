@@ -19,11 +19,61 @@
 #include "td/db/KeyValue.h"
 #include "td/db/KeyValueAsync.h"
 #include "td/db/RocksDb.h"
+#include "td/db/RocksDbSecondary.h"
+#include "td/utils/ScopeGuard.h"
 #include "td/utils/UInt.h"
 #include "td/utils/benchmark.h"
 #include "td/utils/buffer.h"
 #include "td/utils/optional.h"
+#include "td/utils/port/path.h"
 #include "td/utils/tests.h"
+
+#include "rocksdb/db.h"
+
+#include <filesystem>
+
+TEST(KeyValue, secondary_without_log_files) {
+  const auto root = td::mkdtemp(".", "secondary_without_logs").move_as_ok();
+  SCOPE_EXIT {
+    td::rmrf(root).ensure();
+  };
+  const auto db_path = root + "/primary";
+  auto primary = td::RocksDb::open(db_path).move_as_ok();
+  primary.set("key", "initial").ensure();
+  primary.flush().ensure();
+
+  auto ensure_no_secondary_files = [&] {
+    for (const auto &entry : std::filesystem::directory_iterator(root)) {
+      ASSERT_EQ(entry.path().filename().string(), "primary");
+    }
+  };
+  auto ensure_value = [](td::RocksDbSecondary &secondary, td::Slice expected) {
+    std::string value;
+    auto status = secondary.get("key", value).move_as_ok();
+    ASSERT_EQ(td::int32(status), td::int32(td::KeyValue::GetStatus::Ok));
+    ASSERT_EQ(value, expected);
+  };
+  {
+    auto secondary = td::RocksDbSecondary::open(db_path).move_as_ok();
+    ensure_value(secondary, "initial");
+    ensure_no_secondary_files();
+
+    primary.set("key", "updated").ensure();
+    CHECK(primary.raw_db()->FlushWAL(false).ok());
+    secondary.try_catch_up_with_primary().ensure();
+    ensure_value(secondary, "updated");
+    ensure_no_secondary_files();
+  }
+  ensure_no_secondary_files();
+  {
+    auto secondary = td::RocksDbSecondary::open(db_path).move_as_ok();
+    ensure_value(secondary, "updated");
+    primary.flush().ensure();
+    secondary.try_catch_up_with_primary().ensure();
+    ensure_value(secondary, "updated");
+  }
+  ensure_no_secondary_files();
+}
 
 TEST(KeyValue, simple) {
   td::Slice db_name = "testdb";
