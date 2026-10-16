@@ -815,7 +815,7 @@ BroadcastCheckResult Certificate::check(PublicKeyHash node, OverlayIdShort overl
     auto E = R1.move_as_ok();
     auto B = to_sign(overlay_id, node);
     TD_PERF_COUNTER(check_signature_overlay_certificate);
-    if (E->check_signature(B.as_slice(), signature_.as_slice()).is_error()) {
+    if (E->check_signature(B.as_slice(), signature_.as_slice(), td::SignatureDomain::Overlay).is_error()) {
       return BroadcastCheckResult::Forbidden;
     }
   }
@@ -861,7 +861,7 @@ td::Status OverlayMemberCertificate::check_signature(const adnl::AdnlNodeIdShort
   td::BufferSlice data_to_sign = to_sign_data(node);
 
   TRY_RESULT(encryptor, signed_by_.create_encryptor());
-  TRY_STATUS(encryptor->check_signature(data_to_sign.as_slice(), signature_.as_slice()));
+  TRY_STATUS(encryptor->check_signature(data_to_sign.as_slice(), signature_.as_slice(), td::SignatureDomain::Overlay));
   return td::Status::OK();
 }
 

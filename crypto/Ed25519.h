@@ -18,6 +18,7 @@
 */
 #pragma once
 
+#include <array>
 #include <memory>
 #include <optional>
 
@@ -30,6 +31,20 @@
 #if TD_HAVE_OPENSSL
 
 namespace td {
+
+enum class SignatureDomain : uint8 {
+  Generic,
+  Vm,
+  Consensus,
+  Overlay,
+  COUNT  // MUST BE LAST
+};
+std::string to_string(SignatureDomain domain);
+
+constexpr size_t kDefaultSignatureCacheSlots = 65536;
+
+using SignatureCacheSizes = std::array<size_t, static_cast<size_t>(SignatureDomain::COUNT)>;
+Status init_signature_caches(const SignatureCacheSizes &slot_counts);
 
 class Ed25519 {
  public:
@@ -66,7 +81,7 @@ class Ed25519 {
       return PublicKey(SecureString(slice));
     }
 
-    Status verify_signature(Slice data, Slice signature) const;
+    Status verify_signature(Slice data, Slice signature, SignatureDomain domain = SignatureDomain::Generic) const;
 
     bool operator==(const PublicKey &other) const {
       return octet_string_ == other.octet_string_;

@@ -19,6 +19,7 @@
 #pragma once
 
 #include "auto/tl/ton_api.h"
+#include "crypto/Ed25519.h"
 #include "td/actor/PromiseFuture.h"
 #include "td/actor/actor.h"
 #include "td/utils/Status.h"
@@ -29,7 +30,8 @@ namespace ton {
 class Encryptor {
  public:
   virtual td::Result<td::BufferSlice> encrypt(td::Slice data) = 0;
-  virtual td::Status check_signature(td::Slice message, td::Slice signature) = 0;
+  virtual td::Status check_signature(td::Slice message, td::Slice signature,
+                                     td::SignatureDomain domain = td::SignatureDomain::Generic) = 0;
   virtual ~Encryptor() = default;
 };
 

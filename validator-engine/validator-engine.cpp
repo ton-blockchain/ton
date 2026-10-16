@@ -25,6 +25,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -32,6 +33,7 @@
 #include "auto/tl/lite_api.h"
 #include "auto/tl/ton_api.h"
 #include "common/errorlog.h"
+#include "crypto/Ed25519.h"
 #include "crypto/fift/utils.h"
 #include "crypto/vm/vm.h"
 #include "dht/dht.hpp"
@@ -5988,6 +5990,17 @@ int main(int argc, char *argv[]) {
       "enable deprecated control queries (createElectionBid, createProposalVote, createComplaintVote)", [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_enable_deprecated_control_queries); });
       });
+  td::SignatureCacheSizes signature_cache_slots;
+  signature_cache_slots.fill(td::kDefaultSignatureCacheSlots);
+  for (size_t i = 0; i < signature_cache_slots.size(); ++i) {
+    p.add_checked_option('\0', to_string(static_cast<td::SignatureDomain>(i)) + "-signature-cache-slots",
+                         PSTRING() << "number of slots in this signature cache (default: " << signature_cache_slots[i]
+                                   << "; 0 disables caching)",
+                         [&, i](td::Slice s) -> td::Status {
+                           TRY_RESULT_ASSIGN(signature_cache_slots[i], td::to_integer_safe<size_t>(s));
+                           return td::Status::OK();
+                         });
+  }
   p.add_checked_option(
       '\0', "celldb-cache-size", "block cache size for RocksDb in CellDb, in bytes (default: 1G)",
       [&](td::Slice s) -> td::Status {
@@ -6286,6 +6299,11 @@ int main(int argc, char *argv[]) {
 
   td::set_runtime_signal_handler(1, need_stats).ensure();
   td::set_runtime_signal_handler(2, need_scheduler_status).ensure();
+
+  if (auto status = td::init_signature_caches(signature_cache_slots); status.is_error()) {
+    LOG(ERROR) << status;
+    return 2;
+  }
 
   td::actor::set_debug(true);
   td::actor::Scheduler scheduler({threads});
