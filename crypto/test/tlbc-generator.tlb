@@ -1,0 +1,11 @@
+// This fixture must be generated AND compiled: unnamed Bool once produced invalid C++.
+bool_false$0 = Bool;
+bool_true$1 = Bool;
+unnamed$_ Bool named:Bool = UnnamedBool;
+
+// Constructor and field identifiers clash with generated members / printer type.
+cons_name$_ cons_name:(## 8) JsonPrinter:(## 8) = Collision;
+json_printer$_ cons_name:Bool = JsonPrinter;
+
+// Not part of this regression fixture: parameterized and long-tag generation
+// have separate preexisting issues. Keep this target a positive compile test.
