@@ -379,6 +379,17 @@ td::Result<td::RefInt256> get_dispatch_queue_balance(vm::AugmentedDictionary& di
   return result;
 }
 
+GlobalBalanceComponents sum_state_balance_components(const std::vector<std::shared_ptr<ParsedShardState>>& states) {
+  GlobalBalanceComponents components;
+  for (const auto& state : states) {
+    components.accounts += state->accounts_balance;
+    components.dispatch_queue += state->dispatch_queue_balance;
+    components.unrecovered_validator_fees += state->mc_total_validator_fees;
+  }
+  components.total = components.accounts + components.dispatch_queue + components.unrecovered_validator_fees;
+  return components;
+}
+
 }  // namespace detail
 
 namespace {
@@ -389,6 +400,7 @@ struct GlobalInfo {
   Ref<MasterchainStateQ> mc_state;
   td::RefInt256 global_balance = td::zero_refint();
   td::RefInt256 last_mc_block_burned = td::zero_refint();
+  GlobalBalanceComponents components;
 
   BlockSeqno seqno() const {
     return mc_state->get_seqno();
@@ -397,17 +409,14 @@ struct GlobalInfo {
 
 td::actor::Task<GlobalInfo> compute_global_balance_from_states(
     std::vector<std::shared_ptr<ParsedShardState>> all_states, Ref<MasterchainStateQ> mc_state,
-    Ref<vm::Cell> mc_block_root, td::actor::ActorId<ValidatorManager> manager, int global_version) {
+    Ref<vm::Cell> mc_block_root, std::function<td::actor::Task<Ref<MasterchainStateQ>>(BlockIdExt)> load_aux_mc_state,
+    int global_version) {
   co_await td::actor::detach_from_actor();
   try {
     td::Timer timer;
     GlobalInfo result;
     result.mc_state = mc_state;
-    for (auto& state : all_states) {
-      result.global_balance += state->accounts_balance;
-      result.global_balance += state->dispatch_queue_balance;
-      result.global_balance += state->mc_total_validator_fees;
-    }
+    result.components = detail::sum_state_balance_components(all_states);
 
     std::map<BlockSeqno, Ref<MasterchainStateQ>> aux_mc_states;
     aux_mc_states[mc_state->get_seqno()] = mc_state;
@@ -418,8 +427,7 @@ td::actor::Task<GlobalInfo> compute_global_balance_from_states(
       }
       BlockIdExt block_id;
       CO_TRY_BOOL(mc_state->get_old_mc_block_id(aux_mc_seqno, block_id));
-      co_return aux_mc_states[aux_mc_seqno] = Ref<MasterchainStateQ>{
-          co_await td::actor::ask(manager, &ValidatorManager::get_shard_state_from_db_short, block_id)};
+      co_return aux_mc_states[aux_mc_seqno] = co_await load_aux_mc_state(block_id);
     };
     std::vector<std::unique_ptr<block::MsgProcessedUptoCollection>> processed_upto;
     for (auto& state : all_states) {
@@ -461,7 +469,7 @@ td::actor::Task<GlobalInfo> compute_global_balance_from_states(
         tasks.push_back(process_state(state).start());
       }
       for (auto& [sum, messages] : co_await td::actor::all(std::move(tasks))) {
-        result.global_balance += sum;
+        result.components.unprocessed_messages += sum;
         total_messages += messages;
       }
     }
@@ -474,7 +482,13 @@ td::actor::Task<GlobalInfo> compute_global_balance_from_states(
       result.last_mc_block_burned = value_flow.burned.grams;
     }
 
-    CO_TRY_BOOL(result.global_balance->is_valid());
+    result.components.burned = result.last_mc_block_burned;
+    result.components.total = result.components.accounts + result.components.dispatch_queue +
+                              result.components.unprocessed_messages + result.components.unrecovered_validator_fees;
+    result.global_balance = result.components.total;
+    CO_TRY_BOOL(result.components.accounts->is_valid() && result.components.dispatch_queue->is_valid() &&
+                result.components.unprocessed_messages->is_valid() &&
+                result.components.unrecovered_validator_fees->is_valid() && result.global_balance->is_valid());
     VLOG(validator, INFO) << "Calculated global balance at " << mc_state->get_block_id().seqno()
                           << ": balance=" << result.global_balance << " states=" << all_states.size()
                           << " messages=" << total_messages << " time=" << timer.elapsed();
@@ -748,7 +762,11 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
       result.mc_state = std::move(mc_state);
       co_return result;
     }
-    co_return co_await compute_global_balance_from_states(all_states, mc_state, mc_block_root, manager_,
+    auto load_aux = [manager = manager_](BlockIdExt id) -> td::actor::Task<Ref<MasterchainStateQ>> {
+      co_return Ref<MasterchainStateQ>{
+          co_await td::actor::ask(manager, &ValidatorManager::get_shard_state_from_db_short, id)};
+    };
+    co_return co_await compute_global_balance_from_states(all_states, mc_state, mc_block_root, std::move(load_aux),
                                                           current_global_version_);
   }
 
@@ -890,6 +908,52 @@ class GlobalBalanceCalculatorImpl : public GlobalBalanceCalculator {
 };
 
 }  // namespace
+
+td::actor::Task<GlobalBalanceComponents> calculate_global_balance_at_anchor(
+    Ref<MasterchainState> mc_state, Ref<vm::Cell> mc_block_root, std::vector<GlobalBalanceShardState> shard_states,
+    LoadAuxMasterchainState load_aux_mc_state) {
+  CO_TRY_BOOL(mc_state.not_null() && mc_state->get_block_id().is_masterchain() && load_aux_mc_state);
+  auto mc = Ref<MasterchainStateQ>{mc_state};
+  CO_TRY_BOOL(mc->get_config() != nullptr);
+  if (mc->get_seqno() != 0) {
+    CO_TRY_BOOL(mc_block_root.not_null() && mc_block_root->get_hash().as_bits256() == mc->get_block_id().root_hash);
+  }
+
+  auto expected = mc->get_shards();
+  CO_TRY_BOOL(expected.size() == shard_states.size());
+  std::map<BlockIdExt, GlobalBalanceShardState> by_id;
+  for (auto& entry : shard_states) {
+    CO_TRY_BOOL(entry.state.not_null() && !entry.state->get_shard().is_masterchain());
+    auto id = entry.state->get_block_id();
+    CO_TRY_BOOL(entry.state->root_cell().not_null());
+    if (id.seqno() != 0) {
+      CO_TRY_BOOL(entry.block_root.not_null() && entry.block_root->get_hash().as_bits256() == id.root_hash);
+    }
+    CO_TRY_BOOL(by_id.emplace(id, std::move(entry)).second);
+  }
+  for (const auto& desc : expected) {
+    CO_TRY_BOOL(by_id.contains(desc->top_block_id()));
+  }
+
+  std::vector<td::actor::StartedTask<std::shared_ptr<detail::ParsedShardState>>> tasks;
+  tasks.push_back(detail::ParsedShardState::fetch(mc, mc_block_root, mc->get_config()->get_global_version()).start());
+  for (const auto& desc : expected) {
+    auto it = by_id.find(desc->top_block_id());
+    CO_TRY_BOOL(it != by_id.end());
+    tasks.push_back(detail::ParsedShardState::fetch(std::move(it->second.state), std::move(it->second.block_root),
+                                                    mc->get_config()->get_global_version())
+                        .start());
+  }
+  auto parsed_states = co_await td::actor::all(std::move(tasks));
+  auto load_aux = [loader = std::move(load_aux_mc_state)](BlockIdExt id) -> td::actor::Task<Ref<MasterchainStateQ>> {
+    auto state = co_await loader(id);
+    CO_TRY_BOOL(state.not_null() && state->get_block_id() == id);
+    co_return Ref<MasterchainStateQ>{state};
+  };
+  auto result = co_await compute_global_balance_from_states(
+      std::move(parsed_states), mc, mc_block_root, std::move(load_aux), mc->get_config()->get_global_version());
+  co_return result.components;
+}
 
 td::actor::ActorOwn<GlobalBalanceCalculator> GlobalBalanceCalculator::create(
     BlockIdExt start_mc_block, td::actor::ActorId<ValidatorManager> manager,

@@ -387,7 +387,7 @@ void OverlayImpl::receive_message(adnl::AdnlNodeIdShort src, tl_object_ptr<ton_a
     [](OverlayImpl *self, adnl::AdnlNodeIdShort src, auto obj) -> td::actor::Task<> {
       auto id = obj->get_id();
       auto status = (co_await self->process_broadcast(src, std::move(obj)).wrap()).move_as_status();
-      LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready)
+      LOG_IF(WARNING, status.is_error() && status.code() != ErrorCode::notready && status.message() != "broadcast is forbidden")
           << "Failed to process broadcast (type=" << id << ") from " << src << ": " << status;
       co_return {};
     }(self, src, move_tl_object_as<std::remove_reference_t<decltype(object)>>(Q))

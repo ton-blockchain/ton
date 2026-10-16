@@ -2029,10 +2029,10 @@ bool Transaction::prepare_compute_phase(const ComputePhaseConfig& cfg) {
       return false;
     }
   }
-  LOG(INFO) << "steps: " << vm.get_steps_count() << " gas: used=" << gas.gas_consumed() << ", max=" << gas.gas_max
-            << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
-  LOG(INFO) << "out_of_gas=" << cp.out_of_gas << ", accepted=" << cp.accepted << ", success=" << cp.success
-            << ", time=" << time_tvm.real << "s, cpu_time=" << time_tvm.cpu;
+  LOG(DEBUG) << "steps: " << vm.get_steps_count() << " gas: used=" << gas.gas_consumed() << ", max=" << gas.gas_max
+             << ", limit=" << gas.gas_limit << ", credit=" << gas.gas_credit;
+  LOG(DEBUG) << "out_of_gas=" << cp.out_of_gas << ", accepted=" << cp.accepted << ", success=" << cp.success
+             << ", time=" << time_tvm.real << "s, cpu_time=" << time_tvm.cpu;
   if (logger != nullptr) {
     cp.vm_log = logger->get_log();
   }
@@ -3173,7 +3173,7 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
     return -1;
   }
   int mode = rec.mode;
-  LOG(INFO) << "in try_action_reserve_currency(" << mode << ")";
+  LOG(DEBUG) << "in try_action_reserve_currency(" << mode << ")";
   CurrencyCollection reserve, newc;
   if (!reserve.validate_unpack(std::move(rec.currency))) {
     LOG(DEBUG) << "cannot parse currency field in action_reserve_currency";
@@ -3243,8 +3243,8 @@ int Transaction::try_action_reserve_currency(vm::CellSlice& cs, ActionPhase& ap,
   ap.reserved_balance += std::move(reserve);
   FAIL_UNLESS_ERRCODE(ap.reserved_balance.is_valid(), ERRCODE_FAIL_ACTION_PHASE);
   FAIL_UNLESS_ERRCODE(ap.remaining_balance.is_valid(), ERRCODE_FAIL_ACTION_PHASE);
-  LOG(INFO) << "changed remaining balance to " << ap.remaining_balance.to_str() << ", reserved balance to "
-            << ap.reserved_balance.to_str();
+  LOG(DEBUG) << "changed remaining balance to " << ap.remaining_balance.to_str() << ", reserved balance to "
+             << ap.reserved_balance.to_str();
   ap.spec_actions++;
   return 0;
 }

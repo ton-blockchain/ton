@@ -19,6 +19,10 @@ namespace block {
 struct EnqueuedMsgDescr;
 }
 
+namespace ton::validator {
+struct GlobalBalanceComponents;
+}
+
 namespace ton::validator::detail {
 
 struct ParsedShardState {
@@ -35,6 +39,8 @@ struct ParsedShardState {
       td::Ref<ShardState> state, td::Ref<vm::Cell> block_root, int global_version,
       std::vector<std::shared_ptr<ParsedShardState>> prev = {});
 };
+
+GlobalBalanceComponents sum_state_balance_components(const std::vector<std::shared_ptr<ParsedShardState>>& states);
 
 td::Result<td::RefInt256> calculate_dispatch_queue_balance(vm::AugmentedDictionary& dispatch_queue, int global_version);
 td::Result<td::RefInt256> calculate_dispatch_queue_balance_diff(vm::AugmentedDictionary& old_queue,

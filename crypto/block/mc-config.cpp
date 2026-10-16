@@ -1451,6 +1451,76 @@ std::vector<ton::BlockId> ShardConfig::get_shard_hash_ids(
   return res;
 }
 
+std::vector<ton::BlockIdExt> ShardConfig::get_shard_hash_ids_ext(
+    const std::function<bool(ton::ShardIdFull, bool)>& filter) const {
+  if (!shard_hashes_dict_) {
+    return {};
+  }
+  std::vector<ton::BlockIdExt> res;
+  bool mcout = mc_shard_hash_.is_null() || !mc_shard_hash_->seqno();  // include masterchain as a shard if seqno > 0
+  bool ok = shard_hashes_dict_->check_for_each(
+      [&res, &mcout, mc_shard_hash_ = mc_shard_hash_, &filter](Ref<vm::CellSlice> cs_ref, td::ConstBitPtr key,
+                                                               int n) -> bool {
+        int workchain = (int)key.get_int(n);
+        if (workchain >= 0 && !mcout) {
+          if (filter(ton::ShardIdFull{ton::masterchainId}, true)) {
+            res.emplace_back(mc_shard_hash_->blk_);
+          }
+          mcout = true;
+        }
+        if (!cs_ref->have_refs()) {
+          return false;
+        }
+        std::stack<std::pair<Ref<vm::Cell>, unsigned long long>> stack;
+        stack.emplace(cs_ref->prefetch_ref(), ton::shardIdAll);
+        while (!stack.empty()) {
+          vm::CellSlice cs{vm::NoVmOrd(), std::move(stack.top().first)};
+          unsigned long long shard = stack.top().second;
+          stack.pop();
+          int t = (int)cs.fetch_ulong(1);
+          if (t < 0) {
+            return false;
+          }
+          if (!filter(ton::ShardIdFull{workchain, shard}, !t)) {
+            continue;
+          }
+          if (!t) {
+            if (!(cs.advance(4) && cs.have(32))) {
+              return false;
+            }
+            int seqno = (int)cs.fetch_ulong(32);
+            auto reg_mc_seqno = cs.fetch_ulong(32);
+            auto start_lt = cs.fetch_ulong(64);
+            auto end_lt = cs.fetch_ulong(64);
+            auto root_hash = td::Bits256(cs.fetch_bits(256).bits());
+            auto file_hash = td::Bits256(cs.fetch_bits(256).bits());
+            res.emplace_back(workchain, shard, seqno, root_hash, file_hash);
+            continue;
+          }
+          unsigned long long delta = (td::lower_bit64(shard) >> 1);
+          if (!delta || cs.size_ext() != 0x20000) {
+            return false;
+          }
+          stack.emplace(cs.prefetch_ref(1), shard + delta);
+          stack.emplace(cs.prefetch_ref(0), shard - delta);
+        }
+        return true;
+      },
+      true);
+  if (!ok) {
+    return {};
+  }
+  if (!mcout && filter(ton::ShardIdFull{ton::masterchainId}, true)) {
+    res.emplace_back(mc_shard_hash_->blk_);
+  }
+  return res;
+}
+
+std::vector<ton::BlockIdExt> ShardConfig::get_shard_hash_ids_ext(bool skip_mc) const {
+  return get_shard_hash_ids_ext(
+      [skip_mc](ton::ShardIdFull shard, bool) -> bool { return !(skip_mc && shard.is_masterchain()); });
+}
+
 std::vector<ton::BlockId> ShardConfig::get_shard_hash_ids(bool skip_mc) const {
   return get_shard_hash_ids(
       [skip_mc](ton::ShardIdFull shard, bool) -> bool { return !(skip_mc && shard.is_masterchain()); });

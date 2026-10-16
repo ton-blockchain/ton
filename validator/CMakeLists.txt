@@ -185,9 +185,9 @@ add_library(validator-common OBJECT
 )
 target_link_libraries(validator-common PUBLIC validator-db metrics)
 
-add_library(validator STATIC ${VALIDATOR_SOURCE})
-add_library(validator-disk STATIC ${DISK_VALIDATOR_SOURCE})
-add_library(validator-hardfork STATIC ${HARDFORK_VALIDATOR_SOURCE})
+add_library(validator OBJECT ${VALIDATOR_SOURCE})
+add_library(validator-disk OBJECT ${DISK_VALIDATOR_SOURCE})
+add_library(validator-hardfork OBJECT ${HARDFORK_VALIDATOR_SOURCE})
 add_library(full-node STATIC ${FULL_NODE_SOURCE})
 
 if (MSVC)
