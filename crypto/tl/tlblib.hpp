@@ -20,8 +20,14 @@
 #include <functional>
 #include <iostream>
 #include <map>
+#include <set>
+#include <vector>
 
+#include "td/utils/base64.h"
 #include "vm/cellslice.h"
+#include "vm/boc.h"
+#include <functional>
+#include "td/utils/misc.h"
 
 namespace tlb {
 
@@ -29,6 +35,7 @@ using td::Ref;
 using vm::CellSlice;
 
 struct PrettyPrinter;
+class JsonPrinter;
 
 class TLB {
  public:
@@ -233,12 +240,15 @@ class TLB {
   }
   std::string get_type_name() const;
   virtual bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const;
+  virtual bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const;
   virtual bool print(PrettyPrinter& pp, const vm::CellSlice& cs) const {
     vm::CellSlice cs_copy{cs};
     return print_skip(pp, cs_copy);
   }
   bool print_special(PrettyPrinter& pp, vm::CellSlice& cs) const;
+  bool print_special(JsonPrinter& pp, vm::CellSlice& cs) const;
   bool print_ref(PrettyPrinter& pp, Ref<vm::Cell> cell_ref) const;
+  bool print_ref(JsonPrinter& pp, Ref<vm::Cell> cell_ref) const;
   bool print(PrettyPrinter& pp, Ref<vm::CellSlice> cs_ref) const {
     return print(pp, *cs_ref);
   }
@@ -609,6 +619,8 @@ struct PrettyPrinter {
   bool fetch_int256_field(vm::CellSlice& cs, int n, std::string name);
   bool fetch_uint256_field(vm::CellSlice& cs, int n);
   bool fetch_uint256_field(vm::CellSlice& cs, int n, std::string name);
+  bool fetch_bool_field(vm::CellSlice& cs);
+  bool fetch_bool_field(vm::CellSlice& cs, std::string name);
   template <typename T>
   PrettyPrinter& operator<<(const T& value) {
     os << value;
@@ -617,9 +629,82 @@ struct PrettyPrinter {
 };
 
 bool print_hashmap(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& dict_type, const TLB& value_type,
-                   bool non_empty);
+                    bool non_empty);
 bool print_hashmap_aug(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& dict_type, const TLB& value_type,
-                       const TLB& aug_type, bool non_empty);
+                        const TLB& aug_type, bool non_empty);
+class JsonPrinter {
+private:
+  struct ObjectState {
+    bool first_field = true;
+    bool pending_value = false;
+    unsigned unnamed_index = 0;
+    std::set<std::string> names;
+  };
+
+  std::string* output_;
+  std::string internal_buffer_;
+  std::vector<ObjectState> objects_;
+  bool root_started_ = false;
+  bool failed_ = false;
+  int limit_ = default_print_limit;
+
+  static constexpr int default_print_limit = 4096;
+
+  std::string escape_string(const std::string& str);
+  char hex_digit(int x) const { return "0123456789abcdef"[x & 15]; }
+
+  std::string& buffer() {
+    return output_ ? *output_ : internal_buffer_;
+  }
+  bool begin_value();
+
+public:
+  JsonPrinter(std::string* output = nullptr) : output_(output) {}
+
+  bool open(std::string msg = "");
+  bool close();
+  bool close(std::string msg);
+  bool field(std::string name);
+  bool field();
+  bool field_int(long long value);
+  bool field_int(long long value, std::string name);
+  bool field_uint(unsigned long long value);
+  bool field_uint(unsigned long long value, std::string name);
+
+  bool fetch_bits_field(vm::CellSlice& cs, int n);
+  bool fetch_bits_field(vm::CellSlice& cs, int n, std::string name);
+  bool fetch_int_field(vm::CellSlice& cs, int n);
+  bool fetch_int_field(vm::CellSlice& cs, int n, std::string name);
+  bool fetch_uint_field(vm::CellSlice& cs, int n);
+  bool fetch_uint_field(vm::CellSlice& cs, int n, std::string name);
+  bool fetch_int256_field(vm::CellSlice& cs, int n);
+  bool fetch_int256_field(vm::CellSlice& cs, int n, std::string name);
+  bool fetch_uint256_field(vm::CellSlice& cs, int n);
+  bool fetch_uint256_field(vm::CellSlice& cs, int n, std::string name);
+  bool fetch_bool_field(vm::CellSlice& cs);
+  bool fetch_bool_field(vm::CellSlice& cs, std::string name);
+
+  bool out(std::string str);
+  bool out_int(long long value);
+  bool out_uint(unsigned long long value);
+  bool out_integer(td::RefInt256 value);
+  bool cons(std::string str);
+  bool register_recursive_call();
+
+  bool fail_unless(bool res);
+  bool ok() const { return !failed_ && root_started_ && objects_.empty(); }
+  void set_limit(int new_limit);
+
+  std::string get_json() const {
+    if (failed_) {
+      return output_ ? *output_ : internal_buffer_;
+    }
+    return ok() ? (output_ ? *output_ : internal_buffer_) : "{\"@error\":\"incomplete JSON output\"}";
+  }
+  bool write_raw(const std::string& json);
+
+  bool fail(std::string msg);
+};
 
 }  // namespace tlb
 
@@ -771,6 +856,7 @@ struct Bool final : TLB {
     return os << "Bool";
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
 };
 
 extern const Bool t_Bool;
@@ -856,6 +942,7 @@ struct TupleT final : TLB_Complex {
     return 0;
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
 };
 
 struct CondT final : TLB_Complex {
@@ -876,6 +963,7 @@ struct CondT final : TLB_Complex {
     return os << "(CondT " << n << ' ' << X << ')';
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
 };
 
 template <typename T>
@@ -898,6 +986,9 @@ struct Cond final : TLB_Complex {
     return os << "(Cond " << n << ' ' << field_type << ')';
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override {
+    return (n > 0 ? field_type.print_skip(pp, cs) : (!n && pp.out("()")));
+  }
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override {
     return (n > 0 ? field_type.print_skip(pp, cs) : (!n && pp.out("()")));
   }
 };
@@ -928,6 +1019,7 @@ struct Int final : TLB {
     return os << "int" << n;
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
 };
 
 extern const Int t_int8, t_int16, t_int24, t_int32, t_int64, t_int128, t_int256, t_int257;
@@ -958,6 +1050,7 @@ struct UInt final : TLB {
     return os << "uint" << n;
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
 };
 
 extern const UInt t_uint8, t_uint16, t_uint24, t_uint32, t_uint64, t_uint128, t_uint256;
@@ -976,7 +1069,24 @@ struct Bits final : TLB {
     return os << "bits" << n;
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
 };
+
+struct SnakeString final : TLB {
+  int get_size(const vm::CellSlice& cs) const override;
+  bool skip(vm::CellSlice& cs) const override;
+  bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override;
+  std::ostream& print_type(std::ostream& os) const override {
+    return os << "SnakeString";
+  }
+  td::Result<std::string> load_snake_string(vm::CellSlice& cs) const;
+  td::Result<std::vector<unsigned char>> load_snake_binary(vm::CellSlice& cs) const;
+
+  bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
+};
+
+extern const SnakeString t_SnakeString;
 
 template <class T>
 struct Maybe : TLB_Complex {
@@ -993,6 +1103,7 @@ struct Maybe : TLB_Complex {
     return os << "(Maybe " << field_type << ')';
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
 };
 
 template <class T>
@@ -1028,9 +1139,42 @@ bool Maybe<T>::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
   }
 }
 
+template <class T>
+bool Maybe<T>::print_skip(JsonPrinter& pp, vm::CellSlice& cs) const {
+  if (!get_tag(cs)) {
+    return cs.advance(1) && pp.out("nothing");
+  } else {
+    return cs.advance(1) && pp.open("just") && field_type.print_skip(pp, cs) && pp.close();
+  }
+}
+
 struct RefAnything final : TLB {
   int get_size(const vm::CellSlice& cs) const override {
     return 0x10000;
+  }
+  bool validate(int* ops, const vm::CellSlice& cs, bool weak = false) const override {
+    return cs.size_refs() > 0;
+  }
+  bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override {
+    return cs.size_refs() > 0 && cs.fetch_ref().not_null();
+  }
+  // use base class implementation for PrettyPrinter (prints as raw@^Cell)
+  using TLB::print_skip;
+  // redefine print_skip only for JsonPrinter
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override {
+    if (cs.size_refs() == 0) {
+      return pp.fail("no reference");
+    }
+    auto cell_ref = cs.fetch_ref();
+    if (cell_ref.is_null()) {
+      return pp.fail("no reference");
+    }
+    auto boc = vm::std_boc_serialize(cell_ref);
+    if (boc.is_error()) {
+      return pp.fail("failed to serialize referenced cell");
+    }
+    auto b64str = td::base64_encode(boc.move_as_ok().as_slice());
+    return pp.out(b64str);
   }
   std::ostream& print_type(std::ostream& os) const override {
     return os << "^Cell";
@@ -1046,6 +1190,8 @@ struct Anything final : TLB {
   std::ostream& print_type(std::ostream& os) const override {
     return os << "Any";
   }
+  // use base class implementations for all printers
+  using TLB::print_skip;
 };
 
 extern const Anything t_Anything;
@@ -1071,6 +1217,9 @@ struct RefTo final : TLB {
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override {
     return pp.out("^") && ref_type.print_ref(pp, cs.fetch_ref());
   }
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override {
+    return pp.open() && pp.field("cell_reference") && ref_type.print_ref(pp, cs.fetch_ref()) && pp.close();
+  }
 };
 
 struct RefT final : TLB {
@@ -1091,6 +1240,9 @@ struct RefT final : TLB {
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override {
     return pp.out("^") && X.print_ref(pp, cs.fetch_ref());
+  }
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override {
+    return pp.open() && pp.field("cell_reference") && X.print_ref(pp, cs.fetch_ref()) && pp.close();
   }
 };
 
@@ -1113,6 +1265,7 @@ struct Either final : TLB_Complex {
     return os << "(Either " << left_type << ' ' << right_type << ')';
   }
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
 };
 
 template <class T1, class T2>
@@ -1121,6 +1274,15 @@ bool Either<T1, T2>::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
     return cs.advance(1) && pp.open("left ") && left_type.print_skip(pp, cs) && pp.close();
   } else {
     return cs.advance(1) && pp.open("right ") && right_type.print_skip(pp, cs) && pp.close();
+  }
+}
+
+template <class T1, class T2>
+bool Either<T1, T2>::print_skip(JsonPrinter& pp, vm::CellSlice& cs) const {
+  if (!get_tag(cs)) {
+    return cs.advance(1) && pp.open("left") && left_type.print_skip(pp, cs) && pp.close();
+  } else {
+    return cs.advance(1) && pp.open("right") && right_type.print_skip(pp, cs) && pp.close();
   }
 }
 
