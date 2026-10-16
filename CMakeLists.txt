@@ -648,6 +648,16 @@ if (NOT CMAKE_CROSSCOMPILING)
                  ${TLBC_GENERATOR_TEST_AUTO}.cpp ${TLBC_GENERATOR_TEST_AUTO}.h)
   target_include_directories(test-tlbc-generator PRIVATE ${TLBC_GENERATOR_TEST_DIR})
   target_link_libraries(test-tlbc-generator PRIVATE ton_crypto ton_block)
+
+  set(TLBC_GENERATOR_DEFAULT_AUTO ${TLBC_GENERATOR_TEST_DIR}/tlbc-generator-default-auto)
+  add_custom_command(
+    OUTPUT ${TLBC_GENERATOR_DEFAULT_AUTO}.h ${TLBC_GENERATOR_DEFAULT_AUTO}.cpp
+    COMMAND $<TARGET_FILE:tlbc> -o ${TLBC_GENERATOR_DEFAULT_AUTO} -z
+            ${CMAKE_CURRENT_SOURCE_DIR}/crypto/test/tlbc-generator-default.tlb
+    DEPENDS tlbc ${CMAKE_CURRENT_SOURCE_DIR}/crypto/test/tlbc-generator-default.tlb
+    VERBATIM
+  )
+  target_sources(test-tlbc-generator PRIVATE ${TLBC_GENERATOR_DEFAULT_AUTO}.cpp ${TLBC_GENERATOR_DEFAULT_AUTO}.h)
 endif()
 
 add_executable(test-fift test/test-td-main.cpp ${FIFT_TEST_SOURCE})

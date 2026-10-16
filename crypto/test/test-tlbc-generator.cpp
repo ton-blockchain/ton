@@ -22,6 +22,7 @@
 #include "vm/cells.h"
 
 #include "tlbc-generator-auto.h"
+#include "tlbc-generator-default-auto.h"
 
 namespace {
 
@@ -60,4 +61,10 @@ TEST(TlbcGenerator, StandardBlockSchemaStillWorks) {
   td::Ref<vm::Cell> cell;
   ASSERT_TRUE(block::gen::t_Bit.cell_pack_bit(cell, true));
   ASSERT_EQ(generated_json(block::gen::t_Bit, cell), R"({"@type":"bit","@0":"1"})");
+}
+
+TEST(TlbcGenerator, BuiltinSnakeStringInDefaultNamespace) {
+  vm::CellBuilder cb;
+  cb.store_bytes("A", 1);
+  ASSERT_EQ(generated_json(tlb::t_SnakeHolder, cb.finalize()), R"({"@type":"snake_holder","value":"A"})");
 }

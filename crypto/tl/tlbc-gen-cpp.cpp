@@ -3341,6 +3341,11 @@ void assign_const_type_cpp_idents() {
           const_type_expr_simple[i] = true;
           continue;
         }
+        if (typ == SnakeString_type) {
+          const_type_expr_cpp_idents[i] = "t_SnakeString";
+          const_type_expr_simple[i] = true;
+          continue;
+        }
         if (idx >= builtin_types_num && idx < types_num && !cpp_type[idx]->params) {
           const_type_expr_cpp_idents[i] = cpp_type[idx]->cpp_type_var_name;
           const_type_expr_simple[i] = true;

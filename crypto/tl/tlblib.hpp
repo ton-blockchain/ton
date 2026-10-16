@@ -844,6 +844,9 @@ struct FwdT final : TLB {
   bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override {
     return X.print_skip(pp, cs);
   }
+  bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override {
+    return X.print_skip(pp, cs);
+  }
 };
 
 extern const Unit t_Unit;
