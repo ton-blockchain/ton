@@ -170,12 +170,6 @@ bool consume_snake(vm::CellSlice& root, int* ops, std::vector<unsigned char>* by
   try {
     vm::CellSlice current{root};
     for (int cells = 0; cells < 1000; ++cells) {
-      if (ops) {
-        if (*ops <= 0) {
-          return false;
-        }
-        --*ops;
-      }
       if (!current.is_valid() || current.is_special() || current.size() % 8 != 0 || current.size_refs() > 1) {
         return false;
       }
@@ -198,6 +192,14 @@ bool consume_snake(vm::CellSlice& root, int* ops, std::vector<unsigned char>* by
         }
         root = std::move(finished);
         return true;
+      }
+      // A validate_ref caller has already charged for the root. Inline fields
+      // likewise share their parent's cell; only following a ref visits a new cell.
+      if (ops) {
+        if (*ops <= 0) {
+          return false;
+        }
+        --*ops;
       }
       auto ref = current.fetch_ref();
       if (ref.is_null() || !current.load(vm::NoVm{}, std::move(ref))) {

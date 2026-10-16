@@ -1072,7 +1072,7 @@ struct Bits final : TLB {
   bool print_skip(JsonPrinter& pp, vm::CellSlice& cs) const override;
 };
 
-struct SnakeString final : TLB {
+struct SnakeString final : TLB_Complex {
   int get_size(const vm::CellSlice& cs) const override;
   bool skip(vm::CellSlice& cs) const override;
   bool validate_skip(int* ops, vm::CellSlice& cs, bool weak = false) const override;

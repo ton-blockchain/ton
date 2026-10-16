@@ -250,8 +250,12 @@ TEST(TlbJson, RecursionLimitAndRawCellRoundTrip) {
 
 TEST(TlbJson, SnakeStringCursorAndUtf8) {
   bool ok = false;
-  ASSERT_EQ(print_cell(tlb::t_SnakeString, byte_cell('A'), ok), R"("A")");
+  auto single = byte_cell('A');
+  ASSERT_EQ(print_cell(tlb::t_SnakeString, single, ok), R"("A")");
   ASSERT_TRUE(ok);
+  ASSERT_TRUE(tlb::t_SnakeString.validate_ref(1, single));
+  ASSERT_TRUE(!tlb::t_SnakeString.validate_ref(0, single));
+  ASSERT_TRUE(tlb::t_SnakeString.validate_upto(0, vm::load_cell_slice(single)));
 
   vm::CellBuilder tail;
   tail.store_bytes("llo", 3);
@@ -271,6 +275,26 @@ TEST(TlbJson, SnakeStringCursorAndUtf8) {
   vm::CellBuilder root_with_ref;
   root_with_ref.store_bytes("H", 1).store_ref(tail_with_root.finalize());
   auto root = root_with_ref.finalize();
+  ASSERT_TRUE(!tlb::t_SnakeString.validate_ref(1, root));
+  ASSERT_TRUE(tlb::t_SnakeString.validate_ref(2, root));
+  vm::CellBuilder parent_builder;
+  auto parent = parent_builder.store_ref(root).finalize();
+  tlb::RefT snake_ref(tlb::t_SnakeString);
+  ASSERT_TRUE(!snake_ref.validate_ref(2, parent));
+  ASSERT_TRUE(snake_ref.validate_ref(3, parent));
+  ASSERT_TRUE(!tlb::t_SnakeString.validate_upto(0, vm::load_cell_slice(root)));
+  ASSERT_TRUE(tlb::t_SnakeString.validate_upto(1, vm::load_cell_slice(root)));
+  ASSERT_TRUE(!tlb::t_SnakeString.validate_exact_upto(0, vm::load_cell_slice(root)));
+  ASSERT_TRUE(tlb::t_SnakeString.validate_exact_upto(1, vm::load_cell_slice(root)));
+  auto budgeted_fetch = vm::load_cell_slice(root);
+  int ops = 0;
+  ASSERT_TRUE(tlb::t_SnakeString.validate_fetch(&ops, budgeted_fetch).is_null());
+  ASSERT_EQ(ops, 0);
+  ASSERT_TRUE(!budgeted_fetch.empty_ext());
+  ops = 1;
+  ASSERT_TRUE(tlb::t_SnakeString.validate_fetch(&ops, budgeted_fetch).not_null());
+  ASSERT_EQ(ops, 0);
+  ASSERT_TRUE(budgeted_fetch.empty_ext());
   auto root_cs = vm::load_cell_slice(root);
   ASSERT_EQ(tlb::t_SnakeString.load_snake_string(root_cs).move_as_ok(), "Hi");
   ASSERT_TRUE(root_cs.empty_ext());
@@ -309,6 +333,17 @@ TEST(TlbJson, SnakeStringCursorAndUtf8) {
   auto partial_cs = vm::load_cell_slice(partial.finalize());
   ASSERT_TRUE(!tlb::t_SnakeString.validate_skip(nullptr, partial_cs));
   ASSERT_TRUE(tlb::t_SnakeString.load_snake_binary(partial_cs).is_error());
+
+  vm::CellBuilder bad_child;
+  bad_child.store_long(1, 1);
+  vm::CellBuilder bad_root_builder;
+  auto bad_root = bad_root_builder.store_bytes("H", 1).store_ref(bad_child.finalize()).finalize();
+  auto bad_root_cs = vm::load_cell_slice(bad_root);
+  int bad_budget = 1;
+  ASSERT_TRUE(tlb::t_SnakeString.validate_fetch(&bad_budget, bad_root_cs).is_null());
+  ASSERT_EQ(bad_root_cs.get_base_cell()->get_hash(), bad_root->get_hash());
+  ASSERT_EQ(bad_root_cs.prefetch_ulong(8), static_cast<unsigned>('H'));
+  ASSERT_EQ(bad_root_cs.size_refs(), 1u);
 
   auto make_chain = [](unsigned cells) {
     td::Ref<vm::Cell> cell = vm::CellBuilder().finalize();
