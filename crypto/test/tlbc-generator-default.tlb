@@ -1,0 +1,2 @@
+// Compiling this without -n must reuse tlb::t_SnakeString instead of defining it twice.
+snake_holder$_ value:SnakeString = SnakeHolder;

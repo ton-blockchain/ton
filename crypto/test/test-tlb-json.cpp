@@ -127,6 +127,10 @@ TEST(TlbJson, DuplicateKeysMalformedRawAndIncompleteValues) {
 
 TEST(TlbJson, GeneratedBitBoolAndNestedTypes) {
   bool ok = false;
+  tlb::FwdT forwarded(tlb::t_uint8);
+  ASSERT_EQ(print_cell(forwarded, byte_cell(7), ok), R"("7")");
+  ASSERT_TRUE(ok);
+
   td::Ref<vm::Cell> bit;
   ASSERT_TRUE(block::gen::t_Bit.cell_pack_bit(bit, true));
   ASSERT_EQ(print_cell(block::gen::t_Bit, bit, ok), R"({"@type":"bit","@0":"1"})");
@@ -344,6 +348,28 @@ TEST(TlbJson, SnakeStringCursorAndUtf8) {
   ASSERT_EQ(bad_root_cs.get_base_cell()->get_hash(), bad_root->get_hash());
   ASSERT_EQ(bad_root_cs.prefetch_ulong(8), static_cast<unsigned>('H'));
   ASSERT_EQ(bad_root_cs.size_refs(), 1u);
+
+  vm::CellBuilder hidden_tail;
+  hidden_tail.store_bytes("!", 1);
+  vm::CellBuilder hidden_child;
+  auto full_child = hidden_child.store_bytes("i", 1).store_ref(hidden_tail.finalize()).finalize();
+  auto pruned_child = vm::CellBuilder::create_pruned_branch(full_child, 1);
+  bool pruned_is_special = false;
+  vm::load_cell_slice_special(pruned_child, pruned_is_special);
+  ASSERT_TRUE(pruned_is_special);
+  vm::CellBuilder proof_builder;
+  auto proof_root = proof_builder.store_bytes("H", 1).store_ref(pruned_child).finalize();
+  ASSERT_TRUE(!tlb::t_SnakeString.validate_ref(2, proof_root));
+  ASSERT_TRUE(!tlb::t_SnakeString.validate_ref(1, proof_root, true));
+  ASSERT_TRUE(tlb::t_SnakeString.validate_ref(2, proof_root, true));
+  auto proof_cs = vm::load_cell_slice(proof_root);
+  int proof_budget = 1;
+  ASSERT_TRUE(tlb::t_SnakeString.validate_skip(&proof_budget, proof_cs, true));
+  ASSERT_EQ(proof_budget, 0);
+  ASSERT_TRUE(proof_cs.empty_ext());
+  ASSERT_EQ(proof_cs.get_base_cell()->get_hash(), proof_root->get_hash());
+  proof_cs = vm::load_cell_slice(proof_root);
+  ASSERT_TRUE(tlb::t_SnakeString.load_snake_string(proof_cs).is_error());
 
   auto make_chain = [](unsigned cells) {
     td::Ref<vm::Cell> cell = vm::CellBuilder().finalize();

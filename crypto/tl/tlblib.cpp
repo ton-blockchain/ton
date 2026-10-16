@@ -163,9 +163,17 @@ bool Bits::print_skip(JsonPrinter& pp, vm::CellSlice& cs) const {
 namespace {
 // The snake occupies the remaining bytes and optional single reference in its
 // root slice. Validate children without replacing the caller's root cursor.
-bool consume_snake(vm::CellSlice& root, int* ops, std::vector<unsigned char>* bytes) {
+bool consume_snake(vm::CellSlice& root, int* ops, std::vector<unsigned char>* bytes, bool weak = false) {
   try {
     vm::CellSlice current{root};
+    auto finish_root = [&]() {
+      vm::CellSlice finished{root};
+      if (!finished.advance(finished.size()) || (finished.size_refs() && finished.fetch_ref().is_null())) {
+        return false;
+      }
+      root = std::move(finished);
+      return true;
+    };
     for (int cells = 0; cells < 1000; ++cells) {
       if (!current.is_valid() || current.is_special() || current.size() % 8 != 0 || current.size_refs() > 1) {
         return false;
@@ -183,12 +191,7 @@ bool consume_snake(vm::CellSlice& root, int* ops, std::vector<unsigned char>* by
         return false;
       }
       if (current.size_refs() == 0) {
-        vm::CellSlice finished{root};
-        if (!finished.advance(finished.size()) || (finished.size_refs() && finished.fetch_ref().is_null())) {
-          return false;
-        }
-        root = std::move(finished);
-        return true;
+        return finish_root();
       }
       // A validate_ref caller has already charged for the root. Inline fields
       // likewise share their parent's cell; only following a ref visits a new cell.
@@ -201,6 +204,11 @@ bool consume_snake(vm::CellSlice& root, int* ops, std::vector<unsigned char>* by
       auto ref = current.fetch_ref();
       if (ref.is_null() || !current.load(vm::NoVm{}, std::move(ref))) {
         return false;
+      }
+      // A weak proof can stop at a pruned continuation. The pruned cell has
+      // been charged, but its original bytes and any following refs are unknown.
+      if (weak && current.special_type() == vm::Cell::SpecialType::PrunnedBranch) {
+        return cells + 1 < 1000 && finish_root();
       }
     }
   } catch (vm::VmError&) {
@@ -223,8 +231,8 @@ bool SnakeString::skip(vm::CellSlice& cs) const {
   return consume_snake(cs, nullptr, nullptr);
 }
 
-bool SnakeString::validate_skip(int* ops, vm::CellSlice& cs, bool) const {
-  return consume_snake(cs, ops, nullptr);
+bool SnakeString::validate_skip(int* ops, vm::CellSlice& cs, bool weak) const {
+  return consume_snake(cs, ops, nullptr, weak);
 }
 
 td::Result<std::vector<unsigned char>> SnakeString::load_snake_binary(vm::CellSlice& cs) const {
