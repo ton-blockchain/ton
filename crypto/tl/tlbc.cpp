@@ -2298,10 +2298,9 @@ void parse_param(Lexer& lex, Constructor& cs, bool named) {
   field.type->detect_constexpr();
   field.subrec = field.type->is_ref_to_anon();
   if (field.name && field.subrec) {
-    throw src::ParseError{field.loc,
-        std::string("field cannot have both name '") +
-        (field.name ? sym::symbols.get_name(field.name) : "") +
-        "' and be a subrecord at position " + std::to_string(field.field_idx)};
+    throw src::ParseError{field.loc, std::string("field cannot have both name '") +
+                                         (field.name ? sym::symbols.get_name(field.name) : "") +
+                                         "' and be a subrecord at position " + std::to_string(field.field_idx)};
   }
   field.register_sym();
 }

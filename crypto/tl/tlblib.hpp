@@ -24,10 +24,9 @@
 #include <vector>
 
 #include "td/utils/base64.h"
-#include "vm/cellslice.h"
-#include "vm/boc.h"
-#include <functional>
 #include "td/utils/misc.h"
+#include "vm/boc.h"
+#include "vm/cellslice.h"
 
 namespace tlb {
 
@@ -629,11 +628,11 @@ struct PrettyPrinter {
 };
 
 bool print_hashmap(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& dict_type, const TLB& value_type,
-                    bool non_empty);
+                   bool non_empty);
 bool print_hashmap_aug(PrettyPrinter& pp, vm::CellSlice& cs, unsigned n, const TLB& dict_type, const TLB& value_type,
-                        const TLB& aug_type, bool non_empty);
+                       const TLB& aug_type, bool non_empty);
 class JsonPrinter {
-private:
+ private:
   struct ObjectState {
     bool first_field = true;
     bool pending_value = false;
@@ -651,15 +650,18 @@ private:
   static constexpr int default_print_limit = 4096;
 
   std::string escape_string(const std::string& str);
-  char hex_digit(int x) const { return "0123456789abcdef"[x & 15]; }
+  char hex_digit(int x) const {
+    return "0123456789abcdef"[x & 15];
+  }
 
   std::string& buffer() {
     return output_ ? *output_ : internal_buffer_;
   }
   bool begin_value();
 
-public:
-  JsonPrinter(std::string* output = nullptr) : output_(output) {}
+ public:
+  JsonPrinter(std::string* output = nullptr) : output_(output) {
+  }
 
   bool open(std::string msg = "");
   bool close();
@@ -692,7 +694,9 @@ public:
   bool register_recursive_call();
 
   bool fail_unless(bool res);
-  bool ok() const { return !failed_ && root_started_ && objects_.empty(); }
+  bool ok() const {
+    return !failed_ && root_started_ && objects_.empty();
+  }
   void set_limit(int new_limit);
 
   std::string get_json() const {

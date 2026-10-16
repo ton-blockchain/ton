@@ -16,17 +16,16 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
-#include "td/utils/base64.h"
-#include "td/utils/JsonBuilder.h"
-#include "td/utils/utf8.h"
-#include "vm/cells/Cell.h"
-#include "vm/cells/CellBuilder.h"
-#include "vm/excno.hpp"
-#include "tl/tlblib.hpp"
 #include <iomanip>
 
-
+#include "td/utils/JsonBuilder.h"
+#include "td/utils/base64.h"
+#include "td/utils/utf8.h"
+#include "tl/tlblib.hpp"
+#include "vm/cells/Cell.h"
+#include "vm/cells/CellBuilder.h"
 #include "vm/dict.h"
+#include "vm/excno.hpp"
 
 namespace tlb {
 
@@ -93,9 +92,7 @@ bool TupleT::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
 bool TupleT::print_skip(JsonPrinter& pp, vm::CellSlice& cs) const {
   pp.open("tuple");
   for (int i = 0; i < n; i++) {
-    if (!pp.open(std::to_string(i)) ||
-        !X.print_skip(pp, cs) ||
-        !pp.close()) {
+    if (!pp.open(std::to_string(i)) || !X.print_skip(pp, cs) || !pp.close()) {
       return false;
     }
   }
@@ -262,7 +259,8 @@ bool SnakeString::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {
     } else if (c == '\t') {
       pp.os << "\\t";
     } else if (static_cast<unsigned char>(c) < 32 || static_cast<unsigned char>(c) >= 127) {
-      pp.os << "\\x" << std::hex << std::setfill('0') << std::setw(2) << static_cast<unsigned>(static_cast<unsigned char>(c)) << std::dec;
+      pp.os << "\\x" << std::hex << std::setfill('0') << std::setw(2)
+            << static_cast<unsigned>(static_cast<unsigned char>(c)) << std::dec;
     } else {
       pp.os << c;
     }
@@ -866,8 +864,8 @@ bool valid_json_lexemes(const std::string& json) {
         } while (i < json.size() && json_digit(json[i]));
       }
       // A number must end at a JSON value delimiter, not an additional token.
-      if (i < json.size() && json[i] != ',' && json[i] != ']' && json[i] != '}' && json[i] != ' ' &&
-          json[i] != '\t' && json[i] != '\n' && json[i] != '\r') {
+      if (i < json.size() && json[i] != ',' && json[i] != ']' && json[i] != '}' && json[i] != ' ' && json[i] != '\t' &&
+          json[i] != '\n' && json[i] != '\r') {
         return false;
       }
     } else {
@@ -888,13 +886,27 @@ std::string JsonPrinter::escape_string(const std::string& str) {
 
   for (char c : str) {
     switch (c) {
-      case '"': result += "\\\""; break;
-      case '\\': result += "\\\\"; break;
-      case '\n': result += "\\n"; break;
-      case '\r': result += "\\r"; break;
-      case '\t': result += "\\t"; break;
-      case '\b': result += "\\b"; break;
-      case '\f': result += "\\f"; break;
+      case '"':
+        result += "\\\"";
+        break;
+      case '\\':
+        result += "\\\\";
+        break;
+      case '\n':
+        result += "\\n";
+        break;
+      case '\r':
+        result += "\\r";
+        break;
+      case '\t':
+        result += "\\t";
+        break;
+      case '\b':
+        result += "\\b";
+        break;
+      case '\f':
+        result += "\\f";
+        break;
       default:
         if (static_cast<unsigned char>(c) < 32 || c == 127) {
           // escaping control chars and DEL
@@ -1006,7 +1018,7 @@ bool JsonPrinter::fetch_bits_field(vm::CellSlice& cs, int n) {
 
 bool JsonPrinter::fetch_bits_field(vm::CellSlice& cs, int n, std::string name) {
   return cs.have(n) && (name.empty() || field(std::move(name))) ? fetch_bits_field(cs, n)
-                                                              : fail("not enough bits or invalid field");
+                                                                : fail("not enough bits or invalid field");
 }
 
 bool JsonPrinter::fetch_int_field(vm::CellSlice& cs, int n) {
@@ -1015,7 +1027,7 @@ bool JsonPrinter::fetch_int_field(vm::CellSlice& cs, int n) {
 
 bool JsonPrinter::fetch_int_field(vm::CellSlice& cs, int n, std::string name) {
   return cs.have(n) && (name.empty() || field(std::move(name))) ? fetch_int_field(cs, n)
-                                                              : fail("not enough bits or invalid field");
+                                                                : fail("not enough bits or invalid field");
 }
 
 bool JsonPrinter::fetch_uint_field(vm::CellSlice& cs, int n) {
@@ -1024,7 +1036,7 @@ bool JsonPrinter::fetch_uint_field(vm::CellSlice& cs, int n) {
 
 bool JsonPrinter::fetch_uint_field(vm::CellSlice& cs, int n, std::string name) {
   return cs.have(n) && (name.empty() || field(std::move(name))) ? fetch_uint_field(cs, n)
-                                                              : fail("not enough bits or invalid field");
+                                                                : fail("not enough bits or invalid field");
 }
 
 bool JsonPrinter::fetch_int256_field(vm::CellSlice& cs, int n) {
@@ -1036,7 +1048,7 @@ bool JsonPrinter::fetch_int256_field(vm::CellSlice& cs, int n) {
 
 bool JsonPrinter::fetch_int256_field(vm::CellSlice& cs, int n, std::string name) {
   return cs.have(n) && (name.empty() || field(std::move(name))) ? fetch_int256_field(cs, n)
-                                                              : fail("not enough bits or invalid field");
+                                                                : fail("not enough bits or invalid field");
 }
 
 bool JsonPrinter::fetch_uint256_field(vm::CellSlice& cs, int n) {
@@ -1048,7 +1060,7 @@ bool JsonPrinter::fetch_uint256_field(vm::CellSlice& cs, int n) {
 
 bool JsonPrinter::fetch_uint256_field(vm::CellSlice& cs, int n, std::string name) {
   return cs.have(n) && (name.empty() || field(std::move(name))) ? fetch_uint256_field(cs, n)
-                                                              : fail("not enough bits or invalid field");
+                                                                : fail("not enough bits or invalid field");
 }
 
 bool JsonPrinter::fetch_bool_field(vm::CellSlice& cs) {
@@ -1057,7 +1069,7 @@ bool JsonPrinter::fetch_bool_field(vm::CellSlice& cs) {
 
 bool JsonPrinter::fetch_bool_field(vm::CellSlice& cs, std::string name) {
   return cs.have(1) && (name.empty() || field(std::move(name))) ? fetch_bool_field(cs)
-                                                              : fail("not enough bits or invalid field");
+                                                                : fail("not enough bits or invalid field");
 }
 
 bool JsonPrinter::out(std::string str) {
