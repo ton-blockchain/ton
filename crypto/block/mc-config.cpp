@@ -2201,6 +2201,18 @@ td::Result<std::pair<ton::UnixTime, ton::UnixTime>> Config::unpack_validator_set
   return td::Status::Error("validator set is invalid");
 }
 
+td::Result<td::uint32> Config::get_validator_elections_end_before() const {
+  auto param = get_config_param(15);
+  if (param.is_null()) {
+    return td::Status::Error("configuration parameter 15 is absent");
+  }
+  gen::ConfigParam::Record_cons15 data;
+  if (!gen::ConfigParam{15}.cell_unpack(std::move(param), data)) {
+    return td::Status::Error("configuration parameter 15 is invalid");
+  }
+  return data.elections_end_before;
+}
+
 std::pair<ton::UnixTime, ton::UnixTime> Config::get_validator_set_start_stop(int next) const {
   auto res = unpack_validator_set_start_stop(get_config_param(next < 0 ? 32 : (next ? 36 : 34)));
   if (res.is_error()) {

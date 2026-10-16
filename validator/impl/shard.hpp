@@ -155,6 +155,9 @@ class MasterchainStateQ : public MasterchainState, public ShardStateQ {
   td::Result<block::ValidatorRegistryConfig> get_validator_registry_config() const override {
     return config_->get_validator_registry_config();
   }
+  td::Result<td::uint32> get_validator_elections_end_before() const override {
+    return config_->get_validator_elections_end_before();
+  }
   int get_global_version() const override {
     return config_->get_global_version();
   }
