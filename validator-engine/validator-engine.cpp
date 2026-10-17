@@ -6099,6 +6099,15 @@ int main(int argc, char *argv[]) {
         acts.push_back([&x, v]() { td::actor::send_closure(x, &ValidatorEngine::set_initial_sync_delay, v); });
         return td::Status::OK();
       });
+  p.add_option(
+      '\0', "public-rebroadcast",
+      "relay fast-sync Plumtree block candidates and finalities to public Plumtree overlays (protocol 2 only)",
+      [&]() { acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::enable_public_rebroadcast); }); });
+  p.add_option(
+      '\0', "relay-externals-to-fast-sync",
+      "relay validated external messages received from public overlays to fast-sync overlays", [&]() {
+        acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::enable_relay_externals_to_fast_sync); });
+      });
   for (size_t iter = 0; iter < 3; ++iter) {
     static const char *suffixes[3] = {"", "-fast-sync", "-custom"};
     const char *suffix = suffixes[iter];

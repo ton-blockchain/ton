@@ -157,8 +157,24 @@ void FullNodeShardImpl::process_external_message_broadcast(ton_api::tonNode_exte
     promise.set_result(td::Unit());
     return;
   }
+
+  auto data = std::move(message.message_->data_);
+  if (opts_.relay_externals_to_fast_sync_enabled_ && !opts_.config_.ext_messages_broadcast_disabled_) {
+    auto relay_promise =
+        td::PromiseCreator::lambda([promise = std::move(promise), full_node = full_node_, shard = shard_,
+                                    relay_data = data.clone()](td::Result<td::Unit> result) mutable {
+          if (result.is_ok()) {
+            td::actor::send_closure(full_node, &FullNode::relay_external_message_to_fast_sync, shard,
+                                    std::move(relay_data));
+          }
+          promise.set_result(std::move(result));
+        });
+    td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
+                            std::move(data), 0, std::move(relay_promise));
+    return;
+  }
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::new_external_message_broadcast,
-                          std::move(message.message_->data_), 0, std::move(promise));
+                          std::move(data), 0, std::move(promise));
 }
 
 void FullNodeShardImpl::remove_neighbour(adnl::AdnlNodeIdShort id) {
