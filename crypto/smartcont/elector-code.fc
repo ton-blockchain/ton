@@ -58,7 +58,7 @@ builder pack_past_election(int unfreeze_at, int stake_held, int vset_hash, cell 
       .store_dict(complaints);
 }
 
-;; complaint_status#2d complaint:^ValidatorComplaint voters:(HashmapE 16 True)
+;; complaint_status#2d complaint:^ValidatorComplaint voters:(HashmapE 16 uint32)
 ;;   vset_id:uint256 weight_remaining:int64 = ValidatorComplaintStatus;
 _ unpack_complaint_status(slice cs) inline_ref {
   throw_unless(9, cs~load_uint(8) == 0x2d);
