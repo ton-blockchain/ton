@@ -501,7 +501,7 @@ void FullNodeImpl::send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_s
 }
 
 void FullNodeImpl::relay_external_message_to_fast_sync(ShardIdFull shard, td::BufferSlice data) {
-  if (!opts_.relay_externals_to_fast_sync_enabled_ || opts_.config_.ext_messages_broadcast_disabled_) {
+  if (!opts_.public_rebroadcast_enabled_ || opts_.config_.ext_messages_broadcast_disabled_) {
     return;
   }
   auto fast_sync_overlay = fast_sync_overlays_.choose_overlay(shard).first;

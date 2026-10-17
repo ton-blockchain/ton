@@ -57,8 +57,9 @@ struct FullNodeOptions {
   double private_broadcast_speed_multiplier_ = 1.0;
   double fast_sync_broadcast_speed_multiplier_ = 1.0;
   double initial_sync_delay_ = 60.0;
+
   bool public_rebroadcast_enabled_ = false;
-  bool relay_externals_to_fast_sync_enabled_ = false;
+  td::uint32 public_rebroadcast_fanout_ = 50;
 
   struct RateLimiterParams {
     double window_size_ = 1.0;

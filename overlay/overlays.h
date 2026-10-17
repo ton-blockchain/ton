@@ -320,7 +320,7 @@ struct OverlayOptions {
     td::uint32 k_ = 30;
     td::uint32 parts_ = 45;
     td::uint32 tree_slots_ = parts_ + 1;
-    td::uint32 validator_eager_limit_ = 1;
+    td::uint32 original_sender_eager_limit_ = 1;
     td::uint32 eager_limit_ = 4;  // 1 incoming, so fanout is practically 3
     td::uint32 active_neighbours_ = 5;
     td::uint32 repair_timeout_ms_ = 200;

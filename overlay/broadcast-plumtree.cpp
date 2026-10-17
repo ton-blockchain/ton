@@ -246,7 +246,7 @@ class BroadcastsPlumtree::Impl {
   explicit Impl(PlumtreeFecOptions options, bool is_original_sender)
       : options_(options)
       , is_original_sender_(is_original_sender)
-      , local_eager_limit_(is_original_sender_ ? options_.validator_eager_limit_ : options_.eager_limit_) {
+      , local_eager_limit_(is_original_sender_ ? options_.original_sender_eager_limit_ : options_.eager_limit_) {
     slots_.resize(options_.tree_slots_);
     options_.stats_epoch_duration_ = std::max(options_.stats_epoch_duration_, 1.0);
   }
