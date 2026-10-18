@@ -467,19 +467,19 @@ class BitArray {
   byte_array_t bytes;
 
  public:
-  const unsigned char* data() const {
+  constexpr const unsigned char* data() const {
     return bytes.data();
   }
-  unsigned char* data() {
+  constexpr unsigned char* data() {
     return bytes.data();
   }
-  static unsigned size() {
+  static constexpr unsigned size() {
     return n;
   }
-  const byte_array_t& as_array() const {
+  constexpr const byte_array_t& as_array() const {
     return bytes;
   }
-  byte_array_t& as_array() {
+  constexpr byte_array_t& as_array() {
     return bytes;
   }
   Slice as_slice() const {
@@ -497,12 +497,10 @@ class BitArray {
   BitPtr bits() {
     return BitPtr{data()};
   }
-  BitArray() = default;
-  BitArray(const BitArray&) = default;
-  BitArray(const byte_array_t& init_bytes) : bytes(init_bytes) {
+  constexpr BitArray() = default;
+  constexpr BitArray(const byte_array_t& init_bytes) : bytes(init_bytes) {
   }
-  explicit BitArray(const raw_byte_array_t init_bytes) {
-    std::memcpy(data(), init_bytes, m);
+  constexpr BitArray(const raw_byte_array_t& init_bytes) : bytes(std::to_array(init_bytes)) {
   }
   BitArray(ConstBitPtr from) {
     bitstring::bits_memcpy(bits(), from, n);
@@ -511,17 +509,10 @@ class BitArray {
   explicit BitArray(long long val) {
     bitstring::bits_store_long(bits(), val, n);
   }
-  BitArray& operator=(const BitArray&) = default;
-  BitArray& operator=(const byte_array_t& set_bytes) {
-    bytes = set_bytes;
-    return *this;
-  }
-  BitArray& operator=(ConstBitPtr from) {
-    bitstring::bits_memcpy(bits(), from, n);
-    return *this;
-  }
-  BitArray& operator=(const raw_byte_array_t set_byte_array) {
-    std::memcpy(data(), set_byte_array, m);
+  template <typename T>
+    requires std::is_constructible_v<BitArray, T> && (!std::is_same_v<std::decay_t<T>, BitArray>)
+  constexpr BitArray& operator=(T&& from) {
+    *this = BitArray(std::forward<T>(from));
     return *this;
   }
   BitSliceWrite write_bitslice() {
@@ -580,26 +571,33 @@ class BitArray {
     auto res = bitstring::parse_bitstring_binary_literal(bits(), n, bin_str.begin(), bin_str.end());
     return allow_partial ? std::min<long>(res, n) : (res == n ? res : -1);
   }
-  int compare(const BitArray& other) const {
-    return (n % 8 == 0) ? std::memcmp(data(), other.data(), n / 8) : bitstring::bits_memcmp(bits(), other.bits(), n);
+  constexpr bool operator==(const BitArray&) const
+    requires(n % 8 == 0)
+  = default;
+  constexpr std::strong_ordering operator<=>(const BitArray&) const
+    requires(n % 8 == 0)
+  = default;
+  constexpr int compare(const BitArray& other) const
+    requires(n % 8 == 0)
+  {
+    auto r = *this <=> other;
+    return (r > 0) - (r < 0);
   }
-  bool operator==(const BitArray& other) const {
-    return (n % 8 == 0) ? (bytes == other.bytes) : !bitstring::bits_memcmp(bits(), other.bits(), n);
+  int compare(const BitArray& other) const
+    requires(n % 8 != 0)
+  {
+    return bitstring::bits_memcmp(bits(), other.bits(), n);
   }
-  bool operator!=(const BitArray& other) const {
-    return (n % 8 == 0) ? (bytes != other.bytes) : bitstring::bits_memcmp(bits(), other.bits(), n);
-  }
-  bool operator<(const BitArray& other) const {
-    return (n % 8 == 0) ? (bytes < other.bytes) : (bitstring::bits_memcmp(bits(), other.bits(), n) < 0);
+  bool operator==(const BitArray& other) const
+    requires(n % 8 != 0)
+  {
+    return !compare(other);
   }
   int compare(ConstBitPtr other) const {
     return bitstring::bits_memcmp(bits(), other, n);
   }
   bool operator==(ConstBitPtr other) const {
     return !compare(other);
-  }
-  bool operator!=(ConstBitPtr other) const {
-    return compare(other);
   }
   BitPtr::BitSelector operator[](int i) {
     return bits()[i];
@@ -623,7 +621,7 @@ class BitArray {
     x.set_ones();
     return x;
   }
-  BitArray operator^(const BitArray& with) const {
+  constexpr BitArray operator^(const BitArray& with) const {
     BitArray res;
     for (unsigned i = 0; i < m; i++) {
       res.bytes[i] = bytes[i] ^ with.bytes[i];
