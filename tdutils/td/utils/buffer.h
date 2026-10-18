@@ -31,6 +31,11 @@ namespace td {
 struct BufferRaw {
   explicit BufferRaw(size_t size) : data_size_(size) {
   }
+  // mmap-backed variant: data lives at `external`, not in the flexible array.
+  // Lifetime of the external region is owned by this BufferRaw via dec_ref_cnt.
+  BufferRaw(size_t size, unsigned char *external) : data_size_(size), external_data_(external) {
+  }
+
   size_t data_size_;
 
   // Constant after first reader is created.
@@ -46,7 +51,19 @@ struct BufferRaw {
   std::atomic<bool> has_writer_{true};
   bool was_reader_{false};
 
+  // If non-null, this buffer is mmap-backed and data_ is unused.
+  // dec_ref_cnt will munmap(external_data_, data_size_) on last reference.
+  unsigned char *external_data_ = nullptr;
+
   alignas(4) unsigned char data_[1];
+
+  // Effective data pointer: external region if mmap-backed, else inline flexible array.
+  unsigned char *data() {
+    return external_data_ ? external_data_ : data_;
+  }
+  const unsigned char *data() const {
+    return external_data_ ? external_data_ : data_;
+  }
 };
 
 class BufferAllocator {
@@ -73,6 +90,11 @@ class BufferAllocator {
   static WriterPtr create_writer(size_t size, size_t prepend, size_t append);
 
   static ReaderPtr create_reader(size_t size);
+
+  // Create a read-only BufferSlice backed by mmap() of the given file descriptor.
+  // The fd may be closed after this call; mmap retains its own reference to the file.
+  // Returns null ReaderPtr on mmap failure.
+  static ReaderPtr create_reader_mmap(int fd, size_t size);
 
   static ReaderPtr create_reader(const WriterPtr &raw);
 
@@ -153,7 +175,7 @@ class BufferSlice {
     if (is_null()) {
       return Slice();
     }
-    return Slice(buffer_->data_ + begin_, size());
+    return Slice(buffer_->data() + begin_, size());
   }
 
   operator Slice() const {
@@ -164,7 +186,7 @@ class BufferSlice {
     if (is_null()) {
       return MutableSlice();
     }
-    return MutableSlice(buffer_->data_ + begin_, size());
+    return MutableSlice(buffer_->data() + begin_, size());
   }
 
   Slice prepare_read() const {
@@ -191,8 +213,8 @@ class BufferSlice {
 
   BufferSlice from_slice(Slice slice) const {
     auto res = BufferSlice(BufferAllocator::create_reader(buffer_));
-    res.begin_ = static_cast<size_t>(slice.ubegin() - buffer_->data_);
-    res.end_ = static_cast<size_t>(slice.uend() - buffer_->data_);
+    res.begin_ = static_cast<size_t>(slice.ubegin() - buffer_->data());
+    res.end_ = static_cast<size_t>(slice.uend() - buffer_->data());
     CHECK(buffer_->begin_ <= res.begin_);
     CHECK(res.begin_ <= res.end_);
     CHECK(res.end_ <= buffer_->end_.load(std::memory_order_relaxed));
@@ -301,14 +323,14 @@ class BufferWriter {
       return MutableSlice();
     }
     auto end = buffer_->end_.load(std::memory_order_relaxed);
-    return MutableSlice(buffer_->data_ + buffer_->begin_, buffer_->data_ + end);
+    return MutableSlice(buffer_->data() + buffer_->begin_, buffer_->data() + end);
   }
   Slice as_slice() const {
     if (is_null()) {
       return Slice();
     }
     auto end = buffer_->end_.load(std::memory_order_relaxed);
-    return Slice(buffer_->data_ + buffer_->begin_, buffer_->data_ + end);
+    return Slice(buffer_->data() + buffer_->begin_, buffer_->data() + end);
   }
 
   MutableSlice prepare_prepend() {
@@ -316,14 +338,14 @@ class BufferWriter {
       return MutableSlice();
     }
     CHECK(!buffer_->was_reader_);
-    return MutableSlice(buffer_->data_, buffer_->begin_);
+    return MutableSlice(buffer_->data(), buffer_->begin_);
   }
   MutableSlice prepare_append() {
     if (is_null()) {
       return MutableSlice();
     }
     auto end = buffer_->end_.load(std::memory_order_relaxed);
-    return MutableSlice(buffer_->data_ + end, buffer_->data_size_ - end);
+    return MutableSlice(buffer_->data() + end, buffer_->data_size_ - end);
   }
   void confirm_append(size_t size) {
     if (is_null()) {

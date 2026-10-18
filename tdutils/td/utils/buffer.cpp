@@ -22,6 +22,11 @@
 #include "td/utils/buffer.h"
 #include "td/utils/port/thread_local.h"
 
+#if TD_PORT_POSIX
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
 // fixes https://bugs.llvm.org/show_bug.cgi?id=33723 for clang >= 3.6 + c++11 + libc++
 #if TD_CLANG && _LIBCPP_VERSION
 #define TD_OFFSETOF __builtin_offsetof
@@ -95,11 +100,44 @@ BufferAllocator::ReaderPtr BufferAllocator::create_reader(const ReaderPtr &raw) 
 void BufferAllocator::dec_ref_cnt(BufferRaw *ptr) {
   int left = ptr->ref_cnt_.fetch_sub(1, std::memory_order_acq_rel);
   if (left == 1) {
-    auto buf_size = max(sizeof(BufferRaw), TD_OFFSETOF(BufferRaw, data_) + ptr->data_size_);
-    buffer_mem -= buf_size;
+    if (ptr->external_data_) {
+#if TD_PORT_POSIX
+      munmap(ptr->external_data_, ptr->data_size_);
+#endif
+      // Header was allocated with sizeof(BufferRaw); trailing data_[1] unused.
+      buffer_mem -= sizeof(BufferRaw);
+    } else {
+      auto buf_size = max(sizeof(BufferRaw), TD_OFFSETOF(BufferRaw, data_) + ptr->data_size_);
+      buffer_mem -= buf_size;
+    }
     ptr->~BufferRaw();
     delete[] ptr;
   }
+}
+
+BufferAllocator::ReaderPtr BufferAllocator::create_reader_mmap(int fd, size_t size) {
+#if TD_PORT_POSIX
+  void *addr = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+  if (addr == MAP_FAILED) {
+    return ReaderPtr();
+  }
+  // Advise kernel: we will read sequentially and do not need pages after that.
+  // This helps the kernel decide when to drop pages under memory pressure.
+  ::madvise(addr, size, MADV_SEQUENTIAL);
+
+  buffer_mem += sizeof(BufferRaw);
+  auto *buffer_raw = reinterpret_cast<BufferRaw *>(new char[sizeof(BufferRaw)]);
+  new (buffer_raw) BufferRaw(size, static_cast<unsigned char *>(addr));
+  // Reader-only: mark fully-written, no writer.
+  buffer_raw->end_.store(size, std::memory_order_relaxed);
+  buffer_raw->was_reader_ = true;
+  buffer_raw->has_writer_.store(false, std::memory_order_release);
+  return ReaderPtr(buffer_raw);
+#else
+  (void)fd;
+  (void)size;
+  return ReaderPtr();
+#endif
 }
 
 BufferRaw *BufferAllocator::create_buffer_raw(size_t size) {
