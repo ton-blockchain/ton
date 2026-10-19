@@ -33,10 +33,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  static bool should_be_spawned(const Bus& bus) {
-    return bus.is_validator() || bus.is_collator || bus.config.observers_in_private_overlay();
-  }
-
   void start_up() override {
     auto& bus = *owning_bus();
 
@@ -51,15 +47,12 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     for (const auto& peer : bus.validator_set) {
       adnl_id_to_peer_[peer.adnl_id] = peer;
       broadcast_src_to_peer_[peer.short_id] = peer;
-      overlay_nodes_.push_back(peer.adnl_id);
       overlay_nodes_tl.push_back(peer.short_id.bits256_value());
       authorized_keys.emplace(peer.short_id, max_broadcast_size);
     }
     if (!bus.shard.is_masterchain()) {
       for (const adnl::AdnlNodeIdShort& collator_id : bus.all_collators) {
-        if (authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size).second) {
-          overlay_nodes_.push_back(collator_id);
-        }
+        authorized_keys.emplace(collator_id.pubkey_hash(), max_broadcast_size);
       }
     }
     if (bus.is_validator()) {
@@ -81,10 +74,7 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
     options.send_twostep_broadcast_ = true;
     options.allow_old_broadcasts_ = false;
     options.twostep_intermediate_nodes_ = bus.all_current_validators;
-
-    if (bus.config.observers_in_private_overlay()) {
-      overlay_nodes_ = bus.all_overlay_nodes;
-    }
+    overlay_nodes_ = bus.all_overlay_nodes;
 
     td::actor::send_closure(overlays_, &overlay::Overlays::create_private_overlay_ex, local_adnl_id_,
                             std::move(overlay_full_id), overlay_nodes_, make_callback(),
@@ -166,11 +156,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
   template <>
   void handle(BusHandle, std::shared_ptr<const CandidateGenerated> event) {
-    auto& bus = *owning_bus();
-    if (bus.config.enable_block_sync()) {
-      return;
-    }
-
     td::BufferSlice extra;
     if (event->candidate->delegation) {
       extra = create_serialize_tl_object<tl::broadcastExtra>(1, event->candidate->id.slot,
@@ -231,10 +216,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   void on_overlay_broadcast(PublicKeyHash src, td::BufferSlice data, td::BufferSlice extra) {
     auto& bus = *owning_bus();
 
-    if (bus.config.enable_block_sync()) {
-      LOG(WARNING) << "Dropping candidate broadcast from " << src << " in private overlay: protocol violation";
-      return;
-    }
     if (src == local_broadcast_src_) {
       return;
     }
@@ -275,9 +256,6 @@ class PrivateOverlayImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
   td::actor::Task<> precheck_broadcast(PublicKeyHash src, td::Bits256 broadcast_id, td::BufferSlice extra,
                                        bool signature_checked) {
     auto& bus = *owning_bus();
-    if (bus.config.enable_block_sync()) {
-      co_return td::Status::Error("Precheck failed: Candidate broadcasts in private overlay are disabled");
-    }
     auto parsed_extra = CO_TRY(parse_broadcast_extra(extra).trace("Precheck failed: Failed to parse broadcast extra"));
     auto expected_leader = bus.collator_schedule->expected_collator_for(parsed_extra.slot);
     if (parsed_extra.delegation.has_value()) {
