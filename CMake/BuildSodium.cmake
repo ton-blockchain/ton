@@ -174,3 +174,4 @@ else()
 endif()
 
 add_custom_target(sodium DEPENDS ${SODIUM_LIBRARY})
+
