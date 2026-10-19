@@ -3426,6 +3426,7 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
 
   // Set default values (from_json leaves missing fields as is)
   ton::ton_api::engine_validator_collatorOptions f;
+  f.virtual_shards_ = opts.virtual_shards;
   f.deferring_enabled_ = opts.deferring_enabled;
   f.defer_out_queue_size_limit_ = opts.defer_out_queue_size_limit;
   f.defer_messages_after_ = opts.defer_messages_after;
@@ -3439,6 +3440,11 @@ static td::Result<td::Ref<ton::validator::CollatorOptions>> parse_collator_optio
 
   TRY_RESULT_PREFIX(json, td::json_decode(json_str), "failed to parse json: ");
   TRY_STATUS_PREFIX(ton::ton_api::from_json(f, json.get_object()), "json does not fit TL scheme: ");
+
+  if (f.virtual_shards_ < 0 || f.virtual_shards_ > 64 || (f.virtual_shards_ & (f.virtual_shards_ - 1))) {
+    return td::Status::Error("virtual_shards must be 0 or a power of two up to 64");
+  }
+  opts.virtual_shards = static_cast<td::uint32>(f.virtual_shards_);
 
   if (f.defer_messages_after_ <= 0) {
     return td::Status::Error("defer_messages_after should be positive");

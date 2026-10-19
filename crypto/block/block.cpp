@@ -742,7 +742,7 @@ bool BlockLimits::fits(unsigned cls, td::uint64 size, td::uint64 gas_value, ton:
 }
 
 td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::Stat* extra) const {
-  auto sum = st_stat.get_total_stat();
+  auto sum = st_stat.get_total_stat() + additional_stat;
   if (extra) {
     sum += *extra;
   }

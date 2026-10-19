@@ -634,6 +634,7 @@ engine.validator.customOverlaysConfig overlays:(vector engine.validator.customOv
 engine.validator.collatorOptions.paramLimits underload:int soft_limit:int hard_limit:int = engine.validator.collatorOptions.ParamLimits;
 
 engine.validator.collatorOptions
+  virtual_shards:int
   deferring_enabled:Bool defer_messages_after:int defer_out_queue_size_limit:long
   dispatch_phase_2_max_total:int dispatch_phase_3_max_total:int
   dispatch_phase_2_max_per_initiator:int dispatch_phase_3_max_per_initiator:int

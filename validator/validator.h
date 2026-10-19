@@ -55,6 +55,8 @@ struct PerfTimerStats {
 };
 
 struct CollatorOptions : public td::CntObject {
+  // Requested address partitions: 0 or a power of two up to 64
+  td::uint32 virtual_shards = 0;
   bool deferring_enabled = true;
 
   // Defer messages from account after Xth message in block (excluding first messages from transactions)

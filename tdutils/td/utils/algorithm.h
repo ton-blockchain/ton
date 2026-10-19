@@ -186,6 +186,12 @@ bool contains(const V &v, const T &value) {
   return false;
 }
 
+template <class Map, class Key>
+typename Map::mapped_type get_or_default(const Map &map, const Key &key, typename Map::mapped_type default_value = {}) {
+  auto it = map.find(key);
+  return it != map.end() ? it->second : std::move(default_value);
+}
+
 template <class V, class F>
 bool any_of(const V &v, F &&f) {
   for (const auto &x : v) {

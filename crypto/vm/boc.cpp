@@ -1202,24 +1202,45 @@ void NewCellStorageStat::add_cell_and_proof(Ref<Cell> cell, CellUsageTree* usage
 }
 
 NewCellStorageStat::Stat NewCellStorageStat::tentative_add_cell(Ref<Cell> cell) const {
-  NewCellStorageStat stat;
-  stat.parent_ = this;
+  NewCellStorageStat stat(this);
   stat.add_cell(std::move(cell));
   return stat.get_stat();
 }
 
 NewCellStorageStat::Stat NewCellStorageStat::tentative_add_proof(Ref<Cell> cell, CellUsageTree* usage_tree) const {
-  NewCellStorageStat stat;
-  stat.parent_ = this;
+  NewCellStorageStat stat(this);
   stat.add_proof(std::move(cell), usage_tree);
   return stat.get_proof_stat();
 }
 
+bool NewCellStorageStat::is_seen(const Cell::Hash& hash, bool proof, unsigned merkle_depth) const {
+  for (auto* stat = this; stat; stat = stat->parent_) {
+    if (proof ? stat->proof_seen_.contains({hash, merkle_depth}) : stat->seen_.contains(hash)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void NewCellStorageStat::dfs(Ref<Cell> cell, unsigned merkle_depth, bool need_stat, bool need_proof_stat,
                              bool need_left_mu_stat) {
+  auto tree_node = cell->get_tree_node();
+  CellUsageTree* tree = nullptr;
+  if ((need_proof_stat || need_left_mu_stat) && !tree_node.empty()) {
+    if (tree_node.is_from_tree(usage_tree_)) {
+      tree = usage_tree_;
+    } else {
+      for (auto* candidate : additional_usage_trees_) {
+        if (tree_node.is_from_tree(candidate)) {
+          tree = candidate;
+          break;
+        }
+      }
+    }
+  }
   if (need_stat) {
     stat_.internal_refs++;
-    if ((parent_ && parent_->seen_.count(cell->get_hash()) != 0) || !seen_.insert(cell->get_hash()).second) {
+    if ((parent_ && parent_->is_seen(cell->get_hash(), false)) || !seen_.insert(cell->get_hash()).second) {
       need_stat = false;
     } else {
       stat_.cells++;
@@ -1227,13 +1248,12 @@ void NewCellStorageStat::dfs(Ref<Cell> cell, unsigned merkle_depth, bool need_st
   }
 
   if (need_proof_stat) {
-    auto tree_node = cell->get_tree_node();
-    if (!tree_node.empty() && tree_node.is_from_tree(usage_tree_)) {
+    if (tree) {
       proof_stat_.external_refs++;
       need_proof_stat = false;
     } else {
       proof_stat_.internal_refs++;
-      if ((parent_ && parent_->proof_seen_.contains({cell->get_hash(), merkle_depth})) ||
+      if ((parent_ && parent_->is_seen(cell->get_hash(), true, merkle_depth)) ||
           !proof_seen_.emplace(cell->get_hash(), merkle_depth).second) {
         need_proof_stat = false;
       } else {
@@ -1242,8 +1262,7 @@ void NewCellStorageStat::dfs(Ref<Cell> cell, unsigned merkle_depth, bool need_st
     }
   }
   if (need_left_mu_stat) {
-    auto tree_node = cell->get_tree_node();
-    if (!tree_node.empty() && tree_node.is_from_tree(usage_tree_)) {
+    if (tree) {
       if (merkle_update_left_stat_) {
         bool add = true;
         if (cell->is_loaded()) {
@@ -1255,7 +1274,8 @@ void NewCellStorageStat::dfs(Ref<Cell> cell, unsigned merkle_depth, bool need_st
           }
         }
         if (add) {
-          usage_tree_->add_path_to_proof_stat(tree_node.node_id(), *merkle_update_left_stat_);
+          // Tentative statistics must not leave committed path marks in the tree.
+          tree->add_path_to_proof_stat(tree_node.node_id(), *merkle_update_left_stat_, parent_ == nullptr);
         }
       }
       need_left_mu_stat = false;
@@ -1303,24 +1323,71 @@ bool VmStorageStat::add_storage(const CellSlice& cs) {
   return true;
 }
 
+void ProofStorageStat::Recorder::begin_epoch(ProofStorageStat* stat) {
+  CHECK(!stat_ && stat);
+  stat_ = stat;
+  previous_callback_ = std::move(stat_->callback_);
+  stat_->callback_ = [this](const Cell::Hash& hash, CellStatus status, td::uint64 size) {
+    journal_.push_back({hash, {status, size}});
+    if (previous_callback_) {
+      previous_callback_(hash, status, size);
+    }
+  };
+}
+
+ProofStorageStat::Recorder::Checkpoint ProofStorageStat::Recorder::checkpoint() const {
+  CHECK(stat_);
+  return journal_.size();
+}
+
+void ProofStorageStat::Recorder::commit_epoch() {
+  CHECK(stat_);
+  stat_->callback_ = std::move(previous_callback_);
+  stat_ = nullptr;
+  journal_.clear();
+}
+
+void ProofStorageStat::Recorder::rollback(Checkpoint checkpoint) {
+  CHECK(stat_ && checkpoint <= journal_.size());
+  for (size_t i = journal_.size(); i > checkpoint; --i) {
+    const auto& change = journal_[i - 1];
+    auto it = stat_->cells_.find(change.hash);
+    CHECK(it != stat_->cells_.end());
+    stat_->proof_size_ -= it->second.second;
+    stat_->proof_size_ += change.previous.second;
+    if (change.previous.first == c_none) {
+      stat_->cells_.erase(it);
+    } else {
+      it->second = change.previous;
+    }
+    journal_.pop_back();
+  }
+}
+
+bool ProofStorageStat::update_cell(const Cell::Hash& hash, CellStatus status, td::uint64 size) {
+  auto& entry = cells_[hash];
+  if (entry.first >= status) {
+    return false;
+  }
+  if (callback_) {
+    callback_(hash, entry.first, entry.second);
+  }
+  proof_size_ -= entry.second;
+  proof_size_ += size;
+  entry = {status, size};
+  return true;
+}
+
 void ProofStorageStat::add_loaded_cell(const Ref<DataCell>& cell, td::uint8 max_level) {
   max_level = std::min<td::uint8>(max_level, Cell::max_level);
-  auto& [status, size] = cells_[cell->get_hash(max_level)];
-  if (status == c_loaded) {
+  if (!update_cell(cell->get_hash(max_level), c_loaded, estimate_serialized_size(cell))) {
     return;
   }
-  proof_size_ -= size;
-  status = c_loaded;
-  proof_size_ += size = estimate_serialized_size(cell);
   max_level += (cell->special_type() == CellTraits::SpecialType::MerkleProof ||
                 cell->special_type() == CellTraits::SpecialType::MerkleUpdate);
   for (unsigned i = 0; i < cell->size_refs(); ++i) {
     auto child = cell->get_ref(i);
-    auto& [child_status, child_size] = cells_[child->get_hash(max_level)];
-    if (child_status == c_none) {
-      child_status = c_prunned;
-      proof_size_ += child_size = estimate_prunned_size(child->get_level_mask().apply(max_level));
-    }
+    update_cell(child->get_hash(max_level), c_prunned, estimate_prunned_size(child->get_level_mask().apply(max_level)));
   }
 }
 
@@ -1331,14 +1398,7 @@ void ProofStorageStat::add_loaded_cell(const Ref<Cell>& cell) {
 
 void ProofStorageStat::add_loaded_cells(const ProofStorageStat& other) {
   for (const auto& [hash, x] : other.cells_) {
-    const auto& [new_status, new_size] = x;
-    auto& [old_status, old_size] = cells_[hash];
-    if (old_status >= new_status) {
-      continue;
-    }
-    proof_size_ -= old_size;
-    old_status = new_status;
-    proof_size_ += old_size = new_size;
+    update_cell(hash, x.first, x.second);
   }
 }
 

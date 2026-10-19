@@ -2553,7 +2553,7 @@ bool DictionaryFixed::scan_diff(DictionaryFixed& dict2, const scan_diff_func_t& 
 
 bool DictionaryFixed::dict_validate_check(Ref<Cell> dict, td::BitPtr key_buffer, int n, int total_key_len,
                                           const DictionaryFixed::foreach_func_t& foreach_func,
-                                          bool invert_first) const {
+                                          bool invert_first, int prefix_len) const {
   //LOG(DEBUG) << "dict_validate_check for " << total_key_len - n << "-bit key prefix " << (key_buffer - n + total_key_len).to_hex(total_key_len - n);
   if (dict.is_null()) {
     return true;
@@ -2582,6 +2582,9 @@ bool DictionaryFixed::dict_validate_check(Ref<Cell> dict, td::BitPtr key_buffer,
                << "-bit key prefix " << (key_buffer + n - total_key_len).to_hex(total_key_len - n - 1);
     return false;
   }
+  if (total_key_len - n - 1 >= prefix_len) {
+    return true;
+  }
   label.remainder.clear();
   if (l) {
     invert_first = false;
@@ -2590,11 +2593,11 @@ bool DictionaryFixed::dict_validate_check(Ref<Cell> dict, td::BitPtr key_buffer,
   }
   key_buffer[-1] = invert_first;
   // recursive check_foreach applied to both children
-  if (!dict_validate_check(std::move(c1), key_buffer, n, total_key_len, foreach_func)) {
+  if (!dict_validate_check(std::move(c1), key_buffer, n, total_key_len, foreach_func, false, prefix_len)) {
     return false;
   }
   key_buffer[-1] = !invert_first;
-  return dict_validate_check(std::move(c2), key_buffer, n, total_key_len, foreach_func);
+  return dict_validate_check(std::move(c2), key_buffer, n, total_key_len, foreach_func, false, prefix_len);
 }
 
 bool DictionaryFixed::validate_check(const DictionaryFixed::foreach_func_t& foreach_func, bool invert_first) {
@@ -2611,6 +2614,16 @@ bool DictionaryFixed::validate_check(const DictionaryFixed::foreach_func_t& fore
 
 bool DictionaryFixed::validate_all() {
   return validate_check([](Ref<CellSlice> value, td::ConstBitPtr key, int n) { return true; }) || invalidate();
+}
+
+bool DictionaryFixed::validate_prefix(int prefix_len) {
+  if (prefix_len < 0 || prefix_len > get_key_bits() || !validate()) {
+    return false;
+  }
+  unsigned char key_buffer[max_key_bytes];
+  return dict_validate_check(
+      get_root_cell(), td::BitPtr{key_buffer}, get_key_bits(), get_key_bits(),
+      [](Ref<CellSlice>, td::ConstBitPtr, int) { return true; }, false, prefix_len);
 }
 
 /*

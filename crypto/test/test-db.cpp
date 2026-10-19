@@ -3574,6 +3574,44 @@ TEST(TonDb, CellStat) {
   }
 }
 
+TEST(TonDb, TentativeMerkleUpdateLeftStat) {
+  vm::CellBuilder root_builder;
+  for (int i = 0; i < 3; ++i) {
+    auto leaf = vm::CellBuilder().store_bytes(std::string(64, 'a' + i)).finalize();
+    root_builder.store_ref(vm::CellBuilder().store_bytes(std::string(64, 'A' + i)).store_ref(leaf).finalize());
+  }
+  auto root = root_builder.finalize();
+  for (unsigned accepted = 0; accepted <= 2; ++accepted) {
+    auto tree = std::make_shared<vm::CellUsageTree>(root);
+    vm::CellSlice cs(vm::NoVm(), vm::UsageCell::create(root, tree->root_ptr()));
+    std::vector<td::Ref<vm::Cell>> states;
+    for (unsigned i = 0; i < 3; ++i) {
+      auto child = vm::load_cell_slice(cs.prefetch_ref(i)).prefetch_ref();
+      states.push_back(vm::CellBuilder().store_ref(child).finalize());
+    }
+    vm::NewCellStorageStat committed;
+    vm::MerkleUpdateLeftStat committed_left;
+    committed.add_proof(states[0], tree.get(), &committed_left);
+    ASSERT_TRUE(committed_left.estimate_proof_size() > 0);
+    auto before = committed_left.estimate_proof_size();
+    auto tentative_left = committed_left;
+    vm::NewCellStorageStat tentative(&committed);
+    td::uint64 expected = before;
+    for (unsigned i = 1; i < states.size(); ++i) {
+      tentative.add_proof(states[i], tree.get(), &tentative_left);
+      if (i == accepted) {
+        expected = tentative_left.estimate_proof_size();
+      }
+    }
+    ASSERT_TRUE(tentative_left.estimate_proof_size() > before);
+    ASSERT_EQ(committed_left.estimate_proof_size(), before);
+    for (unsigned i = 1; i <= accepted; ++i) {
+      committed.add_proof(states[i], tree.get(), &committed_left);
+    }
+    ASSERT_EQ(committed_left.estimate_proof_size(), expected);
+  }
+}
+
 struct String {
   String() {
     total_strings.add(1);

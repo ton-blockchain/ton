@@ -4017,13 +4017,23 @@ bool Transaction::serialize_bounce_phase(vm::CellBuilder& cb) {
  */
 td::Result<vm::NewCellStorageStat::Stat> Transaction::estimate_block_storage_profile_incr(
     const vm::NewCellStorageStat& store_stat, vm::CellUsageTree* usage_tree) const {
+  vm::NewCellStorageStat stat(&store_stat);
+  TRY_STATUS(add_block_storage_profile(stat, usage_tree));
+  return stat.get_total_stat();
+}
+
+td::Status Transaction::add_block_storage_profile(vm::NewCellStorageStat& store_stat,
+                                                 vm::CellUsageTree* usage_tree,
+                                                 vm::MerkleUpdateLeftStat* merkle_update_left_stat) const {
   if (root.is_null()) {
     return td::Status::Error("Cannot estimate the size profile of a transaction before it is serialized");
   }
   if (new_total_state.is_null()) {
     return td::Status::Error("Cannot estimate the size profile of a transaction before its new state is computed");
   }
-  return store_stat.tentative_add_proof(new_total_state, usage_tree) + store_stat.tentative_add_cell(root);
+  store_stat.add_proof(new_total_state, usage_tree, merkle_update_left_stat);
+  store_stat.add_cell(root);
+  return td::Status::OK();
 }
 
 /**
@@ -4155,6 +4165,28 @@ void Transaction::extract_out_msgs(std::vector<LtCellRef>& list) {
   }
 }
 }  // namespace transaction
+
+Account::Checkpoint Account::checkpoint() const {
+  Checkpoint checkpoint;
+  checkpoint.state = static_cast<const AccountStateFields&>(*this);
+  checkpoint.transaction_count = transactions.size();
+  if (account_storage_stat) {
+    checkpoint.storage_stat = account_storage_stat.value().checkpoint();
+  }
+  return checkpoint;
+}
+
+void Account::rollback(Checkpoint&& checkpoint) {
+  CHECK(transactions.size() >= checkpoint.transaction_count);
+  static_cast<AccountStateFields&>(*this) = std::move(checkpoint.state);
+  transactions.resize(checkpoint.transaction_count);
+  if (!checkpoint.storage_stat) {
+    account_storage_stat = {};
+  } else {
+    CHECK(account_storage_stat);
+    account_storage_stat.value().rollback(checkpoint.storage_stat.unwrap());
+  }
+}
 
 /**
  * Adds a transaction to the account's transaction list.

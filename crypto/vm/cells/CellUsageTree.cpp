@@ -103,10 +103,12 @@ void CellUsageTree::mark_path(NodeId node_id) {
   }
 }
 
-void CellUsageTree::add_path_to_proof_stat(NodeId node_id, MerkleUpdateLeftStat& stat) {
+void CellUsageTree::add_path_to_proof_stat(NodeId node_id, MerkleUpdateLeftStat& stat, bool mark) {
   auto cur_node_id = get_parent(node_id);
   while (cur_node_id != 0 && !nodes_[cur_node_id].has_stat_mark) {
-    nodes_[cur_node_id].has_stat_mark = true;
+    if (mark) {
+      nodes_[cur_node_id].has_stat_mark = true;
+    }
     stat.add_loaded_cell(nodes_[cur_node_id].cell, nodes_[cur_node_id].merkle_depth);
     cur_node_id = get_parent(cur_node_id);
   }
@@ -127,7 +129,7 @@ void CellUsageTree::on_load(NodeId node_id, const Cell::LoadedCell& loaded_cell)
   }
   nodes_[node_id].is_loaded = true;
   if (cell_load_callback_) {
-    cell_load_callback_(loaded_cell);
+    cell_load_callback_(node_id, loaded_cell);
   }
 }
 
@@ -153,6 +155,46 @@ CellUsageTree::NodeId CellUsageTree::create_node(NodeId parent_id, Ref<Cell> cel
   CellSlice parent_cs{NoVm{}, parent.cell};
   node.merkle_depth = parent_cs.child_merkle_depth(parent.merkle_depth);
   return res;
+}
+
+void CellUsageTree::set_cell_load_callback(std::function<void(const LoadedCell&)> f) {
+  if (!f) {
+    cell_load_callback_ = {};
+  } else {
+    cell_load_callback_ = std::bind(f, std::placeholders::_2);
+  }
+}
+
+void CellUsageTree::Recorder::begin_epoch(CellUsageTree* tree) {
+  CHECK(!tree_ && tree);
+  tree_ = tree;
+  previous_callback_ = std::move(tree_->cell_load_callback_);
+  tree_->cell_load_callback_ = [this](NodeId node_id, const LoadedCell& cell) {
+    journal_.push_back(node_id);
+    if (previous_callback_) {
+      previous_callback_(node_id, cell);
+    }
+  };
+}
+
+CellUsageTree::Recorder::Checkpoint CellUsageTree::Recorder::checkpoint() const {
+  CHECK(tree_);
+  return journal_.size();
+}
+
+void CellUsageTree::Recorder::commit_epoch() {
+  CHECK(tree_);
+  tree_->cell_load_callback_ = std::move(previous_callback_);
+  tree_ = nullptr;
+  journal_.clear();
+}
+
+void CellUsageTree::Recorder::rollback(Checkpoint checkpoint) {
+  CHECK(tree_ && checkpoint <= journal_.size());
+  for (size_t i = journal_.size(); i > checkpoint; --i) {
+    tree_->nodes_[journal_[i - 1]].is_loaded = false;
+    journal_.pop_back();
+  }
 }
 
 }  // namespace vm
