@@ -64,11 +64,6 @@ void ValidatorManagerImpl::got_next_masterchain_block(ReceivedBlock block, td::P
   UNREACHABLE();
 }
 
-void ValidatorManagerImpl::validate_block_broadcast_signatures(BlockBroadcast broadcast,
-                                                               td::Promise<td::Unit> promise) {
-  UNREACHABLE();
-}
-
 void ValidatorManagerImpl::wait_state_by_prev_blocks(BlockIdExt block_id, std::vector<BlockIdExt> prev_blocks,
                                                      td::Promise<td::Ref<ShardState>> promise) {
   if (prev_blocks.empty() || prev_blocks.size() > 2) {

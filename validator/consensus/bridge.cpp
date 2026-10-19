@@ -53,9 +53,15 @@ class ManagerFacadeImpl : public ManagerFacade {
   td::actor::Task<> accept_block(BlockIdExt id, td::Ref<BlockData> data, size_t creator_idx,
                                  td::Ref<block::BlockSignatureSet> signatures, int finality_broadcast_mode,
                                  bool apply) override {
-    if (send_finality_broadcast) {
+    td::actor::send_closure(manager_, &ValidatorManager::got_block_finality, id, signatures,
+                            BroadcastSource::consensus_overlay, [id](td::Result<> R) {
+                              if (R.is_error()) {
+                                VLOG(validator, WARNING) << "Block finality for " << id << " : " << R.move_as_error();
+                              }
+                            });
+    if (finality_broadcast_mode != 0) {
       td::actor::send_closure(manager_, &ValidatorManager::send_block_finality_broadcast,
-                              BlockFinalityBroadcast{id, signatures}, fullnode::FullNode::broadcast_mode_all);
+                              BlockFinalityBroadcast{id, signatures}, finality_broadcast_mode);
     }
     while (true) {
       auto [task, promise] = td::actor::StartedTask<>::make_bridge();
@@ -83,9 +89,13 @@ class ManagerFacadeImpl : public ManagerFacade {
   }
 
   void cache_block_candidate(BlockCandidate candidate) override {
-    td::actor::send_closure(manager_, &ValidatorManager::new_block_candidate_broadcast, candidate.id,
+    td::actor::send_closure(manager_, &ValidatorManager::add_cached_block_data, candidate.id,
                             validator_set_->get_catchain_seqno(), candidate.data.clone(),
-                            BroadcastSource::consensus_overlay, [](td::Result<>) {});
+                            BroadcastSource::consensus_overlay, [id = candidate.id](td::Result<> R) {
+                              if (R.is_error()) {
+                                VLOG(validator, WARNING) << "Cache block data for " << id << " : " << R.move_as_error();
+                              }
+                            });
   }
 
   void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) override {
