@@ -371,6 +371,17 @@ void ValidatorManagerImpl::wait_block_state_short(BlockIdExt block_id, td::uint3
   get_block_handle(block_id, true, std::move(P));
 }
 
+void ValidatorManagerImpl::wait_neighbor_msg_queue_proofs(
+    ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
+    td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) {
+  if (out_msg_queue_importer_.empty()) {
+    out_msg_queue_importer_ = td::actor::create_actor<OutMsgQueueImporter>("outmsgqueueimporter", actor_id(this), opts_,
+                                                                           last_masterchain_state_);
+  }
+  td::actor::send_closure(out_msg_queue_importer_, &OutMsgQueueImporter::get_neighbor_msg_queue_proofs, dst_shard,
+                          std::move(blocks), timeout, std::move(promise));
+}
+
 void ValidatorManagerImpl::wait_block_data(BlockHandle handle, td::uint32 priority, td::Timestamp timeout,
                                            td::Promise<td::Ref<BlockData>> promise) {
   auto it = wait_block_data_.find(handle->id());
@@ -943,22 +954,45 @@ void ValidatorManagerImpl::start_up() {
 
   auto P = td::PromiseCreator::lambda([SelfId = actor_id(this)](td::Result<ValidatorManagerInitResult> R) {
     R.ensure();
-    td::actor::send_closure(SelfId, &ValidatorManagerImpl::started, R.move_as_ok());
+    td::actor::ask(SelfId, &ValidatorManagerImpl::started, R.move_as_ok())
+        .detach_ensure("ValidatorManagerImpl::started");
   });
 
   validator_manager_init(opts_, actor_id(this), db_.get(), std::move(P));
 }
 
-void ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
-  LOG(DEBUG) << "started()";
+td::actor::Task<> ValidatorManagerImpl::started(ValidatorManagerInitResult R) {
   last_masterchain_block_handle_ = std::move(R.handle);
   last_masterchain_block_id_ = last_masterchain_block_handle_->id();
   last_masterchain_seqno_ = last_masterchain_block_id_.id.seqno;
   last_masterchain_state_ = std::move(R.state);
+  LOG(INFO) << "started, last mc block seqno is " << last_masterchain_seqno_;
 
-  //new_masterchain_block();
+  auto S = co_await start_up_advance_mc().wrap();
+  if (S.is_error()) {
+    VLOG(validator, ERROR) << "Initial advancing of masterchain: " << S.move_as_error();
+  }
 
   callback_->initial_read_complete(last_masterchain_block_handle_);
+  co_return {};
+}
+
+td::actor::Task<> ValidatorManagerImpl::start_up_advance_mc() {
+  while (last_masterchain_block_handle_->inited_next()) {
+    auto next_handle = co_await td::actor::ask(actor_id(this), &ValidatorManager::get_block_handle,
+                                               last_masterchain_block_handle_->one_next(true), true);
+    if (!next_handle->is_applied()) {
+      break;
+    }
+    auto data = co_await td::actor::ask(actor_id(this), &ValidatorManager::get_block_data, next_handle);
+    auto block = CO_TRY(create_block(next_handle->id(), std::move(data)));
+    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+    run_apply_block_query(next_handle->id(), block, next_handle->id(), actor_id(this), td::Timestamp::in(10.0),
+                          std::move(promise));
+    co_await std::move(task);
+    LOG(INFO) << "Initial advancing mc to seqno " << next_handle->id().seqno();
+  }
+  co_return {};
 }
 
 void ValidatorManagerImpl::update_shards() {

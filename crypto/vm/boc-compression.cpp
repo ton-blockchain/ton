@@ -156,6 +156,17 @@ td::Result<td::BufferSlice> boc_compress_improved_structure_lz4(const std::vecto
     auto cell_hash = cell->get_hash();
     auto it = cell_hashes.find(cell_hash);
     if (it != cell_hashes.end()) {
+      // The graph node is stored only once, but balance aggregation is per edge.
+      // A repeated right node must still contribute its diff against the left
+      // node paired with this particular occurrence.
+      if (under_mu_right && left_cell.not_null() && sum_diff_out) {
+        vm::CellSlice cs_left(NoVm(), left_cell);
+        vm::CellSlice cs_right(NoVm(), cell);
+        td::RefInt256 vertex_diff = process_shard_accounts_vertex(cs_left, cs_right);
+        if (vertex_diff.not_null()) {
+          *sum_diff_out += vertex_diff;
+        }
+      }
       return it->second;
     }
 

@@ -234,11 +234,11 @@ class StaticBagOfCellsDbLazyImpl : public StaticBagOfCellsDb {
   }
   template <class T>
   T check_result(T&& to_check) {
-    CHECK(!has_error_.load());
     if (to_check.is_error()) {
-      std::lock_guard<std::mutex> guard(status_mutex_);
-      has_error_.store(true);
-      status_ = to_check.error().clone();
+      std::lock_guard guard(status_mutex_);
+      if (!has_error_.exchange(true)) {
+        status_ = to_check.error().clone();
+      }
     }
     return std::forward<T>(to_check);
   }

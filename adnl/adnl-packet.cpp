@@ -90,7 +90,10 @@ td::Status AdnlPacket::run_basic_checks() const {
     return td::Status::Error(ErrorCode::protoviolation, "bad flags");
   }
   if ((flags_ & Flags::f_one_message) && (flags_ & Flags::f_mult_messages)) {
-    return td::Status::Error(ErrorCode::protoviolation, "both flags 0x4 and 0x8 set");
+    return td::Status::Error(ErrorCode::protoviolation, "both flags one_message and mult_messages are set");
+  }
+  if ((flags_ & Flags::f_one_message) && messages_.size() != 1) {
+    return td::Status::Error(ErrorCode::protoviolation, "flag one_message is set, but cumber of messages != 1");
   }
   if ((flags_ & Flags::f_from) && (flags_ & Flags::f_from_short) && from_.compute_short_id() != from_short_) {
     return td::Status::Error(ErrorCode::protoviolation, "source and short source mismatch");
@@ -120,7 +123,6 @@ td::BufferSlice AdnlPacket::to_sign() const {
   auto obj = tl();
   obj->signature_.clear();
   obj->flags_ &= ~Flags::f_signature;
-  CHECK(obj->signature_.size() == 0);
   return serialize_tl_object(obj, true);
 }
 

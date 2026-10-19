@@ -34,6 +34,8 @@
 namespace block {
 using namespace std::literals::string_literals;
 
+static constexpr td::uint64 max_total_validator_weight = 1ULL << 61;
+
 td::Result<PublicKey> PublicKey::from_bytes(td::Slice key) {
   if (key.size() != 32) {
     return td::Status::Error("Ed25519 public key must be exactly 32 bytes long");
@@ -745,7 +747,8 @@ td::uint64 BlockLimitStatus::estimate_block_size(const vm::NewCellStorageStat::S
     sum += *extra;
   }
   return 2000 + (sum.bits >> 3) + sum.cells * 12 + sum.internal_refs * 3 + sum.external_refs * 40 + transactions * 200 +
-         (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700;
+         (extra ? 200 : 0) + extra_out_msgs * 300 + public_library_diff * 700 +
+         merkle_update_left_stat.estimate_proof_size();
 }
 
 int BlockLimitStatus::classify() const {
@@ -1907,6 +1910,19 @@ bool valid_config_data(Ref<vm::Cell> cell, const td::BitArray<256>& addr, bool c
       return false;
     }
   }
+  for (int param : {32, 34, 36}) {
+    auto cell = dict.lookup_ref(td::BitArray<32>(param));
+    if (cell.not_null()) {
+      auto R = Config::unpack_validator_set(cell);
+      if (R.is_error()) {
+        return false;
+      }
+      auto val_set = R.move_as_ok();
+      if (val_set->total_weight > max_total_validator_weight) {
+        return false;
+      }
+    }
+  }
   return config_params_present(dict, dict.lookup_ref(td::BitArray<32>{9})) &&
          config_params_present(dict, std::move(old_mparams));
 }
@@ -2205,8 +2221,9 @@ bool check_old_mc_block_id(vm::AugmentedDictionary& prev_blocks_dict, const ton:
          old_blkid == blkid;
 }
 
-td::Result<Ref<vm::Cell>> get_block_transaction(Ref<vm::Cell> block_root, ton::WorkchainId workchain,
+td::Result<Ref<vm::Cell>> get_block_transaction(Ref<vm::Cell> block_root, ton::BlockIdExt block_id,
                                                 const ton::StdSmcAddress& addr, ton::LogicalTime lt) {
+  TRY_STATUS(get_block_header_info(block_root, block_id));  // Visit cells for proof
   block::gen::Block::Record block;
   block::gen::BlockInfo::Record info;
   if (!(tlb::unpack_cell(std::move(block_root), block) && tlb::unpack_cell(std::move(block.info), info))) {
@@ -2236,10 +2253,10 @@ td::Result<Ref<vm::Cell>> get_block_transaction(Ref<vm::Cell> block_root, ton::W
   return Ref<vm::Cell>{};
 }
 
-td::Result<Ref<vm::Cell>> get_block_transaction_try(Ref<vm::Cell> block_root, ton::WorkchainId workchain,
+td::Result<Ref<vm::Cell>> get_block_transaction_try(Ref<vm::Cell> block_root, ton::BlockIdExt block_id,
                                                     const ton::StdSmcAddress& addr, ton::LogicalTime lt) {
   try {
-    return get_block_transaction(std::move(block_root), workchain, addr, lt);
+    return get_block_transaction(std::move(block_root), block_id, addr, lt);
   } catch (vm::VmError& err) {
     return td::Status::Error(std::string{"error while extracting transaction from block : "} + err.get_msg());
   } catch (vm::VmVirtError& err) {

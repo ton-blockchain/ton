@@ -78,7 +78,9 @@ struct CollatorOptions : public td::CntObject {
   // Ignore collated data size limits from block limits and catchain config
   bool ignore_collated_data_limits = false;
 
-  // Override limits from config
+  // Override limits from config (params 22/23)
+  // Use with caution: validate-query checks hard limits for gas and lt_delta
+  // Bytes and collated data are limited by values in ConfigParam 29
   std::optional<block::ParamLimits> block_limits_bytes;
   std::optional<block::ParamLimits> block_limits_gas;
   std::optional<block::ParamLimits> block_limits_lt_delta;
@@ -88,6 +90,8 @@ struct CollatorOptions : public td::CntObject {
 struct CollatorsList : public td::CntObject {
   std::vector<adnl::AdnlNodeIdShort> collators;
   std::vector<adnl::AdnlNodeIdShort> register_collators;
+
+  // disable_self_collate exists primarily for testing. It is not expected to be set in production.
   bool disable_self_collate = false;
 
   td::Status unpack(const ton_api::engine_validator_collatorsList& obj);

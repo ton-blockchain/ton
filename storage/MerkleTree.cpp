@@ -173,8 +173,8 @@ td::Result<td::Ref<vm::Cell>> MerkleTree::gen_proof(size_t l, size_t r) const {
   if (root_proof_.is_null()) {
     return td::Status::Error("Got no proofs yet");
   }
-  auto usage_tree = std::make_shared<vm::CellUsageTree>();
   TRY_RESULT(root_raw, vm::MerkleProof::virtualize(root_proof_));
+  auto usage_tree = std::make_shared<vm::CellUsageTree>(root_raw);
   auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
   TRY_STATUS(TRY_VM(do_gen_proof(std::move(usage_cell), 0, n_ - 1, l, r)));
   return vm::MerkleProof::generate(root_raw, usage_tree.get());
@@ -199,8 +199,8 @@ td::Ref<vm::Cell> MerkleTree::get_root(size_t depth_limit) const {
   if (depth_limit > depth_ || root_proof_.is_null()) {
     return root_proof_;
   }
-  auto usage_tree = std::make_shared<vm::CellUsageTree>();
   auto root_raw = vm::MerkleProof::virtualize(root_proof_).ensure().move_as_ok();
+  auto usage_tree = std::make_shared<vm::CellUsageTree>(root_raw);
   auto usage_cell = vm::UsageCell::create(root_raw, usage_tree->root_ptr());
   do_gen_proof(std::move(usage_cell), unpack_proof(root_proof_).move_as_ok(), depth_limit);
   auto res = vm::MerkleProof::generate(root_raw, usage_tree.get()).ensure().move_as_ok();

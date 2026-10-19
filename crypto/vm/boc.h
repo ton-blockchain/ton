@@ -31,8 +31,12 @@
 #include "vm/cells.h"
 #include "vm/db/DynamicBagOfCellsDb.h"
 
+#include "utils.h"
+
 namespace vm {
 using td::Ref;
+
+class MerkleUpdateLeftStat;
 
 class NewCellStorageStat {
  public:
@@ -90,24 +94,26 @@ class NewCellStorageStat {
   }
 
   void add_cell(Ref<Cell> cell);
-  void add_proof(Ref<Cell> cell, const CellUsageTree* usage_tree);
-  void add_cell_and_proof(Ref<Cell> cell, const CellUsageTree* usage_tree);
+  void add_proof(Ref<Cell> cell, CellUsageTree* usage_tree, MerkleUpdateLeftStat* merkle_update_left_stat = nullptr);
+  void add_cell_and_proof(Ref<Cell> cell, CellUsageTree* usage_tree);
   Stat tentative_add_cell(Ref<Cell> cell) const;
-  Stat tentative_add_proof(Ref<Cell> cell, const CellUsageTree* usage_tree) const;
+  Stat tentative_add_proof(Ref<Cell> cell, CellUsageTree* usage_tree) const;
   void set_zero() {
     stat_.set_zero();
     proof_stat_.set_zero();
   }
 
  private:
-  const CellUsageTree* usage_tree_;
-  td::HashSet<vm::Cell::Hash> seen_;
+  CellUsageTree* usage_tree_;
+  td::HashSet<Cell::Hash> seen_;
   Stat stat_;
-  td::HashSet<vm::Cell::Hash> proof_seen_;
+  td::HashSet<std::pair<Cell::Hash, unsigned>> proof_seen_;  // hash, merkle_depth
   Stat proof_stat_;
+  td::HashSet<Ref<Cell>, RefCellHash> mu_left_seen_;  // Compare actual Cell objects, not hashes
+  MerkleUpdateLeftStat* merkle_update_left_stat_ = nullptr;
   const NewCellStorageStat* parent_{nullptr};
 
-  void dfs(Ref<Cell> cell, bool need_stat, bool need_proof_stat);
+  void dfs(Ref<Cell> cell, unsigned merkle_depth, bool need_stat, bool need_proof_stat, bool need_left_mu_stat);
 };
 
 struct CellStorageStat {
@@ -167,6 +173,7 @@ struct VmStorageStat {
 class ProofStorageStat {
  public:
   void add_loaded_cell(const Ref<DataCell>& cell, td::uint8 max_level = Cell::max_level);
+  void add_loaded_cell(const Ref<Cell>& cell);
   void add_loaded_cells(const ProofStorageStat& other);
   td::uint64 estimate_proof_size() const;
 
@@ -176,11 +183,26 @@ class ProofStorageStat {
     return get_cell_status(hash) == c_loaded;
   }
 
-  static td::uint64 estimate_prunned_size();
+  static td::uint64 estimate_prunned_size(const detail::LevelMask& level_mask);
   static td::uint64 estimate_serialized_size(const Ref<DataCell>& cell);
 
  private:
   td::HashMap<Cell::Hash, std::pair<CellStatus, td::uint64>> cells_;
+  td::uint64 proof_size_ = 0;
+};
+
+class MerkleUpdateLeftStat {
+ public:
+  void add_loaded_cell(const Ref<Cell>& cell, unsigned merkle_depth);
+  td::uint64 estimate_proof_size() const;
+
+ private:
+  enum CellStatus { c_none = 0, c_prunned = 1, c_loaded = 2 };
+  struct CellInfo {
+    CellStatus status = c_none;
+    td::uint64 size = 0;
+  };
+  td::HashMap<std::pair<Cell::Hash, unsigned>, CellInfo> cells_;
   td::uint64 proof_size_ = 0;
 };
 

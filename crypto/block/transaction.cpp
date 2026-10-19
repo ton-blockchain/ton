@@ -4016,7 +4016,7 @@ bool Transaction::serialize_bounce_phase(vm::CellBuilder& cb) {
  *          Returns Error if the transaction is not serialized or if its new state is not computed.
  */
 td::Result<vm::NewCellStorageStat::Stat> Transaction::estimate_block_storage_profile_incr(
-    const vm::NewCellStorageStat& store_stat, const vm::CellUsageTree* usage_tree) const {
+    const vm::NewCellStorageStat& store_stat, vm::CellUsageTree* usage_tree) const {
   if (root.is_null()) {
     return td::Status::Error("Cannot estimate the size profile of a transaction before it is serialized");
   }

@@ -2509,7 +2509,7 @@ void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt bl
       LOG(ERROR) << "error in transaction block header proof : " << res1.move_as_error().to_string();
       return;
     }
-    auto trans_root_res = block::get_block_transaction_try(std::move(block_root), workchain, addr, trans_lt);
+    auto trans_root_res = block::get_block_transaction_try(std::move(block_root), blkid, addr, trans_lt);
     if (trans_root_res.is_error()) {
       LOG(ERROR) << trans_root_res.move_as_error().message();
       return;

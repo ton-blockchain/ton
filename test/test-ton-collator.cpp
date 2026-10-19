@@ -53,6 +53,8 @@
 #include <iostream>
 #include <sstream>
 
+#include "td/utils/port/rlimit.h"
+
 int verbosity;
 
 struct IntError {
@@ -360,6 +362,7 @@ int parse_hex_digit(int c) {
 int main(int argc, char *argv[]) {
   SET_VERBOSITY_LEVEL(verbosity_INFO);
   td::set_default_failure_signal_handler().ensure();
+  LOG_STATUS(td::change_maximize_rlimit(td::RlimitType::nofile, 3145728));
 
   vm::init_vm().ensure();
 
