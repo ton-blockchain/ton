@@ -211,13 +211,6 @@ void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_ex
   process_external_message_broadcast(query, [](td::Result<td::Unit>) {});
 }
 
-void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newShardBlockBroadcast &query) {
-  BlockIdExt block_id = create_block_id(query.block_->block_);
-  VLOG(full_node, DEBUG) << "Received newShardBlockBroadcast from " << src << ": " << block_id;
-  td::actor::send_closure(full_node_, &FullNode::process_shard_block_info_broadcast, block_id, query.block_->cc_seqno_,
-                          std::move(query.block_->data_), false);
-}
-
 void FullNodeShardImpl::process_broadcast(PublicKeyHash src, ton_api::tonNode_newBlockCandidateBroadcast &query) {
   process_block_candidate_broadcast(src, query);
 }
