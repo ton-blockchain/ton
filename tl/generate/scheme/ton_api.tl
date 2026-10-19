@@ -376,10 +376,6 @@ tonNode.newBlockCandidateBroadcastCompressed id:tonNode.blockIdExt catchain_seqn
 tonNode.newBlockCandidateBroadcastCompressedV2 id:tonNode.blockIdExt catchain_seqno:int validator_set_hash:int
               collator_signature:tonNode.blockSignature flags:# compressed:bytes = tonNode.Broadcast;
 
-// optimistic broadcast of response to tonNode.getOutMsgQueueProof with dst_shard, block and limits arguments
-tonNode.outMsgQueueProofBroadcast dst_shard:tonNode.shardId block:tonNode.blockIdExt
-              limits:ImportedMsgQueueLimits proof:tonNode.OutMsgQueueProof = tonNode.Broadcast;
-
 tonNode.shardPublicOverlayId workchain:int shard:long zero_state_file_hash:int256 = tonNode.ShardPublicOverlayId;
 
 tonNode.privateBlockOverlayId zero_state_file_hash:int256 nodes:(vector int256) = tonNode.PrivateBlockOverlayId;
