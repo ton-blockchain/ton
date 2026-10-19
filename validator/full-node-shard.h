@@ -40,7 +40,6 @@ class FullNodeShard : public td::actor::Actor {
   virtual void send_external_message(td::BufferSlice data) = 0;
   virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                     td::BufferSlice data) = 0;
-  virtual void send_broadcast(BlockBroadcast broadcast) = 0;
   virtual void send_block_finality_broadcast(BlockFinalityBroadcast finality) = 0;
 
   virtual void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert,
