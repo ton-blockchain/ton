@@ -30,7 +30,7 @@ td::Result<td::BufferSlice> compress_candidate_data(td::Slice block, td::Slice c
     return td::Status::Error("block candidate should have exactly one root");
   }
   std::vector<td::Ref<vm::Cell>> roots = {boc1.get_root_cell()};
-  TRY_RESULT(collated_roots, vm::std_boc_deserialize_multi(collated_data));
+  TRY_RESULT(collated_roots, vm::std_boc_deserialize_multi(collated_data, vm::BagOfCells::default_max_roots, true));
   roots.insert(roots.end(), collated_roots.begin(), collated_roots.end());
   auto t_compression_start = td::Time::now();
   TRY_RESULT(data, vm::std_boc_serialize_multi(std::move(roots), 2));
@@ -56,7 +56,7 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
     if (decompressed.size() != (size_t)decompressed_size) {
       return td::Status::Error("decompressed size mismatch");
     }
-    TRY_RESULT_ASSIGN(roots, vm::std_boc_deserialize_multi(decompressed));
+    TRY_RESULT_ASSIGN(roots, vm::std_boc_deserialize_multi(decompressed, vm::BagOfCells::default_max_roots, true));
     VLOG(VALIDATOR_SESSION_BENCHMARK) << "Broadcast_benchmark deserialize_candidate block_id=" << root_hash.to_hex()
                                       << " called_from=" << called_from
                                       << " time_sec=" << (td::Time::now() - t_decompression_start)
@@ -72,6 +72,9 @@ td::Result<std::pair<td::BufferSlice, td::BufferSlice>> decompress_candidate_dat
   }
   if (roots.empty()) {
     return td::Status::Error("boc is empty");
+  }
+  if (roots[0]->get_level() > 0) {
+    return td::Status::Error("block root has nonzero level");
   }
   TRY_RESULT(block_data, vm::std_boc_serialize(roots[0], 31));
   roots.erase(roots.begin());

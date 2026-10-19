@@ -49,7 +49,7 @@ jobs:
       - name: Download and unzip arm64 artifacts
         uses: dawidd6/action-download-artifact@bf251b5aa9c2f7eeb574a96ee720e24f801b7c11 # v6
         with:
-          workflow: build-ton-macos-14-arm64-portable.yml
+          workflow: build-ton-macos-15-arm64-portable.yml
           path: artifacts
           workflow_conclusion: success
           branch: master
@@ -85,14 +85,15 @@ jobs:
 
       - name: Create release
         id: create_release
-        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # v1.1.4
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ inputs.tag }}
-          release_name: ${{ inputs.tag }}
-          draft: false
-          prerelease: false
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --notes ""
 
       # upload
 

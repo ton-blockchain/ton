@@ -26,4 +26,10 @@ namespace vm {
 td::Result<std::vector<vm::StackEntry>> parse_stack_entries(td::Slice str, bool prefix_only = false);
 td::Result<vm::StackEntry> parse_stack_entry(td::Slice str, bool prefix_only = false);
 
+struct RefCellHash {
+  size_t operator()(const Ref<Cell>& value) const {
+    return std::hash<const void*>()(value.get());
+  }
+};
+
 }  // namespace vm

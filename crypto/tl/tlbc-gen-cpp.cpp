@@ -2341,6 +2341,29 @@ void CppTypeCode::generate_print_cons_method(std::ostream& os, std::string nl, i
 
 void CppTypeCode::generate_print_method(std::ostream& os, int options) {
   bool ret_ext = options & 2;
+  if (!ret_ext) {
+    std::string name = type.get_name();
+    if (name == "HashmapE") {
+      os << "\nbool " << cpp_type_class_name << "::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {\n"
+         << "  return tlb::print_hashmap(pp, cs, m_, *this, X_, false);\n}\n";
+      return;
+    }
+    if (name == "Hashmap") {
+      os << "\nbool " << cpp_type_class_name << "::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {\n"
+         << "  return tlb::print_hashmap(pp, cs, m_, *this, X_, true);\n}\n";
+      return;
+    }
+    if (name == "HashmapAugE") {
+      os << "\nbool " << cpp_type_class_name << "::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {\n"
+         << "  return tlb::print_hashmap_aug(pp, cs, m_, *this, X_, Y_, false);\n}\n";
+      return;
+    }
+    if (name == "HashmapAug") {
+      os << "\nbool " << cpp_type_class_name << "::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {\n"
+         << "  return tlb::print_hashmap_aug(pp, cs, m_, *this, X_, Y_, true);\n}\n";
+      return;
+    }
+  }
   os << "\nbool " << cpp_type_class_name << "::print_skip(PrettyPrinter& pp, vm::CellSlice& cs";
   if (ret_ext) {
     os << skip_extra_args;

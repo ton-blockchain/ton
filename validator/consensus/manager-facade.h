@@ -6,14 +6,15 @@
 
 #pragma once
 
+#include "metrics/consensus-metrics.h"
 #include "validator/fabric.h"
 
 namespace ton::validator::consensus {
 
 class ManagerFacade : public td::actor::Actor {
  public:
-  virtual td::actor::Task<BlockCandidate> collate_block(CollateParams params,
-                                                        td::CancellationToken cancellation_token) = 0;
+  virtual td::actor::Task<GeneratedCandidate> collate_block(CollateParams params,
+                                                            td::CancellationToken cancellation_token) = 0;
 
   virtual td::actor::Task<ValidateCandidateResult> validate_block_candidate(BlockCandidate candidate,
                                                                             ValidateParams params,
@@ -30,6 +31,11 @@ class ManagerFacade : public td::actor::Actor {
   }
 
   virtual void send_block_candidate_broadcast(BlockIdExt id, td::BufferSlice data, int mode) {
+  }
+
+  virtual td::actor::Task<double> get_sync_delay() = 0;
+
+  virtual void report_consensus_metrics(metrics::ConsensusMetrics metrics) {
   }
 };
 

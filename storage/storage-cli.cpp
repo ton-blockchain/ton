@@ -137,8 +137,7 @@ class StorageCli : public td::actor::Actor {
 
     td::mkdir(options_.db_root).ignore();
     keyring_ = ton::keyring::Keyring::create(options_.db_root + "/keyring");
-    adnl_network_manager_ =
-        ton::adnl::AdnlNetworkManager::create(td::narrow_cast<td::uint16>(options_.addr.get_port()));
+    adnl_network_manager_ = ton::adnl::AdnlNetworkManager::create();
     adnl_ = ton::adnl::Adnl::create(options_.db_root, keyring_.get());
     td::actor::send_closure(adnl_, &ton::adnl::Adnl::register_network_manager, adnl_network_manager_.get());
     rldp_ = ton_rldp::Rldp::create(adnl_.get());

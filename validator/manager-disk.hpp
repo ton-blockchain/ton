@@ -166,9 +166,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                               td::Promise<td::Ref<ShardState>> promise) override;
   void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
-                                      td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override {
-    UNREACHABLE();
-  }
+                                      td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override;
 
   void set_block_data(BlockHandle handle, td::Ref<BlockData> data, td::Promise<td::Unit> promise) override;
   void wait_block_data(BlockHandle handle, td::uint32 priority, td::Timestamp,
@@ -208,8 +206,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) override;
   void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                      td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
-  void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
-                                  std::vector<ExtMessage::Hash> to_delete) override;
   void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) override;
 
   //void set_first_block(ZeroStateIdExt state, BlockIdExt block, td::Promise<td::Unit> promise) override;
@@ -306,7 +302,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void finished_wait_data(BlockIdExt id, td::Result<td::Ref<BlockData>> R);
 
   void start_up() override;
-  void started(ValidatorManagerInitResult result);
+  td::actor::Task<> started(ValidatorManagerInitResult result);
+  td::actor::Task<> start_up_advance_mc();
 
   void write_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
                   td::Ref<block::ValidatorSet> val_set);
@@ -428,6 +425,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shard_blocks();
   void dec_pending_new_blocks();
   ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set);
+
+  td::actor::ActorOwn<OutMsgQueueImporter> out_msg_queue_importer_;
 };
 
 }  // namespace validator

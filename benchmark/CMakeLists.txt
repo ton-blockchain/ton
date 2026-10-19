@@ -11,3 +11,5 @@ add_executable(bench-spam spam.cpp common.cpp common.h)
 target_include_directories(bench-spam PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/..)
 # lite-client-common pulls in tdactor, adnllite, tl_api, tl_lite_api, tl-lite-utils.
 target_link_libraries(bench-spam PRIVATE tdutils ton_crypto ton_block lite-client-common)
+
+add_subdirectory(collation)

@@ -22,9 +22,10 @@ Hardware: /mnt/bench = 4TB Samsung 990 PRO (ext4, noatime). All big artifacts li
 4. **`bench-spam`** (C++, `benchmark/spam.cpp`): pre-signs wallet-v5 externals doing
    jetton transfers, sends via liteserver at a configured rate, tracks inclusion by
    scanning new blocks, reports TPS/latency/block stats (JSON + CSV).
-5. **Orchestration**: `benchmark/bench_jetton.py` — builds network on /mnt/bench,
-   checkpoints the master celldb into the node dir (RocksDB Checkpoint = hardlinks),
-   starts node, runs bench-spam, collects results.
+5. **Orchestration**: manual — the standalone `bench_jetton.py` driver was removed.
+   Generate the master celldb with `bench-state-gen gen`, `--checkpoint` it into the node
+   dir (RocksDB Checkpoint = hardlinks), start the tontester network on that state, run
+   `bench-spam` against its liteserver, and collect its JSON/CSV output.
 
 ## State composition (defaults, CLI-overridable)
 
@@ -91,36 +92,6 @@ Hardware: /mnt/bench = 4TB Samsung 990 PRO (ext4, noatime). All big artifacts li
 - `--checkpoint <src> <dst>` subcommand: RocksDB Checkpoint (hardlink copy) so each
   network run gets a disposable celldb.
 
-### Dictionary-layer bundles (`--bundle-depth B`, default 5, 0 = off)
-
-Problem: at 208GB every accounts-dict descent costs ~13 serial ~8KB reads (one per
-dict level) although the device reads >=4KB anyway. Fix: group ~B key-bit levels of
-the dict into one record. New celldb value variant "bundle"
-(`vm::CellStorer::kBundleTag = -2`, exact layout in crypto/vm/db/CellStorage.cpp
-`parse_bundle`): under the bundle-root's hash we store the root plus all inlined
-descendants as a flat slab (children-before-parents, internal refs by index,
-external refs as level_mask+hash+depth exactly like plain-record children). One read
-materializes the slab as real DataCells; ext cells are created only at the cut.
-
-- Bundle roots: dict nodes whose edge start bit crosses a `B`-bit window boundary
-  (the dict root always is one). Slab = all dict nodes in the same window, plus at
-  each dict leaf the ShardAccount -> Account -> data-root chain. Shared cells
-  (contract code, empty cell, ballast chain cells past the head) stay external.
-- Bundles are ADDITIVE: every cell still has its plain record (loadable by hash);
-  only the bundle root's key carries the bundle value instead of a plain one
-  (the merge phase prefers the bundle on duplicate hashes).
-- GC/refcnt: generator writes refcnt 1<<30 in bundle records too. The validator
-  NEVER writes bundles (only the generator does); a block that modifies a dict node
-  produces a NEW hash -> a plain record; the stale bundle under the old root hash
-  just lingers with its huge refcnt (refcnt merges handle the -2 tag, see
-  CellStorer::merge_value_and_refcnt_diff). Cells referenced by new blocks get
-  their refcnt bumped on their standalone plain records as before. celldb's
-  compress-depth migration explicitly skips bundle records (validator/db/celldb.cpp).
-- Aging: as blocks rewrite the hot dict paths, descents increasingly hit per-cell
-  plain records for the rewritten top levels and bundles only below the rewrite
-  frontier; long-running networks gradually lose the read advantage on hot paths
-  (fine for benchmark runs measured in minutes).
-
 ## Manifest (manifest.json, written by generator, read by python + bench-spam)
 
 ```json
@@ -174,7 +145,7 @@ re-reading state. results.json schema (approximate, tool may extend):
  "blocks":[{"seqno":…,"utime":…,"observed_at_unix_ms":…,"n_txs":…}, …]}
 ```
 
-The orchestrator (`benchmark/bench_jetton.py`) needs from tontester:
+The orchestrator (`test/integration/bench_jetton.py`) needs from tontester:
 `FullNode.liteserver_endpoint()` → (host, port, pubkey_b64).
 
 ## Build

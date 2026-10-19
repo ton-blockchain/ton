@@ -34,6 +34,10 @@ void PrometheusExporter::listen(td::IPAddress addr) {
   http_ = td::actor::create_actor<http::HttpServer>(PSTRING() << "HTTP@" << addr, addr, std::move(callback));
 }
 
+void PrometheusExporter::ready() {
+  ready_ = true;
+}
+
 void PrometheusExporter::start_up() {
   add(actor_id(this), &PrometheusExporter::collect);
 }
@@ -41,8 +45,8 @@ void PrometheusExporter::start_up() {
 td::actor::Task<metrics::MetricSet> PrometheusExporter::gather() {
   metrics::Sink sink;
   auto root = metrics::Context{sink}.with_name(prefix_);  // every metric gets the top prefix (e.g. ton_)
-  auto collectors = collectors_;  // add() may run and reallocate collectors_ across a suspension
-  for (auto &collector : collectors) {
+  // ready() sealed the vector before a gather could start, so it stays stable across suspensions.
+  for (auto &collector : collectors_) {
     co_await collector(root);
   }
   co_return std::move(sink).build();
@@ -66,8 +70,8 @@ void PrometheusExporter::PerfCounters::collect(metrics::Context ctx) const {
 }
 
 td::actor::Task<> PrometheusExporter::collect_and_respond() {
-  auto started_at = td::UTCClock::now();
-  stats_.last_collection_timestamp.set(started_at);
+  auto started_at = td::SteadyClock::now();
+  stats_.collections.inc();
   // Wrapped, not propagated: a collector that fails must not leave the single flight held and the
   // waiting scrapers unanswered, which would wedge this endpoint for good.
   auto r_set = co_await gather().wrap();
@@ -85,8 +89,8 @@ td::actor::Task<> PrometheusExporter::collect_and_respond() {
     co_return {};
   }
 
-  auto body = metrics::Exposition{.main_set = r_set.move_as_ok()}.render();
-  stats_.last_collection_duration.set(td::UTCClock::now() - started_at);
+  auto body = td::BufferSlice{metrics::Exposition{.main_set = r_set.move_as_ok()}.render()};
+  stats_.last_collection_duration.set(td::SteadyClock::now() - started_at);
   for (auto &promise : waiting) {
     // Built, filled and completed before the connection actor is handed it: the payload is never
     // shared while still mutable, so there is nothing for the two actors to race over.
@@ -95,7 +99,7 @@ td::actor::Task<> PrometheusExporter::collect_and_respond() {
     response->add_header({"Content-Type", "application/openmetrics-text; version=1.0.0; charset=utf-8"});
     response->complete_parse_header();
     auto payload = response->create_empty_payload().move_as_ok();
-    payload->add_chunk(td::BufferSlice{body});
+    payload->add_chunk(body.clone());
     payload->complete_parse();
     promise.set_value(std::pair{std::move(response), std::move(payload)});
   }
@@ -111,8 +115,13 @@ void PrometheusExporter::on_request(RequestPtr request, PayloadPtr payload, http
     http::answer_error(http::status_method_not_allowed, "", std::move(promise));
     return;
   }
+  if (!ready_) {
+    // Subsystems are still registering, so a gather now would render whichever collectors happened
+    // to be there; the families missing from it would appear one scrape later as rate() artifacts.
+    http::answer_error(http::status_service_unavailable, "", std::move(promise));
+    return;
+  }
 
-  stats_.collections.inc();
   bool idle = waiting_.empty();
   waiting_.push_back(std::move(promise));
   if (idle) {

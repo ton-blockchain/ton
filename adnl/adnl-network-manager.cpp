@@ -25,8 +25,8 @@ namespace ton {
 
 namespace adnl {
 
-td::actor::ActorOwn<AdnlNetworkManager> AdnlNetworkManager::create(td::uint16 port) {
-  return td::actor::create_actor<AdnlNetworkManagerImpl>("NetworkManager", port);
+td::actor::ActorOwn<AdnlNetworkManager> AdnlNetworkManager::create() {
+  return td::actor::create_actor<AdnlNetworkManagerImpl>("NetworkManager");
 }
 
 AdnlNetworkManagerImpl::OutDesc *AdnlNetworkManagerImpl::choose_out_iface(td::uint8 cat, td::uint32 priority) {
@@ -109,7 +109,10 @@ void AdnlNetworkManagerImpl::receive_udp_message(td::UdpMessage message, size_t 
   if (message.data.size() >= get_mtu() + 128) {
     VLOG(adnl, INFO) << this << ": received huge packet of size " << message.data.size();
   }
-  CHECK(idx < udp_sockets_.size());
+  if (idx >= udp_sockets_.size()) {
+    VLOG(adnl, ERROR) << this << ": dropping message to unknown socket #" << idx;
+    return;
+  }
   auto &socket = udp_sockets_[idx];
   if (socket.in_desc == std::numeric_limits<size_t>::max()) {
     record_dropped(metrics::Direction::in, metrics::Reason::internal);
@@ -152,7 +155,11 @@ void AdnlNetworkManagerImpl::send_udp_packet(AdnlNodeIdShort src_id, AdnlNodeIdS
   M.address = dst_addr;
   M.data = std::move(data);
 
-  CHECK(M.data.size() <= get_mtu());
+  if (M.data.size() > get_mtu()) {
+    VLOG(adnl, ERROR) << this << ": dropping OUT message [" << src_id << "->" << dst_id
+                      << "]: too big: size=" << M.data.size() << " mtu=" << get_mtu();
+    return;
+  }
 
   td::actor::send_closure(socket.server, &td::UdpServer::send, std::move(M));
 }
@@ -173,7 +180,7 @@ td::actor::Task<> AdnlNetworkManagerImpl::collect(metrics::Context ctx) {
     return cur.syscalls < prev.syscalls || cur.dropped < prev.dropped || cur.bytes < prev.bytes ||
            cur.packets < prev.packets;
   };
-  CHECK(stats.size() <= udp_sockets_.size());
+  CO_TRY_BOOL(stats.size() <= udp_sockets_.size());
   for (size_t i = 0; i < stats.size(); i++) {
     if (stats[i].is_error()) {
       continue;

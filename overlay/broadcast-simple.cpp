@@ -89,7 +89,7 @@ td::Status BroadcastSimple::run(OverlayImpl *overlay) {
       overlay->check_source_eligible(source_, cert_.get(), static_cast<td::uint32>(data_.size()), /* is_fec = */ false,
                                      /* is_any_sender = */ flags_ & Overlays::BroadcastFlagAnySender(), src_peer_id_);
   if (r == BroadcastCheckResult::Forbidden) {
-    return td::Status::Error(ErrorCode::error, "broadcast is forbidden");
+    return td::Status::Error(ErrorCode::notready, "broadcast is forbidden");
   }
   is_valid_ = r == BroadcastCheckResult::Allowed;
   BroadcastsLimiter &limiter = overlay->get_broadcasts_limiter(source_.compute_short_id(), cert_.get());

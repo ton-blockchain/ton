@@ -22,6 +22,7 @@
 #include "full-node.h"
 //#include "ton-node-slave.h"
 #include <cstddef>
+#include <fstream>
 #include <map>
 #include <queue>
 #include <set>
@@ -112,6 +113,9 @@ class FullNodeImpl : public FullNode {
 
   void set_validator_telemetry_filename(std::string value) override;
   void set_plumtree_stats_filename(std::string value) override;
+  void dump_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type,
+                           tl_object_ptr<ton_api::tonNode_shardId> shard, adnl::AdnlNodeIdShort src,
+                           std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) override;
   void alarm() override;
 
   void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
@@ -120,15 +124,17 @@ class FullNodeImpl : public FullNode {
                            << cert.issued_by().compute_short_id() << " expires in "
                            << (double)cert.expire_at() - td::Clocks::system();
     fast_sync_overlays_.add_member_certificate(local_id, std::move(cert));
+    update_fast_sync_and_public_overlays();
   }
+  void initial_config_loaded() override;
 
   td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
                                                 QuerySource source) override;
 
   void start_up() override;
 
-  FullNodeImpl(PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-               FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
+  FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
+               td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
                td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
                td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
                td::actor::ActorId<ValidatorManagerInterface> validator_manager,
@@ -138,14 +144,17 @@ class FullNodeImpl : public FullNode {
  private:
   struct ShardInfo {
     td::actor::ActorOwn<FullNodeShard> actor;
+    PublicKeyHash local_id = PublicKeyHash::zero();
     bool active = false;
     bool enable_plumtree_broadcast = false;
     td::Timestamp delete_at = td::Timestamp::never();
   };
 
   void update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast);
+  void set_public_overlays_enabled(bool enabled);
+  void update_public_overlay_mode(double fast_sync_authority_until);
+  void update_fast_sync_and_public_overlays();
 
-  PublicKeyHash local_id_;
   adnl::AdnlNodeIdShort adnl_id_;
   FileHash zero_state_file_hash_;
 
@@ -153,6 +162,11 @@ class FullNodeImpl : public FullNode {
   td::actor::ActorId<FullNodeShard> get_shard_overlay_actor(ShardIdFull shard, bool historical = false);
   std::map<ShardIdFull, ShardInfo> shards_;
   int wc_monitor_min_split_ = 0;
+  bool public_overlays_enabled_ = false;
+  bool initial_config_loaded_ = false;
+  td::Ref<MasterchainState> last_masterchain_state_;
+  std::set<ShardIdFull> last_monitoring_shards_;
+  td::Timestamp enable_public_overlays_at_ = td::Timestamp::never();
 
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
@@ -207,11 +221,12 @@ class FullNodeImpl : public FullNode {
   void update_validator_telemetry_collector();
   void update_plumtree_stats_collector();
 
-  // Fractions of the Plumtree stats epoch: +15..+30 minutes at the one-hour
-  static constexpr double PLUMTREE_STATS_EXCHANGE_FROM = 1.0 / 4;
-  static constexpr double PLUMTREE_STATS_EXCHANGE_TO = 1.0 / 2;
+  // Fractions of the Plumtree stats epoch: +30..+45 minutes at the one-hour default.
+  static constexpr double PLUMTREE_STATS_EXCHANGE_FROM = 1.0 / 2;
+  static constexpr double PLUMTREE_STATS_EXCHANGE_TO = 3.0 / 4;
   static constexpr std::size_t PLUMTREE_STATS_EXCHANGE_OVERLAYS_LIMIT = 4;
   std::string plumtree_stats_filename_;
+  std::ofstream plumtree_stats_file_;
   PublicKeyHash plumtree_stats_collector_key_ = PublicKeyHash::zero();
   td::int64 plumtree_stats_exchange_epoch_ = -1;
   td::Timestamp plumtree_stats_exchange_at_ = td::Timestamp::never();

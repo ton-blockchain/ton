@@ -297,6 +297,9 @@ class Context {
   const NameStack *names_ = nullptr;
 };
 
+// Carries its NameStack node inside itself, so it must outlive every child context derived from
+// it. Chaining with_name/with_label is safe only within one full expression; storing a chained
+// result keeps a parent pointer into an already-destroyed intermediate.
 class ContextWithNameLink : public Context {
  private:
   friend class Context;

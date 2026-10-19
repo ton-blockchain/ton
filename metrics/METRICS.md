@@ -10,8 +10,9 @@ Command-line only — there is no config-file field:
 validator-engine --exporter-address <host:port>
 ```
 
-Scrape `GET /metrics`. Any other path returns 404, any other method 405. There is no
-authentication and no TLS, so bind it to a private interface.
+Scrape `GET /metrics`. Any other path returns 404 and any other method 405. Until the node seals its
+collector set, `/metrics` returns 503. There is no authentication or TLS, so bind it to a private
+interface.
 
 The response is `application/openmetrics-text; version=1.0.0; charset=utf-8`, chunked, terminated
 by `# EOF`. Each family carries a `# TYPE` line. `# HELP` is never emitted.
@@ -42,28 +43,32 @@ Registered collectors, in order: the exporter itself, `AdnlNetworkManager`, `Adn
 
 ## Scrape semantics
 
-Collection is asynchronous and **sequential**: `gather()` awaits `td::actor::ask(...)` on each
-collector one at a time, so a scrape costs one round-trip per collector and the subsystems are
-sampled at slightly different instants. The exposition is therefore not a consistent point-in-time
-snapshot across subsystems.
+Collection happens at scrape time: a `GET /metrics` starts or joins a gather and is answered from
+that flight. There is no timer and no work while nobody scrapes.
 
-Scrapes are **coalesced**: a `GET /metrics` that arrives while a gather is already running does not
-start a second one — it waits and is served the same rendered body. Concurrent or retrying scrapers
-therefore see identical output and cost one gather between them. Each request still counts in
-`ton_exporter_collections_total`.
+Concurrent scrapes share one flight: a scrape that arrives while a gather is running does not start
+a second one, it waits and is served the same rendered body. Such a joiner can arrive after an early
+collector was sampled. Collectors run sequentially, so the exposition is not an atomic point-in-time
+view across subsystems.
 
-A gather that **fails** — any collector returning an error — answers every waiting scraper with
-HTTP 500 and an empty body. Either way the response and its payload are built, filled and completed
-before the connection actor is handed them, so the payload is never shared with the HTTP writer
-while it is still mutable and the two actors have nothing to race over. On that path
-`ton_exporter_last_collection_duration_seconds` is not updated, while
-`ton_exporter_last_collection_timestamp_seconds` was already advanced before the gather started: a
-node whose gather fails on every scrape keeps a perfectly fresh timestamp, so only the `up == 0`
-alert arm catches it (see *Is the exporter itself healthy?*).
+`PrometheusExporter::ready()` seals the collector set after start-up; `add()` after the seal is a
+programming error, and 503 is the only thing a scrape gets before it. After the seal there is no 503
+state to pass through: the first scrape blocks until its own gather completes, and what it receives
+is complete by construction, because the seal is what fixes the collector set.
 
-Values are cumulative snapshots; a scrape never resets them. Three subsystems (ADNL peer pairs,
-RLDP2 connections, overlays) accumulate counters on their own actor threads and merge deltas into a
-process-wide aggregate during the scrape — see the notes in those sections.
+A node too busy to gather within the scraper's timeout therefore shows up as a **failed scrape**,
+which the triage layer treats through its flap-aware `unreachable` condition rather than through a
+staleness gauge of its own. Prometheus's own `scrape_duration_seconds` is the collection-latency
+signal.
+
+A gather that **fails** — any collector returning an error — answers every waiting scraper with HTTP
+500 and an empty body, which is what releases the flight; the next scrape gathers again. A collector
+that never answers at all wedges the flight and with it the endpoint: that is a bug, not an
+operating mode, and there is deliberately no timeout machinery around it.
+
+Values are cumulative; gathering does not reset them. ADNL peer pairs, RLDP2 connections and
+overlays merge their per-actor deltas during a gather. Worker-liveness gauges are point samples and
+can miss stalls between gathers (see *Known gaps*).
 
 ---
 
@@ -72,26 +77,28 @@ process-wide aggregate during the scrape — see the notes in those sections.
 | metric | type | labels | meaning |
 |---|---|---|---|
 | `ton_exporter_collectors` | gauge | — | Registered collector callbacks: 7 in a full validator-engine, 6 when no DHT node is configured (which also drops the `ton_overlay_*` families, since the overlay manager is only created with one). |
-| `ton_exporter_collections_total` | counter | — | Scrapes accepted, including ones coalesced into a gather already in flight. |
-| `ton_exporter_last_collection_duration_seconds` | gauge | — | Duration of the **previous** scrape (it is set after the current one is already serialized). |
-| `ton_exporter_last_collection_timestamp_seconds` | gauge | — | Unix time at which the current scrape started. |
-| `ton_perf_ops_total` | counter | `op` | Executions of a `TD_PERF_COUNTER` site, read straight from the process-global registry on each scrape (its totals are already cumulative, so nothing is mirrored). `op` is the site name (`Ed25519_sign`, `Ed25519_verify_signature`, `cell_load`, `cell_store`, `raptor_solve`, …); a site registers on first execution, so one that has never run emits no series. |
+| `ton_exporter_collections_total` | counter | — | Gather attempts started. Concurrent scrapes sharing one flight increment it once. It stays zero before the seal and while nobody scrapes. |
+| `ton_exporter_last_collection_duration_seconds` | gauge | — | Duration of the **previous** successful gather (the current one sets it after this body is already rendered). How much of a scrape interval collection itself costs. |
+| `ton_perf_ops_total` | counter | `op` | Executions of a `TD_PERF_COUNTER` site, read straight from the process-global registry on each gather (its totals are already cumulative, so nothing is mirrored). `op` is the site name (`Ed25519_sign`, `Ed25519_verify_signature`, `cell_load`, `cell_store`, `raptor_solve`, …); a site registers on first execution, so one that has never run emits no series. |
 | `ton_perf_op_ticks_total` | counter | `op` | Raw `rdtsc` ticks elapsed between each instrumented operation's entry and exit. Blocking and descheduling are included, so this is not OS CPU time. Absolute values are machine-specific; divide by `ton_actor_ticks_per_second` per target to obtain elapsed seconds before deriving rates or averages. |
 
 ## HTTP server
 
 Only the exporter's own server is registered, hence the constant `server="exporter"` label.
 
+`http::HttpServer` accepts through `td::TcpInfiniteListener` and has no connection or request-rate
+cap. Bind the endpoint to a private interface.
+
 | metric | type | labels | meaning |
 |---|---|---|---|
 | `ton_http_server_connections_active` | gauge | `server` | Currently open TCP connections. |
 | `ton_http_server_connections_total` | counter | `server` | Accepted TCP connections. |
 | `ton_http_server_requests_total` | counter | `server` | HTTP requests received, any path or method. |
-| `ton_http_server_responses_total` | counter | `server`, `code` | Responses by status code. For this server: `200`, `404`, `405`, `500` when the gather behind a `/metrics` scrape failed, and `-1` when the response promise failed. |
+| `ton_http_server_responses_total` | counter | `server`, `code` | Responses by status code: `200`, `404`, `405`, `503` before the seal, `500` for a failed gather, and `-1` when the response promise failed. |
 
 ## Actors
 
-The actor framework's own view of the scheduler group hosting the exporter, read at scrape time from
+The actor framework's own view of the scheduler group hosting the exporter, read at gather time from
 tdactor's per-actor-class stat tables (`ActorTypeStatImpl`) and scheduler state. A group registry
 creates one table lazily for each executing thread and worker kind, then retains it until the group
 is destroyed. This keeps independent groups isolated in tools such as `bench-rldp --both` and
@@ -115,8 +122,8 @@ exporter gets this tier, not just `validator-engine`.
 | `ton_actor_worker_threads` | gauge | `worker=io\|cpu` | How many threads of each kind exist: one `io` per scheduler and `cpu_threads_count` `cpu` per scheduler, summed over the group. The denominator for the per-kind utilisation recipe below. |
 | `ton_actor_scheduler_threads` | gauge | `scheduler` | Threads the scheduler owns: its cpu workers plus its one io worker. |
 | `ton_actor_scheduler_local_queue_length` | gauge | `scheduler` | Runnable entries — actors with mail, and resumable coroutines — sitting in the scheduler's per-cpu-worker work-stealing queues, summed. See *Known gaps* for the two queues this does not see. |
-| `ton_actor_scheduler_workers_active` | gauge | `scheduler` | Workers (io + cpu) that were inside an actor or coroutine dispatch at the instant of the scrape. |
-| `ton_actor_scheduler_current_execute_seconds` | gauge | `scheduler` | Of those, how long the longest-running dispatch had already been executing, in seconds; `0` when none is active. A single point sample, but the only live view of a wedged worker. |
+| `ton_actor_scheduler_workers_active` | gauge | `scheduler` | Workers (io + cpu) that were inside an actor or coroutine dispatch at the instant of the gather. |
+| `ton_actor_scheduler_current_execute_seconds` | gauge | `scheduler`, `actor` | Of those, how long the longest-running dispatch had already been executing, in seconds; `0` when none is active. `actor` names the class running it and is the empty string when the scheduler is idle, so it changes from scrape to scrape — aggregate it away unless the question is *which* actor is wedged. A single point sample, but the only live view of a wedged worker. |
 | `ton_actor_stats_enabled` | gauge | — | 1 if `td::actor::set_debug(true)` has run, 0 otherwise. |
 | `ton_actor_ticks_per_second` | gauge | — | This target's calibrated `rdtsc` frequency. Divide tick counters/gauges by it in PromQL before aggregating targets. |
 
@@ -134,7 +141,7 @@ per-scheduler families do not depend on it, except `workers_active` /
 `current_execute_seconds`, which read `core::Debug` and are gated the same way.
 
 **TSC-derived values stay as raw ticks.** Rescaling a cumulative counter with a newly estimated
-frequency on every scrape can make it decrease, which Prometheus interprets as a reset. The exporter
+frequency on every gather can make it decrease, which Prometheus interprets as a reset. The exporter
 therefore emits raw ticks plus `ton_actor_ticks_per_second`, calibrated as elapsed ticks / monotonic
 wall time since exporter construction (with the platform estimate during its first 0.1 s). Divide
 each target before `sum`/`max`, because frequencies may differ:
@@ -247,12 +254,28 @@ The outbound mirror is **per transport**, measured where the transport accepts t
 | metric | type | labels | meaning |
 |---|---|---|---|
 | `ton_adnl_query_roundtrip_seconds` / `ton_rldp2_…` / `ton_quic_…` | histogram | `tl`, `le`; QUIC also `trust` | Transport-accept to answer for queries we send: network + peer processing + transfer time. Errors and timeouts land in the matching `…_query_roundtrip_failed_total` with the same non-`le` labels. |
-| `ton_rldp2_message_delivery_seconds` / `ton_quic_…` | histogram | `tl`, `le`; QUIC also `trust` | Transport-accept to the protocol's receipt confirmation for fire-and-forget messages: RLDP2 confirms via the transfer's completion (`on_sent`) and measures only sends carrying a timeout; QUIC uses the empty response the receiver answers every message with. Failures land in the matching `…_message_delivery_failed_total` with the same non-`le` labels. |
+| `ton_rldp2_message_delivery_seconds` | histogram | `tl`, `le` | Transport-accept to the transfer's completion (`on_sent`) for fire-and-forget messages. Failures land in `ton_rldp2_message_delivery_failed_total{tl}`. |
+| `ton_quic_message_confirmation_seconds` | histogram | `trust`, `tl`, `le` | Send-accept to confirmation for stream-based messages: the peer transport's acknowledgement of data and FIN for unidirectional messages, or the receiver's empty receipt for legacy bidirectional messages. DATAGRAM messages have no confirmation sample. Failures land in `ton_quic_message_confirmation_failed_total` with the same non-`le` labels. |
+| `ton_quic_message_delivery_seconds` | histogram | `trust`, `tl`, `le` | Deprecated, temporary rolling-upgrade alias of `ton_quic_message_confirmation_seconds`; its matching `…_failed_total` is also an exact alias. |
 
 Note the asymmetry: inbound `ton_adnl_query_duration_seconds` covers queries from **all** transports
-at the single delivery layer, while roundtrip/delivery are per-transport at the sending layer. Plain
-ADNL messages have no delivery metric — a UDP datagram has no acknowledgement. Slow roundtrips and
-deliveries (>1 s) get the same throttled `INFO` log treatment as slow inbound queries.
+at the single delivery layer, while roundtrip/confirmation/delivery are per-transport at the sending
+layer. Plain ADNL messages have no delivery metric — a UDP datagram has no acknowledgement. Slow
+roundtrips, confirmations and deliveries (>1 s) get the same throttled `INFO` log treatment as slow
+inbound queries.
+
+During the metric rename rollout, new exporters expose `ton_quic_message_delivery_*` as an exact
+alias of `ton_quic_message_confirmation_*`; old exporters expose only the former. Mixed-version
+queries must apply the fallback before aggregating, for example:
+
+```promql
+rate(ton_quic_message_confirmation_seconds_count[5m])
+  or rate(ton_quic_message_delivery_seconds_count[5m])
+```
+
+The left-hand series wins on new exporters, so the alias is not double-counted, while old-only
+exporters remain visible. The alias is temporary and can be removed after dashboards, alerts and
+deployed nodes have all migrated.
 
 **Peer-pair accounting.** `Counter` is a plain non-atomic integer, so per-peer-pair counters cannot
 be bumped cross-thread. Each pair accumulates locally; on scrape the peer table asks every pair to
@@ -281,28 +304,42 @@ port) and folds their stats together.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_quic_transport_connections_total` | counter | `direction` | Connections ever installed, including ones that never completed the handshake. `direction` is who dialled — `in` counts a peer's first datagram to us, `out` counts a connection we opened — so this is the only place inbound *attempts* are visible, whereas `handshakes` sees only the ones that reached a verdict. |
+| `ton_quic_transport_connections_total` | counter | `direction` | Connections ever installed, including ones that never completed the handshake. `direction` is who dialled — `in` counts a peer's first datagram to us, `out` counts a connection we opened — so this is the only place inbound *attempts* are visible, whereas `handshakes` records the terminal outcomes instrumented below. |
 | `ton_quic_transport_connections_current` | gauge | `direction` | Connections currently installed, by who dialled. A connection is installed on its first datagram, so this **includes** the ones still handshaking, not only the ready ones. |
 | `ton_quic_transport_connections_ready` | gauge | `direction`, `trust` | Authenticated `QuicSender` paths ready for application traffic, counted once per local/peer identity pair rather than per physical connection ID. `trusted` is a local resource class: at least one live permanent-overlay registration exists for the path on that sender (normally a validator peer on validator overlays). Eager-only and unregistered paths are `untrusted`; this is not an authorization decision. Trust is evaluated on every scrape, so registration changes reclassify a live path immediately. Raw `QuicServer` users do not contribute. |
 | `ton_quic_transport_bytes_total` | counter | `direction` | ngtcp2 packet bytes. |
 | `ton_quic_transport_packets_total` | counter | `direction` | ngtcp2 packet count. |
 | `ton_quic_transport_stream_bytes_total` | counter | `direction` | STREAM payload. Inbound at delivery; **outbound at ACK time**, so it trails the app tier by everything in flight or lost. |
+| `ton_quic_transport_datagrams_total` | counter | `direction` | RFC 9221 unreliable DATAGRAM frames. `out` counts them as ngtcp2 takes them, `in` as they are delivered. Zero unless the endpoint opted into the extension (`QuicServer::Options::max_datagram_frame_size`); a fire-and-forget message uses one only when the peer also advertised it and the framed message fits. |
 | `ton_quic_transport_bytes_lost_total` | counter | — | Bytes in packets declared lost by loss detection. |
 | `ton_quic_transport_packets_lost_total` | counter | — | Packets declared lost. |
 | `ton_quic_transport_bytes_in_flight` | gauge | — | ngtcp2 bytes in flight. |
 | `ton_quic_transport_bytes_unacked` | gauge | — | Stream bytes appended but not yet acked, so it **includes** `bytes_unsent` — the two are not disjoint. |
 | `ton_quic_transport_bytes_unsent` | gauge | — | App-buffered stream bytes not yet handed to ngtcp2. |
 | `ton_quic_transport_sids_total` | counter | — | **Peer-initiated** bidi streams accepted. Locally opened streams are not counted. |
-| `ton_quic_transport_sids_current` | gauge | — | Open streams, counting both directions of initiation. |
+| `ton_quic_transport_sids_current` | gauge | — | Open streams with an outbound half: locally initiated bidirectional and unidirectional streams, plus peer-initiated bidirectional streams. These are three independently negotiated credit pools (4096 each by default), so the aggregate cannot identify which pool is exhausted. |
 | `ton_quic_transport_mean_rtt_seconds` | gauge | — | Connection-weighted mean smoothed RTT over open connections. |
 | `ton_quic_transport_dropped_total` | counter | `direction`, `reason` | `in,invalid`: unroutable datagram, invalid Retry token, protocol violation, a handshake rejected over a key or identity mismatch, plus ngtcp2's own discarded-packet delta. `in,limited`: per-IP flood limiter, or a handshake rejected because the path's MTU is 0. `in,internal`: connection creation failure, failing to build a stateless Retry, a fatal ngtcp2 error while handling ingress (our own OOM or callback failure), or a handshake rejected because the outbound connection it belongs to is no longer known. `out,internal`: egress production failure. `out,invalid` and `out,limited` are never incremented. To avoid double-counting, a refused datagram is counted here only if `pkt_discarded` did not move across that `ngtcp2_conn_read_pkt` call. Because ngtcp2 exposes no per-packet attribution, a rare buffered-packet interleaving can undercount by one; see *Known gaps*. Failing to *send* a Retry or a stateless close is an egress drop rather than an inbound reject. Rejected handshakes are counted by whoever rejects them — synchronously at the callback (a key that will not parse, always `invalid`), or asynchronously by the actor that deferred its verdict, which supplies the reason — so they are **not** uniformly `invalid`. |
-| `ton_quic_transport_handshakes_total` | counter | `direction`, `result` | Handshakes that reached the application's verdict, split by who dialled (`in` = the peer dialled us, `out` = we dialled the peer — a rejection means something quite different on each side) and how it went: `completed` once the connection is ready to carry traffic, `rejected` when the application refused the peer (a key that will not parse, an identity that does not match the one we dialed, a path with no usable MTU, an outbound connection nobody remembers). The two are disjoint, and every rejection also lands in `dropped{direction="in"}` under its reason — `dropped`'s `direction` is the direction of the discarded data, not of the dial, so an outbound handshake we reject shows up as `handshakes{direction="out"}` against `dropped{direction="in"}`. A handshake abandoned before the application ever saw it is counted in neither: an idle timeout mid-handshake only removes the connection, so it shows up as a decrement of `connections_current` and nowhere else, while a datagram ngtcp2 refused lands in `dropped`. Only consumers built on `QuicSender` report completions — a callback implemented directly against `QuicServer` (the in-tree examples and raw tests) records rejections but not successes. |
+| `ton_quic_transport_handshakes_total` | counter | `direction`, `result` | Terminal handshake outcomes, split by who dialled (`in` = the peer dialled us, `out` = we dialled the peer — a rejection means something quite different on each side) and how it ended: `completed` once the connection is ready to carry traffic, `rejected` when the application refused the peer (a key that will not parse, an identity that does not match the one we dialed, a path with no usable MTU, an outbound connection nobody remembers), `timed_out` when the handshake did not finish within `QuicConnectionOptions::handshake_timeout` (5s) — the application never saw that one, and every caller queued behind it was failed. The three are disjoint, and every rejection also lands in `dropped{direction="in"}` under its reason — `dropped`'s `direction` is the direction of the discarded data, not of the dial, so an outbound handshake we reject shows up as `handshakes{direction="out"}` against `dropped{direction="in"}`. A handshake abandoned for another reason before the application sees it is counted in none of these outcomes: an idle timeout outside the handshake deadline path only removes the connection, so it shows up as a decrement of `connections_current` and nowhere else, while a datagram ngtcp2 refused lands in `dropped`. Only consumers built on `QuicSender` report completions — a callback implemented directly against `QuicServer` (the in-tree examples and raw tests) records rejections but not successes. |
+
+### Batching
+
+Passive observations of batched connection egress; stateless Retry and close sends are excluded.
+Every family is a histogram over counts, not seconds. `_sum / _count` is the mean. On POSIX,
+`gso_segments_sum / syscall_messages_count` is the exact mean UDP datagrams per successful send
+call. Windows currently counts descriptors accepted into its asynchronous send queue instead.
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_quic_batching_egress_flush_packets` | histogram | `le` | UDP datagrams accepted by the send path during one `flush_egress()` call, including pending data from an earlier call. `le="0"` includes flushes that send nothing. |
+| `ton_quic_batching_egress_gso_segments` | histogram | `le` | UDP datagrams in one accepted send descriptor. It is always 1 without GSO. |
+| `ton_quic_batching_egress_syscall_messages` | histogram | `le` | Descriptors accepted by one POSIX send call. Without `sendmmsg`, each successful `sendmsg` contributes 1. |
 
 ### App
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_quic_app_bytes_total` | counter | `trust`, `kind`, `direction`, `tl` | Inner ADNL payload bytes carried over QUIC streams, measured outside the `quic_message`/`quic_query`/`quic_answer` wrapper. Inbound answers are counted when they successfully complete the matching local query, not merely when an answer frame reaches the wire callback. |
+| `ton_quic_app_bytes_total` | counter | `trust`, `kind`, `direction`, `tl` | Inner ADNL payload bytes carried over QUIC streams or DATAGRAM frames, measured outside the `quic_message`/`quic_query`/`quic_answer` wrapper. Inbound answers are counted when they successfully complete the matching local query, not merely when an answer frame reaches the wire callback. |
 | `ton_quic_app_messages_total` | counter | same | Message count. |
 | `ton_quic_app_dropped_total` | counter | `trust`, `direction`, `reason` | Fire-and-forget message sends that failed: `out,limited` when the peer's stream-count credit blocked opening a stream (`NGTCP2_ERR_STREAM_ID_BLOCKED`), `out,internal` for any other send failure. Query failures are not counted here — they propagate to the caller. Inbound cells are never incremented. |
 
@@ -328,8 +365,9 @@ Described in full under ADNL → *Outbound: roundtrips and deliveries*; the QUIC
 |---|---|---|---|
 | `ton_quic_query_roundtrip_seconds` | histogram | `trust`, `tl`, `le` | Send-accept to answer for queries we send over QUIC. Connection setup is deliberately outside the measured window. |
 | `ton_quic_query_roundtrip_failed_total` | counter | `trust`, `tl` | Of those, the ones that errored or timed out. |
-| `ton_quic_message_delivery_seconds` | histogram | `trust`, `tl`, `le` | Send-accept to the empty response the receiver answers every fire-and-forget message with. |
-| `ton_quic_message_delivery_failed_total` | counter | `trust`, `tl` | Of those, the ones that never got their confirmation (including a connection closing with messages in flight). |
+| `ton_quic_message_confirmation_seconds` | histogram | `trust`, `tl`, `le` | Send-accept to confirmation for stream-based messages: the peer transport's acknowledgement of data and FIN for unidirectional messages, or the receiver's empty receipt for legacy bidirectional messages. DATAGRAM messages have no confirmation sample. |
+| `ton_quic_message_confirmation_failed_total` | counter | `trust`, `tl` | Of the stream-based messages measured above, the ones whose stream was reset or connection closed before confirmation. |
+| `ton_quic_message_delivery_seconds` / `ton_quic_message_delivery_failed_total` | histogram / counter | same as the corresponding confirmation family | Deprecated, temporary exact aliases for rolling-upgrade compatibility; see the fallback rule above. |
 
 ---
 
@@ -470,15 +508,25 @@ chain truth.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_collated_blocks_total` | counter | `chain=master\|shard`, `result=ok\|error` | Block collations attempted by this node, by outcome. Process-lifetime: resets to 0 on restart. All four cells are always emitted; on a node that does not collate they stay 0. |
-| `ton_validated_blocks_total` | counter | same | Block validations (candidate checks) by this node, same semantics; on a node that does not validate the cells stay 0. |
-| `ton_block_processing_seconds_total` | counter | `operation=collate\|validate`, `chain=master\|shard`, `result=ok\|error`, `phase`, `clock=elapsed\|real\|cpu` | Seconds accumulated in existing per-block timing statistics. `phase="total",clock="elapsed"` is end-to-end time; `real` and `cpu` expose instrumented work phases. Process-lifetime, reset on restart. |
-| `ton_collation_ext_messages_total` | counter | `chain=master\|shard`, `result=ok\|error`, `outcome=filtered\|skipped_backpressure\|included\|rejected` | External messages dequeued by collation attempts. Outcomes partition the messages considered by each attempt; discarded automatic retries use `result="error"`. `included` means execution succeeded in that attempt, not that the message was applied on-chain; use `result="ok"` for completed candidates. Per-collator events: exactly one node emits per attempt, so `sum()` over the fleet is the chain-wide rate. |
-| `ton_collation_transactions_total` | counter | `chain=master\|shard` | Transactions in successfully collated candidates. |
-| `ton_collation_gas_total` | counter | same | Gas used by successfully collated candidates. |
+| `ton_collated_blocks_total` | counter | `chain=master\|shard`, `result=ok\|error`, `first=0\|1` | Block collations attempted by this node, by outcome and window slot. Process-lifetime: resets to 0 on restart. All eight cells are always emitted; on a node that does not collate they stay 0. |
+| `ton_validated_blocks_total` | counter | `chain`, `result` | Block validations (candidate checks) by this node, same semantics; on a node that does not validate the cells stay 0. Validation has no window slot, so it carries no `first`. |
+| `ton_block_processing_seconds_total` | counter | `operation=collate\|validate`, `chain=master\|shard`, `result=ok\|error`, `phase`, `clock=elapsed\|real\|cpu` | Seconds accumulated in existing per-block timing statistics. `phase="total",clock="elapsed"` is end-to-end time; `real` and `cpu` expose instrumented work phases. Process-lifetime, reset on restart. Deliberately not split by `first`: doubling every phase cell is not worth it. |
+| `ton_block_processing_duration_seconds` | histogram | `operation=collate\|validate`, `chain=master\|shard`, `result=ok\|error`, `clock=elapsed\|real\|cpu` | One whole-operation observation per attempt. `elapsed` is end-to-end wall time, `real` is attributed wall time and `cpu` is process CPU consumed. The fixed label set deliberately omits phase and window slot so event p50/p95/p99 remain affordable: 24 cells, 456 series. |
+| `ton_block_processing_duration_recent_max_seconds` | gauge | same | Exact maximum whole-operation observation retained by each exporter for roughly 10–20 minutes. Two alternating ten-minute generations avoid scrape-side mutation; the value expires at a generation boundary and therefore falls in a cliff. |
+| `ton_block_processing_phase_recent_max_seconds` | gauge | `operation`, `chain`, `result`, `phase`, `clock=real\|cpu` | Exact retained maximum for each instrumented work phase, with the same roughly 10–20 minute semantics. This is the phase attribution companion to the bounded-cardinality total histogram. |
+| `ton_collation_ext_messages_total` | counter | `chain=master\|shard`, `result=ok\|error`, `outcome=filtered\|skipped_backpressure\|skipped_duplicate\|included\|rejected` | External messages dequeued by collation attempts. Outcomes partition the messages considered by each attempt; discarded automatic retries use `result="error"`. `included` means execution succeeded in that attempt, not that the message was applied on-chain; use `result="ok"` for completed candidates. Per-collator events: exactly one node emits per attempt, so `sum()` over the fleet is the chain-wide rate. |
+| `ton_collation_elapsed_seconds_total` | counter | `chain=master\|shard`, `first=0\|1` | End-to-end seconds spent in successful final collation attempts. Recorded over exactly the attempts `ton_collated_blocks_total{result="ok"}` counts, so dividing the two rates is the mean collation duration per window slot — the cheap replacement for a `first` axis on the duration histogram. Non-finite and negative samples are dropped, as everywhere else. |
+| `ton_collation_transactions_total` | counter | `chain=master\|shard`, `first=0\|1` | Transactions in successfully collated candidates. |
+| `ton_collation_gas_total` | counter | `chain=master\|shard` | Gas used by successfully collated candidates. |
 | `ton_collation_block_bytes_total` | counter | same | Serialized bytes in successfully collated candidates. |
 | `ton_collation_collated_data_bytes_total` | counter | same | Collated-data bytes in successfully collated candidates. |
 | `ton_collation_ext_messages_offered_total` | counter | same | External messages offered to successful final collation attempts. |
+| `ton_collation_out_queue_size` | gauge | `chain=master\|shard` | Outbound message queue depth left behind by the most recent successful collation on this chain (last write wins, so on a multi-shard collator it is whichever shard finished last). Emitted from boot as 0. Merging two exporters keeps the larger depth, never the sum. |
+| `ton_collation_out_queue_cleaned_total` | counter | same | Already-delivered messages dequeued by the collator's out-queue cleanup pass. Cleanup is budgeted: it stops on block-full or its own timeout, so this is cleanup progress, not queue drain demand. |
+| `ton_collation_out_queue_processed_total` | counter | same | Inbound internal messages imported from neighbor out-queues during collation, summed over the block's non-disabled neighbors. |
+| `ton_collation_out_queue_skipped_total` | counter | same | Inbound internal messages this collation looked at and skipped because our `processed_upto` says we handled them before. Same neighbor accounting as `_processed_total`; it is *not* a cleanup-pass tally (see below). |
+| `ton_collation_storage_cache_lookups_total` | counter | `chain=master\|shard`, `outcome=hit\|miss\|small` | Account storage-dict lookups against the shared storage-stat cache during collation. `hit` reused a cached dict root; `miss` had at least `StorageStatCache::MIN_ACCOUNT_CELLS` cells and had to recompute; `small` was below that threshold and is never cached. |
+| `ton_collation_storage_cache_cells_total` | counter | same | Account cells behind those lookups (`account.storage_used.cells` at the same call site), so `hit`'s share of cells is the work the cache actually saved. |
 | `ton_collation_want_split_total` | counter | `chain=master\|shard` | Successful final collation attempts whose resulting block set `want_split`. This is the decision from weighted overload history, not necessarily a condition caused by the current block. |
 | `ton_collation_overload_total` | counter | `chain`, `reason=block_limits\|out_msg_queue\|long_collation\|dispatch_queue\|unknown` | Successful final collation attempts whose current block contributed an overload-history bit, by its selected cause. No increment for a block with no current contribution. |
 | `ton_applied_ext_messages_total` | counter | `chain=master\|shard` | Inbound external-message records observed in blocks applied by this node, including catch-up replay. This is the on-chain stage, independent of whether this node produced the candidate. A process-local recent-block cache suppresses duplicate counting; duplicate requests still repeat the idempotent pool cleanup. A fleet sum counts the same chain traffic once per reporter. Reconcile synchronized reporters with a median, never a sum; even then, a brief post-catch-up burst can remain in the rate window, so this is a replicated observation rather than an objective chain counter. |
@@ -486,31 +534,237 @@ chain truth.
 
 Most timing samples reuse statistics already collected for validator session logs. Four broad scopes
 cover previously unattributed collation work: `dispatch_queue`, `import_internals`, `import_externals`,
-and `process_new_msgs`. They include nested transaction work, so they overlap `trx_tvm`,
-`trx_storage_stat`, and `trx_other`. Collation exports those 17 work phases plus `wait_externals`;
+and `process_new_msgs`. They do not include nested transaction work (`trx_tvm`, `trx_storage_stat`, and `trx_other`).
+Collation exports those 17 work phases plus `wait_externals`;
 validation exports its 19 work phases plus `active` and `waiting`.
 Timing samples for an operation/chain/result tuple appear only after its first attempt; all applicable phase/clock
 samples are emitted thereafter, including zeros. Split and overload cells are emitted from boot, including zeros.
 Only valid phase/clock pairs are emitted: work-time phases have `real` and `cpu`; `total` also has
 end-to-end `elapsed`; `wait_externals`, `active`, and `waiting` are elapsed observations.
 
+The total duration histogram uses fixed buckets from 1 ms through 120 s plus `+Inf`; dashboard tail
+panels deliberately use a fixed five-minute rate window so zooming does not redefine p95. A
+retained maximum is not a quantile and cannot be averaged: keep it per node, then choose the fleet
+worst and preserve that node's labels. Compare elapsed, real and CPU together. Elapsed minus real
+exposes waits outside the timed work; real rising while CPU stays flat points to blocking or
+descheduling inside a timed scope (notably filesystem sync on macOS); real and CPU rising together
+points to computation. The dashboard keeps successful p50/p95 separate, but shows retained total
+and phase maxima for both success and failed/retry attempts. Phase real/CPU timers can overlap and
+remain attribution signals rather than an additive partition.
+
 These phases are attribution signals, not a partition of elapsed time. Instrumented scopes can nest
 or overlap, and account validation can run in parallel, so phase sums — especially validation real
 or CPU work — may exceed end-to-end elapsed time. Error-phase timings are safe but best-effort: completed
-scopes are recorded, while a scope still active when failure is reported may be omitted. Collation reports
-only the final attempt. Likewise, plot `want_split` separately from overload reasons: `want_split` reflects
+scopes are recorded, while a scope still active when failure is reported may be omitted. Every discarded
+internal collation retry is reported as its own failed attempt before the next one starts. Likewise, plot
+`want_split` separately from overload reasons: `want_split` reflects
 weighted history, while an overload reason identifies only the current block's contribution to that history.
 
 For collation externals, `filtered` failed registration, `skipped_backpressure` was left pending because
-the outbound queue was large, and `rejected` did not make it into that candidate, normally because the
+the outbound queue was large, `skipped_duplicate` coincided with another message in this leader window,
+and `rejected` did not make it into that candidate, normally because the
 TVM rejected it (for example, an earlier included copy already advanced the seqno) or because processing
 aborted the attempt. Execution attempts are the sum of `included` and `rejected`.
-Unlike the timing family, external outcomes include discarded intermediate retry attempts. All 16
+External outcomes and timing both include discarded intermediate retry attempts. All 16
 chain/result/outcome cells and both applied-message cells are emitted from boot, including zeros.
 
-The five collation-work families count only successful final attempts. Sum them across collators and
-divide by `rate(ton_collated_blocks_total{result="ok"})` for per-block values. Both chain cells in each
-family are emitted from boot.
+The five collation-work families and `ton_collation_elapsed_seconds_total` count only successful final
+attempts, as do the out-queue, storage-cache, split and overload families below — a discarded retry
+never reaches them. Sum them across collators and divide by
+`rate(ton_collated_blocks_total{result="ok"})` for per-block values, matching `first` on both sides
+where the family carries it. Every cell of each family is emitted from boot.
+
+`first="1"` marks the first slot of the producer's leader window. That block cannot be pipelined
+behind our own previous collation and it absorbs whatever the previous producer left behind, so its
+duration and workload differ systematically from steady state; keeping the two populations apart is
+the point of the label. It is set where the window is known — `produce_window` compares the slot with
+the window's start slot — and it covers both self-collation and collation delegated to a collator
+node, because both drive the same loop. **Any collation that reaches the exporter through a path with
+no leader window reports `first="0"`**: hardfork collation, `manager-disk`, and any future
+non-simplex/legacy protocol path. On such a node every collation lands in the `first="0"` series, so
+read the split only on simplex validators/collators. Internal retries of one slot repeat the flag, so
+a failed first-in-window attempt and its retry both count under `first="1"`. The label is scoped to
+three cheap counters — the collated-block counter, `ton_collation_elapsed_seconds_total` and
+`ton_collation_transactions_total`: mean duration and mean transactions per slot position are what
+the split is read for, and paying for it in histogram cells or in every workload counter is not worth
+it. Everything else, including both duration families and every per-phase family, keeps the unsplit
+label set.
+
+`ton_collation_out_queue_skipped_total` deliberately does not mean "cleanup looked at it and kept it":
+the cleanup pass has no such tally — it deletes delivered messages and stops at the first undelivered
+one per neighbor — so the only honest skip counter in collation is the inbound-import one, which pairs
+exactly with `ton_collation_out_queue_processed_total`.
+Watch `_cleaned` against `ton_collation_out_queue_size`:
+a growing depth while cleanup keeps removing messages means neighbors are not consuming, and a
+growing depth with cleanup near zero means our own emission dominates. `ton_collation_overload_total{reason="out_msg_queue"}`
+marks the point where the depth forced a split decision.
+
+Storage-cache effectiveness is `hit / (hit + miss)` on either family; the `cells` variant weights each
+lookup by account size and is the one that tracks saved work. `small` lookups are not cache failures —
+those accounts are below the caching threshold and would not benefit — so exclude them from the ratio.
+Both families are collation-only; `ValidationStats` carries the identical counters if the validation
+side is ever wanted.
+
+### Consensus round
+
+What happened *inside* a slot, below the granularity of a block. Every validator group already keeps
+a per-candidate flow of ten timestamps (`validator/consensus/simplex/stats.h`) for its JSON trace;
+the group's `MetricReporter` folds the consecutive differences into histograms and hands the delta to
+the validator manager about once a second, which is what keeps the totals monotonic across the group
+churn of cc rotation. Nothing is measured on the consensus critical path beyond that arithmetic.
+
+**One group, several identities, one report per observation.** A node can join the same consensus
+group under more than one identity: the validator key in the active set, one dedicated-collator ADNL
+id per locally configured collator, and observer identities for keys of the neighbouring validator
+sets. Each identity runs its own bus and its own `MetricReporter`, and all of them feed the same
+process-wide counters, so ownership is assigned per role rather than per event:
+
+| role | owns |
+|---|---|
+| observer | nothing — no reporter is spawned at all |
+| collator | the `collate` and `publish` stages, the whole `collator_slot_mark` family, and the slot gap/lead handoff |
+| validator | `ton_consensus_rounds_total` and the `validate_wait`, `validate`, `notarize_vote`, `notarize_cert`, `finalize_vote`, `finalize_cert` and `apply` stages |
+
+The split follows visibility. Everything up to the moment the candidate exists locally happens only
+on the identity that collated it, and everything from the candidate onward — certificates, the local
+apply — is seen by *every* identity, so counting it anywhere but on the validator would multiply it
+by the number of local identities. `apply` appears on both sides of the table and means two
+different things: the validator owns the `apply` **stage** (finalization certificate → local
+`accept_block` finished), which every identity could otherwise count, while the collator owns the
+`apply` **mark**, its position relative to a slot zero only the collating identity has.
+
+A validator collates every window it does not delegate, so it holds **both** roles: in the merged
+single-identity deployment one reporter still reports the whole round, and the totals are exactly
+what they were before roles existed. Only where collation is delegated do the two halves land on
+different identities; the observer's duplicate disappears wherever observer identities exist at all.
+A delegated candidate is led by the delegating validator itself, but it is produced on the collator's
+bus and reaches the validator over the network. That receipt gives the delegated round its
+`validate_wait` stage, exactly as it does for another leader's candidate. `CandidateResolver`
+separately establishes whether the resolved candidate is full or empty, so a missed receipt loses
+only receipt-based timing, not the round outcome.
+
+| metric | type | labels | meaning |
+|---|---|---|---|
+| `ton_consensus_stage_seconds` | histogram | `chain=master\|shard`, `stage` | One observation per winning full-block candidate whenever this node has both marks bounding a stage. `stage` names the interval that ends at the event it is named for: `collate` (collation started → finished), `publish` (collated → the candidate exists locally: signing and publication), `validate_wait` (candidate received → validation started), `validate` (validation started → finished), `notarize_vote` (validated → local vote signing began), `notarize_cert` (vote signing began → the certificate was persisted locally), `finalize_vote` (notarization certificate persisted → local finalize signing began), `finalize_cert` (finalize signing began → the finalization certificate was persisted locally), `apply` (finalization certificate persisted → accept_block finished: the block written, applied to state, and broadcast). The certificate stages deliberately include keyring signing, network/quorum wait, and local certificate storage/fsync; they are not pure network latency. Late marks are folded too: observing finality does not permanently discard stages whose endpoints arrive just afterward. Empty/losing/abandoned candidates do not enter this latency population. |
+| `ton_consensus_stage_recent_max_seconds` | gauge | `chain=master\|shard`, `stage` | Exact maximum stage observation retained by each exporter for roughly 10–20 minutes. Keep it per node for attribution, then select the fleet maximum; it is the single-event worst-case companion to the stage histogram's p50/p95. |
+| `ton_consensus_slot_gap_seconds` | histogram | `chain=master\|shard` | Handoff dead time: how long after slot *n*−1 completed locally this node started collating slot *n*. Full-block completion is `accept_block` finishing (so storage/fsync stays visible); empty/skip completion is its certificate. An explicit `0` is observed instead when the next collation was already running. |
+| `ton_consensus_slot_lead_seconds` | histogram | `chain=master\|shard` | Handoff head start: how long the next slot's collation had already been running when slot *n*−1 completed locally. The other side of the same handoff — an explicit `0` where collation only started afterward, so the two families always have the same count. |
+| `ton_consensus_slot_gap_recent_max_seconds` | gauge | `chain=master\|shard` | Exact retained worst handoff dead time for roughly 10–20 minutes, kept per exporter for collator attribution. |
+| `ton_consensus_slot_lead_recent_max_seconds` | gauge | `chain=master\|shard` | Exact retained worst handoff head start with the same semantics. Draw it below zero; it may come from a different handoff than the worst gap. |
+| `ton_consensus_collator_slot_mark_seconds` | histogram | `chain=master\|shard`, `mark`, `side=before\|after` | Position of the collator-owned `collate_start`, `collate_finish`, `finalize_cert` and `apply` marks relative to scheduled slot start, for winning full candidates. Each event records `before=max(slot_start−event,0)` and `after=max(event−slot_start,0)`, including a zero on the opposite side. The matched populations make `mean(after)−mean(before)` and `p50(after)−p50(before)` valid signed values; this does not extend to p95. Empty, losing and abandoned candidates are excluded. Only the collating identity reports these marks because only it has the authoritative slot start. |
+| `ton_consensus_collator_slot_mark_recent_max_seconds` | gauge | same | Per-node retained maximum on each side for roughly 10–20 minutes. Draw `before` below zero and `after` above it. The maxima may come from different events, so never subtract them into one signed value. |
+| `ton_consensus_rounds_total` | counter | `chain`, `outcome=accepted\|empty\|skipped` | How slots ended, counted once per slot by the validator identity. `CandidateResolver` emits an untimed accepted/empty kind after successful resolution (including recovery): empty completes at the finalization certificate, accepted at local apply, and skipped at the skip certificate. Recovery can delay that increment until the kind is learned; collator and observer identities do not count it. |
+
+All consensus histogram families use an exact zero bucket followed by ten duration bounds from 1 ms
+through 120 s plus `+Inf`, at roughly 4× steps: fine enough for the millisecond-to-sub-second regime
+of a healthy slot and coarse enough to keep a starved node's seconds-to-minutes tail on the same
+axis. Observations are still clamped to 3600 s, so anything past two minutes only shows up as `+Inf`
+and the exact `_recent_max_` gauges are what to read for those outliers. The slot-mark family has
+4 exported marks × 2 chains × 2 sides; the other families are `stage × chain` or one cell per chain.
+Every cell is emitted from boot, including zeros.
+
+**Clock boundary.** Every consensus event captures two local timestamps. `ts()` remains Unix time
+and is serialized unchanged into `consensus-trace` for log correlation; `monotonic_ts()` never
+crosses the wire and is used for all Prometheus subtraction. Slot start and collator completion
+likewise carry private steady-clock values beside their legacy Unix fields. NTP adjustment therefore
+cannot manufacture a negative or one-hour stage, and the TL/log schema stays byte-for-byte
+compatible. Derived observations are still clamped to `[0, 3600]` as a corruption guard. A stage
+that legitimately runs backwards because a certificate arrived before this node started signing is
+clamped to zero rather than dropped, so counts stay comparable.
+
+A stage is observed only when this node holds **both** of its marks, which is what makes the
+populations differ per stage rather than per node: `collate` and `publish` exist only on the node
+that collated that slot, and a validator that never voted contributes nothing after
+`validate`. `publish` is deliberately **not** propagation: the collation timestamps exist only on the
+collator itself, and a receiver's clock cannot be differenced against a producer's. Only a winning
+full-block candidate is folded, including marks delivered just after its finality; empty, losing,
+and abandoned candidates do not contribute to the latency distribution. A stage that runs
+backwards (a certificate can arrive before this node votes) is clamped to zero rather than dropped,
+so the counts stay comparable across stages of the same round.
+
+The slot gap is the number that attributes a stalled chain to the handoff rather than to collation or
+validation: `rate(ton_consensus_slot_gap_seconds_sum[5m])` is the fraction of wall-clock time this
+node spent between prior-slot local completion and starting the next collation. Completion means
+`accept_block`/apply finished for a full block, so storage and fsync stay inside the prior round; an
+empty or skipped slot completes at its certificate. Two things end up in the gap, and
+both are time the chain did not spend producing: the slack left over when a round finished early and
+the next slot is still scheduled ahead (leader windows are paced by wall clock), and the genuine wait
+at a leader handoff, where the incoming leader cannot start until the previous leader's block
+arrives. It therefore *collapses* toward zero as the chain saturates — a round that no longer fits
+its slot leaves no slack — so read it together with stage tails and the slot timeline rather than as a
+larger-is-worse gauge. It is observed only by the node that collates around that completion, so it is
+per-collator evidence; sum bucket rates across collators before taking a quantile.
+
+The gap and the lead are two sides of one handoff, measured from the same moment — slot *n*−1's
+local completion — in the two directions time can run from it. The gap is dead time *after* it: collation
+of the next slot had not started yet, and this is how long it took to. The lead is the head start
+*before* it: collation of the next slot was already running, and this is how long it had been. Every
+handoff this node observes contributes exactly one observation to each family, and by construction
+one of the two is zero, so the counts are equal and the two means are directly comparable: the mean
+signed handoff is `mean(slot_gap) − mean(slot_lead)`.
+
+Positive means the chain typically idles at the handoff, negative means it typically pipelines
+through it. The gap alone cannot say that: it records the pipelined case as a zero and throws the
+magnitude away, so a chain collating 300 ms ahead and a chain starting the instant it can both read
+as a gap of zero. That magnitude is also what fills the elapsed `collate` time on a pipelining
+chain — the collator starts early and then idles to the slot boundary and for externals — which is
+why elapsed collation and the handoff should be read beside the real/CPU decomposition.
+
+The collator slot-mark family supplies the actual slot-relative timeline. For each mark, calculate
+the signed mean as `mean(side="after") − mean(side="before")` and the signed median as the same
+difference of p50s. Either can be negative when collation starts or finishes in the pre-roll, zero
+at the scheduled slot start, and positive afterward. Higher side quantiles are deliberately
+one-sided and zero-padded. For example, the after p95 answers “how late
+were the slowest 5%, with every early event counted as zero”; it is not the p95 of a signed random
+variable. Draw marks as independent lines or points, never stack them or add them to duration
+stages. This view contains only winning full-block candidates on the rotating collators' local path;
+the stage histogram remains the portable cross-validator timing view. Dashboard mean and side tails
+use the same fixed five-minute window.
+
+**Slot zero is collator-local, and stays that way when collation is delegated.** A slot's zero is
+the window start the producer computed for itself (`simplex/consensus.cpp` for a self-collating
+validator, `simplex/collator-producer.cpp` for a delegate): a steady-clock instant of that process,
+derived from its own `now()` and the parent block's `gen_utime`. It is never serialized, and the
+protocol has no absolute slot clock to rederive it from — slots advance on certificates, and every
+consensus timeout is relative to a locally taken base. The one shared quantity that comes close, the
+block's `ConsensusExtraData.gen_utime_ms`, is a *Unix* time, is clamped forward against the parent
+block, exists only in full candidates, and belongs to the launch slot rather than the assigned one;
+converting it back to a steady clock would put each node's wall-clock error into every mark, which
+is exactly what the clock boundary above exists to prevent. So the timeline is scoped to what the
+collating identity can see, and no zero is invented for the identities that cannot:
+
+- **Merged deployment** (validator collates its own windows): all four marks, as before.
+- **Delegated deployment**: the collator identity reports the same four — it collates, and it
+  observes certificates and applies finalized blocks like every other identity — so a delegated round
+  is missing none of them.
+
+That is why the exported set is those four and not five. `validation_finish` is the one round mark a
+delegating group cannot place anywhere: the identity that validates has no slot zero and the identity
+that has slot zero does not validate. Keeping it on the timeline would mean drawing four medians over
+every collated round and a fifth over only the self-collated subset — one line answering a different
+question than the others, and silently so on any fleet that mixes the two deployments. So the
+timeline is the collation-side path end to end, on one population, and validation is read where it is
+portable across identities: the `validate_wait` and `validate` stages. The mark itself is still
+recorded and still reaches `consensus-trace` and the logs; only its absolute position stops being
+exported.
+
+**Group rotation can lose the last flush.** The reporter publishes its deltas about once a second and
+stops when its group does, on `StopRequested`, while turns queued behind it may still publish; that
+final flush is not acknowledged and there is no drain barrier waiting for it. So every validator-group
+rotation can drop up to one flush interval of deltas — on the order of a second's worth of stage
+observations, slot marks and round outcomes — from the process-lifetime totals. Any rate window that
+spans a rotation undercounts by that second's worth and reads as a small dip, and a lifetime
+`increase()` undercounts cumulatively, once per rotation.
+
+This is an **explicitly accepted** limitation, not an open bug: the loss is bounded at one flush
+interval per rotation and does not accumulate within a group's life, while a drain barrier would put
+a shutdown handshake on the consensus path to recover about a second of latency samples per rotation.
+Revisit it only if group rotations become frequent enough for that bounded loss to matter.
+
+Round outcomes are counted once per group by its validator identity, so a fleet `sum()` still
+multiplies each round by the number of *validators* in the group — reconcile with a median or select
+one instance. What it no longer multiplies is the number of identities one node happens to run. The
+shares within a node (`empty / (accepted + empty)`) are the safe reading.
 
 ### Mempool
 
@@ -522,16 +776,33 @@ scrape still succeeds.
 
 | metric | type | labels | meaning |
 |---|---|---|---|
-| `ton_mempool_ext_messages` | gauge | — | External messages currently pending in the mempool, summed over all priority levels. Includes postponed (temporarily inactive) messages and expired ones the periodic cleanup has not swept yet (messages live 600 s, the sweep runs every 250 s). |
-| `ton_mempool_oldest_ext_message_age_seconds` | gauge | — | Age of the oldest current mempool entry, maintained without scanning the pool. Includes postponed and expired-unswept messages; 0 when empty. Reprioritizing a duplicate recreates the entry and resets its age, matching its expiry behavior. |
-| `ton_mempool_ext_admission_total` | counter | `outcome=accepted\|not_ready\|too_large\|backpressure\|invalid\|state_unavailable\|vm_rejected\|rate_limited\|pool_full\|address_full\|duplicate\|internal_error\|reprioritized` | One local outcome for every external handed to the validator manager or pool. `accepted` passed validation and, on a node that stores externals, was inserted as a new pool entry. `reprioritized` passed validation and replaced its own lower-priority entry. On nodes that store externals, `accepted` minus removals tracks the pending gauge; `reprioritized` changes neither side. `rate_limited` is the final per-address validation cap. `pool_full`, `address_full`, and `duplicate` passed validation but were not inserted locally; they do not change the existing successful network response. Raw errors, addresses, and VM exit codes are never labels. Process-lifetime; all cells are emitted from boot. |
+| `ton_mempool_ext_messages` | gauge | `state=eligible\|postponed` | External messages currently stored in the mempool, summed over all priority levels. The cells mirror the stored `active` flag: `eligible` is active and `postponed` is inactive. A postponed entry whose `reactivate_at` has passed remains `postponed` until a collator snapshot revisits it and performs the membership-checked lazy reactivation. Both bounded cells are emitted, including zeroes, and their sum is the former unlabeled gauge. State is maintained at pool mutation sites; a scrape only copies the counters and never scans the pool or advances lazy state. |
+| `ton_mempool_oldest_ext_message_age_seconds` | gauge | — | Age of the oldest stored mempool entry, maintained from the expiry-ordered list head without scanning; 0 when empty. Reprioritizing a duplicate recreates and re-appends the entry, resetting its age and expiry. With the ordering invariant intact, the value is bounded by the 600 s TTL except while the pool actor owes a due expiry alarm: `max(age - 600, 0)` is then the exact expiry-handler lag at scrape time. A sustained value above 600 s means either that handler is delayed or the expiry-order invariant was broken. |
+| `ton_mempool_ext_admission_total` | counter | `outcome=accepted\|validated_only\|not_ready\|too_large\|backpressure\|invalid\|state_unavailable\|vm_rejected\|rate_limited\|pool_full\|address_full\|duplicate\|internal_error\|reprioritized` | One local outcome for every external handed to the validator manager or pool. `accepted` passed validation and was inserted as a new local pool entry. `validated_only` passed validation on a node with `add_to_mempool=false`, so it changed no local stock. `reprioritized` passed validation and replaced its own lower-priority entry. `accepted` minus removals tracks the stored gauge; `validated_only` and `reprioritized` change neither side. `rate_limited` is the final per-address validation cap. `pool_full`, `address_full`, and `duplicate` passed validation but were not inserted locally; they do not change the existing successful network response. Raw errors, addresses, and VM exit codes are never labels. Process-lifetime; all cells are emitted from boot. |
 | `ton_mempool_ext_check_total` | counter | `result=ok\|error` | External-message admission checks that ran, by outcome. `error` is a failed check (parse, account state fetch, VM) or the per-address cap at finalization; requests rejected **before** a check runs — node not ready, oversized payload, admission queue full — are counted in neither cell. Process-lifetime, resets on restart. |
-| `ton_mempool_ext_removed_total` | counter | `reason=applied\|expired\|rejected_final\|filtered\|pool_pressure` | Why an entry left this node's pool. `applied` — seen in an applied block; `expired` — hit the 600 s TTL and was swept; `rejected_final` — exhausted its postpone generations; `pool_pressure` — was evicted instead of postponed while its priority level was at the soft limit; `filtered` — collation could not register it, for example because it was duplicate or for the wrong shard. A non-`applied` removal is a local eviction, not proof the message was lost network-wide. Reprioritization is not a removal; it is admission outcome `reprioritized`. Process-lifetime; all cells emitted from boot. |
+| `ton_mempool_ext_removed_total` | counter | `reason=applied\|expired\|rejected_final\|filtered\|pool_pressure` | Why an entry left this node's pool. `applied` — seen in an applied block; `expired` — removed by the deadline handler at the 600 s TTL; `rejected_final` — exhausted its postpone generations; `pool_pressure` — was evicted instead of postponed while its priority level was at the soft limit; `filtered` — collation could not register it, for example because it was duplicate or for the wrong shard. A non-`applied` removal is a local eviction, not proof the message was lost network-wide. Reprioritization is not a removal; it is admission outcome `reprioritized`. Process-lifetime; all cells emitted from boot. |
+| `ton_mempool_ext_inclusion_seconds` | histogram | — | How long an entry had been stored on this node when this node observed the message in an applied block. The clock starts at local admission and stops at the `applied` removal, so it contains broadcast propagation to whichever collator included the message plus this node's own apply lag; it is a node-local reading, not a chain-wide inclusion time. Only `applied` removals are observed — `expired`, `filtered`, `rejected_final` and `pool_pressure` evictions are never sampled — so a pool that is failing to get its messages included emits **fewer samples rather than a higher latency**; read `_count` against `ton_mempool_ext_removed_total` before reading the quantiles. Reprioritizing a duplicate replaces the entry and restarts its clock, exactly as it resets the oldest-age gauge. Bounded by the 600 s TTL by construction, which is also the last bucket bound. Process-lifetime, resets on restart. |
 
 Admission starts at `ValidatorManager`: malformed outer broadcasts, unauthorized custom-overlay senders,
 inactive overlays, and duplicates rejected by the public overlay never reach this boundary. `duplicate` therefore
 means a duplicate that reached the pool. Pool storage outcomes do not change the existing network response: for
 example, an already-known message can still be allowed to propagate while being counted as `duplicate` locally.
+
+The process-lifetime stock identity at one scrape is exact:
+
+```promql
+sum without (state) (ton_mempool_ext_messages)
+  == sum without (outcome) (ton_mempool_ext_admission_total{outcome="accepted"})
+     - sum without (reason) (ton_mempool_ext_removed_total)
+```
+
+`validated_only` and `reprioritized` deliberately appear on neither side: validation without storage changes no
+local stock, and replacing an entry changes its state and TTL but not the stored total. Rates or range-vector
+deltas only approximate this scrape-time identity because Prometheus extrapolates them to the range boundaries.
+
+Adding the bounded `state` label starts new Prometheus series. Total-stock queries retain numeric continuity by
+aggregating the label away as above; `state="eligible"` has no history before the upgraded exporter, and selectors
+for one state omit old-version nodes during a mixed rollout.
 
 ---
 
@@ -572,8 +843,9 @@ different points in a packet's life, and several drop paths are unmetered.
 Recipes for the questions this surface was built to answer. Rules that keep histogram math honest:
 `le` must survive every `by (…)` clause, always `rate()` bucket counters before quantiles, and when
 aggregating across nodes sum the bucket rates *before* `histogram_quantile` — a p95 of per-node
-p95s is not a p95. Quantiles are interpolated within our fixed bucket bounds (1 ms … 30 s,
-log-scale), so read "p95 = 8.3ms" as "p95 is in the 5–10 ms bucket".
+p95s is not a p95. Quantiles are interpolated within each family's fixed bucket bounds (the common
+duration family is 1 ms … 30 s; block-processing and consensus families extend farther), so read
+"p95 = 8.3ms" as "p95 is in the 5–10 ms bucket".
 
 **What am I receiving, by type and QUIC peer class?** Query one transport at a time:
 
@@ -654,17 +926,23 @@ histogram_quantile(0.95, sum by (le) (rate(ton_rldp2_query_roundtrip_seconds_buc
 histogram_quantile(0.95, sum by (le) (rate(ton_adnl_query_duration_seconds_bucket{tl="tonNode.downloadBlockFull"}[5m])))
 ```
 
-**Are my messages actually arriving?** Delivery confirmation failure ratio (rldp2 confirms via
-transfer completion, QUIC via the empty response) — on a healthy link this is ~0 and deliveries
-confirm in milliseconds; a peer that silently lost its connection state shows up here within
-seconds:
+**Are my stream-based QUIC messages being confirmed?** A unidirectional stream confirms when the
+peer acknowledges its data and FIN; legacy bidirectional mode uses the empty receipt. DATAGRAM
+messages are intentionally absent from this ratio. On a healthy link it is ~0. The fallback is
+applied before aggregation so mixed old/new exporters are represented once:
 
 ```promql
-sum by (trust, tl) (rate(ton_quic_message_delivery_failed_total[5m]))
-  / sum by (trust, tl) (rate(ton_quic_message_delivery_seconds_count[5m]))
+sum by (trust, tl) (
+  rate(ton_quic_message_confirmation_failed_total[5m])
+    or rate(ton_quic_message_delivery_failed_total[5m])
+)
+  / sum by (trust, tl) (
+      rate(ton_quic_message_confirmation_seconds_count[5m])
+        or rate(ton_quic_message_delivery_seconds_count[5m])
+    )
 ```
 
-**QUIC stream-credit exhaustion** (the `ngtcp2_conn_open_bidi_stream failed: -206` signature —
+**QUIC stream-credit exhaustion** (the `open stream failed: -206 (ERR_STREAM_ID_BLOCKED)` signature —
 fire-and-forget sends being dropped because a peer stopped granting stream credit):
 
 ```promql
@@ -672,11 +950,10 @@ rate(ton_quic_app_dropped_total{direction="out",reason="limited"}[1m]) > 0
 ton_quic_transport_sids_current   # corroborates; read it with the caveat below
 ```
 
-The first line is the detector. `sids_current` only corroborates: it counts open streams in **both**
-directions of initiation, each capped at 4096, so a connection's ceiling is 8192 and the gauge cannot
-isolate the half that matters. The credit that blocks our sends is the peer's limit on the
-locally-initiated half, so a plateau near 4096 × connections is the exhaustion signature only while
-inbound stream use is low.
+The first line is the detector. `sids_current` only corroborates: it combines locally initiated bidi
+and uni streams with peer-initiated bidi streams, so it cannot isolate the budget that matters. At
+the defaults, those three independent limits are 4096 each. Message sends normally consume the
+peer's uni budget; old-peer fallback consumes its bidi budget.
 
 **Why am I dropping traffic?** The reason axis separates runbooks — `limited` on the wire tier is
 kernel receive-queue overflow (raise `SO_RCVBUF` / add CPU), `invalid` is garbage from peers,
@@ -694,6 +971,32 @@ sum by (reason, direction) (rate(ton_adnl_transport_dropped_total[5m]))
 sum by (source) (rate(ton_first_received_total[15m]))
   / ignoring(source) group_left sum(rate(ton_first_received_total[15m]))
 ```
+
+**Where did the slot go?** The p95 of every consensus stage, chain-wide, and the average dead time
+between prior-slot local completion and collation of the next one starting — then the same handoff
+read from the other side, as the head start collation already had at that completion. Full blocks
+complete when local apply finishes; empty/skipped slots complete at their certificate:
+
+```promql
+histogram_quantile(0.95, sum by (stage, le) (
+  rate(ton_consensus_stage_seconds_bucket{chain="shard"}[5m])))
+sum(rate(ton_consensus_slot_gap_seconds_sum{chain="shard"}[5m]))
+  / sum(rate(ton_consensus_slot_gap_seconds_count{chain="shard"}[5m]))
+sum(rate(ton_consensus_slot_lead_seconds_sum{chain="shard"}[5m]))
+  / sum(rate(ton_consensus_slot_lead_seconds_count{chain="shard"}[5m]))
+```
+
+Bucket rates are summed across nodes before the quantile, as everywhere else. The stages are not a
+partition of the slot: each is observed only by the nodes that hold both of its marks (`collate` and
+`publish` only by that slot's collator). Read the second
+expression — seconds of dead time per handoff — against the slot: that ratio is the share of the
+slot budget the chain never spends producing. Its wall-clock share is the numerator alone (leaders
+rotate but only one collates at a time, so summing over collators does not double-count), divided by
+`ton_active_shards` on shardchain, where that many groups run in parallel. Subtract the third
+expression from the second for the mean signed handoff: positive is a chain that idles at the
+handoff, negative one that pipelines through it. Alongside them,
+`rate(ton_consensus_rounds_total{outcome="empty"}[5m])` is the empty-block half of the same handoff
+signature.
 
 **How much CPU goes into crypto?** Signing and verification rates, and their average cost:
 
@@ -787,29 +1090,27 @@ ton_actor_scheduler_current_execute_seconds > 5
 ```
 
 Alert on it only with a `for:` clause of several scrapes: a legitimately long batch (state
-serialization, a big collation) will trip a single sample. If it stays high while
-`ton_exporter_last_collection_timestamp_seconds` keeps advancing, the wedged worker is on another
-scheduler than the exporter's.
+serialization, a big collation) will trip a single sample. The scrape that carried the sample was
+itself answered, so whatever it caught is not on the collection path: that scrape had just run every
+collector end to end.
 
-**Is the exporter itself healthy?** Scrape staleness — alerts if collection wedges (there is no
-internal scrape deadline; see Known gaps):
+**Is the exporter itself healthy?** A scrape is answered from its own gather, so a node that cannot
+finish one cannot answer at all:
 
 ```promql
-time() - ton_exporter_last_collection_timestamp_seconds > 120   # answering scrapes, loop wedged
-up{job="ton"} == 0                                              # not answering scrapes at all
-                                                                # (job = your scrape_config name)
+up{job="ton"} == 0                    # not answering scrapes (job = your scrape_config name)
+scrape_duration_seconds{job="ton"}    # what the gather behind each scrape cost
 ```
 
-Alert on both. The first arm covers a node whose collection stalled while its HTTP endpoint still
-serves; it goes silent once the stale series ages out of Prometheus's ~5 min lookback, which is
-exactly when the second arm takes over. It does **not** cover a gather that fails outright: the
-timestamp is written before the gather runs, so a node failing every collection looks perfectly
-fresh — there the HTTP 500 makes the scrape itself fail, and the second arm is the only one that
-fires. Don't fold the second arm into
-`absent(ton_exporter_last_collection_timestamp_seconds)`: `absent()` is evaluated over the whole
-vector and yields nothing while *any* instance still reports, so with more than one target it never
-fires — and Prometheus has no per-instance form of it. `up` is the per-target series Prometheus
-writes itself, so it keeps the `instance` label and stays present, at 0, for a target that is down.
+`up` is the per-target series Prometheus writes itself, so it keeps the `instance` label and stays
+present, at 0, for a target that is down — whether the process is gone, the network is gone, or the
+node is too starved to gather within the scrape timeout. For triage those are one finding: the
+numbers stopped arriving, which is what the `unreachable` condition covers. `scrape_duration_seconds`
+is the graded form of the same thing and is where collection latency is read; Prometheus measures it
+itself, so it needs no clock agreement with the node. Do not reach for an `absent()` form of the
+first arm: `absent()` is evaluated over the whole vector and yields nothing while *any* instance
+still reports, so with more than one target it never fires, and Prometheus has no per-instance form
+of it.
 
 ---
 
@@ -880,11 +1181,10 @@ would double-count the far more common case already reflected in `pkt_discarded`
 `max_size` or ran past its timeout is reported to the caller as an error, but nothing bumps
 `ton_quic_app_dropped_total` — hence its permanently-zero inbound cells above.
 
-**No internal scrape deadline.** Nothing bounds a gather: a collector that never answers leaves the
-coroutine suspended, waiting scrapers hang on a body that never arrives, and every later scrape joins
-the same stuck flight. Only a scraper's own client timeout ends it. A collector that *fails* is
-handled — the waiting scrapers get an HTTP 500, so the scrape fails visibly — but a wedged one is
-not.
+**A collector that never answers wedges the flight**, and with it every scrape waiting behind it —
+that is a bug in the collector, not an operating mode, and nothing bounds a gather. (A collector that
+*fails* is handled: every waiter is answered 500, the flight is released, and the next scrape gathers
+again.)
 
 **Most of the ADNL wire tier is blind on non-POSIX.** `td::UdpServer` fills its traffic counters only
 under `TD_PORT_POSIX`, so on Windows `ton_adnl_wire_{bytes,packets,dropped}_total` stay zero while the
@@ -926,9 +1226,9 @@ future looks idle.
 
 **The two worker-liveness gauges are point samples.** `ton_actor_scheduler_workers_active` and
 `ton_actor_scheduler_current_execute_seconds` read `core::Debug`, which is written only while
-`need_debug()` is on (as with the per-type tier), and are sampled once per scrape under a mutex.
+`need_debug()` is on (as with the per-type tier), and are sampled once per gather under a mutex.
 Executions shorter than the scrape interval are simply never seen — these two catch a stall, not a
-duty cycle. The exporter excludes its own collecting worker so a scrape does not manufacture an
+duty cycle. The exporter excludes its own collecting worker so a gather does not manufacture an
 active-worker baseline. Use converted `ton_actor_worker_busy_ticks_total` for the duty cycle. Its
 snapshot includes elapsed time in the current dispatch, so a wedged scope keeps the counter rising
 before it returns. The exporter worker is excluded only from the liveness point sample; its dispatch

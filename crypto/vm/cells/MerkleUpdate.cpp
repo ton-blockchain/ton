@@ -229,7 +229,8 @@ td::Result<std::pair<Ref<Cell>, Ref<Cell>>> MerkleUpdate::generate_raw(Ref<Cell>
                CellUsageTree::NodePtr node;
                if (cell->is_loaded()) {
                  auto loaded_cell = cell->load_cell().move_as_ok();
-                 if (loaded_cell.data_cell->size_refs() == 0) {
+                 if (loaded_cell.data_cell->size_refs() == 0 &&
+                     (loaded_cell.data_cell->size() <= 8 + 16 + 256 || loaded_cell.data_cell->get_level() > 0)) {
                    return false;
                  }
                  node = loaded_cell.tree_node;
@@ -238,8 +239,7 @@ td::Result<std::pair<Ref<Cell>, Ref<Cell>>> MerkleUpdate::generate_raw(Ref<Cell>
                }
                return !node.empty() && node.mark_path(tree);
              }));
-  usage_tree->set_use_mark_for_is_loaded(true);
-  TRY_RESULT(update_from, MerkleProof::generate_raw(from, usage_tree));
+  TRY_RESULT(update_from, MerkleProof::generate_raw(from, usage_tree, true));
   return std::make_pair(std::move(update_from), std::move(update_to));
 }
 
@@ -335,7 +335,7 @@ class MerkleCombine {
     load_cells(D_, 0);
 
     // 2. mark_A(A) - Traverse Max(A), but uses all cached cells from step 1. Mark all visited cells
-    A_usage_tree_ = std::make_shared<CellUsageTree>();
+    A_usage_tree_ = std::make_shared<CellUsageTree>(A_);
     mark_A(A_, 0, A_usage_tree_->root_id());
 
     // 3. create_D(D) - create new_D. Traverse Max(D), and stop at marked cells. Mark path in A to marked cells
@@ -429,7 +429,8 @@ class MerkleCombine {
     CellSlice cs(NoVm(), info.cell_);
     auto child_merkle_depth = cs.child_merkle_depth(merkle_depth);
     for (int i = 0, size = cs.size_refs(); i < size; i++) {
-      mark_A(cs.fetch_ref(), child_merkle_depth, A_usage_tree_->create_child(node_id, i));
+      auto ref = cs.fetch_ref();
+      mark_A(ref, child_merkle_depth, A_usage_tree_->create_child(node_id, i, ref));
     }
   }
 

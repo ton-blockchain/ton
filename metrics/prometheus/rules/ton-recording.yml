@@ -1,0 +1,216 @@
+# Optional precomputed forms of common TON queries. Dashboards also work from base metrics alone.
+#
+# Chain-level rules aggregate by (job), never fleet-wide: one job is one blockchain, and a
+# Prometheus scraping mainnet and testnet must not reconcile them into one median.
+# Node-level rules keep (job, instance) so every consumer can attribute the result.
+# Tick counters are divided by each target's calibrated ton_actor_ticks_per_second before any
+# cross-target aggregation, exactly as METRICS.md requires.
+
+groups:
+  - name: ton.rec.ticks
+    interval: 15s
+    rules:
+      - record: ton:actor_worker_busy_seconds:rate1m
+        expr: |
+          sum by (job, instance, worker) (
+            rate(ton_actor_worker_busy_ticks_total{worker=~"io|cpu"}[1m])
+            / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+
+      - record: ton:actor_worker_occupancy:ratio1m
+        expr: |
+          ton:actor_worker_busy_seconds:rate1m
+          / on (job, instance, worker) clamp_min(
+              sum by (job, instance, worker) (ton_actor_worker_threads), 1)
+
+      - record: ton:actor_type_busy_seconds:rate1m
+        expr: |
+          sum by (job, instance, type) (
+            rate(ton_actor_busy_ticks_total[1m])
+            / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+
+      - record: ton:actor_type_messages:rate1m
+        expr: sum by (job, instance, type) (rate(ton_actor_messages_total[1m]))
+
+      - record: ton:actor_max_message_seconds:recent
+        expr: |
+          max by (job, instance, type) (
+            ton_actor_max_message_ticks{window="recent"}
+            / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+
+      - record: ton:actor_max_execute_seconds:recent
+        expr: |
+          max by (job, instance, type) (
+            ton_actor_max_execute_ticks{window="recent"}
+            / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+
+      - record: ton:actor_max_queue_seconds:recent
+        expr: |
+          max by (job, instance, type) (
+            ton_actor_max_queue_ticks{window="recent"}
+            / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+
+      - record: ton:perf_op_seconds:rate1m
+        expr: |
+          sum by (job, instance, op) (
+            rate(ton_perf_op_ticks_total[1m])
+            / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+
+      - record: ton:perf_ops:rate1m
+        expr: sum by (job, instance, op) (rate(ton_perf_ops_total[1m]))
+
+      # fsync has no histogram, so the commit path is only observable as elapsed seconds per
+      # second and mean seconds per call. Both include descheduling: elapsed, not device time.
+      - record: ton:fd_sync_load:5m
+        expr: |
+          sum by (job, instance) (
+            rate(ton_perf_op_ticks_total{op="fd_sync"}[5m])
+            / on (job, instance) group_left max by (job, instance) (ton_actor_ticks_per_second))
+
+      - record: ton:fd_sync_seconds_per_op:5m
+        expr: |
+          ton:fd_sync_load:5m
+          / (sum by (job, instance) (rate(ton_perf_ops_total{op="fd_sync"}[5m])) > 0)
+
+  - name: ton.rec.chain
+    interval: 15s
+    rules:
+      # The guarded hybrid: advance of the replicated head while every applied-block reporter
+      # also exports the seqno, otherwise the reporter median, so one new-but-stalled target
+      # during a rolling upgrade cannot suppress the legacy observation.
+      #
+      # The guard is a two-sided set difference on (job, instance), not a count comparison: two
+      # equal-sized but disjoint reporter populations are not the same population, and during a
+      # rolling upgrade that is exactly the shape the counts would wave through. Each side is
+      # zero-filled per job (`or 0 * count(...)`) so an empty difference still produces the 0 the
+      # `== 0` needs; a job where a family is missing entirely drops out of the guard and falls
+      # through to the median branch. This is dashgen's same_reporters helper, expressed per job.
+      - record: ton:masterchain_block_rate:1m
+        expr: |
+          (
+            clamp_min((max by (job) (ton_masterchain_seqno)
+                       - max by (job) (ton_masterchain_seqno offset 1m)) / 60, 0)
+            and on (job) (
+              (count by (job) (max by (job, instance) (ton_masterchain_seqno)
+                               unless on (job, instance)
+                               max by (job, instance) (ton_first_received_total{workchain="-1"}))
+               or 0 * count by (job) (max by (job, instance) (ton_masterchain_seqno))) == 0)
+            and on (job) (
+              (count by (job) (max by (job, instance) (ton_first_received_total{workchain="-1"})
+                               unless on (job, instance)
+                               max by (job, instance) (ton_masterchain_seqno))
+               or 0 * count by (job) (max by (job, instance) (ton_first_received_total{workchain="-1"}))) == 0)
+          )
+          or quantile by (job) (0.5,
+               sum by (job, instance) (rate(ton_first_received_total{workchain="-1"}[1m])))
+
+      - record: ton:shard_block_rate:1m
+        expr: |
+          quantile by (job) (0.5,
+            sum by (job, instance) (rate(ton_first_received_total{workchain="0"}[1m])))
+
+      # Each node's own minute is divided by its own average shard count over that same minute,
+      # so a split or merge never pairs a one-minute numerator with the latest topology only.
+      - record: ton:shard_block_rate_per_shard:1m
+        expr: |
+          quantile by (job) (0.5,
+            sum by (job, instance) (rate(ton_first_received_total{workchain="0"}[1m]))
+            / on (job, instance) clamp_min(
+                max by (job, instance) (avg_over_time(ton_active_shards[1m])), 1))
+
+      # The two reporter filters the external-flow panels apply, as 0/1 per target:
+      # fresh is the masterchain-grade guard, synced adds the shard-client one.
+      - record: ton:node_fresh
+        expr: abs(ton_masterchain_block_age_seconds) < bool 120
+
+      - record: ton:node_synced
+        expr: |
+          ton:node_fresh
+          * (clamp_min(ton_masterchain_seqno - ton_shardclient_seqno, 0) <= bool 2)
+
+      - record: ton:applied_ext_tps:1m
+        expr: |
+          quantile by (job, chain) (0.5,
+              (rate(ton_applied_ext_messages_total{chain="master"}[1m])
+                 and on (job, instance) (ton:node_fresh == 1))
+           or (rate(ton_applied_ext_messages_total{chain="shard"}[1m])
+                 and on (job, instance) (ton:node_synced == 1)))
+
+      # Slot-free: a consumer may divide by its own deployment's configured slot length.
+      - record: ton:shard_collation_seconds_per_block:1m
+        expr: |
+          (
+            sum by (job) (rate(ton_block_processing_seconds_total{operation="collate",chain="shard",phase="total",clock="elapsed",result="ok"}[1m]))
+            - sum by (job) (rate(ton_block_processing_seconds_total{operation="collate",chain="shard",phase="wait_externals",clock="elapsed",result="ok"}[1m]))
+          )
+          / (sum by (job) (rate(ton_collated_blocks_total{chain="shard",result="ok"}[1m])) > 0)
+
+      # Trustworthy only while every reporter exports both streams; during a partial rollout the
+      # rule deliberately produces nothing rather than mixing reporter populations. Same two-sided
+      # set-difference guard as the masterchain rate above, for the same reason.
+      - record: ton:shard_discard_ratio:10m
+        expr: |
+          clamp_min(1
+            - quantile by (job) (0.5,
+                sum by (job, instance) (rate(ton_first_received_total{workchain="0"}[10m])))
+            / (sum by (job) (rate(ton_collated_blocks_total{chain="shard",result="ok"}[10m])) > 0), 0)
+          and on (job) (
+            (count by (job) (max by (job, instance) (ton_collated_blocks_total{chain="shard",result="ok"})
+                             unless on (job, instance)
+                             max by (job, instance) (ton_first_received_total{workchain="0"}))
+             or 0 * count by (job) (max by (job, instance) (ton_collated_blocks_total{chain="shard",result="ok"}))) == 0)
+          and on (job) (
+            (count by (job) (max by (job, instance) (ton_first_received_total{workchain="0"})
+                             unless on (job, instance)
+                             max by (job, instance) (ton_collated_blocks_total{chain="shard",result="ok"}))
+             or 0 * count by (job) (max by (job, instance) (ton_first_received_total{workchain="0"}))) == 0)
+
+  - name: ton.rec.network
+    interval: 15s
+    rules:
+      # Kernel receive-queue overflow, both transports under one name; these datagrams never
+      # reached wire_packets, so they are not subtractable from it.
+      - record: ton:wire_rx_overflow_packets:rate5m
+        expr: |
+          label_replace(
+            sum by (job, instance) (rate(ton_quic_wire_dropped_total{direction="in",reason="limited"}[5m])),
+            "transport", "quic", "", "")
+          or label_replace(
+            sum by (job, instance) (rate(ton_adnl_wire_dropped_total{direction="in",reason="limited"}[5m])),
+            "transport", "adnl", "", "")
+
+      # METRICS.md's cross-transport union: three separate rate()s, each tagged before the or,
+      # because after rate() the adnl and rldp2 labelsets would collide.
+      - record: ton:app_bytes:rate5m
+        expr: |
+          sum by (job, transport, kind, direction, tl) (
+              label_replace(rate(ton_quic_app_bytes_total[5m]),  "transport", "quic",  "", "")
+           or label_replace(rate(ton_adnl_app_bytes_total[5m]),  "transport", "adnl",  "", "")
+           or label_replace(rate(ton_rldp2_app_bytes_total[5m]), "transport", "rldp2", "", ""))
+
+      # le survives, so fleet p95 (sum the bucket rates again) and per-node p95 both derive
+      # from this one rule. A p95 of per-node p95s would not be a p95.
+      - record: ton:quic_query_roundtrip_bucket:rate5m
+        expr: sum by (job, instance, le) (rate(ton_quic_query_roundtrip_seconds_bucket[5m]))
+
+      - record: ton:quic_query_fail_ratio:5m
+        expr: |
+          sum by (job, instance) (rate(ton_quic_query_roundtrip_failed_total[5m]))
+          / (sum by (job, instance) (rate(ton_quic_query_roundtrip_seconds_count[5m])) > 0)
+
+      - record: ton:msg_delivery_fail_ratio:5m
+        expr: |
+          label_replace(
+            sum by (job, instance) (rate(ton_quic_message_delivery_failed_total[5m]))
+            / (sum by (job, instance) (rate(ton_quic_message_delivery_seconds_count[5m])) > 0),
+            "transport", "quic", "", "")
+          or label_replace(
+            sum by (job, instance) (rate(ton_rldp2_message_delivery_failed_total[5m]))
+            / (sum by (job, instance) (rate(ton_rldp2_message_delivery_seconds_count[5m])) > 0),
+            "transport", "rldp2", "", "")
+
+  - name: ton.rec.mempool
+    interval: 15s
+    rules:
+      # The removal funnel. A non-applied removal is a local eviction, not proof of network loss.
+      - record: ton:mempool_removed:rate5m
+        expr: sum by (job, instance, reason) (rate(ton_mempool_ext_removed_total[5m]))

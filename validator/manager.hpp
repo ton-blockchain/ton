@@ -29,9 +29,9 @@
 #include "interfaces/db.h"
 #include "interfaces/validator-manager.h"
 #include "metrics/block-processing-metrics.h"
+#include "metrics/chain-metrics.h"
 #include "metrics/prometheus-exporter.h"
 #include "quic/quic-sender.h"
-#include "rldp2/rldp.h"
 #include "td/actor/ActorStats.h"
 #include "td/actor/MultiPromise.h"
 #include "td/actor/PromiseFuture.h"
@@ -44,10 +44,9 @@
 #include "ton/ton-io.hpp"
 
 #include "collator-scoreboard.hpp"
+#include "global-balance-calculator.hpp"
 #include "manager-init.h"
 #include "queue-size-counter.hpp"
-#include "shard-block-retainer.hpp"
-#include "shard-block-verifier.hpp"
 #include "shard-client.hpp"
 #include "state-serializer.hpp"
 #include "storage-stat-cache.hpp"
@@ -285,8 +284,6 @@ class ValidatorManagerImpl : public ValidatorManager {
     }
   };
   // DATA FOR COLLATOR
-  // Shard block will not be used until it is confirmed by trusted nodes (see ShardBlockVerifier) and
-  // msg queue to masterchain is ready (to avoid too long masterchain collation)
   // latest_desc - latest known block
   // ready_desc - block ready to be used (may be null)
   struct ShardTopBlock {
@@ -332,6 +329,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   BlockHandle gc_masterchain_handle_;
   td::Ref<MasterchainState> gc_masterchain_state_;
   bool gc_advancing_ = false;
+  std::map<td::uint64, std::shared_ptr<std::atomic<BlockSeqno>>> gc_blockers_;
+  td::uint64 next_gc_blocker_idx_ = 0;
 
   BlockIdExt last_rotate_block_id_;
 
@@ -343,12 +342,15 @@ class ValidatorManagerImpl : public ValidatorManager {
   void new_masterchain_block();
   void update_shard_overlays();
   void update_shards();
+  void init_global_balance_calculator();
   void update_shard_blocks();
   void updated_init_block(BlockIdExt last_rotate_block_id);
   void got_next_gc_masterchain_handle(BlockHandle handle);
   void got_next_gc_masterchain_state(BlockHandle handle, td::Ref<MasterchainState> state);
   void advance_gc(BlockHandle handle, td::Ref<MasterchainState> state);
   void try_advance_gc_masterchain_block();
+  std::unique_ptr<GarbageCollectorBlocker> add_gc_blocker(BlockSeqno mc_seqno = 0);
+  void remove_gc_blocker(td::uint64 idx);
   void update_gc_block_handle(BlockHandle handle, td::Promise<td::Unit> promise) override;
   void update_shard_client_block_handle(BlockHandle handle, td::Ref<MasterchainState> state,
                                         td::Promise<td::Unit> promise) override;
@@ -503,8 +505,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void get_external_messages(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback) override;
   void get_shard_blocks_for_collator(BlockIdExt masterchain_block_id,
                                      td::Promise<std::vector<td::Ref<ShardTopBlockDescription>>> promise) override;
-  void complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
-                                  std::vector<ExtMessage::Hash> to_delete) override;
+  void complete_external_messages(std::vector<ExtMessage::Hash> to_delete) override;
   void cleanup_applied_external_messages(BlockHandle handle, td::Ref<BlockData> block) override;
 
   void set_next_block(BlockIdExt prev, BlockIdExt next, td::Promise<td::Unit> promise) override;
@@ -562,6 +563,7 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   void update_shard_client_state(BlockIdExt masterchain_block_id, td::Promise<td::Unit> promise) override;
   void get_shard_client_state(bool from_db, td::Promise<BlockIdExt> promise) override;
+  void get_sync_delay(td::Promise<double> promise) override;
 
   void update_async_serializer_state(AsyncSerializerState state, td::Promise<td::Unit> promise) override;
   void get_async_serializer_state(td::Promise<AsyncSerializerState> promise) override;
@@ -610,15 +612,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   ValidatorManagerImpl(td::Ref<ValidatorManagerOptions> opts, std::string db_root,
                        td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                       td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
-                       td::actor::ActorId<overlay::Overlays> overlays)
-      : opts_(std::move(opts))
-      , db_root_(db_root)
-      , keyring_(keyring)
-      , adnl_(adnl)
-      , rldp2_(rldp2)
-      , quic_(quic)
-      , overlays_(overlays) {
+                       td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays)
+      : opts_(std::move(opts)), db_root_(db_root), keyring_(keyring), adnl_(adnl), quic_(quic), overlays_(overlays) {
   }
 
  public:
@@ -696,6 +691,28 @@ class ValidatorManagerImpl : public ValidatorManager {
     td::actor::send_closure(storage_stat_cache_, &StorageStatCache::update, std::move(data));
   }
 
+  td::actor::Task<td::RefInt256> validate_global_balance(Ref<MasterchainState> mc_state, Ref<vm::Cell> block_root,
+                                                         td::CancellationToken cancellation_token) override {
+    if (global_balance_calculator_.empty()) {
+      init_global_balance_calculator();
+      if (global_balance_calculator_.empty()) {
+        co_return td::Status::Error(ErrorCode::notready, "global balance calculator is not inited");
+      }
+    }
+    co_return co_await td::actor::ask(global_balance_calculator_, &GlobalBalanceCalculator::validate_global_balance,
+                                      std::move(mc_state), std::move(block_root), std::move(cancellation_token));
+  }
+  td::actor::Task<td::RefInt256> get_global_balance(BlockIdExt mc_block_id, td::Timestamp timeout) override {
+    if (global_balance_calculator_.empty()) {
+      init_global_balance_calculator();
+      if (global_balance_calculator_.empty()) {
+        co_return td::Status::Error(ErrorCode::notready, "global balance calculator is not inited");
+      }
+    }
+    co_return co_await td::actor::ask(global_balance_calculator_, &GlobalBalanceCalculator::get_global_balance,
+                                      mc_block_id, timeout);
+  }
+
  private:
   td::Timestamp resend_shard_blocks_at_;
   td::Timestamp check_waiters_at_;
@@ -741,7 +758,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   std::string db_root_;
   td::actor::ActorId<keyring::Keyring> keyring_;
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
 
@@ -779,18 +795,21 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   UnixTime started_at_ = (UnixTime)td::Clocks::system();
   std::map<int, td::uint64> total_ls_queries_ok_, total_ls_queries_error_;  // lite_api ID -> count, 0 for unknown
-  td::uint64 total_collated_blocks_master_ok_{0}, total_collated_blocks_master_error_{0};
-  td::uint64 total_validated_blocks_master_ok_{0}, total_validated_blocks_master_error_{0};
-  td::uint64 total_collated_blocks_shard_ok_{0}, total_collated_blocks_shard_error_{0};
-  td::uint64 total_validated_blocks_shard_ok_{0}, total_validated_blocks_shard_error_{0};
+  metrics::ChainSnapshot::CollatedBlocks total_collated_blocks_;
+  metrics::ChainSnapshot::Blocks total_validated_blocks_;
   td::uint64 ext_message_not_ready_{0};
   metrics::BlockProcessingMetrics block_processing_metrics_;
+  metrics::ConsensusMetrics consensus_metrics_;
 
   void log_collate_query_stats(CollationStats stats) override;
-  void log_collation_external_stats(ShardIdFull shard, CollationStats::ExternalMessages stats) override;
   void log_validate_query_stats(ValidationStats stats) override;
+  void add_consensus_metrics(metrics::ConsensusMetrics metrics) override {
+    consensus_metrics_ += metrics;
+  }
   void add_collation_external_metrics(metrics::BlockChain chain, metrics::BlockResult result,
                                       CollationStats::ExternalMessages stats);
+  void add_collation_queue_metrics(metrics::BlockChain chain, const CollationStats &stats);
+  void add_collation_storage_cache_metrics(metrics::BlockChain chain, const StorageStatCacheStats &cache);
 
   void register_stats_provider(
       td::uint64 idx, std::string prefix,
@@ -815,12 +834,6 @@ class ValidatorManagerImpl : public ValidatorManager {
   template <typename T>
   void write_session_stats(const T &obj);
 
-  td::actor::ActorOwn<ShardBlockVerifier> shard_block_verifier_;
-  adnl::AdnlNodeIdShort shard_block_verifier_local_id_ = adnl::AdnlNodeIdShort::zero();
-  std::map<adnl::AdnlNodeIdShort, td::actor::ActorOwn<ShardBlockRetainer>> shard_block_retainers_;
-
-  void init_shard_block_verifier(adnl::AdnlNodeIdShort local_id);
-
   td::actor::ActorOwn<DbEventPublisher> db_event_publisher_;
 
   struct NonfinalGroupInfo {
@@ -838,6 +851,8 @@ class ValidatorManagerImpl : public ValidatorManager {
 
   td::actor::Task<> collect(metrics::Context ctx) override;
   void update_block_receive_stats(BlockIdExt block_id, BlockSource type);
+
+  td::actor::ActorOwn<GlobalBalanceCalculator> global_balance_calculator_;
 };
 
 }  // namespace validator

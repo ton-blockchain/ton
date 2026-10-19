@@ -64,6 +64,16 @@ struct ResolveCandidate {
   std::string contents_to_string() const;
 };
 
+// Local-only telemetry: CandidateResolver publishes this once when it successfully resolves a
+// candidate, whether it was already stored, loaded from DB, or recovered from a peer. It
+// deliberately carries no timestamp and is not a consensus trace/TL event.
+struct CandidateOutcomeObserved {
+  using LogToDebug = std::true_type;
+
+  CandidateId id;
+  bool is_empty;
+};
+
 struct StoreCandidate {
   using ReturnType = td::Unit;
 
@@ -96,8 +106,9 @@ struct SaveCertificate {
 class Bus : public consensus::Bus {
  public:
   using Parent = consensus::Bus;
-  using Events = td::TypeList<BroadcastVote, NotarizationObserved, FinalizationObserved, LeaderWindowObserved,
-                              WaitForParent, ResolveCandidate, StoreCandidate, ResolveState, SaveCertificate>;
+  using Events =
+      td::TypeList<BroadcastVote, NotarizationObserved, FinalizationObserved, LeaderWindowObserved, WaitForParent,
+                   ResolveCandidate, CandidateOutcomeObserved, StoreCandidate, ResolveState, SaveCertificate>;
 
   Bus() = default;
 
@@ -134,6 +145,11 @@ struct StateResolver {
 };
 
 struct Db {
+  static void register_in(td::actor::Runtime&);
+};
+
+// Folds this group's trace events into consensus stage histograms for the manager's exporter.
+struct MetricReporter {
   static void register_in(td::actor::Runtime&);
 };
 

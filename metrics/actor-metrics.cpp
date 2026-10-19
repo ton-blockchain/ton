@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <map>
 #include <string>
 #include <string_view>
@@ -64,6 +65,12 @@ void collect_actor_types(Context ctx, const td::actor::ActorTypeStats &raw) {
   max_by_type(ctx.with_name("max_queue_ticks"), [](const Stat &s) { return s.max_delay_seconds.value_10m; });
 }
 
+// The part of an actor name that is not a per-instance id. Spelled out rather than std::isalpha,
+// which takes an int and is undefined for the negative char a non-ASCII name byte produces.
+bool is_stable_name_char(char c) {
+  return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '_' || c == ':';
+}
+
 void collect_workers(Context ctx, const td::actor::ActorTypeStats &raw, core::SchedulerGroupInfo *group,
                      core::Debug *collector_debug) {
   auto worker = ctx.with_name("worker");
@@ -82,6 +89,7 @@ void collect_workers(Context ctx, const td::actor::ActorTypeStats &raw, core::Sc
     size_t local_queue_length{0};
     size_t active{0};
     double longest{0};
+    std::string longest_actor;
   };
   std::vector<SchedulerSample> schedulers;
   size_t io_threads = 0;
@@ -93,7 +101,9 @@ void collect_workers(Context ctx, const td::actor::ActorTypeStats &raw, core::Sc
       if (!info.io_worker) {
         continue;
       }
-      SchedulerSample sample{.id = PSTRING() << info.id.value(), .threads = info.cpu_workers.size() + 1};
+      SchedulerSample sample;
+      sample.id = PSTRING() << info.id.value();
+      sample.threads = info.cpu_workers.size() + 1;
       ++io_threads;
       cpu_threads += info.cpu_workers.size();
       for (const auto &queue : info.cpu_local_queue) {
@@ -106,8 +116,15 @@ void collect_workers(Context ctx, const td::actor::ActorTypeStats &raw, core::Sc
         core::DebugInfo debug;
         worker_info.debug.read(debug);
         sample.active += debug.is_active;
-        if (debug.is_active) {
-          sample.longest = std::max(sample.longest, now - debug.start_at);
+        if (debug.is_active && now - debug.start_at >= sample.longest) {
+          sample.longest = now - debug.start_at;
+          // Strip per-instance ids ("collate(0,...):42" -> "collate") to keep label cardinality bounded.
+          td::Slice name(debug.name, std::strlen(debug.name));
+          size_t stable = 0;
+          while (stable < name.size() && is_stable_name_char(name[stable])) {
+            stable++;
+          }
+          sample.longest_actor = name.substr(0, stable).str();
         }
       };
       read_worker(*info.io_worker);
@@ -136,7 +153,13 @@ void collect_workers(Context ctx, const td::actor::ActorTypeStats &raw, core::Sc
   by_scheduler(scheduler.with_name("local_queue_length"),
                [](const SchedulerSample &s) { return double(s.local_queue_length); });
   by_scheduler(scheduler.with_name("workers_active"), [](const SchedulerSample &s) { return double(s.active); });
-  by_scheduler(scheduler.with_name("current_execute_seconds"), [](const SchedulerSample &s) { return s.longest; });
+  {
+    auto family = scheduler.with_name("current_execute_seconds");
+    family.open_family("gauge");
+    for (const auto &sample : schedulers) {
+      family.with_label("scheduler", sample.id).with_label("actor", sample.longest_actor).push(sample.longest);
+    }
+  }
 }
 
 }  // namespace

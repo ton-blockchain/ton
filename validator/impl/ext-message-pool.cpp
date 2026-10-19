@@ -42,9 +42,27 @@ metrics::ExtMessageAdmissionOutcome admission_outcome(ExtMessageChecker::Failure
 }  // namespace
 
 void ExtMessagePool::init_checkers() {
-  checker_inflight_.assign(NUM_CHECKERS, 0);
-  for (size_t i = 0; i < NUM_CHECKERS; ++i) {
-    checkers_.push_back(td::actor::create_actor<ExtMessageChecker>(PSTRING() << "extmsgcheck" << i, manager_));
+  if (inited_checkers_) {
+    inflight_total_checks_ = 0;
+    inflight_regular_checks_ = 0;
+    inflight_priority_checks_ = 0;
+    for (auto &checker : checkers_) {
+      td::actor::send_closure(checker.actor, &ExtMessageChecker::destroy);
+      checker.actor.release();
+    }
+    checkers_.clear();
+  }
+  ++checkers_generation_;
+  inited_checkers_ = true;
+  num_regular_checkers_ = pool_opts_->num_regular_checkers;
+  num_priority_checkers_ = pool_opts_->num_priority_checkers;
+  next_regular_checker_ = 0;
+  next_priority_checker_ = num_regular_checkers_;
+  checkers_.resize(num_regular_checkers_ + num_priority_checkers_);
+  for (size_t i = 0; i < checkers_.size(); ++i) {
+    checkers_[i].actor = td::actor::create_actor<ExtMessageChecker>(
+        PSTRING() << "extmsgcheck." << (i < num_regular_checkers_ ? "" : "prio.") << i, manager_);
+    checkers_[i].priority = i >= num_regular_checkers_;
   }
 }
 
@@ -63,36 +81,61 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
     record_admission(metrics::ExtMessageAdmissionOutcome::too_large);
     co_return td::Status::Error("external message too large, rejecting");
   }
-  if (checkers_.empty()) {
+  if (!inited_checkers_) {
     init_checkers();
   }
   // Backpressure: bound the number of concurrent checks. Without it, an over-rate burst piles
   // unbounded work onto the worker/pool mailboxes and the queueing delay alone times every
   // request out (congestion collapse) while starving the rest of the node of CPU.
-  while (inflight_checks_ >= MAX_INFLIGHT_CHECKS) {
-    if (admission_waiters_.size() >= max_admission_waiters()) {
+  while (!have_free_slots(priority)) {
+    if ((priority > 0 ? checkers_.size() : num_regular_checkers_) == 0) {
+      ++admission_window_.rejected;
+      record_admission(metrics::ExtMessageAdmissionOutcome::not_ready);
+      co_return td::Status::Error(ErrorCode::notready, "no checkers are configured");
+    }
+    if (total_admission_waiters_ >= max_admission_waiters()) {
+      if (admission_waiters_.empty() || admission_waiters_.begin()->first >= priority) {
+        ++admission_window_.rejected;
+        record_admission(metrics::ExtMessageAdmissionOutcome::backpressure);
+        co_return td::Status::Error(ErrorCode::notready, "too many pending external message checks");
+      }
+      auto &[_, min_priority_waiters] = *admission_waiters_.begin();
+      min_priority_waiters.back().set_error(td::Status::Error(ErrorCode::cancelled));
+      min_priority_waiters.pop_back();
+      if (min_priority_waiters.empty()) {
+        admission_waiters_.erase(admission_waiters_.begin());
+      }
+      --total_admission_waiters_;
+    }
+    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
+    admission_waiters_[priority].push_back(std::move(promise));
+    ++total_admission_waiters_;
+    auto R = co_await std::move(task).wrap();
+    if (R.is_error() && R.error().code() == ErrorCode::cancelled) {
+      // This happens when a higher-priority message drops this one
       ++admission_window_.rejected;
       record_admission(metrics::ExtMessageAdmissionOutcome::backpressure);
       co_return td::Status::Error(ErrorCode::notready, "too many pending external message checks");
     }
-    auto [task, promise] = td::actor::StartedTask<>::make_bridge();
-    admission_waiters_.push_back(std::move(promise));
-    co_await std::move(task);
     // Loop: a new arrival may have grabbed the slot between our wakeup and resumption.
   }
-  ++inflight_checks_;
-  SCOPE_EXIT {
-    release_check_slot();
-  };
   // The expensive stages (parse, account state fetch — cold celldb reads —, VM execution) run
   // on a worker; this pool actor stays free to dispatch/finalize other messages meanwhile.
-  size_t worker = next_checker_++ % checkers_.size();
-  ++checker_inflight_[worker];
+  size_t worker = select_worker(priority);
+  size_t current_generation = checkers_generation_;
+  ++inflight_total_checks_;
+  ++(checkers_[worker].priority ? inflight_priority_checks_ : inflight_regular_checks_);
+  ++checkers_[worker].inflight;
+  SCOPE_EXIT {
+    ++completions_in_rate_window_;
+    if (current_generation == checkers_generation_) {
+      release_check_slot(worker);
+    }
+  };
   td::Timer check_timer;
-  auto r_checked = co_await td::actor::ask(checkers_[worker].get(), &ExtMessageChecker::check, std::move(data),
+  auto r_checked = co_await td::actor::ask(checkers_[worker].actor, &ExtMessageChecker::check, std::move(data),
                                            ext_msg_limits, last_masterchain_state_)
                        .wrap();
-  --checker_inflight_[worker];
   admission_window_.check_time += check_timer.elapsed();
   ++admission_window_.checked;
   if (r_checked.is_error()) {
@@ -120,14 +163,14 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
   WorkchainId wc = message->wc();
   StdSmcAddress addr = message->addr();
   auto finalize = [&]() -> td::Result<CheckResult> {
-    if (checked_ext_msg_counter_.get_msg_count(wc, addr) >= MAX_EXT_MSG_PER_ADDR) {
+    if (checked_ext_msg_counter_.get_msg_count(wc, addr) >= pool_opts_->max_ext_msg_per_addr) {
       return td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex());
     }
     td::actor::StartedTask<> wait_allow_broadcast;
     auto [task, allow_broadcast_promise] = td::actor::StartedTask<>::make_bridge();
     allow_broadcast_promise.set_value(td::Unit{});
     wait_allow_broadcast = std::move(task);
-    if (checked_ext_msg_counter_.inc_msg_count(wc, addr) > MAX_EXT_MSG_PER_ADDR) {
+    if (checked_ext_msg_counter_.inc_msg_count(wc, addr) > pool_opts_->max_ext_msg_per_addr) {
       return td::Status::Error(PSTRING() << "too many external messages to address " << wc << ":" << addr.to_hex());
     }
     return CheckResult{std::move(message), std::move(wait_allow_broadcast)};
@@ -139,12 +182,18 @@ td::actor::Task<ExtMessagePool::CheckResult> ExtMessagePool::check_add_external_
     record_admission(metrics::ExtMessageAdmissionOutcome::rate_limited);
     co_return result.move_as_error();
   }
-  auto outcome = metrics::ExtMessageAdmissionOutcome::accepted;
+  finalize_admission(checked.message, priority, add_to_mempool, alarm_timestamp());
+  co_return result.move_as_ok();
+}
+
+metrics::ExtMessageAdmissionOutcome ExtMessagePool::finalize_admission(td::Ref<ExtMessage> message, int priority,
+                                                                       bool add_to_mempool, td::Timestamp &alarm) {
+  auto outcome = metrics::ExtMessageAdmissionOutcome::validated_only;
   if (add_to_mempool) {
-    outcome = add_message_to_mempool(checked.message, priority);
+    outcome = add_message_to_mempool(std::move(message), priority, alarm);
   }
   record_admission(outcome);
-  co_return result.move_as_ok();
+  return outcome;
 }
 
 void ExtMessagePool::record_admission(metrics::ExtMessageAdmissionOutcome outcome) {
@@ -166,17 +215,57 @@ size_t ExtMessagePool::max_admission_waiters() {
     rate_window_start_ = now;
   }
   double cap = check_completion_rate_ * MAX_ADMISSION_QUEUE_DELAY;
-  return (size_t)td::clamp(cap, 512.0, (double)MAX_ADMISSION_WAITERS);
+  double min_cap = std::min(512.0, (double)pool_opts_->max_admission_waiters);
+  return (size_t)td::clamp(cap, min_cap, (double)pool_opts_->max_admission_waiters);
 }
 
-void ExtMessagePool::release_check_slot() {
-  ++completions_in_rate_window_;
-  --inflight_checks_;
+bool ExtMessagePool::have_free_slots(int priority) {
+  if (priority > 0) {
+    return inflight_total_checks_ < checkers_.size() * MAX_INFLIGHT_CHECKS_PER_CHECKER;
+  }
+  return inflight_regular_checks_ < num_regular_checkers_ * MAX_INFLIGHT_CHECKS_PER_CHECKER;
+}
+
+size_t ExtMessagePool::select_worker(int priority) {
+  // select_worker is called after checking have_free_slots, so the slot should exist
+  if (priority > 0 && inflight_priority_checks_ < num_priority_checkers_ * MAX_INFLIGHT_CHECKS_PER_CHECKER) {
+    for (size_t iter = 0; iter < num_priority_checkers_; ++iter) {
+      size_t idx = next_priority_checker_++;
+      if (next_priority_checker_ == checkers_.size()) {
+        next_priority_checker_ = num_regular_checkers_;
+      }
+      if (checkers_[idx].inflight < MAX_INFLIGHT_CHECKS_PER_CHECKER) {
+        return idx;
+      }
+    }
+  }
+  for (size_t iter = 0; iter < num_regular_checkers_; ++iter) {
+    size_t idx = next_regular_checker_++;
+    next_regular_checker_ %= num_regular_checkers_;
+    if (checkers_[idx].inflight < MAX_INFLIGHT_CHECKS_PER_CHECKER) {
+      return idx;
+    }
+  }
+  return 0;
+}
+
+void ExtMessagePool::release_check_slot(size_t worker) {
+  --inflight_total_checks_;
+  --(checkers_[worker].priority ? inflight_priority_checks_ : inflight_regular_checks_);
+  --checkers_[worker].inflight;
   // Wake one waiter per freed slot; it re-checks the limit when it resumes, so this stays
   // correct (no slot leak) even if the woken request was cancelled while waiting.
   if (!admission_waiters_.empty()) {
-    auto waiter = std::move(admission_waiters_.front());
-    admission_waiters_.pop_front();
+    auto &[priority, waiters] = *admission_waiters_.rbegin();
+    if (!have_free_slots(priority)) {
+      return;
+    }
+    auto waiter = std::move(waiters.front());
+    waiters.pop_front();
+    --total_admission_waiters_;
+    if (waiters.empty()) {
+      admission_waiters_.erase(priority);
+    }
     waiter.set_value(td::Unit{});
   }
 }
@@ -186,16 +275,16 @@ void ExtMessagePool::log_admission_stats() {
   double dt = td::Time::now() - w.window_start.at();
   if (w.in > 0 && dt > 0) {
     size_t busy = 0, inflight = 0;
-    for (size_t n : checker_inflight_) {
-      busy += n > 0;
-      inflight += n;
+    for (auto &checker : checkers_) {
+      busy += checker.inflight > 0;
+      inflight += checker.inflight;
     }
     char buf[320];
     snprintf(buf, sizeof(buf),
              "ext admission: in=%.0f/s admitted=%.0f/s rejected=%.0f/s busy_workers=%zu/%zu inflight=%zu wait_q=%zu "
              "avg_check_ms=%.2f (parse=%.2f state=%.2f lookup=%.2f vm=%.2f)",
              (double)w.in / dt, (double)w.admitted / dt, (double)w.rejected / dt, busy, checkers_.size(), inflight,
-             admission_waiters_.size(), w.checked ? w.check_time / (double)w.checked * 1e3 : 0.0,
+             total_admission_waiters_, w.checked ? w.check_time / (double)w.checked * 1e3 : 0.0,
              w.checked ? w.timings.parse / (double)w.checked * 1e3 : 0.0,
              w.checked ? w.timings.fetch_state / (double)w.checked * 1e3 : 0.0,
              w.checked ? w.timings.lookup / (double)w.checked * 1e3 : 0.0,
@@ -225,8 +314,8 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
   }
 
   // Spawn a coroutine that drains the shard slices randomly into the queue
-  auto push_existing = [](ExtMsgQueue queue, td::CancellationToken token, ShardIdFull shard, Snapshot snapshot,
-                          bool sync_only) -> td::actor::Task<> {
+  auto push_existing = [](ExtMessagePool *pool, ExtMsgQueue queue, td::CancellationToken token, ShardIdFull shard,
+                          Snapshot snapshot, bool sync_only) -> td::actor::Task<> {
     SCOPE_EXIT {
       if (sync_only) {
         queue.close();
@@ -242,7 +331,7 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
         size_t idx = td::Random::fast_uint32() % treap.size();
         auto [key, msg] = treap.at(idx);
         treap = treap.erase_at(idx);  // local snapshot only
-        if (msg->expired() || !msg->is_active()) {
+        if (!pool->prepare_message_for_collation(msg.get())) {
           continue;
         }
         bool ok = co_await queue.push(std::make_pair(msg->message, priority));
@@ -256,7 +345,7 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
                  << t.elapsed() << "s";
     co_return {};
   };
-  push_existing(callback->queue, callback->cancellation_token, shard, std::move(snapshot), callback->sync_only)
+  push_existing(this, callback->queue, callback->cancellation_token, shard, std::move(snapshot), callback->sync_only)
       .start()
       .detach();
 
@@ -266,50 +355,28 @@ void ExtMessagePool::install_collator_queue(ShardIdFull shard, std::unique_ptr<E
   }
 }
 
-void ExtMessagePool::cleanup_external_messages(ShardIdFull shard) {
-  // Clean up expired messages
-  for (auto &[priority, msgs] : ext_msgs_) {
-    std::vector<MessageId> to_erase;
-    for (size_t i = 0; i < msgs.ext_messages_.size(); i++) {
-      auto [key, msg] = msgs.ext_messages_.at(i);
-      if (shard_contains(shard, key.dst) && msg->expired()) {
-        to_erase.push_back(key);
-      }
+size_t ExtMessagePool::cleanup_expired_messages(td::Timestamp now) {
+  return expiry_order_.pop_expired(now, [&](MempoolMsg *message) {
+    auto it = ext_messages_hashes_.find(message->message->hash());
+    CHECK(it != ext_messages_hashes_.end());
+    auto [priority, id] = it->second;
+    bool erased = erase_message(priority, id);
+    if (erased) {
+      record_removal(metrics::ExtMessageRemovalReason::expired);
     }
-    for (auto &id : to_erase) {
-      if (erase_message(priority, id)) {
-        record_removal(metrics::ExtMessageRemovalReason::expired);
-      }
-    }
-  }
+    return erased;
+  });
 }
 
-void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to_delay,
-                                                std::vector<ExtMessage::Hash> to_delete) {
+void ExtMessagePool::complete_external_messages(std::vector<ExtMessage::Hash> to_delete) {
   for (auto &hash : to_delete) {
-    auto it = ext_messages_hashes_.find(hash);
-    if (it != ext_messages_hashes_.end() && erase_message(it->second.first, it->second.second)) {
-      record_removal(metrics::ExtMessageRemovalReason::filtered);
-    }
-  }
-  for (auto &hash : to_delay) {
-    auto it = ext_messages_hashes_.find(hash);
-    if (it != ext_messages_hashes_.end()) {
-      int priority = it->second.first;
-      auto msg_id = it->second.second;
-      auto &msgs = ext_msgs_[priority];
-      auto msg = msgs.ext_messages_.find(msg_id);
-      if (!msg) {
-        continue;
-      }
-      bool can_postpone = msg.value()->can_postpone();
-      if (can_postpone && msgs.ext_messages_.size() < SOFT_MEMPOOL_LIMIT) {
-        msg.value()->postpone();
-        continue;
-      }
-      if (erase_message(priority, msg_id)) {
-        record_removal(can_postpone ? metrics::ExtMessageRemovalReason::pool_pressure
-                                    : metrics::ExtMessageRemovalReason::rejected_final);
+    auto it = ext_messages_hashes_norm_.find(hash);
+    if (it != ext_messages_hashes_norm_.end()) {
+      auto ids = it->second;
+      for (const auto &message_id : ids) {
+        if (erase_message(message_id.priority, message_id.id)) {
+          record_removal(metrics::ExtMessageRemovalReason::filtered);
+        }
       }
     }
   }
@@ -324,16 +391,22 @@ void ExtMessagePool::erase_external_messages(BlockIdExt block_id, td::uint64 app
     if (it != ext_messages_hashes_norm_.end()) {
       auto ids = it->second;
       for (const auto &message_id : ids) {
-        if (erase_message(message_id.priority, message_id.id)) {
+        double age = 0.0;
+        if (erase_message(message_id.priority, message_id.id, &age)) {
           ++applied_ext_msgs_deleted_;
           record_removal(metrics::ExtMessageRemovalReason::applied);
+          ext_inclusion_seconds_.observe(age);
         }
       }
     }
   }
 }
 
-bool ExtMessagePool::erase_message(int priority, MessageId id) {
+double ExtMessagePool::stored_age(const MempoolMsg &message) {
+  return std::max(0.0, MempoolMsg::TTL - message.delete_at.in());
+}
+
+bool ExtMessagePool::erase_message(int priority, MessageId id, double *stored_age_seconds) {
   auto it_priority = ext_msgs_.find(priority);
   if (it_priority == ext_msgs_.end()) {
     return false;
@@ -345,8 +418,12 @@ bool ExtMessagePool::erase_message(int priority, MessageId id) {
   }
 
   auto message = msg_opt.value();
+  if (stored_age_seconds != nullptr) {
+    *stored_age_seconds = stored_age(*message);
+  }
   auto address = message->address();
   auto hash_norm = message->hash_norm;
+  ext_message_states_.erase(message->active ? metrics::ExtMessageState::eligible : metrics::ExtMessageState::postponed);
   unlink_message(message.get());
   msgs.ext_addr_messages_[address].erase(id.hash);
   msgs.ext_messages_ = msgs.ext_messages_.erase(id);
@@ -362,6 +439,33 @@ bool ExtMessagePool::erase_message(int priority, MessageId id) {
   return true;
 }
 
+void ExtMessagePool::update_options(td::Ref<ValidatorManagerOptions> opts) {
+  opts_ = std::move(opts);
+  if (opts_->get_ext_message_pool_options() == pool_opts_) {
+    return;
+  }
+  pool_opts_ = opts_->get_ext_message_pool_options();
+  if (checked_ext_msg_counter_.time_window_ != pool_opts_->max_ext_msg_per_addr_time_window) {
+    checked_ext_msg_counter_ = {};
+    checked_ext_msg_counter_.time_window_ = pool_opts_->max_ext_msg_per_addr_time_window;
+  }
+  if (inited_checkers_ && (num_regular_checkers_ != pool_opts_->num_regular_checkers ||
+                           num_priority_checkers_ != pool_opts_->num_priority_checkers)) {
+    init_checkers();
+    // Wakeup all waiters here. Pool options don't change often, so it's OK
+    auto waiters = std::move(admission_waiters_);
+    admission_waiters_.clear();
+    total_admission_waiters_ = 0;
+    for (auto it = waiters.rbegin(); it != waiters.rend(); ++it) {
+      while (!it->second.empty()) {
+        auto waiter = std::move(it->second.front());
+        it->second.pop_front();
+        waiter.set_value(td::Unit{});
+      }
+    }
+  }
+}
+
 std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats() {
   auto stats = get_metrics_snapshot();
   std::vector<std::pair<std::string, std::string>> vec;
@@ -372,17 +476,16 @@ std::vector<std::pair<std::string, std::string>> ExtMessagePool::prepare_stats()
 }
 
 ExtMessagePool::MetricsSnapshot ExtMessagePool::get_metrics_snapshot() {
-  double oldest_age = 0.0;
-  if (oldest_ext_message_ != nullptr) {
-    oldest_age = std::max(0.0, MempoolMsg::TTL - oldest_ext_message_->delete_at.in());
-  }
+  double oldest_age = expiry_order_.oldest() != nullptr ? stored_age(*expiry_order_.oldest()) : 0.0;
+  DCHECK(ext_message_states_.total() == ext_messages_hashes_.size());
   return {
-      .pending_ext_messages = static_cast<td::uint64>(ext_messages_hashes_.size()),
+      .ext_messages = ext_message_states_,
       .oldest_ext_message_age_seconds = oldest_age,
       .check_ok = total_check_ext_messages_ok_,
       .check_error = total_check_ext_messages_error_,
       .admission = admission_outcomes_,
       .removed = removal_reasons_,
+      .ext_inclusion_seconds = ext_inclusion_seconds_,
       .applied_master = applied_ext_messages_master_,
       .applied_shard = applied_ext_messages_shard_,
   };
@@ -394,12 +497,8 @@ void ExtMessagePool::alarm() {
     admission_stats_at_ = td::Timestamp::in(ADMISSION_STATS_PERIOD);
   }
   alarm_timestamp().relax(admission_stats_at_);
-  if (cleanup_mempool_at_.is_in_past()) {
-    cleanup_external_messages(ShardIdFull{masterchainId, shardIdAll});
-    cleanup_external_messages(ShardIdFull{basechainId, shardIdAll});
-    cleanup_mempool_at_ = td::Timestamp::in(250.0);
-  }
-  alarm_timestamp().relax(cleanup_mempool_at_);
+  cleanup_expired_messages();
+  expiry_order_.relax_alarm(alarm_timestamp());
   std::erase_if(callbacks_, [&](const std::unique_ptr<ExtMsgCallback> &callback) -> bool {
     if (callback->timeout && callback->timeout.is_in_past()) {
       return true;
@@ -409,13 +508,14 @@ void ExtMessagePool::alarm() {
   });
 }
 
-metrics::ExtMessageAdmissionOutcome ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int priority) {
+metrics::ExtMessageAdmissionOutcome ExtMessagePool::add_message_to_mempool(td::Ref<ExtMessage> message, int priority,
+                                                                           td::Timestamp &alarm) {
   WorkchainId wc = message->wc();
   StdSmcAddress addr = message->addr();
   auto &msgs = ext_msgs_[priority];
-  if (msgs.ext_messages_.size() > opts_->max_mempool_num()) {
+  if (msgs.ext_messages_.size() > pool_opts_->max_mempool_messages) {
     LOG(INFO) << "cannot add message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority
-              << " to mempool: mempool is full (limit=" << opts_->max_mempool_num() << ")";
+              << " to mempool: mempool is full (limit=" << pool_opts_->max_mempool_messages << ")";
     return metrics::ExtMessageAdmissionOutcome::pool_full;
   }
   auto msg = std::make_shared<MempoolMsg>(message);
@@ -446,6 +546,8 @@ metrics::ExtMessageAdmissionOutcome ExtMessagePool::add_message_to_mempool(td::R
   msgs.ext_addr_messages_[address].emplace(id.hash, id);
   ext_messages_hashes_[id.hash] = {priority, id};
   ext_messages_hashes_norm_[hash_norm].insert(NormalizedMessageId{priority, id});
+  ext_message_states_.insert();
+  expiry_order_.relax_alarm(alarm);
   LOG(INFO) << "adding message addr=" << wc << ":" << addr.to_hex() << " prio=" << priority << " to mempool";
   std::erase_if(callbacks_, [&](const std::unique_ptr<ExtMsgCallback> &callback) -> bool {
     if (callback->cancellation_token.check().is_error()) {
@@ -461,28 +563,22 @@ metrics::ExtMessageAdmissionOutcome ExtMessagePool::add_message_to_mempool(td::R
 }
 
 void ExtMessagePool::link_message(MempoolMsg *message) {
-  message->older = newest_ext_message_;
-  if (newest_ext_message_ != nullptr) {
-    newest_ext_message_->newer = message;
-  } else {
-    oldest_ext_message_ = message;
-  }
-  newest_ext_message_ = message;
+  expiry_order_.append(message);
 }
 
 void ExtMessagePool::unlink_message(MempoolMsg *message) {
-  if (message->older != nullptr) {
-    message->older->newer = message->newer;
-  } else {
-    oldest_ext_message_ = message->newer;
+  expiry_order_.unlink(message);
+}
+
+bool ExtMessagePool::prepare_message_for_collation(MempoolMsg *message) {
+  bool reactivated = false;
+  if (message->expired() || !message->is_active(&reactivated)) {
+    return false;
   }
-  if (message->newer != nullptr) {
-    message->newer->older = message->older;
-  } else {
-    newest_ext_message_ = message->older;
+  if (reactivated && expiry_order_.contains(message)) {
+    ext_message_states_.transition(metrics::ExtMessageState::postponed, metrics::ExtMessageState::eligible);
   }
-  message->older = nullptr;
-  message->newer = nullptr;
+  return true;
 }
 
 size_t ExtMessagePool::CheckedExtMsgCounter::get_msg_count(WorkchainId wc, StdSmcAddress addr) {
@@ -503,10 +599,10 @@ void ExtMessagePool::CheckedExtMsgCounter::before_query() {
     counter_prev_ = std::move(counter_cur_);
     counter_cur_.clear();
     if (counter_prev_.empty()) {
-      cleanup_at_ = td::Timestamp::in(MAX_EXT_MSG_PER_ADDR_TIME_WINDOW / 2.0);
+      cleanup_at_ = td::Timestamp::in(time_window_ / 2.0);
       break;
     }
-    cleanup_at_ += MAX_EXT_MSG_PER_ADDR_TIME_WINDOW / 2.0;
+    cleanup_at_ += time_window_ / 2.0;
   }
 }
 

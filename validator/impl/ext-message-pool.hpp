@@ -24,15 +24,20 @@
 #include "td/actor/coro_utils.h"
 #include "td/utils/PersistentTreap.h"
 
+#include "expiry-ordered-list.hpp"
 #include "ext-message-checker.hpp"
 #include "external-message.hpp"
 
 namespace ton::validator {
 
+struct ExtMessagePoolTestPeer;
+
 class ExtMessagePool : public td::actor::Actor {
  public:
   ExtMessagePool(td::Ref<ValidatorManagerOptions> opts, td::actor::ActorId<ValidatorManager> manager)
       : opts_(opts), manager_(manager) {
+    pool_opts_ = opts_->get_ext_message_pool_options();
+    checked_ext_msg_counter_.time_window_ = pool_opts_->max_ext_msg_per_addr_time_window;
   }
 
   struct CheckResult {
@@ -41,16 +46,13 @@ class ExtMessagePool : public td::actor::Actor {
   };
   td::actor::Task<CheckResult> check_add_external_message(td::BufferSlice data, int priority, bool add_to_mempool);
   void install_collator_queue(ShardIdFull shard, std::unique_ptr<ExtMsgCallback> callback);
-  void cleanup_external_messages(ShardIdFull shard);
-  void complete_external_messages(std::vector<ExtMessage::Hash> to_delay, std::vector<ExtMessage::Hash> to_delete);
+  void complete_external_messages(std::vector<ExtMessage::Hash> to_delete);
   void erase_external_messages(BlockIdExt block_id, td::uint64 applied_count, std::vector<ExtMessage::Hash> to_delete);
 
   void update_last_masterchain_state(td::Ref<MasterchainState> state) {
     last_masterchain_state_ = std::move(state);
   }
-  void update_options(td::Ref<ValidatorManagerOptions> opts) {
-    opts_ = std::move(opts);
-  }
+  void update_options(td::Ref<ValidatorManagerOptions> opts);
   std::vector<std::pair<std::string, std::string>> prepare_stats();
 
   // Cross the actor boundary with values, not a scrape-local metrics::Context.
@@ -63,6 +65,8 @@ class ExtMessagePool : public td::actor::Actor {
   }
 
  private:
+  friend struct ExtMessagePoolTestPeer;
+
   struct MessageId {
     AccountIdPrefixFull dst;
     ExtMessage::Hash hash;
@@ -90,16 +94,22 @@ class ExtMessagePool : public td::actor::Actor {
     td::uint32 generation = 0;
     bool active = true;
     td::Timestamp reactivate_at;
-    td::Timestamp delete_at;
+    const td::Timestamp delete_at;
 
     auto address() const {
       return std::make_pair(message->wc(), message->addr());
     }
-    bool is_active() {
+    bool is_active(bool *reactivated = nullptr) {
+      if (reactivated != nullptr) {
+        *reactivated = false;
+      }
       if (!active) {
         if (reactivate_at.is_in_past()) {
           active = true;
           generation++;
+          if (reactivated != nullptr) {
+            *reactivated = true;
+          }
         }
       }
       return active;
@@ -107,22 +117,24 @@ class ExtMessagePool : public td::actor::Actor {
     bool can_postpone() const {
       return generation <= 2;
     }
-    void postpone() {
+    bool postpone() {
       if (!active) {
-        return;
+        return false;
       }
       active = false;
       reactivate_at = td::Timestamp::in(generation * 5.0);
+      return true;
     }
     bool expired() const {
       return delete_at.is_in_past();
     }
-    explicit MempoolMsg(td::Ref<ExtMessage> msg) : message(std::move(msg)), hash_norm(message->hash_norm()) {
-      delete_at = td::Timestamp::in(TTL);
+    explicit MempoolMsg(td::Ref<ExtMessage> msg)
+        : message(std::move(msg)), hash_norm(message->hash_norm()), delete_at(td::Timestamp::in(TTL)) {
     }
   };
 
   td::Ref<ValidatorManagerOptions> opts_;
+  td::Ref<ExtMessagePoolOptions> pool_opts_;
   td::actor::ActorId<ValidatorManager> manager_;
   td::Ref<MasterchainState> last_masterchain_state_;
 
@@ -148,6 +160,7 @@ class ExtMessagePool : public td::actor::Actor {
   struct CheckedExtMsgCounter {
     std::map<std::pair<WorkchainId, StdSmcAddress>, size_t> counter_cur_, counter_prev_;
     td::Timestamp cleanup_at_ = td::Timestamp::now();
+    double time_window_ = 10.0;
 
     size_t get_msg_count(WorkchainId wc, StdSmcAddress addr);
     size_t inc_msg_count(WorkchainId wc, StdSmcAddress addr);
@@ -158,13 +171,19 @@ class ExtMessagePool : public td::actor::Actor {
   std::array<td::uint64, static_cast<size_t>(metrics::ExtMessageAdmissionOutcome::count)> admission_outcomes_{};
   std::array<td::uint64, static_cast<size_t>(metrics::ExtMessageRemovalReason::count)> removal_reasons_{};
   td::uint64 applied_ext_messages_master_{0}, applied_ext_messages_shard_{0};
-  MempoolMsg *oldest_ext_message_{nullptr};
-  MempoolMsg *newest_ext_message_{nullptr};
+  metrics::ExtMessageStateCounts ext_message_states_;
+  metrics::Histogram<metrics::kExtInclusionBuckets> ext_inclusion_seconds_;
+  detail::ExpiryOrderedList<MempoolMsg> expiry_order_;
 
-  td::Timestamp cleanup_mempool_at_ = td::Timestamp::now();
-
-  metrics::ExtMessageAdmissionOutcome add_message_to_mempool(td::Ref<ExtMessage> message, int priority);
-  bool erase_message(int priority, MessageId id);
+  metrics::ExtMessageAdmissionOutcome add_message_to_mempool(td::Ref<ExtMessage> message, int priority,
+                                                             td::Timestamp &alarm);
+  metrics::ExtMessageAdmissionOutcome finalize_admission(td::Ref<ExtMessage> message, int priority, bool add_to_mempool,
+                                                         td::Timestamp &alarm);
+  // `stored_age_seconds`, when given, receives the erased entry's age before it is destroyed.
+  bool erase_message(int priority, MessageId id, double *stored_age_seconds = nullptr);
+  static double stored_age(const MempoolMsg &message);
+  size_t cleanup_expired_messages(td::Timestamp now = td::Timestamp::now());
+  bool prepare_message_for_collation(MempoolMsg *message);
   void link_message(MempoolMsg *message);
   void unlink_message(MempoolMsg *message);
   void record_admission(metrics::ExtMessageAdmissionOutcome outcome);
@@ -173,16 +192,29 @@ class ExtMessagePool : public td::actor::Actor {
   // ===== Parallel admission =====
   // The expensive per-message stages (parse, account state fetch, VM check) run on these worker
   // actors; the pool only dispatches and finalizes. Created lazily on the first check.
-  std::vector<td::actor::ActorOwn<ExtMessageChecker>> checkers_;
-  std::vector<size_t> checker_inflight_;
-  size_t next_checker_{0};
+  bool inited_checkers_ = false;
+  size_t checkers_generation_ = 0;
+  struct Checker {
+    td::actor::ActorOwn<ExtMessageChecker> actor;
+    size_t inflight = 0;
+    bool priority = false;
+  };
+  // First num_regular_checkers_ are regular, last num_priority_checkers_ are priority
+  std::vector<Checker> checkers_;
+  size_t num_regular_checkers_ = 0, num_priority_checkers_ = 0;
+  size_t next_regular_checker_ = 0, next_priority_checker_ = 0;
   void init_checkers();
   // Admission backpressure: only MAX_INFLIGHT_CHECKS checks run concurrently; the rest wait in
   // FIFO order (bounded — beyond that requests fail fast instead of queueing into a congestion
   // collapse that would starve the whole node).
-  size_t inflight_checks_{0};
-  std::deque<td::actor::StartedTask<>::ExternalPromise> admission_waiters_;
-  void release_check_slot();
+  size_t inflight_total_checks_{0};
+  size_t inflight_regular_checks_{0};
+  size_t inflight_priority_checks_{0};
+  std::map<int, std::deque<td::actor::StartedTask<>::ExternalPromise>> admission_waiters_;  // priority -> queue
+  size_t total_admission_waiters_ = 0;
+  bool have_free_slots(int priority);
+  size_t select_worker(int priority);
+  void release_check_slot(size_t worker);
   // Adaptive wait-queue cap: bound the ESTIMATED queueing delay, not just the count, so that
   // under degraded capacity (CPU contention, cold caches) requests fail fast instead of being
   // answered after the client has already timed out.
@@ -204,17 +236,9 @@ class ExtMessagePool : public td::actor::Actor {
 
   std::vector<std::unique_ptr<ExtMsgCallback>> callbacks_;
 
-  static constexpr double CANDIDATE_EXTERNALS_TTL = 60.0;
-  static constexpr size_t MAX_TRACKED_CANDIDATES = 256;
-  static constexpr double MAX_EXT_MSG_PER_ADDR_TIME_WINDOW = 10.0;
-  static constexpr size_t MAX_EXT_MSG_PER_ADDR = 3 * 10;
   static constexpr size_t PER_ADDRESS_LIMIT = 256;
   static constexpr size_t SOFT_MEMPOOL_LIMIT = 1024;
-  static constexpr size_t NUM_CHECKERS = 24;
-  static constexpr size_t MAX_INFLIGHT_CHECKS = 8 * NUM_CHECKERS;
-  // Absolute bound on queued admission requests; the effective bound is adaptive
-  // (max_admission_waiters() targets MAX_ADMISSION_QUEUE_DELAY of estimated wait).
-  static constexpr size_t MAX_ADMISSION_WAITERS = 50000;
+  static constexpr size_t MAX_INFLIGHT_CHECKS_PER_CHECKER = 8;
   // Keep the estimated queueing delay well under client/liteserver timeouts (~10s): beyond
   // that the requests would be answered after the caller gave up anyway, so fail them fast.
   static constexpr double MAX_ADMISSION_QUEUE_DELAY = 5.0;

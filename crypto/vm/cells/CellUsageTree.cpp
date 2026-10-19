@@ -16,6 +16,7 @@
 
     Copyright 2017-2020 Telegram Systems LLP
 */
+#include "vm/boc.h"
 #include "vm/cells/CellUsageTree.h"
 
 #include "DataCell.h"
@@ -33,12 +34,12 @@ bool CellUsageTree::NodePtr::on_load(const Cell::LoadedCell& loaded_cell) const 
   return true;
 }
 
-CellUsageTree::NodePtr CellUsageTree::NodePtr::create_child(unsigned ref_id) const {
+CellUsageTree::NodePtr CellUsageTree::NodePtr::create_child(unsigned ref_id, Ref<Cell> cell) const {
   auto tree = tree_weak_.lock();
   if (!tree) {
     return {};
   }
-  return {tree_weak_, tree->create_child(node_id_, ref_id)};
+  return {tree_weak_, tree->create_child(node_id_, ref_id, std::move(cell))};
 }
 
 bool CellUsageTree::NodePtr::is_from_tree(const CellUsageTree* master_tree) const {
@@ -63,6 +64,11 @@ bool CellUsageTree::NodePtr::mark_path(CellUsageTree* master_tree) const {
 //
 // CellUsageTree
 //
+CellUsageTree::CellUsageTree(Ref<Cell> root) : nodes_(2) {
+  CHECK(root.not_null());
+  nodes_[1].cell = std::move(root);
+}
+
 CellUsageTree::NodePtr CellUsageTree::root_ptr() {
   return {shared_from_this(), 1};
 }
@@ -72,9 +78,6 @@ CellUsageTree::NodeId CellUsageTree::root_id() const {
 };
 
 bool CellUsageTree::is_loaded(NodeId node_id) const {
-  if (use_mark_) {
-    return nodes_[node_id].has_mark;
-  }
   return nodes_[node_id].is_loaded;
 }
 
@@ -100,6 +103,15 @@ void CellUsageTree::mark_path(NodeId node_id) {
   }
 }
 
+void CellUsageTree::add_path_to_proof_stat(NodeId node_id, MerkleUpdateLeftStat& stat) {
+  auto cur_node_id = get_parent(node_id);
+  while (cur_node_id != 0 && !nodes_[cur_node_id].has_stat_mark) {
+    nodes_[cur_node_id].has_stat_mark = true;
+    stat.add_loaded_cell(nodes_[cur_node_id].cell, nodes_[cur_node_id].merkle_depth);
+    cur_node_id = get_parent(cur_node_id);
+  }
+}
+
 CellUsageTree::NodeId CellUsageTree::get_parent(NodeId node_id) const {
   return nodes_[node_id].parent;
 }
@@ -107,10 +119,6 @@ CellUsageTree::NodeId CellUsageTree::get_parent(NodeId node_id) const {
 CellUsageTree::NodeId CellUsageTree::get_child(NodeId node_id, unsigned ref_id) const {
   DCHECK(ref_id < CellTraits::max_refs);
   return nodes_[node_id].children[ref_id];
-}
-
-void CellUsageTree::set_use_mark_for_is_loaded(bool use_mark) {
-  use_mark_ = use_mark;
 }
 
 void CellUsageTree::on_load(NodeId node_id, const Cell::LoadedCell& loaded_cell) {
@@ -123,21 +131,27 @@ void CellUsageTree::on_load(NodeId node_id, const Cell::LoadedCell& loaded_cell)
   }
 }
 
-CellUsageTree::NodeId CellUsageTree::create_child(NodeId node_id, unsigned ref_id) {
+CellUsageTree::NodeId CellUsageTree::create_child(NodeId node_id, unsigned ref_id, Ref<Cell> cell) {
   DCHECK(ref_id < CellTraits::max_refs);
   NodeId res = nodes_[node_id].children[ref_id];
   if (res) {
     return res;
   }
-  res = create_node(node_id);
+  res = create_node(node_id, std::move(cell));
   nodes_[node_id].children[ref_id] = res;
   return res;
 }
 
-CellUsageTree::NodeId CellUsageTree::create_node(NodeId parent) {
+CellUsageTree::NodeId CellUsageTree::create_node(NodeId parent_id, Ref<Cell> cell) {
   NodeId res = static_cast<NodeId>(nodes_.size());
   nodes_.emplace_back();
-  nodes_.back().parent = parent;
+  Node& node = nodes_.back();
+  Node& parent = nodes_[parent_id];
+  node.parent = parent_id;
+  CHECK(cell.not_null());
+  node.cell = std::move(cell);
+  CellSlice parent_cs{NoVm{}, parent.cell};
+  node.merkle_depth = parent_cs.child_merkle_depth(parent.merkle_depth);
   return res;
 }
 

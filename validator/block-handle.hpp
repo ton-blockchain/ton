@@ -53,14 +53,15 @@ struct BlockHandleImpl : public BlockHandleInterface {
     dbf_inited_state = 0x20000,
     dbf_inited_signatures = 0x40000,
     dbf_inited_state_boc = 0x100000,
-    dbf_archived = 0x200000,
     dbf_applied = 0x400000,
     dbf_inited_masterchain_ref_block = 0x800000,
     dbf_deleted = 0x2000000,
     dbf_deleted_boc = 0x4000000,
     dbf_moved_new = 0x8000000,
+    // These flags are in-memory only
     dbf_processed = 0x10000000,
     dbf_moved_handle = 0x20000000,
+    dbf_applied_stored = 0x40000000,
   };
 
   std::atomic<td::uint64> version_{0};
@@ -194,9 +195,6 @@ struct BlockHandleImpl : public BlockHandleInterface {
   bool is_zero() const override {
     return id_.id.seqno == 0;
   }
-  bool is_archived() const override {
-    return flags_.load(std::memory_order_consume) & Flags::dbf_archived;
-  }
   bool is_applied() const override {
     return flags_.load(std::memory_order_consume) & Flags::dbf_applied;
   }
@@ -262,6 +260,14 @@ struct BlockHandleImpl : public BlockHandleInterface {
   void set_processed() override {
     // does not increase version
     flags_ |= Flags::dbf_processed;
+  }
+
+  bool applied_stored() const override {
+    return flags_.load(std::memory_order_consume) & Flags::dbf_applied_stored;
+  }
+  void set_applied_stored() override {
+    // does not increase version
+    flags_ |= Flags::dbf_applied_stored;
   }
 
   td::uint32 version() const override {
@@ -478,13 +484,6 @@ struct BlockHandleImpl : public BlockHandleInterface {
     lock();
     flags_ |= Flags::dbf_deleted_boc;
     unlock();
-  }
-  void set_archived() override {
-    if (!is_archived()) {
-      lock();
-      flags_ |= Flags::dbf_archived;
-      unlock();
-    }
   }
   void set_applied() override {
     if (!is_applied()) {
