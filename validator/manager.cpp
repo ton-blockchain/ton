@@ -653,7 +653,7 @@ td::actor::Task<> ValidatorManagerImpl::try_process_pending_block_finality(Block
 static td::actor::Task<BlockBroadcast> create_broadcast(BlockIdExt block_id, td::BufferSlice data,
                                                         Ref<block::BlockSignatureSet> signatures,
                                                         Ref<vm::Cell> serialized_signatures) {
-  co_await td::actor::become_lightweight();
+  co_await td::actor::detach_from_actor();
   Ref<BlockData> block = CO_TRY(create_block(block_id, data.clone()));
   td::BufferSlice proof = CO_TRY(
       block_id.is_masterchain() ? WaitBlockData::generate_proof(block_id, block->root_cell(), serialized_signatures)

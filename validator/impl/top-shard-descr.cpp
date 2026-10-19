@@ -607,7 +607,7 @@ td::actor::Task<td::BufferSlice> generate_shard_block_description(BlockIdExt blo
                                                                   Ref<block::BlockSignatureSet> signatures,
                                                                   td::Timestamp timeout,
                                                                   td::actor::ActorId<ValidatorManager> manager) {
-  co_await td::actor::become_lightweight();
+  co_await td::actor::detach_from_actor();
   if (block_id.is_masterchain()) {
     co_return td::Status::Error("block is from masterchain");
   }
