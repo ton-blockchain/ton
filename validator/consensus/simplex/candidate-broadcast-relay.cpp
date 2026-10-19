@@ -22,10 +22,6 @@ class CandidateBroadcastRelayImpl : public td::actor::SpawnsWith<Bus>, public td
  public:
   TON_RUNTIME_DEFINE_EVENT_HANDLER();
 
-  static bool should_be_spawned(const Bus& bus) {
-    return bus.config.observers_in_private_overlay();
-  }
-
   template <>
   void handle(BusHandle, std::shared_ptr<const StopRequested>) {
     stop();
