@@ -34,6 +34,7 @@ namespace validator {
 namespace fullnode {
 
 td::actor::Task<td::BufferSlice> FullNodeMasterImpl::receive_query(adnl::AdnlNodeIdShort src, td::BufferSlice query) {
+  // full-node master is used in trusted environments, so no anti-spam is required here
   CO_TRY(fetch_tl_prefix<ton_api::tonNode_query>(query, true));
   co_return co_await query_handler_.handle_query(std::move(query), src, QuerySource::full_node_master);
 }

@@ -272,7 +272,7 @@ struct BlockLimits {
   ParamLimits bytes, gas, lt_delta, collated_data;
   ton::LogicalTime start_lt{0};
   ImportedMsgQueueLimits imported_msg_queue;
-  const vm::CellUsageTree* usage_tree{nullptr};
+  vm::CellUsageTree* usage_tree{nullptr};
   bool deserialize(vm::CellSlice& cs);
   int classify_size(td::uint64 size) const;
   int classify_gas(td::uint64 gas) const;
@@ -287,6 +287,7 @@ struct BlockLimitStatus {
   ton::LogicalTime cur_lt;
   td::uint64 gas_used{};
   vm::NewCellStorageStat st_stat;
+  vm::MerkleUpdateLeftStat merkle_update_left_stat;
   unsigned accounts{}, transactions{}, extra_out_msgs{};
   td::uint64 collated_data_size_estimate = 0;
   unsigned public_library_diff{};
@@ -313,7 +314,7 @@ struct BlockLimitStatus {
     return true;
   }
   bool add_proof(Ref<vm::Cell> cell) {
-    st_stat.add_proof(std::move(cell), limits.usage_tree);
+    st_stat.add_proof(std::move(cell), limits.usage_tree, &merkle_update_left_stat);
     return true;
   }
   bool update_lt(ton::LogicalTime lt) {
@@ -761,9 +762,9 @@ bool unpack_old_mc_block_id(Ref<vm::CellSlice> old_blk_info, ton::BlockSeqno seq
 bool check_old_mc_block_id(vm::AugmentedDictionary* prev_blocks_dict, const ton::BlockIdExt& blkid);
 bool check_old_mc_block_id(vm::AugmentedDictionary& prev_blocks_dict, const ton::BlockIdExt& blkid);
 
-td::Result<Ref<vm::Cell>> get_block_transaction(Ref<vm::Cell> block_root, ton::WorkchainId workchain,
+td::Result<Ref<vm::Cell>> get_block_transaction(Ref<vm::Cell> block_root, ton::BlockIdExt block_id,
                                                 const ton::StdSmcAddress& addr, ton::LogicalTime lt);
-td::Result<Ref<vm::Cell>> get_block_transaction_try(Ref<vm::Cell> block_root, ton::WorkchainId workchain,
+td::Result<Ref<vm::Cell>> get_block_transaction_try(Ref<vm::Cell> block_root, ton::BlockIdExt block_id,
                                                     const ton::StdSmcAddress& addr, ton::LogicalTime lt);
 
 bool get_transaction_in_msg(Ref<vm::Cell> trans_ref, Ref<vm::Cell>& in_msg);

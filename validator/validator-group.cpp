@@ -556,6 +556,8 @@ class WorkchainState {
       return;
     }
     for (auto &[shard, cc_seqno, expected_start_time] : future_shards) {
+      // Note: future groups are never created through key-block boundary,
+      // so only the current total validator set is used here.
       auto val_set = ctx.state.get_validator_set(shard, cc_seqno);
       if (val_set.is_null()) {
         continue;

@@ -611,6 +611,9 @@ bool ValidateQuery::init_parse() {
   if (start_lt_ >= end_lt_) {
     return reject_query("block has start_lt greater than or equal to end_lt");
   }
+  if (start_lt_ % block::Config::get_lt_align() != 0) {
+    return reject_query(PSTRING() << "start_lt " << start_lt_ << " is not aligned");
+  }
   if (shard.is_masterchain() && (info.after_merge | info.before_split | info.after_split)) {
     return reject_query("block header declares split/merge for a masterchain block");
   }
@@ -2219,7 +2222,7 @@ bool ValidateQuery::check_one_shard(const block::McShardHash& info, const block:
                           " has been arbitrarily changed without a good reason");
     }
     fsm_inherited = !prev->is_fsm_none() && prev->fsm_equal(info);
-    if (fsm_inherited && (now_ > prev->fsm_utime_end() || info.before_split_)) {
+    if (fsm_inherited && (now_ >= prev->fsm_utime_end() || info.before_split_)) {
       return reject_query(
           PSTRING() << "future split/merge information for shard " << shard
                     << "has been carried on to the new shard configuration, but it is either expired (expire time "

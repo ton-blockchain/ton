@@ -1185,8 +1185,10 @@ bool LiteQuery::make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_
   vm::MerkleProofBuilder pb{std::move(block_root)};
   block::gen::Block::Record blk;
   block::gen::BlockInfo::Record info;
+  block::gen::ExtBlkRef::Record mcref;
   if (!(tlb::unpack_cell(pb.root(), blk) && tlb::unpack_cell(blk.info, info) &&
-        block::gen::BlkPrevInfo(info.after_merge).validate_ref(info.prev_ref))) {
+        block::gen::BlkPrevInfo(info.after_merge).validate_ref(info.prev_ref) &&
+        (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {
     return fatal_error("cannot unpack block header");
   }
   vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
@@ -1568,9 +1570,15 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   }
   // pre-serialize stack always (to visit all data cells referred from the result)
   vm::CellBuilder cb;
-  if (!(stack_->serialize(cb) && cb.finalize_to(cell))) {
+  if (!stack_->serialize(cb)) {
     fatal_error("cannot serialize resulting stack");
     return;
+  }
+  if (auto R = cb.finalize_novm_nothrow(); R.is_error()) {
+    fatal_error("cannot serialize resulting stack");
+    return;
+  } else {
+    cell = R.move_as_ok();
   }
   if (mode & 4) {
     // serialize stack if required
@@ -1602,7 +1610,7 @@ void LiteQuery::continue_getOneTransaction() {
   LOG(INFO) << "completing getOneTransaction() query";
   CHECK(block_.not_null());
   vm::MerkleProofBuilder pb{block_->root_cell()};
-  auto trans_res = block::get_block_transaction(pb.root(), acc_workchain_, acc_addr_, trans_lt_);
+  auto trans_res = block::get_block_transaction_try(pb.root(), block_->block_id(), acc_addr_, trans_lt_);
   if (trans_res.is_error()) {
     fatal_error(trans_res.move_as_error());
     return;
@@ -1660,7 +1668,7 @@ void LiteQuery::continue_getTransactions(unsigned remaining, bool exact) {
       fatal_error("obtained a block that cannot contain specified account");
       return;
     }
-    auto res = block::get_block_transaction_try(block_->root_cell(), acc_workchain_, acc_addr_, trans_lt_);
+    auto res = block::get_block_transaction_try(block_->root_cell(), block_->block_id(), acc_addr_, trans_lt_);
     if (res.is_error()) {
       fatal_error(res.move_as_error());
       return;

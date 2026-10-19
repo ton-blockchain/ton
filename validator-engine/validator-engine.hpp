@@ -209,6 +209,7 @@ class ValidatorEngine : public td::actor::Actor {
 
   td::Ref<ton::validator::MasterchainState> state_;
   td::Ref<block::ValidatorSet> validator_set_, validator_set_prev_, validator_set_next_;
+  std::set<ton::adnl::AdnlNodeIdShort> all_validator_adnl_ids_;
   td::Timestamp issue_fast_sync_overlay_certificates_at_ = td::Timestamp::now();
   td::Timestamp issue_shard_overlay_certificates_at_ = td::Timestamp::now();
   bool fast_sync_member_certificates_write_scheduled_ = false;
@@ -216,6 +217,7 @@ class ValidatorEngine : public td::actor::Actor {
   std::set<ton::adnl::AdnlNodeIdShort> auto_sign_adnls_;
   bool accept_shard_overlay_certificates_from_any_validator_ = false;
   std::set<ton::adnl::AdnlNodeIdShort> accept_shard_overlay_certificates_from_;
+  std::map<ton::adnl::AdnlNodeIdShort, size_t> registered_fast_sync_certificate_callback_;
 
   td::Promise<ton::PublicKey> get_key_promise(td::MultiPromise::InitGuard &ig);
   void got_key(ton::PublicKey key);
@@ -526,8 +528,13 @@ class ValidatorEngine : public td::actor::Actor {
   void try_del_quic_addr(td::uint32 ip, td::int32 port, std::vector<AdnlCategory> cats,
                          std::vector<AdnlCategory> prio_cats, td::Promise<td::Unit> promise);
 
-  void register_fast_sync_certificate_callback();
+  void register_fast_sync_certificate_callback(ton::adnl::AdnlNodeIdShort adnl_id);
+  void unregister_fast_sync_certificate_callback(ton::adnl::AdnlNodeIdShort adnl_id);
+  void received_fast_sync_certificate(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
+                                      td::BufferSlice data);
   void register_shard_overlay_certificate_callback();
+  void received_shard_overlay_certificate(ton::adnl::AdnlNodeIdShort src, ton::adnl::AdnlNodeIdShort dst,
+                                          td::BufferSlice data);
   void try_import_fast_sync_member_certificate(ton::adnl::AdnlNodeIdShort id,
                                                ton::overlay::OverlayMemberCertificate certificate,
                                                td::Promise<td::Unit> promise, bool defer_write);
@@ -542,7 +549,7 @@ class ValidatorEngine : public td::actor::Actor {
                                            td::Promise<ton::overlay::OverlayMemberCertificate> promise);
   void issue_shard_overlay_certificates();
   std::vector<ton::ShardIdFull> get_shards_for_overlay_certificates();
-  ton::PublicKeyHash find_local_validator_for_cert_issuing();
+  std::pair<ton::PublicKeyHash, ton::adnl::AdnlNodeIdShort> find_local_validator_for_cert_issuing();
 
   std::string custom_overlays_config_file() const {
     return db_root_ + "/custom-overlays.json";

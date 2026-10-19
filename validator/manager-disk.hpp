@@ -166,9 +166,7 @@ class ValidatorManagerImpl : public ValidatorManager {
   void wait_block_state_short(BlockIdExt block_id, td::uint32 priority, td::Timestamp timeout, bool wait_store,
                               td::Promise<td::Ref<ShardState>> promise) override;
   void wait_neighbor_msg_queue_proofs(ShardIdFull dst_shard, std::vector<BlockIdExt> blocks, td::Timestamp timeout,
-                                      td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override {
-    UNREACHABLE();
-  }
+                                      td::Promise<std::map<BlockIdExt, td::Ref<OutMsgQueueProof>>> promise) override;
 
   void set_block_data(BlockHandle handle, td::Ref<BlockData> data, td::Promise<td::Unit> promise) override;
   void wait_block_data(BlockHandle handle, td::uint32 priority, td::Timestamp,
@@ -304,7 +302,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void finished_wait_data(BlockIdExt id, td::Result<td::Ref<BlockData>> R);
 
   void start_up() override;
-  void started(ValidatorManagerInitResult result);
+  td::actor::Task<> started(ValidatorManagerInitResult result);
+  td::actor::Task<> start_up_advance_mc();
 
   void write_fake(BlockCandidate candidate, std::vector<BlockIdExt> prev, BlockIdExt last,
                   td::Ref<block::ValidatorSet> val_set);
@@ -426,6 +425,8 @@ class ValidatorManagerImpl : public ValidatorManager {
   void update_shard_blocks();
   void dec_pending_new_blocks();
   ValidatorSessionId get_validator_set_id(ShardIdFull shard, td::Ref<block::ValidatorSet> val_set);
+
+  td::actor::ActorOwn<OutMsgQueueImporter> out_msg_queue_importer_;
 };
 
 }  // namespace validator
