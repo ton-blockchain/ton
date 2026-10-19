@@ -6492,7 +6492,13 @@ td::Status check_block_transactions_proof(lite_api_ptr<ton::lite_api::liteServer
     td::Bits256 cur_addr = start_addr;
     bool allow_same = true;
     int count = 0;
-    while (!eof && count < req_count && count < max_answer_transactions) {
+    // A listing claimed to be complete must be proven complete: walk one transaction past the returned ones,
+    // so that the proof has to show the end of the block (an extra transaction gives a count mismatch,
+    // a pruned branch throws VmVirtError).
+    bool claims_complete = !bTxes->incomplete_;
+    int limit = claims_complete ? static_cast<int>(bTxes->ids_.size()) + 1
+                                : std::min(req_count, max_answer_transactions);
+    while (!eof && count < limit) {
       auto value = acc_dict.extract_value(
           acc_dict.vm::DictionaryFixed::lookup_nearest_key(cur_addr.bits(), 256, !reverse, allow_same));
       if (value.is_null()) {
@@ -6511,7 +6517,7 @@ td::Status check_block_transactions_proof(lite_api_ptr<ton::lite_api::liteServer
       vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
                                          block::tlb::aug_AccountTransactions};
       td::BitArray<64> cur_trans{(long long)trans_lt};
-      while (count < req_count && count < max_answer_transactions) {
+      while (count < limit) {
         auto tvalue = trans_dict.extract_value_ref(
             trans_dict.vm::DictionaryFixed::lookup_nearest_key(cur_trans.bits(), 64, !reverse));
         if (tvalue.is_null()) {
@@ -6535,6 +6541,9 @@ td::Status check_block_transactions_proof(lite_api_ptr<ton::lite_api::liteServer
     if (static_cast<size_t>(count) != bTxes->ids_.size()) {
       return td::Status::Error(PSLICE() << "Txs count mismatch in proof (" << count << ") and response ("
                                         << bTxes->ids_.size() << ")");
+    }
+    if (claims_complete && !eof) {
+      return td::Status::Error("Liteserver claims complete transaction list, but proof does not show end of block");
     }
   } catch (vm::VmError& err) {
     return err.as_status("Couldn't verify proof: ");
@@ -6641,6 +6650,7 @@ td::Status TonlibClient::do_request(const tonlib_api::blocks_getTransactionsExt&
         list.start_lt = start_lt;
         list.start_addr = start_addr;
         list.req_count = req_count;
+        list.incomplete = bTxes->incomplete_;
         auto info = list.validate(check_proof);
         if (info.is_error()) {
           return info.move_as_error_prefix("Validation of block::BlockTransactionList failed: ");
