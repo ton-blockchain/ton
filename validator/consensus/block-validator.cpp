@@ -108,21 +108,42 @@ class BlockValidatorImpl : public td::actor::SpawnsWith<Bus>, public td::actor::
 
     owning_bus().publish<TraceEvent>(stats::ValidationFinished::create(event->candidate->id));
 
-    if (validation_result.has<CandidateReject>()) {
-      if (event->candidate->leader == bus.local_id->idx) {
-        LOG(ERROR) << "BUG! Candidate " << event->candidate->id
-                   << " is self-rejected: " << validation_result.get<CandidateReject>().reason;
-      }
-      co_return validation_result;
-    }
-
-    td::Timestamp ok_from = td::Timestamp::at_unix(validation_result.get<CandidateAccept>().ok_from_utime);
-    if (!ok_from.is_in_past()) {
-      LOG(INFO) << "Candidate " << event->candidate->id << " has timestamp in the future, wait for " << ok_from.in()
-                << " s";
-      co_await td::actor::coro_sleep(ok_from);
+    if (validation_result.has<CandidateReject>() && event->candidate->leader == bus.local_id->idx) {
+      LOG(ERROR) << "BUG! Candidate " << event->candidate->id
+                 << " is self-rejected: " << validation_result.get<CandidateReject>().reason;
     }
     co_return validation_result;
+  }
+
+  template <>
+  td::actor::Task<ValidateCandidateResult> process(BusHandle, std::shared_ptr<SpeculativeValidationRequest> event) {
+    auto& bus = *owning_bus();
+    auto& candidate = *event->candidate;
+    if (bus.shard.workchain != basechainId || candidate.is_empty() || candidate.parent_id != event->parent_id ||
+        candidate.id.slot == 0 || candidate.id.slot - 1 != event->parent_id.slot) {
+      co_return td::Status::Error(ErrorCode::notready, "Candidate is not eligible for speculative validation");
+    }
+    const auto& block = std::get<BlockCandidate>(candidate.block);
+    if (block.id.shard_full() != bus.shard || event->parent_block_id.shard_full() != bus.shard ||
+        block.id.seqno() == 0 || block.id.seqno() - 1 != event->parent_block_id.seqno()) {
+      co_return td::Status::Error(ErrorCode::notready, "Candidate is not the next block in the parent's shard");
+    }
+
+    ValidateParams validate_params{
+        .shard = bus.shard,
+        .min_masterchain_block_id = event->min_masterchain_block_id,
+        .prev = {event->parent_block_id},
+        .local_validator_id = bus.local_id->short_id,
+        .require_full_collated_data = true,
+    };
+    LOG(DEBUG) << "Speculative validation started for " << candidate.id << " after " << event->parent_id;
+    auto result = co_await td::actor::ask(bus.manager, &ManagerFacade::validate_block_candidate, block.clone(),
+                                          std::move(validate_params), td::Timestamp::in(60.0))
+                      .wrap();
+    LOG(DEBUG) << "Speculative validation finished for " << candidate.id << ": "
+               << (result.is_ok() ? ValidationRequest::response_to_string(result.ok()) : result.error().to_string());
+    // Certification and both time gates remain the responsibility of the consensus actor.
+    co_return std::move(result);
   }
 
  private:
