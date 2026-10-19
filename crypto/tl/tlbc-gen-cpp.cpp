@@ -48,6 +48,7 @@ void init_forbidden_cpp_idents() {
   f.insert("unsigned");
   f.insert("long");
   f.insert("short");
+  f.insert("double");
   f.insert("char");
   f.insert("void");
   f.insert("class");
@@ -86,10 +87,12 @@ void init_forbidden_cpp_idents() {
   f.insert("TLB");
   f.insert("TLB_Complex");
   f.insert("PrettyPrinter");
+  f.insert("JsonPrinter");
   std::set<std::string>& l = local_forbidden_cpp_idents;
   l.insert("cons_len");
   l.insert("cons_len_exact");
   l.insert("cons_tag");
+  l.insert("cons_name");
   l.insert("skip");
   l.insert("validate_skip");
   l.insert("get_size");
@@ -742,6 +745,34 @@ void CppTypeCode::generate_cons_tag_array(std::ostream& os, std::string nl, int 
   os << " };\n";
 }
 
+void CppTypeCode::generate_cons_name_array(std::ostream& os, std::string nl, int options) {
+  bool f = (options & 2);
+  os << nl << (f ? "" : "static ") << "constexpr const char* ";
+  if (f) {
+    os << cpp_type_class_name << "::";
+  }
+  os << "cons_name[" << cons_num << "]";
+  if (f) {
+    os << ";\n";
+    return;
+  }
+  os << " = { ";
+  for (int i = 0; i < cons_num; i++) {
+    int k = cons_idx_by_enum.at(i);
+    const Constructor& constr = *type.constructors.at(k);
+    if (i > 0) {
+      os << ", ";
+    }
+    if (constr.constr_name) {
+      os << "\"" << sym::symbols.get_name(constr.constr_name) << "\"";
+    } else {
+      // for constructors without name use name from enum
+      os << "\"" << cons_enum_name.at(k) << "\"";
+    }
+  }
+  os << " };\n";
+}
+
 void CppTypeCode::generate_cons_tag_info(std::ostream& os, std::string nl, int options) {
   if (cons_num) {
     if (common_cons_len == -1) {
@@ -751,6 +782,7 @@ void CppTypeCode::generate_cons_tag_info(std::ostream& os, std::string nl, int o
     }
     if (common_cons_len != 0 && !incremental_cons_tags) {
       generate_cons_tag_array(os, nl, options);
+      generate_cons_name_array(os, nl, options);
     }
   }
 }
@@ -1372,6 +1404,8 @@ std::string compute_type_class_name(const Type* typ, int& fake_arg) {
     return "UInt";
   } else if (typ == Bits_type) {
     return "Bits";
+  } else if (typ == SnakeString_type) {
+    return "SnakeString";
   }
   return "<Unknown_Builtin_Type>";
 }
@@ -2182,6 +2216,12 @@ bool CppTypeCode::output_print_simple_field(std::ostream& os, const Field& field
       os << ")";
       return true;
     case ct_bool:
+      os << "pp.fetch_bool_field(cs";
+      if (!field_name.empty()) {
+        os << ", \"" << field_name << '"';
+      }
+      os << ")";
+      return true;
     case ct_int32:
     case ct_uint32:
     case ct_int64:
@@ -2339,9 +2379,9 @@ void CppTypeCode::generate_print_cons_method(std::ostream& os, std::string nl, i
   clear_context();
 }
 
-void CppTypeCode::generate_print_method(std::ostream& os, int options) {
+void CppTypeCode::generate_print_method(std::ostream& os, int options, const char* printer_type) {
   bool ret_ext = options & 2;
-  if (!ret_ext) {
+  if (!ret_ext && std::string{printer_type} == "PrettyPrinter") {
     std::string name = type.get_name();
     if (name == "HashmapE") {
       os << "\nbool " << cpp_type_class_name << "::print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const {\n"
@@ -2364,7 +2404,7 @@ void CppTypeCode::generate_print_method(std::ostream& os, int options) {
       return;
     }
   }
-  os << "\nbool " << cpp_type_class_name << "::print_skip(PrettyPrinter& pp, vm::CellSlice& cs";
+  os << "\nbool " << cpp_type_class_name << "::print_skip(" << printer_type << "& pp, vm::CellSlice& cs";
   if (ret_ext) {
     os << skip_extra_args;
   }
@@ -3057,6 +3097,7 @@ void CppTypeCode::generate_print_type_body(std::ostream& os, std::string nl) {
 
 void CppTypeCode::generate_header(std::ostream& os, int options) {
   os << "\nstruct " << cpp_type_class_name << " final : TLB_Complex {\n";
+  os << "  using TLB::print_skip;\n";
   generate_cons_enum(os);
   generate_cons_tag_info(os, "  ", 1);
   if (params) {
@@ -3114,8 +3155,10 @@ void CppTypeCode::generate_header(std::ostream& os, int options) {
     records[i].declare_record_pack(os, "  ", 26);
   }
   os << "  bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs) const override;\n";
+  os << "  bool print_skip(::tlb::JsonPrinter& pp, vm::CellSlice& cs) const override;\n";
   if (ret_params) {
     os << "  bool print_skip(PrettyPrinter& pp, vm::CellSlice& cs" << skip_extra_args << ") const;\n";
+    os << "  bool print_skip(::tlb::JsonPrinter& pp, vm::CellSlice& cs" << skip_extra_args << ") const;\n";
   }
   os << "  std::ostream& print_type(std::ostream& os) const override {";
   generate_print_type_body(os, "\n    ");
@@ -3178,9 +3221,11 @@ void CppTypeCode::generate_body(std::ostream& os, int options) {
     generate_pack_method(os, rec, 18);
     generate_pack_method(os, rec, 26);
   }
-  generate_print_method(os, options + 1);
+  generate_print_method(os, options + 1, "PrettyPrinter");
+  generate_print_method(os, options + 1, "::tlb::JsonPrinter");
   if (ret_params) {
-    generate_print_method(os, options + 3);
+    generate_print_method(os, options + 3, "PrettyPrinter");
+    generate_print_method(os, options + 3, "::tlb::JsonPrinter");
   }
   if (!cpp_type_var_name.empty()) {
     os << "\nconst " << cpp_type_class_name << " " << cpp_type_var_name << ";";
@@ -3293,6 +3338,11 @@ void assign_const_type_cpp_idents() {
         int idx = typ->type_idx;
         if (typ == Any_type || typ == Cell_type || typ == Nat_type) {
           const_type_expr_cpp_idents[i] = (typ == Nat_type ? "t_Nat" : "t_Anything");
+          const_type_expr_simple[i] = true;
+          continue;
+        }
+        if (typ == SnakeString_type) {
+          const_type_expr_cpp_idents[i] = "t_SnakeString";
           const_type_expr_simple[i] = true;
           continue;
         }
