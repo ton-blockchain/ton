@@ -351,7 +351,9 @@ td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check
       td::Bits256 cur_addr = start_addr;
       bool allow_same = true;
       int count = 0;
-      while (!eof && count < req_count && count < max_answer_transactions) {
+      // A listing claimed to be complete must be proven complete: walk one transaction past the returned ones.
+      int limit = incomplete ? std::min(req_count, max_answer_transactions) : static_cast<int>(list.size()) + 1;
+      while (!eof && count < limit) {
         auto value = acc_dict.extract_value(
             acc_dict.vm::DictionaryFixed::lookup_nearest_key(cur_addr.bits(), 256, !reverse, allow_same));
         if (value.is_null()) {
@@ -370,7 +372,7 @@ td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check
         vm::AugmentedDictionary trans_dict{vm::DictNonEmpty(), std::move(acc_blk.transactions), 64,
                                            block::tlb::aug_AccountTransactions};
         td::BitArray<64> cur_trans{(long long)trans_lt};
-        while (count < req_count && count < max_answer_transactions) {
+        while (count < limit) {
           auto tvalue = trans_dict.extract_value_ref(
               trans_dict.vm::DictionaryFixed::lookup_nearest_key(cur_trans.bits(), 64, !reverse));
           if (tvalue.is_null()) {
@@ -386,6 +388,9 @@ td::Result<BlockTransactionList::Info> BlockTransactionList::validate(bool check
       if (static_cast<size_t>(count) != list.size()) {
         return td::Status::Error(PSLICE() << "Txs count mismatch in proof (" << count << ") and response ("
                                           << list.size() << ")");
+      }
+      if (!incomplete && !eof) {
+        return td::Status::Error("Liteserver claims complete transaction list, but proof does not show end of block");
       }
     } catch (vm::VmError& err) {
       return err.as_status("Couldn't verify proof: ");
