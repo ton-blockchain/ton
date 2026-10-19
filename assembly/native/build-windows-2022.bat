@@ -22,13 +22,11 @@ IF %errorlevel% NEQ 0 (
 
 choco feature enable -n allowEmptyChecksums
 
-echo Installing tools...
-choco install -y ninja nasm
-IF %errorlevel% NEQ 0 (
-  echo Can't install tools
-  exit /b %errorlevel%
-)
-SET PATH=%PATH%;C:\Program Files\NASM
+set "PATH=%PATH%;C:\Program Files\NASM"
+call :ensure_build_tool ninja --version
+IF ERRORLEVEL 1 exit /b 1
+call :ensure_build_tool nasm -v
+IF ERRORLEVEL 1 exit /b 1
 
 where clang-cl
 IF %errorlevel% NEQ 0 (
@@ -137,3 +135,21 @@ IF ERRORLEVEL 1 (
   echo Can't copy fift lib artifacts
   exit /b 1
 )
+
+exit /b 0
+
+:ensure_build_tool
+%~1 %~2 >nul 2>nul
+IF NOT ERRORLEVEL 1 exit /b 0
+
+for /L %%A in (1,1,3) do (
+  echo Installing %~1 ^(attempt %%A of 3^)...
+  choco install -y --no-progress %~1
+  REM Verify the tool itself rather than relying on the installer exit code.
+  %~1 %~2
+  IF NOT ERRORLEVEL 1 exit /b 0
+  IF %%A LSS 3 powershell -NoProfile -Command "Start-Sleep -Seconds 10"
+)
+
+echo Can't install %~1 after 3 attempts
+exit /b 1
