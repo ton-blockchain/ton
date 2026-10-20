@@ -34,7 +34,15 @@ if (ZLIB_FOUND)
 endif()
 
 if (MSVC)
-  set(ZLIB_PROJECT_DIR ${ZLIB_SOURCE_DIR}/contrib/vstudio/vc14)
+  if (MSVC_VERSION GREATER_EQUAL 1930)
+    set(ZLIB_PROJECT_DIR ${ZLIB_SOURCE_DIR}/contrib/vstudio/vc17)
+    set(ZLIB_MSVC_TOOLSET v143)
+  elseif (MSVC_VERSION GREATER_EQUAL 1920)
+    set(ZLIB_PROJECT_DIR ${ZLIB_SOURCE_DIR}/contrib/vstudio/vc14)
+    set(ZLIB_MSVC_TOOLSET v142)
+  else()
+    message(FATAL_ERROR "Unsupported MSVC version ${MSVC_VERSION}; expected Visual Studio 2019 or newer")
+  endif()
   set(ZLIB_LIBRARY ${ZLIB_BINARY_DIR}/lib/zlibstat.lib)
   set(ZLIB_INCLUDE_DIR ${ZLIB_SOURCE_DIR})
   file(MAKE_DIRECTORY ${ZLIB_BINARY_DIR}/lib)
@@ -43,7 +51,7 @@ if (MSVC)
   set(ZLIB_MSVC_INT_DIR "${ZLIB_BINARY_DIR}/obj/")
   if (NOT EXISTS "${ZLIB_LIBRARY}")
     execute_process(
-      COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
+      COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=${ZLIB_MSVC_TOOLSET} /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
       WORKING_DIRECTORY ${ZLIB_PROJECT_DIR}
       RESULT_VARIABLE ZLIB_BUILD_RESULT
     )
@@ -53,7 +61,7 @@ if (MSVC)
   endif()
   add_custom_command(
     WORKING_DIRECTORY ${ZLIB_PROJECT_DIR}
-    COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=v142 /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
+    COMMAND msbuild zlibstat.vcxproj /p:Configuration=ReleaseWithoutAsm /p:Platform=x64 /p:PlatformToolset=${ZLIB_MSVC_TOOLSET} /p:OutDir=${ZLIB_MSVC_OUT_DIR} /p:IntDir=${ZLIB_MSVC_INT_DIR}
     COMMENT "Build zlib (MSVC)"
     DEPENDS ${ZLIB_SOURCE_DIR}
     OUTPUT ${ZLIB_LIBRARY}
