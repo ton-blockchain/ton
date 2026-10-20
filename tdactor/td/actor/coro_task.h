@@ -142,7 +142,8 @@ struct promise_value : promise_common {
   }
 
   struct ExternalResult {
-    explicit ExternalResult() = default;
+    struct Tag {};
+    explicit ExternalResult(Tag) {}
   };
   void return_value(ExternalResult&&) noexcept {
   }
@@ -514,7 +515,7 @@ struct [[nodiscard]] StartedTask {
   };
 
   static std::pair<StartedTask, ExternalPromise> make_bridge() {
-    auto task = []() -> Task<T> { co_return typename promise_type::ExternalResult{}; }();
+    auto task = []() -> Task<T> { co_return typename promise_type::ExternalResult{typename promise_type::ExternalResult::Tag{}}; }();
     task.set_executor(Executor::on_scheduler());
     auto promise = ExternalPromise(&task.h.promise());
     auto started_task = std::move(task).start_external();
