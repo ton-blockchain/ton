@@ -32,7 +32,9 @@ void Symbol::check_import_exists_when_used_from(FunctionPtr cur_f, AnyV usage) c
     has_import |= import.imported_file == declared_in;
   }
   if (!has_import) {
-    err("Using a non-imported symbol `{}`\n""hint: forgot to import \"{}\"?", name, declared_in->extract_short_name()).collect(usage, cur_f);
+    err("Using a non-imported symbol `{}`\n""hint: forgot to import \"{}\"?", name, declared_in->extract_short_name())
+      .with_secondary(this, "declared here")
+      .collect(usage, cur_f);
   }
 }
 
@@ -70,9 +72,41 @@ LocalVarPtr FunctionData::find_param(std::string_view name) const {
   return nullptr;
 }
 
+// detect `fun onInternalMessage(in: InMessage)`
+// we allow also FunC-style `onInternalMessage(msgCell: cell, msgBody: slice)`, then return false
+bool FunctionData::is_onInternalMessage() const {
+  if (get_num_params() == 1 && name == "onInternalMessage") {
+    const TypeDataStruct* t_param = parameters[0].declared_type->try_as<TypeDataStruct>();
+    if (t_param && t_param->struct_ref->name == "InMessage") {
+      return true;
+    }
+    // after transformation, `in:InMessage` becomes `in.body:slice`
+    if (parameters[0].declared_type == TypeDataSlice::create() && parameters[0].name == "in.body") {
+      return true;
+    }
+  }
+  // otherwise, we will output onInternalMessage without any transformations, `in.senderAddress` etc. are disallowed
+  return false;
+}
+
+// detect `fun onExternalMessage()` (may accept `slice` parameter, may not)
+bool FunctionData::is_onExternalMessage() const {
+  return name == "onExternalMessage";
+}
+
+// detect `fun onBouncedMessage(in: InMessageBounced)`
+bool FunctionData::is_onBouncedMessage() const {
+  return name == "onBouncedMessage";
+  // don't check signature, because unlike onInternalMessage, onBouncedMessage must be declared the only way
+}
+
 bool FunctionData::does_need_codegen() const {
   // when a function is declared, but not referenced from code in any way, don't generate its body
   if (!is_really_used()) {
+    return false;
+  }
+  // it's declared as `get fun smth(): T;` without body, for ABI only
+  if (is_prototype_only()) {
     return false;
   }
   // functions with asm body don't need code generation
@@ -132,6 +166,10 @@ void FunctionData::assign_is_type_inferring_done() {
   this->flags |= flagTypeInferringDone;
 }
 
+void FunctionData::assign_requires_callxargs() {
+  this->flags |= flagRequiresCallxargs;
+}
+
 void FunctionData::assign_is_really_used() {
   this->flags |= flagReallyUsed;
 }
@@ -142,6 +180,10 @@ void FunctionData::assign_inline_mode_in_place() {
 
 void FunctionData::assign_arg_order(std::vector<int>&& arg_order) {
   this->arg_order = std::move(arg_order);
+}
+
+void FunctionData::assign_lazy_load_plan(const LazyLoadPlan* lazy_load_plan) {
+  this->lazy_load_plan = lazy_load_plan;
 }
 
 void GlobalVarData::assign_resolved_type(TypePtr declared_type) {
@@ -266,20 +308,15 @@ EnumMemberPtr EnumDefData::find_member(std::string_view member_name) const {
 }
 
 static Error err_redefinition_of_symbol(const Symbol* previous) {
-  if (previous->is_builtin()) {
-    return err("redefinition of built-in symbol");
-  }
-  if (previous->ident_anchor->range.get_src_file()->is_stdlib_file) {
-    return err("redefinition of a symbol from stdlib");
-  }
-  return err("redefinition of symbol, previous was at: {}", previous->ident_anchor->range.stringify_start_location(false));
+  return err("redefinition of symbol `{}`", previous->name)
+    .with_secondary(previous, "previous definition is here");
 }
 
 void GlobalSymbolTable::add_global_symbol(const Symbol* sym) {
   auto key = key_hash(sym->name);
   auto [it, inserted] = entries.emplace(key, sym);
   if (!inserted) {
-    err_redefinition_of_symbol(it->second).fire(sym->ident_anchor);
+    err_redefinition_of_symbol(it->second).fire(sym);
   }
 }
 

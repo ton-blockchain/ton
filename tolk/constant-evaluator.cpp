@@ -681,7 +681,7 @@ ConstValExpression eval_and_cache_const_init_val(GlobalConstPtr const_ref) {
   static thread_local std::vector<GlobalConstPtr> called_stack;
   bool contains = std::find(called_stack.begin(), called_stack.end(), const_ref) != called_stack.end();
   if (contains) {
-    err("const `{}` appears, directly or indirectly, in its own initializer", const_ref).fire(const_ref->ident_anchor);
+    err("const `{}` appears, directly or indirectly, in its own initializer", const_ref).fire(const_ref);
   }
   called_stack.push_back(const_ref);
   RecursionGuard guard([&] {
@@ -701,7 +701,7 @@ ConstValExpression eval_field_default_value(StructFieldPtr field_ref) {
   static thread_local std::vector<StructFieldPtr> called_stack;
   bool contains = std::find(called_stack.begin(), called_stack.end(), field_ref) != called_stack.end();
   if (contains) {
-    err("field `{}` default value circularly references itself", field_ref).fire(field_ref->ident_anchor);
+    err("field `{}` default value circularly references itself", field_ref).fire(field_ref);
   }
   called_stack.push_back(field_ref);
   RecursionGuard guard([&] {
@@ -719,7 +719,7 @@ std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_re
   // (unlike constants, enums initializers were not checked earlier for recursion)
   bool contains = std::find(called_stack.begin(), called_stack.end(), enum_ref) != called_stack.end();
   if (contains) {
-    err("enum `{}` initializers circularly references itself", enum_ref).fire(enum_ref->ident_anchor);
+    err("enum `{}` initializers circularly references itself", enum_ref).fire(enum_ref);
   }
 
   std::vector<td::RefInt256> values;
@@ -736,12 +736,12 @@ std::vector<td::RefInt256> calculate_enum_members_with_values(EnumDefPtr enum_re
       ConstValExpression assigned = unwrap_const_cast(ConstExpressionEvaluator::eval_any_v_or_fire(member_ref->init_value));
       ConstValInt* assigned_int = std::get_if<ConstValInt>(&assigned);
       if (!assigned_int) {
-        err("invalid enum member initializer, not an integer").fire(member_ref->ident_anchor);
+        err("invalid enum member initializer, not an integer").fire(member_ref);
       }
       cur_value = assigned_int->int_val;
     }
     if (!cur_value->is_valid() || !cur_value->signed_fits_bits(257)) {
-      err("integer overflow").fire(member_ref->ident_anchor);
+      err("integer overflow").fire(member_ref);
     }
 
     values.push_back(cur_value);

@@ -35,7 +35,7 @@ fun test1() {
         RemainingBitsAndRefs.estimate(),
         coins.estimate(),
         bits6.estimate(),
-        bytes8.estimate(),
+        bits64.estimate(),
         varint32.estimate(),
     );
 }
@@ -106,7 +106,7 @@ struct Test5_2 {
 
 struct Test5_3 {
     f1: int8 | Cell<int8>;
-    f2: bytes2 | Cell<int16>;
+    f2: bits16 | Cell<int16>;
     f3: Cell<int8> | cell;
     f4: Cell<coins> | coins;
 }

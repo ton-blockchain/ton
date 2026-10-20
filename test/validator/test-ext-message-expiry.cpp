@@ -80,12 +80,8 @@ struct ExtMessagePoolTestPeer {
     return pool.ext_message_states_.total();
   }
 
-  static void postpone(ExtMessagePool &pool, ExtMessage::Hash hash) {
-    pool.complete_external_messages({hash}, {});
-  }
-
-  static void filter_out(ExtMessagePool &pool, ExtMessage::Hash hash) {
-    pool.complete_external_messages({}, {hash});
+  static void filter_out(ExtMessagePool &pool, ExtMessage::Hash normalized_hash) {
+    pool.complete_external_messages({normalized_hash});
   }
 
   static bool prepare_for_collation(ExtMessagePool &pool, const EntryPtr &entry) {
@@ -174,40 +170,6 @@ TEST(ExtMessagePool, DuplicateDoesNotRefreshDeadlineOrReplaceEntry) {
   EXPECT_EQ(PoolPeer::state_total(*pool), 1u);
 }
 
-TEST(ExtMessagePool, StateCountsFollowActualPostponeAndLazyReactivation) {
-  auto pool = PoolPeer::make_pool();
-  auto message = PoolPeer::make_message(4);
-  auto hash = message->hash();
-  auto alarm = td::Timestamp::never();
-  ASSERT_EQ(PoolPeer::add(*pool, message, 1, alarm), metrics::ExtMessageAdmissionOutcome::accepted);
-  auto entry = PoolPeer::find(*pool, hash);
-
-  EXPECT_EQ(PoolPeer::state(*pool, metrics::ExtMessageState::eligible), 1u);
-  EXPECT_EQ(PoolPeer::state(*pool, metrics::ExtMessageState::postponed), 0u);
-  PoolPeer::postpone(*pool, hash);
-  EXPECT_EQ(PoolPeer::state(*pool, metrics::ExtMessageState::eligible), 0u);
-  EXPECT_EQ(PoolPeer::state(*pool, metrics::ExtMessageState::postponed), 1u);
-
-  EXPECT(PoolPeer::prepare_for_collation(*pool, entry));
-  EXPECT_EQ(PoolPeer::state(*pool, metrics::ExtMessageState::eligible), 1u);
-  EXPECT_EQ(PoolPeer::state(*pool, metrics::ExtMessageState::postponed), 0u);
-}
-
-TEST(ExtMessagePool, RetainedSnapshotEntryCannotChangeCountsAfterRemoval) {
-  auto pool = PoolPeer::make_pool();
-  auto message = PoolPeer::make_message(5);
-  auto hash = message->hash();
-  auto alarm = td::Timestamp::never();
-  ASSERT_EQ(PoolPeer::add(*pool, message, 1, alarm), metrics::ExtMessageAdmissionOutcome::accepted);
-  auto retained = PoolPeer::find(*pool, hash);
-  PoolPeer::postpone(*pool, hash);
-
-  PoolPeer::apply(*pool, message->hash_norm());
-  ASSERT_EQ(PoolPeer::state_total(*pool), 0u);
-  EXPECT(PoolPeer::prepare_for_collation(*pool, retained));
-  EXPECT_EQ(PoolPeer::state_total(*pool), 0u);
-}
-
 TEST(ExtMessagePool, AppliedAndExpiredEntriesRecordExactlyOneDistinctRemoval) {
   auto applied_pool = PoolPeer::make_pool();
   auto applied = PoolPeer::make_message(6);
@@ -257,7 +219,7 @@ TEST(ExtMessagePool, OnlyAppliedRemovalObservesHowLongTheEntryWasStored) {
   alarm = td::Timestamp::never();
   ASSERT_EQ(PoolPeer::add(*evicted_pool, expiring, 1, alarm), metrics::ExtMessageAdmissionOutcome::accepted);
   ASSERT_EQ(PoolPeer::add(*evicted_pool, filtered, 1, alarm), metrics::ExtMessageAdmissionOutcome::accepted);
-  PoolPeer::filter_out(*evicted_pool, filtered->hash());
+  PoolPeer::filter_out(*evicted_pool, filtered->hash_norm());
   EXPECT_EQ(PoolPeer::expire(*evicted_pool, PoolPeer::find(*evicted_pool, expiring->hash())->delete_at), 1u);
 
   EXPECT_EQ(PoolPeer::removed_total(*evicted_pool), 2u);

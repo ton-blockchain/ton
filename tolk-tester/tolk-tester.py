@@ -307,6 +307,8 @@ class TolkTestFile:
                 self.expected_hash = TolkTestCaseExpectedHash(self.parse_string_value(lines, False)[0])
             elif line.startswith("@path_mapping"):
                 self.more_cmd_line_options += ["--path-mapping", line[14:].replace('{DIR}', os.path.dirname(self.tolk_filename))]
+            elif line.startswith("@cmd_line_option"):
+                self.more_cmd_line_options += line[len("@cmd_line_option"):].strip().split()
             self.line_idx = self.line_idx + 1
 
         if len(self.input_output) == 0 and not self.compilation_should_fail:
@@ -349,7 +351,7 @@ class TolkTestFile:
 
     def run_and_check(self):
         cmd_args = ([TOLK_EXECUTABLE, "-o", self.get_compiled_fif_filename(),
-                     "--no-symbol-types", "--no-compiled-boc"]
+                     "--no-symbol-types", "--no-compiled-boc", "--color", "never"]
                     + self.more_cmd_line_options)
         if not self.abi_json:
             cmd_args += ["--no-contract-abi"]
@@ -363,7 +365,7 @@ class TolkTestFile:
         if exit_code == 0 and self.compilation_should_fail:
             raise TolkCompilationSucceededError("compilation succeeded, but it should have failed")
 
-        for should_include in self.stderr_includes: # @stderr is used to check errors and warnings
+        for should_include in self.stderr_includes: # @stderr is used to check errors
             should_include.check(stderr)
 
         if exit_code != 0 and self.compilation_should_fail:

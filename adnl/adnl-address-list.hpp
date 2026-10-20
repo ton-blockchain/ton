@@ -50,7 +50,7 @@ class AdnlAddressUdp : public AdnlAddressImpl {
   tl_object_ptr<ton_api::adnl_Address> tl() const override {
     return create_tl_object<ton_api::adnl_address_udp>(ip_, port_);
   }
-  td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
+  td::Result<td::actor::ActorOwn<AdnlNetworkConnection>> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
   td::Result<td::IPAddress> to_ip_address() const override {
@@ -85,7 +85,7 @@ class AdnlAddressUdp6 : public AdnlAddressImpl {
   tl_object_ptr<ton_api::adnl_Address> tl() const override {
     return create_tl_object<ton_api::adnl_address_udp6>(ip_, port_);
   }
-  td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
+  td::Result<td::actor::ActorOwn<AdnlNetworkConnection>> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
   td::Result<td::IPAddress> to_ip_address() const override {
@@ -121,7 +121,7 @@ class AdnlAddressTunnel : public AdnlAddressImpl {
   tl_object_ptr<ton_api::adnl_Address> tl() const override {
     return create_tl_object<ton_api::adnl_address_tunnel>(adnl_id_.bits256_value(), pub_key_.tl());
   }
-  td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
+  td::Result<td::actor::ActorOwn<AdnlNetworkConnection>> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const override;
 };

@@ -22,6 +22,7 @@
 #include "full-node.h"
 //#include "ton-node-slave.h"
 #include <cstddef>
+#include <fstream>
 #include <map>
 #include <queue>
 #include <set>
@@ -112,6 +113,9 @@ class FullNodeImpl : public FullNode {
 
   void set_validator_telemetry_filename(std::string value) override;
   void set_plumtree_stats_filename(std::string value) override;
+  void dump_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type,
+                           tl_object_ptr<ton_api::tonNode_shardId> shard, adnl::AdnlNodeIdShort src,
+                           std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) override;
   void alarm() override;
 
   void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
@@ -217,11 +221,12 @@ class FullNodeImpl : public FullNode {
   void update_validator_telemetry_collector();
   void update_plumtree_stats_collector();
 
-  // Fractions of the Plumtree stats epoch: +15..+30 minutes at the one-hour
-  static constexpr double PLUMTREE_STATS_EXCHANGE_FROM = 1.0 / 4;
-  static constexpr double PLUMTREE_STATS_EXCHANGE_TO = 1.0 / 2;
+  // Fractions of the Plumtree stats epoch: +30..+45 minutes at the one-hour default.
+  static constexpr double PLUMTREE_STATS_EXCHANGE_FROM = 1.0 / 2;
+  static constexpr double PLUMTREE_STATS_EXCHANGE_TO = 3.0 / 4;
   static constexpr std::size_t PLUMTREE_STATS_EXCHANGE_OVERLAYS_LIMIT = 4;
   std::string plumtree_stats_filename_;
+  std::ofstream plumtree_stats_file_;
   PublicKeyHash plumtree_stats_collector_key_ = PublicKeyHash::zero();
   td::int64 plumtree_stats_exchange_epoch_ = -1;
   td::Timestamp plumtree_stats_exchange_at_ = td::Timestamp::never();

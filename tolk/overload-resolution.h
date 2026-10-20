@@ -27,14 +27,9 @@ namespace tolk {
 struct MethodCallCandidate {
   TypePtr original_receiver;
   TypePtr instantiated_receiver;
+  int receiver_distance;
   FunctionPtr method_ref;
   GenericsSubstitutions substitutedTs;
-
-  MethodCallCandidate(TypePtr original_receiver, TypePtr instantiated_receiver, FunctionPtr method_ref, GenericsSubstitutions&& substitutedTs)
-    : original_receiver(original_receiver)
-    , instantiated_receiver(instantiated_receiver)
-    , method_ref(method_ref)
-    , substitutedTs(std::move(substitutedTs)) {}
 
   bool is_generic() const { return original_receiver != instantiated_receiver; }
 };

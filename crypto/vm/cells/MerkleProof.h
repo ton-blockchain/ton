@@ -41,9 +41,9 @@ class MerkleProof {
   static td::Result<Ref<Cell>> combine_fast(Ref<Cell> a, Ref<Cell> b);
 
   // works with unwrapped proofs
-  // works fine with cell of non-zero level, but this is not supported (yet?) in MerkeProof special cell
+  // works fine with cell of non-zero level, but this is not supported (yet?) in MerkleProof special cell
   static td::Result<Ref<Cell>> generate_raw(Ref<Cell> cell, IsPrunnedFunction is_prunned);
-  static td::Result<Ref<Cell>> generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree);
+  static td::Result<Ref<Cell>> generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree, bool is_left_mu = false);
   static Ref<Cell> virtualize_raw(Ref<Cell> cell, td::uint32 effective_level);
   static td::Result<Ref<Cell>> combine_raw(Ref<Cell> a, Ref<Cell> b);
   static td::Result<Ref<Cell>> combine_fast_raw(Ref<Cell> a, Ref<Cell> b);

@@ -44,7 +44,7 @@ fun test89(last: int): (unknown, unknown, unknown, unknown) {
     return (t.get(0), t.get(t.size() - 1), t.first(), t.last());
 }
 
-@pure @noinline fun get10() { return 10; }
+@noinline fun get10() { return 10; }
 
 @method_id(91)
 fun touchCodegen2() {
@@ -125,7 +125,8 @@ fun test96(p: Point) {
     ...
     DUMPSTK
     x{6d79} PUSHSLICE
-    STRDUMP DROP        //  f s
+    STRDUMP
+    DROP                //  f s
     CTOS                //  f '6
     SBITS	            //  f '7
   }>

@@ -13,7 +13,6 @@ fun main() {
 
 /**
 @compilation_should_fail
-@stderr call to method `validate` for type `builder` is ambiguous
-@stderr candidate function: `AssetBuilder.validate`
-@stderr candidate function: `BalanceBuilder.validate`
+@stderr method `validate` not found for type `builder`
+@stderr but it exists for types `AssetBuilder`, `BalanceBuilder`
  */

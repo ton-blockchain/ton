@@ -144,6 +144,7 @@ std::string debug_print(const Op* op) {
     case Op::_UnTuple:
     case Op::_Return:
     case Op::_Import:
+    case Op::_BreakFromLoop:
       os << " ";
       for (size_t i = 0; i < op->left.size(); ++i) {
         if (i)
@@ -167,8 +168,8 @@ std::string debug_print(const Op* op) {
     os << " |disabled";
   if (op->flags & Op::_NoReturn)
     os << " |noret";
-  if (op->flags & Op::_Impure)
-    os << " |impure";
+  if (op->flags & Op::_KeepEvenIfUnused)
+    os << " |keep";
 
   return os.str();
 }

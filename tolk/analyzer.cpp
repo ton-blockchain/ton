@@ -29,6 +29,50 @@ static bool does_function_always_throw(FunctionPtr fun_ref) {
   return fun_ref->inferred_return_type == TypeDataNever::create();
 }
 
+bool OpList::has_reachable_direct_break() const {
+  for (const auto& op : *this) {
+    if (op->cl == Op::_BreakFromLoop) {
+      return true;
+    }
+    if (op->cl == Op::_If || op->cl == Op::_TryCatch) {
+      if (op->block0.has_reachable_direct_break() || op->block1.has_reachable_direct_break()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+// Successor of `_BreakFromLoop` is the enclosing loop's exit, not the next body instruction.
+static thread_local const VarDescrList* current_loop_exit_var_info = nullptr;
+
+struct LoopExitGuard {
+  const VarDescrList* prev;
+  explicit LoopExitGuard(const VarDescrList& exit_info)
+    : prev(current_loop_exit_var_info) {
+    current_loop_exit_var_info = &exit_info;
+  }
+  ~LoopExitGuard() {
+    current_loop_exit_var_info = prev;
+  }
+};
+
+// Facts at `_BreakFromLoop` after fwd_analyze; same walk as has_reachable_direct_break
+// (if/try only — nested loops keep their own breaks).
+static VarDescrList collect_break_facts(const OpList& ops) {
+  VarDescrList collected;
+  collected.set_unreachable();
+  for (const auto& op : ops) {
+    if (op->cl == Op::_BreakFromLoop) {
+      collected |= op->var_info;
+    } else if (op->cl == Op::_If || op->cl == Op::_TryCatch) {
+      collected |= collect_break_facts(op->block0);
+      collected |= collect_break_facts(op->block1);
+    }
+  }
+  return collected;
+}
+
 /*
  *  
  *   ANALYZE AND PREPROCESS ABSTRACT CODE
@@ -329,12 +373,15 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
     case _Tuple:
     case _UnTuple: {
       // left = EXEC right;
-      if (!next_var_info.count_used(left) && !impure()) {
+      if (!next_var_info.count_used(left) && !keep_even_if_unused()) {
         // all variables in `left` are not needed
         if (edit) {
           set_disabled();
         }
         return std_compute_used_vars(next_var_info, true);
+      }
+      if (edit) {
+        set_disabled(false);
       }
       if (cl == _Call && does_function_always_throw(f_sym)) {
         VarDescrList new_var_info;    // empty, not next_var_info
@@ -359,6 +406,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
     case _Let: {
       // left = right
       std::size_t cnt = next_var_info.count_used(left);
+      bool force_keep = keep_even_if_unused();
       tolk_assert(left.size() == right.size());
       auto l_it = left.cbegin(), r_it = right.cbegin();
       VarDescrList new_var_info{next_var_info};
@@ -368,7 +416,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
       for (; l_it < left.cend(); ++l_it, ++r_it) {
         if (std::find(l_it + 1, left.cend(), *l_it) == left.cend()) {
           auto p = next_var_info[*l_it];
-          new_var_info.add_var(*r_it, edit && (!p || p->is_unused()));
+          new_var_info.add_var(*r_it, !force_keep && edit && (!p || p->is_unused()));
           new_left.push_back(*l_it);
           new_right.push_back(*r_it);
         }
@@ -377,9 +425,11 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
         left = std::move(new_left);
         right = std::move(new_right);
       }
-      if (!cnt && edit) {
+      if (!cnt && edit && !force_keep) {
         // all variables in `left` are not needed
         set_disabled();
+      } else if (edit) {
+        set_disabled(false);
       }
       return set_var_info(std::move(new_var_info));
     }
@@ -394,6 +444,11 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
         var_info.list.emplace_back(i, VarDescr::_Last);
       }
       return true;
+    }
+    case _BreakFromLoop: {
+      // successor is the enclosing loop's exit, not the next body instruction
+      tolk_assert(current_loop_exit_var_info);
+      return set_var_info(*current_loop_exit_var_info);
     }
     case _Import: {
       // import left
@@ -421,6 +476,9 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
     case _While: {
       // while (block0 || left) block1;
       // ... block0 left { block1 block0 left } next
+      // Break must leave the same stack as a normal loop exit, so keep header vars too.
+      VarDescrList break_exit{next_var_info};
+      LoopExitGuard exit_guard(break_exit);
       VarDescrList new_var_info{next_var_info};
       bool changes = false;
       do {
@@ -431,6 +489,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
         std::size_t n = new_var_info.size();
         new_var_info += block1.entry_var_info();
         new_var_info.clear_last();
+        break_exit += new_var_info;
         if (changes) {
           break;
         }
@@ -438,11 +497,15 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
       } while (changes <= edit);
       new_var_info += left;
       block0.compute_used_code_vars(new_var_info, edit);
-      return set_var_info(block0.entry_var_info());
+      break_exit += block0.entry_var_info();
+      bool body_changed = block1.compute_used_code_vars(block0.entry_var_info(), edit);
+      return static_cast<int>(body_changed) | static_cast<int>(set_var_info(block0.entry_var_info()));
     }
     case _Until: {
       // until (block0 || left);
       // .. { block0 left } block0 left next
+      VarDescrList break_exit{next_var_info};
+      LoopExitGuard exit_guard(break_exit);
       VarDescrList after_cond_first{next_var_info};
       after_cond_first += left;
       block0.compute_used_code_vars(after_cond_first, false);
@@ -456,6 +519,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
         std::size_t n = new_var_info.size();
         new_var_info += block0.entry_var_info();
         new_var_info.clear_last();
+        break_exit += new_var_info;
         if (changes) {
           break;
         }
@@ -466,6 +530,8 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
     case _Repeat: {
       // repeat (left) block0
       // left { block0 } next
+      VarDescrList break_exit{next_var_info};
+      LoopExitGuard exit_guard(break_exit);
       VarDescrList new_var_info{next_var_info};
       bool changes = false;
       do {
@@ -473,6 +539,7 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
         std::size_t n = new_var_info.size();
         new_var_info += block0.entry_var_info();
         new_var_info.clear_last();
+        break_exit += new_var_info;
         if (changes) {
           break;
         }
@@ -489,6 +556,9 @@ bool Op::compute_used_vars(bool edit, const VarDescrList& next_var_info) {
     case _Again: {
       // for(;;) block0
       // { block0 }
+      // no normal-exit: header liveness is the back-edge only; break sees next_var_info
+      VarDescrList break_exit{next_var_info};
+      LoopExitGuard exit_guard(break_exit);
       VarDescrList new_var_info;
       bool changes = false;
       do {
@@ -564,6 +634,7 @@ bool OpList::prune_unreachable() {
         reach = true;
         break;
       case Op::_Return:
+      case Op::_BreakFromLoop:
         reach = false;
         break;
       case Op::_Call:
@@ -613,31 +684,30 @@ bool OpList::prune_unreachable() {
           continue;  // remaining ops processed in next iterations
         }
         if (c_var && c_var->always_true()) {
-          if (!op.block1.prune_unreachable()) {
-            // block1 never returns — combine block0+block1, unreachable
+          if (!op.block1.prune_unreachable() && !op.block1.has_reachable_direct_break()) {
+            // body never returns and cannot break — unroll, code after the loop is dead
             for (auto& o : merge_blocks(op.block0, op.block1)) {
               result.push_back(std::move(o));
             }
             ops = std::move(result);
             return false;
           }
-          // infinite loop: transform while → again, merge block0+block1 into block0
+          // infinite loop (maybe exited by break): while → again
           op.cl = Op::_Again;
           op.block0 = merge_blocks(op.block0, op.block1);
           op.block1.clear();
           op.left.clear();
-          reach = false;
+          reach = op.block0.has_reachable_direct_break();
         } else {
-          if (!op.block1.prune_unreachable()) {
-            // block1 never returns
-            // transform: while(block0; cond) block1; next → block0_content; if(cond) block1 else {}; next
+          if (!op.block1.prune_unreachable() && !op.block1.has_reachable_direct_break()) {
+            // body never returns and cannot break (a break would need *BRK, not a plain if)
+            // while(block0; cond) block1; next → block0_content; if(cond) block1 else {}; next
             inline_block_content(result, op.block0);
             op.cl = Op::_If;
             op.block0 = std::move(op.block1);   // if-then = old while-body
             op.block1.clear();
             op.block1.push_back(make_terminal_nop(op.origin));  // else = empty
           }
-          // keep the (possibly transformed) op
           reach = true;
         }
         break;
@@ -650,8 +720,8 @@ bool OpList::prune_unreachable() {
           continue;
         }
         if (c_var && c_var->always_pos()) {
-          if (!op.block0.prune_unreachable()) {
-            // block0 executed at least once, and it never returns
+          if (!op.block0.prune_unreachable() && !op.block0.has_reachable_direct_break()) {
+            // executed at least once, never returns, cannot break
             inline_block_content(result, op.block0);
             result.push_back(make_terminal_nop(op.origin));
             ops = std::move(result);
@@ -666,14 +736,14 @@ bool OpList::prune_unreachable() {
       case Op::_Until:
       case Op::_Again: {
         // do block0 until left; ...
-        if (!op.block0.prune_unreachable()) {
-          // block0 never returns, replace loop by block0
+        if (!op.block0.prune_unreachable() && !op.block0.has_reachable_direct_break()) {
+          // never returns and cannot break — replace loop by the body
           inline_block_content(result, op.block0);
           result.push_back(make_terminal_nop(op.origin));
           ops = std::move(result);
           return false;
         }
-        reach = (op.cl != Op::_Again);
+        reach = (op.cl != Op::_Again) || op.block0.has_reachable_direct_break();
         break;
       }
       case Op::_TryCatch: {
@@ -699,7 +769,7 @@ bool OpList::prune_unreachable() {
 
 void CodeBlob::prune_unreachable_code() {
   if (ops.prune_unreachable()) {
-    err("control reaches end of function (stack is malformed, a compiler bug)").fire(fun_ref->ident_anchor, fun_ref);
+    err("control reaches end of function (stack is malformed, a compiler bug)").fire(fun_ref);
   }
 }
 
@@ -765,6 +835,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
     case _DebugMark:
       break;
     case _Return:
+    case _BreakFromLoop:
       values.set_unreachable();
       break;
     case _IntConst: {
@@ -796,6 +867,13 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
           if (arg_order_already_equals_asm()) {
             maybe_swap_builtin_args_to_compile();
           }
+        }
+        bool result_is_int_const = !left.empty();
+        for (const VarDescr& r : res) {
+          result_is_int_const &= r.is_int_const();
+        }
+        if (f_sym->is_removable_if_unused() && result_is_int_const) {
+          set_keep_flag(false);
         }
         int j = 0;
         for (var_idx_t i : left) {
@@ -872,6 +950,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       if (atl1) {
         values = std::move(next_values);
       }
+      values |= collect_break_facts(block0);
       break;
     }
     case _While: {
@@ -880,6 +959,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
       if (values[left[0]] && values[left[0]]->always_false()) {
         // block1 never executed
         block1.fwd_analyze(values);
+        values |= collect_break_facts(block1);
         break;
       }
       while (true) {
@@ -889,6 +969,7 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
         }
         values = std::move(next_values);
       }
+      values |= collect_break_facts(block1);
       break;
     }
     case _Until:
@@ -900,7 +981,12 @@ VarDescrList Op::fwd_analyze(VarDescrList values) {
         }
         values = std::move(next_values);
       }
-      values = block0.fwd_analyze(values);
+      if (cl == _Again) {
+        values = collect_break_facts(block0);
+      } else {
+        values = block0.fwd_analyze(values);
+        values |= collect_break_facts(block0);
+      }
       break;
     }
     case _TryCatch: {
@@ -933,8 +1019,12 @@ bool Op::set_noreturn(bool flag) {
   return flag;
 }
 
-void Op::set_impure_flag() {
-  flags |= _Impure;
+void Op::set_keep_flag(bool flag) {
+  if (flag) {
+    flags |= _KeepEvenIfUnused;
+  } else {
+    flags &= ~_KeepEvenIfUnused;
+  }
 }
 
 void Op::set_arg_order_already_equals_asm_flag() {
@@ -1018,6 +1108,7 @@ bool OpList::mark_noreturn() {
         op.set_noreturn(next_noreturn);
         break;
       case Op::_Return:
+      case Op::_BreakFromLoop:
         op.set_noreturn();
         break;
       case Op::_Call:
@@ -1030,10 +1121,10 @@ bool OpList::mark_noreturn() {
         op.set_noreturn((op.block0.is_noreturn() && op.block1.is_noreturn()) || next_noreturn);
         break;
       case Op::_Again:
-        op.set_noreturn();  // infinite loop = always noreturn
+        op.set_noreturn(!op.block0.has_reachable_direct_break() || next_noreturn);
         break;
       case Op::_Until:
-        op.set_noreturn(op.block0.is_noreturn() || next_noreturn);
+        op.set_noreturn((op.block0.is_noreturn() && !op.block0.has_reachable_direct_break()) || next_noreturn);
         break;
       case Op::_While:
         op.set_noreturn(op.block0.is_noreturn() || next_noreturn);
@@ -1053,6 +1144,95 @@ void CodeBlob::mark_noreturn() {
   ops.mark_noreturn();
 }
 
+// See `materialize_immediate_returns` below for the purpose.
+static void copy_trailing_return_into(OpList& into_blk, const OpList& src, size_t from, size_t ret_idx) {
+  // skip a branch that already returns
+  for (int i = static_cast<int>(into_blk.size()) - 1; i >= 0; --i) {
+    Op::OpKind cl = into_blk[i]->cl;
+    if (cl == Op::_Nop || cl == Op::_DebugMark) {
+      continue;
+    }
+    if (cl == Op::_Return || cl == Op::_BreakFromLoop) {
+      return;
+    }
+    break;
+  }
+  tolk_assert(!into_blk.empty() && into_blk.back()->cl == Op::_Nop);
+
+  // clone preceding Op::_DebugMark and the trailing Op::_Return
+  for (size_t j = from; j < ret_idx; ++j) {
+    if (src[j]->cl == Op::_DebugMark) {
+      auto dst = std::make_unique<Op>(src[j]->origin, Op::_DebugMark);
+      dst->debug_mark = src[j]->debug_mark;
+      into_blk.insert(into_blk.end() - 1, std::move(dst));    // -1: before the terminal _Nop
+    }
+  }
+  auto dst = std::make_unique<Op>(src[ret_idx]->origin, Op::_Return, src[ret_idx]->left);
+  dst->debug_mark = src[ret_idx]->debug_mark;   // it's DebugMarkLeaveFunction
+  into_blk.insert(into_blk.end() - 1, std::move(dst));
+}
+
+// If `Op::_If` is followed by `Op::_Return` (debug marks in between), clone that return into both branches.
+static void try_materialize_if(OpList& ops, size_t if_idx) {
+  size_t j = if_idx + 1;
+  while (j < ops.size() && ops[j]->cl == Op::_DebugMark) {
+    ++j;
+  }
+  if (j >= ops.size() || ops[j]->cl != Op::_Return) {
+    return;
+  }
+
+  // skip multi-slot returns: they duplicate stack shuffles
+  const Op& ret = *ops[j];
+  tolk_assert(!ret.disabled());
+  if (ret.left.size() > 1) {
+    return;
+  }
+  copy_trailing_return_into(ops[if_idx]->block0, ops, if_idx + 1, j);
+  copy_trailing_return_into(ops[if_idx]->block1, ops, if_idx + 1, j);
+}
+
+static void materialize_in_list(OpList& ops) {
+  for (size_t i = 0; i < ops.size(); ++i) {
+    Op& op = *ops[i];
+    if (op.cl == Op::_If) {
+      try_materialize_if(ops, i);
+    }
+    if (!op.block0.empty()) {
+      materialize_in_list(op.block0);
+    }
+    if (!op.block1.empty()) {
+      materialize_in_list(op.block1);
+    }
+  }
+}
+
+/*
+ *   Clone a `_Return` that immediately follows `_If` into both branches.
+ *   Then `mark_noreturn` + codegen emit IFJMP instead of IF + RET.
+ *
+ *   Example:
+ *   > fun demo() {
+ *   >     if (c) { A }
+ *   >     else { B }
+ *   > }
+ *
+ *   IR now:
+ *   > Op::_If then={ A } else={ B }
+ *   > Op::_Return    // it's end of function
+ *
+ *   IR after transformation:
+ *   > Op::_If then={ A; Op::_Return } else={ B; Op::_Return }
+ *   > Op::_Return    // codegen does not emit it: Op::_If is already noreturn
+ *
+ *   Result fif:
+ *   > IFJMP:<{ A }>
+ *   > B
+ */
+void CodeBlob::materialize_immediate_returns() {
+  materialize_in_list(ops);
+}
+
 /*
  *   Strip redundant `!= 0` / `== 0` from `if`, `while`, etc.
  *   `if (x != 0)` -> IF (no `0 NEQINT`)
@@ -1069,8 +1249,8 @@ void CodeBlob::mark_noreturn() {
  *   So we explicitly search for that shape — see `try_fold_condition`.
  *
  *   How `_!=_` / `_==_` are removed.
- * We don't disable the matched `_Call`: we just stop using its result.
- * On the next iteration, `compute_used_code_vars` sees that nobody reads it anymore, and DCE prunes it.
+ * After rewiring the condition to `x`, clear keep flag on the matched `_Call`.
+ * On the next `compute_used_code_vars` pass, if nobody else reads its result, DCE prunes it.
  */
 
 // Recognize `tmp := x != 0` or `tmp := x == 0`. On match:
@@ -1262,6 +1442,7 @@ static bool try_fold_condition(Op& cond_op, OpList& search_list, int search_max_
     if (is_eq) {
       std::swap(cond_op.block0, cond_op.block1);
     }
+    producer.op->set_keep_flag(false);
     any_changed = true;
     // keep looping to detect cases like `(x != 0) != 0`
   }
@@ -1355,6 +1536,7 @@ static bool try_fold_call_cond_arg(Op& call_op, OpList& search_list, int search_
     }
     // important: `args` is cached, wipe it. `compute_used_vars` reads variable indices from `args`, not from `right`.
     call_op.args.clear();
+    producer.op->set_keep_flag(false);
     any_changed = true;
   }
   return any_changed;

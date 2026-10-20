@@ -47,7 +47,6 @@ class ASTStringifier final : public ASTVisitor {
     {ast_empty_expression, "ast_empty_expression"},
     {ast_braced_expression, "ast_braced_expression"},
     {ast_braced_yield_result, "ast_braced_yield_result"},
-    {ast_artificial_aux_vertex, "ast_artificial_aux_vertex"},
     {ast_tensor, "ast_tensor"},
     {ast_square_brackets, "ast_square_brackets"},
     {ast_reference, "ast_reference"},
@@ -86,6 +85,8 @@ class ASTStringifier final : public ASTVisitor {
     {ast_repeat_statement, "ast_repeat_statement"},
     {ast_while_statement, "ast_while_statement"},
     {ast_do_while_statement, "ast_do_while_statement"},
+    {ast_break_statement, "ast_break_statement"},
+    {ast_continue_statement, "ast_continue_statement"},
     {ast_throw_statement, "ast_throw_statement"},
     {ast_assert_statement, "ast_assert_statement"},
     {ast_try_catch_statement, "ast_try_catch_statement"},
@@ -323,7 +324,6 @@ public:
       case ast_empty_expression:              return handle_vertex(v->as<ast_empty_expression>());
       case ast_braced_expression:             return handle_vertex(v->as<ast_braced_expression>());
       case ast_braced_yield_result:           return handle_vertex(v->as<ast_braced_yield_result>());
-      case ast_artificial_aux_vertex:         return handle_vertex(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                        return handle_vertex(v->as<ast_tensor>());
       case ast_square_brackets:               return handle_vertex(v->as<ast_square_brackets>());
       case ast_reference:                     return handle_vertex(v->as<ast_reference>());
@@ -362,6 +362,8 @@ public:
       case ast_repeat_statement:              return handle_vertex(v->as<ast_repeat_statement>());
       case ast_while_statement:               return handle_vertex(v->as<ast_while_statement>());
       case ast_do_while_statement:            return handle_vertex(v->as<ast_do_while_statement>());
+      case ast_break_statement:               return handle_vertex(v->as<ast_break_statement>());
+      case ast_continue_statement:            return handle_vertex(v->as<ast_continue_statement>());
       case ast_throw_statement:               return handle_vertex(v->as<ast_throw_statement>());
       case ast_assert_statement:              return handle_vertex(v->as<ast_assert_statement>());
       case ast_try_catch_statement:           return handle_vertex(v->as<ast_try_catch_statement>());

@@ -110,7 +110,7 @@ fun test106() {
 
 fun X.callTupleFirst<Y>(self): Y { return self.first() as int; }
 fun callTupleFirst<X, Y>(t: X): Y { return t.first() as int; }
-fun T.callTuplePush<V>(mutate self, v1: V, v2: V): self { self.push(v1); tuplePush(mutate self, v2); return self; }
+fun T.callTuplePush<V>(mutate self, v1: V, v2: V): self { self.push(v1); var t: tuple = self; tuplePush(mutate t, v2); self = t; return self; }
 fun getTupleLastInt(t: tuple) { return t.last() as int; }
 fun getTupleSize(t: MTuple) { return t.size(); }
 fun callAnyFn<TObj, TResult>(f: (TObj) -> TResult, arg: TObj) { return f(arg); }

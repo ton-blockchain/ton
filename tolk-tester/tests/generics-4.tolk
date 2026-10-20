@@ -289,14 +289,14 @@ fun main() {
 """
   test6() PROC:<{               //
     <b b> PUSHREF               //  p.init.USlot2
-    -1 PUSHINT                  //  p.init.USlot2 '11=-1
-    0 PUSHINT                   //  p.init.USlot2 '11=-1 '12=0
-    TRUE                        //  p.init.USlot2 '11=-1 '12=0 '13
-    s0 s3 XCHG                  //  '13 '11=-1 '12=0 p.init.USlot2
-    CDEPTH                      //  '13 '11=-1 '12=0 '18
-    0 EQINT                     //  '13 '11=-1 '12=0 '20
-    0 NEQINT                    //  '13 '11=-1 '12=0 '17
-    s1 s3 s0 XCHG3              //  '11=-1 '12=0 '13 '17
+    -1 PUSHINT                  //  p.init.USlot2 '12=-1
+    0 PUSHINT                   //  p.init.USlot2 '12=-1 '13=0
+    TRUE                        //  p.init.USlot2 '12=-1 '13=0 '14
+    s0 s3 XCHG                  //  '14 '12=-1 '13=0 p.init.USlot2
+    CDEPTH                      //  '14 '12=-1 '13=0 '19
+    0 EQINT                     //  '14 '12=-1 '13=0 '21
+    0 NEQINT                    //  '14 '12=-1 '13=0 '18
+    s1 s3 s0 XCHG3              //  '12=-1 '13=0 '14 '18
   }>
 """
  */

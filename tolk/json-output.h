@@ -125,10 +125,12 @@ public:
     for (char c: value) {
       if (c == '"')       os << '\\' << '"';
       else if (c == '\n') os << '\\' << 'n';
-      else if (c == '\r') os << '\\' << 'r';
-      else if (c == '\t') os << '\\' << 't';
-      else if (c == '\b') os << '\\' << 'b';
       else if (c == '\\') os << '\\' << '\\';
+      else if (static_cast<unsigned char>(c) < 0x20) {
+        static constexpr char hex[] = "0123456789abcdef";
+        unsigned char uc = static_cast<unsigned char>(c);
+        os << "\\u00" << hex[uc >> 4] << hex[uc & 0x0f];
+      }
       else os << c;
     }
     os << '"';

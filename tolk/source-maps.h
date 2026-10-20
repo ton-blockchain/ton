@@ -64,6 +64,7 @@ struct DebugMarkScopeStart {
 };
 
 struct DebugMarkScopeEnd {
+  SrcRange range;           // same range as the matching DebugMarkScopeStart
 };
 
 struct DebugMarkSmartCast {

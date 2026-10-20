@@ -164,6 +164,9 @@ class FullNode : public td::actor::Actor {
 
   virtual void set_validator_telemetry_filename(std::string value) = 0;
   virtual void set_plumtree_stats_filename(std::string value) = 0;
+  virtual void dump_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type,
+                                   tl_object_ptr<ton_api::tonNode_shardId> shard, adnl::AdnlNodeIdShort src,
+                                   std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) = 0;
 
   virtual void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
                                                    overlay::OverlayMemberCertificate cert) = 0;

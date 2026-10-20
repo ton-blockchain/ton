@@ -4,9 +4,9 @@ fun test1() {
     return 0;
 }
 
-fun onBouncedMessage(in: InMessageBounced) {
-    in.bouncedBody.skipBouncedPrefix();
-    throw in.bouncedBody.loadUint(32);
+fun onBouncedMessage(bounced: InMessageBounced) {
+    bounced.bouncedBody.skipBouncedPrefix();
+    throw bounced.bouncedBody.loadUint(32);
 }
 
 fun onInternalMessage(in: InMessage) {

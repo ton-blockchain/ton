@@ -33,6 +33,7 @@ struct CollateParams {
   BlockIdExt min_masterchain_block_id;
   std::vector<BlockIdExt> prev;
   bool is_hardfork = false;
+  bool is_fake = false;
   Ed25519_PublicKey creator{td::Bits256::zero()};
   td::Ref<block::ValidatorSet> validator_set = {};
   td::Ref<CollatorOptions> collator_opts = {};
@@ -53,6 +54,10 @@ struct CollateParams {
   // Optional deterministic block seed for replay/benchmark tooling. Normal
   // production callers leave it empty and retain the collator's random seed.
   td::optional<td::Bits256> rand_seed = {};
+
+  // External messages from this set will be dropped
+  // Collator adds new processed messages and returns the new set
+  td::PersistentTreap<td::Bits256, td::Unit> processed_external_messages = {};
 };
 
 struct ValidateParams {
@@ -120,7 +125,7 @@ void run_check_proof_link_query(BlockIdExt id, td::Ref<ProofLink> proof, td::act
 void run_validate_query(BlockCandidate candidate, ValidateParams params, td::actor::ActorId<ValidatorManager> manager,
                         td::Timestamp timeout, td::Promise<ValidateCandidateResult> promise);
 void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
-                       td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise);
+                       td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise);
 void run_liteserver_query(td::BufferSlice data, td::actor::ActorId<ValidatorManager> manager,
                           td::actor::ActorId<LiteServerCache> cache, td::Promise<td::BufferSlice> promise);
 void run_fetch_account_state(

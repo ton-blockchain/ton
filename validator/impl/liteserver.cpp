@@ -1185,8 +1185,10 @@ bool LiteQuery::make_state_root_proof(Ref<vm::Cell>& proof, Ref<vm::Cell> state_
   vm::MerkleProofBuilder pb{std::move(block_root)};
   block::gen::Block::Record blk;
   block::gen::BlockInfo::Record info;
+  block::gen::ExtBlkRef::Record mcref;
   if (!(tlb::unpack_cell(pb.root(), blk) && tlb::unpack_cell(blk.info, info) &&
-        block::gen::BlkPrevInfo(info.after_merge).validate_ref(info.prev_ref))) {
+        block::gen::BlkPrevInfo(info.after_merge).validate_ref(info.prev_ref) &&
+        (!info.not_master || tlb::unpack_cell(info.master_ref, mcref)))) {
     return fatal_error("cannot unpack block header");
   }
   vm::CellSlice upd_cs{vm::NoVm(), blk.state_update};
@@ -1568,9 +1570,15 @@ void LiteQuery::finish_runSmcMethod(td::BufferSlice shard_proof, td::BufferSlice
   }
   // pre-serialize stack always (to visit all data cells referred from the result)
   vm::CellBuilder cb;
-  if (!(stack_->serialize(cb) && cb.finalize_to(cell))) {
+  if (!stack_->serialize(cb)) {
     fatal_error("cannot serialize resulting stack");
     return;
+  }
+  if (auto R = cb.finalize_novm_nothrow(); R.is_error()) {
+    fatal_error("cannot serialize resulting stack");
+    return;
+  } else {
+    cell = R.move_as_ok();
   }
   if (mode & 4) {
     // serialize stack if required
@@ -1602,7 +1610,7 @@ void LiteQuery::continue_getOneTransaction() {
   LOG(INFO) << "completing getOneTransaction() query";
   CHECK(block_.not_null());
   vm::MerkleProofBuilder pb{block_->root_cell()};
-  auto trans_res = block::get_block_transaction(pb.root(), acc_workchain_, acc_addr_, trans_lt_);
+  auto trans_res = block::get_block_transaction_try(pb.root(), block_->block_id(), acc_addr_, trans_lt_);
   if (trans_res.is_error()) {
     fatal_error(trans_res.move_as_error());
     return;
@@ -1660,7 +1668,7 @@ void LiteQuery::continue_getTransactions(unsigned remaining, bool exact) {
       fatal_error("obtained a block that cannot contain specified account");
       return;
     }
-    auto res = block::get_block_transaction_try(block_->root_cell(), acc_workchain_, acc_addr_, trans_lt_);
+    auto res = block::get_block_transaction_try(block_->root_cell(), block_->block_id(), acc_addr_, trans_lt_);
     if (res.is_error()) {
       fatal_error(res.move_as_error());
       return;
@@ -3533,18 +3541,17 @@ void LiteQuery::finish_getDispatchQueueInfo(StdSmcAddress after_addr, int max_ac
     }
     --remaining;
     StdSmcAddress addr = after_addr;
-    vm::Dictionary dict{64};
-    td::uint64 dict_size;
-    if (!block::unpack_account_dispatch_queue(value, dict, dict_size)) {
+    block::AccountDispatchQueue account_queue;
+    if (!account_queue.unpack(value)) {
       fatal_error(PSTRING() << "invalid account dispatch queue for account " << addr.to_hex());
       return;
     }
-    CHECK(dict_size > 0);
+    CHECK(account_queue.dict_size > 0);
     td::BitArray<64> min_lt, max_lt;
-    dict.get_minmax_key(min_lt.bits(), 64, false, false);
-    dict.get_minmax_key(max_lt.bits(), 64, true, false);
-    result.push_back(create_tl_object<lite_api::liteServer_accountDispatchQueueInfo>(addr, dict_size, min_lt.to_ulong(),
-                                                                                     max_lt.to_ulong()));
+    account_queue.dict.get_minmax_key(min_lt.bits(), 64, false, false);
+    account_queue.dict.get_minmax_key(max_lt.bits(), 64, true, false);
+    result.push_back(create_tl_object<lite_api::liteServer_accountDispatchQueueInfo>(
+        addr, account_queue.dict_size, min_lt.to_ulong(), max_lt.to_ulong()));
   }
 
   td::BufferSlice proof;
@@ -3631,17 +3638,16 @@ void LiteQuery::finish_getDispatchQueueMessages(StdSmcAddress addr, LogicalTime 
       complete = true;
       break;
     }
-    vm::Dictionary account_queue{64};
-    td::uint64 dict_size;
-    if (!block::unpack_account_dispatch_queue(value, account_queue, dict_size)) {
+    block::AccountDispatchQueue account_queue;
+    if (!account_queue.unpack(value)) {
       fatal_error(PSTRING() << "invalid account dispatch queue for account " << addr.to_hex());
       return;
     }
-    CHECK(dict_size > 0);
+    CHECK(account_queue.dict_size > 0);
     while (true) {
       td::BitArray<64> lt_key;
       lt_key.store_ulong(lt);
-      auto value2 = account_queue.lookup_nearest_key(lt_key, true, false);
+      auto value2 = account_queue.dict.lookup_nearest_key(lt_key, true, false);
       if (value2.is_null()) {
         break;
       }

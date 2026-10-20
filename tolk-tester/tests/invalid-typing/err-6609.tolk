@@ -7,5 +7,5 @@ fun main() {
 /**
 @compilation_should_fail
 @stderr can not assign `()` to variable of type `int`
-@stderr in lambda in function `main`
+@stderr in lambda in function main
  */

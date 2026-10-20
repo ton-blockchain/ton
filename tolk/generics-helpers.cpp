@@ -112,9 +112,10 @@ void GenericsSubstitutions::set_typeT(std::string_view nameT, TypePtr typeT) {
 void GenericsSubstitutions::provide_type_arguments(const std::vector<TypePtr>& type_arguments) {
   tolk_assert(genericTs != nullptr);
   int start_from = genericTs->n_from_receiver;    // for `Container<T>.wrap<U>` user should specify only U
-  tolk_assert(static_cast<int>(type_arguments.size()) + start_from == genericTs->size());
-  for (int i = start_from; i < genericTs->size(); ++i) {
-    valuesTs[i] = type_arguments[i - start_from];
+  int n_provided = static_cast<int>(type_arguments.size());
+  tolk_assert(n_provided + start_from <= genericTs->size());
+  for (int i = 0; i < n_provided; ++i) {
+    valuesTs[start_from + i] = type_arguments[i];
   }
 }
 
@@ -431,6 +432,14 @@ TypePtr GenericsSubstitutions::get_default_for_nameT(std::string_view nameT) con
   return idx == -1 ? nullptr : genericTs->get_defaultT(idx);
 }
 
+bool GenericsSubstitutions::all_Ts_initialized() const {
+  bool any_nullptr = false;
+  for (TypePtr ithT : valuesTs) {
+    any_nullptr |= ithT == nullptr;
+  }
+  return !any_nullptr;
+}
+
 // given this=<T1> and rhs=<T2>, check that T1 is equal to T2 in terms of "equal_to" of TypePtr
 // for example, `Wrapper<WrapperAlias<int>>` / `Wrapper<Wrapper<int>>` / `Wrapper<WrappedInt>` are equal
 bool GenericsSubstitutions::equal_to(const GenericsSubstitutions* rhs) const {
@@ -487,7 +496,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     if (FunctionPtr f = existing_sym->try_as<FunctionPtr>(); f && f->base_fun_ref == fun_ref) {
       return f;
     }
-    err_instantiated_name_conflict(new_name).fire(existing_sym->ident_anchor);
+    err_instantiated_name_conflict(new_name).fire(existing_sym);
   }
 
   // to store permanently, allocate an object in heap
@@ -501,11 +510,11 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     new_parameters.reserve(fun_ref->get_num_params());
     for (const LocalVarData& orig_p : fun_ref->parameters) {
       TypePtr new_param_type = replace_genericT_with_deduced(orig_p.declared_type, allocatedTs);
-      new_parameters.emplace_back(orig_p.name, nullptr, new_param_type, orig_p.default_value, orig_p.flags, orig_p.param_idx);
+      new_parameters.emplace_back(orig_p.name, orig_p.ident_anchor, new_param_type, orig_p.default_value, orig_p.flags, orig_p.param_idx);
     }
     TypePtr new_return_type = replace_genericT_with_deduced(fun_ref->declared_return_type, allocatedTs);
     TypePtr new_receiver_type = replace_genericT_with_deduced(fun_ref->receiver_type, allocatedTs);
-    FunctionData* new_fun_ref = new FunctionData(new_name, nullptr, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, {}, fun_ref->body, fun_ref->ast_root);
+    FunctionData* new_fun_ref = new FunctionData(new_name, fun_ref->ident_anchor, fun_ref->method_name, new_receiver_type, new_return_type, std::move(new_parameters), fun_ref->flags, fun_ref->inline_mode, nullptr, allocatedTs, {}, fun_ref->body, fun_ref->ast_root);
     new_fun_ref->arg_order = fun_ref->arg_order;
     new_fun_ref->ret_order = fun_ref->ret_order;
     new_fun_ref->base_fun_ref = fun_ref;
@@ -525,7 +534,7 @@ FunctionPtr instantiate_generic_function(FunctionPtr fun_ref, GenericsSubstituti
     instantiation_depth--;
   });
   if (instantiation_depth > 64) {
-    err_instantiate_recursive(fun_ref).fire(fun_ref->ident_anchor);
+    err_instantiate_recursive(fun_ref).fire(fun_ref);
   }
 
   FunctionPtr new_fun_ref = pipeline_register_instantiated_generic_function(fun_ref, new_root, std::move(new_name), allocatedTs);
@@ -543,7 +552,7 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
     if (StructPtr s = existing_sym->try_as<StructPtr>(); s && s->base_struct_ref == struct_ref) {
       return s;
     }
-    err_instantiated_name_conflict(new_name).fire(struct_ref->ident_anchor);
+    err_instantiated_name_conflict(new_name).fire(struct_ref);
   }
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
@@ -557,7 +566,7 @@ StructPtr instantiate_generic_struct(StructPtr struct_ref, GenericsSubstitutions
     instantiation_depth--;
   });
   if (instantiation_depth > 64) {
-    err_instantiate_recursive(struct_ref).fire(struct_ref->ident_anchor);
+    err_instantiate_recursive(struct_ref).fire(struct_ref);
   }
 
   StructPtr new_struct_ref = pipeline_register_instantiated_generic_struct(struct_ref, new_root, std::move(new_name), allocatedTs);
@@ -578,11 +587,11 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
   if (const Symbol* existing_sym = lookup_global_symbol(new_name)) {
     if (AliasDefPtr a = existing_sym->try_as<AliasDefPtr>(); a && a->base_alias_ref == alias_ref) {
       if (a->underlying_type == nullptr) {
-        err("type `{}` circularly references itself", a).fire(a->ident_anchor);
+        err("type `{}` circularly references itself", a).fire(a);
       }
       return a;
     }
-    err_instantiated_name_conflict(new_name).fire(alias_ref->ident_anchor);
+    err_instantiated_name_conflict(new_name).fire(alias_ref);
   }
 
   const GenericsSubstitutions* allocatedTs = new GenericsSubstitutions(std::move(substitutedTs));
@@ -596,7 +605,7 @@ AliasDefPtr instantiate_generic_alias(AliasDefPtr alias_ref, GenericsSubstitutio
     instantiation_depth--;
   });
   if (instantiation_depth > 64) {
-    err_instantiate_recursive(alias_ref).fire(alias_ref->ident_anchor);
+    err_instantiate_recursive(alias_ref).fire(alias_ref);
   }
 
   AliasDefPtr new_alias_ref = pipeline_register_instantiated_generic_alias(alias_ref, new_root, std::move(new_name), allocatedTs);
@@ -644,13 +653,8 @@ FunctionPtr instantiate_lambda_function(AnyV v_lambda, FunctionPtr parent_fun_re
 }
 
 // a function `myFunPTuplePush<T>(self, v: T) asm "TPUSH"` can't be called with T=Point (2 stack slots);
-// almost all asm/built-in generic functions expect one stack slot, but there are exceptions
+// almost all asm generic functions expect one stack slot, but there are exceptions
 bool is_allowed_asm_generic_function_with_non1_width_T(FunctionPtr fun_ref, const GenericsSubstitutions& substitutedTs, int idxT) {
-  // if a built-in function is marked with a special flag
-  if (fun_ref->is_variadic_width_T_allowed()) {
-    return true;
-  }
-
   // allow `fun Cell<T>.hash(self)` or `fun map<K,V>.isEmpty(self)` for any generics, because asm does not depend on T/K/V;
   // more specifically: can we use T=Point? yes, if substituting T=Point and T=int gives equal stack width everywhere
   GenericsSubstitutions probeTs(fun_ref->genericTs);

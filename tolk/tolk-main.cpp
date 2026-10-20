@@ -27,6 +27,7 @@
 #include "compiler-state.h"
 #include "compiler-settings.h"
 #include "td/utils/port/path.h"
+#include <cstring>
 #include <getopt.h>
 #include <fstream>
 #include <sys/stat.h>
@@ -34,7 +35,8 @@
 #include <mach-o/dyld.h>
 #elif TD_WINDOWS
 #include <windows.h>
-#else  // linux
+#endif
+#if !TD_WINDOWS
 #include <unistd.h>
 #endif
 #include "git.h"
@@ -51,13 +53,14 @@ enum LongOnlyOptions {
   OPT_NO_SYMBOL_TYPES,
   OPT_EMIT_DEBUG_MARKS,
   OPT_JSON_ERRORS,
+  OPT_COLOR,
   OPT_CHECK_ONLY,
   OPT_ALLOW_NO_ENTRYPOINT,
+  OPT_ALLOW_EMPTY_GET_FUN,
 };
 
 static struct option long_options[] = {
   {"output", required_argument, nullptr, 'o'},
-  {"opt-level", required_argument, nullptr, 'O'},
   {"path-mapping", required_argument, nullptr, OPT_PATH_MAPPING},
   {"no-stack-comments", no_argument, nullptr, OPT_NO_STACK_COMMENTS},
   {"no-line-comments", no_argument, nullptr, OPT_NO_LINE_COMMENTS},
@@ -66,8 +69,10 @@ static struct option long_options[] = {
   {"no-symbol-types", no_argument, nullptr, OPT_NO_SYMBOL_TYPES},
   {"emit-debug-marks", no_argument, nullptr, OPT_EMIT_DEBUG_MARKS},
   {"json-errors", no_argument, nullptr, OPT_JSON_ERRORS},
+  {"color", required_argument, nullptr, OPT_COLOR},
   {"check-only", no_argument, nullptr, OPT_CHECK_ONLY},
   {"allow-no-entrypoint", no_argument, nullptr, OPT_ALLOW_NO_ENTRYPOINT},
+  {"allow-empty-get-fun", no_argument, nullptr, OPT_ALLOW_EMPTY_GET_FUN},
   {"verbose", no_argument, nullptr, 'e'},
   {"version", no_argument, nullptr, 'V'},
   {"help", no_argument, nullptr, 'h'},
@@ -81,8 +86,6 @@ void usage(const char* progname) {
          "-o, --output <fif-filename>\n"
             "\tWrite generated code into specified .fif file instead of stdout\n"
             "\tOther artifacts use the same basename: for 'out.fif', also emit 'out.abi.json', etc.\n"
-         "-O, --opt-level <level>\n"
-            "\tSet optimization level (2 by default)\n"
          "--path-mapping <mapping>\n"
             "\tRegister @name -> path mapping (e.g. @mylib=/path/to/lib)\n"
          "--no-stack-comments\n"
@@ -95,10 +98,14 @@ void usage(const char* progname) {
             "\tOutput debug marks JSON artifact and debug marks to Fift code\n"
          "--json-errors\n"
             "\tShow compilation errors in JSON (not human-readable) format\n"
+         "--color <auto|always|never>\n"
+            "\tControl colors in human-readable compilation errors\n"
          "--check-only\n"
             "\tCheck sources for errors without generating code (for IDE in background)\n"
          "--allow-no-entrypoint\n"
             "\tDo not require main/onInternalMessage (e.g. to compile only get-methods)\n"
+         "--allow-empty-get-fun\n"
+            "\tAllow `get fun` without a body (ABI-only prototypes, no Fift code)\n"
          "-e, --verbose\n"
             "\tIncrease verbosity level (extra output into stderr)\n"
          "-v, --version\n"
@@ -266,6 +273,24 @@ td::Result<std::string> fs_read_callback(CompilerSettings::FsReadCallbackKind ki
   static_cast<void>(callback_payload);
 }
 
+static bool auto_detect_colorize() {
+#if TD_WINDOWS
+  return false;
+#else
+  // may be disabled by any non-empty env, e.g. NO_COLOR=yes|1|true
+  if (const char* no_color = getenv("NO_COLOR"); no_color && *no_color) {
+    return false;
+  }
+
+  if (!::isatty(STDERR_FILENO)) {
+    return false;
+  }
+
+  const char* term = getenv("TERM");
+  return term && *term && std::strcmp(term, "dumb") != 0;
+#endif
+}
+
 GNU_ATTRIBUTE_NOINLINE
 static void compilation_failed_output_errors(const std::vector<ThrownParseError>& errors) {
   constexpr int JSON_ERROR_LIMIT = 50;
@@ -296,7 +321,7 @@ static void compilation_failed_output_errors(const std::vector<ThrownParseError>
 }
 
 static void compilation_failed_with_fatal(const std::string& message) {
-  // no location, no pretty header, no json output, just "fatal", something unexpected happened
+  // no location, no pretty header, no colorize, no json output, just "fatal", something unexpected happened
   std::cerr << "fatal: " << message << std::endl;
 }
 
@@ -308,13 +333,11 @@ static void compilation_succeed_after_output_done() {
 
 int main(int argc, char* const argv[]) {
   int i;
-  while ((i = getopt_long(argc, argv, "o:O:evVh", long_options, nullptr)) != -1) {
+  const char* color_mode = "auto";
+  while ((i = getopt_long(argc, argv, "o:evVh", long_options, nullptr)) != -1) {
     switch (i) {
       case 'o':
         G_settings.output_filename = optarg;
-        break;
-      case 'O':
-        G_settings.optimization_level = std::max(0, atoi(optarg));
         break;
       case OPT_PATH_MAPPING:
         if (!G_settings.parse_path_mapping_cmd_arg(optarg)) {
@@ -342,11 +365,21 @@ int main(int argc, char* const argv[]) {
       case OPT_JSON_ERRORS:
         G_settings.show_errors_as_json = true;
         break;
+      case OPT_COLOR:
+        if (strcmp(optarg, "auto") && strcmp(optarg, "always") && strcmp(optarg, "never")) {
+          std::cerr << "invalid --color value: expected auto|always|never" << std::endl;
+          return 2;
+        }
+        color_mode = optarg;
+        break;
       case OPT_CHECK_ONLY:
         G_settings.check_only_no_output = true;
         break;
       case OPT_ALLOW_NO_ENTRYPOINT:
         G_settings.allow_no_entrypoint = true;
+        break;
+      case OPT_ALLOW_EMPTY_GET_FUN:
+        G_settings.allow_empty_get_fun = true;
         break;
       case 'e':
         G_settings.verbosity++;
@@ -395,6 +428,14 @@ int main(int argc, char* const argv[]) {
   if (G_settings.emit_debug_marks && !G_settings.emit_symbol_types) {
     std::cerr << "--emit-debug-marks requires symbol types; remove --no-symbol-types" << std::endl;
     return 2;
+  }
+
+  if (!G_settings.show_errors_as_json) {    // no colorize for json errors
+    if (strcmp(color_mode, "always") == 0) {
+      G_settings.colorize_errors = true;
+    } else if (strcmp(color_mode, "auto") == 0) {
+      G_settings.colorize_errors = auto_detect_colorize();
+    }
   }
 
   TolkCompilationResult result = tolk_proceed(argv[optind]);

@@ -165,7 +165,7 @@ bool AcceptBlockQuery::create_new_proof() {
                        blk_rhash.to_hex());
   }
   // 1. visit block header while building a Merkle proof
-  auto usage_tree = std::make_shared<vm::CellUsageTree>();
+  auto usage_tree = std::make_shared<vm::CellUsageTree>(block_root_);
   auto usage_cell = vm::UsageCell::create(block_root_, usage_tree->root_ptr());
   block::gen::Block::Record blk;
   block::gen::BlockInfo::Record info;

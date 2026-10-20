@@ -192,7 +192,7 @@ void run_validate_query(BlockCandidate candidate, ValidateParams params, td::act
 }
 
 void run_collate_query(CollateParams params, td::actor::ActorId<ValidatorManager> manager,
-                       td::CancellationToken cancellation_token, td::Promise<BlockCandidate> promise) {
+                       td::CancellationToken cancellation_token, td::Promise<GeneratedCandidate> promise) {
   BlockSeqno seqno = 0;
   for (auto& p : params.prev) {
     if (p.seqno() > seqno) {

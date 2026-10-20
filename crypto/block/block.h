@@ -31,6 +31,7 @@
 #include "vm/dict.h"
 #include "vm/stack.hpp"
 
+#include "block-auto.h"
 #include "signature-set.h"
 
 namespace block {
@@ -135,6 +136,7 @@ struct EnqueuedMsgDescr {
   ton::Bits256 hash_;
   Ref<vm::Cell> msg_;
   Ref<vm::Cell> msg_env_;
+  td::RefInt256 fwd_fee_remaining_;
   EnqueuedMsgDescr() = default;
   EnqueuedMsgDescr(ton::AccountIdPrefixFull cur_pfx, ton::AccountIdPrefixFull next_pfx, ton::LogicalTime lt,
                    ton::LogicalTime enqueued_lt, td::ConstBitPtr hash)
@@ -270,7 +272,7 @@ struct BlockLimits {
   ParamLimits bytes, gas, lt_delta, collated_data;
   ton::LogicalTime start_lt{0};
   ImportedMsgQueueLimits imported_msg_queue;
-  const vm::CellUsageTree* usage_tree{nullptr};
+  vm::CellUsageTree* usage_tree{nullptr};
   bool deserialize(vm::CellSlice& cs);
   int classify_size(td::uint64 size) const;
   int classify_gas(td::uint64 gas) const;
@@ -285,6 +287,7 @@ struct BlockLimitStatus {
   ton::LogicalTime cur_lt;
   td::uint64 gas_used{};
   vm::NewCellStorageStat st_stat;
+  vm::MerkleUpdateLeftStat merkle_update_left_stat;
   unsigned accounts{}, transactions{}, extra_out_msgs{};
   td::uint64 collated_data_size_estimate = 0;
   unsigned public_library_diff{};
@@ -311,7 +314,7 @@ struct BlockLimitStatus {
     return true;
   }
   bool add_proof(Ref<vm::Cell> cell) {
-    st_stat.add_proof(std::move(cell), limits.usage_tree);
+    st_stat.add_proof(std::move(cell), limits.usage_tree, &merkle_update_left_stat);
     return true;
   }
   bool update_lt(ton::LogicalTime lt) {
@@ -759,9 +762,9 @@ bool unpack_old_mc_block_id(Ref<vm::CellSlice> old_blk_info, ton::BlockSeqno seq
 bool check_old_mc_block_id(vm::AugmentedDictionary* prev_blocks_dict, const ton::BlockIdExt& blkid);
 bool check_old_mc_block_id(vm::AugmentedDictionary& prev_blocks_dict, const ton::BlockIdExt& blkid);
 
-td::Result<Ref<vm::Cell>> get_block_transaction(Ref<vm::Cell> block_root, ton::WorkchainId workchain,
+td::Result<Ref<vm::Cell>> get_block_transaction(Ref<vm::Cell> block_root, ton::BlockIdExt block_id,
                                                 const ton::StdSmcAddress& addr, ton::LogicalTime lt);
-td::Result<Ref<vm::Cell>> get_block_transaction_try(Ref<vm::Cell> block_root, ton::WorkchainId workchain,
+td::Result<Ref<vm::Cell>> get_block_transaction_try(Ref<vm::Cell> block_root, ton::BlockIdExt block_id,
                                                     const ton::StdSmcAddress& addr, ton::LogicalTime lt);
 
 bool get_transaction_in_msg(Ref<vm::Cell> trans_ref, Ref<vm::Cell>& in_msg);
@@ -785,12 +788,23 @@ bool parse_hex_hash(td::Slice str, td::Bits256& hash);
 bool parse_block_id_ext(const char* str, const char* end, ton::BlockIdExt& blkid);
 bool parse_block_id_ext(td::Slice str, ton::BlockIdExt& blkid);
 
-bool unpack_account_dispatch_queue(Ref<vm::CellSlice> csr, vm::Dictionary& dict, td::uint64& dict_size);
-Ref<vm::CellSlice> pack_account_dispatch_queue(const vm::Dictionary& dict, td::uint64 dict_size);
+struct AccountDispatchQueue {
+  vm::Dictionary dict{64};
+  td::uint64 dict_size = 0;
+  CurrencyCollection total_balance = {};  // !is_valid() if not known
+
+  bool unpack(Ref<vm::CellSlice> csr);
+  bool pack(Ref<vm::CellSlice>& csr) const;
+};
+
+CurrencyCollection get_message_balance_for_dispatch_queue(const gen::CommonMsgInfo::Record_int_msg_info& info,
+                                                          int global_version);
+CurrencyCollection get_message_balance_for_dispatch_queue(Ref<vm::Cell> msg, int global_version);
+CurrencyCollection get_message_balance_for_dispatch_queue(Ref<vm::CellSlice> enqueued_msg, int global_version);
 Ref<vm::CellSlice> get_dispatch_queue_min_lt_account(const vm::AugmentedDictionary& dispatch_queue,
                                                      ton::StdSmcAddress& addr);
 bool remove_dispatch_queue_entry(vm::AugmentedDictionary& dispatch_queue, const ton::StdSmcAddress& addr,
-                                 ton::LogicalTime lt);
+                                 ton::LogicalTime lt, bool store_total_balance, int global_version);
 
 struct MsgMetadata {
   td::uint32 depth;

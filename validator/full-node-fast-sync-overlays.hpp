@@ -70,7 +70,7 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void send_validator_telemetry(tl_object_ptr<ton_api::validator_telemetry> telemetry);
 
   void collect_validator_telemetry(std::string filename);
-  void collect_plumtree_stats(std::string filename);
+  void set_collect_plumtree_stats(bool collect);
 
   void send_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type, ShardIdFull shard,
                            std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records);
@@ -150,15 +150,11 @@ class FullNodeFastSyncOverlay : public td::actor::Actor {
   void try_init();
   void init();
   void get_stats_extra(td::Promise<std::string> promise);
-  void dump_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type,
-                           tl_object_ptr<ton_api::tonNode_shardId> shard, adnl::AdnlNodeIdShort src,
-                           std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records);
 
   td::actor::ActorOwn<ValidatorTelemetry> telemetry_sender_;
   bool collect_telemetry_ = false;
   std::ofstream telemetry_file_;
-  std::string plumtree_stats_filename_;
-  std::ofstream plumtree_stats_file_;
+  bool collect_plumtree_stats_ = false;
 
   std::set<td::Bits256> my_ext_msg_broadcasts_;
   std::set<td::Bits256> processed_ext_msg_broadcasts_;

@@ -15,8 +15,6 @@
     along with TON Blockchain Library.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <cstdio>
-
 #include "auto/tl/ton_api_json.h"
 #include "common/delay.h"
 #include "interfaces/validator-full-id.h"
@@ -35,7 +33,6 @@ namespace ton::validator::fullnode {
 namespace {
 
 constexpr const char *k_called_from_fast_sync = "fast-sync";
-constexpr td::uint64 k_plumtree_stats_file_limit = 64 << 20;
 constexpr std::size_t k_plumtree_stats_records_limit = 128;
 
 template <class T>
@@ -301,7 +298,7 @@ void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSli
         return;
       }
     }
-    if (plumtree_stats_file_.is_open()) {
+    if (collect_plumtree_stats_) {
       auto R = fetch_tl_object<ton_api::overlay_plumtreeStatsExchange>(broadcast, true);
       if (R.is_ok()) {
         auto msg = R.move_as_ok();
@@ -309,8 +306,9 @@ void FullNodeFastSyncOverlay::receive_broadcast(PublicKeyHash src, td::BufferSli
           VLOG(full_node, WARNING) << "Dropping invalid Plumtree stats exchange from " << src;
           return;
         }
-        dump_plumtree_stats(overlay::OverlayIdShort{msg->overlay_}, std::move(msg->overlay_type_),
-                            std::move(msg->shard_), adnl::AdnlNodeIdShort{src}, std::move(msg->records_));
+        td::actor::send_closure(full_node_, &FullNode::dump_plumtree_stats, overlay::OverlayIdShort{msg->overlay_},
+                                std::move(msg->overlay_type_), std::move(msg->shard_), adnl::AdnlNodeIdShort{src},
+                                std::move(msg->records_));
       }
     }
     return;
@@ -463,47 +461,8 @@ void FullNodeFastSyncOverlay::collect_validator_telemetry(std::string filename) 
   }
 }
 
-void FullNodeFastSyncOverlay::collect_plumtree_stats(std::string filename) {
-  if (plumtree_stats_file_.is_open()) {
-    plumtree_stats_file_.close();
-  }
-  plumtree_stats_filename_ = std::move(filename);
-  if (plumtree_stats_filename_.empty()) {
-    return;
-  }
-  LOG(WARNING) << "Collecting Plumtree stats to " << plumtree_stats_filename_ << " (local id: " << local_id_ << ")";
-  plumtree_stats_file_.open(plumtree_stats_filename_, std::ios_base::app);
-  if (!plumtree_stats_file_.is_open()) {
-    LOG(WARNING) << "Cannot open file " << plumtree_stats_filename_ << " for Plumtree stats";
-  }
-}
-
-void FullNodeFastSyncOverlay::dump_plumtree_stats(
-    overlay::OverlayIdShort stats_overlay, std::string overlay_type, tl_object_ptr<ton_api::tonNode_shardId> shard,
-    adnl::AdnlNodeIdShort src, std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) {
-  if (!plumtree_stats_file_.is_open() || !shard || records.empty()) {
-    return;
-  }
-  VLOG(full_node, DEBUG) << "Got " << records.size() << " Plumtree stats records from " << src;
-  auto dump = create_tl_object<ton_api::overlay_plumtreeStatsDump>(
-      stats_overlay.bits256_value(), std::move(overlay_type), std::move(shard), src.bits256_value(),
-      td::Clocks::system(), std::move(records));
-  if (!write_jsonl(plumtree_stats_file_, *dump, "Plumtree stats")) {
-    return;
-  }
-  auto size = plumtree_stats_file_.tellp();
-  if (size < 0 || static_cast<td::uint64>(size) <= k_plumtree_stats_file_limit) {
-    return;
-  }
-  plumtree_stats_file_.close();
-  auto backup = plumtree_stats_filename_ + ".1";
-  if (std::rename(plumtree_stats_filename_.c_str(), backup.c_str()) != 0) {
-    VLOG(full_node, WARNING) << "Failed to rotate Plumtree stats file " << plumtree_stats_filename_;
-  }
-  plumtree_stats_file_.open(plumtree_stats_filename_, std::ios_base::trunc | std::ios_base::out);
-  if (!plumtree_stats_file_.is_open()) {
-    LOG(WARNING) << "Cannot reopen file " << plumtree_stats_filename_ << " for Plumtree stats";
-  }
+void FullNodeFastSyncOverlay::set_collect_plumtree_stats(bool collect) {
+  collect_plumtree_stats_ = collect;
 }
 
 void FullNodeFastSyncOverlay::send_plumtree_stats(

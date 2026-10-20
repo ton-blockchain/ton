@@ -155,6 +155,12 @@ class CollatorProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor
       co_return td::Status::Error(PSTRING() << "Too old slot " << window_start << " < " << last_window_->start_slot);
     }
 
+    // Once collator agrees to pleaseCollatePrepare, it must accept the following pleaseCollate, even if conditions for
+    // pleaseCollatePrepare are no longer met.
+    // That's because once the validator selects a collator after pleaseCollatePrepare, it cannot amend this choice
+    // (see comment in BlockProducerImpl::prepare_delegation).
+    // prepared_delegations_ aren't saved to DB because it happens a few seconds before pleaseCollate and leader window,
+    // so the collator will likely miss the window after restart anyway.
     if (!prepared_delegations_.contains(window_start)) {
       if (!bus.validator_opts.load()->check_collator_node_whitelist(message->source)) {
         co_return td::Status::Error("Validator is not whitelisted");

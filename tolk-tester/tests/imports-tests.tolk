@@ -15,6 +15,9 @@ fun main() {
 @fif_codegen
 """
   main() PROC:<{
+    NEWDICT
+    ...
+    DROP
     3 PUSHINT
   }>
 """

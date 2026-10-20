@@ -1,18 +1,18 @@
 type MInt = int;
 type IntOrSlice = MInt|slice;
 
-fun (int | slice).method(self) {}
+fun (MInt | slice).method(self) {}
 fun (slice | MInt).method(self) {}
 fun IntOrSlice.method(self) {}
 
-fun main(p: int|slice) {
+fun main(p: MInt|slice) {
     p.method();
 }
 
 /**
 @compilation_should_fail
-@stderr call to method `method` for type `int | slice` is ambiguous
-@stderr candidate function: `(int | slice).method`
+@stderr call to method `method` for type `MInt | slice` is ambiguous
+@stderr candidate function: `(MInt | slice).method`
 @stderr candidate function: `(slice | MInt).method`
-@stderr candidate function: `IntOrSlice.method`
+@stderr_avoid candidate function: `IntOrSlice.method`
 */

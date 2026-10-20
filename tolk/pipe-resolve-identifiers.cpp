@@ -22,11 +22,11 @@
 
 /*
  *   This pipe resolves identifiers (local variables, globals, constants, etc.) in all functions bodies.
- *   It happens before type inferring, but after all global symbols are registered.
- * It means, that for any symbol `x` we can look up whether it's a global name or not.
+ *   It happens before type inferring, but after all global symbols from `*.tolk` files are registered.
+ * Compiler intrinsics like `__expect_type` are registered later, so `v->sym` remains nullptr until type inferring.
  *
  *   Example: `var x = 10; x = 20;` both `x` point to one LocalVarData.
- *   Example: `x = 20` undefined symbol `x` is also here (unless it's a global)
+ *   Example: `x = 20` unknown symbol `x` remains unresolved and will be checked again during type inferring.
  *   Variables scoping and redeclaration are also here.
  *   Note, that `x` is stored as `ast_reference (ast_identifier "x")`. More formally, "references" are resolved.
  * "Reference" in AST, besides the identifier, stores optional generics instantiation. `x<int>` is grammar-valid.
@@ -38,8 +38,8 @@
  * as well as `tuplePush<int>` to be instantiated, and fun_ref to point at that exact instantiations.
  *
  *   As a result of this step,
- *   * every V<ast_reference>::sym is filled, pointing either to a local var/parameter, or to a global symbol
- *     (exceptional for function calls and methods, their references are bound later)
+ *   * every resolvable V<ast_reference>::sym is filled, pointing either to a local var/parameter, or to a global symbol;
+ *     unresolved references are retried during type inferring, after compiler-only functions are registered
  */
 
 namespace tolk {
@@ -126,9 +126,11 @@ struct NameAndScopeResolver {
     }
 
     uint64_t key = key_hash(v_sym->name);
-    const auto& [_, inserted] = scopes.rbegin()->emplace(key, v_sym);
+    const auto& [it, inserted] = scopes.rbegin()->emplace(key, v_sym);
     if (!inserted) {
-      err("redeclaration of local variable `{}`", v_sym).fire(v_sym->ident_anchor);
+      err("redeclaration of local variable `{}`", v_sym)
+        .with_secondary(it->second, "previous declaration is here")
+        .fire(v_sym);
     }
   }
 };
@@ -182,7 +184,11 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
   void visit(V<ast_reference> v) override {
     const Symbol* sym = current_scope.lookup_symbol(v->get_name());
     if (!sym) {
-      err_undefined_symbol(v->get_identifier()).fire(v->get_identifier(), cur_f);
+      // compiler intrinsics like `__expect_type` are registered later, leave `v->sym = nullptr` until type inferring
+      if (v->get_name() == "self" || find_skipped_imported_getter(v->get_name())) {
+        err_undefined_symbol(v->get_identifier()).fire(v->get_identifier(), cur_f);
+      }
+      return;
     }
 
     LocalVarPtr var_ref = sym->try_as<LocalVarPtr>();
@@ -203,7 +209,8 @@ class AssignSymInsideFunctionVisitor final : public ASTVisitorFunctionBody {
 
     // for global functions, global vars and constants, `import` must exist
     if (!var_ref) {
-      bool allow_no_import = sym->is_builtin() || sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
+      bool allow_no_import = sym->ident_anchor == nullptr ||
+                             sym->ident_anchor->range.is_file_id_same_or_stdlib_common(v->range);
       if (!allow_no_import) {
         sym->check_import_exists_when_used_from(cur_f, v);
       }
@@ -360,7 +367,7 @@ void pipeline_resolve_identifiers_and_assign_symbols() {
     for (AnyV v : file->ast->as<ast_tolk_file>()->get_toplevel_declarations()) {
       if (auto v_fun = v->try_as<ast_function_declaration>()) {
         // v_fun->fun_ref may be nullptr if it's `get fun` implicitly imported and ignored because of `contract`
-        if (v_fun->fun_ref && visitor.should_visit_function(v_fun->fun_ref)) {
+        if (v_fun->fun_ref && (visitor.should_visit_function(v_fun->fun_ref) || v_fun->fun_ref->is_builtin())) {
           visitor.start_visiting_function(v_fun->fun_ref, v_fun);
         }
 

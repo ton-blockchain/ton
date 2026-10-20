@@ -22,7 +22,8 @@
 namespace tolk {
 
 static Error err_private_field_used_outside_method(StructPtr struct_ref, StructFieldPtr field_ref) {
-  return err("field `{}.{}` is private", struct_ref, field_ref);
+  return err("field `{}.{}` is private", struct_ref, field_ref)
+    .with_secondary(field_ref, "field declared here");
 }
 
 static bool is_private_field_usage_allowed(FunctionPtr cur_f, StructPtr struct_ref) {

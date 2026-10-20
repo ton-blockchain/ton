@@ -135,7 +135,7 @@ fun test101() {
 
     __expect_type((rand != 0 ? [1,2] : [3, null]) as array<int?>, "array<int?>");
     __expect_type(rand != 0 ? [""] : [] as array<string>, "array<string>");
-    __expect_type(rand != 0 ? [] : [""] as tuple, "array<unknown>");
+    __expect_type(rand != 0 ? [] : [""] as tuple as array<unknown>, "array<unknown>");
 
     __expect_type(array<int> [], "array<int>");
     __expect_type(tuple [1, "aba", []], "tuple");
@@ -144,7 +144,7 @@ fun test101() {
 
     __expect_type((rand != 0 ? array<int?> [1,2] : array<int?> [3, null]), "array<int?>");
     __expect_type(rand != 0 ? [""] : array<string> [], "array<string>");
-    __expect_type(rand != 0 ? [] : tuple [""], "array<unknown>");
+    __expect_type(rand != 0 ? [] : array<unknown> [""], "array<unknown>");
 
     t1.push(123);
     t2.push(456);

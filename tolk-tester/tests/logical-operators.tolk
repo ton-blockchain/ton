@@ -388,8 +388,17 @@ fun main() {
   compileTimeEval1() PROC:<{  //  x
     DUP	//  x x
     0 EQINT	//  x '2
+    OVER	//  x '2 x
+    0 EQINT	//  x '2 '4
+    DROP	//  x '2
     FALSE	//  x '2 '6
+    s2 PUSH	//  x '2 '6 x
+    0 EQINT	//  x '2 '6 '8
+    DROP	//  x '2 '6
     TRUE	//  x '2 '6 '10
+    s3 PUSH	//  x '2 '6 '10 x
+    0 NEQINT	//  x '2 '6 '10 '12
+    DROP	//  x '2 '6 '10
     FALSE	//  x '2 '6 '10 '14
     s0 s4 XCHG	//  '14 '2 '6 '10 x
     0 EQINT	//  '14 '2 '6 '10 '16
@@ -468,12 +477,11 @@ These are moments of future optimizations. For now, it's more than enough.
 """
   testAndSimpleCodegen() PROC:<{  //  a b
     SWAP	//  b a
-    IF:<{	//  b
+    IFJMP:<{	//  b
       0 NEQINT	//  '2
-    }>ELSE<{	//  b
-      DROP	//
-      0 PUSHINT	//  '2=0
-    }>
+    }>	//  b
+    DROP	//
+    0 PUSHINT	//  '2=0
   }>
 """
 
@@ -482,13 +490,12 @@ These are moments of future optimizations. For now, it's more than enough.
   testOrSimpleCodegen() PROC:<{   //  a b
     SWAP	//  b a
     0 GTINT	//  b '3
-    IF:<{	//  b
+    IFJMP:<{	//  b
       DROP	//
       -1 PUSHINT	//  '4=-1
-    }>ELSE<{	//  b
-      0 GTINT	//  '7
-      0 NEQINT	//  '4
-    }>
+    }>	//  b
+    0 GTINT	//  '6
+    0 NEQINT	//  '4
   }>
 """
 

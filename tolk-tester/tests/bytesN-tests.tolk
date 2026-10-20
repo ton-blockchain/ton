@@ -1,14 +1,14 @@
 fun takeAnySlice(slice: slice) {}
 fun getSomeSlice() { return beginCell().endCell().beginParse(); }
-fun getNullableBytes16(): bytes16? { return getSomeSlice() as bytes16; }
+fun getNullableBytes16(): bits128? { return getSomeSlice() as bits128; }
 
-const someBytes = "asdf".literalSlice() as bytes16;
-const anotherBytes: bytes16 = "asdf".literalSlice() as bytes16;
+const someBits = "asdf".literalSlice() as bits128;
+const anotherBytes: bits128 = "asdf".literalSlice() as bits128;
 
 fun autoInferBytes16() {
-    if (random.uint256() != 0) { return someBytes; }
-    else if (random.uint256() != 0) { return true ? "".beginParse() as bytes16 : anotherBytes; }
-    else { return someBytes!; }
+    if (random.uint256() != 0) { return someBits; }
+    else if (random.uint256() != 0) { return true ? "".beginParse() as bits128 : anotherBytes; }
+    else { return someBits!; }
 }
 
 @method_id(101)
@@ -17,9 +17,9 @@ fun test1() {
     __expect_type(ss, "bits32");
     __expect_type(ss as slice, "slice");
     __expect_type(ss as slice as slice?, "slice?");
-    __expect_type(ss as bytes128, "bytes128");
-    __expect_type(someBytes, "bytes16");
-    __expect_type(10>3 ? (null, ss as bits1) : (ss as bytes1, null), "(bytes1?, bits1?)");
+    __expect_type(ss as bits1023, "bits1023");
+    __expect_type(someBits, "bits128");
+    __expect_type(10>3 ? (null, ss as bits1) : (ss as bits8, null), "(bits8?, bits1?)");
     var s = ss as slice;
     return (s.remainingBitsCount(), s.loadInt(32), s.loadInt(32), (ss as slice).remainingBitsCount());
 }
