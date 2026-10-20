@@ -68,6 +68,14 @@ class TestLoopbackNetworkManager : public ton::adnl::AdnlNetworkManager {
     CHECK(p >= 0 && p <= 1);
     loss_probability_ = p;
   }
+
+  void inject_packet(td::IPAddress addr, td::BufferSlice data) {
+    CHECK(callback_);
+    AdnlCategoryMask category_mask;
+    category_mask[0] = true;
+    callback_->receive_packet(std::move(addr), std::move(category_mask), std::move(data));
+  }
+
   void set_local_id_category(AdnlNodeIdShort id, td::uint8 cat) override {
   }
 
