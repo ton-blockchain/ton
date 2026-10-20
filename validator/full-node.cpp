@@ -51,7 +51,7 @@ namespace fullnode {
 
 namespace {
 
-constexpr td::uint64 k_plumtree_stats_file_limit = 64 << 20;
+constexpr td::uint64 k_plumtree_stats_file_limit = 128 << 20;
 
 template <class T>
 bool write_jsonl(std::ofstream &file, const T &value, const char *name) {
@@ -1104,7 +1104,7 @@ void FullNodeImpl::alarm() {
 void FullNodeImpl::schedule_plumtree_stats_exchange() {
   bool is_validator = std::any_of(local_keys_.begin(), local_keys_.end(),
                                   [&](const PublicKeyHash &key) { return current_validators_.contains(key); });
-  if (!is_validator) {
+  if (!is_validator && plumtree_stats_filename_.empty()) {
     // The validator set changes over time; check again later.
     plumtree_stats_exchange_at_ = td::Timestamp::never();
     alarm_timestamp().relax(td::Timestamp::in(60.0));
@@ -1123,7 +1123,7 @@ void FullNodeImpl::schedule_plumtree_stats_exchange() {
   }
   if (plumtree_stats_exchange_at_ && plumtree_stats_exchange_at_.is_in_past()) {
     plumtree_stats_exchange_at_ = td::Timestamp::never();
-    start_plumtree_stats_exchange();
+    start_plumtree_stats_exchange(is_validator);
   }
   if (plumtree_stats_exchange_at_) {
     alarm_timestamp().relax(plumtree_stats_exchange_at_);
@@ -1134,13 +1134,43 @@ void FullNodeImpl::schedule_plumtree_stats_exchange() {
   }
 }
 
-void FullNodeImpl::start_plumtree_stats_exchange() {
-  auto masterchain_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull{masterchainId}, true).first;
-  if (masterchain_overlay.empty()) {
-    return;
+void FullNodeImpl::start_plumtree_stats_exchange(bool exchange_fast_sync) {
+  if (exchange_fast_sync) {
+    auto masterchain_overlay = fast_sync_overlays_.choose_overlay(ShardIdFull{masterchainId}, true).first;
+    if (!masterchain_overlay.empty()) {
+      fast_sync_overlays_.send_plumtree_stats(masterchain_overlay, PLUMTREE_STATS_EXCHANGE_OVERLAYS_LIMIT);
+    }
   }
 
-  fast_sync_overlays_.send_plumtree_stats(masterchain_overlay, PLUMTREE_STATS_EXCHANGE_OVERLAYS_LIMIT);
+  if (!plumtree_stats_file_.is_open()) {
+    return;
+  }
+  for (const auto &[shard, info] : shards_) {
+    if (!info.enable_plumtree_broadcast || info.actor.empty()) {
+      continue;
+    }
+    auto X = create_hash_tl_object<ton_api::tonNode_shardPublicOverlayId>(shard.workchain, shard.shard,
+                                                                          zero_state_file_hash_);
+    td::BufferSlice b{32};
+    b.as_slice().copy_from(as_slice(X));
+    auto stats_overlay = overlay::OverlayIdFull{std::move(b)}.compute_short_id();
+    td::actor::send_closure(
+        overlays_, &overlay::Overlays::get_plumtree_stats_records, adnl_id_, stats_overlay,
+        td::PromiseCreator::lambda(
+            [SelfId = actor_id(this), stats_overlay, shard,
+             src = adnl_id_](td::Result<std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>>> R) mutable {
+              if (R.is_error()) {
+                VLOG(full_node, WARNING) << "Failed to get public Plumtree stats records: " << R.move_as_error();
+                return;
+              }
+              auto records = R.move_as_ok();
+              if (records.empty()) {
+                return;
+              }
+              td::actor::send_closure(SelfId, &FullNodeImpl::dump_plumtree_stats, stats_overlay, std::string{"public"},
+                                      create_tl_shard_id(shard), src, std::move(records));
+            }));
+  }
 }
 
 td::actor::Task<td::BufferSlice> FullNodeImpl::handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,

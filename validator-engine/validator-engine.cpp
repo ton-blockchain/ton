@@ -6031,8 +6031,7 @@ int main(int argc, char *argv[]) {
                  });
                });
   p.add_option('\0', "collect-plumtree-stats",
-               "store Plumtree topology stats collected in the fast sync overlay to a given file (json format); only "
-               "effective on validators",
+               "store fast-sync and local public-overlay Plumtree topology stats to a given file (json format)",
                [&](td::Slice s) {
                  acts.push_back([&x, s = s.str()]() {
                    td::actor::send_closure(x, &ValidatorEngine::set_plumtree_stats_filename, s);

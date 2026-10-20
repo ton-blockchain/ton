@@ -233,7 +233,7 @@ class FullNodeImpl : public FullNode {
   td::Timestamp plumtree_stats_exchange_at_ = td::Timestamp::never();
 
   void schedule_plumtree_stats_exchange();
-  void start_plumtree_stats_exchange();
+  void start_plumtree_stats_exchange(bool exchange_fast_sync);
   td::actor::ActorOwn<TokenManager> out_msg_queue_query_token_manager_ =
       td::actor::create_actor<TokenManager>("tokens", /* max_tokens = */ 1);
 
