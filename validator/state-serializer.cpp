@@ -535,7 +535,7 @@ std::vector<SerializablePart> split_shard_state(ShardId shard_id, td::Ref<vm::Ce
   std::vector<SerializablePart> result;
 
   auto unwrapped_accounts_root = unsplit_shard_state.accounts;
-  auto accounts_cut = std::make_shared<vm::CellUsageTree>();
+  auto accounts_cut = std::make_shared<vm::CellUsageTree>(unwrapped_accounts_root);
   auto accounts_root = vm::UsageCell::create(unwrapped_accounts_root, accounts_cut->root_ptr());
 
   // NOTE: Ref<Cell> constructor expects caller to unwrap HashMapAugE.

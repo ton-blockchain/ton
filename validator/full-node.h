@@ -164,9 +164,13 @@ class FullNode : public td::actor::Actor {
 
   virtual void set_validator_telemetry_filename(std::string value) = 0;
   virtual void set_plumtree_stats_filename(std::string value) = 0;
+  virtual void dump_plumtree_stats(overlay::OverlayIdShort stats_overlay, std::string overlay_type,
+                                   tl_object_ptr<ton_api::tonNode_shardId> shard, adnl::AdnlNodeIdShort src,
+                                   std::vector<tl_object_ptr<ton_api::overlay_plumtreeStatsRecord>> records) = 0;
 
   virtual void import_fast_sync_member_certificate(adnl::AdnlNodeIdShort local_id,
                                                    overlay::OverlayMemberCertificate cert) = 0;
+  virtual void initial_config_loaded() = 0;
 
   virtual td::actor::Task<td::BufferSlice> handle_query(td::BufferSlice query, adnl::AdnlNodeIdShort src,
                                                         QuerySource source) = 0;
@@ -184,7 +188,7 @@ class FullNode : public td::actor::Actor {
 
   static constexpr td::int32 MAX_FAST_SYNC_OVERLAY_CLIENTS = 5;
   static constexpr td::uint32 PROTO_VERSION_MAJOR = 3;
-  static constexpr td::uint32 PROTO_VERSION_MINOR = 2;
+  static constexpr td::uint32 PROTO_VERSION_MINOR = 3;
 
   static td::actor::ActorOwn<FullNode> create(
       adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,

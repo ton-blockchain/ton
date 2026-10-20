@@ -36,9 +36,12 @@ class AdnlLocalId : public td::actor::Actor {
  public:
   AdnlNodeIdFull get_id() const;
   AdnlNodeIdShort get_short_id() const;
-  AdnlAddressList get_addr_list() const;
   void get_addr_list_async(td::Promise<AdnlAddressList> P) {
-    P.set_value(get_addr_list());
+    if (addr_list_.empty()) {
+      P.set_error(td::Status::Error(ErrorCode::notready, "address list is empty"));
+      return;
+    }
+    P.set_result(addr_list_);
   }
 
   void update_dht_node(td::actor::ActorId<dht::Dht> dht_node) {

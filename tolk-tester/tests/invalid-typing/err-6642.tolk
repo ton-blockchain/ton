@@ -18,4 +18,6 @@ fun cantAssignFieldsOfDifferentTypes(
 @compilation_should_fail
 @stderr can not assign `()` to field of type `int`
 @stderr w1.value = w4.value
+@stderr note: field declared here
+@stderr value: T;
  */

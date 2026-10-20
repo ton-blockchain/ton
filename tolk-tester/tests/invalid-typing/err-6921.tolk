@@ -11,7 +11,7 @@ fun foo<X>(value: X) : X {
 
 /**
 @compilation_should_fail
-@stderr in function `bar<slice>`
+@stderr in function bar<slice>
 @stderr can not convert type `int` to return type `slice`
 @stderr return 1
  */

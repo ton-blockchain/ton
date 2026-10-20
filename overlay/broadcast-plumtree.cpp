@@ -500,7 +500,7 @@ void BroadcastsPlumtree::Impl::remove_inactive_eager_peers(OverlayImpl *overlay,
   bool mtu_peers_changed = false;
   auto now = td::Timestamp::now();
   for (auto it = slot.eager.begin(); it != slot.eager.end();) {
-    if (!is_inactive_eager_peer(*it, now, overlay->peer_receives_broadcasts(*it))) {
+    if (!is_inactive_eager_peer(*it, now, overlay->peer_receives_plumtree_broadcasts(*it))) {
       ++it;
       continue;
     }
@@ -848,7 +848,7 @@ td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_fec_payload_for_pe
   if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
     return td::Status::Error(ErrorCode::notready, "invalid Plumtree FEC payload destination");
   }
-  if (!overlay->peer_receives_broadcasts(dst)) {
+  if (!overlay->peer_receives_plumtree_broadcasts(dst)) {
     return td::Status::Error(ErrorCode::notready, "peer does not receive Plumtree broadcasts");
   }
   auto *s = slot(part.tree_index);
@@ -879,7 +879,7 @@ td::Result<td::BufferSlice> BroadcastsPlumtree::Impl::prepare_simple_payload_for
   if (sender_.empty() || dst.is_zero() || dst == overlay->local_id()) {
     return td::Status::Error(ErrorCode::notready, "invalid Plumtree simple payload destination");
   }
-  if (!overlay->peer_receives_broadcasts(dst)) {
+  if (!overlay->peer_receives_plumtree_broadcasts(dst)) {
     return td::Status::Error(ErrorCode::notready, "peer does not receive Plumtree broadcasts");
   }
   auto *s = slot(part.tree_index);
@@ -934,7 +934,7 @@ void BroadcastsPlumtree::Impl::send_ihave_to(OverlayImpl *overlay, PlumtreePartS
       part.advertised_to.contains(dst)) {
     return;
   }
-  if (!overlay->peer_receives_broadcasts(dst)) {
+  if (!overlay->peer_receives_plumtree_broadcasts(dst)) {
     return;
   }
   auto *s = slot(part.tree_index);
@@ -1929,7 +1929,7 @@ td::actor::Task<> BroadcastsPlumtree::Impl::process_stats_push(OverlayImpl *over
   if (static_cast<td::uint32>(record->parts_in_p99_bcsts_) > options_.parts_) {
     co_return td::Unit{};
   }
-  if (stats_epoch_.store.size() >= PLUMTREE_STATS_STORE_LIMIT) {
+  if (stats_epoch_.store.size() >= options_.stats_store_limit_) {
     co_return td::Unit{};
   }
   auto src = record->src_;

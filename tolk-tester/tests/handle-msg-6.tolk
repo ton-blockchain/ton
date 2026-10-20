@@ -5,6 +5,7 @@ fun test1() {
 }
 
 fun onBouncedMessage(in: InMessageBounced) {
+    __expect_inline(true);
     if (!in.valueExtra.isEmpty()) {
         return;
     }
@@ -18,30 +19,17 @@ fun onInternalMessage(in: InMessage) {
 /**
 @testcase | 101 | | 0
 
-@fif_codegen
-"""
-  onBouncedMessage() PROC:<{
-    DROP
-    INMSG_VALUEEXTRA
-    DICTEMPTY
-    IFNOTJMP:<{
-    }>
-    INMSG_FWDFEE
-    0 PUSHINT
-    GETORIGINALFWDFEE
-    THROWANY
-  }>
-"""
+@fif_codegen_avoid DECLPROC onBouncedMessage()
 
 @fif_codegen
 """
   onInternalMessage() PROC:<{
+    DROP
     INMSG_BOUNCED
     IFJMP:<{
-      onBouncedMessage() CALLDICT
-    }>
-    DROP
-    INMSG_SRC
-  }>
+      INMSG_VALUEEXTRA
+      DICTEMPTY
+      IFJMP:<{
+        INMSG_FWDFEE
 """
   */

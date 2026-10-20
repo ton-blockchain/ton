@@ -1,6 +1,5 @@
 type BalanceDict = dict
 
-fun dict.doSome(self) {}
 fun BalanceDict.doSome(self) {}
 
 fun m(d: dict) {
@@ -9,7 +8,6 @@ fun m(d: dict) {
 
 /**
 @compilation_should_fail
-@stderr call to method `doSome` for type `dict` is ambiguous
-@stderr candidate function: `dict.doSome`
-@stderr candidate function: `BalanceDict.doSome`
+@stderr method `doSome` not found for type `dict`
+@stderr but it exists for type `BalanceDict`
  */

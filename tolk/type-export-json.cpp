@@ -233,7 +233,7 @@ void TypeDataCoins::as_abi_json(std::string& out, JsonTypeExporter& registry) co
 
 void TypeDataBitsN::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
   out += R"({"kind":"bitsN","n":)";
-  out += std::to_string(is_bits ? n_width : n_width * 8);
+  out += std::to_string(n_bits);
   out += '}';
 }
 
@@ -304,7 +304,7 @@ void TypeDataUnknown::as_abi_json(std::string& out, JsonTypeExporter& registry) 
 }
 
 void TypeDataNotInferred::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
-  tolk_assert(false);
+  out += R"({"kind":"unknown"})";
 }
 
 void TypeDataNever::as_abi_json(std::string& out, JsonTypeExporter& registry) const {
@@ -531,6 +531,15 @@ static void to_json(JsonPrettyOutput& json, const CustomPackUnpackF& f) {
   json.end_object();
 }
 
+void to_json(JsonPrettyOutput& json, SrcRange range) {
+  SrcRange::DecodedRange r = range.decode_offsets();
+  json << '['
+       << r.file_id << ',' << ' '
+       << r.start_line_no << ',' << r.start_char_no << ',' << ' '
+       << r.end_line_no << ',' << r.end_char_no
+       << ']';
+}
+
 void to_json(JsonPrettyOutput& json, const JsonTypeExporter::ConstValJson& v) {
   const ConstValExpression& expr = v.value;
   json.start_object();
@@ -616,15 +625,6 @@ static std::string get_type_description(TypePtr ty) {
     return get_abi_description(t_enum->enum_ref->doc_lines);
   }
   return {};
-}
-
-static void to_json(JsonPrettyOutput& json, SrcRange range) {
-  SrcRange::DecodedRange r = range.decode_offsets();
-  json << '['
-       << r.file_id << ',' << ' '
-       << r.start_line_no << ',' << r.start_char_no << ',' << ' '
-       << r.end_line_no << ',' << r.end_char_no
-       << ']';
 }
 
 // Writes all type-related top-level arrays in canonical order: unique_types, generic instantiations, and declarations.

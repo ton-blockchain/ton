@@ -36,7 +36,7 @@ jobs:
     - name: Install system libraries
       run: |
         sudo apt update
-        sudo apt install -y build-essential git cmake ninja-build ccache libgsl-dev libblas-dev libgslcblas0
+        sudo apt install -y build-essential git cmake ninja-build ccache libgsl-dev libblas-dev libgslcblas0 libjemalloc-dev
         mkdir ~/.ccache
 
     - name: Install clang-22

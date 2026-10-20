@@ -35,12 +35,12 @@
 namespace tolk {
 
 static void mark_function_used(FunctionPtr fun_ref) {
-  if (!fun_ref->is_code_function() || fun_ref->is_really_used()) { // already handled
+  if (fun_ref->is_really_used()) { // already handled
     return;
   }
-
   fun_ref->mutate()->assign_is_really_used();
-  if (!fun_ref->is_inlined_in_place()) {
+
+  if (fun_ref->is_code_function() && !fun_ref->is_inlined_in_place()) {
     std::get<FunctionBodyCode*>(fun_ref->body)->code->ops.mark_function_used_dfs();
   }
 }

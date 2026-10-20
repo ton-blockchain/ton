@@ -65,6 +65,10 @@ struct UdpInboundBatch {
   std::array<UdpSocketFd::InboundMessage, 4> messages;
 
   UdpInboundBatch() {
+    reset();
+  }
+
+  void reset() {
     for (size_t i = 0; i < messages.size(); i++) {
       messages[i].from = &addresses[i];
       messages[i].data = MutableSlice(buffers[i].data(), buffers[i].size());
@@ -89,9 +93,14 @@ UdpReceiveResult receive_datagrams(UdpSocketFd &fd, UdpInboundBatch &inbound, si
   UdpReceiveResult result;
   auto deadline = Timestamp::in(10.0);
   while (true) {
+    // Receiving replaces each slice's capacity with the datagram's length.
+    inbound.reset();
     fd.get_poll_info().add_flags(PollFlags::Read());  // a call that ended in EAGAIN cleared it
     size_t received = 0;
     fd.receive_messages(inbound.messages, received).ensure();
+    for (size_t i = 0; i < received; i++) {
+      inbound.errors[i].ensure();
+    }
     result.calls++;
     result.datagrams += received;
     if (result.datagrams >= expected || deadline.is_in_past()) {
@@ -150,6 +159,40 @@ TEST(Port, UdpSocketSyscallStatsMmsg) {
   ASSERT_EQ(0u, drained.datagrams);
   ASSERT_EQ(1u, drained.calls);
   ASSERT_EQ(received.calls + 1, pair.receiver.get_syscall_stats().receive);
+}
+
+TEST(Port, UdpSocketReceiveBatchReuse) {
+  for (bool use_mmsg : {false, true}) {
+    auto pair = make_udp_test_pair();
+    pair.sender.disable_mmsg();
+    pair.receiver.disable_mmsg();
+    if (use_mmsg) {
+      pair.sender.enable_mmsg();
+      pair.receiver.enable_mmsg();
+      if (!pair.sender.is_mmsg_enabled() || !pair.receiver.is_mmsg_enabled()) {
+        continue;
+      }
+    }
+
+    UdpInboundBatch inbound;
+    // Separate receives force slot zero to handle increasing packet sizes, even when loopback
+    // delivery is synchronous. Reusing its previous payload length as capacity would truncate.
+    for (auto payload : {"one", "three", "a datagram larger than both preceding datagrams"}) {
+      UdpSocketFd::OutboundMessage message{.to = &pair.receiver_address, .data = Slice(payload)};
+      UdpSocketFd::SendResult sent;
+      pair.sender.send_messages({&message, 1}, sent).ensure();
+      ASSERT_EQ(1u, sent.sent);
+
+      auto received = receive_datagrams(pair.receiver, inbound, 1);
+      ASSERT_EQ(1u, received.datagrams);
+      ASSERT_TRUE(inbound.errors[0].is_ok());
+      ASSERT_STREQ(payload, inbound.messages[0].data);
+
+      auto drained = receive_datagrams(pair.receiver, inbound, 0);
+      ASSERT_EQ(0u, drained.datagrams);
+      ASSERT_EQ(1u, drained.calls);
+    }
+  }
 }
 #endif
 

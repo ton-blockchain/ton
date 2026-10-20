@@ -298,7 +298,7 @@ bool LiteServerConfig::Slice::accepts_query(const QueryInfo& query_info) const {
             to_ok = shard.lt >= query_info.value;
             break;
           case QueryInfo::t_mc_seqno:
-            to_ok = shards_from[0].seqno >= query_info.value;
+            to_ok = shards_to[0].seqno >= query_info.value;
             break;
         }
         if (to_ok) {

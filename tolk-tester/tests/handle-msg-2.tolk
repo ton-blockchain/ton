@@ -4,8 +4,8 @@ fun test1() {
     return 0;
 }
 
-fun onInternalMessage(in: InMessage) {
-    return in.valueExtra;
+fun onInternalMessage(msg: InMessage) {
+    return msg.valueExtra;
 }
 
 /**

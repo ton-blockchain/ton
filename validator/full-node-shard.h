@@ -39,27 +39,24 @@ class FullNodeShard : public td::actor::Actor {
   virtual void set_params(bool active, bool enable_plumtree_broadcast) = 0;
 
   virtual void send_external_message(td::BufferSlice data) = 0;
-  virtual void send_shard_block_info(BlockIdExt block_id, CatchainSeqno cc_seqno, td::BufferSlice data) = 0;
   virtual void send_block_candidate(BlockIdExt block_id, CatchainSeqno cc_seqno, td::uint32 validator_set_hash,
                                     td::BufferSlice data) = 0;
   virtual void send_broadcast(BlockBroadcast broadcast) = 0;
   virtual void send_block_finality_broadcast(BlockFinalityBroadcast finality) = 0;
 
-  virtual void sign_overlay_certificate(PublicKeyHash signed_key, td::uint32 expiry_at, td::uint32 max_size,
-                                        td::Promise<td::BufferSlice> promise) = 0;
   virtual void import_overlay_certificate(PublicKeyHash signed_key, std::shared_ptr<ton::overlay::Certificate> cert,
                                           td::Promise<td::Unit> promise) = 0;
 
-  virtual void update_validators(std::vector<PublicKeyHash> public_key_hashes, PublicKeyHash local_hash) = 0;
+  virtual void update_validators(std::vector<PublicKeyHash> public_key_hashes) = 0;
 
   virtual td::actor::Task<QuerySender> get_query_sender() = 0;
 
   static td::actor::ActorOwn<FullNodeShard> create(
       ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash,
-      FullNodeOptions opts, td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-      td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
-      td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
-      td::actor::ActorId<FullNode> full_node, bool active, bool enable_plumtree_broadcast);
+      FullNodeOptions opts, td::actor::ActorId<adnl::Adnl> adnl, td::actor::ActorId<rldp2::Rldp> rldp2,
+      td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
+      td::actor::ActorId<ValidatorManagerInterface> validator_manager, td::actor::ActorId<FullNode> full_node,
+      bool active, bool enable_plumtree_broadcast);
 };
 
 }  // namespace fullnode

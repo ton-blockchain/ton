@@ -32,13 +32,12 @@ namespace ton {
 
 namespace overlay {
 
-constexpr std::size_t PLUMTREE_STATS_STORE_LIMIT = 100;
 constexpr td::uint32 PLUMTREE_STATS_USEFUL_AVG_MS_LIMIT = 10000;
 constexpr td::uint32 PLUMTREE_STATS_USEFUL_MAX_MS_LIMIT = 30000;
 constexpr td::uint32 PLUMTREE_STATS_USEFUL_P99_MS_LIMIT = 3000;
 constexpr td::uint32 PLUMTREE_STATS_REPAIR_PERCENT_SCALE = 255;
 constexpr double PLUMTREE_STATS_SNAPSHOT_DELAY = 1.0 / 12;  // 5 minutes
-constexpr double PLUMTREE_STATS_SEND_JITTER = 1.0 / 12;     // 5 minutes
+constexpr double PLUMTREE_STATS_SEND_JITTER = 1.0 / 3;      // 20 minutes
 
 struct PlumtreeLatencyStats {
   void note(double timestamp);

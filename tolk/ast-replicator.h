@@ -83,9 +83,6 @@ class ASTReplicator final {
   static V<ast_braced_yield_result> clone(V<ast_braced_yield_result> v) {
     return createV<ast_braced_yield_result>(v->range, clone(v->get_expr()));
   }
-  static V<ast_artificial_aux_vertex> clone(V<ast_artificial_aux_vertex> v) {
-    return createV<ast_artificial_aux_vertex>(clone(v->get_wrapped_expr()), v->aux_data, v->inferred_type);
-  }
   static V<ast_tensor> clone(V<ast_tensor> v) {
     return createV<ast_tensor>(v->range, clone(v->get_items()));
   }
@@ -200,6 +197,12 @@ class ASTReplicator final {
   static V<ast_do_while_statement> clone(V<ast_do_while_statement> v) {
     return createV<ast_do_while_statement>(v->range, clone(v->get_body()), clone(v->get_cond()));
   }
+  static V<ast_break_statement> clone(V<ast_break_statement> v) {
+    return createV<ast_break_statement>(v->range);
+  }
+  static V<ast_continue_statement> clone(V<ast_continue_statement> v) {
+    return createV<ast_continue_statement>(v->range);
+  }
   static V<ast_throw_statement> clone(V<ast_throw_statement> v) {
     return createV<ast_throw_statement>(v->range, clone(v->get_thrown_code()), clone(v->get_thrown_arg()));
   }
@@ -253,6 +256,8 @@ class ASTReplicator final {
       case ast_repeat_statement:                return clone(v->as<ast_repeat_statement>());
       case ast_while_statement:                 return clone(v->as<ast_while_statement>());
       case ast_do_while_statement:              return clone(v->as<ast_do_while_statement>());
+      case ast_break_statement:                 return clone(v->as<ast_break_statement>());
+      case ast_continue_statement:              return clone(v->as<ast_continue_statement>());
       case ast_throw_statement:                 return clone(v->as<ast_throw_statement>());
       case ast_assert_statement:                return clone(v->as<ast_assert_statement>());
       case ast_try_catch_statement:             return clone(v->as<ast_try_catch_statement>());
@@ -281,7 +286,6 @@ class ASTReplicator final {
       case ast_empty_expression:                return clone(v->as<ast_empty_expression>());
       case ast_braced_expression:               return clone(v->as<ast_braced_expression>());
       case ast_braced_yield_result:             return clone(v->as<ast_braced_yield_result>());
-      case ast_artificial_aux_vertex:           return clone(v->as<ast_artificial_aux_vertex>());
       case ast_tensor:                          return clone(v->as<ast_tensor>());
       case ast_square_brackets:                 return clone(v->as<ast_square_brackets>());
       case ast_reference:                       return clone(v->as<ast_reference>());
@@ -402,7 +406,7 @@ public:
       DocCommentLines{},
       FunctionData::EMPTY_TVM_METHOD_ID,
       FunctionData::flagIsLambda,
-      FunctionInlineMode::notCalculated
+      FunctionInlineMode::notAnnotated
     );
   }
 };

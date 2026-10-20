@@ -507,13 +507,16 @@ td::Status BroadcastsFec::process_broadcast(OverlayImpl *overlay, adnl::AdnlNode
     return td::Status::Error(ErrorCode::protoviolation, "short part of not finished broadcast");
   }
   TRY_STATUS(overlay->check_date(bcast.date_));
+  auto seqno = static_cast<td::uint32>(broadcast->seqno_);
+  if (seqno >= bcast.fec_type_.symbols_count() * 2 + 4) {
+    return td::Status::Error("too big seqno");
+  }
 
   auto source = PublicKey{broadcast->src_};
   auto part_data_hash = broadcast->part_data_hash_;
   auto broadcast_hash = bcast.hash_;
   auto part_hash = compute_broadcast_part_id(broadcast_hash, part_data_hash, broadcast->seqno_);
   TRY_RESULT(cert, Certificate::create(std::move(broadcast->certificate_)));
-  auto seqno = static_cast<td::uint32>(broadcast->seqno_);
   TRY_RESULT(part_data, bcast.get_part(seqno));
   if (part_data_hash != td::sha256_bits256(part_data)) {
     return td::Status::Error(ErrorCode::protoviolation, "wrong part data hash");

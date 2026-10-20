@@ -183,6 +183,13 @@ class BlockProducerImpl : public td::actor::SpawnsWith<Bus>, public td::actor::C
       co_return {};
     }
 
+    // Once the validator signs and sends a delegation, it must not sign another delegation for a different collator
+    // or collate blocks in this window by itself (regardless of collator's response to pleaseCollate).
+    // That prevents duplicate candidate broadcast in one slot, which is validator's misbehavior.
+    // Failed pleaseCollate does not guarantee that the collator won't broadcast blocks due to possible network issues
+    // or malicious collator.
+    // We don't retry pleaseCollate after node restart because delegation normally happens a few seconds before the
+    // leader window, so the validator will likely be late after restart.
     delegated_windows_[start_slot] = DelegatedWindow{selected_collator, false};
     owning_bus().publish<TraceEvent>(stats::SentDelegation::create(start_slot, selected_collator));
     while (true) {

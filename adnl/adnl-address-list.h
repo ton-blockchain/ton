@@ -37,11 +37,18 @@ class AdnlAddressImpl : public td::CntObject {
   virtual bool is_public() const = 0;
   virtual td::uint32 serialized_size() const = 0;
   virtual tl_object_ptr<ton_api::adnl_Address> tl() const = 0;
-  virtual td::actor::ActorOwn<AdnlNetworkConnection> create_connection(
+  virtual td::Result<td::actor::ActorOwn<AdnlNetworkConnection>> create_connection(
       td::actor::ActorId<AdnlNetworkManager> network_manager, td::actor::ActorId<Adnl> adnl,
       std::unique_ptr<AdnlNetworkConnection::Callback> callback) const = 0;
   virtual td::Result<td::IPAddress> to_ip_address() const {
     return td::Status::Error("not an ip");
+  }
+  std::string to_str() const {
+    auto R = to_ip_address();
+    if (R.is_error()) {
+      return "unknown";
+    }
+    return PSTRING() << R.ok();
   }
 };
 

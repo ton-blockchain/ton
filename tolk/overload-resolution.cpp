@@ -150,6 +150,33 @@ static bool is_more_specific_generic(TypePtr typeA, TypePtr typeB, const Generic
      && !can_substitute_Ts_to_reach_actual(typeA, typeB, genericTsA);
 }
 
+// Checks if `provided` can be used to call `fun receiver.method`.
+// It's "directionally assignable" relation: `IntAlias->int` is ok, but `int->IntAlias` not.
+// Example for `fun int.method` (receiver=`int`):
+// - distance = 0 for provided=`int`
+// - distance = 1 for provided=`IntAlias`
+// - incomparable for provided=`slice` (not applicable)
+// Note that `fun IntAlias.method` can't be called with receiver=`int` (also inapplicable).
+static SubtypeDistance does_receiver_accept(TypePtr receiver, TypePtr provided) {
+  // fast path for `int` and `int` and other primitives which are singletons (90% cases)
+  if (receiver == provided) {
+    return SubtypeDistance::ok(0);
+  }
+
+  // accept `array<IntAlias>` to `array<int>` (distance 1), `array<int>` to `array<int>` (equal, distance 0), etc.
+  SubtypeDistance d = SubtypeDistance::calc_between(provided, receiver);
+  if (d.is_applicable()) {
+    return d;
+  }
+
+  // accept `int8` to `int` and other type coercions
+  if (!receiver->equal_to(provided) && receiver->can_rhs_be_assigned(provided) && !receiver->try_as<TypeDataAlias>()) {
+    // return a "large distance": finally all available methods are sorted by distance
+    return SubtypeDistance::ok(1000000);
+  }
+  return SubtypeDistance::incomparable();
+}
+
 // Find a receiver pattern that dominates all other applicable overloads:
 // - `map<K, slice>` beats both `map<K, V>` and `map<K, V | slice>`
 // - `Container<int>` beats `Container<T>`
@@ -190,12 +217,28 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
         try {   // check whether exist some T to make it a valid call (probably with type coercion)
           GenericSubstitutionsDeducing deducingTs(method_ref);
           TypePtr replaced = deducingTs.auto_deduce_from_argument(receiver, provided_receiver);
-          if (replaced->can_rhs_be_assigned(provided_receiver) && !replaced->has_genericT_inside()) {
-            viable.emplace_back(receiver, replaced, method_ref, deducingTs.flush());
+          SubtypeDistance receiver_accepted = does_receiver_accept(replaced, provided_receiver);
+          if (receiver_accepted.is_applicable() && !replaced->has_genericT_inside()) {
+            viable.push_back(MethodCallCandidate{
+              .original_receiver = receiver,
+              .instantiated_receiver = replaced,
+              .receiver_distance = receiver_accepted.get_distance(),
+              .method_ref = method_ref,
+              .substitutedTs = deducingTs.flush(),
+            });
           }
         } catch (...) {}
-      } else if (receiver->can_rhs_be_assigned(provided_receiver) && provided_receiver != TypeDataNever::create()) {
-        viable.emplace_back(receiver, receiver, method_ref, GenericsSubstitutions(method_ref->genericTs));
+      } else {
+        SubtypeDistance receiver_accepted = does_receiver_accept(receiver, provided_receiver);
+        if (receiver_accepted.is_applicable() && provided_receiver != TypeDataNever::create()) {
+          viable.push_back(MethodCallCandidate{
+            .original_receiver = receiver,
+            .instantiated_receiver = receiver,
+            .receiver_distance = receiver_accepted.get_distance(),
+            .method_ref = method_ref,
+            .substitutedTs = GenericsSubstitutions(method_ref->genericTs),
+          });
+        }
       }
     }
   }
@@ -206,21 +249,27 @@ std::vector<MethodCallCandidate> resolve_methods_for_call(TypePtr provided_recei
   }
   // okay, we have multiple viable methods, and need to locate the better
 
-  // 1) exact match candidates with equal_to()
-  //    (for instance, an alias equals to its underlying type, as well as `T1|T2` equals to `T2|T1`)
-  std::vector<MethodCallCandidate> exact;
+  // 1) nearest match candidates by directional receiver distance
+  //    (find `int.method` for receiver=`int`)
+  int best_distance = 1000001;
+  for (const MethodCallCandidate& candidate : viable) {
+    best_distance = std::min(best_distance, candidate.receiver_distance);
+  }
+
+  // for provided=`IntAlias`, both `int.method` and `IntAlias.method` applicable, take the last
+  std::vector<MethodCallCandidate> nearest;
   size_t n_generics = 0;
   for (const MethodCallCandidate& candidate : viable) {
-    if (candidate.instantiated_receiver->equal_to(provided_receiver)) {
-      exact.push_back(candidate);
+    if (candidate.receiver_distance == best_distance) {
+      nearest.push_back(candidate);
+      n_generics += candidate.is_generic();
     }
-    n_generics += candidate.is_generic();
   }
-  if (exact.size() == 1) {
-    return exact;
+  if (nearest.size() == 1) {
+    return nearest;
   }
-  if (!exact.empty()) {
-    viable = std::move(exact);
+  if (!nearest.empty()) {
+    viable = std::move(nearest);
   }
   if (n_generics == 0) {
     // with only non-generic candidates, do not use shape as a tie-breaker:

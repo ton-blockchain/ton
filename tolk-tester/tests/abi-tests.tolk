@@ -141,6 +141,17 @@ struct Defaults {
     a: int = C
 }
 
+struct CalcSwapCostReply {
+    from: address
+    to: address
+    cost: coins
+}
+
+get fun calc_swap_cost(from: address): CalcSwapCostReply
+
+/// @param precision number of decimal places
+get fun pool_reserves(precision: uint8 = 9): (coins, coins);
+
 /**
 @testcase | 0 | 7 5 | 12
 
@@ -388,6 +399,42 @@ struct Defaults {
         }
       ]
 """
+
+@abi_json
+"""
+      "name": "calc_swap_cost",
+      "parameters": [
+        {
+          "name": "from",
+          ...
+"""
+
+@abi_json
+"""
+      "name": "pool_reserves",
+      "parameters": [
+        {
+          "name": "precision",
+          ...
+          "description": "number of decimal places",
+          "default_value": {
+            "kind": "int",
+            "v": "9"
+          }
+        }
+      ],
+"""
+
+@abi_json
+"""
+      "kind": "struct",
+      "name": "CalcSwapCostReply",
+"""
+
+@fif_codegen_avoid 86806 DECLMETHOD calc_swap_cost()
+@fif_codegen_avoid 108535 DECLMETHOD pool_reserves()
+
+@cmd_line_option --allow-empty-get-fun
 
 @abi_json_avoid UnusedOutgoing
 @abi_json_avoid ERR_UNUSED_ABI

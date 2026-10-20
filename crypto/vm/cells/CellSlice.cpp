@@ -751,7 +751,7 @@ Ref<Cell> CellSlice::prefetch_ref(unsigned offset) const {
     auto ref_id = refs_st + offset;
     auto res = cell->get_ref(ref_id)->virtualize(child_effective_level());
     if (!tree_node.empty()) {
-      res = UsageCell::create(std::move(res), tree_node.create_child(ref_id));
+      res = UsageCell::create(res, tree_node.create_child(ref_id, res));
     }
     return res;
   } else {
@@ -764,7 +764,7 @@ Ref<Cell> CellSlice::fetch_ref() {
     auto ref_id = refs_st++;
     auto res = cell->get_ref(ref_id)->virtualize(child_effective_level());
     if (!tree_node.empty()) {
-      res = UsageCell::create(std::move(res), tree_node.create_child(ref_id));
+      res = UsageCell::create(res, tree_node.create_child(ref_id, res));
     }
     return res;
   } else {

@@ -59,6 +59,8 @@ set(VALIDATOR_HEADERS
   storage-stat-cache.hpp
   shard-block-verifier.hpp
   shard-block-retainer.hpp
+  global-balance-calculator.hpp
+  impl/global-balance-calculator-internal.hpp
 
   manager-disk.h
   manager-disk.hpp
@@ -89,11 +91,13 @@ set(VALIDATOR_SOURCE
   collator-scoreboard.cpp
   validator-registry-watcher.cpp
   impl/applied-ext-message-cleanup.cpp
+  global-balance-calculator.cpp
 
   manager.cpp
   validator-group.cpp
 
   consensus/simplex/bus.cpp
+  consensus/simplex/candidate-broadcast-relay.cpp
   consensus/simplex/candidate-resolver.cpp
   consensus/simplex/certificate.cpp
   consensus/simplex/collator-producer.cpp

@@ -32,14 +32,14 @@ class MerkleProofImpl {
  public:
   explicit MerkleProofImpl(MerkleProof::IsPrunnedFunction is_prunned) : is_prunned_(std::move(is_prunned)) {
   }
-  explicit MerkleProofImpl(CellUsageTree *usage_tree) : usage_tree_(usage_tree) {
+  explicit MerkleProofImpl(CellUsageTree *usage_tree, bool is_left_mu = false)
+      : usage_tree_(usage_tree), is_left_mu_(is_left_mu) {
   }
 
   td::Result<Ref<Cell>> create_from(Ref<Cell> cell) {
     if (!is_prunned_) {
       CHECK(usage_tree_);
-      dfs_usage_tree(cell, usage_tree_->root_id());
-      is_prunned_ = [this](const Ref<Cell> &cell) { return visited_cells_.count(cell->get_hash()) == 0; };
+      dfs_usage_tree(cell, usage_tree_->root_id(), cell->get_level());
     }
     try {
       return dfs(cell, cell->get_level());
@@ -53,33 +53,38 @@ class MerkleProofImpl {
  private:
   using Key = std::pair<Cell::Hash, unsigned>;
   td::HashMap<Key, Ref<Cell>> cells_;
-  td::HashSet<Cell::Hash> visited_cells_;
+  td::HashSet<Key> visited_cells_;  // merkle_depth is 0 if !is_left_mu_
   CellUsageTree *usage_tree_{nullptr};
   MerkleProof::IsPrunnedFunction is_prunned_;
 
-  void dfs_usage_tree(Ref<Cell> cell, CellUsageTree::NodeId node_id) {
-    if (!usage_tree_->is_loaded(node_id)) {
+  bool is_left_mu_ = false;
+
+  bool is_prunned(const Ref<Cell> &cell, unsigned merkle_depth) {
+    if (is_prunned_) {
+      return is_prunned_(cell);
+    }
+    return !visited_cells_.contains({cell->get_hash(), is_left_mu_ ? merkle_depth : 0});
+  }
+
+  void dfs_usage_tree(Ref<Cell> cell, CellUsageTree::NodeId node_id, unsigned merkle_depth) {
+    if (!(is_left_mu_ ? usage_tree_->has_mark(node_id) : usage_tree_->is_loaded(node_id))) {
       return;
     }
-    visited_cells_.insert(cell->get_hash());
+    visited_cells_.emplace(cell->get_hash(), is_left_mu_ ? merkle_depth : 0);
     CellSlice cs(NoVm(), cell);
     for (unsigned i = 0; i < cs.size_refs(); i++) {
-      dfs_usage_tree(cs.prefetch_ref(i), usage_tree_->get_child(node_id, i));
+      dfs_usage_tree(cs.prefetch_ref(i), usage_tree_->get_child(node_id, i), cs.child_merkle_depth(merkle_depth));
     }
   }
 
   Ref<Cell> dfs(Ref<Cell> cell, unsigned merkle_depth) {
     CHECK(cell.not_null());
     Key key{cell->get_hash(), merkle_depth};
-    {
-      auto it = cells_.find(key);
-      if (it != cells_.end()) {
-        CHECK(it->second.not_null());
-        return it->second;
-      }
+    if (auto it = cells_.find(key); it != cells_.end()) {
+      CHECK(it->second.not_null());
+      return it->second;
     }
-
-    if (is_prunned_(cell)) {
+    if (is_prunned(cell, merkle_depth)) {
       auto res = CellBuilder::create_pruned_branch(cell, merkle_depth + 1);
       CHECK(res.not_null());
       cells_.emplace(key, res);
@@ -111,8 +116,8 @@ td::Result<Ref<Cell>> MerkleProof::generate_raw(Ref<Cell> cell, IsPrunnedFunctio
   return detail::MerkleProofImpl(is_prunned).create_from(cell);
 }
 
-td::Result<Ref<Cell>> MerkleProof::generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree) {
-  return detail::MerkleProofImpl(usage_tree).create_from(cell);
+td::Result<Ref<Cell>> MerkleProof::generate_raw(Ref<Cell> cell, CellUsageTree *usage_tree, bool is_left_mu) {
+  return detail::MerkleProofImpl(usage_tree, is_left_mu).create_from(cell);
 }
 
 Ref<Cell> MerkleProof::virtualize_raw(Ref<Cell> cell, td::uint32 effective_level) {
@@ -370,12 +375,12 @@ td::Result<Ref<Cell>> MerkleProof::combine_fast_raw(Ref<Cell> a, Ref<Cell> b) {
 }
 
 MerkleProofBuilder::MerkleProofBuilder(Ref<Cell> root)
-    : usage_tree(std::make_shared<CellUsageTree>()), orig_root(std::move(root)) {
+    : usage_tree(std::make_shared<CellUsageTree>(root)), orig_root(std::move(root)) {
   usage_root = UsageCell::create(orig_root, usage_tree->root_ptr());
 }
 
 Ref<Cell> MerkleProofBuilder::init(Ref<Cell> root) {
-  usage_tree = std::make_shared<CellUsageTree>();
+  usage_tree = std::make_shared<CellUsageTree>(root);
   orig_root = std::move(root);
   usage_root = UsageCell::create(orig_root, usage_tree->root_ptr());
   return usage_root;

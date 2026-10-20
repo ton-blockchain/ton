@@ -10,7 +10,6 @@ type OkAlias<T> = Ok<T>;
 
 type Response<TResult, TError> = Ok<TResult> | Err<TError>;
 
-@pure
 fun getResponse(success: bool): Response<int, slice> {
     return success ? Ok { result: 10 } : Err { errPayload: beginCell().storeInt(-1,32).endCell().beginParse() };
 }
@@ -30,7 +29,7 @@ fun test2() {
         Err<slice> => r as Err<slice>,
     }
     match (r) {
-        OkAlias<int> => r as Ok<int>,
+        Ok<int> => r as OkAlias<int>,
         Err<slice> => {}
     }
     match (r) {
@@ -40,8 +39,7 @@ fun test2() {
 
     if (r is Ok<int>) { __expect_type(r, "Ok<int>"); }
     if (r is Ok) { __expect_type(r, "Ok<int>"); }
-    if (r is OkAlias<int>) { __expect_type(r, "OkAlias<int>"); }
-    if (r !is OkAlias<int>) { __expect_type(r, "Err<slice>"); }
+    if (r !is Ok<int>) { __expect_type(r, "Err<slice>"); }
     if (r is Ok<int> && r !is Err<slice> && r is Ok) { __expect_type(r, "Ok<int>"); }
 }
 
@@ -66,7 +64,7 @@ fun test4() {
     __expect_type(r2, "Err<slice>");
     r2 = 10>3 ? Ok { result: Ok { result: 12 } } : r2;
     var mm1 = match (r2) {
-        OkAlias<Response<int,slice>> => true,
+        Ok<Response<int,slice>> => true,
         Err<slice> => false
     };
     var mm2 = match (r2) {
@@ -80,7 +78,7 @@ fun test4() {
 fun test5() {
     var o1: Ok<int> = { result: 1 };
     var o2: OkAlias<int> = { result: 2 };
-    return (o1 is Ok, o1 is OkAlias<int>, o2 is Ok, o2 is OkAlias<int>, o1 is Ok<slice>, o1 is OkAlias<slice>);
+    return (o1 is Ok, o2 is Ok, o2 is OkAlias<int>, o1 is Ok<slice>, o1 is OkAlias<slice>);
 }
 
 type OkInt = Ok<int>;
@@ -92,7 +90,7 @@ fun test6(w: Response<int, slice> | int) {
         Err => {}
     }
     match (w) {
-        OkInt => {}
+        Ok<int> => {}
         int => {}
         Err => {}
     }
@@ -100,7 +98,7 @@ fun test6(w: Response<int, slice> | int) {
 
 fun test7(w: OkInt | Err<slice> | int) {
     match (w) {
-        Ok => {}
+        OkInt => {}
         Err => {}
         int => {}
     }
@@ -131,12 +129,14 @@ fun main() {
 @testcase | 101 | 0       | -1
 @testcase | 103 |         | 10 -1 0
 @testcase | 104 |         | 12 typeid-1 typeid-4 -1 -1 -1 0 0 -1 0 0
-@testcase | 105 |         | -1 -1 -1 -1 0 0
+@testcase | 105 |         | -1 -1 -1 0 0
 @testcase | 108 |         | 50000000 (null) (null) 100000000 12 12 24
 
 @fif_codegen
 """
   test3() PROC:<{
+    x{} PUSHSLICE
+    DROP
     10 PUSHINT  // r.USlot1=10
     -1 PUSHINT  // r.USlot1=10 '22=-1
     FALSE       // r.USlot1=10 '22=-1 '24

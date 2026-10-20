@@ -32,6 +32,17 @@
 
 namespace tolk {
 
+GNU_ATTRIBUTE_NOINLINE
+static void fire_on_method_id_collision(FunctionPtr f1, FunctionPtr f2) {
+  Error diagnostic = err("method_id collision: `{}` and `{}` produce the same method_id={}", f2, f1, f1->tvm_method_id);
+  if (f1->is_entrypoint() && f2->is_entrypoint()) {
+    diagnostic = err("both `main` and `onInternalMessage` are not allowed");
+  } else if (f1->is_contract_getter() && f2->is_contract_getter()) {
+    diagnostic = err("GET methods hash collision: `{}` and `{}` produce the same method_id={}\n""hint: rename one of these functions", f2, f1, f1->tvm_method_id);
+  }
+  diagnostic.with_secondary(f2, "collides with this function").fire(f1);
+}
+
 void FunctionBodyCode::set_code(CodeBlob* code) {
   this->code = code;
 }
@@ -183,9 +194,7 @@ static void output_asm_code_for_fun(std::ostream& os, FunctionPtr fun_ref, std::
   const std::vector<TmpVar>& var_names = std::get<FunctionBodyCode*>(fun_ref->body)->code->vars;
 
   const char* modifier = "PROC";
-  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif) {
-    modifier = "PROCINLINE";
-  } else if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
     modifier = "PROCREF";
   }
   if (print_line_comments) {
@@ -305,6 +314,7 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
       code->print(std::cerr, 6);
     }
   }
+  code->materialize_immediate_returns();
   code->compute_used_code_vars();
   code->fwd_analyze();
   code->mark_noreturn();
@@ -315,18 +325,14 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
     std::cerr << "\n---------- resulting code for " << fun_ref->name << " -------------\n";
   }
   int mode = 0;
-  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif && code->ops.is_noreturn()) {
-    mode |= Stack::_InlineFunc;
-  }
-  if (fun_ref->inline_mode == FunctionInlineMode::inlineViaFif || fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
-    mode |= Stack::_InlineAny;
+  tolk_assert(fun_ref->inline_mode != FunctionInlineMode::inlineInPlace);
+  if (fun_ref->inline_mode == FunctionInlineMode::inlineRef) {
+    mode |= Stack::_InlineRef;
   }
 
   try {
     std::vector<AsmOp> asm_code = code->generate_asm_code(mode);
-    if (G_settings.optimization_level >= 2) {
-      asm_code = optimize_asm_code(std::move(asm_code));
-    }
+    asm_code = optimize_asm_code(std::move(asm_code));
     output_asm_code_for_fun(
       os,
       fun_ref,
@@ -339,7 +345,7 @@ static void generate_output_func(std::ostream& os, FunctionPtr fun_ref) {
     err("generated TVM stack is too deep while compiling function `{}`.\n"
         "TVM can not store more than 255 elements on the stack.\n"
         "hint: try splitting very wide tensors/structs, storing parts in cells/tuples",
-        fun_ref).fire(fun_ref->ident_anchor, fun_ref);
+        fun_ref).fire(fun_ref);
   }
 
   if (G_settings.verbosity >= 2) {
@@ -366,16 +372,11 @@ void pipeline_generate_fif_output(std::ostream& os) {
   bool has_fun_main = false;
   bool has_onInternalMessage = false;
   int n_inlined_in_place = 0;
-  std::vector<FunctionPtr> all_contract_getters;
+  std::vector<FunctionPtr> all_methods_with_id;
   for (FunctionPtr fun_ref : G.all_functions) {
     if (fun_ref->is_asm_function() || !fun_ref->does_need_codegen()) {
       n_inlined_in_place += fun_ref->is_inlined_in_place() && fun_ref->is_really_used();
       continue;
-    }
-
-    if (fun_ref->is_entrypoint()) {
-      has_fun_main |= fun_ref->name == "main";
-      has_onInternalMessage |= fun_ref->name == "onInternalMessage";
     }
 
     os << "  ";
@@ -385,13 +386,17 @@ void pipeline_generate_fif_output(std::ostream& os) {
       os << "DECLPROC " << CodeBlob::fift_name(fun_ref) << "\n";
     }
 
-    if (fun_ref->is_contract_getter()) {
-      for (FunctionPtr other : all_contract_getters) {
+    // check for collisions of method_id (must be unique: it's a key in a routing dict)
+    if (fun_ref->has_tvm_method_id()) {
+      has_fun_main |= fun_ref->name == "main";
+      has_onInternalMessage |= fun_ref->name == "onInternalMessage";
+
+      for (FunctionPtr other : all_methods_with_id) {
         if (other->tvm_method_id == fun_ref->tvm_method_id) {
-          err("GET methods hash collision: `{}` and `{}` produce the same method_id={}. Consider renaming one of these functions.", other, fun_ref, fun_ref->tvm_method_id).fire(fun_ref->ident_anchor);
+          fire_on_method_id_collision(fun_ref, other);
         }
       }
-      all_contract_getters.push_back(fun_ref);
+      all_methods_with_id.push_back(fun_ref);
     }
   }
 
@@ -402,19 +407,17 @@ void pipeline_generate_fif_output(std::ostream& os) {
       throw Fatal("the contract has no entrypoint; forgot `fun onInternalMessage(...)`?");
     }
   }
-  if (has_fun_main && has_onInternalMessage) {
-    throw Fatal("both `main` and `onInternalMessage` are not allowed");
-  }
 
   if (n_inlined_in_place) {
     os << "  // " << n_inlined_in_place << " functions inlined in-place:" << "\n";
     for (FunctionPtr fun_ref : G.all_functions) {
-      if (fun_ref->is_inlined_in_place()) {
+      if (fun_ref->is_inlined_in_place() && fun_ref->is_really_used()) {
         os << "  // - " << fun_ref->name << " (" << fun_ref->n_times_called << (fun_ref->n_times_called == 1 ? " call" : " calls") << ")\n";
       }
     }
   }
 
+  int n_used_globals = 0;
   for (GlobalVarPtr var_ref : G.all_global_vars) {
     if (!var_ref->is_really_used()) {
       if (G_settings.verbosity >= 2) {
@@ -423,6 +426,10 @@ void pipeline_generate_fif_output(std::ostream& os) {
       continue;
     }
 
+    // Asm.fif short GETGLOB/SETGLOB accept only slots 1..31
+    if (++n_used_globals > 31) {
+      err("too many global variables (more than 31)").fire(var_ref);
+    }
     os << "  " << "DECLGLOBVAR " << CodeBlob::fift_name(var_ref) << "\n";
   }
 

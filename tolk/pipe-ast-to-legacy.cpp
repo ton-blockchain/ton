@@ -16,8 +16,8 @@
 */
 #include "tolk.h"
 #include "ast.h"
-#include "ast-aux-data.h"
 #include "ast-visitor.h"
+#include "lazy-helpers.h"
 #include "compilation-errors.h"
 #include "constant-evaluator.h"
 #include "type-system.h"
@@ -25,6 +25,9 @@
 #include "smart-casts-cfg.h"
 #include "pack-unpack-api.h"
 #include "gen-entrypoints.h"
+#include "inline-return-analysis.h"
+#include "loop-control-analysis.h"
+#include <optional>
 
 /*
  *   This pipe is the last one operating AST: it transforms AST to IR.
@@ -55,7 +58,11 @@ std::vector<var_idx_t> pre_compile_symbol(const Symbol* sym, CodeBlob& code, Any
 void process_any_statement(AnyV v, CodeBlob& code);
 std::vector<var_idx_t> transition_rvect_to_runtime_type(std::vector<var_idx_t>&& rvect, CodeBlob& code, TypePtr from_type, TypePtr dest_type, AnyV origin);
 
-static thread_local AnyV stmt_before_immediate_return = nullptr;
+struct FallthroughTail;
+static void gen_return_from_cur_fun(CodeBlob& code, AnyV origin, std::vector<var_idx_t> return_vars);
+static void process_block_statement(V<ast_block_statement> v, CodeBlob& code, const FallthroughTail* outer = nullptr);
+static void process_if_statement(V<ast_if_statement> v, CodeBlob& code, const FallthroughTail* tail = nullptr);
+static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type, const FallthroughTail* tail = nullptr);
 
 DebugMarkInfo CodeBlob::create_mark_leave_fun(FunctionPtr fun_ref, AnyV origin, std::vector<var_idx_t> ir_return) {
   // it's the location of `return` statement, or `}` for void functions
@@ -125,6 +132,143 @@ static int calc_offset_on_stack(StructPtr struct_ref, int field_idx) {
   return stack_offset;
 }
 
+// Every function with `lazy` vars has LazyLoadPlan: "which fields to load before which statement".
+static void emit_lazy_loads_before(AnyV stmt, CodeBlob& code) {
+  for (const LazyLoadAction& action : code.fun_ref->lazy_load_plan->loads_before(stmt)) {
+    const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(action.var_ref);
+    tolk_assert(lazy_variable);
+
+    std::vector ir_obj = action.var_ref->ir_idx;   // loading will update these stack slots
+    TypePtr t_orig = action.var_ref->declared_type;
+
+    if (action.field_ref) {        // extract a field from a whole lazy variable
+      tolk_assert(lazy_variable->is_struct());
+      int stack_offset = calc_offset_on_stack(lazy_variable->loaded_state.original_struct, action.field_ref->field_idx);
+      int stack_width = action.field_ref->declared_type->get_width_on_stack();
+      ir_obj = std::vector(ir_obj.begin() + stack_offset, ir_obj.begin() + stack_offset + stack_width);
+      t_orig = action.field_ref->declared_type;
+    }
+
+    if (action.union_variant) {    // extract a variant from a union (a union variable or a union field of a struct)
+      ir_obj = transition_rvect_to_runtime_type(std::move(ir_obj), code, t_orig, action.union_variant, stmt);
+    }
+
+    // `load_info` contains instructions to skip, load, save tail, etc.;
+    // it generates LETs to ir_obj, so stack slots of lazy_variable will contain loaded data
+    generate_lazy_struct_from_slice(code, stmt, lazy_variable, action.load_info, ir_obj);
+  }
+}
+
+
+// FallthroughTail is a suffix routed into a single live if/match branch.
+// Used independently for inline returns and for structural `continue` in loops.
+// > fun demo() {
+// >   if (cond) { return false }
+// >   else { xxx }
+// >   yyy
+// > }
+// Then `yyy` is a tail when compiling `else` block, resulting in approx
+// >   if (cond) { return false }
+// >   else { xxx; yyy }
+struct FallthroughTail {
+  const FallthroughTail* outer = nullptr;           // multiple if/else/match branching
+  const std::vector<AnyV>* statements = nullptr;    // all statements of some block (in demo: [ast_if_statement, yyy])
+  size_t next_idx = 0;                              // tail is `statements[next_idx..]` (in demo: 1, tail = yyy)
+  V<ast_block_statement> scope_block = nullptr;     // insert DebugMarkScopeEnd{.range} in the end
+  bool is_toplevel_block = false;                   // statements come from function's root body
+  bool emit_leave_fun = false;                      // need to insert implicit `return` (DebugMarkLeaveFunction + mutated vars)
+};
+
+// Installs `code.current_loop` for the duration of lowering a loop body, same backup as `code.inlining`.
+struct LoopLoweringGuard {
+  CodeBlob& code;
+  const LoopFrameLowering* backup_outer_loop;
+  LoopContinuePlan plan;
+  LoopFrameLowering frame;
+
+  LoopLoweringGuard(CodeBlob& code, V<ast_block_statement> loop_body)
+    : code(code)
+    , backup_outer_loop(code.current_loop)
+    , plan(build_continue_plan_for_loop(loop_body))
+    , frame{.plan = &plan, .body = loop_body} {
+    tolk_assert(plan.ok());
+    code.current_loop = &frame;
+  }
+
+  ~LoopLoweringGuard() {
+    code.current_loop = backup_outer_loop;
+  }
+};
+
+static const TailRoutingNode* find_routed_branch(AnyV pivot, CodeBlob& code) {
+  if (code.current_loop) {
+    if (const TailRoutingNode* route = code.current_loop->plan->find_branching(pivot)) {
+      return route;
+    }
+  }
+  if (code.inlining) {
+    return code.inlining->plan->find_branching(pivot);
+  }
+  return nullptr;
+}
+
+static void process_tail(const FallthroughTail* tail, CodeBlob& code) {
+  for (; tail; tail = tail->outer) {
+    if (tail->statements) {
+      const std::vector<AnyV>& statements = *tail->statements;
+
+      for (size_t i = tail->next_idx; i < statements.size(); ++i) {
+        AnyV stmt = statements[i];
+
+        if (code.fun_ref->lazy_load_plan) {
+          emit_lazy_loads_before(stmt, code);
+        }
+
+        if (stmt->kind == ast_return_statement) {
+          process_any_statement(stmt, code);
+          if (tail->scope_block) {
+            code.add_debug_mark(DebugMarkScopeEnd{.range = tail->scope_block->range});
+          }
+          return;
+        }
+        if (stmt->kind == ast_continue_statement) {
+          tolk_assert(code.current_loop);
+          code.add_debug_mark(DebugMarkScopeEnd{.range = code.current_loop->body->range});
+          return;  // remaining tails must not run
+        }
+        if (stmt->kind == ast_break_statement) {
+          process_any_statement(stmt, code);
+          return;  // remaining tails must not run
+        }
+
+        if (find_routed_branch(stmt, code)) {
+          FallthroughTail rest = *tail;            // copies scope_block / emit_leave_fun
+          rest.next_idx = i + 1;
+
+          if (auto v_if = stmt->try_as<ast_if_statement>()) {
+            process_if_statement(v_if, code, &rest);
+          } else if (auto v_match = stmt->try_as<ast_match_expression>()) {
+            process_match_expression(v_match, code, nullptr, &rest);
+          } else {
+            tolk_assert(false);
+          }
+          return;  // lowering of if/match consumed `rest` and every outer tail
+        }
+
+        process_any_statement(stmt, code);
+      }
+    }
+
+    if (tail->scope_block) {
+      // same range as the block's START; already-closed range is a no-op for the replayer
+      code.add_debug_mark(DebugMarkScopeEnd{.range = tail->scope_block->range});
+    }
+    if (tail->emit_leave_fun) {     // no manual `return` (reached the end of a void function),
+      tolk_assert(code.inlining);   // so place DebugMarkLeaveFunction and assign mutated_vars to rvect_out
+      gen_return_from_cur_fun(code, code.inlining->call_origin, {});
+    }
+  }
+}
 
 // The main goal of LValContext is to handle non-primitive lvalues. At IR level, a usual local variable
 // exists, but on its change, something non-trivial should happen.
@@ -259,7 +403,7 @@ class CheckReorderingForAsmArgOrderIsSafeVisitor final : public ASTVisitorFuncti
   bool has_side_effects = false;
 
   void visit(V<ast_function_call> v) override {
-    has_side_effects |= v->fun_maybe == nullptr || !v->fun_maybe->is_marked_as_pure() || v->fun_maybe->has_mutate_params();
+    has_side_effects |= v->fun_maybe == nullptr || !v->fun_maybe->is_removable_if_unused() || v->fun_maybe->has_mutate_params();
     parent::visit(v);
   }
 
@@ -333,11 +477,38 @@ public:
   }
 
   void on_enter_function(V<ast_function_declaration> v_function) override {
-    tolk_assert(cur_f->is_inlined_in_place());
+    tolk_assert(cur_f->is_code_function());
 
     for (int i = 0; i < cur_f->get_num_params(); ++i) {
       cur_f->get_param(i).mutate()->assign_ir_idx({});
     }
+  }
+};
+
+// Installs function-specific state while `f_inlined` AST body is lowered into caller's CodeBlob
+struct FunctionBodyInliningGuard {
+  CodeBlob& code;
+  FunctionPtr f_inlined;
+  const InliningFrameLowering* backup_frame;
+  FunctionPtr backup_cur_fun;
+  std::vector<LazyVarRefAtCodegen> backup_lazy_variables;
+
+  FunctionBodyInliningGuard(CodeBlob& code, FunctionPtr f_inlined, const InliningFrameLowering* inlining_frame)
+    : code(code)
+    , f_inlined(f_inlined)
+    , backup_frame(code.inlining)
+    , backup_cur_fun(code.fun_ref)
+    , backup_lazy_variables(code.lazy_variables) {
+    code.fun_ref = f_inlined;
+    code.inlining = inlining_frame;
+  }
+
+  ~FunctionBodyInliningGuard() {
+    ClearStateAfterInlineInPlace visitor;
+    visitor.start_visiting_function(f_inlined, f_inlined->ast_root->as<ast_function_declaration>());
+    code.fun_ref = backup_cur_fun;
+    code.inlining = backup_frame;
+    code.lazy_variables = std::move(backup_lazy_variables);
   }
 };
 
@@ -639,11 +810,11 @@ static void pre_compile_let(CodeBlob& code, AnyExprV lhs, std::vector<var_idx_t>
   local_lval.after_let(std::move(ir_left), code, lhs);
 }
 
-std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, AnyV origin, const char* debug_desc) {
+std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, TypePtr cmp_type, const std::vector<var_idx_t>& expr_ir_idx, AnyV origin, const char* purpose) {
   FunctionPtr eq_sym = lookup_function("_==_");
   FunctionPtr isnull_sym = lookup_function("__isNull");
   FunctionPtr not_sym = lookup_function("!b_");
-  std::vector ir_result = code.create_tmp_var(TypeDataBool::create(), origin, debug_desc);
+  std::vector ir_result = code.create_tmp_var(TypeDataBool::create(), origin, purpose);
 
   const TypeDataUnion* lhs_union = expr_type->unwrap_alias()->try_as<TypeDataUnion>();
   if (!lhs_union && expr_type == TypeDataUnknown::create() && cmp_type == TypeDataNullLiteral::create()) {
@@ -656,7 +827,7 @@ std::vector<var_idx_t> pre_compile_is_type(CodeBlob& code, TypePtr expr_type, Ty
     code.add_int_const(origin, ir_result, td::make_refint(types_eq ? -1 : 0));
   } else if (!lhs_union->has_variant_equal_to(cmp_type)) {
     // at runtime, union tags store type_id, and aliases with the same underlying type share it;
-    // keep the lowering aligned with type-level `is`: distinct aliases are distinct variants
+    // type checker fired if `is` was used incorrectly with subtypes, so we safely know "false" here
     code.add_int_const(origin, ir_result, td::make_refint(0));
   } else if (lhs_union->is_primitive_nullable() && cmp_type == TypeDataNullLiteral::create()) {
     // `int?` is `null` for primitive 1-slot nullables, they hold either value of TVM NULL, no extra union tag slot
@@ -728,13 +899,7 @@ static std::vector<var_idx_t> gen_compile_time_code_instead_of_fun_call(CodeBlob
   return ir_generated;
 }
 
-std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, bool is_before_immediate_return, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {
-  static thread_local std::vector<FunctionPtr> called_stack;
-  if (std::find(called_stack.begin(), called_stack.end(), f_inlined) != called_stack.end()) {
-    std::string_view postfix = f_inlined->is_packToBuilder() || f_inlined->is_unpackFromSlice() ? " and leads to infinite serialization" : "";
-    err("function `{}` is recursive{}", f_inlined, postfix).fire(f_inlined->ident_anchor, f_inlined);
-  }
-
+std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_type, AnyV origin, FunctionPtr f_inlined, AnyExprV self_obj, const std::vector<std::vector<var_idx_t>>& vars_per_arg) {
   tolk_assert(vars_per_arg.size() == f_inlined->parameters.size());
   std::vector<var_idx_t> ir_params;
   for (int i = 0; i < f_inlined->get_num_params(); ++i) {
@@ -752,16 +917,17 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
     ir_params.insert(ir_params.end(), param_i.ir_idx.begin(), param_i.ir_idx.end());
   }
 
-  std::vector rvect_call = code.create_tmp_var(ret_type, origin, "(inlined-return)");
-  std::vector<var_idx_t>* backup_outer_inline = code.inline_rvect_out;
-  AnyV backup_outer_return_stmt = code.inline_return_stmt_out;
-  FunctionPtr backup_cur_fun = code.fun_ref;
-  bool backup_inline_before_return = code.inlining_before_immediate_return;
-  auto backup_lazy_variables = code.lazy_variables;
-  code.inline_rvect_out = &rvect_call;
-  code.inlining_before_immediate_return = is_before_immediate_return;
-  code.fun_ref = f_inlined;
-  called_stack.push_back(f_inlined);
+  InlineReturnPlan inlining_plan = build_inlining_plan_for_function(f_inlined);
+  tolk_assert(inlining_plan.ok());
+
+  InliningFrameLowering inlining{
+    .f_inlined = f_inlined,
+    .call_origin = origin,
+    .plan = &inlining_plan,
+    .rvect_out = code.create_tmp_var(ret_type, origin, "(inlined-return)"),
+  };
+
+  FunctionBodyInliningGuard guard(code, f_inlined, &inlining);
   // specially handle `point.getX()` if point is a lazy var: to make `self.toCell()` work and `self.x` asserted;
   // (only methods preserve lazy, `getXOf(point)` does not, though theoretically can be done)
   const LazyVariableLoadedState* lazy_receiver = self_obj ? code.get_lazy_variable(self_obj) : nullptr;
@@ -789,34 +955,10 @@ std::vector<var_idx_t> gen_inline_fun_call_in_place(CodeBlob& code, TypePtr ret_
 
   auto v_ast_root = f_inlined->ast_root->as<ast_function_declaration>();
   auto v_block = v_ast_root->get_body()->as<ast_block_statement>();
-  process_any_statement(v_block, code);
+  FallthroughTail tail_leave_fun{.emit_leave_fun = true};
+  process_block_statement(v_block, code, &tail_leave_fun);
 
-  if (f_inlined->has_mutate_params() && f_inlined->inferred_return_type == TypeDataVoid::create()) {
-    std::vector<var_idx_t> mutated_vars;
-    for (const LocalVarData& p_sym: f_inlined->parameters) {
-      if (p_sym.is_mutate_parameter()) {
-        mutated_vars.insert(mutated_vars.end(), p_sym.ir_idx.begin(), p_sym.ir_idx.end());
-      }
-    }
-    code.add_let(origin, rvect_call, std::move(mutated_vars));
-  }
-
-  code.add_debug_mark(DebugMarkLeaveFunction{
-    .fun_ref = f_inlined,
-    .ir_return = *code.inline_rvect_out,
-    .range = code.inline_return_stmt_out ? code.inline_return_stmt_out->range : SrcRange::span_at_end(f_inlined->ast_root->range, 1),
-  });
-
-  ClearStateAfterInlineInPlace visitor;
-  visitor.start_visiting_function(f_inlined, v_ast_root);
-
-  called_stack.pop_back();
-  code.fun_ref = backup_cur_fun;
-  code.inline_rvect_out = backup_outer_inline;
-  code.inline_return_stmt_out = backup_outer_return_stmt;
-  code.inlining_before_immediate_return = backup_inline_before_return;
-  code.lazy_variables = std::move(backup_lazy_variables);
-  return rvect_call;
+  return inlining.rvect_out;
 }
 
 // convert a constant value (calculated by a "constant-evaluator") to IR vars;
@@ -1008,7 +1150,7 @@ static std::vector<var_idx_t> process_set_assign(V<ast_set_assign> v, CodeBlob& 
   args_vars.insert(args_vars.end(), ir_lhs.begin(), ir_lhs.end());
   args_vars.insert(args_vars.end(), ir_rhs.begin(), ir_rhs.end());
   std::vector ir_result = code.create_tmp_var(v->inferred_type, v, "(set-assign)");
-  code.add_call(v, ir_result, std::move(args_vars), v->fun_ref);
+  code.add_call(v, ir_result, std::move(args_vars), v->fun_ref, true);
   code.add_extra_mark_location(v->get_lhs()->range);
 
   code.add_let(v, ir_lhs, ir_result);   // += and others for math only, transition not required
@@ -1023,30 +1165,37 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
   if (v->fun_ref) {   // almost all operators, fun_ref was assigned at type inferring
     std::vector args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
     std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(binary-op)");
-    code.add_call(v, rvect, std::move(args_vars), v->fun_ref);
+    code.add_call(v, rvect, std::move(args_vars), v->fun_ref, true);
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
   if (t == tok_logical_and || t == tok_logical_or) {
-    // do the following transformations:
+    // emit the following IR:
     // a && b  ->  a ? (b != 0) : 0
-    // a || b  ->  a ? 1 : (b != 0)
-    AnyExprV v_0 = createV<ast_int_const>(v->range, td::make_refint(0), "0");
-    v_0->mutate()->assign_inferred_type(TypeDataInt::create());
-    AnyExprV v_1 = createV<ast_int_const>(v->range, td::make_refint(-1), "-1");
-    v_1->mutate()->assign_inferred_type(TypeDataInt::create());
-    auto v_b_ne_0 = createV<ast_binary_operator>(v->range, v->operator_range, "!=", tok_neq, v->get_rhs(), v_0);
-    v_b_ne_0->mutate()->assign_inferred_type(TypeDataInt::create());
-    v_b_ne_0->mutate()->assign_fun_ref(lookup_function("_!=_"));
+    // a || b  ->  a ? -1 : (b != 0)
     std::vector ir_cond = pre_compile_expr(v->get_lhs(), code, nullptr);
     tolk_assert(ir_cond.size() == 1);
-    std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(ternary)");
+    std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(logical-op)");
+    FunctionPtr f_neq = lookup_function("_!=_");
     Op& if_op = code.add_if_else(v, ir_cond);
-    code.push_set_cur(if_op.block0);
-    code.add_let(v, rvect, pre_compile_expr(t == tok_logical_and ? v_b_ne_0 : v_1, code, nullptr));
-    code.close_pop_cur(v);
-    code.push_set_cur(if_op.block1);
-    code.add_let(v, rvect, pre_compile_expr(t == tok_logical_and ? v_0 : v_b_ne_0, code, nullptr));
-    code.close_pop_cur(v);
+    if (t == tok_logical_and) {
+      code.push_set_cur(if_op.block0);
+      std::vector ir_rhs = pre_compile_expr(v->get_rhs(), code, nullptr);
+      tolk_assert(ir_rhs.size() == 1);
+      code.add_call(v, rvect, {ir_rhs[0], code.create_int(v, 0, "(zero)")}, f_neq);
+      code.close_pop_cur(v);
+      code.push_set_cur(if_op.block1);
+      code.add_int_const(v, rvect, td::make_refint(0));
+      code.close_pop_cur(v);
+    } else {
+      code.push_set_cur(if_op.block0);
+      code.add_int_const(v, rvect, td::make_refint(-1));
+      code.close_pop_cur(v);
+      code.push_set_cur(if_op.block1);
+      std::vector ir_rhs = pre_compile_expr(v->get_rhs(), code, nullptr);
+      tolk_assert(ir_rhs.size() == 1);
+      code.add_call(v, rvect, {ir_rhs[0], code.create_int(v, 0, "(zero)")}, f_neq);
+      code.close_pop_cur(v);
+    }
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
   if (t == tok_eq || t == tok_neq) {
@@ -1054,7 +1203,7 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
     tolk_assert(f_eq->name != "_==_");
     std::vector args_vars = pre_compile_tensor(code, {v->get_lhs(), v->get_rhs()});
     std::vector rvect = code.create_tmp_var(TypeDataBool::create(), v, "(eq-operator)");
-    code.add_call(v, rvect, {args_vars[0], args_vars[1]}, f_eq);
+    code.add_call(v, rvect, {args_vars[0], args_vars[1]}, f_eq, true);
     if (t == tok_neq) {
       FunctionPtr not_sym = lookup_function("!b_");
       code.add_call(v, rvect, rvect, not_sym);
@@ -1068,7 +1217,7 @@ static std::vector<var_idx_t> process_binary_operator(V<ast_binary_operator> v, 
 static std::vector<var_idx_t> process_unary_operator(V<ast_unary_operator> v, CodeBlob& code, TypePtr target_type) {
   std::vector rhs_vars = pre_compile_expr(v->get_rhs(), code, nullptr);
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(unary-op)");
-  code.add_call(v, rvect, std::move(rhs_vars), v->fun_ref);
+  code.add_call(v, rvect, std::move(rhs_vars), v->fun_ref, true);
   return transition_to_target_type(std::move(rvect), code, target_type, v);
 }
 
@@ -1077,11 +1226,7 @@ static std::vector<var_idx_t> process_ternary_operator(V<ast_ternary_operator> v
   tolk_assert(ir_cond.size() == 1);
   std::vector rvect = code.create_tmp_var(v->inferred_type, v, "(ternary)");
 
-  if (v->get_cond()->is_always_true) {
-    code.add_let(v->get_when_true(), rvect, pre_compile_expr(v->get_when_true(), code, v->inferred_type));
-  } else if (v->get_cond()->is_always_false) {
-    code.add_let(v->get_when_false(), rvect, pre_compile_expr(v->get_when_false(), code, v->inferred_type));
-  } else if (v->inferred_type->get_width_on_stack() == 1 && is_ternary_arg_trivial_for_condsel(v->get_when_true()) && is_ternary_arg_trivial_for_condsel(v->get_when_false())) {
+  if (v->inferred_type->get_width_on_stack() == 1 && is_ternary_arg_trivial_for_condsel(v->get_when_true()) && is_ternary_arg_trivial_for_condsel(v->get_when_false())) {
     std::vector ir_true = pre_compile_expr(v->get_when_true(), code, v->inferred_type);
     std::vector ir_false = pre_compile_expr(v->get_when_false(), code, v->inferred_type);
     std::vector condsel_args = { ir_cond[0], ir_true[0], ir_false[0] };
@@ -1168,15 +1313,27 @@ static std::vector<var_idx_t> process_not_null_operator(V<ast_not_null_operator>
 
 static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, CodeBlob& code, TypePtr target_type) {
   // `lazy Storage.fromSlice(s)` does not load anything here, it only saves a slice for future loads;
-  // "future loads" are special auxiliary AST vertices "load x" that were inserted in pipe-lazy-load-insertions.cpp
+  // "future loads" are prelude actions from LazyLoadPlan, built in pipe-lazy-load-insertions.cpp
   auto v_call = v->get_expr()->try_as<ast_function_call>();
   tolk_assert(v_call && v_call->fun_maybe);
 
+  std::optional<FunctionBodyInliningGuard> wrapper_guard;
   FunctionPtr called_f = v_call->fun_maybe;
-  if (called_f->is_code_function()) {     // `lazy loadStorage()` is allowed, it contains just `return ...`, inline it here
+  if (called_f->is_code_function()) {     // `lazy loadStorage()`, its body is `smth; return ...`
+    wrapper_guard.emplace(code, called_f, nullptr);
     auto f_body = called_f->ast_root->as<ast_function_declaration>()->get_body()->as<ast_block_statement>();
-    tolk_assert(f_body->size() == 1 && f_body->get_item(0)->kind == ast_return_statement);
-    auto f_returns = f_body->get_item(0)->as<ast_return_statement>();
+    // inline `smth` preceding the final `return` (no `return` in the middle)
+    for (int i = 0; i < f_body->size(); ++i) {
+      AnyV stmt = f_body->get_item(i);
+      if (called_f->lazy_load_plan) {   // in case `loadStorage` has lazy vars itself
+        emit_lazy_loads_before(stmt, code);
+      }
+      if (i < f_body->size() - 1) {     // the last is `return fromCell/fromSlice`, handled below
+        process_any_statement(stmt, code);
+      }
+    }
+    auto f_returns = f_body->get_item(f_body->size() - 1)->try_as<ast_return_statement>();
+    tolk_assert(f_returns);
     v_call = f_returns->get_return_value()->try_as<ast_function_call>();
     tolk_assert(v_call && v_call->fun_maybe && v_call->fun_maybe->is_builtin());
     called_f = v_call->fun_maybe;
@@ -1208,11 +1365,12 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   // on `var p = lazy Point.fromSlice(s, options)`, save s and options (lazy_variable)
   AnyExprV v_options = has_passed_options ? v_call->get_arg(v_call->get_num_args() - 1)->get_expr() : called_f->parameters.back().default_value;
   std::vector ir_options = pre_compile_expr(v_options, code, called_f->parameters[1].declared_type);
+  wrapper_guard.reset();
   const LazyVariableLoadedState* lazy_variable = new LazyVariableLoadedState(v->dest_var_ref->declared_type, std::move(ir_slice), std::move(ir_options));
   code.lazy_variables.emplace_back(v->dest_var_ref, lazy_variable);
 
   // initially, all contents of `p` is filled by nulls, but before `p.x` or any other field usages,
-  // they will be loaded by separate AST aux vertices;
+  // they will be loaded by LazyLoadPlan prelude actions;
   // same for unions: `val msg = lazy MyMsgUnion`, msg is N+1 nulls, but next lazy `match` will transition slots,
   // which will be filled by loads
   std::vector ir_null = code.create_tmp_var(TypeDataNullLiteral::create(), v, "(init-null)");
@@ -1221,17 +1379,59 @@ static std::vector<var_idx_t> process_lazy_operator(V<ast_lazy_operator> v, Code
   return transition_to_target_type(std::move(ir_initial_nulls), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type) {
-  TypePtr subject_type = v->get_subject()->inferred_type;
-
+static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v, CodeBlob& code, TypePtr target_type, const FallthroughTail* tail) {
   int n_arms = v->get_arms_count();
   std::vector ir_subj = pre_compile_expr(v->get_subject(), code, nullptr);
-  std::vector ir_result = code.create_tmp_var(v->inferred_type, v, "(match-expression)");
+  TypePtr match_expr_type = v->inferred_type;
+  TypePtr subject_type = v->get_subject()->inferred_type;
+  std::vector ir_match_result = code.create_tmp_var(match_expr_type, v, "(match-expression)");
   AnyExprV match_origin = v;    // all "IF UTag==type_id" share this location: "step over" jumps into actual branch immediately
 
-  if (!n_arms) {    // `match (subject) {}`
-    tolk_assert(v->is_statement());
-    return {};
+  const TailRoutingNode* route = find_routed_branch(v, code);
+  tolk_assert(!tail || route);
+
+  // `match(lazyUnion)` / `match(obj.lastUnionField)`
+  if (v->is_lazy_match) {
+    LocalVarPtr var_ref = extract_sink_expression_from_vertex(v->get_subject()).var_ref;
+    const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(var_ref);
+    tolk_assert(lazy_variable);
+
+    std::vector<LazyMatchOptions::MatchBlock> match_blocks;
+    match_blocks.reserve(n_arms);
+    for (int i = 0; i < n_arms; ++i) {
+      auto v_arm = v->get_arm(i);
+      TypePtr arm_variant = nullptr;
+      if (v_arm->pattern_kind == MatchArmKind::exact_type) {
+        arm_variant = v_arm->pattern_type_node->resolved_type;
+      } else {
+        tolk_assert(v_arm->pattern_kind == MatchArmKind::else_branch);   // `else` allowed in a lazy match
+      }
+      match_blocks.emplace_back(LazyMatchOptions::MatchBlock{arm_variant, v_arm});
+    }
+
+    LazyMatchOptions options = {
+      .match_blocks = std::move(match_blocks),
+      .lazy_var_ref = var_ref,
+      .lower_match_arm = [v, tail, route, match_expr_type, &ir_match_result](AnyV v_arm_untyped, CodeBlob& code) {
+        auto v_arm = v_arm_untyped->as<ast_match_arm>();
+        if (v->is_statement()) {
+          FallthroughTail arm{
+            .outer = tail && route->goes_to == v_arm ? tail : nullptr,
+            .statements = &v_arm->get_body()->get_block_statement()->get_items(),
+          };
+          process_tail(&arm, code);
+        } else {
+          // if it's `match` expression (not statement), then every arm has a result, assigned to a whole `match` result
+          std::vector ir_ith_arm = pre_compile_expr(v_arm->get_body(), code);
+          ir_ith_arm = transition_to_target_type(std::move(ir_ith_arm), code, v_arm->get_body()->inferred_type, match_expr_type, v);
+          code.add_let(v, ir_match_result, std::move(ir_ith_arm));
+        }
+      }
+    };
+
+    // it will generate match by a slice prefix, and for each arm, invoke lower_match_arm above, updating ir_match_result
+    generate_lazy_match_for_union(code, v, subject_type, lazy_variable, options);
+    return transition_to_target_type(std::move(ir_match_result), code, target_type, v);
   }
 
   bool has_type_arm = false;    // it's either `match` by type (all arms are types covering all cases)
@@ -1245,8 +1445,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   }
 
   // `else` is not allowed in `match` by type; this was not fired at type checking,
-  // because it might have turned out to be a lazy match, where `else` is allowed;
-  // if we are here, it's not a lazy match, it's a regular one (the lazy one is handled specially, in aux vertex)
+  // because it might have turned out to be a lazy match, where `else` is allowed (handled above)
   if (has_type_arm && has_else_arm) {
     err("`else` is not allowed in `match` by type; you should cover all possible types").fire(v->get_arm(n_arms - 1)->get_pattern_expr());
   }
@@ -1294,13 +1493,14 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     code.add_extra_mark_location(v_ith_arm->range);
 
     if (v->is_statement()) {
-      pre_compile_expr(v_ith_arm->get_body(), code);
-      if (v == stmt_before_immediate_return) {
-        code.add_return(v_ith_arm, {}, code.fun_ref);
-      }
+      FallthroughTail arm{
+        .outer = tail && route->goes_to == v_ith_arm ? tail : nullptr,
+        .statements = &v_ith_arm->get_body()->get_block_statement()->get_items(),
+      };
+      process_tail(&arm, code);
     } else {
-      std::vector arm_ir_idx = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
-      code.add_let(v, ir_result, std::move(arm_ir_idx));
+      std::vector ir_ith_arm = pre_compile_expr(v_ith_arm->get_body(), code, v->inferred_type);
+      code.add_let(v, ir_match_result, std::move(ir_ith_arm));
     }
 
     if (!inside_last_branch) {
@@ -1314,6 +1514,8 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
   // if it's auto-generated "unreachable", insert "N THROW"
   if (implicit_else_unreachable_throw) {
     code.add_call(v, {}, {code.create_int(v, implicit_else_unreachable_throw, "(throw-else)")}, lookup_function("__throw"));
+  } else if (tail && route->goes_to == nullptr) {   // tail goes to implicit `else`
+    process_tail(tail, code);
   }
 
   // close all outer IFs
@@ -1322,7 +1524,7 @@ static std::vector<var_idx_t> process_match_expression(V<ast_match_expression> v
     code.close_pop_cur(v);
   }
 
-  return transition_to_target_type(std::move(ir_result), code, target_type, v);
+  return transition_to_target_type(std::move(ir_match_result), code, target_type, v);
 }
 
 static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
@@ -1333,6 +1535,15 @@ static std::vector<var_idx_t> process_dot_access(V<ast_dot_access> v, CodeBlob& 
     // `user.id`; internally, a struct (an object) is a tensor
     if (const TypeDataStruct* t_struct = obj_type->try_as<TypeDataStruct>()) {
       StructFieldPtr field_ref = std::get<StructFieldPtr>(v->target);
+      // `in.senderAddress` / `in.body` in onInternalMessage: logical InMessage is one slice on the stack
+      if (code.fun_ref->is_entrypoint() && code.fun_ref->get_num_params() == 1) {
+        if (auto obj_ref = v->get_obj()->try_as<ast_reference>()) {
+          if (obj_ref->sym == &code.fun_ref->parameters[0] && (code.fun_ref->is_onInternalMessage() || code.fun_ref->is_onBouncedMessage())) {
+            std::vector rvect = generate_get_InMessage_field(code, v, v->get_field_name(), &code.fun_ref->parameters[0]);
+            return transition_to_target_type(std::move(rvect), code, target_type, v);
+          }
+        }
+      }
       // handle `lazyPoint.x`, assert that slot for "x" is loaded (ensure lazy-loading correctness);
       // same for `val msg = lazy MyMsgUnion; match(...) msg.field` inside a specific variant (struct_ref)
       if (const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(v->get_obj())) {
@@ -1430,13 +1641,6 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     code.add_indirect_invoke(v, rvect, std::move(args_vars));
     return transition_to_target_type(std::move(rvect), code, target_type, v);
   }
-  // `grams("0.05")` and others, we even don't need to calculate ir_idx for arguments, just replace with constexpr
-  if (fun_ref->is_compile_time_const_val()) {
-    ConstValExpression value = eval_expression_if_const_or_fire(v);
-    auto [type, rvect] = pre_compile_constant_expression(value, code, v);
-    return transition_to_target_type(std::move(rvect), code, target_type, v);
-  }
-
   // for `num.inc()` use `inc` as origin for tmp vars; specifically, for `num.inc().inc()` (multi-line)
   // after each `inc` the debugger will remain here (as opposed to origin=v (whole range), producing jumps backward)
   AnyV call_origin = v;
@@ -1525,11 +1729,7 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   // detect what a function really returns from the stack perspective;
   // for instance, `fun f(mutate x: int): slice` puts `(int, slice)` onto a stack
-  bool returns_self_from_asm_stack = fun_ref->does_return_self() && !fun_ref->does_mutate_self() && fun_ref->is_asm_function();
   TypePtr op_call_type = v->inferred_type;
-  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self() && !returns_self_from_asm_stack) {
-    op_call_type = TypeDataVoid::create();    // `return self` actually puts nothing onto a stack
-  }
   if (fun_ref->has_mutate_params()) {
     std::vector<TypePtr> types_list;
     for (int i = 0; i < delta_self + v->get_num_args(); ++i) {
@@ -1537,25 +1737,33 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
         types_list.push_back(fun_ref->parameters[i].declared_type);
       }
     }
-    bool self_already_added = fun_ref->does_return_self() && !returns_self_from_asm_stack;
-    if (!self_already_added) {
-      types_list.push_back(v->inferred_type);
+    bool already_returned_self = fun_ref->does_return_self() && fun_ref->does_mutate_self();
+    if (!already_returned_self) {               // if not `return self` from a mutate-self function
+      types_list.push_back(v->inferred_type);   // real return value goes after mutate parameters
     }
     op_call_type = TypeDataTensor::create(std::move(types_list));
   }
 
-  std::vector<var_idx_t> args_vars;
-  for (const std::vector<var_idx_t>& list : vars_per_arg) {
-    args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
-  }
   std::vector<var_idx_t> rvect;
-  if (fun_ref->is_compile_time_special_gen()) {
+  if (fun_ref->is_compile_time_const_val()) {
+    // `grams("0.05")` / `reflect.typeNameOfObject(...)` — calculate value at compile-time;
+    // args already lowered above (for side effects and control flow); pure args will be DCE'd
+    ConstValExpression value = eval_expression_if_const_or_fire(v);
+    rvect = pre_compile_constant_expression(value, code, v).second;
+  } else if (fun_ref->is_compile_time_special_gen()) {
+    // `createMessage()` / `obj.toCell()` — generate IR code instead of Op::_Call
     rvect = gen_compile_time_code_instead_of_fun_call(code, v, vars_per_arg);
   } else if (fun_ref->is_inlined_in_place() && fun_ref->is_code_function()) {
-    rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, self_obj, v == stmt_before_immediate_return, vars_per_arg);
+    // `inlinedF()` — copy-paste f's body right here instead of Op::_Call
+    rvect = gen_inline_fun_call_in_place(code, op_call_type, call_origin, v->fun_maybe, self_obj, vars_per_arg);
   } else {
+    // asm or non-inline call: regular Op::_Call with flattened IR vars
+    std::vector<var_idx_t> args_vars;
+    for (const std::vector<var_idx_t>& list : vars_per_arg) {
+      args_vars.insert(args_vars.end(), list.cbegin(), list.cend());
+    }
     rvect = code.create_tmp_var(op_call_type, v, "(fun-call)");
-    code.add_call(call_origin, rvect, std::move(args_vars), fun_ref, arg_order_already_equals_asm);
+    code.add_call(call_origin, rvect, std::move(args_vars), fun_ref, true, arg_order_already_equals_asm);
   }
 
   // `x.inc().inc()` — mutating chaining was called in lval context, here we get `x` expression in an outer call;
@@ -1565,14 +1773,6 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
     tolk_assert(is_valid_mutation_path(obj_leftmost));
     int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
     vars_per_arg[orig_self_i] = pre_compile_expr(obj_leftmost, code, fun_ref->parameters[0].declared_type, &self_lval);
-  }
-
-  std::vector<var_idx_t> return_self_snapshot;
-  // preserve by-value `self` before separate `mutate` parameters are written back to caller lvalues
-  if (fun_ref->does_return_self() && !fun_ref->does_mutate_self() && !returns_self_from_asm_stack && fun_ref->has_mutate_params()) {
-    int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
-    return_self_snapshot = code.create_tmp_var(fun_ref->parameters[0].declared_type, call_origin, "(return-self)");
-    code.add_let(call_origin, return_self_snapshot, vars_per_arg[orig_self_i]);
   }
 
   // `f(mutate x: int): slice` had put `(int, slice)` onto a stack, leave only `slice` (an actual return)
@@ -1594,16 +1794,14 @@ static std::vector<var_idx_t> process_function_call(V<ast_function_call> v, Code
 
   // `beginCell().storeUint()` / `sb.append()` / etc. — dot call for methods returning `self`
   TypePtr rvect_type = v->inferred_type;
-  if (fun_ref->does_return_self() && !returns_self_from_asm_stack) {
+  if (fun_ref->does_return_self() && fun_ref->does_mutate_self()) {
     int orig_self_i = rev_arg_order.empty() ? 0 : rev_arg_order[0];
-    rvect = return_self_snapshot.empty() ? vars_per_arg[orig_self_i] : std::move(return_self_snapshot);
-    if (fun_ref->does_mutate_self()) {
-      if (obj_leftmost == nullptr && self_obj && is_valid_mutation_path(self_obj)) {
-        obj_leftmost = self_obj;
-      }
-      if (lval_ctx && obj_leftmost) {
-        lval_ctx->set_mutated_self_obj(obj_leftmost);
-      }
+    rvect = vars_per_arg[orig_self_i];
+    if (obj_leftmost == nullptr && self_obj && is_valid_mutation_path(self_obj)) {
+      obj_leftmost = self_obj;
+    }
+    if (lval_ctx && obj_leftmost) {
+      lval_ctx->set_mutated_self_obj(obj_leftmost);
     }
     rvect_type = fun_ref->parameters[0].declared_type;
   }
@@ -1617,6 +1815,9 @@ static std::vector<var_idx_t> process_braced_expression(V<ast_braced_expression>
   // unless it's a special vertex "braced expression" (currently, only `match` arms)
   std::vector<var_idx_t> implicit_rvect;
   for (AnyV item : v->get_block_statement()->get_items()) {
+    if (code.fun_ref->lazy_load_plan) {
+      emit_lazy_loads_before(item, code);
+    }
     if (auto v_return = item->try_as<ast_braced_yield_result>()) {
       tolk_assert(implicit_rvect.empty());
       implicit_rvect = pre_compile_expr(v_return->get_expr(), code);
@@ -1625,6 +1826,10 @@ static std::vector<var_idx_t> process_braced_expression(V<ast_braced_expression>
     }
   }
   return transition_to_target_type(std::move(implicit_rvect), code, target_type, v);
+}
+
+static std::vector<var_idx_t> process_braced_yield_result(V<ast_braced_yield_result> v, CodeBlob& code, TypePtr target_type) {
+  return pre_compile_expr(v->get_expr(), code, target_type);
 }
 
 static std::vector<var_idx_t> process_tensor(V<ast_tensor> v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
@@ -1843,79 +2048,6 @@ static std::vector<var_idx_t> process_empty_expression(V<ast_empty_expression> v
   return transition_to_target_type(std::move(empty_rvect), code, target_type, v);
 }
 
-static std::vector<var_idx_t> process_artificial_aux_vertex(V<ast_artificial_aux_vertex> v, CodeBlob& code, TypePtr target_type) {
-  AnyExprV wrapped = v->get_wrapped_expr();
-
-  // aux "load x"; example: `var p = lazy Point.fromSlice(s); aux "load x"; return p.x`
-  if (const auto* data = dynamic_cast<const AuxData_LazyObjectLoadFields*>(v->aux_data)) {
-    const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(data->var_ref);
-    tolk_assert(lazy_variable);
-
-    std::vector ir_obj = data->var_ref->ir_idx;   // loading will update stack slots of `p`
-    TypePtr t_orig = data->var_ref->declared_type;
-
-    if (data->field_ref) {        // extract a field from a whole lazy variable
-      tolk_assert(lazy_variable->is_struct());
-      int stack_offset = calc_offset_on_stack(lazy_variable->loaded_state.original_struct, data->field_ref->field_idx);
-      int stack_width = data->field_ref->declared_type->get_width_on_stack();
-      ir_obj = std::vector(ir_obj.begin() + stack_offset, ir_obj.begin() + stack_offset + stack_width);
-      t_orig = data->field_ref->declared_type;
-    }
-
-    if (data->union_variant) {    // extract a variant from a union (a union variable or a union field of a struct)
-      ir_obj = transition_to_target_type(std::move(ir_obj), code, t_orig, data->union_variant, wrapped);
-    }
-
-    // `load_info` contains instructions to skip, load, save tail, etc.;
-    // it generates LETs to ir_obj, so stack slots of lazy_variable will contain loaded data
-    generate_lazy_struct_from_slice(code, wrapped, lazy_variable, data->load_info, ir_obj);
-    return transition_to_target_type({}, code, target_type, wrapped);
-  }
-
-  // aux "match(lazyUnion)" / aux "match(obj.lastUnionField)"
-  if (const auto* data = dynamic_cast<const AuxData_LazyMatchForUnion*>(v->aux_data)) {
-    V<ast_match_expression> v_match = wrapped->as<ast_match_expression>();
-    pre_compile_expr(v_match->get_subject(), code, nullptr);
-
-    const LazyVariableLoadedState* lazy_variable = code.get_lazy_variable(data->var_ref);
-    tolk_assert(lazy_variable);
-    TypePtr t_union = data->field_ref ? data->field_ref->declared_type : data->var_ref->declared_type;
-
-    std::vector<LazyMatchOptions::MatchBlock> match_blocks;
-    match_blocks.reserve(v_match->get_arms_count());
-    for (int i = 0; i < v_match->get_arms_count(); ++i) {
-      auto v_arm = v_match->get_arm(i);
-      TypePtr arm_variant = nullptr;
-      if (v_arm->pattern_kind == MatchArmKind::exact_type) {
-        arm_variant = v_arm->pattern_type_node->resolved_type;
-      } else {
-        tolk_assert(v_arm->pattern_kind == MatchArmKind::else_branch);   // `else` allowed in a lazy match
-      }
-      match_blocks.emplace_back(LazyMatchOptions::MatchBlock{arm_variant, v_arm->get_body(), v_arm->get_body()->inferred_type});
-    }
-
-    LazyMatchOptions options = {
-      .match_expr_type = v->inferred_type,
-      .is_statement = v_match->is_statement(),
-      .add_return_to_all_arms = v == stmt_before_immediate_return,
-      .match_blocks = std::move(match_blocks),
-      .lazy_var_ref = data->var_ref,
-    };
-
-    // it will generate match by a slice prefix, and for each `match` arm, invoke pre_compile_expr(),
-    // which contains "aux load" particularly
-    std::vector ir_match = generate_lazy_match_for_union(code, v_match, t_union, lazy_variable, options);
-    return transition_to_target_type(std::move(ir_match), code, target_type, wrapped);
-  }
-
-  if (const auto* data = dynamic_cast<const AuxData_OnInternalMessage_getField*>(v->aux_data)) {
-    std::vector rvect = data->generate_get_InMessage_field(code, wrapped);
-    return transition_to_target_type(std::move(rvect), code, target_type, wrapped);
-  }
-
-  tolk_assert(false);
-}
-
 std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr target_type, LValContext* lval_ctx) {
   switch (v->kind) {
     case ast_reference:
@@ -1948,6 +2080,8 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_function_call(v->as<ast_function_call>(), code, target_type, lval_ctx);
     case ast_braced_expression:
       return process_braced_expression(v->as<ast_braced_expression>(), code, target_type);
+    case ast_braced_yield_result:
+      return process_braced_yield_result(v->as<ast_braced_yield_result>(), code, target_type);
     case ast_tensor:
       return process_tensor(v->as<ast_tensor>(), code, target_type, lval_ctx);
     case ast_square_brackets:
@@ -1972,49 +2106,28 @@ std::vector<var_idx_t> pre_compile_expr(AnyExprV v, CodeBlob& code, TypePtr targ
       return process_underscore(v->as<ast_underscore>(), code);
     case ast_empty_expression:
       return process_empty_expression(v->as<ast_empty_expression>(), code, target_type);
-    case ast_artificial_aux_vertex:
-      return process_artificial_aux_vertex(v->as<ast_artificial_aux_vertex>(), code, target_type);
     default:
       throw UnexpectedASTNodeKind(v, "pre_compile_expr");
   }
 }
 
-
-static void process_block_statement(V<ast_block_statement> v, CodeBlob& code) {
+static void process_block_statement(V<ast_block_statement> v, CodeBlob& code, const FallthroughTail* outer) {
   if (v->empty()) {
-    return;
+    return process_tail(outer, code);
   }
-
-  FunctionPtr cur_f = code.fun_ref;
-  bool does_f_return_nothing = cur_f->inferred_return_type == TypeDataVoid::create() && !cur_f->does_return_self() && !cur_f->has_mutate_params();
-  bool is_toplevel_block = v == cur_f->ast_root->as<ast_function_declaration>()->get_body();
-  bool inlining_doesnt_prevent = code.inline_rvect_out == nullptr || code.inlining_before_immediate_return;
-
-  // function body scope is tracked by enter_fun/leave_fun, sub-blocks need explicit scope marks
+  bool is_toplevel_block = v == code.fun_ref->ast_root->as<ast_function_declaration>()->get_body();
   if (!is_toplevel_block) {
+    // function body scope is tracked by enter_fun/leave_fun, sub-blocks need explicit scope marks
     code.add_debug_mark(DebugMarkScopeStart{.range = v->range});
   }
 
-  // we want to optimize `match` and `if/else`: if it's the last statement, implicitly add "return" to every branch
-  // (to generate IFJMP instead of nested IF ELSE);
-  // a competent way is to do it at the IR level (building CST, etc.), it's impossible to tweak Ops for now;
-  // so, for every `f() { here }` of `... here; return;`, save it into a global, and handle within match/if
-  AnyV backup = stmt_before_immediate_return;
-  for (int i = 0; i < v->size() - 1; ++i) {
-    AnyV stmt = v->get_item(i);
-    AnyV next_stmt = v->get_item(i + 1);
-    bool next_is_empty_return = next_stmt->kind == ast_return_statement && !next_stmt->as<ast_return_statement>()->has_return_value();
-    stmt_before_immediate_return = next_is_empty_return && does_f_return_nothing && inlining_doesnt_prevent ? stmt : nullptr;
-    process_any_statement(stmt, code);
-  }
-  AnyV last_stmt = v->get_item(v->size() - 1);
-  stmt_before_immediate_return = is_toplevel_block && does_f_return_nothing && inlining_doesnt_prevent ? last_stmt : nullptr;
-  process_any_statement(last_stmt, code);
-  stmt_before_immediate_return = backup;
-
-  if (!is_toplevel_block) {
-    code.add_debug_mark(DebugMarkScopeEnd{});
-  }
+  FallthroughTail body{
+    .outer = outer,
+    .statements = &v->get_items(),
+    .scope_block = is_toplevel_block ? nullptr : v,
+    .is_toplevel_block = is_toplevel_block,
+  };
+  process_tail(&body, code);
 }
 
 static void process_assert_statement(V<ast_assert_statement> v, CodeBlob& code) {
@@ -2069,7 +2182,6 @@ static void process_catch_variable(AnyExprV v_catch_var, CodeBlob& code) {
 }
 
 static void process_try_catch_statement(V<ast_try_catch_statement> v, CodeBlob& code) {
-  code.require_callxargs = true;
   Op& try_catch_op = code.add_try_catch(v);
   code.push_set_cur(try_catch_op.block0);
   process_any_statement(v->get_try_body(), code);
@@ -2086,7 +2198,7 @@ static void process_try_catch_statement(V<ast_try_catch_statement> v, CodeBlob& 
   process_catch_variable(catch_vars[1], code);
   try_catch_op.left = pre_compile_tensor(code, {catch_vars[1], catch_vars[0]});
   process_block_statement(catch_body, code);
-  code.add_debug_mark(DebugMarkScopeEnd{});
+  code.add_debug_mark(DebugMarkScopeEnd{.range = catch_body->range});
   code.close_pop_cur(catch_body);
 }
 
@@ -2094,39 +2206,41 @@ static void process_repeat_statement(V<ast_repeat_statement> v, CodeBlob& code) 
   code.add_extra_mark_location(v->keyword_range());
   std::vector tmp_vars = pre_compile_expr(v->get_cond(), code, nullptr);
   Op& repeat_op = code.add_repeat_loop(v, tmp_vars);
+  LoopLoweringGuard guard(code, v->get_body());
   code.push_set_cur(repeat_op.block0);
   process_any_statement(v->get_body(), code);
   code.close_pop_cur(v->get_body());
 }
 
-static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
+static void process_if_statement(V<ast_if_statement> v, CodeBlob& code, const FallthroughTail* tail) {
   code.add_extra_mark_location(v->keyword_range());
   // generate the condition as-is; redundant `(... != 0)` / `(... == 0)` are stripped in `optimize_conditional_branches`
   // (the same below for loops, ternary, and assert)
   std::vector ir_cond = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(ir_cond.size() == 1);
 
+  const TailRoutingNode* route = find_routed_branch(v, code);
+  tolk_assert(!tail || route);
+  const FallthroughTail* if_tail = tail && route->goes_to == v->get_if_body() ? tail : nullptr;
+  const FallthroughTail* else_tail = tail && route->goes_to == v->get_else_body() ? tail : nullptr;
+
   if (v->get_cond()->is_always_true) {
-    process_any_statement(v->is_ifnot ? v->get_else_body() : v->get_if_body(), code);
+    const FallthroughTail* live_tail = v->is_ifnot ? else_tail : if_tail;
+    process_block_statement(v->is_ifnot ? v->get_else_body() : v->get_if_body(), code, live_tail);
     return;
   }
   if (v->get_cond()->is_always_false) {
-    process_any_statement(v->is_ifnot ? v->get_if_body() : v->get_else_body(), code);
+    const FallthroughTail* live_tail = v->is_ifnot ? if_tail : else_tail;
+    process_block_statement(v->is_ifnot ? v->get_if_body() : v->get_else_body(), code, live_tail);
     return;
   }
 
   Op& if_op = code.add_if_else(v, std::move(ir_cond));
   code.push_set_cur(if_op.block0);
-  process_any_statement(v->get_if_body(), code);
-  if (v == stmt_before_immediate_return) {
-    code.add_return(v->get_if_body(), {}, code.fun_ref);
-  }
+  process_block_statement(v->get_if_body(), code, if_tail);
   code.close_pop_cur(v->get_if_body());
   code.push_set_cur(if_op.block1);
-  process_any_statement(v->get_else_body(), code);
-  if (v == stmt_before_immediate_return) {
-    code.add_return(v->get_else_body(), {}, code.fun_ref);
-  }
+  process_block_statement(v->get_else_body(), code, else_tail);
   code.close_pop_cur(v->get_else_body());
   if (v->is_ifnot) {      // pre-optimized to generate IFNOT instead of IF
     std::swap(if_op.block0, if_op.block1);
@@ -2136,6 +2250,7 @@ static void process_if_statement(V<ast_if_statement> v, CodeBlob& code) {
 static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& code) {
   code.add_extra_mark_location(v->keyword_range());
   Op& until_op = code.add_until_loop(v);
+  LoopLoweringGuard guard(code, v->get_body());
   code.push_set_cur(until_op.block0);
   process_any_statement(v->get_body(), code);
 
@@ -2155,6 +2270,7 @@ static void process_do_while_statement(V<ast_do_while_statement> v, CodeBlob& co
 static void process_while_statement(V<ast_while_statement> v, CodeBlob& code) {
   code.add_extra_mark_location(v->keyword_range());
   Op& while_op = code.add_while_loop(v);
+  LoopLoweringGuard guard(code, v->get_body());
   code.push_set_cur(while_op.block0);
   while_op.left = pre_compile_expr(v->get_cond(), code, nullptr);
   tolk_assert(while_op.left.size() == 1);
@@ -2176,19 +2292,13 @@ static void process_throw_statement(V<ast_throw_statement> v, CodeBlob& code) {
   }
 }
 
-static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) {
-  // it's a function we're traversing AST of;
-  // probably, it's called and inlined into another (outer) function, we handle this below
+// the only place a function returns from: an explicit `return`, or reaching the end of a body;
+// `return_vars` are from `return xxx` (for void it's empty), mutated params are prepended here
+static void gen_return_from_cur_fun(CodeBlob& code, AnyV origin, std::vector<var_idx_t> return_vars) {
   FunctionPtr fun_ref = code.fun_ref;
 
-  TypePtr child_target_type = fun_ref->inferred_return_type;
-  if (fun_ref->does_return_self()) {
-    child_target_type = fun_ref->parameters[0].declared_type;
-  }
-  std::vector return_vars = pre_compile_expr(v->get_return_value(), code, child_target_type);
-
-  if (fun_ref->does_return_self()) {
-    return_vars = {};
+  if (fun_ref->does_return_self() && fun_ref->does_mutate_self()) {
+    return_vars = {};             // `return self` from `mutate self` will put `self` in mutated_vars below
   }
   if (fun_ref->has_mutate_params()) {
     std::vector<var_idx_t> mutated_vars;
@@ -2200,29 +2310,36 @@ static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) 
     return_vars.insert(return_vars.begin(), mutated_vars.begin(), mutated_vars.end());
   }
 
-  // if fun_ref is called and inlined into a parent, assign a result instead of generating a return statement
-  if (code.inline_rvect_out) {
-    code.inline_return_stmt_out = v;
-    code.add_let(v, *code.inline_rvect_out, std::move(return_vars));
+  // `return xxx` when inlining function is actually assigning `rvect_out = ir_vars_xxx`
+  if (code.inlining) {
+    // sizes differ when falling off the end of a non-void function (this is unreachable point then)
+    if (!return_vars.empty() && return_vars.size() == code.inlining->rvect_out.size()) {
+      code.add_let(origin, code.inlining->rvect_out, std::move(return_vars));
+    }
+    code.add_debug_mark(CodeBlob::create_mark_leave_fun(fun_ref, origin, code.inlining->rvect_out));
   } else {
-    code.add_return(v, std::move(return_vars), code.fun_ref);
+    code.add_return(origin, std::move(return_vars), fun_ref);
   }
 }
 
-// append "return" (void) to the end of the function
-// if it's not reachable, it will be dropped
-// (IR cfg reachability may differ from FlowContext in case of "never" types, so there may be situations,
-//  when IR will consider this "return" reachable and leave it, but actually execution will never reach it)
-static void append_implicit_return_statement(CodeBlob& code) {
-  std::vector<var_idx_t> mutated_vars;
-  if (code.fun_ref->has_mutate_params()) {
-    for (const LocalVarData& p_sym: code.fun_ref->parameters) {
-      if (p_sym.is_mutate_parameter()) {
-        mutated_vars.insert(mutated_vars.end(), p_sym.ir_idx.begin(), p_sym.ir_idx.end());
-      }
-    }
-  }
-  code.add_return(code.fun_ref->ident_anchor, std::move(mutated_vars), code.fun_ref);
+static void process_break_statement(V<ast_break_statement> v, CodeBlob& code) {
+  tolk_assert(code.current_loop);
+  code.add_debug_mark(DebugMarkScopeEnd{.range = code.current_loop->body->range});
+  code.add_break_from_loop(v);
+}
+
+static void process_continue_statement(V<ast_continue_statement>, CodeBlob&) {
+  tolk_assert(false && "continue must be absorbed by process_tail");
+}
+
+static void process_return_statement(V<ast_return_statement> v, CodeBlob& code) {
+  FunctionPtr fun_ref = code.fun_ref;
+  TypePtr child_target_type = fun_ref->does_return_self()
+    ? fun_ref->parameters[0].declared_type
+    : fun_ref->inferred_return_type;
+
+  std::vector ir_return_vars = pre_compile_expr(v->get_return_value(), code, child_target_type);
+  gen_return_from_cur_fun(code, v, std::move(ir_return_vars));
 }
 
 
@@ -2240,6 +2357,10 @@ void process_any_statement(AnyV v, CodeBlob& code) {
       return process_do_while_statement(v->as<ast_do_while_statement>(), code);
     case ast_while_statement:
       return process_while_statement(v->as<ast_while_statement>(), code);
+    case ast_break_statement:
+      return process_break_statement(v->as<ast_break_statement>(), code);
+    case ast_continue_statement:
+      return process_continue_statement(v->as<ast_continue_statement>(), code);
     case ast_throw_statement:
       return process_throw_statement(v->as<ast_throw_statement>(), code);
     case ast_assert_statement:
@@ -2270,7 +2391,7 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
     rvect_import.insert(rvect_import.end(), ir_param.begin(), ir_param.end());
     param_i.mutate()->assign_ir_idx(std::move(ir_param));
   }
-  blob->add_import_fun_params(fun_ref->ident_anchor, rvect_import, fun_ref, DebugMarkEnterFunction{
+  blob->add_import_fun_params(fun_ref->ident_anchor, rvect_import, DebugMarkEnterFunction{
     .fun_ref = fun_ref,
     .is_inlined = false,
     .is_builtin = false,
@@ -2288,12 +2409,15 @@ static void convert_function_body_to_CodeBlob(FunctionPtr fun_ref, FunctionBodyC
     });
   }
 
-  if (fun_ref->name == "onInternalMessage") {
+  if (fun_ref->is_entrypoint() && fun_ref->is_onInternalMessage()) {
     handle_onInternalMessage_codegen_start(fun_ref, rvect_import, *blob, fun_ref->ident_anchor);
   }
 
   process_block_statement(v_body, *blob);
-  append_implicit_return_statement(*blob);
+  // append empty "return" to the end of the function; if it's not reachable, it will be dropped
+  // (IR cfg reachability may differ from FlowContext in case of "never" types, so there may be situations,
+  //  when IR will consider this "return" reachable and leave it, but actually execution will never reach it)
+  gen_return_from_cur_fun(*blob, fun_ref->ident_anchor, {});
 
   blob->close_blk(v_body);
   code_body->set_code(blob);
@@ -2331,7 +2455,8 @@ static void convert_asm_body_to_AsmOp(FunctionPtr fun_ref, FunctionBodyAsm* asm_
 class UpdateArgRetOrderConsideringStackWidth final {
 public:
   static bool should_visit_function(FunctionPtr fun_ref) {
-    return !fun_ref->is_generic_function() && (!fun_ref->ret_order.empty() || !fun_ref->arg_order.empty());
+    return fun_ref->is_asm_function() && !fun_ref->is_generic_function() &&
+           (!fun_ref->ret_order.empty() || !fun_ref->arg_order.empty());
   }
 
   static void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration> v_function) {
@@ -2345,7 +2470,7 @@ public:
 
     // do not allow `mutate` combined with non-primitives arg_order shuffling: impractical but hard to follow
     if (has_arg_width_not_1 && total_arg_mutate_width) {
-      err("width not 1 and mutate").fire(fun_ref->ident_anchor, fun_ref);
+      err("width not 1 and mutate").fire(fun_ref);
     }
 
     // example: `fun f(a: int, b: (int, (int, int)), c: int)` with `asm (b a c)`
@@ -2385,7 +2510,7 @@ public:
 class ConvertASTToLegacyOpVisitor final {
 public:
   static bool should_visit_function(FunctionPtr fun_ref) {
-    return !fun_ref->is_generic_function();
+    return !fun_ref->is_generic_function() && (fun_ref->is_code_function() || fun_ref->is_asm_function());
   }
 
   static void start_visiting_function(FunctionPtr fun_ref, V<ast_function_declaration>) {

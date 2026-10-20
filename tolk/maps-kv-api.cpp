@@ -98,7 +98,7 @@ static int is_TKey_TVM_slice(TypePtr TKey) {
     return t_address->is_internal() ? 3 + 8 + 256 : 0;
   }
   if (const TypeDataBitsN* t_bitsN = TKey->try_as<TypeDataBitsN>()) {
-    return t_bitsN->is_bits ? t_bitsN->n_width : t_bitsN->n_width * 8;
+    return t_bitsN->n_bits;
   }
   if (const TypeDataAlias* t_alias = TKey->try_as<TypeDataAlias>()) {
     return is_TKey_TVM_slice(t_alias->underlying_type);
@@ -293,7 +293,7 @@ static std::vector<var_idx_t> construct_MapEntry_with_non_trivial_key(CodeBlob& 
   Op& if_found = code.add_if_else(origin, {ir_entry[2]});
   {
     code.push_set_cur(if_found.block0);
-    UnpackContext ctx(code, origin, std::vector(ir_entry.begin() + 1, ir_entry.begin() + 2), create_default_UnpackOptions(code, origin));
+    UnpackContext ctx(code, origin, std::vector(ir_entry.begin() + 1, ir_entry.begin() + 2), create_default_UnpackOptions(code, origin), GeneratedLoadPolicy::AllowRemoving);
     std::vector ir_unpacked_key = ctx.generate_unpack_any(TKey);
     code.add_let(origin, ir_key, std::move(ir_unpacked_key));
     code.close_pop_cur(origin);

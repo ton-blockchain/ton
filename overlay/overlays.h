@@ -97,7 +97,7 @@ struct CertificateFlags {
 };
 
 struct OverlayMemberFlags {
-  enum Values : td::uint32 { DoNotReceiveBroadcasts = 1 };
+  enum Values : td::uint32 { DoNotReceivePlumtreeBroadcasts = 1 };
 };
 
 enum BroadcastCheckResult { Forbidden = 1, NeedCheck = 2, Allowed = 3 };
@@ -327,6 +327,7 @@ struct OverlayOptions {
     td::uint32 max_repair_targets_ = 5;
 
     double stats_epoch_duration_ = 3600.0;
+    td::uint32 stats_store_limit_ = 100;
   };
 
   bool enable_plumtree_broadcast_ = false;

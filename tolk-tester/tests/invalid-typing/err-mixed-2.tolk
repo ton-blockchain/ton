@@ -82,3 +82,17 @@ fun notIntegerLogicalNot(i: int, c: coins, i16: int16) {
     var b = !c;
     var d = !i16;
 }
+
+type V15UserIdForIs = int
+
+// @stderr wrong pattern matching: use `int` instead of `V15UserIdForIs`
+fun aliasV15IsDownwardInt(i: int) {
+    return i is V15UserIdForIs;
+}
+
+type V15StrangeInt<T> = int
+
+// @stderr wrong pattern matching: use `V15StrangeInt<builder>` instead of `V15StrangeInt<cell>`
+fun aliasV15GenericSibling(v: V15StrangeInt<builder>) {
+    return v is V15StrangeInt<cell>;
+}

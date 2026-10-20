@@ -658,6 +658,35 @@ class DashboardGenerationTest(unittest.TestCase):
         self.assertTrue(drawn)
         self.assertTrue(all(" or 0 * " in query["expr"] for query in drawn))
 
+    def test_quic_confirmation_fallback_precedes_aggregation_and_attribution(self):
+        node = 'job=~"$job",instance=~"$instance"'
+        trusted = node + ',ton_scope=~"$scope",trust=~"$trust"'
+        cases = (
+            (ton_network, 21, "trust, job, instance, ton_scope, le", trusted, ("seconds_bucket",)),
+            (ton_network, 22, "job, instance, ton_scope, trust", trusted,
+             ("failed_total", "seconds_count")),
+            (ton_overview, 31, "job, instance", node, ("failed_total", "seconds_count")),
+        )
+        for module, panel_id, group, selector, suffixes in cases:
+            panel = next(panel for panel in panels(module.build()) if panel["id"] == panel_id)
+            queries = [query for query in panel["targets"]
+                       if "ton_quic_message_" in query["expr"]]
+            with self.subTest(board=module.__name__, panel=panel_id):
+                self.assertEqual(len(queries), 2)  # Drawn value and its node attribution.
+                for query in queries:
+                    for suffix in suffixes:
+                        new = f"ton_quic_message_confirmation_{suffix}{{{selector}}}"
+                        old = f"ton_quic_message_delivery_{suffix}{{{selector}}}"
+                        self.assertIn(
+                            f"sum by ({group}) (rate({new}[$__rate_interval])"
+                            f" or rate({old}[$__rate_interval]))", query["expr"])
+
+    def test_quic_handshake_outcomes_include_deadline_timeouts(self):
+        panel = next(panel for panel in panels(ton_network.build()) if panel["id"] == 14)
+        drawn = [query for query in panel["targets"] if not query["refId"].startswith("ATTR")]
+        self.assertEqual(len(drawn), 4)
+        self.assertIn('result="timed_out"', drawn[-1]["expr"])
+
     def test_job_scope_rejects_instance_filter(self):
         dashboard = ton_actors.build()
         item = next(panel for panel in panels(dashboard) if panel.get("targets"))
