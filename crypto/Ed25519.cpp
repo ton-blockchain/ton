@@ -37,22 +37,6 @@
 #include "td/utils/ThreadSafeCounter.h"
 
 namespace td {
-
-std::string to_string(SignatureDomain domain) {
-  switch (domain) {
-    case SignatureDomain::Generic:
-      return "generic";
-    case SignatureDomain::Vm:
-      return "vm";
-    case SignatureDomain::Consensus:
-      return "consensus";
-    case SignatureDomain::Overlay:
-      return "overlay";
-    case SignatureDomain::COUNT:
-      break;
-  }
-  UNREACHABLE();
-}
 namespace {
 
 constexpr size_t kMaxCachedDataSize = 128;
@@ -62,10 +46,7 @@ constexpr size_t kCacheKeyWords =
     sizeof(uint64);
 struct CacheCounters {
   using CounterRef = NamedThreadSafeCounter::CounterRef;
-  CounterRef hit;
-  CounterRef miss;
-  CounterRef insert;
-  CounterRef insert_skipped;
+  CounterRef hit, miss, insert, insert_skipped;
   NamedPerfCounter::PerfCounterRef verify;
 
   explicit CacheCounters(SignatureDomain domain)
@@ -96,7 +77,7 @@ struct SignatureCache {
   CacheCounters counters;
 };
 
-using SignatureCaches = std::array<std::optional<SignatureCache>, static_cast<size_t>(SignatureDomain::COUNT)>;
+using SignatureCaches = std::array<std::optional<SignatureCache>, SignatureDomain::COUNT>;
 
 static SignatureCaches caches;
 static std::atomic<int> caches_initialized = 0;
@@ -113,7 +94,37 @@ SignatureCache::Key make_signature_cache_key(Slice public_key, Slice signature, 
   return key;
 }
 
+std::tuple<SignatureCache *, SignatureCache::Key, size_t> get_cache_data(const Slice &data,
+                                                                         const SecureString &public_key,
+                                                                         const Slice &signature,
+                                                                         SignatureDomain domain) {
+  if (data.size() > kMaxCachedDataSize || public_key.size() != Ed25519::PublicKey::LENGTH ||
+      signature.size() != kSignatureSize || caches_initialized.load(std::memory_order_acquire) != 2) {
+    return std::make_tuple(nullptr, SignatureCache::Key{}, 0);
+  }
+  if (!caches[domain]) {
+    return std::make_tuple(nullptr, SignatureCache::Key{}, 0);
+  }
+  auto key = make_signature_cache_key(public_key, signature, data);
+  size_t slot = caches[domain]->cache.key_to_slot(key);
+  return std::make_tuple(&*caches[domain], std::move(key), std::move(slot));
+}
+
 }  // namespace
+
+std::string to_string(SignatureDomain domain) {
+  switch (domain) {
+    case SignatureDomain::Generic:
+      return "generic";
+    case SignatureDomain::Vm:
+      return "vm";
+    case SignatureDomain::Consensus:
+      return "consensus";
+    case SignatureDomain::COUNT:
+      break;
+  }
+  UNREACHABLE();
+}
 
 Status init_signature_caches(const SignatureCacheSizes &slot_counts) {
   int expected = 0;
@@ -127,23 +138,6 @@ Status init_signature_caches(const SignatureCacheSizes &slot_counts) {
   }
   caches_initialized.store(2);
   return Status::OK();
-}
-
-std::tuple<SignatureCache *, SignatureCache::Key, size_t> get_cache_data(const Slice &data,
-                                                                         const SecureString &public_key,
-                                                                         const Slice &signature,
-                                                                         SignatureDomain domain) {
-  if (data.size() > kMaxCachedDataSize || public_key.size() != Ed25519::PublicKey::LENGTH ||
-      signature.size() != kSignatureSize || caches_initialized.load(std::memory_order_acquire) != 2) {
-    return std::make_tuple(nullptr, SignatureCache::Key{}, 0);
-  }
-  size_t index = static_cast<size_t>(domain);
-  if (!caches[index]) {
-    return std::make_tuple(nullptr, SignatureCache::Key{}, 0);
-  }
-  auto key = make_signature_cache_key(public_key, signature, data);
-  size_t slot = caches[index]->cache.key_to_slot(key);
-  return std::make_tuple(&*caches[index], std::move(key), std::move(slot));
 }
 
 Ed25519::PublicKey::PublicKey(SecureString octet_string) : octet_string_(std::move(octet_string)) {

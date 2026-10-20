@@ -32,16 +32,13 @@
 
 namespace td {
 
-enum class SignatureDomain : uint8 {
+enum SignatureDomain : uint8 {
   Generic,
   Vm,
   Consensus,
-  Overlay,
   COUNT  // MUST BE LAST
 };
 std::string to_string(SignatureDomain domain);
-
-constexpr size_t kDefaultSignatureCacheSlots = 65536;
 
 using SignatureCacheSizes = std::array<size_t, static_cast<size_t>(SignatureDomain::COUNT)>;
 Status init_signature_caches(const SignatureCacheSizes &slot_counts);

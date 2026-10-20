@@ -5949,8 +5949,10 @@ int main(int argc, char *argv[]) {
       "enable deprecated control queries (createElectionBid, createProposalVote, createComplaintVote)", [&]() {
         acts.push_back([&x]() { td::actor::send_closure(x, &ValidatorEngine::set_enable_deprecated_control_queries); });
       });
-  td::SignatureCacheSizes signature_cache_slots;
-  signature_cache_slots.fill(td::kDefaultSignatureCacheSlots);
+  td::SignatureCacheSizes signature_cache_slots{};
+  signature_cache_slots[td::SignatureDomain::Generic] = 32 * 1024;
+  signature_cache_slots[td::SignatureDomain::Vm] = 64 * 1024;
+  signature_cache_slots[td::SignatureDomain::Consensus] = 4 * 1024;
   for (size_t i = 0; i < signature_cache_slots.size(); ++i) {
     p.add_checked_option('\0', to_string(static_cast<td::SignatureDomain>(i)) + "-signature-cache-slots",
                          PSTRING() << "number of slots in this signature cache (default: " << signature_cache_slots[i]
