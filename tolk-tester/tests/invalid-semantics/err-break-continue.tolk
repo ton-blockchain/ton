@@ -110,6 +110,19 @@ fun return_in_while_cond(): int {
     return 0;
 }
 
+// @stderr in function break_in_try_in_loop_in_try
+fun break_in_try_in_loop_in_try() {
+    try {
+        while (true) {
+            try {
+                break;
+            } catch {
+            }
+        }
+    } catch {
+    }
+}
+
 // @stderr in function break_in_try_then_return
 fun break_in_try_then_return() {
     while (true) {
