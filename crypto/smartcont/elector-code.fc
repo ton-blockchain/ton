@@ -307,7 +307,7 @@ _ ~credit_to(credits, addr, amount) inline_ref {
       if (banned) {
         recovered += stake;
       } else {
-        var bonus = muldiv(tot_bonuses, stake, tot_stakes);
+        var bonus = tot_stakes ? muldiv(tot_bonuses, stake, tot_stakes) : 0;
         returned_bonuses += bonus;
         credits~credit_to(addr, stake + bonus);
       }
