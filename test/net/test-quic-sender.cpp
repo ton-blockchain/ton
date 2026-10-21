@@ -1037,9 +1037,17 @@ TEST(QuicSender, BidirectionalClientWithoutAddress) {
     ASSERT_TRUE(node.addr_list().adnl_addrs().empty());
     ASSERT_TRUE(node.addr_list().quic_addrs().empty());
 
+    ASSERT_TRUE(!co_await td::actor::ask(client.quic_sender, &ton::quic::QuicSender::has_ready_connection, client.id,
+                                         server.id));
+    ASSERT_TRUE(!co_await td::actor::ask(server.quic_sender, &ton::quic::QuicSender::has_ready_connection, server.id,
+                                         client.id));
     t.add_peer(client, server);
     auto forward = co_await t.send_query(client, server, "forward");
     ASSERT_EQ(forward.as_slice(), td::Slice("Qforward"));
+    ASSERT_TRUE(co_await td::actor::ask(client.quic_sender, &ton::quic::QuicSender::has_ready_connection, client.id,
+                                        server.id));
+    ASSERT_TRUE(co_await td::actor::ask(server.quic_sender, &ton::quic::QuicSender::has_ready_connection, server.id,
+                                        client.id));
     auto reverse = t.send_query_ex(server, client, "reverse", 5.0, 1024).start_immediate();
     auto parallel = co_await t.send_query(client, server, "parallel");
     ASSERT_EQ(parallel.as_slice(), td::Slice("Qparallel"));

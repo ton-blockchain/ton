@@ -712,6 +712,10 @@ add_executable(test-http-payload test/test-td-main.cpp test/test-http-payload.cp
 target_link_libraries(test-http-payload PRIVATE tonhttp)
 ton_test(test-http-payload)
 
+add_executable(test-proxy-transport-dispatcher test/test-td-main.cpp test/test-proxy-transport-dispatcher.cpp)
+target_link_libraries(test-proxy-transport-dispatcher PRIVATE adnl tl_api)
+ton_test(test-proxy-transport-dispatcher)
+
 add_executable(test-http test/test-http.cpp)
 target_link_libraries(test-http PRIVATE tonhttp)
 

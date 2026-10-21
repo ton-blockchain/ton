@@ -35,6 +35,7 @@ class QuicSender : public adnl::AdnlSenderEx {
   void get_conn_ip_str(adnl::AdnlNodeIdShort l_id, adnl::AdnlNodeIdShort p_id,
                        td::Promise<td::string> promise) override;
 
+  void has_ready_connection(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id, td::Promise<bool> promise);
   void set_quic_options(QuicServer::Options options);
   void enable_bidirectional_queries();
   void add_id(adnl::AdnlNodeIdShort local_id) override;

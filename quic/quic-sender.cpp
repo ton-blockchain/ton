@@ -383,6 +383,15 @@ void QuicSender::set_quic_options(QuicServer::Options options) {
   server_options_ = options;
 }
 
+void QuicSender::has_ready_connection(adnl::AdnlNodeIdShort local_id, adnl::AdnlNodeIdShort peer_id,
+                                      td::Promise<bool> promise) {
+  auto ready = [&](const auto &connections) {
+    auto it = connections.find({local_id, peer_id});
+    return it != connections.end() && it->second->is_ready;
+  };
+  promise.set_value(ready(outbound_) || ready(inbound_));
+}
+
 void QuicSender::enable_bidirectional_queries() {
   bidirectional_queries_ = true;
 }

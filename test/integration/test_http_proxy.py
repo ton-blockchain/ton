@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import socket
+import ssl
 from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -21,6 +22,7 @@ from tontester.network import Network
 @final
 class Arguments(argparse.Namespace):
     http_only: bool = False
+    legacy_build_dir: Path | None = None
 
 
 DATA = (bytes(range(251)) * 13000)[: 3 * 1024 * 1024 + 17]
@@ -213,7 +215,12 @@ class Backend:
 
 @asynccontextmanager
 async def proxy_process(
-    binary: Path, directory: Path, args: list[str], use_database: bool = True
+    binary: Path,
+    directory: Path,
+    args: list[str],
+    use_database: bool = True,
+    *,
+    allow_stop: bool = False,
 ) -> AsyncIterator[asyncio.subprocess.Process]:
     directory.mkdir(parents=True, exist_ok=True)
     log_path = directory / "proxy.log"
@@ -223,13 +230,14 @@ async def proxy_process(
             *args,
             *(["-D", str(directory)] if use_database else []),
             "-v",
-            "3",
+            "4",
             stdout=log,
             stderr=log,
         )
         try:
             yield process
-            assert process.returncode is None, f"proxy exited with {process.returncode}"
+            if not allow_stop:
+                assert process.returncode is None, f"proxy exited with {process.returncode}"
         except BaseException:
             print(
                 f"{log_path.name} ({directory.name}):\n{log_path.read_text(errors='replace')[-8000:]}"
@@ -296,7 +304,7 @@ async def check_stream(port: int, host: str, backend: Backend) -> None:
             await close_writer(writer)
 
 
-async def check_connect(port: int, host: str) -> None:
+async def check_connect(port: int, host: str, *, verify_eof: bool = True) -> None:
     async with asyncio.timeout(30):
         reader, writer = await asyncio.open_connection("127.0.0.1", port)
         try:
@@ -308,10 +316,138 @@ async def check_connect(port: int, host: str) -> None:
                 writer.write(data)
                 await writer.drain()
                 assert await reader.readexactly(len(data)) == data
-            writer.write_eof()
-            assert await reader.read() == b""
+            if verify_eof:
+                writer.write_eof()
+                assert await reader.read() == b""
         finally:
             await close_writer(writer)
+
+
+async def tls_contexts(directory: Path, host: str) -> tuple[ssl.SSLContext, ssl.SSLContext]:
+    directory.mkdir()
+    ca_cert, ca_key = directory / "ca.pem", directory / "ca.key"
+    cert, key, csr = directory / "server.pem", directory / "server.key", directory / "server.csr"
+    extensions = directory / "server.cnf"
+    _ = extensions.write_text(
+        "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\n"
+        + "extendedKeyUsage=serverAuth\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n"
+        + f"subjectAltName=DNS:{host}\n"
+    )
+    commands = [
+        [
+            "req",
+            "-x509",
+            "-newkey",
+            "ec",
+            "-pkeyopt",
+            "ec_paramgen_curve:P-256",
+            "-nodes",
+            "-keyout",
+            str(ca_key),
+            "-out",
+            str(ca_cert),
+            "-days",
+            "1",
+            "-sha256",
+            "-subj",
+            "/CN=HTTP proxy test CA",
+            "-addext",
+            "basicConstraints=critical,CA:TRUE",
+            "-addext",
+            "keyUsage=critical,keyCertSign,cRLSign",
+        ],
+        [
+            "req",
+            "-new",
+            "-newkey",
+            "ec",
+            "-pkeyopt",
+            "ec_paramgen_curve:P-256",
+            "-nodes",
+            "-keyout",
+            str(key),
+            "-out",
+            str(csr),
+            "-subj",
+            f"/CN={host}",
+        ],
+        [
+            "x509",
+            "-req",
+            "-in",
+            str(csr),
+            "-CA",
+            str(ca_cert),
+            "-CAkey",
+            str(ca_key),
+            "-CAcreateserial",
+            "-out",
+            str(cert),
+            "-days",
+            "1",
+            "-sha256",
+            "-extfile",
+            str(extensions),
+        ],
+    ]
+    for args in commands:
+        process = await asyncio.create_subprocess_exec(
+            "openssl", *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        try:
+            _, stderr = await asyncio.wait_for(process.communicate(), 10)
+            assert process.returncode == 0, stderr.decode(errors="replace")
+        finally:
+            if process.returncode is None:
+                process.kill()
+                _ = await process.wait()
+    server = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    server.load_cert_chain(cert, key)
+    client = ssl.create_default_context(cafile=str(ca_cert))
+    for context in (server, client):
+        context.minimum_version = ssl.TLSVersion.TLSv1_3
+        context.maximum_version = ssl.TLSVersion.TLSv1_3
+        context.set_alpn_protocols(["http/1.1"])
+    assert client.check_hostname and client.verify_mode == ssl.CERT_REQUIRED
+    return server, client
+
+
+async def check_https_connect(
+    port: int, host: str, context: ssl.SSLContext, *, verify_eof: bool = True
+) -> None:
+    for method, path in (("GET", "large"), ("POST", "echo")):
+        async with asyncio.timeout(30):
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            try:
+                writer.write(f"CONNECT {host}:8443 HTTP/1.1\r\nHost: {host}:8443\r\n\r\n".encode())
+                await writer.drain()
+                status, _ = await read_headers(reader)
+                assert status.split()[1] == "200"
+                await writer.start_tls(
+                    context, server_hostname=host, ssl_handshake_timeout=10, ssl_shutdown_timeout=5
+                )
+                tls = cast(ssl.SSLObject | None, writer.get_extra_info("ssl_object"))
+                assert tls is not None and tls.version() == "TLSv1.3"
+                assert tls.selected_alpn_protocol() == "http/1.1"
+                body = DATA if method == "POST" else b""
+                writer.write(
+                    (
+                        f"{method} /{path} HTTP/1.1\r\nHost: {host}:8443\r\n"
+                        f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n"
+                    ).encode()
+                    + body
+                )
+                await writer.drain()
+                status, headers = await read_headers(reader)
+                response, _ = await read_body(reader, headers)
+                assert status.split()[1] == "200" and response == DATA
+                if verify_eof:
+                    assert await reader.read() == b""
+            finally:
+                await close_writer(writer)
+        print(
+            f"HTTPS CONNECT: TLSv1.3, verified certificate, HTTP/1.1, {method} passed", flush=True
+        )
 
 
 async def check_server_half_close(port: int, host: str, backend: Backend) -> None:
@@ -474,11 +610,15 @@ async def main_http() -> None:
             assert not backend.errors, backend.errors
 
 
-async def main() -> None:
+async def main(legacy_build_dir: Path | None = None, *, legacy_client: bool = False) -> None:
     repo = Path(__file__).resolve().parents[2]
     install = Install(repo / "build", repo)
     binary = install.build_dir / "rldp-http-proxy/rldp-http-proxy"
     assert binary.is_file(), f"build {binary} before running this test"
+    legacy = legacy_build_dir / "rldp-http-proxy/rldp-http-proxy" if legacy_build_dir else binary
+    server_binary = binary if legacy_client else legacy
+    client_binary = legacy if legacy_client else binary
+    compatibility = legacy_build_dir is not None
     with TemporaryDirectory(prefix="ton-http-proxy-") as temporary:
         directory = Path(temporary)
         async with Network(
@@ -520,9 +660,20 @@ async def main() -> None:
                 _ = key.add_to_keyring(keyring)
                 address = adnl_address(key)
                 host = address + ".adnl"
+                tls_server, tls_client = await tls_contexts(directory / "tls", host)
+                https_backend = await asyncio.start_server(
+                    backend.handle,
+                    "127.0.0.1",
+                    0,
+                    ssl=tls_server,
+                    ssl_handshake_timeout=10,
+                    ssl_shutdown_timeout=5,
+                )
+                _ = await stack.enter_async_context(https_backend)
+                https_port = cast(tuple[str, int], https_backend.sockets[0].getsockname())[1]
                 server = await stack.enter_async_context(
                     proxy_process(
-                        binary,
+                        server_binary,
                         server_directory,
                         [
                             "-a",
@@ -533,15 +684,18 @@ async def main() -> None:
                             f"{host}:80@127.0.0.1:{backend_port}",
                             "-R",
                             f"{host}:443@127.0.0.1:{echo_port}",
+                            "-R",
+                            f"{host}:8443@127.0.0.1:{https_port}",
                             "-C",
                             str(config),
                         ],
+                        allow_stop=True,
                     )
                 )
                 client_port = unused_port()
                 client = await stack.enter_async_context(
                     proxy_process(
-                        binary,
+                        client_binary,
                         directory / "client",
                         [
                             "-c",
@@ -564,25 +718,85 @@ async def main() -> None:
                         except OSError, TimeoutError, asyncio.IncompleteReadError:
                             pass
                         await asyncio.sleep(0.2)
+                if not compatibility:
+                    cold_port = unused_port()
+                    async with proxy_process(
+                        binary,
+                        directory / "cold-client",
+                        [
+                            "-c",
+                            str(unused_port(socket.SOCK_DGRAM)),
+                            "-p",
+                            str(cold_port),
+                            "-C",
+                            str(config),
+                        ],
+                    ):
+                        async with asyncio.timeout(10):
+                            while True:
+                                try:
+                                    _, writer = await asyncio.open_connection(
+                                        "127.0.0.1", cold_port
+                                    )
+                                    await close_writer(writer)
+                                    break
+                                except OSError:
+                                    await asyncio.sleep(0.1)
+                        async with asyncio.timeout(35):
+                            first_body = DATA[:65536]
+                            status, _, body = await request(
+                                cold_port, host, "POST", "echo", first_body
+                            )
+                        assert status == 200 and body == first_body
+                        print(
+                            "PASS: first request from a client-only identity is an upload",
+                            flush=True,
+                        )
                 status, _, body = await request(client_port, host, "GET", "large")
                 assert status == 200 and body == DATA
                 status, _, body = await request(client_port, host, "POST", "echo", DATA)
                 assert status == 200 and body == DATA
+                if compatibility:
+                    await check_connect(client_port, host, verify_eof=False)
+                    await check_https_connect(client_port, host, tls_client, verify_eof=False)
+                    logs = "\n".join(
+                        path.read_text(errors="replace")
+                        for path in (server_directory / "proxy.log", directory / "client/proxy.log")
+                    )
+                    assert "Selected HTTP transport: RLDP2" in logs
+                    assert "Selected HTTP transport: QUIC" not in logs
+                    assert not backend.errors, backend.errors
+                    print(f"PASS: RLDP2 compatibility, legacy_client={legacy_client}", flush=True)
+                    return
                 status, headers, body = await request(client_port, host, "POST", "echo", DATA, True)
                 assert status == 200 and body == DATA
                 assert headers["x-seen-upload-hash"] == hashlib.sha256(DATA).hexdigest()
                 await check_stream(client_port, host, backend)
                 await check_connect(client_port, host)
                 await check_server_half_close(client_port, host, backend)
-                await check_interrupted_upload(client_port, host, backend, 25)
+                await check_https_connect(client_port, host, tls_client)
+                await check_interrupted_upload(client_port, host, backend, 5)
                 await check_early_response(client_port, host, backend, plain=False)
                 await check_plain_proxy(install, directory, backend, backend_port)
                 assert not backend.errors, backend.errors
-                assert "got HTTP request over rldp" in (server_directory / "proxy.log").read_text(
-                    errors="replace"
-                )
+                logs = (directory / "client/proxy.log").read_text(errors="replace")
+                assert "Selected HTTP transport: RLDP2" in logs
+                assert "Selected HTTP transport: QUIC" in logs
+                server.terminate()
+                _ = await asyncio.wait_for(server.wait(), 5)
+                offset = (directory / "client/proxy.log").stat().st_size
+                async with asyncio.timeout(35):
+                    try:
+                        status, _, _ = await request(client_port, host, "GET", "ready")
+                        assert status != 200
+                    except OSError, asyncio.IncompleteReadError:
+                        pass
+                failed_logs = (directory / "client/proxy.log").read_text(errors="replace")[offset:]
+                assert "Selected HTTP transport: QUIC" in failed_logs
+                assert "Selected HTTP transport: RLDP2" not in failed_logs
+                print("PASS: failed QUIC request is not retried over RLDP2", flush=True)
     print(
-        "RLDP2 HTTP proxy: multipart GET/POST, chunked trailers, streaming, CONNECT half-close, upload cancellation and early responses passed"
+        "QUIC HTTP proxy: multipart GET/POST, chunked trailers, streaming, CONNECT half-close, verified TLSv1.3 HTTPS, upload cancellation and early responses passed"
     )
 
 
@@ -590,5 +804,16 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING)
     parser = argparse.ArgumentParser()
     _ = parser.add_argument("--http-only", action="store_true")
+    _ = parser.add_argument("--legacy-build-dir", type=Path)
     args = parser.parse_args(namespace=Arguments())
-    asyncio.run(asyncio.wait_for(main_http() if args.http_only else main(), timeout=5 * 60))
+
+    async def run() -> None:
+        if args.http_only:
+            await main_http()
+            return
+        await main()
+        if args.legacy_build_dir is not None:
+            await main(args.legacy_build_dir)
+            await main(args.legacy_build_dir, legacy_client=True)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=5 * 60))
