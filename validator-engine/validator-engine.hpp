@@ -280,7 +280,8 @@ class ValidatorEngine : public td::actor::Actor {
                                                                   .public_broadcast_speed_multiplier_ = 3.33,
                                                                   .private_broadcast_speed_multiplier_ = 3.33,
                                                                   .fast_sync_broadcast_speed_multiplier_ = 3.33,
-                                                                  .initial_sync_delay_ = 60.0};
+                                                                  .initial_sync_delay_ = 60.0,
+                                                                  .public_whitelisted_peers_ = {}};
 
   std::map<ton::BlockSeqno, std::pair<ton::CatchainSeqno, td::uint32>> unsafe_catchain_rotations_;
   ton::quic::QuicServer::Options quic_options_ = {};
@@ -422,6 +423,9 @@ class ValidatorEngine : public td::actor::Actor {
   }
   void set_public_rebroadcast_fanout(td::uint32 fanout) {
     full_node_options_.public_rebroadcast_fanout_ = fanout;
+  }
+  void set_public_whitelisted_peers(std::vector<ton::adnl::AdnlNode> peers) {
+    full_node_options_.public_whitelisted_peers_ = std::move(peers);
   }
   void with_full_node_options(std::function<void(ton::validator::fullnode::FullNodeOptions &)> f) {
     f(full_node_options_);

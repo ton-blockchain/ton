@@ -34,7 +34,9 @@ namespace overlay {
 
 void OverlayImpl::del_peer(const adnl::AdnlNodeIdShort &id) {
   auto P = peer_list_.peers_.get(id);
+  peer_list_.evictable_bad_peers_.erase(id);
   if (P == nullptr) {
+    peer_list_.bad_peers_.erase(id);
     return;
   }
   if (P->is_permanent_member()) {
@@ -110,14 +112,19 @@ void OverlayImpl::del_some_peers() {
   size_t iteration_seqno = 0;
   while (peer_list_.peers_.size() > max_peers() && iteration_seqno++ < max_iterations) {
     OverlayPeer *P;
-    if (peer_list_.bad_peers_.empty()) {
+    if (peer_list_.evictable_bad_peers_.empty()) {
       P = get_random_peer();
     } else {
-      auto it = peer_list_.bad_peers_.upper_bound(peer_list_.next_bad_peer_);
-      if (it == peer_list_.bad_peers_.end()) {
-        it = peer_list_.bad_peers_.begin();
+      auto it = peer_list_.evictable_bad_peers_.upper_bound(peer_list_.next_evictable_bad_peer_);
+      if (it == peer_list_.evictable_bad_peers_.end()) {
+        it = peer_list_.evictable_bad_peers_.begin();
       }
-      P = peer_list_.peers_.get(peer_list_.next_bad_peer_ = *it);
+      auto id = peer_list_.next_evictable_bad_peer_ = *it;
+      P = peer_list_.peers_.get(id);
+      if (!P || P->is_permanent_member()) {
+        del_peer(id);
+        continue;
+      }
     }
     if (P && !P->is_permanent_member()) {
       auto id = P->get_id();
@@ -253,6 +260,8 @@ void OverlayImpl::add_peer(OverlayNode node, bool verified, bool checked_signatu
   } else if (verified) {
     VLOG(overlay, DEBUG) << this << ": adding peer " << id << " of version " << node.version();
     CHECK(overlay_type_ != OverlayType::CertificatedMembers || (node.certificate() && !node.certificate()->empty()));
+    peer_list_.bad_peers_.erase(id);
+    peer_list_.evictable_bad_peers_.erase(id);
     peer_list_.peers_.insert(id, OverlayPeer(std::move(node)));
     peer_list_.pending_peers_.remove(id);
     del_some_peers();
@@ -346,6 +355,33 @@ void OverlayImpl::add_peers(const tl_object_ptr<ton_api::overlay_nodesV2> &nodes
   }
 }
 
+bool OverlayImpl::is_public_whitelisted_peer(const adnl::AdnlNodeIdShort &id) const {
+  return public_whitelisted_peer_ids_.contains(id);
+}
+
+bool OverlayImpl::update_public_whitelisted_peer(OverlayPeer *peer) {
+  if (overlay_type_ != OverlayType::Public || !is_public_whitelisted_peer(peer->get_id()) ||
+      peer->get_id() == local_id_ || !peer->is_alive() || peer->is_plumtree_neighbour() ||
+      max_plumtree_neighbours() == 0) {
+    return false;
+  }
+
+  if (peer_list_.plumtree_neighbours_.size() >= max_plumtree_neighbours()) {
+    auto victim = std::find_if(peer_list_.plumtree_neighbours_.begin(), peer_list_.plumtree_neighbours_.end(),
+                               [&](const auto &id) { return !is_public_whitelisted_peer(id); });
+    if (victim == peer_list_.plumtree_neighbours_.end()) {
+      return false;
+    }
+    auto *victim_peer = peer_list_.peers_.get(*victim);
+    CHECK(victim_peer != nullptr);
+    del_from_plumtree_neighbour_list(victim_peer);
+  }
+
+  peer_list_.plumtree_neighbours_.push_back(peer->get_id());
+  peer->set_plumtree_neighbour(true);
+  return true;
+}
+
 void OverlayImpl::on_ping_result(adnl::AdnlNodeIdShort peer, bool success, double store_ping_time) {
   if (overlay_type_ == OverlayType::FixedMemberList && (!success || store_ping_time < 0.0)) {
     return;
@@ -358,8 +394,20 @@ void OverlayImpl::on_ping_result(adnl::AdnlNodeIdShort peer, bool success, doubl
     }
     if (p->is_alive()) {
       peer_list_.bad_peers_.erase(peer);
+      peer_list_.evictable_bad_peers_.erase(peer);
+      if (update_public_whitelisted_peer(p)) {
+        update_neighbours(0);
+      }
     } else {
       peer_list_.bad_peers_.insert(peer);
+      if (p->is_permanent_member()) {
+        peer_list_.evictable_bad_peers_.erase(peer);
+      } else {
+        peer_list_.evictable_bad_peers_.insert(peer);
+      }
+      if (is_public_whitelisted_peer(peer)) {
+        broadcasts_plumtree_.remove_peer(this, peer);
+      }
       if (p->is_neighbour() || p->is_plumtree_neighbour()) {
         del_from_all_neighbour_lists(p);
         update_neighbours(0);
@@ -530,7 +578,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
     return;
   }
   auto update_list = [&](std::vector<adnl::AdnlNodeIdShort> &neighbours, td::uint32 max_neighbours,
-                         td::uint32 nodes_to_change, auto is_neighbour, auto set_neighbour,
+                         td::uint32 nodes_to_change, auto is_neighbour, auto set_neighbour, auto can_replace,
                          const char *neighbour_name) {
     td::uint32 iter = 0;
     td::uint32 max_iterations = nodes_to_change == 0 ? 10 : 100;
@@ -544,7 +592,7 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
         continue;
       }
 
-      if (allow_delete && overlay_type_ != OverlayType::FixedMemberList &&
+      if (allow_delete && overlay_type_ != OverlayType::FixedMemberList && !is_public_whitelisted_peer(X->get_id()) &&
           X->get_version() <= td::Clocks::system() - Overlays::overlay_peer_ttl()) {
         if (X->is_permanent_member()) {
           del_from_all_neighbour_lists(X);
@@ -572,9 +620,20 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
         set_neighbour(X, true);
       } else {
         CHECK(nodes_to_change > 0);
-        auto i = td::Random::fast(0, static_cast<td::uint32>(neighbours.size()) - 1);
-        auto Y = peer_list_.peers_.get(neighbours[i]);
-        CHECK(Y != nullptr);
+        auto start = td::Random::fast(0, static_cast<td::uint32>(neighbours.size()) - 1);
+        OverlayPeer *Y = nullptr;
+        td::uint32 i = start;
+        for (td::uint32 offset = 0; offset < neighbours.size(); ++offset) {
+          i = (start + offset) % static_cast<td::uint32>(neighbours.size());
+          auto *candidate = peer_list_.peers_.get(neighbours[i]);
+          if (candidate && can_replace(candidate)) {
+            Y = candidate;
+            break;
+          }
+        }
+        if (!Y) {
+          break;
+        }
         CHECK(is_neighbour(Y));
         set_neighbour(Y, false);
         neighbours[i] = X->get_id();
@@ -587,13 +646,15 @@ void OverlayImpl::update_neighbours(td::uint32 nodes_to_change, bool allow_delet
 
   update_list(
       peer_list_.neighbours_, max_neighbours(), nodes_to_change, [](OverlayPeer *P) { return P->is_neighbour(); },
-      [](OverlayPeer *P, bool value) { P->set_neighbour(value); }, "neighbour");
+      [](OverlayPeer *P, bool value) { P->set_neighbour(value); }, [](OverlayPeer *) { return true; }, "neighbour");
   if (max_plumtree_neighbours() > 0) {
-    auto plumtree_nodes_to_change = nodes_to_change == 0 ? 0 : std::max<td::uint32>(nodes_to_change, 5);
+    auto plumtree_nodes_to_change =
+        nodes_to_change == 0 ? 0 : std::max({nodes_to_change, td::uint32{5}, max_plumtree_neighbours() / 5});
     update_list(
         peer_list_.plumtree_neighbours_, max_plumtree_neighbours(), plumtree_nodes_to_change,
         [](OverlayPeer *P) { return P->is_plumtree_neighbour(); },
-        [](OverlayPeer *P, bool value) { P->set_plumtree_neighbour(value); }, "Plumtree neighbour");
+        [](OverlayPeer *P, bool value) { P->set_plumtree_neighbour(value); },
+        [&](OverlayPeer *P) { return !is_public_whitelisted_peer(P->get_id()); }, "Plumtree neighbour");
   }
 }
 
@@ -861,7 +922,12 @@ void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids
   }
   std::vector<adnl::AdnlNodeIdShort> to_del;
   peer_list_.peers_.iterate([&](const adnl::AdnlNodeIdShort &key, OverlayPeer &peer) {
-    peer.set_permanent(std::binary_search(ids.begin(), ids.end(), key));
+    peer.set_permanent(std::binary_search(ids.begin(), ids.end(), key) || is_public_whitelisted_peer(key));
+    if (!peer.is_permanent_member() && peer_list_.bad_peers_.contains(key)) {
+      peer_list_.evictable_bad_peers_.insert(key);
+    } else {
+      peer_list_.evictable_bad_peers_.erase(key);
+    }
     if (peer.is_permanent_member()) {
       peer.clear_certificate();
     } else {
@@ -880,6 +946,8 @@ void OverlayImpl::update_root_member_list(std::vector<adnl::AdnlNodeIdShort> ids
       OverlayPeer peer(std::move(node));
       peer.set_permanent(true);
       CHECK(peer.is_permanent_member());
+      peer_list_.bad_peers_.erase(id);
+      peer_list_.evictable_bad_peers_.erase(id);
       peer_list_.peers_.insert(std::move(id), std::move(peer));
     }
   }

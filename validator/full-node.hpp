@@ -152,6 +152,7 @@ class FullNodeImpl : public FullNode {
   };
 
   void update_shard_actor(ShardIdFull shard, bool active, bool enable_plumtree_broadcast);
+  void register_public_whitelisted_peers();
   void set_public_overlays_enabled(bool enabled);
   void update_public_overlay_mode(double fast_sync_authority_until);
   void update_fast_sync_and_public_overlays();

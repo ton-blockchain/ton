@@ -112,7 +112,8 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
     , rules_(std::move(rules))
     , scope_(scope)
     , announce_self_(opts.announce_self_)
-    , opts_(std::move(opts)) {
+    , opts_(std::move(opts))
+    , public_whitelisted_peer_ids_(opts_.public_whitelisted_peers_.begin(), opts_.public_whitelisted_peers_.end()) {
   overlay_id_ = id_full_.compute_short_id();
   frequent_dht_lookup_ = opts_.frequent_dht_lookup_;
   peer_list_.local_member_flags_ = opts_.local_overlay_member_flags_;
@@ -122,6 +123,21 @@ OverlayImpl::OverlayImpl(td::actor::ActorId<keyring::Keyring> keyring, td::actor
 
   auto nodes_size = static_cast<td::uint32>(nodes.size());
   OverlayImpl::update_root_member_list(std::move(nodes), std::move(root_public_keys), std::move(cert));
+  if (overlay_type_ == OverlayType::Public) {
+    for (const auto &peer_id : opts_.public_whitelisted_peers_) {
+      if (peer_id == local_id_) {
+        continue;
+      }
+      auto *peer = peer_list_.peers_.get(peer_id);
+      if (!peer) {
+        peer_list_.peers_.insert(peer_id, OverlayPeer{OverlayNode{peer_id, overlay_id_, 0}});
+        peer = peer_list_.peers_.get(peer_id);
+      }
+      peer->set_permanent(true);
+      peer_list_.evictable_bad_peers_.erase(peer_id);
+      update_public_whitelisted_peer(peer);
+    }
+  }
   update_neighbours(nodes_size);
 
   if (overlay_type_ == OverlayType::Public &&
@@ -459,6 +475,16 @@ void OverlayImpl::alarm() {
           send_random_peers_query(peer_id);
         }
       }
+      if (overlay_type_ == OverlayType::Public && !opts_.public_whitelisted_peers_.empty()) {
+        auto peers_to_check = std::min<size_t>(5, opts_.public_whitelisted_peers_.size());
+        for (size_t i = 0; i < peers_to_check; ++i) {
+          auto peer = opts_.public_whitelisted_peers_[next_public_whitelisted_peer_++];
+          if (next_public_whitelisted_peer_ == opts_.public_whitelisted_peers_.size()) {
+            next_public_whitelisted_peer_ = 0;
+          }
+          send_random_peers_query(peer);
+        }
+      }
     } else {
       VLOG(overlay, WARNING) << "member certificate ist invalid, valid_until="
                              << peer_list_.local_cert_is_valid_until_.at_unix();
@@ -481,7 +507,9 @@ void OverlayImpl::alarm() {
         if (!P) {
           break;
         }
-        vec.push_back(P->get_node()->clone());
+        if (P->has_full_id()) {
+          vec.push_back(P->get_node()->clone());
+        }
       }
       if (vec.size() > 0) {
         td::actor::send_closure(manager_, &OverlayManager::save_to_db, local_id_, overlay_id_, std::move(vec));

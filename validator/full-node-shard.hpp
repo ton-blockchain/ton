@@ -135,6 +135,7 @@ class FullNodeShardImpl : public FullNodeShard {
   td::actor::Task<QuerySender> get_query_sender() override;
 
   PublicKeyHash choose_outbound_source(td::uint32 payload_size, bool is_fec) const;
+  std::vector<adnl::AdnlNodeIdShort> get_public_whitelisted_peers() const;
   bool has_valid_certificate_for_source(const PublicKeyHash &source,
                                         const std::shared_ptr<ton::overlay::Certificate> &cert, td::uint32 payload_size,
                                         bool is_fec) const;

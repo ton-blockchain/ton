@@ -191,6 +191,7 @@ void FullNodeImpl::import_shard_overlay_certificate(ShardIdFull shard_id, Public
 
 void FullNodeImpl::update_adnl_id(adnl::AdnlNodeIdShort adnl_id, td::Promise<td::Unit> promise) {
   adnl_id_ = adnl_id;
+  register_public_whitelisted_peers();
   update_fast_sync_and_public_overlays();
 
   td::MultiPromise mp;
@@ -1189,6 +1190,7 @@ td::actor::Task<td::BufferSlice> FullNodeImpl::handle_query(td::BufferSlice quer
 
 void FullNodeImpl::start_up() {
   if (client_.empty()) {
+    register_public_whitelisted_peers();
     update_shard_actor(ShardIdFull{masterchainId}, true, false);
   }
   class Callback : public ValidatorManagerInterface::Callback {
@@ -1273,6 +1275,17 @@ void FullNodeImpl::start_up() {
   td::actor::send_closure(validator_manager_, &ValidatorManagerInterface::install_callback,
                           std::make_unique<Callback>(actor_id(this)), std::move(started_promise_));
   alarm_timestamp().relax(td::Timestamp::in(1.0));
+}
+
+void FullNodeImpl::register_public_whitelisted_peers() {
+  if (!opts_.public_rebroadcast_enabled_ || !client_.empty()) {
+    return;
+  }
+  for (const auto &peer : opts_.public_whitelisted_peers_) {
+    if (peer.compute_short_id() != adnl_id_) {
+      td::actor::send_closure(adnl_, &adnl::Adnl::add_peer, adnl_id_, peer.pub_id(), peer.addr_list());
+    }
+  }
 }
 
 void FullNodeImpl::update_private_overlays() {
@@ -1407,6 +1420,13 @@ FullNodeImpl::FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_fi
     , query_handler_public_(validator_manager, make_rate_limiter(opts.rate_limit_public_))
     , query_handler_fast_sync_(validator_manager, make_rate_limiter(opts.rate_limit_fast_sync_))
     , query_handler_custom_(validator_manager, make_rate_limiter(opts.rate_limit_custom_)) {
+  if (opts_.public_whitelisted_peers_.size() > opts_.public_rebroadcast_fanout_) {
+    LOG(WARNING) << "Ignoring " << opts_.public_whitelisted_peers_.size() - opts_.public_rebroadcast_fanout_
+                 << " public whitelisted peers beyond fanout=" << opts_.public_rebroadcast_fanout_;
+    std::vector<adnl::AdnlNode> selected(opts_.public_whitelisted_peers_.begin(),
+                                         opts_.public_whitelisted_peers_.begin() + opts_.public_rebroadcast_fanout_);
+    opts_.public_whitelisted_peers_ = std::move(selected);
+  }
 }
 
 td::actor::ActorOwn<FullNode> FullNode::create(

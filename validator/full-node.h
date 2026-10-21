@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "adnl/adnl-ext-client.h"
+#include "adnl/adnl-node.h"
 #include "adnl/adnl.h"
 #include "dht/dht.h"
 #include "overlay/overlays.h"
@@ -60,6 +61,7 @@ struct FullNodeOptions {
 
   bool public_rebroadcast_enabled_ = false;
   td::uint32 public_rebroadcast_fanout_ = 50;
+  std::vector<adnl::AdnlNode> public_whitelisted_peers_;
 
   struct RateLimiterParams {
     double window_size_ = 1.0;

@@ -463,6 +463,8 @@ class OverlayImpl : public Overlay {
   void add_peers(std::vector<OverlayNode> nodes, bool verified, bool checked_signature = false);
   void add_peers(const tl_object_ptr<ton_api::overlay_nodes> &nodes, bool verified, bool checked_signature = false);
   void add_peers(const tl_object_ptr<ton_api::overlay_nodesV2> &nodes, bool verified, bool checked_signature = false);
+  bool is_public_whitelisted_peer(const adnl::AdnlNodeIdShort &id) const;
+  bool update_public_whitelisted_peer(OverlayPeer *peer);
   void process_pending_peers();
   td::actor::Task<> process_pending_peer(OverlayNode node);
   void del_some_peers();
@@ -575,7 +577,8 @@ class OverlayImpl : public Overlay {
     std::map<PublicKeyHash, SlaveKeys> root_public_keys_;
     OverlayMemberCertificate cert_;
     std::set<adnl::AdnlNodeIdShort> bad_peers_;
-    adnl::AdnlNodeIdShort next_bad_peer_ = adnl::AdnlNodeIdShort::zero();
+    std::set<adnl::AdnlNodeIdShort> evictable_bad_peers_;
+    adnl::AdnlNodeIdShort next_evictable_bad_peer_ = adnl::AdnlNodeIdShort::zero();
     td::DecTree<adnl::AdnlNodeIdShort, OverlayPeer> peers_;
     size_t persistent_node_count_ = 0;
     std::vector<adnl::AdnlNodeIdShort> neighbours_;
@@ -589,6 +592,8 @@ class OverlayImpl : public Overlay {
   TrafficStats total_traffic_responses, total_traffic_responses_ctr;
 
   OverlayOptions opts_;
+  std::set<adnl::AdnlNodeIdShort> public_whitelisted_peer_ids_;
+  size_t next_public_whitelisted_peer_ = 0;
   adnl::PeersMtuGuard peers_mtu_guard_;
   adnl::PeersMtuGuard plumtree_eager_mtu_guard_;
   adnl::Adnl::ProtectedPeersGuard protected_peers_guard_;

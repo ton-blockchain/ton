@@ -47,6 +47,7 @@
 #include "td/utils/ThreadSafeCounter.h"
 #include "td/utils/Time.h"
 #include "td/utils/TsFileLog.h"
+#include "td/utils/base64.h"
 #include "td/utils/buffer.h"
 #include "td/utils/filesystem.h"
 #include "td/utils/logging.h"
@@ -103,6 +104,82 @@ static td::Result<ton::adnl::AdnlNodeIdShort> parse_adnl_id_hex(td::Slice value)
     return td::Status::Error("zero ADNL id");
   }
   return id;
+}
+
+static td::Result<ton::adnl::AdnlNode> parse_public_whitelisted_peer(td::Slice declared_name,
+                                                                     const td::JsonValue &value) {
+  if (value.type() != td::JsonValue::Type::Object) {
+    return td::Status::Error("value must be an object");
+  }
+
+  TRY_RESULT(declared_id, parse_adnl_id_hex(declared_name));
+  const auto &object = value.get_object();
+  TRY_RESULT(host, object.get_required_string_field("host"));
+  TRY_RESULT(port, object.get_required_int_field("port"));
+  TRY_RESULT(quic_port, object.get_optional_int_field("quic_port"));
+  TRY_RESULT(public_key, object.get_required_string_field("pub_key"));
+  if (port <= 0 || port > 65535) {
+    return td::Status::Error("port must be between 1 and 65535");
+  }
+  if (object.has_field("quic_port") && (quic_port <= 0 || quic_port > 65535)) {
+    return td::Status::Error("quic_port must be between 1 and 65535");
+  }
+
+  TRY_RESULT_PREFIX(decoded_public_key, td::base64_decode(public_key), "bad public key: ");
+  if (decoded_public_key.size() != 32) {
+    return td::Status::Error("public key must contain 32 bytes");
+  }
+  td::Bits256 public_key_bits;
+  public_key_bits.as_slice().copy_from(td::Slice(decoded_public_key));
+  ton::adnl::AdnlNodeIdFull full_id{ton::PublicKey{ton::pubkeys::Ed25519{public_key_bits}}};
+  if (full_id.compute_short_id() != declared_id) {
+    return td::Status::Error("public key does not match the declared ADNL id");
+  }
+
+  td::IPAddress address;
+  TRY_STATUS(address.init_host_port(host, static_cast<td::uint16>(port)));
+  if (!address.is_ipv4()) {
+    return td::Status::Error("only IPv4 UDP addresses are supported");
+  }
+  ton::adnl::AdnlAddressList address_list;
+  TRY_STATUS(address_list.add_udp_adnl_address(address));
+  if (quic_port != 0) {
+    address.set_port(static_cast<td::uint16>(quic_port));
+    TRY_STATUS(address_list.add_quic_addr(address));
+  }
+  address_list.set_version(static_cast<td::uint32>(td::Clocks::system()));
+  address_list.set_reinit_date(0);
+  return ton::adnl::AdnlNode{std::move(full_id), std::move(address_list)};
+}
+
+static td::Result<std::vector<ton::adnl::AdnlNode>> parse_public_whitelisted_peers_file(td::Slice path) {
+  TRY_RESULT_PREFIX(data, td::read_file(path.str()), "failed to read public whitelisted peers: ");
+  TRY_RESULT_PREFIX(json, td::json_decode(data.as_slice()), "failed to parse public whitelisted peers: ");
+  if (json.type() != td::JsonValue::Type::Object) {
+    return td::Status::Error("public whitelisted peers root must be an object");
+  }
+
+  std::vector<ton::adnl::AdnlNode> peers;
+  std::set<ton::adnl::AdnlNodeIdShort> seen;
+  td::Status status = td::Status::OK();
+  json.get_object().foreach ([&](td::Slice declared_name, const td::JsonValue &value) {
+    if (status.is_error()) {
+      return;
+    }
+    auto peer = parse_public_whitelisted_peer(declared_name, value);
+    if (peer.is_error()) {
+      status = peer.move_as_error_prefix(PSTRING() << "invalid public whitelisted peer " << declared_name << ": ");
+      return;
+    }
+    auto parsed_peer = peer.move_as_ok();
+    if (!seen.insert(parsed_peer.compute_short_id()).second) {
+      status = td::Status::Error(PSTRING() << "duplicate public whitelisted peer " << declared_name);
+      return;
+    }
+    peers.push_back(std::move(parsed_peer));
+  });
+  TRY_STATUS(std::move(status));
+  return peers;
 }
 
 Config::Config() {
@@ -6110,6 +6187,16 @@ int main(int argc, char *argv[]) {
                          }
                          acts.push_back([&x, fanout]() {
                            td::actor::send_closure(x, &ValidatorEngine::set_public_rebroadcast_fanout, fanout);
+                         });
+                         return td::Status::OK();
+                       });
+  p.add_checked_option('\0', "public-whitelisted-peers",
+                       "JSON file with preferred first-hop ADNL peers for public Plumtree broadcasts; optional "
+                       "quic_port defaults to the ADNL port plus 1000",
+                       [&](td::Slice path) -> td::Status {
+                         TRY_RESULT(peers, parse_public_whitelisted_peers_file(path));
+                         acts.push_back([&x, peers = std::move(peers)]() mutable {
+                           td::actor::send_closure(x, &ValidatorEngine::set_public_whitelisted_peers, std::move(peers));
                          });
                          return td::Status::OK();
                        });

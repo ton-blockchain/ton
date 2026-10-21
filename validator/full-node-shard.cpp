@@ -117,7 +117,8 @@ void FullNodeShardImpl::create_overlay() {
     opts.plumtree_fec_options_.original_sender_eager_limit_ = opts_.public_rebroadcast_fanout_;
     opts.plumtree_fec_options_.active_neighbours_ =
         std::max(opts.plumtree_fec_options_.active_neighbours_, opts_.public_rebroadcast_fanout_);
-    opts.max_peers_ = std::max(opts.max_peers_, opts_.public_rebroadcast_fanout_);
+    opts.public_whitelisted_peers_ = get_public_whitelisted_peers();
+    opts.max_peers_ = std::max<td::uint32>(opts.max_peers_, 600);
   }
   opts.plumtree_broadcast_sender_ = enable_plumtree_broadcast_ ? td::actor::ActorId<adnl::AdnlSenderEx>{quic_}
                                                                : td::actor::ActorId<adnl::AdnlSenderEx>{};
@@ -138,6 +139,18 @@ void FullNodeShardImpl::create_overlay() {
     td::actor::send_closure(overlays_, &overlay::Overlays::update_certificate, adnl_id_, overlay_id_, adnl_source,
                             adnl_source_cert_);
   }
+}
+
+std::vector<adnl::AdnlNodeIdShort> FullNodeShardImpl::get_public_whitelisted_peers() const {
+  std::vector<adnl::AdnlNodeIdShort> peers;
+  peers.reserve(opts_.public_whitelisted_peers_.size());
+  for (const auto &peer : opts_.public_whitelisted_peers_) {
+    auto id = peer.compute_short_id();
+    if (id != adnl_id_) {
+      peers.push_back(id);
+    }
+  }
+  return peers;
 }
 
 void FullNodeShardImpl::check_broadcast(PublicKeyHash src, td::BufferSlice broadcast, td::Promise<td::Unit> promise) {
