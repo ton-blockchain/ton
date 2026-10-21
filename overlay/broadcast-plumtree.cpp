@@ -1869,7 +1869,7 @@ void BroadcastsPlumtree::Impl::stats_tick(OverlayImpl *overlay) {
     stats_epoch_.send_done = true;
     auto src = overlay->local_id().bits256_value();
     auto it = stats_epoch_.store.find(src);
-    if (it != stats_epoch_.store.end()) {
+    if (!is_original_sender_ && it != stats_epoch_.store.end()) {
       stats_forward(overlay, *it->second, adnl::AdnlNodeIdShort::zero());
     }
   }
