@@ -350,8 +350,8 @@ void FullNodeImpl::update_shard_actor(ShardIdFull shard, bool active) {
       td::actor::send_closure(keyring_, &ton::keyring::Keyring::add_key, std::move(private_key), true,
                               [](td::Result<>) {});
     }
-    info.actor = FullNodeShard::create(shard, info.local_id, adnl_id_, zero_state_file_hash_, opts_, adnl_, rldp2_,
-                                       quic_, overlays_, validator_manager_, actor_id(this), active);
+    info.actor = FullNodeShard::create(shard, info.local_id, adnl_id_, zero_state_file_hash_, opts_, adnl_, quic_,
+                                       overlays_, validator_manager_, actor_id(this), active);
     if (!all_validators_.empty()) {
       td::actor::send_closure(info.actor, &FullNodeShard::update_validators, all_validators_);
     }
@@ -1174,7 +1174,7 @@ void FullNodeImpl::update_custom_overlay(CustomOverlayInfo &overlay) {
         old_actors.erase(it);
       } else {
         overlay.actors_[local_id] = td::actor::create_actor<FullNodeCustomOverlay>(
-            "CustomOverlay", local_id, params, zero_state_file_hash_, opts_, keyring_, adnl_, quic_, rldp2_, overlays_,
+            "CustomOverlay", local_id, params, zero_state_file_hash_, opts_, keyring_, adnl_, quic_, overlays_,
             validator_manager_, actor_id(this));
       }
     }
@@ -1225,8 +1225,8 @@ void FullNodeImpl::send_block_candidate_broadcast_to_custom_overlays(const Block
 
 FullNodeImpl::FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
                            td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-                           td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
-                           td::actor::ActorId<dht::Dht> dht, td::actor::ActorId<overlay::Overlays> overlays,
+                           td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
+                           td::actor::ActorId<overlay::Overlays> overlays,
                            td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                            td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root,
                            td::Promise<td::Unit> started_promise)
@@ -1234,7 +1234,6 @@ FullNodeImpl::FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_fi
     , zero_state_file_hash_(zero_state_file_hash)
     , keyring_(keyring)
     , adnl_(adnl)
-    , rldp2_(rldp2)
     , quic_(quic)
     , dht_(dht)
     , overlays_(overlays)
@@ -1252,11 +1251,11 @@ FullNodeImpl::FullNodeImpl(adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_fi
 td::actor::ActorOwn<FullNode> FullNode::create(
     adnl::AdnlNodeIdShort adnl_id, FileHash zero_state_file_hash, FullNodeOptions opts,
     td::actor::ActorId<keyring::Keyring> keyring, td::actor::ActorId<adnl::Adnl> adnl,
-    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
+    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<dht::Dht> dht,
     td::actor::ActorId<overlay::Overlays> overlays, td::actor::ActorId<ValidatorManagerInterface> validator_manager,
     td::actor::ActorId<adnl::AdnlExtClient> client, std::string db_root, td::Promise<td::Unit> started_promise) {
-  return td::actor::create_actor<FullNodeImpl>("fullnode", adnl_id, zero_state_file_hash, opts, keyring, adnl, rldp2,
-                                               quic, dht, overlays, validator_manager, client, db_root,
+  return td::actor::create_actor<FullNodeImpl>("fullnode", adnl_id, zero_state_file_hash, opts, keyring, adnl, quic,
+                                               dht, overlays, validator_manager, client, db_root,
                                                std::move(started_promise));
 }
 

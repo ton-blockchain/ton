@@ -140,8 +140,7 @@ class FullNodeShardImpl : public FullNodeShard {
 
   FullNodeShardImpl(ShardIdFull shard, PublicKeyHash local_id, adnl::AdnlNodeIdShort adnl_id,
                     FileHash zero_state_file_hash, FullNodeOptions opts, td::actor::ActorId<adnl::Adnl> adnl,
-                    td::actor::ActorId<rldp2::Rldp> rldp2, td::actor::ActorId<quic::QuicSender> quic,
-                    td::actor::ActorId<overlay::Overlays> overlays,
+                    td::actor::ActorId<quic::QuicSender> quic, td::actor::ActorId<overlay::Overlays> overlays,
                     td::actor::ActorId<ValidatorManagerInterface> validator_manager,
                     td::actor::ActorId<FullNode> full_node, bool active);
 
@@ -157,7 +156,6 @@ class FullNodeShardImpl : public FullNodeShard {
   FileHash zero_state_file_hash_;
 
   td::actor::ActorId<adnl::Adnl> adnl_;
-  td::actor::ActorId<rldp2::Rldp> rldp2_;
   td::actor::ActorId<quic::QuicSender> quic_;
   td::actor::ActorId<overlay::Overlays> overlays_;
   td::actor::ActorId<ValidatorManagerInterface> validator_manager_;
